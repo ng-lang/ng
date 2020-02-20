@@ -1,0 +1,10 @@
+
+module hello;
+
+fun hi() {
+    return "hello world";
+}
+
+fun hellosize() {
+    return (hi() + " how are you").size;
+}

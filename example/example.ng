@@ -1,0 +1,36 @@
+
+println("hello world");
+
+fun fact(n) {
+    return range(1, n+1).reduce((n, x)=> x * n);
+}
+
+fun loop_exmaples() {
+    loop x in [1, 2, 3] {
+        print(x);
+    }
+
+    loop i for 10 {
+        print(x);
+    }
+
+    loop i for 100 {
+        if (i % 2 == 0) {
+            continue;
+        }
+
+        if (i / 2 > 20) {
+            break;
+        }
+        i = i + 3;
+    }
+}
+
+fun case_example() {
+    switch(x) {
+        case 1: ...;
+        case odd: ...;
+        case (x) => x > 10: ...;
+        otherwise: ...;
+    }
+}

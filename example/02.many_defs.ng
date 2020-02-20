@@ -1,0 +1,12 @@
+
+fun id1(n) { return n; }
+
+fun id2(m) { return m; }
+
+fun id3(x) => x;
+
+fun id5(x, y, z) { if (x) return y; else return z; }
+
+fun id6(x, y, z, x1, x2) if (x) { if (y) return z; else return x1; } else return x2;
+
+fun id7(x, y, z, x1) if (x) { if (y) return z; else return x1; } else if (y) return z;

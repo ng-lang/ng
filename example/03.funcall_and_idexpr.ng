@@ -1,0 +1,13 @@
+
+fun size(n) {
+    return n.sizeOf;
+}
+
+fun swap(a, b) {
+    return a.swap(b);
+}
+
+fun forever(x) {
+    forever(x);
+}
+

@@ -1,0 +1,9 @@
+val x = 1;
+
+val y = "hello world";
+
+val x = true;
+
+fun add() {
+    return x + y.size + 1;
+}
