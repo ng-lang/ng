@@ -4,6 +4,9 @@ set(CMAKE_BUILD_TYPE Debug)
 
 project(ng)
 
+
+find_package(Canvas REQUIRED)
+
 set(NG_LIB_SRC
         src/ast/ast.cpp
         src/ast/pprint.cpp
@@ -22,9 +25,13 @@ set(NG_TEST_SRC
         test/runtime/interpreter_test.cpp
         test/test_runner.cpp
         )
+
 include_directories(include)
 
 add_library(ng SHARED ${NG_LIB_SRC})
+
+target_link_libraries(ng canvas)
+
 add_executable(ngc src/main.cpp)
 target_link_libraries(ngc ng)
 
