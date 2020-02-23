@@ -7,7 +7,7 @@ namespace ropto {
     using namespace NG::AST;
 
     template<class T, typename = std::enable_if_t<std::is_base_of<ASTNode, T>::value>>
-    void write(T *value, byte_stream &stream) {
+    void write(T* value, byte_stream &stream) {
         write(value->astNodeType(), stream);
     }
 } // namespace ropto

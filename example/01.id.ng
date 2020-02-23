@@ -3,4 +3,3 @@ module example01;
 fun id(n) {
     return n;
 }
-adfasfd
