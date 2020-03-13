@@ -32,12 +32,12 @@ add_library(ng SHARED ${NG_LIB_SRC})
 
 target_link_libraries(ng canvas)
 
-add_executable(ngc src/main.cpp)
-target_link_libraries(ngc ng)
+add_executable(ngc_main src/main.cpp)
+target_link_libraries(ngc_main ng)
 
-add_executable(ngtest ${NG_TEST_SRC})
-target_link_libraries(ngtest ng catch2)
+add_executable(ng_test ${NG_TEST_SRC})
+target_link_libraries(ng_test ng catch2)
 
 enable_testing()
 
-add_test(NAME TEST COMMAND ngtest)
+add_test(NAME TEST COMMAND ng_test)
