@@ -1,5 +1,5 @@
 
-#include "../../3rdparty/catch.hpp"
+#include <catch.hpp>
 #include <test.hpp>
 
 using namespace NG;

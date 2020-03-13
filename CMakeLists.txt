@@ -6,7 +6,7 @@ project(ng)
 
 find_package(Canvas REQUIRED)
 
-find_package(CatchRun REQUIRED)
+find_package(Catch2 REQUIRED)
 
 set(NG_LIB_SRC
         src/ast/ast.cpp
@@ -36,7 +36,7 @@ add_executable(ngc src/main.cpp)
 target_link_libraries(ngc ng)
 
 add_executable(ngtest ${NG_TEST_SRC})
-target_link_libraries(ngtest ng catchrun)
+target_link_libraries(ngtest ng catch2)
 
 enable_testing()
 

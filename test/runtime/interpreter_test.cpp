@@ -1,4 +1,4 @@
-#include "../../../3rdparty/catch.hpp"
+#include "../../../3rdparty/Catch2/include/catch.hpp"
 #include <test.hpp>
 
 using namespace NG;
