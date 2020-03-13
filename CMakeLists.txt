@@ -37,7 +37,3 @@ target_link_libraries(ngc_main ng)
 
 add_executable(ng_test ${NG_TEST_SRC})
 target_link_libraries(ng_test ng catch2)
-
-enable_testing()
-
-add_test(NAME TEST COMMAND ng_test)
