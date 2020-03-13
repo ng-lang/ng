@@ -6,6 +6,7 @@
 #include <unordered_map>
 #include <functional>
 #include <array>
+#include <cctype>
 #include <algorithm>
 
 namespace NG::Parsing {
@@ -178,7 +179,7 @@ namespace NG::Parsing {
             }
             if (isalpha(c))
                 parseSymbol(state, tokens);
-            else if (isnumber(c))
+            else if (isdigit(c))
                 parseNumber(state, tokens);
             else if (c == '"') {
                 parseString(state, tokens);

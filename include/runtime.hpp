@@ -3,6 +3,7 @@
 #define __NG_RUNTIME_HPP
 
 #include <fwd.hpp>
+#include <functional>
 #include "common.hpp"
 
 namespace NG::runtime {
