@@ -68,6 +68,7 @@ namespace NG::runtime {
 
         bool equals(NGObject *ngObject) const;
 
+        NGObject *indexOf(NGObject *pObject);
     };
 
 

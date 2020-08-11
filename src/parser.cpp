@@ -258,6 +258,8 @@ namespace NG::Parsing {
                     expr = idAccessorExpression(expr);
                 } else if (expect(TokenType::OPERATOR)) {
                     expr = binaryExpression(expr);
+                } else if (expect(TokenType::LEFT_SQUARE)) {
+                    expr = indexAccessorExpression(expr);
                 }
             }
 
@@ -320,6 +322,16 @@ namespace NG::Parsing {
             }
 
             return idacc;
+        }
+
+        ASTRef<Expression> indexAccessorExpression(ASTRef<Expression> primary) {
+            accept(TokenType::LEFT_SQUARE);
+
+            auto accessor = expression();
+
+            accept(TokenType::RIGHT_SQUARE);
+
+            return makeast<IndexAccessorExpression>(primary, accessor);
         }
 
         ASTRef<Expression> primaryExpression() {

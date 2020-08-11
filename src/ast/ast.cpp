@@ -414,4 +414,27 @@ namespace NG::AST {
         return left->repr() + this->optr->repr + right->repr();
     }
 
+    void IndexAccessorExpression::accept(IASTVisitor *visitor) {
+        visitor->visit(this);
+    }
+
+    ASTNodeType IndexAccessorExpression::astNodeType() const {
+        return ASTNodeType::INDEX_ACCESSOR_EXPRESSION;
+    }
+
+    bool IndexAccessorExpression::operator==(const ASTNode &node) const {
+        auto& indexAccExpr = dynamic_cast<const IndexAccessorExpression&>(node);
+
+        return *primary == *(indexAccExpr.primary) &&
+            *accessor == *(indexAccExpr.accessor);
+    }
+
+    Str IndexAccessorExpression::repr() {
+        return primary->repr() + "[" + accessor->repr() + "]";
+    }
+
+    IndexAccessorExpression::~IndexAccessorExpression() {
+        destroyast(primary);
+        destroyast(accessor);
+    }
 } // namespace NG

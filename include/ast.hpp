@@ -15,7 +15,7 @@ namespace NG::AST {
     template<class T>
     using ASTRef = T *;
 
-    enum class ASTNodeType : uint32_t {
+    enum class [[nodiscard]] ASTNodeType : uint32_t {
         UNKNOWN = 0,
         NODE = 0xDEADBEEF,
 
@@ -32,6 +32,7 @@ namespace NG::AST {
         FUN_CALL_EXPRESSION,
         BINARY_EXPRESSION,
         ASSIGNMENT_EXPRESSION,
+        INDEX_ACCESSOR_EXPRESSION,
 
         LITERAL = 0x300,
         INTEGER_VALUE,
@@ -241,6 +242,23 @@ namespace NG::AST {
         ~IdAccessorExpression() override;
     };
 
+    struct IndexAccessorExpression : Expression {
+        ASTRef<Expression> primary;
+        ASTRef<Expression> accessor;
+
+        IndexAccessorExpression(ASTRef<Expression> primary, ASTRef<Expression> accessor): primary {primary}, accessor {accessor} {}
+
+        void accept(IASTVisitor *visitor) override;
+
+        [[nodiscard]] ASTNodeType astNodeType() const override;
+
+        bool operator==(const ASTNode &node) const override;
+
+        Str repr() override;
+
+        ~IndexAccessorExpression() override;
+    };
+
     struct ValDefStatement : Statement {
         const Str name;
 
@@ -421,6 +439,8 @@ namespace NG::AST {
 
         virtual void visit(IdAccessorExpression *idAccExpr) = 0;
 
+        virtual void visit(IndexAccessorExpression *index) = 0;
+
         virtual void visit(BinaryExpression *binExpr) = 0;
 
         virtual void visit(AssignmentExpression *assignmentExpr) = 0;
@@ -469,6 +489,8 @@ namespace NG::AST {
         void visit(FunCallExpression *funCallExpr) override;
 
         void visit(IdAccessorExpression *idAccExpr) override;
+
+        void visit(IndexAccessorExpression *index) override;
 
         void visit(BinaryExpression *binExpr) override;
 

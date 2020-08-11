@@ -133,3 +133,14 @@ TEST_CASE("parser should parse array literals", "[ParserTest]") {
 
     delete ast;
 }
+
+TEST_CASE("parser should parse index accessor expression", "[ParserTest]") {
+    auto ast = parse(R"(
+        x[1];
+        y["abc"];
+        z[x[1]];
+        j.k()[l[1][2]].m();
+    )");
+
+    delete ast;
+}

@@ -96,6 +96,20 @@ namespace NG::runtime {
         return false;
     }
 
+    NGObject *NGObject::indexOf(NGObject *object) {
+        if (this->tag != tag_t::NG_ARRAY) {
+            throw IllegalTypeException("Not index-accessible");
+        }
+
+        NGArray *array = this->value.array;
+
+        if (object->tag != tag_t::NG_NUM) {
+            throw IllegalTypeException("Not a valid index");
+        }
+
+        return array->items[static_cast<long long>(object->value.number)];
+    }
+
     NGContext::~NGContext() = default;
 
     bool NGArray::equals(NGArray *array) {
@@ -229,6 +243,20 @@ namespace NG::interpreter {
             }
 
             object = NGObject::array(ngArray);
+        }
+
+        void visit(IndexAccessorExpression *index) override {
+            ExpressionVisitor vis {context};
+            
+            index->primary->accept(&vis);
+
+            NGObject *primaryObject = vis.object;
+            
+            index->accessor->accept(&vis);
+            
+            NGObject *accessorObject = vis.object;
+            
+            object = primaryObject->indexOf(accessorObject);
         }
     };
 
