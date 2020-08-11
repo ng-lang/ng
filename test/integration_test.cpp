@@ -10,8 +10,6 @@ static inline ASTNode *parse(const Str &source) {
     return Parser(ParseState(Lexer(LexState{source}).lex())).parse();
 }
 
-static std::unique_ptr<IASTVisitor> dumper_holder{get_ast_dumper()};
-
 static inline void
 runIntegrationTest(const std::string& filename) {
     std::ifstream file(filename);
@@ -20,11 +18,12 @@ runIntegrationTest(const std::string& filename) {
 
     IASTVisitor *intp = NG::interpreter::interpreter();
 
-    ast->accept(dumper_holder.get());
     ast->accept(intp);
     auto &&bytes = serialize_ast(ast);
     auto ast2 = deserialize_ast(bytes);
+
     REQUIRE(*ast == *ast2);
+
     destroyast(ast);
     destroyast(ast2);
 

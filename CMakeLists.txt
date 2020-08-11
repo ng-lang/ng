@@ -10,7 +10,6 @@ find_package(Catch2 REQUIRED)
 
 set(NG_LIB_SRC
         src/ast/ast.cpp
-        src/ast/pprint.cpp
         src/ast/serializer.cpp
         src/base.cpp
         src/lexer.cpp

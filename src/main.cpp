@@ -7,6 +7,7 @@
 #include <iostream>
 #include <string>
 #include <streambuf>
+#include "interpreter.hpp"
 
 using namespace NG;
 using namespace NG::AST;
@@ -27,7 +28,8 @@ int main(int argc, char **argv) {
     std::string source{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
 
     std::unique_ptr<ASTNode> ast{parse(source)};
-    std::unique_ptr<IASTVisitor> dumper_holder{get_ast_dumper()};
 
-    ast->accept(dumper_holder.get());
+    IASTVisitor *intp = NG::interpreter::interpreter();
+
+    ast->accept(intp);
 }

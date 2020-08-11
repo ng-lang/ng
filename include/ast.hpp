@@ -461,8 +461,6 @@ namespace NG::AST {
         ~DefaultDummyAstVisitor() override;
     };
 
-    IASTVisitor *get_ast_dumper();
-
     std::vector<uint8_t> serialize_ast(ASTNode *node);
 
     ASTNode *deserialize_ast(std::vector<uint8_t> &bytes);
