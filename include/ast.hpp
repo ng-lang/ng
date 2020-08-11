@@ -79,6 +79,8 @@ namespace NG::AST {
         Str name;
         Vec<ASTRef<Definition>> definitions;
 
+        Vec<ASTRef<Statement>> statements;
+
         explicit Module(Str _name = "default") : name(std::move(_name)) {
         }
 

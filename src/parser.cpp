@@ -69,7 +69,7 @@ namespace NG::Parsing {
                     case TokenType::KEYWORD_COLLECT:
                     case TokenType::KEYWORD_UNIT:
                     default:
-                        throw NotImplementedException();
+                        mod->statements.push_back(statement());
                 }
             }
             return mod;

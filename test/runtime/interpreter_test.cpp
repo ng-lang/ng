@@ -29,13 +29,14 @@ TEST_CASE("interpreter should accept simple definitions", "[InterpreterTest]") {
         }
 
         val h = times(x, y);
+
+        assert(z == 3, h == 2);
     )");
 
     ast->accept(intp);
 
-    auto isum = dynamic_cast<NG::interpreter::ISummarizable *>(intp);
-
-    isum->summary();
+//    auto isum = dynamic_cast<NG::interpreter::ISummarizable *>(intp);
+//    isum->summary();
 
     destroyast(ast);
 }
@@ -55,15 +56,16 @@ TEST_CASE("interpreter should run statements", "[InterpreterTest]") {
         val y = max(5, 4);
         val g = max(x, y);
         val h = max(g, 10);
+
+        assert(x == 2, y == 5, g == 5, h == 10);
     )");
 
     ast->accept(intp);
 
-    auto *isum = dynamic_cast<NG::interpreter::ISummarizable *>(intp);
+//    auto *isum = dynamic_cast<NG::interpreter::ISummarizable *>(intp);
+//    isum->summary();
 
-    isum->summary();
-
-    destroyast(isum);
+    destroyast(ast);
 }
 
 TEST_CASE("interpreter should run recursion", "[InterpreterTest]") {
@@ -79,15 +81,16 @@ TEST_CASE("interpreter should run recursion", "[InterpreterTest]") {
         }
 
         val z = fact(5);
+
+        assert(z == 120);
     )");
 
     ast->accept(intp);
 
-    auto *isum = dynamic_cast<NG::interpreter::ISummarizable *>(intp);
+//    auto *isum = dynamic_cast<NG::interpreter::ISummarizable *>(intp);
+//    isum->summary();
 
-    isum->summary();
-
-    destroyast(isum);
+    destroyast(ast);
 }
 
 
@@ -97,22 +100,22 @@ TEST_CASE("interpreter should run complex recursion", "[InterpreterTest]") {
 
     auto ast = parse(R"(
         fun gcd(a, b) {
-            print(a);
-            if (b == 0) {
-                return a;
+            val c = a % b;
+            if (c == 0) {
+                return b;
             }
-            print (a, b);
-            return gcd(b, a%b);
+            return gcd(b, c);
         }
 
         val g = gcd(60, 33);
+
+        assert(g == 3);
     )");
 
     ast->accept(intp);
 
-    auto *isum = dynamic_cast<NG::interpreter::ISummarizable *>(intp);
+//    auto *isum = dynamic_cast<NG::interpreter::ISummarizable *>(intp);
+//    isum->summary();
 
-    isum->summary();
-
-    destroyast(isum);
+    destroyast(ast);
 }

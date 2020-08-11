@@ -268,6 +268,12 @@ namespace NG::interpreter {
             for (auto defs: mod->definitions) {
                 defs->accept(this);
             }
+
+            StatementVisitor vis {context};
+
+            for (const auto &stmt : mod->statements) {
+                stmt->accept(&vis);
+            }
         }
 
         // virtual void visit(Definition *def);
