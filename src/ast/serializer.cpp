@@ -128,6 +128,14 @@ namespace NG::AST {
             stream << boolVal << boolVal->value;
         }
 
+        void visit(ArrayLiteral *array) override {
+            stream << array;
+            stream << array->elements.size();
+            for (const auto &element : array->elements) {
+                element->accept(this);
+            }
+        }
+
         ~ASTSerializer() override = default;
     };
 
@@ -266,6 +274,13 @@ namespace NG::AST {
                     bool boolVal;
                     stream >> boolVal;
                     return makeast<BooleanValue>(boolVal);
+                }
+                case ASTNodeType::ARRAY_LITERAL: {
+                    Vec<ASTRef<Expression>> vec {};
+                    withSize([&](std::size_t) {
+                        vec.push_back(expect<Expression>());
+                    });
+                    return makeast<ArrayLiteral>(vec);
                 }
                 default:
                     break;

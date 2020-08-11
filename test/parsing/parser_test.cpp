@@ -125,3 +125,11 @@ TEST_CASE("parser should parse true/false literals", "[ParserTest]") {
 
     delete ast;
 }
+
+TEST_CASE("parser should parse array literals", "[ParserTest]") {
+    auto ast = parse(R"(
+        val x = [1, 2, 3, 4, 5];
+    )");
+
+    delete ast;
+}

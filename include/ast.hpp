@@ -37,6 +37,7 @@ namespace NG::AST {
         INTEGER_VALUE,
         STRING_VALUE,
         BOOLEAN_VALUE,
+        ARRAY_LITERAL,
 
         STATEMENT = 0x400,
         SIMPLE_STATEMENT,
@@ -367,6 +368,25 @@ namespace NG::AST {
         bool operator==(const ASTNode &node) const override;
     };
 
+    struct ArrayLiteral : Expression {
+        Vec<ASTRef<Expression>> elements;
+
+        explicit ArrayLiteral(): elements {} {
+        }
+
+        explicit ArrayLiteral(const Vec<ASTRef<Expression>>& exprs): elements {exprs} {}
+
+        void accept(IASTVisitor *visitor) override;
+
+        [[nodiscard]] ASTNodeType astNodeType() const override;
+
+        Str repr() override;
+
+        bool operator==(const ASTNode &node) const override;
+
+        ~ArrayLiteral() override;
+    };
+
     class IASTVisitor : NonCopyable {
     public:
         virtual void visit(ASTNode *astNode) = 0;
@@ -410,6 +430,8 @@ namespace NG::AST {
         virtual void visit(StringValue *strVal) = 0;
 
         virtual void visit(BooleanValue *boolVal) = 0;
+
+        virtual void visit(ArrayLiteral *array) = 0;
 
         ~IASTVisitor() override = 0;
     };
@@ -457,6 +479,8 @@ namespace NG::AST {
         void visit(StringValue *strVal) override;
 
         void visit(BooleanValue *boolVal) override;
+
+        void visit(ArrayLiteral *array) override;
 
         ~DefaultDummyAstVisitor() override;
     };

@@ -53,6 +53,20 @@ namespace NG::runtime {
                 return this->value.boolean ? "true" : "false";
             case tag_t::NG_STR:
                 return *(this->value.str);
+            case tag_t::NG_ARRAY: {
+                Str array {};
+
+                NGArray *ngA = this->value.array;
+
+                for (const auto &item : ngA->items) {
+                    if (!array.empty()) {
+                        array += ", ";
+                    }
+                    array += item->show();
+                }
+                
+                return "[" + array + "]";
+            }
             case tag_t::NG_COMPOSITE:
             case tag_t::NG_CUSTOMIZED:
                 return {"[CUSTOMIZED TYPE]"};
@@ -201,6 +215,20 @@ namespace NG::interpreter {
 
         void visit(IdExpression *idExpr) override {
             object = context->objects[idExpr->id];
+        }
+        
+        void visit(ArrayLiteral* array) override {
+            auto *ngArray = new NGArray();
+
+            ExpressionVisitor vis {context};
+
+            for (const auto &element : array->elements) {
+                element->accept(&vis);
+                ngArray->items.push_back(vis.object);
+                ngArray->itemTag = vis.object->tag;
+            }
+
+            object = NGObject::array(ngArray);
         }
     };
 

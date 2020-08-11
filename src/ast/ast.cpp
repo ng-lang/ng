@@ -54,7 +54,7 @@ namespace NG::AST {
     }
 
     Str Module::repr() {
-        return Str{"module:"} + this->name;
+        return Str{"module:"} + this->name + "\n" + strOfNodeList(definitions, "\n")  + strOfNodeList(statements, "\n");
     }
 
     Str Definition::name() const {
@@ -335,6 +335,31 @@ namespace NG::AST {
 
     Str BooleanValue::repr() {
         return this->value ? "true" : "false";
+    }
+
+    void ArrayLiteral::accept(IASTVisitor *visitor) {
+        visitor->visit(this);
+    }
+
+    ASTNodeType ArrayLiteral::astNodeType() const {
+        return ASTNodeType::ARRAY_LITERAL;
+    }
+
+    Str ArrayLiteral::repr() {
+        return "[" + strOfNodeList(elements) + "]";
+    }
+
+    bool ArrayLiteral::operator==(const ASTNode &node) const {
+        auto &arrayLit = dynamic_cast<const ArrayLiteral&>(node);
+        return astNodeType() == arrayLit.astNodeType() &&
+                elements.size() == arrayLit.elements.size() &&
+                std::equal(begin(elements), end(elements), begin(arrayLit.elements), ASTComparator);
+    }
+
+    ArrayLiteral::~ArrayLiteral() {
+        for (const auto &element : elements) {
+            destroyast(element);
+        }
     }
 
     void FunctionDef::accept(IASTVisitor *visitor) {

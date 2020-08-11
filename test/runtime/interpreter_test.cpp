@@ -119,3 +119,21 @@ TEST_CASE("interpreter should run complex recursion", "[InterpreterTest]") {
 
     destroyast(ast);
 }
+
+TEST_CASE("shoud be able to interpret array literal", "[InterpreterTest]") {
+
+    auto intp = NG::interpreter::interpreter();
+
+    auto ast = parse(R"(
+        val arr = [1, 2, 3, 4, 5];
+
+        print(arr);
+    )");
+
+    ast->accept(intp);
+
+//    auto *isum = dynamic_cast<NG::interpreter::ISummarizable *>(intp);
+//    isum->summary();
+
+    destroyast(ast);
+}

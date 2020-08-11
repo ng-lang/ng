@@ -354,10 +354,32 @@ namespace NG::Parsing {
                 accept(TokenType::KEYWORD_FALSE);
 
                 return makeast<BooleanValue>(false);
+            } else if (expect(TokenType::LEFT_SQUARE)) {
+                return arrayLiteral();
             }
             return nullptr;
         }
+
+        ASTRef<Expression> arrayLiteral() {
+            accept(TokenType::LEFT_SQUARE);
+
+            Vec<ASTRef<Expression>> elements {};
+
+            while(!expect(TokenType::RIGHT_SQUARE)) {
+                auto elem = expression();
+                elements.push_back(elem);
+                if (!expect(TokenType::COMMA)) {
+                    break;
+                }
+                accept(TokenType::COMMA);
+            }
+            accept(TokenType::RIGHT_SQUARE);
+
+            return makeast<ArrayLiteral>(elements);
+        }
+
     };
+
 
     ASTRef<ASTNode> Parser::parse() {
         return ParserImpl(state).parse();

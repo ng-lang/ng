@@ -172,3 +172,11 @@ TEST_CASE("lexer should accept string with blanks", "[LexerTest]") {
 
     REQUIRE(tokens[0].repr.size() == 12);
 }
+
+TEST_CASE("lexer should accept array indexing expr", "[LexerTest]") {
+    Lexer lexer {LexState{R"( [1, 2, 3, "Hello" ] )"}};
+
+    auto &&tokens = lexer.lex();
+
+    REQUIRE(tokens.size() == 9);
+}
