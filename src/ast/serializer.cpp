@@ -28,6 +28,10 @@ namespace NG::AST {
             for (auto def : mod->definitions) {
                 def->accept(this);
             }
+            stream << mod->statements.size();
+            for (const auto &item : mod->statements) {
+                item->accept(this);
+            }
         }
 
         void visit(SimpleStatement *simpleStmt) override {
@@ -181,6 +185,9 @@ namespace NG::AST {
             withSize([&](std::size_t) {
                 mod->definitions.push_back(expect<Definition>());
             });
+            withSize([&](std::size_t) {
+                mod->statements.push_back(expect<Statement>());
+            });
             return mod;
         }
 
@@ -307,7 +314,7 @@ namespace NG::AST {
                         stmt->alternative = expect<Statement>();
                     return stmt;
                 }
-                case ASTNodeType::VAL_DEFINITION: {
+                case ASTNodeType::VAL_DEF_STATEMENT: {
                     NG::Str valName;
                     stream >> valName;
                     auto valDef = makeast<ValDefStatement>(valName);

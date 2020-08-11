@@ -1,13 +1,12 @@
 
-fun size(n) {
-    return n.sizeOf;
+fun fact(n) {
+    if (n > 0) {
+        return n * fact(n-1);
+    }
+
+    return 1;
 }
 
-fun swap(a, b) {
-    return a.swap(b);
-}
+val fact5 = fact(5);
 
-fun forever(x) {
-    forever(x);
-}
-
+assert(fact5 == 120);

@@ -18,12 +18,17 @@ runIntegrationTest(const std::string& filename) {
     std::string source{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
     auto ast = parse(source);
 
+    IASTVisitor *intp = NG::interpreter::interpreter();
+
     ast->accept(dumper_holder.get());
+    ast->accept(intp);
     auto &&bytes = serialize_ast(ast);
     auto ast2 = deserialize_ast(bytes);
     REQUIRE(*ast == *ast2);
     destroyast(ast);
     destroyast(ast2);
+
+    destroyast(intp);
 }
 
 TEST_CASE("should run with id function definition", "[Integration]") {
