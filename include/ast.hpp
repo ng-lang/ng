@@ -33,6 +33,7 @@ namespace NG::AST {
         BINARY_EXPRESSION,
         ASSIGNMENT_EXPRESSION,
         INDEX_ACCESSOR_EXPRESSION,
+        INDEX_ASSIGNMENT_EXPRESSION,
 
         LITERAL = 0x300,
         INTEGER_VALUE,
@@ -246,7 +247,8 @@ namespace NG::AST {
         ASTRef<Expression> primary;
         ASTRef<Expression> accessor;
 
-        IndexAccessorExpression(ASTRef<Expression> primary, ASTRef<Expression> accessor): primary {primary}, accessor {accessor} {}
+        IndexAccessorExpression(ASTRef<Expression> primary, ASTRef<Expression> accessor) : primary{primary},
+                                                                                           accessor{accessor} {}
 
         void accept(IASTVisitor *visitor) override;
 
@@ -257,6 +259,28 @@ namespace NG::AST {
         Str repr() override;
 
         ~IndexAccessorExpression() override;
+    };
+
+    struct IndexAssignmentExpression : Expression {
+        ASTRef<Expression> primary;
+        ASTRef<Expression> accessor;
+        ASTRef<Expression> value;
+
+        IndexAssignmentExpression(
+                ASTRef<Expression> primary,
+                ASTRef<Expression> accessor,
+                ASTRef<Expression> value
+        ) : primary{primary}, accessor{accessor}, value{value} {}
+
+        void accept(IASTVisitor *visitor) override;
+
+        ASTNodeType astNodeType() const override;
+
+        bool operator==(const ASTNode &node) const override;
+
+        Str repr() override;
+
+        ~IndexAssignmentExpression() override;
     };
 
     struct ValDefStatement : Statement {
@@ -389,10 +413,10 @@ namespace NG::AST {
     struct ArrayLiteral : Expression {
         Vec<ASTRef<Expression>> elements;
 
-        explicit ArrayLiteral(): elements {} {
+        explicit ArrayLiteral() : elements{} {
         }
 
-        explicit ArrayLiteral(const Vec<ASTRef<Expression>>& exprs): elements {exprs} {}
+        explicit ArrayLiteral(const Vec<ASTRef<Expression>> &exprs) : elements{exprs} {}
 
         void accept(IASTVisitor *visitor) override;
 
@@ -440,6 +464,8 @@ namespace NG::AST {
         virtual void visit(IdAccessorExpression *idAccExpr) = 0;
 
         virtual void visit(IndexAccessorExpression *index) = 0;
+
+        virtual void visit(IndexAssignmentExpression *index) = 0;
 
         virtual void visit(BinaryExpression *binExpr) = 0;
 
@@ -491,6 +517,8 @@ namespace NG::AST {
         void visit(IdAccessorExpression *idAccExpr) override;
 
         void visit(IndexAccessorExpression *index) override;
+
+        void visit(IndexAssignmentExpression *index) override;
 
         void visit(BinaryExpression *binExpr) override;
 

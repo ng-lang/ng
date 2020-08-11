@@ -45,21 +45,21 @@ namespace NG::runtime {
 
         static NGObject *array(NGArray *array);
 
-        double numValue() {
+        [[nodiscard]] double numValue() const {
             if (tag == tag_t::NG_NUM) {
                 return value.number;
             }
             throw IllegalTypeException("Not a number");
         }
 
-        bool boolValue() {
+        [[nodiscard]] bool boolValue() const {
             if (tag == tag_t::NG_BOOL) {
                 return value.boolean;
             }
             throw IllegalTypeException("Not a boolean");
         }
 
-        const Str *strValue() {
+        [[nodiscard]] const Str *strValue() const {
             if (tag == tag_t::NG_STR) {
                 return value.str;
             }
@@ -68,7 +68,9 @@ namespace NG::runtime {
 
         bool equals(NGObject *ngObject) const;
 
-        NGObject *indexOf(NGObject *pObject);
+        NGObject *indexOf(NGObject *pObject) const;
+
+        NGObject* indexAssign(NGObject *pObject, NGObject *pObject1) const;
     };
 
 
@@ -86,6 +88,10 @@ namespace NG::runtime {
         Vec<NGObject *> items;
 
         bool equals(NGArray *array);
+
+        NGObject *getItem(NGObject *pObject);
+
+        NGObject *indexAssign(NGObject *accessor, NGObject *newValue);
     };
 
     template<class T>

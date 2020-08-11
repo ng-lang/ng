@@ -96,18 +96,25 @@ namespace NG::runtime {
         return false;
     }
 
-    NGObject *NGObject::indexOf(NGObject *object) {
+    NGObject *NGObject::indexOf(NGObject *object) const {
         if (this->tag != tag_t::NG_ARRAY) {
             throw IllegalTypeException("Not index-accessible");
         }
 
         NGArray *array = this->value.array;
 
-        if (object->tag != tag_t::NG_NUM) {
-            throw IllegalTypeException("Not a valid index");
+        return array->getItem(object);
+
+    }
+
+    NGObject* NGObject::indexAssign(NGObject *accessor, NGObject *newValue) const {
+        if (this->tag != tag_t::NG_ARRAY) {
+            throw IllegalTypeException("Not index-accessible");
         }
 
-        return array->items[static_cast<long long>(object->value.number)];
+        NGArray *array = this->value.array;
+
+        return array->indexAssign(accessor, newValue);
     }
 
     NGContext::~NGContext() = default;
@@ -123,6 +130,30 @@ namespace NG::runtime {
         }
         return true;
     }
+
+    NGObject *NGArray::getItem(NGObject *index) {
+
+        if (index->tag != NGObject::tag_t::NG_NUM) {
+            throw IllegalTypeException("Not a valid index");
+        }
+
+        return this->items[static_cast<long long>(index->value.number)];
+    }
+
+    NGObject *NGArray::indexAssign(NGObject *index, NGObject *newValue) {
+        if (index->tag != NGObject::tag_t::NG_NUM) {
+            throw IllegalTypeException("Not a valid index");
+        }
+
+        NGObject *oldValue = this->items[static_cast<long long>(index->value.number)];
+
+//        if (oldValue != nullptr) {
+//            delete oldValue;
+//        }
+
+        return this->items[static_cast<long long>(index->value.number)] = newValue;
+    }
+
 } // namespace NG::runtime
 
 namespace NG::interpreter {
@@ -257,6 +288,24 @@ namespace NG::interpreter {
             NGObject *accessorObject = vis.object;
             
             object = primaryObject->indexOf(accessorObject);
+        }
+
+        void visit(IndexAssignmentExpression *index) override {
+            ExpressionVisitor vis {context};
+
+            index->primary->accept(&vis);
+
+            NGObject *primaryObject = vis.object;
+
+            index->accessor->accept(&vis);
+
+            NGObject *accessorObject = vis.object;
+
+            index->value->accept(&vis);
+
+            NGObject *valueObject = vis.object;
+
+            object = primaryObject->indexAssign(accessorObject, valueObject);
         }
     };
 

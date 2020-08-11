@@ -144,3 +144,12 @@ TEST_CASE("parser should parse index accessor expression", "[ParserTest]") {
 
     delete ast;
 }
+
+
+TEST_CASE("parser should parse array index assign expression", "[ParserTest]") {
+    auto ast = parse(R"(
+        d.x[1] = 2;
+    )");
+
+    delete ast;
+}

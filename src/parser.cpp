@@ -330,7 +330,11 @@ namespace NG::Parsing {
             auto accessor = expression();
 
             accept(TokenType::RIGHT_SQUARE);
-
+            if (expect(TokenType::OPERATOR) && state->operatorType == Operators::ASSIGN) {
+                accept(TokenType::OPERATOR);
+                auto value = expression();
+                return makeast<IndexAssignmentExpression>(primary, accessor, value);
+            }
             return makeast<IndexAccessorExpression>(primary, accessor);
         }
 

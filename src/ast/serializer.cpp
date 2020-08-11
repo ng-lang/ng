@@ -142,6 +142,14 @@ namespace NG::AST {
             index->accessor->accept(this);
         }
 
+        void visit(IndexAssignmentExpression *index) override {
+            stream << index;
+
+            index->primary->accept(this);
+            index->accessor->accept(this);
+            index->value->accept(this);
+        }
+
         ~ASTSerializer() override = default;
     };
 
@@ -263,6 +271,12 @@ namespace NG::AST {
                     auto primary = expect<Expression>();
                     auto accessor = expect<Expression>();
                     return makeast<IndexAccessorExpression>(primary, accessor);
+                }
+                case ASTNodeType::INDEX_ASSIGNMENT_EXPRESSION: {
+                    auto primary = expect<Expression>();
+                    auto accessor = expect<Expression>();
+                    auto value = expect<Expression>();
+                    return makeast<IndexAssignmentExpression>(primary, accessor, value);
                 }
                 case ASTNodeType::ASSIGNMENT_EXPRESSION: {
                     NG::Str name;

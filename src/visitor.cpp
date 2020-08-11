@@ -50,6 +50,8 @@ namespace NG::AST {
 
     void IASTVisitor::visit(IndexAccessorExpression* index) {}
 
+    void IASTVisitor::visit(IndexAssignmentExpression* index) {}
+
     IASTVisitor::~IASTVisitor() = default;
 
     void DefaultDummyAstVisitor::visit(ASTNode *node) {}
@@ -97,6 +99,8 @@ namespace NG::AST {
     void DefaultDummyAstVisitor::visit(ArrayLiteral *array) {}
 
     void DefaultDummyAstVisitor::visit(IndexAccessorExpression *index) {}
+
+    void DefaultDummyAstVisitor::visit(IndexAssignmentExpression *index) {}
 
     DefaultDummyAstVisitor::~DefaultDummyAstVisitor() = default;
 

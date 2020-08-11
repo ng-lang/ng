@@ -148,6 +148,12 @@ TEST_CASE("shoud be able to interpret array index", "[InterpreterTest]") {
 
         assert(arr[3] == 4);
         print(arr[3]);
+
+        assert(arr[4] == 5);
+        arr[4] = 6;
+        assert(arr[4] == 6);
+
+        print(arr);
     )");
 
     ast->accept(intp);
