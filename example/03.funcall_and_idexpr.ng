@@ -10,3 +10,5 @@ fun fact(n) {
 val fact5 = fact(5);
 
 assert(fact5 == 120);
+
+print(fact5);
