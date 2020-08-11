@@ -69,6 +69,8 @@ namespace NG::AST {
 
         virtual bool operator==(const ASTNode &node) const = 0;
 
+        virtual Str repr() = 0;
+
         ~ASTNode() override = 0;
     };
 
@@ -85,6 +87,8 @@ namespace NG::AST {
         bool operator==(const ASTNode &node) const override;
 
         void accept(IASTVisitor *visitor) override;
+
+        Str repr() override;
 
         ~Module() override;
     };
@@ -120,6 +124,8 @@ namespace NG::AST {
         bool operator==(const ASTNode &node) const override;
 
         ~Param() override = default;
+
+        Str repr() override;
     };
 
     struct FunctionDef : Definition {
@@ -135,6 +141,8 @@ namespace NG::AST {
 
         bool operator==(const ASTNode &node) const override;
 
+        Str repr() override;
+
         ~FunctionDef() override;
     };
 
@@ -147,6 +155,8 @@ namespace NG::AST {
 
         bool operator==(const ASTNode &node) const override;
 
+        Str repr() override;
+
         ~CompoundStatement() override;
     };
 
@@ -158,6 +168,8 @@ namespace NG::AST {
         [[nodiscard]] ASTNodeType astNodeType() const override { return ASTNodeType::RETURN_STATEMENT; }
 
         bool operator==(const ASTNode &node) const override;
+
+        Str repr() override;
 
         ~ReturnStatement() override;
     };
@@ -173,6 +185,8 @@ namespace NG::AST {
 
         bool operator==(const ASTNode &node) const override;
 
+        Str repr() override;
+
         ~IfStatement() override;
     };
 
@@ -185,6 +199,8 @@ namespace NG::AST {
         [[nodiscard]] ASTNodeType astNodeType() const override { return ASTNodeType::SIMPLE_STATEMENT; }
 
         bool operator==(const ASTNode &node) const override;
+
+        Str repr() override;
 
         ~SimpleStatement() override;
     };
@@ -202,6 +218,8 @@ namespace NG::AST {
 
         bool operator==(const ASTNode &node) const override;
 
+        Str repr() override;
+
         ~FunCallExpression() override;
     };
 
@@ -214,6 +232,8 @@ namespace NG::AST {
         [[nodiscard]] ASTNodeType astNodeType() const override { return ASTNodeType::ID_ACCESSOR_EXPRESSION; }
 
         bool operator==(const ASTNode &node) const override;
+
+        Str repr() override;
 
         ~IdAccessorExpression() override;
     };
@@ -230,6 +250,8 @@ namespace NG::AST {
         [[nodiscard]] ASTNodeType astNodeType() const override { return ASTNodeType::VAL_DEF_STATEMENT; }
 
         bool operator==(const ASTNode &node) const override;
+
+        Str repr() override;
 
         ~ValDefStatement() override;
     };
@@ -249,6 +271,8 @@ namespace NG::AST {
 
         bool operator==(const ASTNode &node) const override;
 
+        Str repr() override;
+
         ~ValDef() override;
     };
 
@@ -264,6 +288,8 @@ namespace NG::AST {
 
         bool operator==(const ASTNode &node) const override;
 
+        Str repr() override;
+
         ~AssignmentExpression() override;
     };
 
@@ -278,6 +304,8 @@ namespace NG::AST {
 
         bool operator==(const ASTNode &node) const override;
 
+        Str repr() override;
+
         ~BinaryExpression() override;
     };
 
@@ -289,6 +317,8 @@ namespace NG::AST {
         [[nodiscard]] ASTNodeType astNodeType() const override { return ASTNodeType::ID_EXPRESSION; }
 
         bool operator==(const ASTNode &node) const override;
+
+        Str repr() override;
 
         void accept(IASTVisitor *visitor) override;
     };
@@ -302,6 +332,8 @@ namespace NG::AST {
 
         [[nodiscard]] ASTNodeType astNodeType() const override { return ASTNodeType::INTEGER_VALUE; }
 
+        Str repr() override;
+
         bool operator==(const ASTNode &node) const override;
     };
 
@@ -314,6 +346,8 @@ namespace NG::AST {
 
         [[nodiscard]] ASTNodeType astNodeType() const override { return ASTNodeType::INTEGER_VALUE; }
 
+        Str repr() override;
+
         bool operator==(const ASTNode &node) const override;
     };
 
@@ -325,6 +359,8 @@ namespace NG::AST {
         void accept(IASTVisitor *visitor) override;
 
         [[nodiscard]] ASTNodeType astNodeType() const override { return ASTNodeType::BOOLEAN_VALUE; }
+
+        Str repr() override;
 
         bool operator==(const ASTNode &node) const override;
     };

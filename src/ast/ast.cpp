@@ -6,6 +6,18 @@
 
 namespace NG::AST {
 
+    template<class T>
+    static Str strOfNodeList(Vec<T> nodes, const Str &separator = ", ") {
+        Str str{};
+        for (const auto &node : nodes) {
+            if (!str.empty()) {
+                str += separator;
+            }
+            str += node->repr();
+        }
+        return str;
+    }
+
     ASTNode::~ASTNode() = default;
 
     const auto ASTComparator = [](ASTRef<ASTNode> left, ASTRef<ASTNode> right) -> bool {
@@ -41,6 +53,10 @@ namespace NG::AST {
         }
     }
 
+    Str Module::repr() {
+        return Str{"module:"} + this->name;
+    }
+
     Str Definition::name() const {
         return "unknown";
     }
@@ -55,6 +71,10 @@ namespace NG::AST {
                paramName == param.paramName &&
                annotatedType == param.annotatedType &&
                type == param.type;
+    }
+
+    Str Param::repr() {
+        return paramName + ": " + annotatedType;
     }
 
     void CompoundStatement::accept(IASTVisitor *visitor) {
@@ -76,6 +96,10 @@ namespace NG::AST {
                           ASTComparator);
     }
 
+    Str CompoundStatement::repr() {
+        return "{\n" + strOfNodeList(this->statements, "\n") + "}";
+    }
+
     void ReturnStatement::accept(IASTVisitor *visitor) {
         visitor->visit(this);
     }
@@ -90,6 +114,10 @@ namespace NG::AST {
         auto &ret = dynamic_cast<const ReturnStatement &>(node);
         return astNodeType() == node.astNodeType() &&
                *expression == *ret.expression;
+    }
+
+    Str ReturnStatement::repr() {
+        return "return " + this->expression->repr() + ";";
     }
 
     void IfStatement::accept(IASTVisitor *visitor) {
@@ -118,6 +146,11 @@ namespace NG::AST {
                 *alternative == *ifstmt.alternative);
     }
 
+    Str IfStatement::repr() {
+        return "if (" + this->testing->repr() + ") {\n" + this->consequence->repr() + "}" +
+               (this->alternative == nullptr ? "" : (" else {\n" + this->alternative->repr() + "}"));
+    }
+
     SimpleStatement::~SimpleStatement() {
         if (expression != nullptr) {
             destroyast(expression);
@@ -132,6 +165,10 @@ namespace NG::AST {
         auto &simple = dynamic_cast<const SimpleStatement &>(node);
         return astNodeType() == node.astNodeType() &&
                *expression == *simple.expression;
+    }
+
+    Str SimpleStatement::repr() {
+        return this->expression->repr() + ";";
     }
 
     void FunCallExpression::accept(IASTVisitor *visitor) {
@@ -156,6 +193,10 @@ namespace NG::AST {
         }
     }
 
+    Str FunCallExpression::repr() {
+        return this->primaryExpression->repr() + "(" + strOfNodeList(this->arguments) + ")";
+    }
+
     void AssignmentExpression::accept(IASTVisitor *visitor) {
         visitor->visit(this);
     }
@@ -171,6 +212,10 @@ namespace NG::AST {
     AssignmentExpression::~AssignmentExpression() {
         if (value != nullptr)
             destroyast(value);
+    }
+
+    Str AssignmentExpression::repr() {
+        return this->name + " = " + this->value->repr();
     }
 
     void ValDefStatement::accept(IASTVisitor *visitor) {
@@ -190,6 +235,10 @@ namespace NG::AST {
             destroyast(value);
     }
 
+    Str ValDefStatement::repr() {
+        return "val " + this->name + " = " + this->value->repr() + ";";
+    }
+
     void ValDef::accept(IASTVisitor *visitor) {
         return visitor->visit(this);
     }
@@ -207,6 +256,10 @@ namespace NG::AST {
         }
     }
 
+    Str ValDef::repr() {
+        return this->body->repr();
+    }
+
     void IdExpression::accept(IASTVisitor *visitor) {
         visitor->visit(this);
     }
@@ -215,6 +268,10 @@ namespace NG::AST {
         auto &idexpr = dynamic_cast<const IdExpression &>(node);
         return astNodeType() == node.astNodeType() &&
                idexpr.id == id;
+    }
+
+    Str IdExpression::repr() {
+        return id;
     }
 
     void IdAccessorExpression::accept(IASTVisitor *visitor) {
@@ -233,6 +290,11 @@ namespace NG::AST {
         destroyast(accessor);
     }
 
+    Str IdAccessorExpression::repr() {
+        return this->primaryExpression->repr() +
+               (this->accessor == nullptr ? "" : ("." + this->accessor->repr()));
+    }
+
     void IntegerValue::accept(IASTVisitor *visitor) {
         visitor->visit(this);
     }
@@ -241,6 +303,10 @@ namespace NG::AST {
         auto &intVal = dynamic_cast<const IntegerValue &>(node);
         return astNodeType() == node.astNodeType() &&
                intVal.value == value;
+    }
+
+    Str IntegerValue::repr() {
+        return std::to_string(this->value);
     }
 
     void StringValue::accept(IASTVisitor *visitor) {
@@ -253,6 +319,10 @@ namespace NG::AST {
                strVal.value == value;
     }
 
+    Str StringValue::repr() {
+        return "\"" + this->value + "\"";
+    }
+
     void BooleanValue::accept(IASTVisitor *visitor) {
         return visitor->visit(this);
     }
@@ -261,6 +331,10 @@ namespace NG::AST {
         auto &val = dynamic_cast<const BooleanValue &>(node);
         return astNodeType() == node.astNodeType() &&
                value == val.value;
+    }
+
+    Str BooleanValue::repr() {
+        return this->value ? "true" : "false";
     }
 
     void FunctionDef::accept(IASTVisitor *visitor) {
@@ -289,6 +363,10 @@ namespace NG::AST {
         return funName;
     }
 
+    Str FunctionDef::repr() {
+        return "fun " + funName + "(" + strOfNodeList(params) + ")" + body->repr();
+    }
+
     void BinaryExpression::accept(IASTVisitor *visitor) {
         visitor->visit(this);
     }
@@ -305,6 +383,10 @@ namespace NG::AST {
         destroyast(left);
         destroyast(right);
         delete optr;
+    }
+
+    Str BinaryExpression::repr() {
+        return left->repr() + this->optr->repr + right->repr();
     }
 
 } // namespace NG

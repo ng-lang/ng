@@ -61,8 +61,8 @@ namespace NG::runtime {
         }
     }
 
-    bool NGObject::equals(NGObject *ngObject) {
-        if (tag != ngObject->tag) {
+    bool NGObject::equals(NGObject *ngObject) const {
+        if (tag == ngObject->tag) {
             switch (tag) {
                 case tag_t::NG_NIL:
                     return true;
@@ -117,7 +117,8 @@ namespace NG::interpreter {
             case Operators::DIVIDE:
                 return NGObject::number(leftParam->numValue() / rightParam->numValue());
             case Operators::MODULUS:
-                return NGObject::number(leftParam->numValue() - rightParam->numValue());
+                return NGObject::number(static_cast<long long>(leftParam->numValue()) %
+                                        static_cast<long long>(rightParam->numValue()));
             case Operators::EQUAL:
                 return NGObject::boolean(leftParam->equals(rightParam));
             case Operators::NOT_EQUAL:
@@ -214,6 +215,40 @@ namespace NG::interpreter {
 
             context->retVal = vis.object;
         }
+
+        void visit(IfStatement *ifStmt) override {
+            ExpressionVisitor vis{context};
+            ifStmt->testing->accept(&vis);
+
+            StatementVisitor stmtVis{context};
+            if (vis.object->boolValue()) {
+                ifStmt->consequence->accept(&stmtVis);
+            } else if (ifStmt->alternative != nullptr) {
+                ifStmt->alternative->accept(&stmtVis);
+            }
+        }
+
+        void visit(CompoundStatement *stmt) override {
+            StatementVisitor vis{context};
+            for (auto innerStmt: stmt->statements) {
+                innerStmt->accept(&vis);
+                if (vis.context->retVal != nullptr) {
+                    break;
+                }
+            }
+        }
+
+        void visit(ValDefStatement *valDef) override {
+            ExpressionVisitor vis{context};
+            valDef->value->accept(&vis);
+
+            context->objects[valDef->name] = vis.object;
+        }
+
+        void visit(SimpleStatement *simpleStmt) override {
+            ExpressionVisitor vis{context};
+            simpleStmt->expression->accept(&vis);
+        }
     };
 
     struct Interpreter : public DefaultDummyAstVisitor, public ISummarizable {
@@ -246,7 +281,9 @@ namespace NG::interpreter {
                 }
 
                 withNewContext(newContext, [this, funDef] {
-                    funDef->body->accept(this);
+                    StatementVisitor vis{context};
+
+                    funDef->body->accept(&vis);
                 });
                 ngContext.retVal = newContext.retVal;
             };
@@ -255,13 +292,6 @@ namespace NG::interpreter {
         void visit(Statement *stmt) override {
             StatementVisitor vis{context};
             stmt->accept(&vis);
-        }
-
-        void visit(CompoundStatement *stmt) override {
-            StatementVisitor vis{context};
-            for (auto innerStmt: stmt->statements) {
-                innerStmt->accept(&vis);
-            }
         }
 
         void visit(ValDef *valDef) override {
@@ -291,7 +321,31 @@ namespace NG::interpreter {
     };
 
     IASTVisitor *interpreter() {
-        return new Interpreter(new NGContext{});
+        auto context = new NGContext {
+                .functions = {
+                        {"print", [](NGContext &context, NGInvocationContext &invocationContext) {
+                            Vec<NGObject *> &params = invocationContext.params;
+                            for (int i = 0; i < params.size(); ++i) {
+                                std::cout << params[i]->show();
+                                if (i != params.size() - 1) {
+                                    std::cout << ", ";
+                                }
+                            }
+                            std::cout << std::endl;
+                        }},
+                        {"assert", [](NGContext &context, NGInvocationContext &invocationContext) {
+                            for (const auto &param : invocationContext.params) {
+                                bool value = param->boolValue();
+                                if (!value) {
+                                    std::cerr << param->show();
+                                    throw AssertionException();
+                                }
+                            }
+                        }}
+                },
+        };
+
+        return new Interpreter(context);
     }
 
 } // namespace NG::interpreter

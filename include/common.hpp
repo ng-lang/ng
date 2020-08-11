@@ -45,6 +45,11 @@ namespace NG {
         }
     };
 
+    struct AssertionException : std::logic_error {
+        explicit AssertionException() : logic_error("Assertion Failed") {
+        }
+    };
+
     template<class T>
     uintptr_t code(T &&t) {
         return static_cast<uintptr_t>(t);

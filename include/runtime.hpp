@@ -66,7 +66,7 @@ namespace NG::runtime {
             throw IllegalTypeException("Not a string");
         }
 
-        bool equals(NGObject *ngObject);
+        bool equals(NGObject *ngObject) const;
 
     };
 
