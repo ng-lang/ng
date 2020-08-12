@@ -15,145 +15,285 @@ using namespace NG::AST;
 
 namespace NG::runtime {
 
-    NGObject *NGObject::number(double number) {
-        auto *object = new NGObject;
-        object->tag = tag_t::NG_NUM;
-        object->value.number = number;
-        return object;
+    NGObject *NGObject::number(long long number) {
+
+        return new NGInteger { number };
     }
 
     NGObject *NGObject::boolean(bool boolean) {
-        auto *object = new NGObject;
-        object->tag = tag_t::NG_BOOL;
-        object->value.boolean = boolean;
-        return object;
+        return new NGBoolean { boolean };
     }
 
-    NGObject *NGObject::str(const Str *str) {
-        auto *object = new NGObject;
-        object->tag = tag_t::NG_STR;
-        object->value.str = str;
-        return object;
+    NGObject *NGObject::str(const Str& str) {
+        return new NGString { str };
+
     }
 
-    NGObject *NGObject::array(NGArray *array) {
-        auto *object = new NGObject;
-        object->tag = tag_t::NG_ARRAY;
-        object->value.array = array;
-        return object;
+    NGObject *NGObject::array(const Vec<NGObject*>& array) {
+        return new NGArray { array };
     }
 
     Str NGObject::show() {
-        switch (tag) {
-            case tag_t::NG_NIL:
-                return {"nil"};
-            case tag_t::NG_NUM:
-                return std::to_string(this->value.number);
-            case tag_t::NG_BOOL:
-                return this->value.boolean ? "true" : "false";
-            case tag_t::NG_STR:
-                return *(this->value.str);
-            case tag_t::NG_ARRAY: {
-                Str array {};
-
-                NGArray *ngA = this->value.array;
-
-                for (const auto &item : ngA->items) {
-                    if (!array.empty()) {
-                        array += ", ";
-                    }
-                    array += item->show();
-                }
-                
-                return "[" + array + "]";
-            }
-            case tag_t::NG_COMPOSITE:
-            case tag_t::NG_CUSTOMIZED:
-                return {"[CUSTOMIZED TYPE]"};
-            default:
-                return {"[UNKNOWN]"};
-        }
+        return "[NGObject]";
     }
 
-    bool NGObject::equals(NGObject *ngObject) const {
-        if (tag == ngObject->tag) {
-            switch (tag) {
-                case tag_t::NG_NIL:
-                    return true;
-                case tag_t::NG_NUM:
-                    return value.number == ngObject->value.number;
-                case tag_t::NG_BOOL:
-                    return value.boolean == ngObject->value.boolean;
-                case tag_t::NG_ARRAY:
-                    return value.array->equals(ngObject->value.array);
-                case tag_t::NG_STR:
-                    return *value.str == *(ngObject->value.str);
-                case tag_t::NG_COMPOSITE:
-                case tag_t::NG_CUSTOMIZED:
-                    break;
+    bool NGObject::opEquals(NGObject *other) const {
+        return false;
+    }
+
+    NGObject *NGObject::opIndex(NGObject *index) const {
+        throw IllegalTypeException("Not index-accessible");
+    }
+
+    NGObject *NGObject::opIndex(NGObject *accessor, NGObject *newValue) {
+        throw IllegalTypeException("Not index-accessible");
+    }
+
+    NGObject *IOverloadedOperators::opIndex(NGObject *index) const {
+        return nullptr;
+    }
+
+    NGObject *IOverloadedOperators::opIndex(NGObject *index, NGObject *newValue) {
+        return nullptr;
+    }
+
+    bool IOverloadedOperators::opGreaterThan(NGObject *other) const {
+        return false;
+    }
+
+    bool IOverloadedOperators::opGreaterEqual(NGObject *other) const {
+        return false;
+    }
+
+    bool IOverloadedOperators::opLessThan(NGObject *other) const { return false; }
+
+    bool IOverloadedOperators::opLessEqual(NGObject *other) const { return false; }
+
+    bool IOverloadedOperators::opEquals(NGObject *other) const { return false; }
+
+    bool IOverloadedOperators::opNotEqual(NGObject *other) const { return false; }
+
+    NGObject *IOverloadedOperators::opPlus(NGObject *other) const { return nullptr; }
+
+    NGObject *IOverloadedOperators::opMinus(NGObject *other) const { return nullptr; }
+
+    NGObject *IOverloadedOperators::opTimes(NGObject *other) const { return nullptr; }
+
+    NGObject *IOverloadedOperators::opModulus(NGObject *other) const { return nullptr; }
+
+    NGObject *IOverloadedOperators::opDividedBy(NGObject *other) const { return nullptr; }
+
+
+    NGObject *IOverloadedOperators::respond(const Str &member, NGInvocationContext *invocationContext) const {
+        return nullptr;
+    }
+
+    IOverloadedOperators::~IOverloadedOperators() noexcept = default;
+
+
+    NGObject *NGObject::opPlus(NGObject *other) const {
+        throw NotImplementedException();
+    }
+
+    NGObject *NGObject::opMinus(NGObject *other) const {
+        throw NotImplementedException();
+    }
+
+    NGObject *NGObject::opTimes(NGObject *other) const {
+        throw NotImplementedException();
+    }
+
+    NGObject *NGObject::opDividedBy(NGObject *other) const {
+        throw NotImplementedException();
+    }
+
+    NGObject *NGObject::opModulus(NGObject *other) const {
+        throw NotImplementedException();
+    }
+
+    bool NGObject::opGreaterThan(NGObject *other) const {
+        throw NotImplementedException();
+    }
+
+    bool NGObject::opLessThan(NGObject *other) const {
+        throw NotImplementedException();
+    }
+
+    bool NGObject::opGreaterEqual(NGObject *other) const {
+        throw NotImplementedException();
+    }
+
+    bool NGObject::opLessEqual(NGObject *other) const {
+        throw NotImplementedException();
+    }
+
+    NGObject *NGObject::respond(const Str &member, NGInvocationContext *invocationContext) const {
+        throw NotImplementedException();
+    }
+
+    bool NGObject::opNotEqual(NGObject *other) const {
+        return !opEquals(other);
+    }
+
+    NGObject::~NGObject() = default;
+
+    NGContext::~NGContext() = default;
+
+    NGObject *NGArray::opIndex(NGObject *index) const {
+
+        auto ngInt = dynamic_cast<NGInteger *>(index);
+        if (ngInt == nullptr) {
+            throw IllegalTypeException("Not a valid index");
+        }
+
+        return this->items[ngInt->value];
+    }
+
+    NGObject *NGArray::opIndex(NGObject *index, NGObject *newValue) {
+        auto ngInt = dynamic_cast<NGInteger *>(index);
+        if (ngInt == nullptr) {
+            throw IllegalTypeException("Not a valid index");
+        }
+
+        return items[ngInt->value] = newValue;
+    }
+
+    Str NGArray::show() {
+        Str result{};
+
+        for (const auto &item : this->items) {
+            if (!result.empty()) {
+                result += ", ";
             }
+
+            result += item->show();
+        }
+
+        return "[" + result + "]";
+    }
+
+    bool NGArray::opEquals(NGObject *other) const {
+
+        if (auto array = dynamic_cast<NGArray *>(other); array != nullptr) {
+            if (items.size() != array->items.size()) {
+                return false;
+            }
+            for (int i = 0; i < items.size(); ++i) {
+                if (!items[i]->opEquals(array->items[i])) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        return false;
+    }
+
+    bool NGArray::boolValue() {
+        return !items.empty();
+    }
+
+    Str IBasicObject::show() {
+        return NG::Str();
+    }
+
+    bool IBasicObject::boolValue() {
+        return false;
+    }
+
+    IBasicObject::~IBasicObject() = default;
+
+    Str NGBoolean::show() {
+        return value ? "true" : "false";
+    }
+
+    bool NGBoolean::opEquals(NGObject *other) const {
+        if (auto otherBoolean = dynamic_cast<NGBoolean *>(other); otherBoolean != nullptr) {
+            return otherBoolean->value == value;
         }
         return false;
     }
 
-    NGObject *NGObject::indexOf(NGObject *object) const {
-        if (this->tag != tag_t::NG_ARRAY) {
-            throw IllegalTypeException("Not index-accessible");
-        }
-
-        NGArray *array = this->value.array;
-
-        return array->getItem(object);
-
+    bool NGBoolean::boolValue() {
+        return value;
     }
 
-    NGObject* NGObject::indexAssign(NGObject *accessor, NGObject *newValue) const {
-        if (this->tag != tag_t::NG_ARRAY) {
-            throw IllegalTypeException("Not index-accessible");
-        }
 
-        NGArray *array = this->value.array;
-
-        return array->indexAssign(accessor, newValue);
+    Str NGString::show() {
+        return "\"" + value + "\"";
     }
 
-    NGContext::~NGContext() = default;
-
-    bool NGArray::equals(NGArray *array) {
-        if (itemTag != array->itemTag || items.size() != array->items.size()) {
-            return false;
+    bool NGString::opEquals(NGObject *other) const {
+        if (auto otherString = dynamic_cast<NGString *>(other); otherString != nullptr) {
+            return otherString->value == value;
         }
-        for (int i = 0; i < items.size(); ++i) {
-            if (!items[i]->equals(array->items[i])) {
-                return false;
-            }
-        }
-        return true;
+        return false;
     }
 
-    NGObject *NGArray::getItem(NGObject *index) {
-
-        if (index->tag != NGObject::tag_t::NG_NUM) {
-            throw IllegalTypeException("Not a valid index");
-        }
-
-        return this->items[static_cast<long long>(index->value.number)];
+    bool NGString::boolValue() {
+        return !value.empty();
     }
 
-    NGObject *NGArray::indexAssign(NGObject *index, NGObject *newValue) {
-        if (index->tag != NGObject::tag_t::NG_NUM) {
-            throw IllegalTypeException("Not a valid index");
+    Orders NGInteger::comparator(const NGObject *left, const NGObject *right) {
+        auto leftInt = dynamic_cast<const NGInteger *>(left);
+        auto rightInt = dynamic_cast<const NGInteger *>(right);
+
+        if (leftInt == nullptr || rightInt == nullptr) {
+            return Orders::UNORDERED;
         }
 
-        NGObject *oldValue = this->items[static_cast<long long>(index->value.number)];
-
-//        if (oldValue != nullptr) {
-//            delete oldValue;
-//        }
-
-        return this->items[static_cast<long long>(index->value.number)] = newValue;
+        long long int result = leftInt->value - rightInt->value;
+        if (result > 0) {
+            return Orders::GT;
+        } else if (result < 0) {
+            return Orders::LT;
+        }
+        return Orders::EQ;
     }
 
+    NGObject *NGInteger::opPlus(NGObject *other) const {
+        if (auto integer = dynamic_cast<NGInteger *>(other); integer != nullptr) {
+
+            return new NGInteger { value + integer->value };
+        }
+        throw IllegalTypeException("Not a number");
+    }
+
+    NGObject *NGInteger::opMinus(NGObject *other) const {
+        if (auto integer = dynamic_cast<NGInteger *>(other); integer != nullptr) {
+
+            return new NGInteger { value - integer->value };
+        }
+        throw IllegalTypeException("Not a number");
+    }
+
+    NGObject *NGInteger::opTimes(NGObject *other) const {
+        if (auto integer = dynamic_cast<NGInteger *>(other); integer != nullptr) {
+
+            return new NGInteger { value * integer->value };
+        }
+        throw IllegalTypeException("Not a number");
+    }
+
+    NGObject *NGInteger::opDividedBy(NGObject *other) const {
+        if (auto integer = dynamic_cast<NGInteger *>(other); integer != nullptr) {
+
+            return new NGInteger { value / integer->value };
+        }
+        throw IllegalTypeException("Not a number");
+    }
+
+    NGObject *NGInteger::opModulus(NGObject *other) const {
+        if (auto integer = dynamic_cast<NGInteger *>(other); integer != nullptr) {
+
+            return new NGInteger { value % integer->value };
+        }
+        throw IllegalTypeException("Not a number");
+    }
+
+    bool NGInteger::boolValue() {
+        return value != 0;
+    }
 } // namespace NG::runtime
 
 namespace NG::interpreter {
@@ -168,35 +308,30 @@ namespace NG::interpreter {
     static NGObject *evaluateExpr(Operators optr, NGObject *leftParam, NGObject *rightParam) {
         switch (optr) {
             case Operators::PLUS:
-                return NGObject::number(leftParam->numValue() + rightParam->numValue());
+                return leftParam->opPlus(rightParam);
             case Operators::MINUS:
-                return NGObject::number(leftParam->numValue() - rightParam->numValue());
+                return leftParam->opMinus(rightParam);
             case Operators::TIMES:
-                return NGObject::number(leftParam->numValue() * rightParam->numValue());
+                return leftParam->opTimes(rightParam);
             case Operators::DIVIDE:
-                return NGObject::number(leftParam->numValue() / rightParam->numValue());
+                return leftParam->opDividedBy(rightParam);
             case Operators::MODULUS:
-                return NGObject::number(static_cast<long long>(leftParam->numValue()) %
-                                        static_cast<long long>(rightParam->numValue()));
+                return leftParam->opModulus(rightParam);
             case Operators::EQUAL:
-                return NGObject::boolean(leftParam->equals(rightParam));
+                return NGObject::boolean(leftParam->opEquals(rightParam));
             case Operators::NOT_EQUAL:
-                return NGObject::boolean(!leftParam->equals(rightParam));
+                return NGObject::boolean(!leftParam->opEquals(rightParam));
             case Operators::LE:
-                return NGObject::boolean(leftParam->numValue() <= rightParam->numValue());
+                return NGObject::boolean(leftParam->opLessEqual(rightParam));
             case Operators::LT:
-                return NGObject::boolean(leftParam->numValue() < rightParam->numValue());
+                return NGObject::boolean(leftParam->opLessThan(rightParam));
             case Operators::GE:
-                return NGObject::boolean(leftParam->numValue() >= rightParam->numValue());
+                return NGObject::boolean(leftParam->opGreaterEqual(rightParam));
             case Operators::GT:
-                return NGObject::boolean(leftParam->numValue() > rightParam->numValue());
-            case Operators::RSHIFT:
-                return NGObject::number(static_cast<unsigned>(leftParam->numValue()) <<
-                                                                                     static_cast<unsigned>(rightParam->numValue()));
-            case Operators::LSHIFT:
-                return NGObject::number(static_cast<unsigned>(leftParam->numValue()) >>
-                                                                                     static_cast<unsigned>(rightParam->numValue()));
-            case Operators::ASSIGN:
+                return NGObject::boolean(leftParam->opGreaterThan(rightParam));
+//            case Operators::RSHIFT:
+//            case Operators::LSHIFT:
+//            case Operators::ASSIGN:
             default:
                 break;
         }
@@ -225,7 +360,7 @@ namespace NG::interpreter {
         }
 
         void visit(StringValue *strVal) override {
-            object = NGObject::str(&(strVal->value));
+            object = NGObject::str(strVal->value);
         }
 
         void visit(BooleanValue *boolVal) override {
@@ -261,37 +396,36 @@ namespace NG::interpreter {
         void visit(IdExpression *idExpr) override {
             object = context->objects[idExpr->id];
         }
-        
-        void visit(ArrayLiteral* array) override {
-            auto *ngArray = new NGArray();
 
-            ExpressionVisitor vis {context};
+        void visit(ArrayLiteral *array) override {
+            Vec<NGObject*> objects;
+
+            ExpressionVisitor vis{context};
 
             for (const auto &element : array->elements) {
                 element->accept(&vis);
-                ngArray->items.push_back(vis.object);
-                ngArray->itemTag = vis.object->tag;
+                objects.push_back(vis.object);
             }
 
-            object = NGObject::array(ngArray);
+            object = NGObject::array(objects);
         }
 
         void visit(IndexAccessorExpression *index) override {
-            ExpressionVisitor vis {context};
-            
+            ExpressionVisitor vis{context};
+
             index->primary->accept(&vis);
 
             NGObject *primaryObject = vis.object;
-            
+
             index->accessor->accept(&vis);
-            
+
             NGObject *accessorObject = vis.object;
-            
-            object = primaryObject->indexOf(accessorObject);
+
+            object = primaryObject->opIndex(accessorObject);
         }
 
         void visit(IndexAssignmentExpression *index) override {
-            ExpressionVisitor vis {context};
+            ExpressionVisitor vis{context};
 
             index->primary->accept(&vis);
 
@@ -305,7 +439,7 @@ namespace NG::interpreter {
 
             NGObject *valueObject = vis.object;
 
-            object = primaryObject->indexAssign(accessorObject, valueObject);
+            object = primaryObject->opIndex(accessorObject, valueObject);
         }
     };
 
@@ -374,7 +508,7 @@ namespace NG::interpreter {
                 defs->accept(this);
             }
 
-            StatementVisitor vis {context};
+            StatementVisitor vis{context};
 
             for (const auto &stmt : mod->statements) {
                 stmt->accept(&vis);
@@ -432,9 +566,9 @@ namespace NG::interpreter {
     };
 
     IASTVisitor *interpreter() {
-        auto context = new NGContext {
+        auto context = new NGContext{
                 .functions = {
-                        {"print", [](NGContext &context, NGInvocationContext &invocationContext) {
+                        {"print",  [](NGContext &context, NGInvocationContext &invocationContext) {
                             Vec<NGObject *> &params = invocationContext.params;
                             for (int i = 0; i < params.size(); ++i) {
                                 std::cout << params[i]->show();
@@ -446,8 +580,8 @@ namespace NG::interpreter {
                         }},
                         {"assert", [](NGContext &context, NGInvocationContext &invocationContext) {
                             for (const auto &param : invocationContext.params) {
-                                bool value = param->boolValue();
-                                if (!value) {
+                                auto ngBool = dynamic_cast<NGBoolean *>(param);
+                                if (ngBool == nullptr || !ngBool->value) {
                                     std::cerr << param->show();
                                     throw AssertionException();
                                 }
