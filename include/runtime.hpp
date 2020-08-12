@@ -34,6 +34,9 @@ namespace NG::runtime {
         virtual bool opGreaterEqual(NGObject *other) const = 0 ;
         virtual bool opLessEqual(NGObject *other) const = 0 ;
 
+        virtual NGObject* opLShift(NGObject *other) = 0;
+        virtual NGObject* opRShift(NGObject *other) = 0;
+
         // Meta-Object function
         virtual NGObject* respond(const Str& member, NGInvocationContext* invocationContext) const = 0;
 
@@ -95,6 +98,10 @@ namespace NG::runtime {
         bool opLessThan(NGObject *other) const override;
         bool opGreaterEqual(NGObject *other) const override;
         bool opLessEqual(NGObject *other) const override;
+
+        NGObject *opLShift(NGObject *other) override;
+
+        NGObject *opRShift(NGObject *other) override;
 
         // Meta-Object function
         NGObject* respond(const Str& member, NGInvocationContext* invocationContext) const override;
@@ -181,6 +188,8 @@ namespace NG::runtime {
         bool boolValue() override;
 
         bool opEquals(NGObject *other) const override;
+
+        NGObject *opLShift(NGObject *other) override;
     };
 
     struct NGBoolean : NGObject {

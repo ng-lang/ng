@@ -11,3 +11,11 @@ assert(arr[4] == 5);
 arr[4] = 6;
 
 assert(arr[4] == 6);
+
+arr << 7;
+
+assert(arr[5] == 7);
+
+print(arr);
+
+print(arr[5]);

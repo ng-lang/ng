@@ -88,6 +88,14 @@ namespace NG::runtime {
         return nullptr;
     }
 
+    NGObject* IOverloadedOperators::opLShift(NGObject* object) {
+        return nullptr;
+    }
+
+    NGObject* IOverloadedOperators::opRShift(NGObject* object) {
+        return nullptr;
+    }
+
     IOverloadedOperators::~IOverloadedOperators() noexcept = default;
 
 
@@ -133,6 +141,14 @@ namespace NG::runtime {
 
     bool NGObject::opNotEqual(NGObject *other) const {
         return !opEquals(other);
+    }
+
+    NGObject *NGObject::opLShift(NGObject *other) {
+        throw NotImplementedException();
+    }
+
+    NGObject *NGObject::opRShift(NGObject *other) {
+        throw NotImplementedException();
     }
 
     NGObject::~NGObject() = default;
@@ -191,6 +207,12 @@ namespace NG::runtime {
 
     bool NGArray::boolValue() {
         return !items.empty();
+    }
+
+    NGObject *NGArray::opLShift(NGObject *other) {
+        items.push_back(other);
+
+        return this;
     }
 
     Str IBasicObject::show() {
@@ -329,8 +351,10 @@ namespace NG::interpreter {
                 return NGObject::boolean(leftParam->opGreaterEqual(rightParam));
             case Operators::GT:
                 return NGObject::boolean(leftParam->opGreaterThan(rightParam));
-//            case Operators::RSHIFT:
-//            case Operators::LSHIFT:
+            case Operators::RSHIFT:
+                return leftParam->opRShift(rightParam);
+            case Operators::LSHIFT:
+                return leftParam->opLShift(rightParam);
 //            case Operators::ASSIGN:
             default:
                 break;
