@@ -1,4 +1,4 @@
-#include "../../../3rdparty/Catch2/include/catch.hpp"
+#include <catch.hpp>
 #include <test.hpp>
 
 using namespace NG;
@@ -13,7 +13,7 @@ static ASTRef<ASTNode> parse(const Str &source) {
 static void interpret(const Str &source) {
     IInterperter *intp = NG::interpreter::interpreter();
 
-    auto&& ast = parse(source);
+    auto &&ast = parse(source);
 
     ast->accept(intp);
 
@@ -137,4 +137,19 @@ TEST_CASE("should be able interpret string member function", "[InterpreterTest]"
         print(x.charAt(2));
     )");
 }
+
+
+TEST_CASE("should be able interpret simple type definition", "[InterpreterTest]") {
+    interpret(R"(
+type Person {
+    property firstName;
+    property lastName;
+
+    fun name() {
+        return self.firstName + lastName;
+    }
+}
+)");
+}
+
 

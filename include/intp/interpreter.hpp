@@ -14,6 +14,7 @@ namespace NG::interpreter {
     };
 
     struct IInterperter: public virtual ISummarizable, public virtual NG::AST::IASTVisitor {
+        virtual NG::runtime::NGContext* intpContext() = 0;
     };
 
     IInterperter *interpreter();

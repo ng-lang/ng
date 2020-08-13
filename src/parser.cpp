@@ -45,6 +45,7 @@ namespace NG::Parsing {
                 : state(state) {
         }
 
+
         ASTRef<ASTNode> parse() {
             auto mod = makeast<Module>();
             while (!state.eof()) {
@@ -56,6 +57,8 @@ namespace NG::Parsing {
                         mod->definitions.push_back(valDef());
                         break;
                     case TokenType::KEYWORD_TYPE:
+                        mod->definitions.push_back(typeDef());
+                        break;
                     case TokenType::KEYWORD_SIG:
                     case TokenType::KEYWORD_CONS:
                     case TokenType::KEYWORD_MODULE:
@@ -107,6 +110,35 @@ namespace NG::Parsing {
             auto valDefStmt = valDefStatement();
 
             return makeast<ValDef>(valDefStmt);
+        }
+
+        ASTRef <PropertyDef> propertyDef() {
+            accept(TokenType::KEYWORD_PROPERTY);
+
+            const Str &name = idExpression()->repr();
+            
+            accept(TokenType::SEMICOLON);
+            return makeast<PropertyDef>(name);
+        }
+
+        ASTRef<TypeDef> typeDef() {
+            ASTRef<TypeDef> typeDef = makeast<TypeDef>();
+
+            accept(TokenType::KEYWORD_TYPE);
+
+            typeDef->typeName = idExpression()->repr();
+
+            accept(TokenType::LEFT_CURLY);
+            while (!expect(TokenType::RIGHT_CURLY)) {
+                if (expect(TokenType::KEYWORD_PROPERTY)) {
+                    typeDef->properties.push_back(propertyDef());
+                } else if (expect(TokenType::KEYWORD_FUN)) {
+                    typeDef->memberFunctions.push_back(funDef());
+                }
+            }
+            accept(TokenType::RIGHT_CURLY);
+
+            return typeDef;
         }
 
         void moduleDecl(ASTRef<Module> mod) {
@@ -320,7 +352,7 @@ namespace NG::Parsing {
             if (expect(TokenType::LEFT_PAREN)) {
                 accept(TokenType::LEFT_PAREN);
 
-                Vec<ASTRef<Expression>> args {};
+                Vec<ASTRef<Expression>> args{};
 
                 while (!expect(TokenType::RIGHT_PAREN)) {
                     args.push_back(expression());
@@ -385,13 +417,13 @@ namespace NG::Parsing {
             return nullptr;
         }
 
-        ASTRef <Expression> numberLiteral() {
+        ASTRef<Expression> numberLiteral() {
             auto integer = state->repr;
             accept(TokenType::NUMBER);
             return makeast<IntegerValue>(std::stoi(integer));
         }
 
-        ASTRef <IdExpression> idExpression() {
+        ASTRef<IdExpression> idExpression() {
             auto id = state->repr;
             accept(TokenType::ID);
             return makeast<IdExpression>(id);
@@ -400,9 +432,9 @@ namespace NG::Parsing {
         ASTRef<Expression> arrayLiteral() {
             accept(TokenType::LEFT_SQUARE);
 
-            Vec<ASTRef<Expression>> elements {};
+            Vec<ASTRef<Expression>> elements{};
 
-            while(!expect(TokenType::RIGHT_SQUARE)) {
+            while (!expect(TokenType::RIGHT_SQUARE)) {
                 auto elem = expression();
                 elements.push_back(elem);
                 if (!expect(TokenType::COMMA)) {

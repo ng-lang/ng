@@ -47,6 +47,7 @@ namespace NG::Parsing {
             {"sig", TokenType::KEYWORD_SIG},
             {"fun", TokenType::KEYWORD_FUN},
             {"cons", TokenType::KEYWORD_CONS},
+            {"property", TokenType::KEYWORD_PROPERTY},
 
             {"module", TokenType::KEYWORD_MODULE},
             {"export", TokenType::KEYWORD_EXPORT},

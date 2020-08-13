@@ -1,4 +1,4 @@
-#include "../../../3rdparty/Catch2/include/catch.hpp"
+#include <catch.hpp>
 #include <test.hpp>
 
 using namespace NG;
@@ -151,6 +151,30 @@ TEST_CASE("parser should parse index accessor expression", "[ParserTest]") {
 TEST_CASE("parser should parse array index assign expression", "[ParserTest]") {
     auto ast = parse(R"(
         d.x[1] = 2;
+    )");
+
+    destroyast(ast);
+}
+
+
+
+TEST_CASE("parser should parse simple type definition", "[ParserTest]") {
+    auto ast = parse(R"(
+        type Simple {}
+        type WithProperties {
+            property name;
+        }
+        type WithMultipleProperties {
+            property name;
+            property password;
+        }
+        type MixedPropertiesAndMembers {
+            property name;
+            property password;
+            fun validate(name, password) {
+                return self.password == password;
+            }
+        }
     )");
 
     destroyast(ast);

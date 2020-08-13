@@ -13,17 +13,19 @@ namespace NG::runtime {
         Vec<NGObject *> params;
     };
 
-    using NGInvocationHandler = std::function<void(NGObject & self, NGContext & ctx, NGInvocationContext & invCtx)>;
+    using NGInvocationHandler = std::function<void(NGObject &self, NGContext &ctx, NGInvocationContext &invCtx)>;
     struct NGType {
-        Vec <Str> properties;
+        Str name;
 
-        Map <Str, NGInvocationHandler> memberFunctions;
+        Vec<Str> properties;
+
+        Map<Str, NGInvocationHandler> memberFunctions;
     };
 
     struct NGContext {
         Map<Str, NGObject *> objects;
-        Map <Str, std::function<void(NGContext &ctx)>> handlers;
-        Map <Str, NGInvocationHandler> functions;
+        Map<Str, NGInvocationHandler> functions;
+        Map<Str, NGType *> types;
 
         Map<Str, NGModule *> modules;
 
@@ -263,7 +265,7 @@ namespace NG::runtime {
         NGType *customizedType{};
         Map<Str, NGObject *> properties{};
 
-        Map <Str, NGInvocationHandler> selfMemberFunctions{};
+        Map<Str, NGInvocationHandler> selfMemberFunctions{};
 
         NGObject *respond(const Str &member, NGContext *context, NGInvocationContext *invocationContext) override;
 

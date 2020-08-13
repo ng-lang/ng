@@ -1,5 +1,5 @@
 
-#include "../../../3rdparty/Catch2/include/catch.hpp"
+#include <catch.hpp>
 #include <test.hpp>
 
 using namespace NG;
@@ -179,4 +179,13 @@ TEST_CASE("lexer should accept array indexing expr", "[LexerTest]") {
     auto &&tokens = lexer.lex();
 
     REQUIRE(tokens.size() == 9);
+}
+
+TEST_CASE("lexer should accept property keyword", "[LexetTest]") {
+    Lexer lexer {LexState{R"(property)"}};
+
+    auto &&tokens = lexer.lex();
+
+    REQUIRE(tokens.size() == 1);
+    REQUIRE(tokens[0].type == TokenType::KEYWORD_PROPERTY);
 }

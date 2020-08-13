@@ -17,6 +17,8 @@ namespace NG {
         KEYWORD_SIG,
         KEYWORD_CONS,
 
+        KEYWORD_PROPERTY,
+
         KEYWORD_MODULE,
         KEYWORD_EXPORT,
         KEYWORD_USE,

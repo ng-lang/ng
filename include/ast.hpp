@@ -426,6 +426,8 @@ namespace NG::AST {
     struct PropertyDef : Definition {
         Str propertyName;
 
+        explicit PropertyDef(Str name): propertyName {std::move(name)} {}
+
         ASTNodeType astNodeType() const override;
 
         [[nodiscard]] Str name() const override;

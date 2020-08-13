@@ -274,10 +274,6 @@ namespace NG::interpreter {
             };
         }
 
-        void visit(IdAccessorExpression *idAccExpr) override {
-            DefaultDummyAstVisitor::visit(idAccExpr);
-        }
-
         void visit(Statement *stmt) override {
             StatementVisitor vis{context};
             stmt->accept(&vis);
@@ -287,6 +283,44 @@ namespace NG::interpreter {
             ExpressionVisitor vis{context};
             valDef->body->value->accept(&vis);
             context->objects[valDef->name()] = vis.object;
+        }
+
+        void visit(TypeDef *typeDef) override {
+            auto type = new NGType{};
+
+            type->name = typeDef->typeName;
+
+            for (const auto &property : typeDef->properties) {
+                type->properties.push_back(property->propertyName);
+            }
+
+            for (const auto &memFn : typeDef->memberFunctions) {
+                type->memberFunctions[memFn->funName] = [this, memFn](NGObject &dummy,
+                                                                      NGContext &ngContext,
+                                                                      NGInvocationContext &invocationContext) {
+                    NGContext newContext{ngContext};
+                    for (int i = 0; i < memFn->params.size(); ++i) {
+                        newContext.objects[memFn->params[i]->paramName] = invocationContext.params[i];
+                    }
+
+                    newContext.objects["self"] = &dummy;
+
+                    if (auto structural = dynamic_cast<NGStructuralObject*>(&dummy); structural != nullptr) {
+                        for (const auto &property : structural->properties) {
+                            newContext.objects[property.first] = property.second;
+                        }
+                    }
+
+                    withNewContext(newContext, [this, memFn] {
+                        StatementVisitor vis{context};
+
+                        memFn->body->accept(&vis);
+                    });
+                    ngContext.retVal = newContext.retVal;
+                };
+            }
+
+            context->types[type->name] = type;
         }
 
         void summary() override {
@@ -301,6 +335,14 @@ namespace NG::interpreter {
             for (const auto &p : context->modules) {
                 debug_log("Context module", "name:", p.first, "value:", code(p.second->defs.size()));
             }
+
+            for (const auto &type : context->types) {
+                debug_log("Context types", "name:", type.first, "members:", type.second->properties.size() + type.second->memberFunctions.size());
+            }
+        }
+
+        NGContext *intpContext() override {
+            return context;
         }
 
         ~Interpreter() override {
