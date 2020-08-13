@@ -16,11 +16,13 @@ runIntegrationTest(const std::string& filename) {
     std::string source{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
     auto ast = parse(source);
 
-    IASTVisitor *intp = NG::interpreter::interpreter();
+    IInterperter *intp = NG::interpreter::interpreter();
 
     ast->accept(intp);
     auto &&bytes = serialize_ast(ast);
     auto ast2 = deserialize_ast(bytes);
+
+    intp->summary();
 
     REQUIRE(*ast == *ast2);
 

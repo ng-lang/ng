@@ -10,10 +10,21 @@ static ASTRef<ASTNode> parse(const Str &source) {
     return Parser(ParseState(Lexer(LexState{source}).lex())).parse();
 }
 
-TEST_CASE("interpreter should accept simple definitions", "[InterpreterTest]") {
-    IASTVisitor *intp = NG::interpreter::interpreter();
+static void interpret(const Str &source) {
+    IInterperter *intp = NG::interpreter::interpreter();
 
-    auto ast = parse(R"(
+    auto&& ast = parse(source);
+
+    ast->accept(intp);
+
+    intp->summary();
+
+    delete intp;
+}
+
+TEST_CASE("interpreter should accept simple definitions", "[InterpreterTest]") {
+
+    interpret(R"(
         val x = 1;
         val y = 2;
         val name = "ng";
@@ -32,19 +43,11 @@ TEST_CASE("interpreter should accept simple definitions", "[InterpreterTest]") {
 
         assert(z == 3, h == 2);
     )");
-
-    ast->accept(intp);
-
-//    auto isum = dynamic_cast<NG::interpreter::ISummarizable *>(intp);
-//    isum->summary();
-
-    destroyast(ast);
 }
 
 TEST_CASE("interpreter should run statements", "[InterpreterTest]") {
-    auto intp = NG::interpreter::interpreter();
 
-    auto ast = parse(R"(
+    interpret(R"(
         fun max(a, b) {
             if (a > b) {
                 return a;
@@ -59,20 +62,11 @@ TEST_CASE("interpreter should run statements", "[InterpreterTest]") {
 
         assert(x == 2, y == 5, g == 5, h == 10);
     )");
-
-    ast->accept(intp);
-
-//    auto *isum = dynamic_cast<NG::interpreter::ISummarizable *>(intp);
-//    isum->summary();
-
-    destroyast(ast);
 }
 
 TEST_CASE("interpreter should run recursion", "[InterpreterTest]") {
 
-    auto intp = NG::interpreter::interpreter();
-
-    auto ast = parse(R"(
+    interpret(R"(
         fun fact(x) {
             if (x > 0) {
                 return x * fact(x-1);
@@ -84,21 +78,12 @@ TEST_CASE("interpreter should run recursion", "[InterpreterTest]") {
 
         assert(z == 120);
     )");
-
-    ast->accept(intp);
-
-//    auto *isum = dynamic_cast<NG::interpreter::ISummarizable *>(intp);
-//    isum->summary();
-
-    destroyast(ast);
 }
 
 
 TEST_CASE("interpreter should run complex recursion", "[InterpreterTest]") {
 
-    auto intp = NG::interpreter::interpreter();
-
-    auto ast = parse(R"(
+    interpret(R"(
         fun gcd(a, b) {
             val c = a % b;
             if (c == 0) {
@@ -111,38 +96,20 @@ TEST_CASE("interpreter should run complex recursion", "[InterpreterTest]") {
 
         assert(g == 3);
     )");
-
-    ast->accept(intp);
-
-//    auto *isum = dynamic_cast<NG::interpreter::ISummarizable *>(intp);
-//    isum->summary();
-
-    destroyast(ast);
 }
 
 TEST_CASE("shoud be able to interpret array literal", "[InterpreterTest]") {
 
-    auto intp = NG::interpreter::interpreter();
-
-    auto ast = parse(R"(
+    interpret(R"(
         val arr = [1, 2, 3, 4, 5];
 
         print(arr);
     )");
-
-    ast->accept(intp);
-
-//    auto *isum = dynamic_cast<NG::interpreter::ISummarizable *>(intp);
-//    isum->summary();
-
-    destroyast(ast);
 }
 
 TEST_CASE("shoud be able to interpret array index", "[InterpreterTest]") {
 
-    auto intp = NG::interpreter::interpreter();
-
-    auto ast = parse(R"(
+    interpret(R"(
         val arr = [1, 2, 3, 4, 5];
 
 
@@ -155,12 +122,5 @@ TEST_CASE("shoud be able to interpret array index", "[InterpreterTest]") {
 
         print(arr);
     )");
-
-    ast->accept(intp);
-
-//    auto *isum = dynamic_cast<NG::interpreter::ISummarizable *>(intp);
-//    isum->summary();
-
-    destroyast(ast);
 }
 
