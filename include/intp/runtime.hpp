@@ -270,6 +270,8 @@ namespace NG::runtime {
         NGObject *respond(const Str &member, NGContext *context, NGInvocationContext *invocationContext) override;
 
         NGType *type() override;
+
+        Str show() override;
     };
 
     template<class T>

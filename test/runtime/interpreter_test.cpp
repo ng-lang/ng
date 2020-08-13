@@ -144,11 +144,25 @@ TEST_CASE("should be able interpret simple type definition", "[InterpreterTest]"
 type Person {
     property firstName;
     property lastName;
+    property kid;
 
     fun name() {
-        return self.firstName + lastName;
+        return self.firstName + " " + lastName;
     }
 }
+
+val person = new Person {
+    firstName: "Kimmy",
+    lastName: "Leo",
+    kid: new Person {
+        firstName: "Tiny",
+        lastName: "Leo"
+    }
+};
+
+assert(person.name().size() == 9);
+
+print(person.kid.name());
 )");
 }
 

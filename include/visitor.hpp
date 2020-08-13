@@ -61,6 +61,8 @@ namespace NG::AST {
 
         virtual void visit(PropertyDef* propertyDef) = 0;
 
+        virtual void visit(NewObjectExpression * newObj) = 0;
+
         ~IASTVisitor() override = 0;
     };
 
@@ -117,6 +119,8 @@ namespace NG::AST {
         void visit(TypeDef *typeDef) override;
 
         void visit(PropertyDef *propertyDef) override;
+
+        void visit(NewObjectExpression *newObj) override;
 
         ~DefaultDummyAstVisitor() override;
     };

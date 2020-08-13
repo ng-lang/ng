@@ -39,6 +39,7 @@ namespace NG::AST {
         ASSIGNMENT_EXPRESSION,
         INDEX_ACCESSOR_EXPRESSION,
         INDEX_ASSIGNMENT_EXPRESSION,
+        NEW_OBJECT_EXPRESSION,
 
         LITERAL = 0x300,
         INTEGER_VALUE,
@@ -456,6 +457,21 @@ namespace NG::AST {
         Str repr() override;
 
         ~TypeDef() override;
+    };
+
+    struct NewObjectExpression : Expression {
+        Str typeName;
+        Map<Str, ASTRef<Expression>> properties;
+
+        ASTNodeType astNodeType() const override;
+
+        void accept(IASTVisitor *visitor) override;
+
+        bool operator==(const ASTNode &node) const override;
+
+        Str repr() override;
+
+        ~NewObjectExpression() override;
     };
 
 

@@ -22,6 +22,7 @@ namespace NG {
         KEYWORD_MODULE,
         KEYWORD_EXPORT,
         KEYWORD_USE,
+        KEYWORD_NEW,
 
         KEYWORD_IF,
         KEYWORD_THEN,

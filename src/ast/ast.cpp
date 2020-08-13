@@ -531,4 +531,39 @@ namespace NG::AST {
     Str PropertyDef::repr() {
         return "property " + propertyName + ";";
     }
+
+    ASTNodeType NewObjectExpression::astNodeType() const {
+        return ASTNodeType::NEW_OBJECT_EXPRESSION;
+    }
+
+    void NewObjectExpression::accept(IASTVisitor *visitor) {
+        visitor->visit(this);
+    }
+
+    bool NewObjectExpression::operator==(const ASTNode &node) const {
+        auto&& newObj = dynamic_cast<const NewObjectExpression &>(node);
+        
+        return newObj.typeName == typeName &&
+            newObj.properties == properties;
+    }
+
+    Str NewObjectExpression::repr() {
+        Str props {};
+
+        for (const auto &property : properties) {
+            if (!props.empty()) {
+                props += ",";
+            }
+
+            props += (property.first + ": " + property.second->repr());
+        }
+        
+        return "new " + typeName + " { " + props + " }";
+    }
+
+    NewObjectExpression::~NewObjectExpression() {
+        for (auto& [_, value] : properties) {
+            destroyast(value);
+        }
+    }
 } // namespace NG

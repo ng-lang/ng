@@ -112,11 +112,11 @@ namespace NG::Parsing {
             return makeast<ValDef>(valDefStmt);
         }
 
-        ASTRef <PropertyDef> propertyDef() {
+        ASTRef<PropertyDef> propertyDef() {
             accept(TokenType::KEYWORD_PROPERTY);
 
             const Str &name = idExpression()->repr();
-            
+
             accept(TokenType::SEMICOLON);
             return makeast<PropertyDef>(name);
         }
@@ -307,7 +307,8 @@ namespace NG::Parsing {
                    expect(TokenType::RIGHT_CURLY) ||  // }
                    expect(TokenType::RIGHT_SQUARE) || // ]
                    expect(TokenType::SEMICOLON) ||    // ;
-                   expect(TokenType::OPERATOR);
+                   expect(TokenType::OPERATOR) ||
+                   state.eof();
         }
 
         ASTRef<BinaryExpression> binaryExpression(ASTRef<Expression> expr) {
@@ -383,6 +384,32 @@ namespace NG::Parsing {
             return makeast<IndexAccessorExpression>(primary, accessor);
         }
 
+        ASTRef<NewObjectExpression> newObjectExpression() {
+            ASTRef<NewObjectExpression> newObj = makeast<NewObjectExpression>();
+
+            accept(TokenType::KEYWORD_NEW);
+
+            newObj->typeName = idExpression()->repr();
+
+            accept(TokenType::LEFT_CURLY);
+
+            while (!expect(TokenType::RIGHT_CURLY)) {
+                auto&& propertyName = idExpression()->repr();
+                accept(TokenType::COLON);
+                auto&& expr = expression();
+
+                newObj->properties[propertyName] = expr;
+                if (!expect(TokenType::COMMA)) {
+                    break;
+                }
+                accept(TokenType::COMMA);
+            }
+
+            accept(TokenType::RIGHT_CURLY);
+
+            return newObj;
+        }
+
         ASTRef<Expression> primaryExpression() {
             if (expect(TokenType::LEFT_PAREN)) {
                 accept(TokenType::LEFT_PAREN);
@@ -413,6 +440,8 @@ namespace NG::Parsing {
                 return makeast<BooleanValue>(false);
             } else if (expect(TokenType::LEFT_SQUARE)) {
                 return arrayLiteral();
+            } else if (expect(TokenType::KEYWORD_NEW)) {
+                return newObjectExpression();
             }
             return nullptr;
         }

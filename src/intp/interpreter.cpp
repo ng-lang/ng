@@ -180,6 +180,35 @@ namespace NG::interpreter {
 
             object = main->respond(repr, context, &invCtx);
         }
+
+        void visit(NewObjectExpression *newObj) override {
+            Str &typeName = newObj->typeName;
+            auto ngType = context->types[typeName];
+
+            auto structural = new NGStructuralObject{};
+
+            structural->customizedType = ngType;
+
+            NGContext newContext {*context};
+            ExpressionVisitor visitor {&newContext};
+
+            for (auto &&[name, expr] : newObj->properties) {
+                expr->accept(&visitor);
+                NGObject *result = visitor.object;
+                
+                visitor.context->objects[name] = result;
+
+                structural->properties[name] = result;
+            }
+
+            for (const auto &property : ngType->properties) {
+                if (structural->properties.find(property) == structural->properties.end()) {
+                    structural->properties[property] = new NGObject {};
+                }
+            }
+
+            object = structural;
+        }
     };
 
     struct StatementVisitor : public DefaultDummyAstVisitor {

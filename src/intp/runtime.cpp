@@ -366,4 +366,17 @@ namespace NG::runtime {
         }
 
     }
+
+    Str NGStructuralObject::show() {
+        Str repr {};
+        for (const auto &[name, value] : properties) {
+            if (!repr.empty()) {
+                repr += ", ";
+            }
+
+            repr += (name + ": " + value->show());
+        }
+
+        return "{ " + repr + " }";
+    }
 } // namespace NG::runtime

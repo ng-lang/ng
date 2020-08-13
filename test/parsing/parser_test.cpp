@@ -179,3 +179,15 @@ TEST_CASE("parser should parse simple type definition", "[ParserTest]") {
 
     destroyast(ast);
 }
+
+
+TEST_CASE("parser should parse new object creation", "[ParserTest]") {
+    auto ast = parse(R"(
+val person = new Person {
+    firstName: "Kimmy",
+    lastName: "Leo"
+};
+    )");
+
+    destroyast(ast);
+}

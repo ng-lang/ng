@@ -56,6 +56,8 @@ namespace NG::AST {
 
     void IASTVisitor::visit(PropertyDef *propertyDef) {}
 
+    void IASTVisitor::visit(NewObjectExpression *newObj) {}
+
     IASTVisitor::~IASTVisitor() = default;
 
     void DefaultDummyAstVisitor::visit(ASTNode *node) {}
@@ -109,6 +111,8 @@ namespace NG::AST {
     void DefaultDummyAstVisitor::visit(TypeDef *typeDef) {}
 
     void DefaultDummyAstVisitor::visit(PropertyDef *propertyDef) {}
+
+    void DefaultDummyAstVisitor::visit(NewObjectExpression *newObj) {}
 
     DefaultDummyAstVisitor::~DefaultDummyAstVisitor() = default;
 

@@ -52,6 +52,7 @@ namespace NG::Parsing {
             {"module", TokenType::KEYWORD_MODULE},
             {"export", TokenType::KEYWORD_EXPORT},
             {"use", TokenType::KEYWORD_USE},
+            {"new", TokenType::KEYWORD_NEW},
 
             {"if", TokenType::KEYWORD_IF},
             {"then", TokenType::KEYWORD_THEN},

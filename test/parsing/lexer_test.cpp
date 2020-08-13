@@ -189,3 +189,13 @@ TEST_CASE("lexer should accept property keyword", "[LexetTest]") {
     REQUIRE(tokens.size() == 1);
     REQUIRE(tokens[0].type == TokenType::KEYWORD_PROPERTY);
 }
+
+
+TEST_CASE("lexer should accept new keyword", "[LexetTest]") {
+    Lexer lexer {LexState{R"(new)"}};
+
+    auto &&tokens = lexer.lex();
+
+    REQUIRE(tokens.size() == 1);
+    REQUIRE(tokens[0].type == TokenType::KEYWORD_NEW);
+}
