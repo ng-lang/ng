@@ -7,7 +7,7 @@
 #include <iostream>
 #include <string>
 #include <streambuf>
-#include "interpreter.hpp"
+#include "intp/interpreter.hpp"
 
 using namespace NG;
 using namespace NG::AST;

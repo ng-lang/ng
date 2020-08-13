@@ -6,7 +6,7 @@ using namespace NG;
 using namespace NG::AST;
 using namespace NG::Parsing;
 
-static inline ASTNode *parse(const Str &source) {
+static inline ASTRef<ASTNode> parse(const Str &source) {
     return Parser(ParseState(Lexer(LexState{source}).lex())).parse();
 }
 
@@ -27,7 +27,7 @@ runIntegrationTest(const std::string& filename) {
     destroyast(ast);
     destroyast(ast2);
 
-    destroyast(intp);
+    delete intp;
 }
 
 TEST_CASE("should run with id function definition", "[Integration]") {

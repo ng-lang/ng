@@ -153,7 +153,7 @@ namespace NG::AST {
         ~ASTSerializer() override = default;
     };
 
-    std::vector<uint8_t> serialize_ast(ASTRef<ASTNode> node) {
+    std::vector<uint8_t> serialize_ast(const ASTRef<ASTNode>& node) {
         ASTSerializer serializer;
         serializer.stream << ASTNodeType::NODE;
         node->accept(&serializer);
@@ -195,7 +195,7 @@ namespace NG::AST {
             ASTRef<T> ref = nullptr;
             ASTNodeType type;
             stream >> type;
-            return dynamic_cast<ASTRef<T>>(expectNode(ref, type));
+            return dynamic_ast_cast<T>(expectNode(ref, type));
         }
 
         ASTRef<Module> expectNode(ASTRef<Module> def, ASTNodeType type) {

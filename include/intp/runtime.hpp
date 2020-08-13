@@ -1,6 +1,6 @@
 
-#ifndef __NG_RUNTIME_HPP
-#define __NG_RUNTIME_HPP
+#ifndef __NG_INTP_RUNTIME_HPP
+#define __NG_INTP_RUNTIME_HPP
 
 #include <fwd.hpp>
 #include <functional>
@@ -51,17 +51,11 @@ namespace NG::runtime {
         virtual ~IBasicObject() = 0;
     };
 
-    struct NGObject : IOverloadedOperators, IBasicObject{
+    struct NGObject : public virtual IOverloadedOperators, public virtual IBasicObject{
 
         NGObject() = default;
 
-        static NGObject *number(long long number);
-
         static NGObject *boolean(bool boolean);
-
-        static NGObject *str(const Str& str);
-
-        static NGObject *array(const Vec<NGObject*>& array);
 
         bool boolValue() override {
             return true;
@@ -112,9 +106,8 @@ namespace NG::runtime {
         UNORDERED
     };
 
-
     template<class T>
-    struct ThreeWayComparable : NGObject {
+    struct ThreeWayComparable : public virtual NGObject {
 
         bool opEquals(NGObject *other) const override {
             return T::comparator(this, other) == Orders::EQ;
@@ -192,7 +185,7 @@ namespace NG::runtime {
         NGObject *opLShift(NGObject *other) override;
     };
 
-    struct NGBoolean : NGObject {
+    struct NGBoolean final : NGObject {
         bool  value;
 
         explicit NGBoolean(bool value = false): value { value } {}
@@ -204,7 +197,7 @@ namespace NG::runtime {
         bool boolValue() override;
     };
 
-    struct NGString : NGObject {
+    struct NGString final : NGObject {
         Str value;
 
         explicit NGString(const Str& str): value {str} {}

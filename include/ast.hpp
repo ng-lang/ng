@@ -10,10 +10,13 @@
 #include "common.hpp"
 #include <fwd.hpp>
 
-namespace NG::AST {
+#ifdef NG_CONFNG_USING_SHARED_PTR_FOR_AST
+#include <ast/ref_adapter_shared_ptr.hpp>
+#else // ifndef NG_CONFNG_USING_SHARED_PTR_FOR_AST
+#include <ast/ref_adapter_raw.hpp>
+#endif // NG_CONFNG_USING_SHARED_PTR_FOR_AST
 
-    template<class T>
-    using ASTRef = T *;
+namespace NG::AST {
 
     enum class [[nodiscard]] ASTNodeType : uint32_t {
         UNKNOWN = 0,
@@ -50,18 +53,6 @@ namespace NG::AST {
 
         BOTTOM
     };
-
-    template<class T, class... Args>
-    inline ASTRef<T> makeast(Args &&... args) {
-        return new T{std::move(args)...};
-    }
-
-    template<class T>
-    inline void destroyast(ASTRef<T> t) {
-        if (t != nullptr) {
-            delete t;
-        }
-    }
 
     struct ASTNode : NonCopyable {
         ASTNode() = default;
@@ -535,9 +526,9 @@ namespace NG::AST {
         ~DefaultDummyAstVisitor() override;
     };
 
-    std::vector<uint8_t> serialize_ast(ASTNode *node);
+    std::vector<uint8_t> serialize_ast(const ASTRef<ASTNode>& node);
 
-    ASTNode *deserialize_ast(std::vector<uint8_t> &bytes);
+    ASTRef<ASTNode> deserialize_ast(std::vector<uint8_t> &bytes);
 
 } // namespace NG
 

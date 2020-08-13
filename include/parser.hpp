@@ -3,6 +3,7 @@
 #define __NG_PARSER_HPP
 
 #include <fwd.hpp>
+#include <ast.hpp>
 #include <utility>
 
 namespace NG::Parsing {
@@ -75,7 +76,7 @@ namespace NG::Parsing {
 
         Parser(const Parser &) = delete;
 
-        ASTNode *parse();
+        AST::ASTRef<ASTNode> parse();
     };
 
 } // namespace NG

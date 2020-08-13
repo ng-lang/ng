@@ -5,6 +5,8 @@
 #include <stdexcept>
 #include <string>
 
+#include "config.h"
+
 namespace NG {
 
     struct NonCopyable {

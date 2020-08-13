@@ -15,7 +15,8 @@ set(NG_LIB_SRC
         src/lexer.cpp
         src/parser.cpp
         src/visitor.cpp
-        src/interpreter.cpp
+        src/intp/interpreter.cpp
+        src/intp/runtime.cpp
         )
 
 set(NG_TEST_SRC

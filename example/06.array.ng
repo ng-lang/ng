@@ -19,3 +19,12 @@ assert(arr[5] == 7);
 print(arr);
 
 print(arr[5]);
+
+val twoDimArr = [[1, 2], [3, 4]];
+
+assert(twoDimArr[0][0] == 1);
+assert(twoDimArr[1][1] == 4);
+
+print(twoDimArr);
+
+print(twoDimArr[1][0]);

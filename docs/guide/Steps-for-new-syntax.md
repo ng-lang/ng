@@ -9,11 +9,11 @@
     - `src/ast/ast.cpp` for method implementations, especially `accept()` and `~T()`
     - `include/ast.hpp` for new AST visitor method
     - `src/visitor.cpp` for implement AST visitor method
-    - `src/ast/serializer` for AST type serialize/deserialize
+    - `src/ast/serializer.cpp` for AST type serialize/deserialize
 
 Steps:
 
-  1. Create new token type
+  1. Create new token type (if not exists)
   2. Add lexer method to lex the token
   3. Check if reserved tokens were used and update
   4. Add lexer test
@@ -21,7 +21,8 @@ Steps:
   5. Implement the parser
   6. Add parser test
   7. Add new visitor method for the AST type
-  8. Implement PrettyPrinter and Serializer
+  8. Implement interpreter
   9. Update examples for the new syntax
-  10. Check PrettyPrinter output
-  11. Update integration test to include new syntax example file
+  10. Update integration test to include new syntax example file
+  11. Implement serializer
+  

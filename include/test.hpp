@@ -5,9 +5,9 @@
 
 
 #include <ast.hpp>
-#include <interpreter.hpp>
 #include <parser.hpp>
-#include <runtime.hpp>
+#include <intp/interpreter.hpp>
+#include <intp/runtime.hpp>
 #include <token.hpp>
 
 #include <ropto.hpp>

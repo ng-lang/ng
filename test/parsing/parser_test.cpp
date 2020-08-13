@@ -12,49 +12,49 @@ static ASTRef<ASTNode> parse(const Str &source) {
 TEST_CASE("parser should parse function", "[ParserTest]") {
     auto ast = parse("fun id(n) { return n; }");
 
-    delete ast;
+    destroyast(ast);
 }
 
 TEST_CASE("parser should parse arrow return", "[ParserTest]") {
     auto ast = parse("fun id (n) => n;");
 
-    delete ast;
+    destroyast(ast);
 }
 
 TEST_CASE("parser should parse if structure", "[ParserTest]") {
     auto ast = parse("fun id4(y) if (y) return y;");
 
-    delete ast;
+    destroyast(ast);
 
     ast = parse("fun id5(z) { if (x) return y; else return z; }");
 
-    delete ast;
+    destroyast(ast);
 
     ast = parse("fun id6(x) if (x) { if (y) return z; else return x1; } else return x2;");
 
-    delete ast;
+    destroyast(ast);
 
     ast = parse("fun id7(x) if (x) { if (y) return z; else return x1; } else if (y) return z;");
 
-    delete ast;
+    destroyast(ast);
 }
 
 TEST_CASE("parser should parse return", "[ParserTest]") {
     auto ast = parse("fun one() { return 1; }");
 
-    delete ast;
+    destroyast(ast);
 }
 
 TEST_CASE("parser should parse assignment", "[ParserTest]") {
     auto ast = parse("fun id(n) { val x = n; return x; }");
 
-    delete ast;
+    destroyast(ast);
 }
 
 TEST_CASE("parser should parse function calls", "[ParserTest]") {
     auto ast = parse("fun id(a, b, c, e, f, g) { a(b); b(c); e(c)(b)(a); f(a, b, c); f(b(c), a(b), c); }");
 
-    delete ast;
+    destroyast(ast);
 }
 
 TEST_CASE("parser should parse id accessors", "[ParserTest]") {
@@ -72,7 +72,7 @@ TEST_CASE("parser should parse id accessors", "[ParserTest]") {
         }
     )");
 
-    delete ast;
+    destroyast(ast);
 }
 
 TEST_CASE("parser should parse operators", "[ParserTest]") {
@@ -82,7 +82,7 @@ TEST_CASE("parser should parse operators", "[ParserTest]") {
         }
     )");
 
-    delete ast;
+    destroyast(ast);
 }
 
 TEST_CASE("parser should parse modules", "[ParserTest]") {
@@ -93,8 +93,8 @@ TEST_CASE("parser should parse modules", "[ParserTest]") {
         module whatever.thisMod;
     )");
 
-    REQUIRE(static_cast<ASTRef<Module>>(ast)->name == "fuck.you.stupid.whatever.thisMod");
-    delete ast;
+    REQUIRE(dynamic_ast_cast<Module>(ast)->name == "fuck.you.stupid.whatever.thisMod");
+    destroyast(ast);
 }
 
 TEST_CASE("parser should parse strings", "[ParserTest]") {
@@ -105,7 +105,7 @@ TEST_CASE("parser should parse strings", "[ParserTest]") {
         }
     )");
 
-    delete ast;
+    destroyast(ast);
 }
 
 TEST_CASE("parser should parse value definitions", "[ParserTest]") {
@@ -114,7 +114,7 @@ TEST_CASE("parser should parse value definitions", "[ParserTest]") {
         val y = 2;
     )");
 
-    delete ast;
+    destroyast(ast);
 }
 
 TEST_CASE("parser should parse true/false literals", "[ParserTest]") {
@@ -123,7 +123,7 @@ TEST_CASE("parser should parse true/false literals", "[ParserTest]") {
         val y = false;
     )");
 
-    delete ast;
+    destroyast(ast);
 }
 
 TEST_CASE("parser should parse array literals", "[ParserTest]") {
@@ -131,7 +131,7 @@ TEST_CASE("parser should parse array literals", "[ParserTest]") {
         val x = [1, 2, 3, 4, 5];
     )");
 
-    delete ast;
+    destroyast(ast);
 }
 
 TEST_CASE("parser should parse index accessor expression", "[ParserTest]") {
@@ -142,7 +142,7 @@ TEST_CASE("parser should parse index accessor expression", "[ParserTest]") {
         j.k()[l[1][2]].m();
     )");
 
-    delete ast;
+    destroyast(ast);
 }
 
 
@@ -151,5 +151,5 @@ TEST_CASE("parser should parse array index assign expression", "[ParserTest]") {
         d.x[1] = 2;
     )");
 
-    delete ast;
+    destroyast(ast);
 }
