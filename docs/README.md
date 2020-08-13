@@ -7,3 +7,11 @@ programming.
 
  - [Reference](./ref/Contents.md)
  - [Contribution Guide](./ref/CONTRIBUTION.md)
+
+## TODO
+
+- assignment operator
+- operator overloading
+- module & import
+- using shared_ptr in runtime to avoid memory leaks(interpreter)
+- compile to native
