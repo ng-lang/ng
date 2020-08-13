@@ -58,7 +58,8 @@ namespace NG::runtime {
     NGObject *IOverloadedOperators::opDividedBy(NGObject *other) const { return nullptr; }
 
 
-    NGObject *IOverloadedOperators::respond(const Str &member, NGInvocationContext *invocationContext) const {
+    NGObject *IOverloadedOperators::respond(const Str &member, NGContext *context,
+                                            NGInvocationContext *invocationContext) {
         return nullptr;
     }
 
@@ -109,7 +110,16 @@ namespace NG::runtime {
         throw NotImplementedException();
     }
 
-    NGObject *NGObject::respond(const Str &member, NGInvocationContext *invocationContext) const {
+    NGObject *NGObject::respond(const Str &member, NGContext *context, NGInvocationContext *invocationContext) {
+        Map<Str, NGInvocationHandler> &fns = this->type()->memberFunctions;
+        if (fns.find(member) != fns.end()) {
+            NGContext newContext{*context};
+            newContext.objects["self"] = this;
+            fns[member](*this, newContext, *invocationContext);
+
+            return newContext.retVal;
+        }
+
         throw NotImplementedException();
     }
 
@@ -128,7 +138,7 @@ namespace NG::runtime {
     using InvCtx = NGInvocationContext;
 
     NGType *NGObject::objectType() {
-        static NGType objectType {};
+        static NGType objectType{};
         return &objectType;
     }
 
@@ -248,15 +258,15 @@ namespace NG::runtime {
     NGType *NGString::stringType() {
         static NGType stringType{
                 .memberFunctions = {
-                        {"size", [](NGObject &self, NGContext &context, InvCtx &invCtx) {
-                            auto& str = dynamic_cast<NGString &>(self);
+                        {"size",   [](NGObject &self, NGContext &context, InvCtx &invCtx) {
+                            auto &str = dynamic_cast<NGString &>(self);
 
                             context.retVal = new NGInteger(str.value.size());
                         }},
-                        {"charAt", [](NGObject& self, NGContext &context, InvCtx& invCtx) {
-                            auto& str = dynamic_cast<NGString&>(self);
+                        {"charAt", [](NGObject &self, NGContext &context, InvCtx &invCtx) {
+                            auto &str = dynamic_cast<NGString &>(self);
                             auto index = dynamic_cast<NGInteger *>(                            invCtx.params[0]);
-                            
+
                             context.retVal = new NGInteger(str.value[index->value]);
                         }}
                 }
@@ -266,10 +276,10 @@ namespace NG::runtime {
     }
 
     NGObject *NGString::opPlus(NGObject *other) const {
-        if (auto str = dynamic_cast<NGString*>(other); str != nullptr) {
+        if (auto str = dynamic_cast<NGString *>(other); str != nullptr) {
 
 
-            return new NGString { value + str->value };
+            return new NGString{value + str->value};
         }
 
         throw IllegalTypeException("Not a string");
@@ -334,5 +344,26 @@ namespace NG::runtime {
 
     bool NGInteger::boolValue() {
         return value != 0;
+    }
+
+    NGType *NGStructuralObject::type() {
+        return this->customizedType;
+    }
+
+    NGObject *NGStructuralObject::respond(const Str &member, NGContext *context,
+                                          NGInvocationContext *invocationContext) {
+
+        if (selfMemberFunctions.find(member) != selfMemberFunctions.end()) {
+            NGContext newContext{*context};
+            context->objects["self"] = this;
+            selfMemberFunctions[member](*this, newContext, *invocationContext);
+
+            return newContext.retVal;
+        } else if (properties.find(member) != properties.end()) {
+            return properties[member];
+        } else {
+            return NGObject::respond(member, context, invocationContext);
+        }
+
     }
 } // namespace NG::runtime

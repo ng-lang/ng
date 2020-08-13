@@ -171,19 +171,13 @@ namespace NG::interpreter {
 
             NGObject *main = vis.object;
 
-            Map<Str, NGInvocationHandler> &members = main->type()->memberFunctions;
-            if (members.find(repr) != members.end()) {
-                NGInvocationContext invCtx {};
-                for (const auto &argument : idAccExpr->arguments) {
-                    argument->accept(&vis);
-                    invCtx.params.push_back(vis.object);
-                }
-                NGContext newContext {*context};
-                members[repr](*main, newContext, invCtx);
-                object = newContext.retVal;
-            } else {
-                throw IllegalTypeException("Invalid invocation of [" + repr + "]");
+            NGInvocationContext invCtx {};
+            for (const auto &argument : idAccExpr->arguments) {
+                argument->accept(&vis);
+                invCtx.params.push_back(vis.object);
             }
+
+            object = main->respond(repr, context, &invCtx);
         }
     };
 

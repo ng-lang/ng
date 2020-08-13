@@ -13,16 +13,17 @@ namespace NG::runtime {
         Vec<NGObject *> params;
     };
 
-    using NGInvocationHandler = std::function<void(NGObject &self, NGContext &ctx, NGInvocationContext &invCtx)>;
+    using NGInvocationHandler = std::function<void(NGObject & self, NGContext & ctx, NGInvocationContext & invCtx)>;
     struct NGType {
+        Vec <Str> properties;
 
-        Map<Str, NGInvocationHandler> memberFunctions;
+        Map <Str, NGInvocationHandler> memberFunctions;
     };
 
     struct NGContext {
         Map<Str, NGObject *> objects;
-        Map<Str, std::function<void(NGContext &ctx)>> handlers;
-        Map<Str, NGInvocationHandler> functions;
+        Map <Str, std::function<void(NGContext &ctx)>> handlers;
+        Map <Str, NGInvocationHandler> functions;
 
         Map<Str, NGModule *> modules;
 
@@ -66,7 +67,7 @@ namespace NG::runtime {
         virtual NGObject *opRShift(NGObject *other) = 0;
 
         // Meta-Object function
-        virtual NGObject *respond(const Str &member, NGInvocationContext *invocationContext) const = 0;
+        virtual NGObject *respond(const Str &member, NGContext *context, NGInvocationContext *invocationContext) = 0;
 
         virtual ~IOverloadedOperators() noexcept = 0;
     };
@@ -140,7 +141,7 @@ namespace NG::runtime {
         NGObject *opRShift(NGObject *other) override;
 
         // Meta-Object function
-        NGObject *respond(const Str &member, NGInvocationContext *invocationContext) const override;
+        NGObject *respond(const Str &member, NGContext *context, NGInvocationContext *invocationContext) override;
     };
 
     enum class Orders {
@@ -255,6 +256,18 @@ namespace NG::runtime {
         bool opEquals(NGObject *other) const override;
 
         NGObject *opPlus(NGObject *other) const override;
+    };
+
+
+    struct NGStructuralObject : NGObject {
+        NGType *customizedType{};
+        Map<Str, NGObject *> properties{};
+
+        Map <Str, NGInvocationHandler> selfMemberFunctions{};
+
+        NGObject *respond(const Str &member, NGContext *context, NGInvocationContext *invocationContext) override;
+
+        NGType *type() override;
     };
 
     template<class T>
