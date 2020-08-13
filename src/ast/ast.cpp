@@ -20,7 +20,7 @@ namespace NG::AST {
 
     ASTNode::~ASTNode() = default;
 
-    const auto ASTComparator = [](ASTRef<ASTNode> left, ASTRef<ASTNode> right) -> bool {
+    const auto ASTComparator = [](const ASTRef<ASTNode>& left, const ASTRef<ASTNode>& right) -> bool {
         return *left == *right;
     };
 
