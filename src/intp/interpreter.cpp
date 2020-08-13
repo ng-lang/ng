@@ -117,7 +117,7 @@ namespace NG::interpreter {
         }
 
         void visit(ArrayLiteral *array) override {
-            Vec<NGObject*> objects;
+            Vec<NGObject *> objects;
 
             ExpressionVisitor vis{context};
 

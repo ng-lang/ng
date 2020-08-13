@@ -10,11 +10,11 @@
 #include "common.hpp"
 #include <fwd.hpp>
 
-#ifdef NG_CONFNG_USING_SHARED_PTR_FOR_AST
+#ifdef NG_CONING_USING_SHARED_PTR_FOR_AST
 #include <ast/ref_adapter_shared_ptr.hpp>
-#else // ifndef NG_CONFNG_USING_SHARED_PTR_FOR_AST
+#else // ifndef NG_CONING_USING_SHARED_PTR_FOR_AST
 #include <ast/ref_adapter_raw.hpp>
-#endif // NG_CONFNG_USING_SHARED_PTR_FOR_AST
+#endif // NG_CONING_USING_SHARED_PTR_FOR_AST
 
 namespace NG::AST {
 
