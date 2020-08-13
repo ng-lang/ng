@@ -27,7 +27,7 @@ int main(int argc, char **argv) {
     std::ifstream file(argv[1]);
     std::string source{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
 
-    std::unique_ptr<ASTNode> ast{parse(source)};
+    auto&& ast { parse(source) };
 
     IASTVisitor *intp = NG::interpreter::interpreter();
 
