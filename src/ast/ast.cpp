@@ -1,5 +1,6 @@
 
-#include "ast.hpp"
+#include <ast.hpp>
+#include <visitor.hpp>
 #include <token.hpp>
 #include <algorithm>
 #include <iterator>
@@ -463,5 +464,71 @@ namespace NG::AST {
         destroyast(primary);
         destroyast(accessor);
         destroyast(value);
+    }
+
+    Str TypeDef::name() const {
+        return this->typeName;
+    }
+
+    ASTNodeType TypeDef::astNodeType() const {
+        return ASTNodeType::TYPE_DEFINITION;
+    }
+
+    void TypeDef::accept(IASTVisitor *visitor) {
+        visitor->visit(this);
+    }
+
+    bool TypeDef::operator==(const ASTNode &node) const {
+        auto&& typeDef = dynamic_cast<const TypeDef&>(node);
+
+        return typeName == typeDef.name() &&
+                std::equal(begin(properties),
+                           end(properties),
+                           begin(typeDef.properties),
+                           ASTComparator) &&
+                std::equal(begin(memberFunctions),
+                           end(memberFunctions),
+                           begin(typeDef.memberFunctions),
+                           ASTComparator);
+
+    }
+
+    Str TypeDef::repr() {
+        const Str& propertiesRepr = strOfNodeList(properties, "\n");
+        const Str& membersRepr = strOfNodeList(memberFunctions, "\n");
+
+        return "type " + typeName + "{" + propertiesRepr + membersRepr + "}";
+    }
+
+    TypeDef::~TypeDef() {
+        for (const auto &item : memberFunctions) {
+            destroyast(item);
+        }
+
+        for (const auto &item : properties) {
+            destroyast(item);
+        }
+    }
+
+    ASTNodeType PropertyDef::astNodeType() const {
+        return ASTNodeType::PROPERTY_DEFINITION;
+    }
+
+    Str PropertyDef::name() const {
+        return propertyName;
+    }
+
+    bool PropertyDef::operator==(const ASTNode &node) const {
+        auto& property = dynamic_cast<const PropertyDef&>(node);
+
+        return propertyName == property.propertyName;
+    }
+
+    void PropertyDef::accept(IASTVisitor *visitor) {
+        visitor->visit(this);
+    }
+
+    Str PropertyDef::repr() {
+        return "property " + propertyName + ";";
     }
 } // namespace NG

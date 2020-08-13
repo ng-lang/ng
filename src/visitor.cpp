@@ -1,5 +1,5 @@
 
-#include "ast.hpp"
+#include "visitor.hpp"
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wunused-parameter"
@@ -52,6 +52,10 @@ namespace NG::AST {
 
     void IASTVisitor::visit(IndexAssignmentExpression* index) {}
 
+    void IASTVisitor::visit(TypeDef *typeDef) {}
+
+    void IASTVisitor::visit(PropertyDef *propertyDef) {}
+
     IASTVisitor::~IASTVisitor() = default;
 
     void DefaultDummyAstVisitor::visit(ASTNode *node) {}
@@ -101,6 +105,10 @@ namespace NG::AST {
     void DefaultDummyAstVisitor::visit(IndexAccessorExpression *index) {}
 
     void DefaultDummyAstVisitor::visit(IndexAssignmentExpression *index) {}
+
+    void DefaultDummyAstVisitor::visit(TypeDef *typeDef) {}
+
+    void DefaultDummyAstVisitor::visit(PropertyDef *propertyDef) {}
 
     DefaultDummyAstVisitor::~DefaultDummyAstVisitor() = default;
 

@@ -3,7 +3,7 @@
 #define __NG_INTP_INTERPRETER_HPP
 
 #include <fwd.hpp>
-#include <ast.hpp>
+#include <visitor.hpp>
 
 namespace NG::interpreter {
 

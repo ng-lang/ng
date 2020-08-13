@@ -2,6 +2,7 @@
 #include <intp/interpreter.hpp>
 #include <intp/runtime.hpp>
 #include <ast.hpp>
+#include <visitor.hpp>
 #include <token.hpp>
 
 #include <debug.hpp>

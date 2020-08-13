@@ -28,6 +28,8 @@ namespace NG::AST {
         FUN_DEFINITION,
 
         PARAM,
+        TYPE_DEFINITION,
+        PROPERTY_DEFINITION,
 
         EXPRESSION = 0x200,
         ID_EXPRESSION,
@@ -421,116 +423,43 @@ namespace NG::AST {
         ~ArrayLiteral() override;
     };
 
-    class IASTVisitor : NonCopyable {
-    public:
-        virtual void visit(ASTNode *astNode) = 0;
+    struct PropertyDef : Definition {
+        Str propertyName;
 
-        virtual void visit(Module *mod) = 0;
+        ASTNodeType astNodeType() const override;
 
-        virtual void visit(Statement *stmt) = 0;
+        [[nodiscard]] Str name() const override;
 
-        virtual void visit(SimpleStatement *simpleStmt) = 0;
+        bool operator==(const ASTNode &node) const override;
 
-        virtual void visit(ReturnStatement *returnStmt) = 0;
+        void accept(IASTVisitor *visitor) override;
 
-        virtual void visit(CompoundStatement *compoundStmt) = 0;
-
-        virtual void visit(IfStatement *ifStmt) = 0;
-
-        virtual void visit(ValDefStatement *valDef) = 0;
-
-        virtual void visit(Definition *def) = 0;
-
-        virtual void visit(Param *param) = 0;
-
-        virtual void visit(FunctionDef *funDef) = 0;
-
-        virtual void visit(ValDef *valDef) = 0;
-
-        virtual void visit(Expression *expr) = 0;
-
-        virtual void visit(IdExpression *idExpr) = 0;
-
-        virtual void visit(FunCallExpression *funCallExpr) = 0;
-
-        virtual void visit(IdAccessorExpression *idAccExpr) = 0;
-
-        virtual void visit(IndexAccessorExpression *index) = 0;
-
-        virtual void visit(IndexAssignmentExpression *index) = 0;
-
-        virtual void visit(BinaryExpression *binExpr) = 0;
-
-        virtual void visit(AssignmentExpression *assignmentExpr) = 0;
-
-        virtual void visit(IntegerValue *intVal) = 0;
-
-        virtual void visit(StringValue *strVal) = 0;
-
-        virtual void visit(BooleanValue *boolVal) = 0;
-
-        virtual void visit(ArrayLiteral *array) = 0;
-
-        ~IASTVisitor() override = 0;
+        Str repr() override;
     };
 
-    class DefaultDummyAstVisitor : public virtual IASTVisitor {
-    public:
-        void visit(ASTNode *astNode) override;
+    struct TypeDef : Definition {
+        Str typeName;
+        Vec<ASTRef<FunctionDef>> memberFunctions;
+        Vec<ASTRef<PropertyDef>> properties;
 
-        void visit(Module *mod) override;
 
-        void visit(Statement *stmt) override;
+        ASTNodeType astNodeType() const override;
 
-        void visit(SimpleStatement *simpleStmt) override;
+        [[nodiscard]] Str name() const override;
 
-        void visit(ReturnStatement *returnStmt) override;
+        void accept(IASTVisitor *visitor) override;
 
-        void visit(CompoundStatement *compoundStmt) override;
+        bool operator==(const ASTNode &node) const override;
 
-        void visit(IfStatement *ifStmt) override;
+        Str repr() override;
 
-        void visit(ValDefStatement *valDef) override;
-
-        void visit(Definition *def) override;
-
-        void visit(Param *param) override;
-
-        void visit(FunctionDef *funDef) override;
-
-        void visit(ValDef *valDef) override;
-
-        void visit(Expression *expr) override;
-
-        void visit(IdExpression *idExpr) override;
-
-        void visit(FunCallExpression *funCallExpr) override;
-
-        void visit(IdAccessorExpression *idAccExpr) override;
-
-        void visit(IndexAccessorExpression *index) override;
-
-        void visit(IndexAssignmentExpression *index) override;
-
-        void visit(BinaryExpression *binExpr) override;
-
-        void visit(AssignmentExpression *assignmentExpr) override;
-
-        void visit(IntegerValue *intVal) override;
-
-        void visit(StringValue *strVal) override;
-
-        void visit(BooleanValue *boolVal) override;
-
-        void visit(ArrayLiteral *array) override;
-
-        ~DefaultDummyAstVisitor() override;
+        ~TypeDef() override;
     };
+
 
     std::vector<uint8_t> serialize_ast(const ASTRef<ASTNode>& node);
 
     ASTRef<ASTNode> deserialize_ast(std::vector<uint8_t> &bytes);
-
 } // namespace NG
 
 #endif // __NG_AST_HPP
