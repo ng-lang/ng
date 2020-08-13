@@ -33,6 +33,8 @@ namespace NG::AST {
 namespace NG::runtime {
     struct NGObject;
     struct NGModule;
+    struct NGContext;
+    struct NGType;
     struct NGArray;
 } // namespace NG::runtime
 

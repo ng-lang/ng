@@ -1,9 +1,9 @@
-val x = 1;
-
 val y = "hello world";
 
-val x = true;
-
 fun add() {
-    return x + y.size + 1;
+    return y.charAt(0) + y.size() + 1;
 }
+
+val z = add();
+
+print(z);

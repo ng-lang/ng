@@ -311,16 +311,29 @@ namespace NG::Parsing {
             auto idacc = makeast<IdAccessorExpression>();
             idacc->primaryExpression = expr;
 
-            if (expect(TokenType::LEFT_PAREN)) {
-                accept(TokenType::LEFT_PAREN);
-                auto innerExpr = expression();
-                accept(TokenType::RIGHT_PAREN);
-                idacc->accessor = innerExpr;
+            if (expect(TokenType::ID)) {
+                idacc->accessor = idExpression();
             } else {
-                auto primaryExpr = primaryExpression();
-                idacc->accessor = primaryExpr;
+                unexpected(state);
             }
 
+            if (expect(TokenType::LEFT_PAREN)) {
+                accept(TokenType::LEFT_PAREN);
+
+                Vec<ASTRef<Expression>> args {};
+
+                while (!expect(TokenType::RIGHT_PAREN)) {
+                    args.push_back(expression());
+                    if (!expect(TokenType::COMMA)) {
+                        break;
+                    }
+                    accept(TokenType::COMMA);
+                }
+
+                accept(TokenType::RIGHT_PAREN);
+
+                idacc->arguments = args;
+            }
             return idacc;
         }
 
@@ -349,13 +362,9 @@ namespace NG::Parsing {
 
                 return expr;
             } else if (expect(TokenType::ID)) {
-                auto id = state->repr;
-                accept(TokenType::ID);
-                return makeast<IdExpression>(id);
+                return idExpression();
             } else if (expect(TokenType::NUMBER)) {
-                auto integer = state->repr;
-                accept(TokenType::NUMBER);
-                return makeast<IntegerValue>(std::stoi(integer));
+                return numberLiteral();
             } else if (expect(TokenType::STRING)) {
                 auto &str = state->repr;
                 accept(TokenType::STRING);
@@ -374,6 +383,18 @@ namespace NG::Parsing {
                 return arrayLiteral();
             }
             return nullptr;
+        }
+
+        ASTRef <Expression> numberLiteral() {
+            auto integer = state->repr;
+            accept(TokenType::NUMBER);
+            return makeast<IntegerValue>(std::stoi(integer));
+        }
+
+        ASTRef <IdExpression> idExpression() {
+            auto id = state->repr;
+            accept(TokenType::ID);
+            return makeast<IdExpression>(id);
         }
 
         ASTRef<Expression> arrayLiteral() {

@@ -11,7 +11,7 @@ static inline ASTRef<ASTNode> parse(const Str &source) {
 }
 
 static inline void
-runIntegrationTest(const std::string& filename) {
+runIntegrationTest(const std::string &filename) {
     std::ifstream file(filename);
     std::string source{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
     auto ast = parse(source);
@@ -49,12 +49,11 @@ TEST_CASE("should run with array", "[Integration]") {
     runIntegrationTest("example/06.array.ng");
 }
 
-// TEST_CASE(TestStrIntg) {
-//     runIntegrationTest("example/04.str.ng");
-// }
+TEST_CASE("should run with string concat", "[Integration]") {
+    runIntegrationTest("example/04.str.ng");
+}
 
 
-// TODO: fixmes
-// TEST_CASE(TestValDefIntg) {
-//     runIntegrationTest("example/05.valdef.ng");
-// }
+TEST_CASE("should run with valdefs -- function and members", "[Integration]") {
+    runIntegrationTest("example/05.valdef.ng");
+}

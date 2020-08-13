@@ -92,7 +92,7 @@ namespace NG::AST {
             stream << funCallExpr;
             funCallExpr->primaryExpression->accept(this);
             stream << funCallExpr->arguments.size();
-            for (auto arg : funCallExpr->arguments) {
+            for (const auto& arg : funCallExpr->arguments) {
                 arg->accept(this);
             }
         }
@@ -101,6 +101,10 @@ namespace NG::AST {
             stream << idAccExpr;
             idAccExpr->primaryExpression->accept(this);
             idAccExpr->accessor->accept(this);
+            stream << idAccExpr->arguments.size();
+            for (const auto &argument : idAccExpr->arguments) {
+                argument->accept(this);
+            }
         }
 
         void visit(BinaryExpression *binExpr) override {
@@ -264,7 +268,10 @@ namespace NG::AST {
                 case ASTNodeType::ID_ACCESSOR_EXPRESSION: {
                     auto idAcc = makeast<IdAccessorExpression>();
                     idAcc->primaryExpression = expect<Expression>();
-                    idAcc->accessor = expect<Expression>();
+                    idAcc->accessor = expect<IdExpression>();
+                    withSize([&](std::size_t) {
+                        idAcc->arguments.push_back(expect<Expression>());
+                    });
                     return idAcc;
                 }
                 case ASTNodeType::INDEX_ACCESSOR_EXPRESSION: {

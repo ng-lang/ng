@@ -8,3 +8,7 @@ fun hi() {
 fun hellosize() {
     return (hi() + " how are you").size;
 }
+
+print(hi());
+
+print(hellosize());

@@ -124,3 +124,17 @@ TEST_CASE("shoud be able to interpret array index", "[InterpreterTest]") {
     )");
 }
 
+TEST_CASE("should be able interpret string member function", "[InterpreterTest]") {
+    interpret(R"(
+        val x = "123";
+
+        val y = x.size();
+
+        assert(y == 3);
+        print(y);
+
+        assert(x.charAt(1) == 50);
+        print(x.charAt(2));
+    )");
+}
+

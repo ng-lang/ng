@@ -96,7 +96,8 @@ namespace NG::interpreter {
                 invocationContext.params.push_back(this->object);
             }
 
-            context->functions[fpVis.path](*context, invocationContext);
+            NGObject dummy{};
+            context->functions[fpVis.path](dummy, *context, invocationContext);
 
             this->object = context->retVal;
             context->retVal = nullptr;
@@ -159,6 +160,30 @@ namespace NG::interpreter {
             NGObject *valueObject = vis.object;
 
             object = primaryObject->opIndex(accessorObject, valueObject);
+        }
+
+        void visit(IdAccessorExpression *idAccExpr) override {
+            const Str &repr = idAccExpr->accessor->repr();
+            
+            ExpressionVisitor vis {context};
+            
+            idAccExpr->primaryExpression->accept(&vis);
+
+            NGObject *main = vis.object;
+
+            Map<Str, NGInvocationHandler> &members = main->type()->memberFunctions;
+            if (members.find(repr) != members.end()) {
+                NGInvocationContext invCtx {};
+                for (const auto &argument : idAccExpr->arguments) {
+                    argument->accept(&vis);
+                    invCtx.params.push_back(vis.object);
+                }
+                NGContext newContext {*context};
+                members[repr](*main, newContext, invCtx);
+                object = newContext.retVal;
+            } else {
+                throw IllegalTypeException("Invalid invocation of [" + repr + "]");
+            }
         }
     };
 
@@ -237,7 +262,8 @@ namespace NG::interpreter {
         // virtual void visit(Definition *def);
         // virtual void visit(Param *param);
         void visit(FunctionDef *funDef) override {
-            context->functions[funDef->funName] = [this, funDef](NGContext &ngContext,
+            context->functions[funDef->funName] = [this, funDef](NGObject &dummy,
+                                                                 NGContext &ngContext,
                                                                  NGInvocationContext &invocationContext) {
                 NGContext newContext{ngContext};
                 for (int i = 0; i < funDef->params.size(); ++i) {
@@ -251,6 +277,10 @@ namespace NG::interpreter {
                 });
                 ngContext.retVal = newContext.retVal;
             };
+        }
+
+        void visit(IdAccessorExpression *idAccExpr) override {
+            DefaultDummyAstVisitor::visit(idAccExpr);
         }
 
         void visit(Statement *stmt) override {
@@ -287,7 +317,7 @@ namespace NG::interpreter {
     IInterperter *interpreter() {
         auto context = new NGContext{
                 .functions = {
-                        {"print",  [](NGContext &context, NGInvocationContext &invocationContext) {
+                        {"print",  [](NGObject &dummy, NGContext &context, NGInvocationContext &invocationContext) {
                             Vec<NGObject *> &params = invocationContext.params;
                             for (int i = 0; i < params.size(); ++i) {
                                 std::cout << params[i]->show();
@@ -297,7 +327,7 @@ namespace NG::interpreter {
                             }
                             std::cout << std::endl;
                         }},
-                        {"assert", [](NGContext &context, NGInvocationContext &invocationContext) {
+                        {"assert", [](NGObject &dummy, NGContext &context, NGInvocationContext &invocationContext) {
                             for (const auto &param : invocationContext.params) {
                                 auto ngBool = dynamic_cast<NGBoolean *>(param);
                                 if (ngBool == nullptr || !ngBool->value) {

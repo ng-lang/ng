@@ -219,9 +219,24 @@ namespace NG::AST {
         ~FunCallExpression() override;
     };
 
+    struct IdExpression : Expression {
+        const Str id;
+
+        explicit IdExpression(Str _id) : id(std::move(_id)) {}
+
+        ASTNodeType astNodeType() const override { return ASTNodeType::ID_EXPRESSION; }
+
+        bool operator==(const ASTNode &node) const override;
+
+        Str repr() override;
+
+        void accept(IASTVisitor *visitor) override;
+    };
+
     struct IdAccessorExpression : Expression {
         ASTRef<Expression> primaryExpression;
-        ASTRef<Expression> accessor;
+        ASTRef<IdExpression> accessor;
+        Vec<ASTRef<Expression>> arguments;
 
         void accept(IASTVisitor *visitor) override;
 
@@ -345,20 +360,6 @@ namespace NG::AST {
         ~BinaryExpression() override;
     };
 
-    struct IdExpression : Expression {
-        const Str id;
-
-        explicit IdExpression(Str _id) : id(std::move(_id)) {}
-
-        ASTNodeType astNodeType() const override { return ASTNodeType::ID_EXPRESSION; }
-
-        bool operator==(const ASTNode &node) const override;
-
-        Str repr() override;
-
-        void accept(IASTVisitor *visitor) override;
-    };
-
     struct IntegerValue : Expression {
         const int value;
 
@@ -380,7 +381,7 @@ namespace NG::AST {
 
         void accept(IASTVisitor *visitor) override;
 
-        ASTNodeType astNodeType() const override { return ASTNodeType::INTEGER_VALUE; }
+        ASTNodeType astNodeType() const override { return ASTNodeType::STRING_VALUE; }
 
         Str repr() override;
 

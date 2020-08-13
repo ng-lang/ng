@@ -13,32 +13,60 @@ namespace NG::runtime {
         Vec<NGObject *> params;
     };
 
+    using NGInvocationHandler = std::function<void(NGObject &self, NGContext &ctx, NGInvocationContext &invCtx)>;
+    struct NGType {
+
+        Map<Str, NGInvocationHandler> memberFunctions;
+    };
+
+    struct NGContext {
+        Map<Str, NGObject *> objects;
+        Map<Str, std::function<void(NGContext &ctx)>> handlers;
+        Map<Str, NGInvocationHandler> functions;
+
+        Map<Str, NGModule *> modules;
+
+        NGObject *retVal;
+
+        ~NGContext();
+    };
+
     struct IOverloadedOperators {
         virtual NGObject *opIndex(NGObject *index) const = 0;
 
         // obj[index] = newValue
-        virtual NGObject* opIndex(NGObject *index, NGObject *newValue) = 0;
+        virtual NGObject *opIndex(NGObject *index, NGObject *newValue) = 0;
 
         // obj == other
 
         virtual NGObject *opPlus(NGObject *other) const = 0;
+
         virtual NGObject *opMinus(NGObject *other) const = 0;
+
         virtual NGObject *opTimes(NGObject *other) const = 0;
+
         virtual NGObject *opDividedBy(NGObject *other) const = 0;
+
         virtual NGObject *opModulus(NGObject *other) const = 0;
 
         virtual bool opEquals(NGObject *other) const = 0;
-        virtual bool opNotEqual(NGObject *other) const = 0;
-        virtual bool opGreaterThan(NGObject *other) const = 0 ;
-        virtual bool opLessThan(NGObject *other) const = 0 ;
-        virtual bool opGreaterEqual(NGObject *other) const = 0 ;
-        virtual bool opLessEqual(NGObject *other) const = 0 ;
 
-        virtual NGObject* opLShift(NGObject *other) = 0;
-        virtual NGObject* opRShift(NGObject *other) = 0;
+        virtual bool opNotEqual(NGObject *other) const = 0;
+
+        virtual bool opGreaterThan(NGObject *other) const = 0;
+
+        virtual bool opLessThan(NGObject *other) const = 0;
+
+        virtual bool opGreaterEqual(NGObject *other) const = 0;
+
+        virtual bool opLessEqual(NGObject *other) const = 0;
+
+        virtual NGObject *opLShift(NGObject *other) = 0;
+
+        virtual NGObject *opRShift(NGObject *other) = 0;
 
         // Meta-Object function
-        virtual NGObject* respond(const Str& member, NGInvocationContext* invocationContext) const = 0;
+        virtual NGObject *respond(const Str &member, NGInvocationContext *invocationContext) const = 0;
 
         virtual ~IOverloadedOperators() noexcept = 0;
     };
@@ -48,20 +76,26 @@ namespace NG::runtime {
 
         virtual bool boolValue() = 0;
 
+        virtual NGType *type() = 0;
+
         virtual ~IBasicObject() = 0;
     };
 
-    struct NGObject : public virtual IOverloadedOperators, public virtual IBasicObject{
+    struct NGObject : public virtual IOverloadedOperators, public virtual IBasicObject {
 
         NGObject() = default;
 
         static NGObject *boolean(bool boolean);
+
+        static NGType *objectType();
 
         bool boolValue() override {
             return true;
         }
 
         Str show() override;
+
+        NGType *type() override;
 
         ~NGObject() override;
 
@@ -76,21 +110,29 @@ namespace NG::runtime {
         NGObject *opIndex(NGObject *index) const override;
 
         // obj[index] = newValue
-        NGObject* opIndex(NGObject *index, NGObject *newValue) override;
+        NGObject *opIndex(NGObject *index, NGObject *newValue) override;
 
         // obj == other
         bool opEquals(NGObject *other) const override;
-        bool opNotEqual(NGObject* other) const override;
+
+        bool opNotEqual(NGObject *other) const override;
 
         NGObject *opPlus(NGObject *other) const override;
+
         NGObject *opMinus(NGObject *other) const override;
+
         NGObject *opTimes(NGObject *other) const override;
+
         NGObject *opDividedBy(NGObject *other) const override;
+
         NGObject *opModulus(NGObject *other) const override;
 
         bool opGreaterThan(NGObject *other) const override;
+
         bool opLessThan(NGObject *other) const override;
+
         bool opGreaterEqual(NGObject *other) const override;
+
         bool opLessEqual(NGObject *other) const override;
 
         NGObject *opLShift(NGObject *other) override;
@@ -98,7 +140,7 @@ namespace NG::runtime {
         NGObject *opRShift(NGObject *other) override;
 
         // Meta-Object function
-        NGObject* respond(const Str& member, NGInvocationContext* invocationContext) const override;
+        NGObject *respond(const Str &member, NGInvocationContext *invocationContext) const override;
     };
 
     enum class Orders {
@@ -139,7 +181,7 @@ namespace NG::runtime {
 
         static Orders comparator(const NGObject *left, const NGObject *right);
 
-        explicit NGInteger(long long value = 0): value {value} {}
+        explicit NGInteger(long long value = 0) : value{value} {}
 
         Str show() override {
             return std::to_string(value);
@@ -170,11 +212,11 @@ namespace NG::runtime {
     struct NGArray : NGObject {
         Vec<NGObject *> items;
 
-        explicit NGArray(const Vec<NGObject*>& vec = {}): items {vec} {}
+        explicit NGArray(const Vec<NGObject *> &vec = {}) : items{vec} {}
 
         NGObject *opIndex(NGObject *index) const override;
 
-        NGObject * opIndex(NGObject *index, NGObject *newValue) override;
+        NGObject *opIndex(NGObject *index, NGObject *newValue) override;
 
         Str show() override;
 
@@ -186,9 +228,9 @@ namespace NG::runtime {
     };
 
     struct NGBoolean final : NGObject {
-        bool  value;
+        bool value;
 
-        explicit NGBoolean(bool value = false): value { value } {}
+        explicit NGBoolean(bool value = false) : value{value} {}
 
         Str show() override;
 
@@ -200,29 +242,23 @@ namespace NG::runtime {
     struct NGString final : NGObject {
         Str value;
 
-        explicit NGString(const Str& str): value {str} {}
+        static NGType *stringType();
+
+        NGType *type() override;
+
+        explicit NGString(const Str &str) : value{str} {}
 
         Str show() override;
 
         bool boolValue() override;
 
         bool opEquals(NGObject *other) const override;
+
+        NGObject *opPlus(NGObject *other) const override;
     };
 
     template<class T>
     using NGRef = T *;
-
-    struct NGContext {
-        Map<Str, NGObject *> objects;
-        Map<Str, std::function<void(NGContext &ctx)>> handlers;
-        Map<Str, std::function<void(NGContext &ctx, NGInvocationContext &invCtx)>> functions;
-
-        Map<Str, NGModule *> modules;
-
-        NGObject *retVal;
-
-        ~NGContext();
-    };
 
 }
 

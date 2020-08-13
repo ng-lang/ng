@@ -4,7 +4,7 @@
 namespace NG::runtime {
 
     NGObject *NGObject::boolean(bool boolean) {
-        return new NGBoolean { boolean };
+        return new NGBoolean{boolean};
     }
 
     Str NGObject::show() {
@@ -62,11 +62,11 @@ namespace NG::runtime {
         return nullptr;
     }
 
-    NGObject* IOverloadedOperators::opLShift(NGObject* object) {
+    NGObject *IOverloadedOperators::opLShift(NGObject *object) {
         return nullptr;
     }
 
-    NGObject* IOverloadedOperators::opRShift(NGObject* object) {
+    NGObject *IOverloadedOperators::opRShift(NGObject *object) {
         return nullptr;
     }
 
@@ -123,6 +123,17 @@ namespace NG::runtime {
 
     NGObject *NGObject::opRShift(NGObject *other) {
         throw NotImplementedException();
+    }
+
+    using InvCtx = NGInvocationContext;
+
+    NGType *NGObject::objectType() {
+        static NGType objectType {};
+        return &objectType;
+    }
+
+    NGType *NGObject::type() {
+        return objectType();
     }
 
     NGObject::~NGObject() = default;
@@ -230,6 +241,40 @@ namespace NG::runtime {
         return !value.empty();
     }
 
+    NGType *NGString::type() {
+        return NGString::stringType();
+    }
+
+    NGType *NGString::stringType() {
+        static NGType stringType{
+                .memberFunctions = {
+                        {"size", [](NGObject &self, NGContext &context, InvCtx &invCtx) {
+                            auto& str = dynamic_cast<NGString &>(self);
+
+                            context.retVal = new NGInteger(str.value.size());
+                        }},
+                        {"charAt", [](NGObject& self, NGContext &context, InvCtx& invCtx) {
+                            auto& str = dynamic_cast<NGString&>(self);
+                            auto index = dynamic_cast<NGInteger *>(                            invCtx.params[0]);
+                            
+                            context.retVal = new NGInteger(str.value[index->value]);
+                        }}
+                }
+        };
+
+        return &stringType;
+    }
+
+    NGObject *NGString::opPlus(NGObject *other) const {
+        if (auto str = dynamic_cast<NGString*>(other); str != nullptr) {
+
+
+            return new NGString { value + str->value };
+        }
+
+        throw IllegalTypeException("Not a string");
+    }
+
     Orders NGInteger::comparator(const NGObject *left, const NGObject *right) {
         auto leftInt = dynamic_cast<const NGInteger *>(left);
         auto rightInt = dynamic_cast<const NGInteger *>(right);
@@ -250,7 +295,7 @@ namespace NG::runtime {
     NGObject *NGInteger::opPlus(NGObject *other) const {
         if (auto integer = dynamic_cast<NGInteger *>(other); integer != nullptr) {
 
-            return new NGInteger { value + integer->value };
+            return new NGInteger{value + integer->value};
         }
         throw IllegalTypeException("Not a number");
     }
@@ -258,7 +303,7 @@ namespace NG::runtime {
     NGObject *NGInteger::opMinus(NGObject *other) const {
         if (auto integer = dynamic_cast<NGInteger *>(other); integer != nullptr) {
 
-            return new NGInteger { value - integer->value };
+            return new NGInteger{value - integer->value};
         }
         throw IllegalTypeException("Not a number");
     }
@@ -266,7 +311,7 @@ namespace NG::runtime {
     NGObject *NGInteger::opTimes(NGObject *other) const {
         if (auto integer = dynamic_cast<NGInteger *>(other); integer != nullptr) {
 
-            return new NGInteger { value * integer->value };
+            return new NGInteger{value * integer->value};
         }
         throw IllegalTypeException("Not a number");
     }
@@ -274,7 +319,7 @@ namespace NG::runtime {
     NGObject *NGInteger::opDividedBy(NGObject *other) const {
         if (auto integer = dynamic_cast<NGInteger *>(other); integer != nullptr) {
 
-            return new NGInteger { value / integer->value };
+            return new NGInteger{value / integer->value};
         }
         throw IllegalTypeException("Not a number");
     }
@@ -282,7 +327,7 @@ namespace NG::runtime {
     NGObject *NGInteger::opModulus(NGObject *other) const {
         if (auto integer = dynamic_cast<NGInteger *>(other); integer != nullptr) {
 
-            return new NGInteger { value % integer->value };
+            return new NGInteger{value % integer->value};
         }
         throw IllegalTypeException("Not a number");
     }

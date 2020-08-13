@@ -69,6 +69,8 @@ TEST_CASE("parser should parse id accessors", "[ParserTest]") {
             c.get(a, b);
             a.b.c;
             a.b().c().defg(a.bc().fuck);
+
+            a.b.c();
         }
     )");
 
