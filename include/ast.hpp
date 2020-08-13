@@ -59,7 +59,7 @@ namespace NG::AST {
 
         virtual void accept(IASTVisitor *visitor) = 0;
 
-        [[nodiscard]] virtual ASTNodeType astNodeType() const = 0;
+        virtual ASTNodeType astNodeType() const = 0;
 
         virtual bool operator==(const ASTNode &node) const = 0;
 
