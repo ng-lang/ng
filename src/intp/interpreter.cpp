@@ -92,7 +92,7 @@ namespace NG::interpreter {
             funCallExpr->primaryExpression->accept(&fpVis);
             NGInvocationContext invocationContext{};
 
-            for (auto param: funCallExpr->arguments) {
+            for (auto& param: funCallExpr->arguments) {
                 param->accept(this);
                 invocationContext.params.push_back(this->object);
             }
