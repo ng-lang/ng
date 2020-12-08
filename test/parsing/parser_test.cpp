@@ -157,7 +157,6 @@ TEST_CASE("parser should parse array index assign expression", "[ParserTest]") {
 }
 
 
-
 TEST_CASE("parser should parse simple type definition", "[ParserTest]") {
     auto ast = parse(R"(
         type Simple {}
@@ -188,6 +187,54 @@ val person = new Person {
     lastName: "Leo"
 };
     )");
+
+    destroyast(ast);
+}
+
+TEST_CASE("parser should parse exports", "[ParserTest]") {
+    auto ast = parse(R"(
+// export all
+module hello exports *;
+
+// export symbol
+module hello exports (world);
+
+// export multiple symbol
+module hello exports (a, b, c);
+
+// export none
+module hello;
+)");
+
+    destroyast(ast);
+}
+
+TEST_CASE("parser should parse imports", "[ParserTest]") {
+    auto ast = parse(R"(
+// simplified import
+import hello;
+
+// direct import
+import "hello";
+
+// import all symbols
+import "hello" (*);
+
+// import specific symbol
+import "hello" (world);
+
+// import symbols
+import "hello" (a, b, c);
+
+// import with alias
+import "hello" hell;
+
+// import all symbols
+import "hello" *;
+
+// import symbols with alias
+import "hello" hell(a, b, c);
+)");
 
     destroyast(ast);
 }

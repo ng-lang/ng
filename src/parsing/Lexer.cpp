@@ -51,7 +51,8 @@ namespace NG::parsing {
 
             {"module", TokenType::KEYWORD_MODULE},
             {"export", TokenType::KEYWORD_EXPORT},
-            {"use", TokenType::KEYWORD_USE},
+            {"exports", TokenType::KEYWORD_EXPORTS},
+            {"import", TokenType::KEYWORD_IMPORT},
             {"new", TokenType::KEYWORD_NEW},
 
             {"if", TokenType::KEYWORD_IF},
@@ -135,6 +136,15 @@ namespace NG::parsing {
                 result += c;
                 tokens.push_back(Token{tokenType.at(result), result, pos});
                 state.next();
+            } else if (c == '/') {
+                if (state.lookAhead() == '/') {
+                    while (state.current() != '\n') {
+                        state.next();
+                    }
+                    state.next();
+                } else {
+                    lexOperator(state, tokens);
+                }
             } else if (is(operators, c))
                 lexOperator(state, tokens);
             else if (c == ':') {

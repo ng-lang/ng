@@ -57,11 +57,13 @@ namespace NG::ast {
 
         virtual void visit(ArrayLiteral *array) = 0;
 
-        virtual void visit(TypeDef* typeDef) = 0;
+        virtual void visit(TypeDef *typeDef) = 0;
 
-        virtual void visit(PropertyDef* propertyDef) = 0;
+        virtual void visit(PropertyDef *propertyDef) = 0;
 
-        virtual void visit(NewObjectExpression * newObj) = 0;
+        virtual void visit(NewObjectExpression *newObj) = 0;
+
+        virtual void visit(ImportDecl *importDecl) = 0;
 
         ~IASTVisitor() override = 0;
     };
@@ -121,6 +123,8 @@ namespace NG::ast {
         void visit(PropertyDef *propertyDef) override;
 
         void visit(NewObjectExpression *newObj) override;
+
+        void visit(ImportDecl *importDecl) override;
 
         ~DefaultDummyAstVisitor() override;
     };

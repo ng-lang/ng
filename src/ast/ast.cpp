@@ -49,8 +49,20 @@ namespace NG::ast {
     }
 
     Module::~Module() {
-        for (auto def : definitions) {
+        for (auto &&def : definitions) {
             destroyast(def);
+        }
+
+        for (auto &&imp : imports) {
+            destroyast(imp);
+        }
+
+        for (auto &&mod : modules) {
+            destroyast(mod);
+        }
+
+        for (auto &&stmt : statements) {
+            destroyast(stmt);
         }
     }
 
@@ -565,5 +577,24 @@ namespace NG::ast {
         for (auto&[_, value] : properties) {
             destroyast(value);
         }
+    }
+
+    bool ImportDecl::operator==(const ASTNode &node) const {
+        auto &&imports = dynamic_cast<const ImportDecl &>(node);
+
+        return this->module == imports.module &&
+               this->alias == imports.alias &&
+               this->imports == imports.imports;
+    }
+
+    void ImportDecl::accept(IASTVisitor *visitor) {
+        visitor->visit(this);
+    }
+
+    Str ImportDecl::repr() {
+        return module;
+    }
+
+    ImportDecl::~ImportDecl() {
     }
 } // namespace NG

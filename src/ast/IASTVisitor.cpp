@@ -57,5 +57,7 @@ namespace NG::ast {
 
     void IASTVisitor::visit(NewObjectExpression *newObj) {}
 
+    void IASTVisitor::visit(ImportDecl *importDecl) {}
+
     IASTVisitor::~IASTVisitor() = default;
 }

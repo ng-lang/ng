@@ -1,0 +1,4 @@
+
+import "external" ext;
+
+ext.hello();

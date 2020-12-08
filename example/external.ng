@@ -1,0 +1,5 @@
+module external exports *;
+
+fun hello() {
+    print("Hello");
+}

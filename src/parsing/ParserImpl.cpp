@@ -37,10 +37,11 @@ namespace NG::parsing {
                     case TokenType::KEYWORD_SIG:
                     case TokenType::KEYWORD_CONS:
                     case TokenType::KEYWORD_MODULE:
-                        moduleDecl(mod);
+                        mod->modules.push_back(moduleDecl(mod));
                         break;
                     case TokenType::KEYWORD_EXPORT:
-                    case TokenType::KEYWORD_USE:
+                    case TokenType::KEYWORD_IMPORT:
+                        mod->imports.push_back(importDecl());
                         // case TokenType::KEYWORD_IF:
                     case TokenType::KEYWORD_CASE:
                     case TokenType::KEYWORD_LOOP:
@@ -81,6 +82,63 @@ namespace NG::parsing {
             return nullptr;
         }
 
+        ASTRef<ImportDecl> importDecl() {
+            accept(TokenType::KEYWORD_IMPORT);
+            auto imp = makeast<ImportDecl>();
+
+            // direct import
+            if (expect(TokenType::ID)) {
+                Str module = state->repr;
+                accept(TokenType::ID);
+                imp->module = module;
+                imp->alias = module;
+
+                if (!expect(TokenType::SEMICOLON)) {
+                    unexpected(state);
+                }
+            }
+
+            // alias import
+            if (expect(TokenType::STRING)) {
+                Str module = stringValue()->value;
+                imp->module = module;
+
+                if (expect(TokenType::ID)) {
+                    Str alias = state->repr;
+                    accept(TokenType::ID);
+                    imp->alias = alias;
+                } else {
+                    imp->alias = module;
+                }
+            }
+
+            // symbol import
+            if (expect(TokenType::LEFT_PAREN)) {
+                accept(TokenType::LEFT_PAREN);
+
+                while (expect(TokenType::ID)) {
+                    imp->imports.push_back(state->repr);
+                    accept(TokenType::ID);
+                    if (!expect(TokenType::COMMA)) {
+                        break;
+                    }
+                    accept(TokenType::COMMA);
+                }
+                if (imp->imports.empty() && expect(TokenType::OPERATOR) && state->operatorType == Operators::TIMES) {
+                    accept(TokenType::OPERATOR);
+                    imp->imports.push_back("*");
+                }
+                accept(TokenType::RIGHT_PAREN);
+            } else {
+                if (expect(TokenType::OPERATOR) && state->operatorType == Operators::TIMES) {
+                    accept(TokenType::OPERATOR);
+                    imp->imports.push_back("*");
+                }
+            }
+
+            return imp;
+        }
+
         ASTRef<ValDef> valDef() {
             auto valDefStmt = valDefStatement();
 
@@ -116,7 +174,9 @@ namespace NG::parsing {
             return typeDef;
         }
 
-        void moduleDecl(ASTRef<Module> mod) {
+        ASTRef<Module> moduleDecl(const ASTRef<Module> &parent) {
+            auto mod = makeast<Module>();
+            mod->parent = parent;
             Str moduleName{};
             accept(TokenType::KEYWORD_MODULE);
             while (expect(TokenType::ID) || expect(TokenType::DOT)) {
@@ -128,6 +188,15 @@ namespace NG::parsing {
                 }
                 state.next();
             }
+            if (expect(TokenType::KEYWORD_EXPORTS)) {
+                accept(TokenType::KEYWORD_EXPORTS);
+                if (state->type == TokenType::OPERATOR && state->operatorType == Operators::TIMES) {
+                    accept(TokenType::OPERATOR);
+                    mod->exports.push_back("*");
+                } else {
+                    mod->exports = exportList();
+                }
+            }
             accept(TokenType::SEMICOLON);
             if (mod->name == "default") {
                 mod->name = moduleName;
@@ -135,6 +204,33 @@ namespace NG::parsing {
                 mod->name += ".";
                 mod->name += moduleName;
             }
+            return mod;
+        }
+
+        Vec<Str> exportList() {
+            bool withParen = false;
+
+            Vec<Str> exports{};
+
+            if (expect(TokenType::LEFT_PAREN)) {
+                withParen = true;
+                accept(TokenType::LEFT_PAREN);
+            }
+
+            while (expect(TokenType::ID)) {
+                auto &&symbol = state->repr;
+                exports.push_back(symbol);
+                accept(TokenType::ID);
+                if (!expect(TokenType::COMMA)) {
+                    break;
+                }
+                accept(TokenType::COMMA);
+            }
+            if (withParen) {
+                accept(TokenType::RIGHT_PAREN);
+            }
+
+            return exports;
         }
 
         Vec<ASTRef<Param>> funParams() {
@@ -369,9 +465,9 @@ namespace NG::parsing {
             accept(TokenType::LEFT_CURLY);
 
             while (!expect(TokenType::RIGHT_CURLY)) {
-                auto&& propertyName = idExpression()->repr();
+                auto &&propertyName = idExpression()->repr();
                 accept(TokenType::COLON);
-                auto&& expr = expression();
+                auto &&expr = expression();
 
                 newObj->properties[propertyName] = expr;
                 if (!expect(TokenType::COMMA)) {
@@ -400,9 +496,7 @@ namespace NG::parsing {
             } else if (expect(TokenType::NUMBER)) {
                 return numberLiteral();
             } else if (expect(TokenType::STRING)) {
-                auto &str = state->repr;
-                accept(TokenType::STRING);
-                return makeast<StringValue>(str);
+                return stringValue();
             } else if (expect(TokenType::KEYWORD_TRUE)) {
                 auto &val = state->type;
                 accept(TokenType::KEYWORD_TRUE);
@@ -419,6 +513,12 @@ namespace NG::parsing {
                 return newObjectExpression();
             }
             return nullptr;
+        }
+
+        ASTRef<StringValue> stringValue() {
+            auto &str = state->repr;
+            accept(TokenType::STRING);
+            return makeast<StringValue>(str);
         }
 
         ASTRef<Expression> numberLiteral() {

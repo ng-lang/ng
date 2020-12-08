@@ -28,10 +28,18 @@ TEST_CASE("lexer should accept symbols", "[LexerTest]") {
 
 TEST_CASE("lexer should accept all keywords", "[LexerTest]") {
     Lexer lexer{LexState{
-            "type val sig fun cons module export use if else loop collect case return break continue unit true false"}};
+            R"(
+    type val sig fun cons
+    module export import
+    if else loop collect case
+    return break continue
+    unit true false
+    exports
+    property new
+)"}};
 
     auto &&tokens = lexer.lex();
-    REQUIRE(tokens.size() == 19);
+    REQUIRE(tokens.size() == 22);
     REQUIRE(tokens[0].type == TokenType::KEYWORD_TYPE);
     REQUIRE(tokens[1].type == TokenType::KEYWORD_VAL);
     REQUIRE(tokens[2].type == TokenType::KEYWORD_SIG);
@@ -39,7 +47,7 @@ TEST_CASE("lexer should accept all keywords", "[LexerTest]") {
     REQUIRE(tokens[4].type == TokenType::KEYWORD_CONS);
     REQUIRE(tokens[5].type == TokenType::KEYWORD_MODULE);
     REQUIRE(tokens[6].type == TokenType::KEYWORD_EXPORT);
-    REQUIRE(tokens[7].type == TokenType::KEYWORD_USE);
+    REQUIRE(tokens[7].type == TokenType::KEYWORD_IMPORT);
     REQUIRE(tokens[8].type == TokenType::KEYWORD_IF);
     REQUIRE(tokens[9].type == TokenType::KEYWORD_ELSE);
     REQUIRE(tokens[10].type == TokenType::KEYWORD_LOOP);
@@ -51,6 +59,9 @@ TEST_CASE("lexer should accept all keywords", "[LexerTest]") {
     REQUIRE(tokens[16].type == TokenType::KEYWORD_UNIT);
     REQUIRE(tokens[17].type == TokenType::KEYWORD_TRUE);
     REQUIRE(tokens[18].type == TokenType::KEYWORD_FALSE);
+    REQUIRE(tokens[19].type == TokenType::KEYWORD_EXPORTS);
+    REQUIRE(tokens[20].type == TokenType::KEYWORD_PROPERTY);
+    REQUIRE(tokens[21].type == TokenType::KEYWORD_NEW);
 }
 
 TEST_CASE("lexer should accept numbers", "[LexerTest]") {
@@ -174,15 +185,15 @@ TEST_CASE("lexer should accept string with blanks", "[LexerTest]") {
 }
 
 TEST_CASE("lexer should accept array indexing expr", "[LexerTest]") {
-    Lexer lexer {LexState{R"( [1, 2, 3, "Hello" ] )"}};
+    Lexer lexer{LexState{R"( [1, 2, 3, "Hello" ] )"}};
 
     auto &&tokens = lexer.lex();
 
     REQUIRE(tokens.size() == 9);
 }
 
-TEST_CASE("lexer should accept property keyword", "[LexetTest]") {
-    Lexer lexer {LexState{R"(property)"}};
+TEST_CASE("lexer should accept property keyword", "[LexerTest]") {
+    Lexer lexer{LexState{R"(property)"}};
 
     auto &&tokens = lexer.lex();
 
@@ -191,11 +202,24 @@ TEST_CASE("lexer should accept property keyword", "[LexetTest]") {
 }
 
 
-TEST_CASE("lexer should accept new keyword", "[LexetTest]") {
-    Lexer lexer {LexState{R"(new)"}};
+TEST_CASE("lexer should accept new keyword", "[LexerTest]") {
+    Lexer lexer{LexState{R"(new)"}};
 
     auto &&tokens = lexer.lex();
 
     REQUIRE(tokens.size() == 1);
     REQUIRE(tokens[0].type == TokenType::KEYWORD_NEW);
+}
+
+TEST_CASE("lexer should lex comment", "[LexerTest]") {
+    Lexer lexer{LexState{R"(
+// comment
+hello
+// comment
+)"}};
+
+    auto &&tokens = lexer.lex();
+
+    REQUIRE(tokens.size() == 1);
+    REQUIRE(tokens[0].type == TokenType::ID);
 }

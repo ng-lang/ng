@@ -32,6 +32,7 @@ namespace NG::ast {
         PARAM,
         TYPE_DEFINITION,
         PROPERTY_DEFINITION,
+        IMPORT_DECLARATION,
 
         EXPRESSION = 0x200,
         ID_EXPRESSION,
@@ -73,12 +74,40 @@ namespace NG::ast {
         ~ASTNode() override = 0;
     };
 
+    struct ImportDecl : ASTNode {
+        Str module;
+        Str alias;
+        Vec<Str> imports;
+
+        ASTNodeType astNodeType() const override {
+            return ASTNodeType::IMPORT_DECLARATION;
+        }
+
+        bool operator==(const ASTNode& node) const override;
+
+        void accept(IASTVisitor* visitor) override;
+
+        Str repr() override;
+
+        ~ImportDecl() override;
+
+    };
+
     struct Module : ASTNode {
         const ASTNodeType ast_node_type = ASTNodeType::MODULE;
         Str name;
+
+        ASTRef<Module> parent = nullptr;
+
         Vec<ASTRef<Definition>> definitions;
 
+        Vec<ASTRef<Module>> modules;
+
         Vec<ASTRef<Statement>> statements;
+
+        Vec<Str> exports;
+
+        Vec<ASTRef<ImportDecl>> imports;
 
         explicit Module(Str _name = "default") : name(std::move(_name)) {
         }
