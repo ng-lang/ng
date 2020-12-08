@@ -2,8 +2,8 @@
 #include <test.hpp>
 
 using namespace NG;
-using namespace NG::AST;
-using namespace NG::Parsing;
+using namespace NG::ast;
+using namespace NG::parsing;
 
 static ASTRef<ASTNode> parse(const Str &source) {
     return Parser(ParseState(Lexer(LexState{source}).lex())).parse();

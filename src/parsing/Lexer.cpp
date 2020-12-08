@@ -1,15 +1,15 @@
 
-#include "parser.hpp"
-#include "token.hpp"
-#include "common.hpp"
+#include <parser.hpp>
+#include <token.hpp>
+#include <common.hpp>
+
 #include <sstream>
 #include <unordered_map>
 #include <functional>
 #include <array>
 #include <cctype>
-#include <algorithm>
 
-namespace NG::Parsing {
+namespace NG::parsing {
 
     template<class K, class V>
     using Map = std::unordered_map<K, V>;
@@ -85,68 +85,13 @@ namespace NG::Parsing {
 
     };
 
-    LexState::LexState(const Str &_source) : source(_source), size(_source.size()), index(0), line(1), col(1) {}
+    static void lexSymbol(LexState &state, Vec<Token> &tokens);
 
-    char LexState::current() const {
-        if (!eof())
-            return source.at(index);
-        return '\0';
-    }
+    static void lexNumber(LexState &state, Vec<Token> &tokens);
 
-    bool LexState::eof() const {
-        return index >= size;
-    }
+    static void lexOperator(LexState &state, Vec<Token> &tokens);
 
-    char LexState::lookAhead() const {
-        if (eof()) {
-            return '\0';
-        }
-        return source.at(index + 1);
-    }
-
-    void LexState::next(int n) {
-        if (!eof()) {
-            index += n;
-            col += n;
-        }
-    }
-
-    static void resetLineAndCol(LexState &state, size_t index) {
-        if (index > state.size)
-            return;
-        state.line = 1;
-        state.col = 0;
-        for (size_t i = 0; i <= index; i++) {
-            state.col++;
-            if (state.source[i] == '\n') {
-                state.line++;
-                state.col = 0;
-            }
-        }
-    }
-
-    void LexState::revert(size_t n) {
-        if (n > index)
-            return;
-        if (index - n > col)
-            resetLineAndCol(*this, n);
-        else
-            col -= (index - n);
-        index = n;
-    }
-
-    void LexState::nextLine() {
-        line++;
-        col = 0;
-    }
-
-    static void parseSymbol(LexState &state, Vec<Token> &tokens);
-
-    static void parseNumber(LexState &state, Vec<Token> &tokens);
-
-    static void parseOperator(LexState &state, Vec<Token> &tokens);
-
-    static void parseString(LexState &state, Vec<Token> &tokens);
+    static void lexString(LexState &state, Vec<Token> &tokens);
 
     static bool isTermintator(char c) {
         return c == ',' || c == ';' || c == ')' || c == ']' || c == '}' || c == '.';
@@ -180,18 +125,18 @@ namespace NG::Parsing {
                 continue;
             }
             if (isalpha(c))
-                parseSymbol(state, tokens);
+                lexSymbol(state, tokens);
             else if (isdigit(c))
-                parseNumber(state, tokens);
+                lexNumber(state, tokens);
             else if (c == '"') {
-                parseString(state, tokens);
+                lexString(state, tokens);
             } else if (is(brackets, c)) {
                 Str result{};
                 result += c;
                 tokens.push_back(Token{tokenType.at(result), result, pos});
                 state.next();
             } else if (is(operators, c))
-                parseOperator(state, tokens);
+                lexOperator(state, tokens);
             else if (c == ':') {
                 if (state.lookAhead() == ':') {
                     tokens.push_back(Token{TokenType::SEPERATOR, "::", pos});
@@ -215,7 +160,7 @@ namespace NG::Parsing {
         return tokens;
     }
 
-    static void parseSymbol(LexState &state, Vec<Token> &tokens) {
+    static void lexSymbol(LexState &state, Vec<Token> &tokens) {
         TokenPosition pos{state.line, state.col};
         Str result = withStream(state, [](LexState &state, Stream &stream) {
             while (isalnum(state.current())) {
@@ -234,7 +179,7 @@ namespace NG::Parsing {
             tokens.push_back(Token{TokenType::ID, result, pos});
     }
 
-    static void parseNumber(LexState &state, Vec<Token> &tokens) {
+    static void lexNumber(LexState &state, Vec<Token> &tokens) {
         TokenPosition pos{state.line, state.col};
         Str result = withStream(state, [](LexState &state, Stream &stream) {
             auto c = state.current();
@@ -346,7 +291,7 @@ namespace NG::Parsing {
         return state.current();
     }
 
-    static void parseString(LexState &state, Vec<Token> &tokens) {
+    static void lexString(LexState &state, Vec<Token> &tokens) {
         TokenPosition pos{state.line, state.col};
 
         Str result = withStream(state, [](LexState &state, Stream &stream) {
@@ -365,7 +310,7 @@ namespace NG::Parsing {
         tokens.push_back(Token{TokenType::STRING, result, pos});
     }
 
-    static void parseOperator(LexState &state, Vec<Token> &tokens) {
+    static void lexOperator(LexState &state, Vec<Token> &tokens) {
         TokenPosition pos{state.line, state.col};
         Str result = withStream(state, [](LexState &state, Stream &stream) {
             auto c = state.current();
@@ -387,5 +332,4 @@ namespace NG::Parsing {
 
         tokens.push_back(Token{TokenType::OPERATOR, result, pos, operatorType});
     }
-
-} // namespace NG
+}

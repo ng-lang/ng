@@ -5,7 +5,7 @@
 #include <type_traits>
 
 namespace ropto {
-    using namespace NG::AST;
+    using namespace NG::ast;
 
     template<class T, typename = std::enable_if_t<std::is_base_of<ASTNode, T>::value>>
     void write(T* value, byte_stream &stream) {
@@ -13,7 +13,7 @@ namespace ropto {
     }
 } // namespace ropto
 
-namespace NG::AST {
+namespace NG::ast {
     using namespace ropto;
 
     class ASTSerializer : public virtual DefaultDummyAstVisitor {

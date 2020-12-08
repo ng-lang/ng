@@ -1,7 +1,7 @@
 
 #include <utility>
 
-namespace NG::AST {
+namespace NG::ast {
 
     template<class T>
     using ASTRef = T *;

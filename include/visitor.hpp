@@ -4,7 +4,7 @@
 
 #include <ast.hpp>
 
-namespace NG::AST {
+namespace NG::ast {
 
 
     class IASTVisitor : NonCopyable {

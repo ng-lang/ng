@@ -3,8 +3,8 @@
 #include <test.hpp>
 
 using namespace NG;
-using namespace NG::AST;
-using namespace NG::Parsing;
+using namespace NG::ast;
+using namespace NG::parsing;
 
 static inline ASTRef<ASTNode> parse(const Str &source) {
     return Parser(ParseState(Lexer(LexState{source}).lex())).parse();
@@ -16,7 +16,7 @@ runIntegrationTest(const std::string &filename) {
     std::string source{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
     auto ast = parse(source);
 
-    IInterperter *intp = NG::interpreter::interpreter();
+    IInterperter *intp = NG::intp::interpreter();
 
     ast->accept(intp);
     auto &&bytes = serialize_ast(ast);

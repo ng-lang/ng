@@ -6,7 +6,7 @@
 #include <ast.hpp>
 #include <utility>
 
-namespace NG::Parsing {
+namespace NG::parsing {
 
     struct LexState {
         const Str source;
@@ -46,7 +46,7 @@ namespace NG::Parsing {
         Vec<Token> lex();
     };
 
-    using NG::AST::ASTNode;
+    using NG::ast::ASTNode;
 
     struct ParseState {
         const Vec<Token> tokens;
@@ -76,7 +76,7 @@ namespace NG::Parsing {
 
         Parser(const Parser &) = delete;
 
-        AST::ASTRef<ASTNode> parse();
+        ast::ASTRef<ASTNode> parse();
     };
 
 } // namespace NG

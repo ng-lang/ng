@@ -11,12 +11,14 @@
 #include <fwd.hpp>
 
 #ifdef NG_CONING_USING_SHARED_PTR_FOR_AST
+
 #include <ast/ref_adapter_shared_ptr.hpp>
+
 #else // ifndef NG_CONING_USING_SHARED_PTR_FOR_AST
 #include <ast/ref_adapter_raw.hpp>
 #endif // NG_CONING_USING_SHARED_PTR_FOR_AST
 
-namespace NG::AST {
+namespace NG::ast {
 
     enum class [[nodiscard]] ASTNodeType : uint32_t {
         UNKNOWN = 0,
@@ -427,7 +429,7 @@ namespace NG::AST {
     struct PropertyDef : Definition {
         Str propertyName;
 
-        explicit PropertyDef(Str name): propertyName {std::move(name)} {}
+        explicit PropertyDef(Str name) : propertyName{std::move(name)} {}
 
         ASTNodeType astNodeType() const override;
 
@@ -475,7 +477,7 @@ namespace NG::AST {
     };
 
 
-    std::vector<uint8_t> serialize_ast(const ASTRef<ASTNode>& node);
+    std::vector<uint8_t> serialize_ast(const ASTRef<ASTNode> &node);
 
     ASTRef<ASTNode> deserialize_ast(std::vector<uint8_t> &bytes);
 } // namespace NG

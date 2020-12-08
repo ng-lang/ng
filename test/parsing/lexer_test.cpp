@@ -3,7 +3,7 @@
 #include <test.hpp>
 
 using namespace NG;
-using namespace NG::Parsing;
+using namespace NG::parsing;
 
 TEST_CASE("lexer should accept tokens", "[LexerTest]") {
     LexState state{"hello world"};

@@ -6,11 +6,11 @@
 #include <fstream>
 #include <iostream>
 #include <streambuf>
-#include "intp/interpreter.hpp"
+#include "intp/Interpreter.hpp"
 
 using namespace NG;
-using namespace NG::AST;
-using namespace NG::Parsing;
+using namespace NG::ast;
+using namespace NG::parsing;
 
 static inline ASTRef<ASTNode> parse(const Str &source) {
     return Parser(ParseState(Lexer(LexState{source}).lex())).parse();
@@ -28,7 +28,7 @@ int main(int argc, char **argv) {
 
     auto&& ast { parse(source) };
 
-    IASTVisitor *intp = NG::interpreter::interpreter();
+    IASTVisitor *intp = NG::intp::interpreter();
 
     ast->accept(intp);
 }

@@ -1,7 +1,7 @@
 
 #include <memory>
 
-namespace NG::AST {
+namespace NG::ast {
 
     template<class T>
     using ASTRef = std::shared_ptr<T>;

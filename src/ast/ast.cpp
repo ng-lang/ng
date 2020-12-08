@@ -5,7 +5,7 @@
 #include <algorithm>
 #include <iterator>
 
-namespace NG::AST {
+namespace NG::ast {
 
     template<class T>
     static Str strOfNodeList(Vec<T> nodes, const Str &separator = ", ") {
@@ -21,7 +21,7 @@ namespace NG::AST {
 
     ASTNode::~ASTNode() = default;
 
-    const auto ASTComparator = [](const ASTRef<ASTNode>& left, const ASTRef<ASTNode>& right) -> bool {
+    const auto ASTComparator = [](const ASTRef<ASTNode> &left, const ASTRef<ASTNode> &right) -> bool {
         return *left == *right;
     };
 
@@ -55,7 +55,7 @@ namespace NG::AST {
     }
 
     Str Module::repr() {
-        return Str{"module:"} + this->name + "\n" + strOfNodeList(definitions, "\n")  + strOfNodeList(statements, "\n");
+        return Str{"module:"} + this->name + "\n" + strOfNodeList(definitions, "\n") + strOfNodeList(statements, "\n");
     }
 
     Str Definition::name() const {
@@ -351,10 +351,10 @@ namespace NG::AST {
     }
 
     bool ArrayLiteral::operator==(const ASTNode &node) const {
-        auto &arrayLit = dynamic_cast<const ArrayLiteral&>(node);
+        auto &arrayLit = dynamic_cast<const ArrayLiteral &>(node);
         return astNodeType() == arrayLit.astNodeType() &&
-                elements.size() == arrayLit.elements.size() &&
-                std::equal(begin(elements), end(elements), begin(arrayLit.elements), ASTComparator);
+               elements.size() == arrayLit.elements.size() &&
+               std::equal(begin(elements), end(elements), begin(arrayLit.elements), ASTComparator);
     }
 
     ArrayLiteral::~ArrayLiteral() {
@@ -424,10 +424,10 @@ namespace NG::AST {
     }
 
     bool IndexAccessorExpression::operator==(const ASTNode &node) const {
-        auto& indexAccExpr = dynamic_cast<const IndexAccessorExpression&>(node);
+        auto &indexAccExpr = dynamic_cast<const IndexAccessorExpression &>(node);
 
         return *primary == *(indexAccExpr.primary) &&
-            *accessor == *(indexAccExpr.accessor);
+               *accessor == *(indexAccExpr.accessor);
     }
 
     Str IndexAccessorExpression::repr() {
@@ -448,7 +448,7 @@ namespace NG::AST {
     }
 
     bool IndexAssignmentExpression::operator==(const ASTNode &node) const {
-        auto& indexAssExpr = dynamic_cast<const IndexAssignmentExpression&>(node);
+        auto &indexAssExpr = dynamic_cast<const IndexAssignmentExpression &>(node);
 
         return *primary == *(indexAssExpr.primary) &&
                *accessor == *(indexAssExpr.accessor) &&
@@ -479,23 +479,23 @@ namespace NG::AST {
     }
 
     bool TypeDef::operator==(const ASTNode &node) const {
-        auto&& typeDef = dynamic_cast<const TypeDef&>(node);
+        auto &&typeDef = dynamic_cast<const TypeDef &>(node);
 
         return typeName == typeDef.name() &&
-                std::equal(begin(properties),
-                           end(properties),
-                           begin(typeDef.properties),
-                           ASTComparator) &&
-                std::equal(begin(memberFunctions),
-                           end(memberFunctions),
-                           begin(typeDef.memberFunctions),
-                           ASTComparator);
+               std::equal(begin(properties),
+                          end(properties),
+                          begin(typeDef.properties),
+                          ASTComparator) &&
+               std::equal(begin(memberFunctions),
+                          end(memberFunctions),
+                          begin(typeDef.memberFunctions),
+                          ASTComparator);
 
     }
 
     Str TypeDef::repr() {
-        const Str& propertiesRepr = strOfNodeList(properties, "\n");
-        const Str& membersRepr = strOfNodeList(memberFunctions, "\n");
+        const Str &propertiesRepr = strOfNodeList(properties, "\n");
+        const Str &membersRepr = strOfNodeList(memberFunctions, "\n");
 
         return "type " + typeName + "{" + propertiesRepr + membersRepr + "}";
     }
@@ -519,7 +519,7 @@ namespace NG::AST {
     }
 
     bool PropertyDef::operator==(const ASTNode &node) const {
-        auto& property = dynamic_cast<const PropertyDef&>(node);
+        auto &property = dynamic_cast<const PropertyDef &>(node);
 
         return propertyName == property.propertyName;
     }
@@ -541,14 +541,14 @@ namespace NG::AST {
     }
 
     bool NewObjectExpression::operator==(const ASTNode &node) const {
-        auto&& newObj = dynamic_cast<const NewObjectExpression &>(node);
-        
+        auto &&newObj = dynamic_cast<const NewObjectExpression &>(node);
+
         return newObj.typeName == typeName &&
-            newObj.properties == properties;
+               newObj.properties == properties;
     }
 
     Str NewObjectExpression::repr() {
-        Str props {};
+        Str props{};
 
         for (const auto &property : properties) {
             if (!props.empty()) {
@@ -557,12 +557,12 @@ namespace NG::AST {
 
             props += (property.first + ": " + property.second->repr());
         }
-        
+
         return "new " + typeName + " { " + props + " }";
     }
 
     NewObjectExpression::~NewObjectExpression() {
-        for (auto& [_, value] : properties) {
+        for (auto&[_, value] : properties) {
             destroyast(value);
         }
     }

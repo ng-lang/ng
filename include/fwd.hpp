@@ -19,7 +19,7 @@ namespace NG {
 
 } // namespace NG
 
-namespace NG::AST {
+namespace NG::ast {
     struct ASTNode;
 
     struct IASTVisitor;

@@ -5,7 +5,7 @@
 #include <fwd.hpp>
 #include <visitor.hpp>
 
-namespace NG::interpreter {
+namespace NG::intp {
 
     struct ISummarizable {
         virtual void summary() = 0;
@@ -13,7 +13,7 @@ namespace NG::interpreter {
         virtual ~ISummarizable() = 0;
     };
 
-    struct IInterperter: public virtual ISummarizable, public virtual NG::AST::IASTVisitor {
+    struct IInterperter: public virtual ISummarizable, public virtual NG::ast::IASTVisitor {
         virtual NG::runtime::NGContext* intpContext() = 0;
     };
 

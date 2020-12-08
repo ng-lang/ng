@@ -2,16 +2,16 @@
 #include <test.hpp>
 
 using namespace NG;
-using namespace NG::Parsing;
-using namespace NG::interpreter;
-using namespace NG::AST;
+using namespace NG::parsing;
+using namespace NG::intp;
+using namespace NG::ast;
 
 static ASTRef<ASTNode> parse(const Str &source) {
     return Parser(ParseState(Lexer(LexState{source}).lex())).parse();
 }
 
 static void interpret(const Str &source) {
-    IInterperter *intp = NG::interpreter::interpreter();
+    IInterperter *intp = NG::intp::interpreter();
 
     auto &&ast = parse(source);
 

@@ -10,17 +10,24 @@ find_package(Catch2 REQUIRED)
 
 set(NG_LIB_SRC
         src/ast/ast.cpp
-        src/ast/serializer.cpp
-        src/base.cpp
-        src/lexer.cpp
-        src/parser.cpp
-        src/visitor.cpp
-        src/intp/interpreter.cpp
-        src/runtime/NGObject.cpp
-        src/runtime/IOverloadableOperators.cpp
-        src/runtime/NGArray.cpp
+        src/ast/ASTSerializer.cpp
+        src/NonCopyable.cpp
+        src/parsing/LexState.cpp
+        src/parsing/Lexer.cpp
+        src/parsing/ParseState.cpp
+        src/parsing/ParserImpl.cpp
+        src/ast/IASTVisitor.cpp
+        src/ast/DefaultDummyAstVisitor.cpp
+        src/intp/Interpreter.cpp
         src/runtime/IBasicObject.cpp
-        src/runtime/NGBoolean.cpp src/runtime/NGString.cpp src/runtime/NGInteger.cpp src/runtime/NGStructuralObject.cpp)
+        src/runtime/IOverloadableOperators.cpp
+        src/runtime/NGObject.cpp
+        src/runtime/NGBoolean.cpp
+        src/runtime/NGInteger.cpp
+        src/runtime/NGString.cpp
+        src/runtime/NGArray.cpp
+        src/runtime/NGStructuralObject.cpp
+        )
 
 set(NG_TEST_SRC
         test/parsing/lexer_test.cpp

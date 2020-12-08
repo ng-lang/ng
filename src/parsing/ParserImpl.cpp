@@ -4,34 +4,9 @@
 #include "token.hpp"
 #include <ast.hpp>
 
-namespace NG::Parsing {
+namespace NG::parsing {
     using namespace NG;
-    using namespace NG::AST;
-
-    ParseState::ParseState(const Vec<Token> &tokens) : tokens(tokens), size(tokens.size()), index(0) {
-    }
-
-    const Token &ParseState::current() {
-        if (!eof())
-            return tokens.at(index);
-        throw EOFException();
-    }
-
-    bool ParseState::eof() {
-        return index >= size;
-    }
-
-    void ParseState::next(int n) {
-        if (!eof()) {
-            index += n;
-        }
-    }
-
-    void ParseState::revert(size_t n) {
-        if (n > index)
-            return;
-        index = n;
-    }
+    using namespace NG::ast;
 
     class ParserImpl {
         ParseState &state;

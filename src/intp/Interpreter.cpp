@@ -1,5 +1,5 @@
 
-#include <intp/interpreter.hpp>
+#include <intp/Interpreter.hpp>
 #include <intp/runtime.hpp>
 #include <ast.hpp>
 #include <visitor.hpp>
@@ -12,9 +12,9 @@
 #include <test.hpp>
 
 using namespace NG;
-using namespace NG::AST;
+using namespace NG::ast;
 
-namespace NG::interpreter {
+namespace NG::intp {
 
     using namespace NG::runtime;
 

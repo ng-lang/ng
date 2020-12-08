@@ -205,7 +205,7 @@ namespace NG::runtime {
 
     struct NGDefinition {
         Str name;
-        NG::AST::ASTNode *defbody;
+        NG::ast::ASTNode *defbody;
     };
 
     struct NGModule {
