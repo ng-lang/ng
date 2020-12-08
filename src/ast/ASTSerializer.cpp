@@ -8,7 +8,7 @@ namespace ropto {
     using namespace NG::ast;
 
     template<class T, typename = std::enable_if_t<std::is_base_of<ASTNode, T>::value>>
-    void write(T* value, byte_stream &stream) {
+    void write(T *value, byte_stream &stream) {
         write(value->astNodeType(), stream);
     }
 } // namespace ropto
@@ -93,7 +93,7 @@ namespace NG::ast {
             stream << funCallExpr;
             funCallExpr->primaryExpression->accept(this);
             stream << funCallExpr->arguments.size();
-            for (const auto& arg : funCallExpr->arguments) {
+            for (const auto &arg : funCallExpr->arguments) {
                 arg->accept(this);
             }
         }
@@ -155,10 +155,38 @@ namespace NG::ast {
             index->value->accept(this);
         }
 
+        void visit(TypeDef *typeDef) override {
+            stream << typeDef;
+            stream << typeDef->typeName;
+            stream << typeDef->properties.size();
+            for (const auto &property : typeDef->properties) {
+                property->accept(this);
+            }
+            stream << typeDef->memberFunctions.size();
+            for (const auto &memFn : typeDef->memberFunctions) {
+                memFn->accept(this);
+            }
+        }
+
+        void visit(PropertyDef *propertyDef) override {
+            stream << propertyDef;
+            stream << propertyDef->propertyName;
+        }
+
+        void visit(NewObjectExpression *newObjectExpression) override {
+            stream << newObjectExpression;
+            stream << newObjectExpression->typeName;
+            stream << newObjectExpression->properties.size();
+            for (const auto &property : newObjectExpression->properties) {
+                stream << property.first;
+                property.second->accept(this);
+            }
+        }
+
         ~ASTSerializer() override = default;
     };
 
-    std::vector<uint8_t> serialize_ast(const ASTRef<ASTNode>& node) {
+    std::vector<uint8_t> serialize_ast(const ASTRef<ASTNode> &node) {
         ASTSerializer serializer;
         serializer.stream << ASTNodeType::NODE;
         node->accept(&serializer);
@@ -236,6 +264,27 @@ namespace NG::ast {
 
                     return valDef;
                 }
+                case ASTNodeType::TYPE_DEFINITION: {
+                    auto typeDef = makeast<TypeDef>();
+                    stream >> typeDef->typeName;
+
+                    withSize([&](std::size_t) {
+                        typeDef->properties.push_back(expect<PropertyDef>());
+                    });
+
+                    withSize([&](std::size_t) {
+                        typeDef->memberFunctions.push_back(expect<FunctionDef>());
+                    });
+
+                    return typeDef;
+                }
+                case ASTNodeType::PROPERTY_DEFINITION: {
+                    Str propertyName;
+                    stream >> propertyName;
+                    auto propertyDef = makeast<PropertyDef>(propertyName);
+
+                    return propertyDef;
+                }
 
                 default:
                     throw ParseException("Unknown AST node type.");
@@ -309,11 +358,23 @@ namespace NG::ast {
                     return makeast<BooleanValue>(boolVal);
                 }
                 case ASTNodeType::ARRAY_LITERAL: {
-                    Vec<ASTRef<Expression>> vec {};
+                    Vec<ASTRef<Expression>> vec{};
                     withSize([&](std::size_t) {
                         vec.push_back(expect<Expression>());
                     });
                     return makeast<ArrayLiteral>(vec);
+                }
+                case ASTNodeType::NEW_OBJECT_EXPRESSION: {
+                    auto newObj = makeast<NewObjectExpression>();
+                    stream >> newObj->typeName;
+
+                    withSize([&](std::size_t) {
+                        Str propertyName;
+                        stream >> propertyName;
+                        newObj->properties[propertyName] = expect<Expression>();
+                    });
+
+                    return newObj;
                 }
                 default:
                     break;

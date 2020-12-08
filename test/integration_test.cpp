@@ -57,3 +57,8 @@ TEST_CASE("should run with string concat", "[Integration]") {
 TEST_CASE("should run with valdefs -- function and members", "[Integration]") {
     runIntegrationTest("example/05.valdef.ng");
 }
+
+TEST_CASE("should run with type definition and object creation", "[Integration]") {
+    runIntegrationTest("example/07.object.ng");
+}
+
