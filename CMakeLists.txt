@@ -16,8 +16,11 @@ set(NG_LIB_SRC
         src/parser.cpp
         src/visitor.cpp
         src/intp/interpreter.cpp
-        src/intp/runtime.cpp
-        )
+        src/runtime/NGObject.cpp
+        src/runtime/IOverloadableOperators.cpp
+        src/runtime/NGArray.cpp
+        src/runtime/IBasicObject.cpp
+        src/runtime/NGBoolean.cpp src/runtime/NGString.cpp src/runtime/NGInteger.cpp src/runtime/NGStructuralObject.cpp)
 
 set(NG_TEST_SRC
         test/parsing/lexer_test.cpp
