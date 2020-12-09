@@ -23,12 +23,12 @@ namespace NG::runtime {
     };
 
     struct NGContext {
-        Str currentModule{};
+        Str currentModuleName{};
         Map<Str, NGObject *> objects;
         Map<Str, NGInvocationHandler> functions;
         Map<Str, NGType *> types;
 
-        NGModule *current;
+        NGModule *currentModule;
 
         Map<Str, NGModule *> modules;
 

@@ -317,14 +317,14 @@ namespace NG::intp {
 
         void visit(Module *mod) override {
 
-            if (context->current != nullptr) {
+            if (context->currentModule != nullptr) {
                 saveModule();
             }
 
-            context->currentModule = mod->name;
-            context->current = new NGModule{};
+            context->currentModuleName = mod->name;
+            context->currentModule = new NGModule{};
 
-            context->current->exports = mod->exports;
+            context->currentModule->exports = mod->exports;
 
             for (auto &&import : mod->imports) {
                 import->accept(this);
@@ -351,12 +351,12 @@ namespace NG::intp {
 
         void saveModule() {
             // copy
-            context->current->objects = context->objects;
-            context->current->types = context->types;
-            context->current->functions = context->functions;
+            context->currentModule->objects = context->objects;
+            context->currentModule->types = context->types;
+            context->currentModule->functions = context->functions;
 
             // save
-            context->modules.insert_or_assign(context->currentModule, context->current);
+            context->modules.insert_or_assign(context->currentModuleName, context->currentModule);
 
             // clear
             context->objects = {};
@@ -376,7 +376,7 @@ namespace NG::intp {
                     ast->accept(intp);
                     intp->saveModule();
                 });
-                context->modules.insert_or_assign(importDecl->module, ctx.current);
+                context->modules.insert_or_assign(importDecl->module, ctx.currentModule);
             }
             NGModule *targetModule = context->modules[importDecl->module];
             Set<Str> imports = resolveImports(importDecl, targetModule);
