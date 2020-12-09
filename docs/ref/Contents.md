@@ -6,7 +6,6 @@ programming.
 
 ## Contents
 
- - [Getting Started](GettingStarted.md)
  - [Overview](Overview.md)
  - [Lexical Structures](Lexical.md)
  - [Grammar](Grammar.md)
