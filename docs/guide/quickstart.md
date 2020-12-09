@@ -83,3 +83,22 @@ simpleArray[1] = 5;
 
 simpleArray << 10;
 ```
+
+## Import and export
+
+file: `external.ng`
+```
+module external exports *;
+
+fun hello() {
+  print("Hellp");
+}
+```
+
+file: `hello.ng`
+```
+import "external" ext;
+
+ext.hello();
+
+```
