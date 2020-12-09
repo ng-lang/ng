@@ -10,7 +10,7 @@ namespace NG::runtime {
             throw IllegalTypeException("Not a valid index");
         }
 
-        return this->items[ngInt->value];
+        return this->items[ngInt->asSize()];
     }
 
     NGObject *NGArray::opIndex(NGObject *index, NGObject *newValue) {
@@ -19,7 +19,7 @@ namespace NG::runtime {
             throw IllegalTypeException("Not a valid index");
         }
 
-        return items[ngInt->value] = newValue;
+        return items[ngInt->asSize()] = newValue;
     }
 
     Str NGArray::show() {
@@ -42,7 +42,7 @@ namespace NG::runtime {
             if (items.size() != array->items.size()) {
                 return false;
             }
-            for (int i = 0; i < items.size(); ++i) {
+            for (size_t i = 0; i < items.size(); ++i) {
                 if (!items[i]->opEquals(array->items[i])) {
                     return false;
                 }

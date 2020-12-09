@@ -68,7 +68,7 @@ namespace NG::intp {
         return {
                 {"print",  [](NGObject &dummy, NGContext &context, NGInvocationContext &invocationContext) {
                     Vec<NGObject *> &params = invocationContext.params;
-                    for (int i = 0; i < params.size(); ++i) {
+                    for (size_t i = 0; i < params.size(); ++i) {
                         std::cout << params[i]->show();
                         if (i != params.size() - 1) {
                             std::cout << ", ";
@@ -294,7 +294,7 @@ namespace NG::intp {
         }
     };
 
-    struct Interpreter : public IInterperter, public DefaultDummyAstVisitor {
+    struct Interpreter : public IInterperter, DefaultDummyAstVisitor {
         NGContext *context;
 
         Map<Str, ASTRef<ASTNode>> externalModuleAstCache;
@@ -440,7 +440,7 @@ namespace NG::intp {
                                                                  NGContext &ngContext,
                                                                  NGInvocationContext &invocationContext) {
                 NGContext newContext{ngContext};
-                for (int i = 0; i < funDef->params.size(); ++i) {
+                for (size_t i = 0; i < funDef->params.size(); ++i) {
                     newContext.objects[funDef->params[i]->paramName] = invocationContext.params[i];
                 }
 
@@ -478,7 +478,7 @@ namespace NG::intp {
                                                                       NGContext &ngContext,
                                                                       NGInvocationContext &invocationContext) {
                     NGContext newContext{ngContext};
-                    for (int i = 0; i < memFn->params.size(); ++i) {
+                    for (size_t i = 0; i < memFn->params.size(); ++i) {
                         newContext.objects[memFn->params[i]->paramName] = invocationContext.params[i];
                     }
 

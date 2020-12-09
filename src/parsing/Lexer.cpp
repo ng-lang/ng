@@ -109,7 +109,7 @@ namespace NG::parsing {
             fn(state, stream);
             return stream.str();
         }
-        catch (std::exception &ex) {
+        catch (std::exception &) {
             state.revert(current);
             return "";
         }

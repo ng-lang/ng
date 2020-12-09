@@ -204,6 +204,10 @@ namespace NG::runtime {
         NGObject *opDividedBy(NGObject *other) const override;
 
         NGObject *opModulus(NGObject *other) const override;
+
+        [[nodiscard]] inline size_t asSize() const {
+            return static_cast<size_t>(value);
+        }
     };
 
     struct NGDefinition {

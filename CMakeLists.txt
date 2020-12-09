@@ -4,10 +4,6 @@ set(CMAKE_BUILD_TYPE Debug)
 
 project(ng)
 
-find_package(Canvas REQUIRED)
-
-find_package(Catch2 REQUIRED)
-
 set(NG_LIB_SRC
         src/ast/ast.cpp
         src/NonCopyable.cpp
@@ -34,6 +30,7 @@ set(NG_TEST_SRC
         test/parsing/parser_test.cpp
         test/integration_test.cpp
         test/runtime/interpreter_test.cpp
+        test/runner.cpp
         )
 
 include_directories(include)
@@ -46,4 +43,4 @@ add_executable(ngi src/main.cpp)
 target_link_libraries(ngi ng)
 
 add_executable(ng_test ${NG_TEST_SRC})
-target_link_libraries(ng_test ng catch2)
+target_link_libraries(ng_test ng)

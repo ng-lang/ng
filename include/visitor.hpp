@@ -7,7 +7,7 @@
 namespace NG::ast {
 
 
-    class IASTVisitor : NonCopyable {
+    struct IASTVisitor : NonCopyable {
     public:
         virtual void visit(ASTNode *astNode) = 0;
 

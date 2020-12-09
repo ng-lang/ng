@@ -34,9 +34,9 @@ namespace NG::runtime {
                         }},
                         {"charAt", [](NGObject &self, NGContext &context, InvCtx &invCtx) {
                             auto &str = dynamic_cast<NGString &>(self);
-                            auto index = dynamic_cast<NGInteger *>(                            invCtx.params[0]);
+                            auto index = dynamic_cast<NGInteger *>(invCtx.params[0]);
 
-                            context.retVal = new NGInteger(str.value[index->value]);
+                            context.retVal = new NGInteger(str.value[index->asSize()]);
                         }}
                 }
         };
