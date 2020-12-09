@@ -10,7 +10,6 @@ find_package(Catch2 REQUIRED)
 
 set(NG_LIB_SRC
         src/ast/ast.cpp
-        src/ast/ASTSerializer.cpp
         src/NonCopyable.cpp
         src/parsing/LexState.cpp
         src/parsing/Lexer.cpp

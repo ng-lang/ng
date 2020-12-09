@@ -518,11 +518,6 @@ namespace NG::ast {
 
         ~NewObjectExpression() override;
     };
-
-
-    std::vector<uint8_t> serialize_ast(const ASTRef<ASTNode> &node);
-
-    ASTRef<ASTNode> deserialize_ast(std::vector<uint8_t> &bytes);
 } // namespace NG
 
 #endif // __NG_AST_HPP

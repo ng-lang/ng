@@ -19,15 +19,9 @@ runIntegrationTest(const std::string &filename) {
     IInterperter *intp = NG::intp::interpreter();
 
     ast->accept(intp);
-    auto &&bytes = serialize_ast(ast);
-    auto ast2 = deserialize_ast(bytes);
 
     intp->summary();
-
-    REQUIRE(*ast == *ast2);
-
     destroyast(ast);
-    destroyast(ast2);
 
     delete intp;
 }
