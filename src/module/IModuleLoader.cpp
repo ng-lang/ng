@@ -1,7 +1,3 @@
-//
-// Created by kenpu on 2020/12/9.
-//
-
 #include <module.hpp>
 #include <token.hpp>
 #include <ast.hpp>

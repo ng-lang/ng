@@ -27,7 +27,8 @@ set(NG_LIB_SRC
         src/runtime/NGString.cpp
         src/runtime/NGArray.cpp
         src/runtime/NGStructuralObject.cpp
-        src/runtime/NGModule.cpp include/module.hpp src/module/IModuleLoader.cpp)
+        src/runtime/NGModule.cpp
+        src/module/IModuleLoader.cpp)
 
 set(NG_TEST_SRC
         test/parsing/lexer_test.cpp
@@ -38,7 +39,7 @@ set(NG_TEST_SRC
 
 include_directories(include)
 
-add_library(ng SHARED ${NG_LIB_SRC})
+add_library(ng ${NG_LIB_SRC})
 
 target_link_libraries(ng canvas)
 

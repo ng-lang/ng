@@ -1,6 +1,3 @@
-//
-// Created by kenpu on 2020/12/9.
-//
 
 #include <intp/runtime.hpp>
 
