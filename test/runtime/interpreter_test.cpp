@@ -1,5 +1,5 @@
-#include <catch.hpp>
-#include <test.hpp>
+#include "../catch.hpp"
+#include "../test.hpp"
 
 using namespace NG;
 using namespace NG::parsing;
