@@ -52,6 +52,11 @@ namespace NG {
         }
     };
 
+    struct RuntimeException : std::runtime_error {
+        explicit RuntimeException(const std::string &messge) : runtime_error(messge) {
+        }
+    };
+
     template<class T>
     uintptr_t code(T &&t) {
         return static_cast<uintptr_t>(t);

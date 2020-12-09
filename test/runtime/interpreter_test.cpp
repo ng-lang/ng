@@ -163,6 +163,33 @@ val person = new Person {
 assert(person.name().size() == 9);
 
 print(person.kid.name());
+
+print(person.firstName);
+)");
+}
+
+
+TEST_CASE("should be able interpret exports", "[InterpreterTest]") {
+    interpret(R"(
+module hello exports (hello, a);
+
+fun hello() {
+  print("hello world");
+}
+
+val a = 1;
+
+module main;
+
+import "hello" (*);
+hello();
+
+module fuck;
+
+import "hello" hel;
+
+hel.hello();
+
 )");
 }
 

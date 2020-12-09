@@ -22,6 +22,7 @@ namespace NG::ast {
 
     enum class [[nodiscard]] ASTNodeType : uint32_t {
         UNKNOWN = 0,
+        COMPILE_UNIT = 0x01,
         NODE = 0xDEADBEEF,
 
         DEFINITION = 0x100,
@@ -83,9 +84,9 @@ namespace NG::ast {
             return ASTNodeType::IMPORT_DECLARATION;
         }
 
-        bool operator==(const ASTNode& node) const override;
+        bool operator==(const ASTNode &node) const override;
 
-        void accept(IASTVisitor* visitor) override;
+        void accept(IASTVisitor *visitor) override;
 
         Str repr() override;
 
@@ -93,15 +94,28 @@ namespace NG::ast {
 
     };
 
+    struct Module;
+
+    struct CompileUnit : ASTNode {
+        Vec<ASTRef<Module>> modules;
+        Str fileName;
+
+        ASTNodeType astNodeType() const override { return ASTNodeType::COMPILE_UNIT; }
+
+        bool operator==(const ASTNode &node) const override;
+
+        void accept(IASTVisitor *visitor) override;
+
+        Str repr() override;
+
+        ~CompileUnit() override;
+    };
+
     struct Module : ASTNode {
         const ASTNodeType ast_node_type = ASTNodeType::MODULE;
         Str name;
 
-        ASTRef<Module> parent = nullptr;
-
         Vec<ASTRef<Definition>> definitions;
-
-        Vec<ASTRef<Module>> modules;
 
         Vec<ASTRef<Statement>> statements;
 

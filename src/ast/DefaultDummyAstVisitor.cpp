@@ -59,6 +59,8 @@ namespace NG::ast {
 
     void DefaultDummyAstVisitor::visit(ImportDecl *importDecl) {}
 
+    void DefaultDummyAstVisitor::visit(CompileUnit *compileUnit) {}
+
     DefaultDummyAstVisitor::~DefaultDummyAstVisitor() = default;
 
 }

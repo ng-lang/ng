@@ -21,8 +21,15 @@ namespace NG::parsing {
         }
 
 
-        ASTRef<ASTNode> parse() {
+        ASTRef<ASTNode> parse(const Str &fileName) {
+            // file as default module
             auto mod = makeast<Module>();
+
+            auto compileUnit = makeast<CompileUnit>();
+
+            compileUnit->fileName = fileName;
+            compileUnit->modules.push_back(mod);
+
             while (!state.eof()) {
                 switch (state->type) {
                     case TokenType::KEYWORD_FUN:
@@ -36,12 +43,16 @@ namespace NG::parsing {
                         break;
                     case TokenType::KEYWORD_SIG:
                     case TokenType::KEYWORD_CONS:
-                    case TokenType::KEYWORD_MODULE:
-                        mod->modules.push_back(moduleDecl(mod));
+                    case TokenType::KEYWORD_MODULE: {
+                        ASTRef<Module> subModule = moduleDecl();
+                        compileUnit->modules.push_back(subModule);
+                        mod = subModule;
                         break;
+                    }
                     case TokenType::KEYWORD_EXPORT:
                     case TokenType::KEYWORD_IMPORT:
                         mod->imports.push_back(importDecl());
+                        break;
                         // case TokenType::KEYWORD_IF:
                     case TokenType::KEYWORD_CASE:
                     case TokenType::KEYWORD_LOOP:
@@ -51,7 +62,7 @@ namespace NG::parsing {
                         mod->statements.push_back(statement());
                 }
             }
-            return mod;
+            return compileUnit;
         }
 
     private:
@@ -136,6 +147,8 @@ namespace NG::parsing {
                 }
             }
 
+            accept(TokenType::SEMICOLON);
+
             return imp;
         }
 
@@ -174,9 +187,8 @@ namespace NG::parsing {
             return typeDef;
         }
 
-        ASTRef<Module> moduleDecl(const ASTRef<Module> &parent) {
+        ASTRef<Module> moduleDecl() {
             auto mod = makeast<Module>();
-            mod->parent = parent;
             Str moduleName{};
             accept(TokenType::KEYWORD_MODULE);
             while (expect(TokenType::ID) || expect(TokenType::DOT)) {
@@ -554,8 +566,8 @@ namespace NG::parsing {
     };
 
 
-    ASTRef<ASTNode> Parser::parse() {
-        return ParserImpl(state).parse();
+    ASTRef<ASTNode> Parser::parse(const Str &fileName) {
+        return ParserImpl(state).parse(fileName);
     }
 
 } // namespace NG

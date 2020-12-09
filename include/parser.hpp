@@ -43,17 +43,17 @@ namespace NG::parsing {
 
         Lexer(const Lexer &) = delete;
 
-        Vec<Token> lex();
+        Vec <Token> lex();
     };
 
     using NG::ast::ASTNode;
 
     struct ParseState {
-        const Vec<Token> tokens;
+        const Vec <Token> tokens;
         const size_t size;
         size_t index;
 
-        explicit ParseState(const Vec<Token> &source);
+        explicit ParseState(const Vec <Token> &source);
 
         const Token &current();
 
@@ -76,7 +76,7 @@ namespace NG::parsing {
 
         Parser(const Parser &) = delete;
 
-        ast::ASTRef<ASTNode> parse();
+        ast::ASTRef <ASTNode> parse(const Str &filename = "untitled.ng");
     };
 
 } // namespace NG

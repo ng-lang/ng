@@ -57,10 +57,6 @@ namespace NG::ast {
             destroyast(imp);
         }
 
-        for (auto &&mod : modules) {
-            destroyast(mod);
-        }
-
         for (auto &&stmt : statements) {
             destroyast(stmt);
         }
@@ -556,7 +552,11 @@ namespace NG::ast {
         auto &&newObj = dynamic_cast<const NewObjectExpression &>(node);
 
         return newObj.typeName == typeName &&
-               newObj.properties == properties;
+               std::equal(begin(newObj.properties), end(newObj.properties), begin(properties),
+                          [](auto &&left, auto &&right) {
+                              return left.first == right.first
+                                     && ASTComparator(left.second, right.second);
+                          });
     }
 
     Str NewObjectExpression::repr() {
@@ -595,6 +595,26 @@ namespace NG::ast {
         return module;
     }
 
-    ImportDecl::~ImportDecl() {
+    ImportDecl::~ImportDecl() = default;
+
+    bool CompileUnit::operator==(const ASTNode &node) const {
+        auto &&cu = dynamic_cast<const CompileUnit &>(node);
+
+        return this->fileName == cu.fileName &&
+               std::equal(begin(this->modules), end(this->modules), begin(cu.modules), ASTComparator);
+    }
+
+    void CompileUnit::accept(IASTVisitor *visitor) {
+        visitor->visit(this);
+    }
+
+    Str CompileUnit::repr() {
+        return Str{"Compile Unit"} + fileName;
+    }
+
+    CompileUnit::~CompileUnit() {
+        for (auto &&module : modules) {
+            destroyast(module);
+        }
     }
 } // namespace NG

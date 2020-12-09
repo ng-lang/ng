@@ -27,7 +27,7 @@ set(NG_LIB_SRC
         src/runtime/NGString.cpp
         src/runtime/NGArray.cpp
         src/runtime/NGStructuralObject.cpp
-        )
+        src/runtime/NGModule.cpp include/module.hpp src/module/IModuleLoader.cpp)
 
 set(NG_TEST_SRC
         test/parsing/lexer_test.cpp

@@ -23,9 +23,12 @@ namespace NG::runtime {
     };
 
     struct NGContext {
+        Str currentModule{};
         Map<Str, NGObject *> objects;
         Map<Str, NGInvocationHandler> functions;
         Map<Str, NGType *> types;
+
+        NGModule *current;
 
         Map<Str, NGModule *> modules;
 
@@ -208,8 +211,21 @@ namespace NG::runtime {
         NG::ast::ASTNode *defbody;
     };
 
-    struct NGModule {
-        Map<Str, NGDefinition *> defs;
+    struct NGModule : public virtual NGObject {
+        Vec<Str> imports;
+        Vec<Str> exports;
+
+        Map<Str, NGObject *> objects;
+        Map<Str, NGInvocationHandler> functions;
+        Map<Str, NGType *> types;
+
+        size_t size() const {
+            return objects.size() + functions.size() + types.size();
+        }
+
+        NGObject *respond(const Str &member, NGContext *context, NGInvocationContext *invocationContext) override;
+
+        ~NGModule() override;
     };
 
     struct NGArray : NGObject {

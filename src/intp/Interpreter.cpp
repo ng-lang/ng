@@ -4,12 +4,14 @@
 #include <ast.hpp>
 #include <visitor.hpp>
 #include <token.hpp>
+#include <module.hpp>
 
 #include <debug.hpp>
 
 #include <unordered_map>
 #include <functional>
-#include <test.hpp>
+
+#include <unordered_set>
 
 using namespace NG;
 using namespace NG::ast;
@@ -17,6 +19,9 @@ using namespace NG::ast;
 namespace NG::intp {
 
     using namespace NG::runtime;
+
+    template<class T>
+    using Set = std::unordered_set<T>;
 
     void ISummarizable::summary() {
     }
@@ -58,6 +63,32 @@ namespace NG::intp {
         return nullptr;
     }
 
+    static
+    Map<Str, NGInvocationHandler> predefs() {
+        return {
+                {"print",  [](NGObject &dummy, NGContext &context, NGInvocationContext &invocationContext) {
+                    Vec<NGObject *> &params = invocationContext.params;
+                    for (int i = 0; i < params.size(); ++i) {
+                        std::cout << params[i]->show();
+                        if (i != params.size() - 1) {
+                            std::cout << ", ";
+                        }
+                    }
+                    std::cout << std::endl;
+                }},
+                {"assert", [](NGObject &dummy, NGContext &context, NGInvocationContext &invocationContext) {
+                    for (const auto &param : invocationContext.params) {
+                        auto ngBool = dynamic_cast<NGBoolean *>(param);
+                        if (ngBool == nullptr || !ngBool->value) {
+                            std::cerr << param->show();
+                            throw AssertionException();
+                        }
+                    }
+                }}
+        };
+    }
+
+
     struct FunctionPathVisitor : public DefaultDummyAstVisitor {
 
         Str path;
@@ -92,12 +123,17 @@ namespace NG::intp {
             funCallExpr->primaryExpression->accept(&fpVis);
             NGInvocationContext invocationContext{};
 
-            for (auto& param: funCallExpr->arguments) {
+            for (auto &param: funCallExpr->arguments) {
                 param->accept(this);
                 invocationContext.params.push_back(this->object);
             }
 
             NGObject dummy{};
+
+            if (!context->functions.contains(fpVis.path)) {
+                throw RuntimeException("No such function: " + fpVis.path);
+            }
+
             context->functions[fpVis.path](dummy, *context, invocationContext);
 
             this->object = context->retVal;
@@ -165,14 +201,14 @@ namespace NG::intp {
 
         void visit(IdAccessorExpression *idAccExpr) override {
             const Str &repr = idAccExpr->accessor->repr();
-            
-            ExpressionVisitor vis {context};
-            
+
+            ExpressionVisitor vis{context};
+
             idAccExpr->primaryExpression->accept(&vis);
 
             NGObject *main = vis.object;
 
-            NGInvocationContext invCtx {};
+            NGInvocationContext invCtx{};
             for (const auto &argument : idAccExpr->arguments) {
                 argument->accept(&vis);
                 invCtx.params.push_back(vis.object);
@@ -189,13 +225,13 @@ namespace NG::intp {
 
             structural->customizedType = ngType;
 
-            NGContext newContext {*context};
-            ExpressionVisitor visitor {&newContext};
+            NGContext newContext{*context};
+            ExpressionVisitor visitor{&newContext};
 
             for (auto &&[name, expr] : newObj->properties) {
                 expr->accept(&visitor);
                 NGObject *result = visitor.object;
-                
+
                 visitor.context->objects[name] = result;
 
                 structural->properties[name] = result;
@@ -203,7 +239,7 @@ namespace NG::intp {
 
             for (const auto &property : ngType->properties) {
                 if (structural->properties.find(property) == structural->properties.end()) {
-                    structural->properties[property] = new NGObject {};
+                    structural->properties[property] = new NGObject{};
                 }
             }
 
@@ -261,6 +297,8 @@ namespace NG::intp {
     struct Interpreter : public IInterperter, public DefaultDummyAstVisitor {
         NGContext *context;
 
+        Map<Str, ASTRef<ASTNode>> externalModuleAstCache;
+
         void withNewContext(NGContext &newContext, const std::function<void()> &execution) {
             NGContext *previousContext = context;
             context = &newContext;
@@ -271,15 +309,127 @@ namespace NG::intp {
         explicit Interpreter(NGContext *_context) : context(_context) {
         }
 
+        void visit(CompileUnit *compileUnit) override {
+            for (auto &&module : compileUnit->modules) {
+                module->accept(this);
+            }
+        }
+
         void visit(Module *mod) override {
-            for (auto defs: mod->definitions) {
+
+            if (context->current != nullptr) {
+                saveModule();
+            }
+
+            context->currentModule = mod->name;
+            context->current = new NGModule{};
+
+            context->current->exports = mod->exports;
+
+            for (auto &&import : mod->imports) {
+                import->accept(this);
+            }
+
+            Set<Str> definedSymbols = {};
+            for (auto &&defs: mod->definitions) {
+                definedSymbols.insert(defs->name());
                 defs->accept(this);
+            }
+
+            for (auto &&exp : mod->exports) {
+                if (!definedSymbols.contains(exp) && exp != "*") {
+                    throw RuntimeException("Export undefined symbol: " + exp);
+                }
             }
 
             StatementVisitor vis{context};
 
             for (const auto &stmt : mod->statements) {
                 stmt->accept(&vis);
+            }
+        }
+
+        void saveModule() {
+            // copy
+            context->current->objects = context->objects;
+            context->current->types = context->types;
+            context->current->functions = context->functions;
+
+            // save
+            context->modules.insert_or_assign(context->currentModule, context->current);
+
+            // clear
+            context->objects = {};
+            context->types = {};
+            context->functions = predefs();
+        }
+
+        void visit(ImportDecl *importDecl) override {
+            if (!context->modules.contains(importDecl->module)) {
+                // load module
+                NG::module::FileBasedExternalModuleLoader loader{};
+
+                auto &&ast = loader.load(importDecl->module);
+                externalModuleAstCache.insert_or_assign(importDecl->module, ast);
+                NGContext ctx{};
+                withNewContext(ctx, [&ast, intp = this]() {
+                    ast->accept(intp);
+                    intp->saveModule();
+                });
+                context->modules.insert_or_assign(importDecl->module, ctx.current);
+            }
+            NGModule *targetModule = context->modules[importDecl->module];
+            Set<Str> imports = resolveImports(importDecl, targetModule);
+
+            for (auto &&imp : imports) {
+                if (targetModule->functions.contains(imp)) {
+                    context->functions[imp] = targetModule->functions[imp];
+                }
+                if (targetModule->types.contains(imp)) {
+                    context->types[imp] = targetModule->types[imp];
+                }
+                if (targetModule->objects.contains(imp)) {
+                    context->objects[imp] = targetModule->objects[imp];
+                }
+            }
+
+            if (!importDecl->alias.empty()) {
+                context->objects.insert_or_assign(importDecl->alias, targetModule);
+            }
+
+        }
+
+        Set<Str> resolveImports(ImportDecl *importDecl, NGModule *targetModule) {
+            bool importAll = (std::find(begin(importDecl->imports), end(importDecl->imports),
+                                        "*") != end(importDecl->imports));
+
+            bool exportsAll = (std::find(begin(targetModule->exports), end(targetModule->exports),
+                                         "*") != end(targetModule->exports));
+
+            Set<Str> exported{};
+            if (exportsAll) {
+                for (auto&&[fnName, _] : targetModule->functions) {
+                    exported.insert(fnName);
+                }
+                for (auto&&[typeName, _] : targetModule->types) {
+                    exported.insert(typeName);
+                }
+                for (auto&&[objName, _] : targetModule->objects) {
+                    exported.insert(objName);
+                }
+            } else {
+                exported.insert(begin(targetModule->exports), end(targetModule->exports));
+            }
+
+            if (importAll) {
+                return exported;
+            } else {
+                for (auto &&imp : importDecl->imports) {
+                    if (!exported.contains(imp)) {
+                        throw RuntimeException("Cannot found symbol " + imp + " in module " + importDecl->module);
+                    }
+                }
+                return Set<Str>{begin(importDecl->imports), end(importDecl->imports)};
             }
         }
 
@@ -334,7 +484,7 @@ namespace NG::intp {
 
                     newContext.objects["self"] = &dummy;
 
-                    if (auto structural = dynamic_cast<NGStructuralObject*>(&dummy); structural != nullptr) {
+                    if (auto structural = dynamic_cast<NGStructuralObject *>(&dummy); structural != nullptr) {
                         for (const auto &property : structural->properties) {
                             newContext.objects[property.first] = property.second;
                         }
@@ -362,11 +512,12 @@ namespace NG::intp {
             debug_log("Context modules size", context->modules.size());
 
             for (const auto &p : context->modules) {
-                debug_log("Context module", "name:", p.first, "value:", code(p.second->defs.size()));
+                debug_log("Context module", "name:", p.first, "value:", code(p.second->size()));
             }
 
             for (const auto &type : context->types) {
-                debug_log("Context types", "name:", type.first, "members:", type.second->properties.size() + type.second->memberFunctions.size());
+                debug_log("Context types", "name:", type.first, "members:",
+                          type.second->properties.size() + type.second->memberFunctions.size());
             }
         }
 
@@ -382,27 +533,7 @@ namespace NG::intp {
 
     IInterperter *interpreter() {
         auto context = new NGContext{
-                .functions = {
-                        {"print",  [](NGObject &dummy, NGContext &context, NGInvocationContext &invocationContext) {
-                            Vec<NGObject *> &params = invocationContext.params;
-                            for (int i = 0; i < params.size(); ++i) {
-                                std::cout << params[i]->show();
-                                if (i != params.size() - 1) {
-                                    std::cout << ", ";
-                                }
-                            }
-                            std::cout << std::endl;
-                        }},
-                        {"assert", [](NGObject &dummy, NGContext &context, NGInvocationContext &invocationContext) {
-                            for (const auto &param : invocationContext.params) {
-                                auto ngBool = dynamic_cast<NGBoolean *>(param);
-                                if (ngBool == nullptr || !ngBool->value) {
-                                    std::cerr << param->show();
-                                    throw AssertionException();
-                                }
-                            }
-                        }}
-                },
+                .functions = predefs(),
         };
 
         return new Interpreter(context);

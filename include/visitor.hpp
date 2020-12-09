@@ -65,6 +65,8 @@ namespace NG::ast {
 
         virtual void visit(ImportDecl *importDecl) = 0;
 
+        virtual void visit(CompileUnit *compileUnit) = 0;
+
         ~IASTVisitor() override = 0;
     };
 
@@ -125,6 +127,8 @@ namespace NG::ast {
         void visit(NewObjectExpression *newObj) override;
 
         void visit(ImportDecl *importDecl) override;
+
+        void visit(CompileUnit *compileUnit) override;
 
         ~DefaultDummyAstVisitor() override;
     };

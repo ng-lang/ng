@@ -59,5 +59,7 @@ namespace NG::ast {
 
     void IASTVisitor::visit(ImportDecl *importDecl) {}
 
+    void IASTVisitor::visit(CompileUnit *importDecl) {}
+
     IASTVisitor::~IASTVisitor() = default;
 }
