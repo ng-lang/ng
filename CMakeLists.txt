@@ -37,8 +37,6 @@ include_directories(include)
 
 add_library(ng ${NG_LIB_SRC})
 
-target_link_libraries(ng canvas)
-
 add_executable(ngi src/main.cpp)
 target_link_libraries(ngi ng)
 
