@@ -1,0 +1,16 @@
+(library
+ (name ng_lib)
+ (public_name occam.lang.ng_lib)
+ (libraries common_ast occam_ext)
+ ;  (modules ng lexer parser stupid hir hir_compiler)
+ (inline_tests
+  (deps
+   (glob_files example/*.ng)))
+ (preprocess
+  (pps ppx_inline_test ppx_deriving.show)))
+
+(menhir
+ (modules parser)
+ (flags "--code" "-v"))
+
+(ocamllex lexer)

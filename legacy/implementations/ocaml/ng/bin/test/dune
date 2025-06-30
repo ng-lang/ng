@@ -1,0 +1,7 @@
+(cram
+ (deps
+  %{bin:ngc}
+  %{bin:ngtop}
+  %{bin:ngrun}
+  %{bin:ngast}
+  (glob_files ../../example/**.ng)))
