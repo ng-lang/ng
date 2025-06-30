@@ -4,6 +4,7 @@
 
 #include <fwd.hpp>
 #include <ast.hpp>
+#include <token.hpp>
 #include <utility>
 
 namespace NG::parsing {

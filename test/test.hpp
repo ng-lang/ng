@@ -4,6 +4,8 @@
 #define __NG_TEST_HPP
 
 
+#include <catch2/catch_test_macros.hpp>
+
 #include <ast.hpp>
 #include <parser.hpp>
 #include <intp/Interpreter.hpp>

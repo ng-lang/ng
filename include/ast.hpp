@@ -275,6 +275,7 @@ namespace NG::ast {
         ASTNodeType astNodeType() const override { return ASTNodeType::ID_EXPRESSION; }
 
         bool operator==(const ASTNode &node) const override;
+        bool operator==(const IdExpression &node) const;
 
         Str repr() override;
 

@@ -11,7 +11,7 @@ namespace NG::module {
     struct IModuleLoader : NonCopyable {
         virtual ASTRef<ASTNode> load(const Str& module) = 0;
 
-        virtual ~IModuleLoader()  = 0;
+        virtual ~IModuleLoader() noexcept  =  0;
     };
 
     struct FileBasedExternalModuleLoader : public virtual IModuleLoader {

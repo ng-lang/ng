@@ -279,6 +279,10 @@ namespace NG::ast {
                idexpr.id == id;
     }
 
+    bool IdExpression::operator==(const IdExpression &node) const {
+        return node.id == id;
+    }
+
     Str IdExpression::repr() {
         return id;
     }
