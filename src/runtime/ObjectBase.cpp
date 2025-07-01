@@ -3,14 +3,14 @@
 
 namespace NG::runtime {
 
-    Str IBasicObject::show() {
+    Str ObjectBase::show() {
         return NG::Str();
     }
 
-    bool IBasicObject::boolValue() {
+    bool ObjectBase::boolValue() {
         return false;
     }
 
-    IBasicObject::~IBasicObject() = default;
+    ObjectBase::~ObjectBase() = default;
 
 }

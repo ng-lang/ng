@@ -13,11 +13,11 @@ namespace NG::module {
     using namespace NG::parsing;
     namespace fs = std::filesystem;
 
-    ASTRef<ASTNode> IModuleLoader::load(const Str &module) {
+    ASTRef<ASTNode> ModuleLoader::load(const Str &module) {
         return ASTRef<ASTNode>();
     }
 
-    IModuleLoader::~IModuleLoader() noexcept = default;
+    ModuleLoader::~ModuleLoader() noexcept = default;
 
     ASTRef<ASTNode> FileBasedExternalModuleLoader::load(const Str &module) {
         Str path = module;

@@ -22,7 +22,7 @@ namespace NG {
 namespace NG::ast {
     struct ASTNode;
 
-    struct IASTVisitor;
+    struct AstVisitor;
 
     struct Definition;
     struct Expression;

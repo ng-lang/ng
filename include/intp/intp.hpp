@@ -13,7 +13,7 @@ namespace NG::intp {
         virtual ~ISummarizable() = 0;
     };
 
-    struct Interpreter : public virtual ISummarizable, public virtual NG::ast::IASTVisitor {
+    struct Interpreter : public virtual ISummarizable, public virtual NG::ast::AstVisitor {
         virtual NG::runtime::NGContext *intpContext() = 0;
     };
 

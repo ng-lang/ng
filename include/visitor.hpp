@@ -7,7 +7,7 @@
 namespace NG::ast {
 
 
-    struct IASTVisitor : NonCopyable {
+    struct AstVisitor : NonCopyable {
     public:
         virtual void visit(ASTNode *astNode) = 0;
 
@@ -67,10 +67,10 @@ namespace NG::ast {
 
         virtual void visit(CompileUnit *compileUnit) = 0;
 
-        ~IASTVisitor() override = 0;
+        ~AstVisitor() override = 0;
     };
 
-    class DefaultDummyAstVisitor : public virtual IASTVisitor {
+    class DummyVisitor : public virtual AstVisitor {
     public:
         void visit(ASTNode *astNode) override;
 
@@ -130,7 +130,7 @@ namespace NG::ast {
 
         void visit(CompileUnit *compileUnit) override;
 
-        ~DefaultDummyAstVisitor() override;
+        ~DummyVisitor() override;
     };
 } // namespace NG::AST
 

@@ -25,7 +25,7 @@ namespace NG::ast {
         return *left == *right;
     };
 
-    void ASTNode::accept(IASTVisitor *visitor) {
+    void ASTNode::accept(AstVisitor *visitor) {
         visitor->visit(this);
     }
 
@@ -44,7 +44,7 @@ namespace NG::ast {
                           ASTComparator);
     }
 
-    void Module::accept(IASTVisitor *visitor) {
+    void Module::accept(AstVisitor *visitor) {
         visitor->visit(this);
     }
 
@@ -70,7 +70,7 @@ namespace NG::ast {
         return "unknown";
     }
 
-    void Param::accept(IASTVisitor *visitor) {
+    void Param::accept(AstVisitor *visitor) {
         visitor->visit(this);
     }
 
@@ -86,7 +86,7 @@ namespace NG::ast {
         return paramName + ": " + annotatedType;
     }
 
-    void CompoundStatement::accept(IASTVisitor *visitor) {
+    void CompoundStatement::accept(AstVisitor *visitor) {
         visitor->visit(this);
     }
 
@@ -109,7 +109,7 @@ namespace NG::ast {
         return "{\n" + strOfNodeList(this->statements, "\n") + "}";
     }
 
-    void ReturnStatement::accept(IASTVisitor *visitor) {
+    void ReturnStatement::accept(AstVisitor *visitor) {
         visitor->visit(this);
     }
 
@@ -129,7 +129,7 @@ namespace NG::ast {
         return "return " + this->expression->repr() + ";";
     }
 
-    void IfStatement::accept(IASTVisitor *visitor) {
+    void IfStatement::accept(AstVisitor *visitor) {
         visitor->visit(this);
     }
 
@@ -166,7 +166,7 @@ namespace NG::ast {
         }
     }
 
-    void SimpleStatement::accept(IASTVisitor *visitor) {
+    void SimpleStatement::accept(AstVisitor *visitor) {
         visitor->visit(this);
     }
 
@@ -180,7 +180,7 @@ namespace NG::ast {
         return this->expression->repr() + ";";
     }
 
-    void FunCallExpression::accept(IASTVisitor *visitor) {
+    void FunCallExpression::accept(AstVisitor *visitor) {
         visitor->visit(this);
     }
 
@@ -206,7 +206,7 @@ namespace NG::ast {
         return this->primaryExpression->repr() + "(" + strOfNodeList(this->arguments) + ")";
     }
 
-    void AssignmentExpression::accept(IASTVisitor *visitor) {
+    void AssignmentExpression::accept(AstVisitor *visitor) {
         visitor->visit(this);
     }
 
@@ -227,7 +227,7 @@ namespace NG::ast {
         return this->name + " = " + this->value->repr();
     }
 
-    void ValDefStatement::accept(IASTVisitor *visitor) {
+    void ValDefStatement::accept(AstVisitor *visitor) {
         visitor->visit(this);
     }
 
@@ -248,7 +248,7 @@ namespace NG::ast {
         return "val " + this->name + " = " + this->value->repr() + ";";
     }
 
-    void ValDef::accept(IASTVisitor *visitor) {
+    void ValDef::accept(AstVisitor *visitor) {
         return visitor->visit(this);
     }
 
@@ -269,7 +269,7 @@ namespace NG::ast {
         return this->body->repr();
     }
 
-    void IdExpression::accept(IASTVisitor *visitor) {
+    void IdExpression::accept(AstVisitor *visitor) {
         visitor->visit(this);
     }
 
@@ -287,7 +287,7 @@ namespace NG::ast {
         return id;
     }
 
-    void IdAccessorExpression::accept(IASTVisitor *visitor) {
+    void IdAccessorExpression::accept(AstVisitor *visitor) {
         visitor->visit(this);
     }
 
@@ -308,7 +308,7 @@ namespace NG::ast {
                (this->accessor == nullptr ? "" : ("." + this->accessor->repr()));
     }
 
-    void IntegerValue::accept(IASTVisitor *visitor) {
+    void IntegerValue::accept(AstVisitor *visitor) {
         visitor->visit(this);
     }
 
@@ -322,7 +322,7 @@ namespace NG::ast {
         return std::to_string(this->value);
     }
 
-    void StringValue::accept(IASTVisitor *visitor) {
+    void StringValue::accept(AstVisitor *visitor) {
         visitor->visit(this);
     }
 
@@ -336,7 +336,7 @@ namespace NG::ast {
         return "\"" + this->value + "\"";
     }
 
-    void BooleanValue::accept(IASTVisitor *visitor) {
+    void BooleanValue::accept(AstVisitor *visitor) {
         return visitor->visit(this);
     }
 
@@ -350,7 +350,7 @@ namespace NG::ast {
         return this->value ? "true" : "false";
     }
 
-    void ArrayLiteral::accept(IASTVisitor *visitor) {
+    void ArrayLiteral::accept(AstVisitor *visitor) {
         visitor->visit(this);
     }
 
@@ -375,7 +375,7 @@ namespace NG::ast {
         }
     }
 
-    void FunctionDef::accept(IASTVisitor *visitor) {
+    void FunctionDef::accept(AstVisitor *visitor) {
         visitor->visit(this);
     }
 
@@ -405,7 +405,7 @@ namespace NG::ast {
         return "fun " + funName + "(" + strOfNodeList(params) + ")" + body->repr();
     }
 
-    void BinaryExpression::accept(IASTVisitor *visitor) {
+    void BinaryExpression::accept(AstVisitor *visitor) {
         visitor->visit(this);
     }
 
@@ -427,7 +427,7 @@ namespace NG::ast {
         return left->repr() + this->optr->repr + right->repr();
     }
 
-    void IndexAccessorExpression::accept(IASTVisitor *visitor) {
+    void IndexAccessorExpression::accept(AstVisitor *visitor) {
         visitor->visit(this);
     }
 
@@ -451,7 +451,7 @@ namespace NG::ast {
         destroyast(accessor);
     }
 
-    void IndexAssignmentExpression::accept(IASTVisitor *visitor) {
+    void IndexAssignmentExpression::accept(AstVisitor *visitor) {
         visitor->visit(this);
     }
 
@@ -486,7 +486,7 @@ namespace NG::ast {
         return ASTNodeType::TYPE_DEFINITION;
     }
 
-    void TypeDef::accept(IASTVisitor *visitor) {
+    void TypeDef::accept(AstVisitor *visitor) {
         visitor->visit(this);
     }
 
@@ -536,7 +536,7 @@ namespace NG::ast {
         return propertyName == property.propertyName;
     }
 
-    void PropertyDef::accept(IASTVisitor *visitor) {
+    void PropertyDef::accept(AstVisitor *visitor) {
         visitor->visit(this);
     }
 
@@ -548,7 +548,7 @@ namespace NG::ast {
         return ASTNodeType::NEW_OBJECT_EXPRESSION;
     }
 
-    void NewObjectExpression::accept(IASTVisitor *visitor) {
+    void NewObjectExpression::accept(AstVisitor *visitor) {
         visitor->visit(this);
     }
 
@@ -591,7 +591,7 @@ namespace NG::ast {
                this->imports == imports.imports;
     }
 
-    void ImportDecl::accept(IASTVisitor *visitor) {
+    void ImportDecl::accept(AstVisitor *visitor) {
         visitor->visit(this);
     }
 
@@ -608,7 +608,7 @@ namespace NG::ast {
                std::equal(begin(this->modules), end(this->modules), begin(cu.modules), ASTComparator);
     }
 
-    void CompileUnit::accept(IASTVisitor *visitor) {
+    void CompileUnit::accept(AstVisitor *visitor) {
         visitor->visit(this);
     }
 

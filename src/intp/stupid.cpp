@@ -97,7 +97,7 @@ namespace NG::intp
              }}};
     }
 
-    struct FunctionPathVisitor : public DefaultDummyAstVisitor
+    struct FunctionPathVisitor : public DummyVisitor
     {
 
         Str path;
@@ -108,7 +108,7 @@ namespace NG::intp
         }
     };
 
-    struct ExpressionVisitor : public DefaultDummyAstVisitor
+    struct ExpressionVisitor : public DummyVisitor
     {
 
         NGObject *object = nullptr;
@@ -275,7 +275,7 @@ namespace NG::intp
         }
     };
 
-    struct StatementVisitor : public DefaultDummyAstVisitor
+    struct StatementVisitor : public DummyVisitor
     {
         NGContext *context;
 
@@ -333,7 +333,7 @@ namespace NG::intp
         }
     };
 
-    struct Stupid : public Interpreter, DefaultDummyAstVisitor
+    struct Stupid : public Interpreter, DummyVisitor
     {
         NGContext *context;
 

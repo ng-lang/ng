@@ -4,7 +4,6 @@
 namespace NG::runtime {
     NGObject *NGModule::respond(const Str &member, NGContext *context, NGInvocationContext *invocationContext) {
         if (this->functions.contains(member)) {
-            debug_log("Retrived" + member);
             auto &&fns = this->functions;
             NGContext newContext{*context};
             newContext.objects["self"] = this;
@@ -12,7 +11,6 @@ namespace NG::runtime {
 
             return newContext.retVal;
         } else if (this->objects.contains(member)) {
-            debug_log("Retrived" + member);
             return this->objects[member];
         }
         return NGObject::respond(member, context, invocationContext);

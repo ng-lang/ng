@@ -8,13 +8,13 @@ namespace NG::module {
     using NG::ast::ASTRef;
     using NG::ast::ASTNode;
 
-    struct IModuleLoader : NonCopyable {
+    struct ModuleLoader : NonCopyable {
         virtual ASTRef<ASTNode> load(const Str& module) = 0;
 
-        virtual ~IModuleLoader() noexcept  =  0;
+        virtual ~ModuleLoader() noexcept  =  0;
     };
 
-    struct FileBasedExternalModuleLoader : public virtual IModuleLoader {
+    struct FileBasedExternalModuleLoader : public virtual ModuleLoader {
 
         Vec<Str> basePaths;
 

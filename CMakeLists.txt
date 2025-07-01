@@ -21,11 +21,11 @@ set(NG_LIB_SRC
         src/parsing/Lexer.cpp
         src/parsing/ParseState.cpp
         src/parsing/ParserImpl.cpp
-        src/ast/IASTVisitor.cpp
-        src/ast/DefaultDummyAstVisitor.cpp
+        src/ast/AstVisitor.cpp
+        src/ast/DummyVisitor.cpp
         src/intp/stupid.cpp
-        src/runtime/IBasicObject.cpp
-        src/runtime/IOverloadableOperators.cpp
+        src/runtime/ObjectBase.cpp
+        src/runtime/OperatorsBase.cpp
         src/runtime/NGObject.cpp
         src/runtime/NGBoolean.cpp
         src/runtime/NGInteger.cpp
@@ -33,7 +33,7 @@ set(NG_LIB_SRC
         src/runtime/NGArray.cpp
         src/runtime/NGStructuralObject.cpp
         src/runtime/NGModule.cpp
-        src/module/IModuleLoader.cpp)
+        src/module/ModuleLoader.cpp)
 
 set(NG_TEST_SRC
         test/parsing/lexer_test.cpp

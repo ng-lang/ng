@@ -44,7 +44,7 @@ namespace NG::runtime {
         ~NGContext();
     };
 
-    struct IOverloadedOperators {
+    struct OperatorsBase {
         virtual NGObject *opIndex(NGObject *index) const = 0;
 
         // obj[index] = newValue
@@ -81,20 +81,20 @@ namespace NG::runtime {
         // Meta-Object function
         virtual NGObject *respond(const Str &member, NGContext *context, NGInvocationContext *invocationContext) = 0;
 
-        virtual ~IOverloadedOperators() noexcept = 0;
+        virtual ~OperatorsBase() noexcept = 0;
     };
 
-    struct IBasicObject {
+    struct ObjectBase {
         virtual Str show() = 0;
 
         virtual bool boolValue() = 0;
 
         virtual NGType *type() = 0;
 
-        virtual ~IBasicObject() = 0;
+        virtual ~ObjectBase() = 0;
     };
 
-    struct NGObject : public virtual IOverloadedOperators, public virtual IBasicObject {
+    struct NGObject : public virtual OperatorsBase, public virtual ObjectBase {
 
         NGObject() = default;
 

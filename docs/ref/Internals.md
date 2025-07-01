@@ -85,7 +85,7 @@ This is current definition of few useful basic:
 struct ASTNode : NonCopyable
 {
     ASTNode() {}
-    virtual void accept(IASTVisitor *visitor);
+    virtual void accept(AstVisitor *visitor);
     virtual ~ASTNode() = 0;
 };
 
@@ -105,9 +105,9 @@ struct Expression : ASTNode
 
 ### 2.2 AST visitor
 
-AST will be analyzed by visitors, all AST visitor must follow the `IASTVisitor` interface.
+AST will be analyzed by visitors, all AST visitor must follow the `AstVisitor` interface.
 ```C++
-class IASTVisitor : NonCopyable
+class AstVisitor : NonCopyable
 {
   public:
     virtual void visit(ASTRef<ASTNode> astNode) = 0;
@@ -115,11 +115,11 @@ class IASTVisitor : NonCopyable
     virtual void visit(ASTRef<Statement> statement) = 0;
     ...; // other visit function definitions
 
-    virtual ~IASTVisitor() = 0;
+    virtual ~AstVisitor() = 0;
 };
 ```
 
-ng provides a default implementation `DefaultDummyAstVisitor` which set all `visit` functions
+ng provides a default implementation `DummyVisitor` which set all `visit` functions
 to empty, you can directly inherite it just modify what you need.
 
 There is an exmaple `NG::ASTDumper` in `src/ast_dump.cpp`.

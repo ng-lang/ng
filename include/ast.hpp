@@ -64,7 +64,7 @@ namespace NG::ast {
     struct ASTNode : NonCopyable {
         ASTNode() = default;
 
-        virtual void accept(IASTVisitor *visitor) = 0;
+        virtual void accept(AstVisitor *visitor) = 0;
 
         virtual ASTNodeType astNodeType() const = 0;
 
@@ -86,7 +86,7 @@ namespace NG::ast {
 
         bool operator==(const ASTNode &node) const override;
 
-        void accept(IASTVisitor *visitor) override;
+        void accept(AstVisitor *visitor) override;
 
         Str repr() override;
 
@@ -105,7 +105,7 @@ namespace NG::ast {
 
         bool operator==(const ASTNode &node) const override;
 
-        void accept(IASTVisitor *visitor) override;
+        void accept(AstVisitor *visitor) override;
 
         Str repr() override;
 
@@ -131,7 +131,7 @@ namespace NG::ast {
 
         bool operator==(const ASTNode &node) const override;
 
-        void accept(IASTVisitor *visitor) override;
+        void accept(AstVisitor *visitor) override;
 
         Str repr() override;
 
@@ -162,7 +162,7 @@ namespace NG::ast {
         Param(Str name, Str _annotatedType, ParamType type)
                 : paramName(std::move(name)), annotatedType(std::move(_annotatedType)), type(type) {}
 
-        void accept(IASTVisitor *visitor) override;
+        void accept(AstVisitor *visitor) override;
 
         ASTNodeType astNodeType() const override { return ASTNodeType::PARAM; }
 
@@ -180,7 +180,7 @@ namespace NG::ast {
 
         [[nodiscard]] Str name() const override;
 
-        void accept(IASTVisitor *visitor) override;
+        void accept(AstVisitor *visitor) override;
 
         ASTNodeType astNodeType() const override { return ASTNodeType::FUN_DEFINITION; }
 
@@ -194,7 +194,7 @@ namespace NG::ast {
     struct CompoundStatement : Statement {
         Vec<ASTRef<Statement>> statements{};
 
-        void accept(IASTVisitor *visitor) override;
+        void accept(AstVisitor *visitor) override;
 
         ASTNodeType astNodeType() const override { return ASTNodeType::COMPOUND_STATEMENT; }
 
@@ -208,7 +208,7 @@ namespace NG::ast {
     struct ReturnStatement : Statement {
         ASTRef<Expression> expression = nullptr;
 
-        void accept(IASTVisitor *visitor) override;
+        void accept(AstVisitor *visitor) override;
 
         ASTNodeType astNodeType() const override { return ASTNodeType::RETURN_STATEMENT; }
 
@@ -224,7 +224,7 @@ namespace NG::ast {
         ASTRef<Statement> consequence = nullptr;
         ASTRef<Statement> alternative = nullptr;
 
-        void accept(IASTVisitor *visitor) override;
+        void accept(AstVisitor *visitor) override;
 
         ASTNodeType astNodeType() const override { return ASTNodeType::IF_STATEMENT; }
 
@@ -239,7 +239,7 @@ namespace NG::ast {
 
         ASTRef<Expression> expression = nullptr;
 
-        void accept(IASTVisitor *visitor) override;
+        void accept(AstVisitor *visitor) override;
 
         ASTNodeType astNodeType() const override { return ASTNodeType::SIMPLE_STATEMENT; }
 
@@ -257,7 +257,7 @@ namespace NG::ast {
         ASTRef<Expression> primaryExpression;
         Vec<ASTRef<Expression>> arguments;
 
-        void accept(IASTVisitor *visitor) override;
+        void accept(AstVisitor *visitor) override;
 
         ASTNodeType astNodeType() const override { return ASTNodeType::FUN_CALL_EXPRESSION; }
 
@@ -280,7 +280,7 @@ namespace NG::ast {
 
         Str repr() override;
 
-        void accept(IASTVisitor *visitor) override;
+        void accept(AstVisitor *visitor) override;
     };
 
     struct IdAccessorExpression : Expression {
@@ -288,7 +288,7 @@ namespace NG::ast {
         ASTRef<IdExpression> accessor;
         Vec<ASTRef<Expression>> arguments;
 
-        void accept(IASTVisitor *visitor) override;
+        void accept(AstVisitor *visitor) override;
 
         ASTNodeType astNodeType() const override { return ASTNodeType::ID_ACCESSOR_EXPRESSION; }
 
@@ -306,7 +306,7 @@ namespace NG::ast {
         IndexAccessorExpression(ASTRef<Expression> primary, ASTRef<Expression> accessor) : primary{primary},
                                                                                            accessor{accessor} {}
 
-        void accept(IASTVisitor *visitor) override;
+        void accept(AstVisitor *visitor) override;
 
         ASTNodeType astNodeType() const override;
 
@@ -328,7 +328,7 @@ namespace NG::ast {
                 ASTRef<Expression> value
         ) : primary{primary}, accessor{accessor}, value{value} {}
 
-        void accept(IASTVisitor *visitor) override;
+        void accept(AstVisitor *visitor) override;
 
         ASTNodeType astNodeType() const override;
 
@@ -346,7 +346,7 @@ namespace NG::ast {
 
         explicit ValDefStatement(Str _name) : name(std::move(_name)) {}
 
-        void accept(IASTVisitor *visitor) override;
+        void accept(AstVisitor *visitor) override;
 
         ASTNodeType astNodeType() const override { return ASTNodeType::VAL_DEF_STATEMENT; }
 
@@ -366,7 +366,7 @@ namespace NG::ast {
 
         explicit ValDef(ASTRef<ValDefStatement> defStmt) : body(defStmt) {}
 
-        void accept(IASTVisitor *visitor) override;
+        void accept(AstVisitor *visitor) override;
 
         ASTNodeType astNodeType() const override { return ASTNodeType::VAL_DEFINITION; }
 
@@ -383,7 +383,7 @@ namespace NG::ast {
 
         explicit AssignmentExpression(Str _name) : name(std::move(_name)) {}
 
-        void accept(IASTVisitor *visitor) override;
+        void accept(AstVisitor *visitor) override;
 
         ASTNodeType astNodeType() const override { return ASTNodeType::ASSIGNMENT_EXPRESSION; }
 
@@ -399,7 +399,7 @@ namespace NG::ast {
         ASTRef<Expression> left;
         ASTRef<Expression> right;
 
-        void accept(IASTVisitor *visitor) override;
+        void accept(AstVisitor *visitor) override;
 
         ASTNodeType astNodeType() const override { return ASTNodeType::BINARY_EXPRESSION; }
 
@@ -415,7 +415,7 @@ namespace NG::ast {
 
         explicit IntegerValue(int v) : value(v) {}
 
-        void accept(IASTVisitor *visitor) override;
+        void accept(AstVisitor *visitor) override;
 
         ASTNodeType astNodeType() const override { return ASTNodeType::INTEGER_VALUE; }
 
@@ -429,7 +429,7 @@ namespace NG::ast {
 
         explicit StringValue(Str v) : value(std::move(v)) {}
 
-        void accept(IASTVisitor *visitor) override;
+        void accept(AstVisitor *visitor) override;
 
         ASTNodeType astNodeType() const override { return ASTNodeType::STRING_VALUE; }
 
@@ -443,7 +443,7 @@ namespace NG::ast {
 
         explicit BooleanValue(bool _value) : value(_value) {}
 
-        void accept(IASTVisitor *visitor) override;
+        void accept(AstVisitor *visitor) override;
 
         ASTNodeType astNodeType() const override { return ASTNodeType::BOOLEAN_VALUE; }
 
@@ -460,7 +460,7 @@ namespace NG::ast {
 
         explicit ArrayLiteral(const Vec<ASTRef<Expression>> &exprs) : elements{exprs} {}
 
-        void accept(IASTVisitor *visitor) override;
+        void accept(AstVisitor *visitor) override;
 
         ASTNodeType astNodeType() const override;
 
@@ -482,7 +482,7 @@ namespace NG::ast {
 
         bool operator==(const ASTNode &node) const override;
 
-        void accept(IASTVisitor *visitor) override;
+        void accept(AstVisitor *visitor) override;
 
         Str repr() override;
     };
@@ -497,7 +497,7 @@ namespace NG::ast {
 
         [[nodiscard]] Str name() const override;
 
-        void accept(IASTVisitor *visitor) override;
+        void accept(AstVisitor *visitor) override;
 
         bool operator==(const ASTNode &node) const override;
 
@@ -512,7 +512,7 @@ namespace NG::ast {
 
         ASTNodeType astNodeType() const override;
 
-        void accept(IASTVisitor *visitor) override;
+        void accept(AstVisitor *visitor) override;
 
         bool operator==(const ASTNode &node) const override;
 

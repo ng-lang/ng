@@ -12,8 +12,8 @@ using namespace NG;
 using namespace NG::ast;
 using namespace NG::parsing;
 
-static inline ParseResult<ASTRef<ASTNode>> parse(const Str &source) {
-    return Parser(ParseState(Lexer(LexState{source}).lex())).parse();
+static inline ParseResult<ASTRef<ASTNode>> parse(const Str &source, const Str& file) {
+    return Parser(ParseState(Lexer(LexState{source}).lex())).parse(file);
 }
 
 int main(int argc, char **argv) {
@@ -23,10 +23,15 @@ int main(int argc, char **argv) {
         return -1;
     }
 
+    if (!std::filesystem::exists(argv[1])) {
+        std::cout << "file "<< argv[1] << " not found";
+        return -1;
+    }
+
     std::ifstream file(argv[1]);
     std::string source{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
 
-    auto astResult = parse(source);
+    auto astResult = parse(source, argv[1]);
     if (!astResult) {
         std::cout << "Error parsing file: " << astResult.error() << std::endl;
         return -1;
@@ -34,7 +39,9 @@ int main(int argc, char **argv) {
 
     auto& ast = *astResult;
 
-    IASTVisitor *intp = NG::intp::stupid();
+    AstVisitor *stupid = NG::intp::stupid();
 
-    ast->accept(intp);
+    ast->accept(stupid);
+
+    destroyast(ast);
 }
