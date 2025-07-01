@@ -5,10 +5,13 @@
 
 #include <iostream>
 #include <fstream>
+#include <debug.hpp>
+#include <filesystem>
 
 namespace NG::module {
 
     using namespace NG::parsing;
+    namespace fs = std::filesystem;
 
     ASTRef<ASTNode> IModuleLoader::load(const Str &module) {
         return ASTRef<ASTNode>();
@@ -21,9 +24,21 @@ namespace NG::module {
         if (!path.ends_with(".ng")) {
             path += ".ng";
         }
-        std::ifstream file{path};
-        std::string source{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
-        return Parser(ParseState(Lexer(LexState{source}).lex())).parse();
+        for (auto base: this->basePaths) {
+            fs::path module_path {base};
+            module_path.append(path);
+            if (!fs::exists(module_path)) {
+                continue;
+            }
+            std::fstream file {module_path};
+            std::string source{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
+            auto result = Parser(ParseState(Lexer(LexState{source}).lex())).parse(module_path);
+            if(result) {
+                return std::move(*result);
+            }    
+        }
+        // TODO: Add proper error handling
+        return nullptr;
     }
 
     FileBasedExternalModuleLoader::~FileBasedExternalModuleLoader() = default;

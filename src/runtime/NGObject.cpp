@@ -1,5 +1,7 @@
 
 #include "intp/runtime.hpp"
+#include <debug.hpp>
+#include <typeinfo>
 
 namespace NG::runtime {
 

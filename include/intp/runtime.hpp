@@ -24,6 +24,7 @@ namespace NG::runtime {
 
     struct NGContext {
         Str currentModuleName{};
+        Vec<Str> modulePaths{};
         Map<Str, NGObject *> objects;
         Map<Str, NGInvocationHandler> functions;
         Map<Str, NGType *> types;
@@ -33,6 +34,12 @@ namespace NG::runtime {
         Map<Str, NGModule *> modules;
 
         NGObject *retVal;
+
+        void appendModulePath(const Str& path) {
+            if (std::find(std::begin(modulePaths), std::end(modulePaths), path) == std::end(modulePaths)) {
+                modulePaths.push_back(path);
+            }
+        }
 
         ~NGContext();
     };

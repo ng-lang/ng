@@ -13,11 +13,11 @@ namespace NG::intp {
         virtual ~ISummarizable() = 0;
     };
 
-    struct IInterperter : public virtual ISummarizable, public virtual NG::ast::IASTVisitor {
+    struct Interpreter : public virtual ISummarizable, public virtual NG::ast::IASTVisitor {
         virtual NG::runtime::NGContext *intpContext() = 0;
     };
 
-    IInterperter *interpreter();
+    Interpreter *stupid();
 }
 
 #endif // __NG_INTERPRETER_HPP

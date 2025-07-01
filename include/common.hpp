@@ -2,12 +2,16 @@
 #ifndef __NG_COMMON_HPP
 #define __NG_COMMON_HPP
 
+#include <expected>
 #include <stdexcept>
 #include <string>
 
 #include "config.h"
 
 namespace NG {
+
+    template<class T>
+    using ParseResult = std::expected<T, std::string>;
 
     struct NonCopyable {
         NonCopyable();

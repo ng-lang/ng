@@ -16,6 +16,11 @@ namespace NG::module {
 
     struct FileBasedExternalModuleLoader : public virtual IModuleLoader {
 
+        Vec<Str> basePaths;
+
+        FileBasedExternalModuleLoader(Vec<Str> basePaths): basePaths(std::move(basePaths)) {
+        } 
+
         ASTRef<NG::ast::ASTNode> load(const Str& module) override;
 
         ~FileBasedExternalModuleLoader() override;

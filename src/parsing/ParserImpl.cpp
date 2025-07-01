@@ -3,6 +3,9 @@
 #include "parser.hpp"
 #include "token.hpp"
 #include <ast.hpp>
+#include <filesystem>
+
+namespace fs = std::filesystem;
 
 namespace NG::parsing {
     using namespace NG;
@@ -11,8 +14,8 @@ namespace NG::parsing {
     class ParserImpl {
         ParseState &state;
 
-        void unexpected(ParseState &state) {
-            throw ParseException(std::string{"Unexpected token "} + state->repr);
+        auto unexpected(ParseState &state) {
+            return std::unexpected(std::string{"Unexpected token "} + state->repr);
         }
 
     public:
@@ -21,45 +24,66 @@ namespace NG::parsing {
         }
 
 
-        ASTRef<ASTNode> parse(const Str &fileName) {
+        ParseResult<ASTRef<ASTNode>> parse(const Str &fileName) {
             // file as default module
             auto mod = makeast<Module>();
 
             auto compileUnit = makeast<CompileUnit>();
 
             compileUnit->fileName = fileName;
-            compileUnit->modules.push_back(mod);
+            fs::path filePath {fileName};
+            if (fs::exists(filePath)) {
+                compileUnit->path = filePath.parent_path().string();
+            }
+            ASTRef<Module> current_mod = mod;
+            compileUnit->modules.push_back(std::move(mod));
 
             while (!state.eof()) {
                 switch (state->type) {
-                    case TokenType::KEYWORD_FUN:
-                        mod->definitions.push_back(funDef());
+                    case TokenType::KEYWORD_FUN: {
+                        auto funDefResult = funDef();
+                        if (!funDefResult) return std::unexpected(funDefResult.error());
+                        current_mod->definitions.push_back(std::move(*funDefResult));
                         break;
-                    case TokenType::KEYWORD_VAL:
-                        mod->definitions.push_back(valDef());
+                    }
+                    case TokenType::KEYWORD_VAL: {
+                        auto valDefResult = valDef();
+                        if (!valDefResult) return std::unexpected(valDefResult.error());
+                        current_mod->definitions.push_back(std::move(*valDefResult));
                         break;
-                    case TokenType::KEYWORD_TYPE:
-                        mod->definitions.push_back(typeDef());
+                    }
+                    case TokenType::KEYWORD_TYPE: {
+                        auto typeDefResult = typeDef();
+                        if (!typeDefResult) return std::unexpected(typeDefResult.error());
+                        current_mod->definitions.push_back(std::move(*typeDefResult));
                         break;
+                    }
                     case TokenType::KEYWORD_SIG:
                     case TokenType::KEYWORD_CONS:
                     case TokenType::KEYWORD_MODULE: {
-                        ASTRef<Module> subModule = moduleDecl();
-                        compileUnit->modules.push_back(subModule);
-                        mod = subModule;
+                        auto subModuleResult = moduleDecl();
+                        if (!subModuleResult) return std::unexpected(subModuleResult.error());
+                        current_mod = subModuleResult.value();
+                        compileUnit->modules.push_back(std::move(*subModuleResult));
                         break;
                     }
                     case TokenType::KEYWORD_EXPORT:
-                    case TokenType::KEYWORD_IMPORT:
-                        mod->imports.push_back(importDecl());
+                    case TokenType::KEYWORD_IMPORT: {
+                        auto importDeclResult = importDecl();
+                        if (!importDeclResult) return std::unexpected(importDeclResult.error());
+                        current_mod->imports.push_back(std::move(*importDeclResult));
                         break;
+                    }
                         // case TokenType::KEYWORD_IF:
                     case TokenType::KEYWORD_CASE:
                     case TokenType::KEYWORD_LOOP:
                     case TokenType::KEYWORD_COLLECT:
                     case TokenType::KEYWORD_UNIT:
-                    default:
-                        mod->statements.push_back(statement());
+                    default: {
+                        auto statementResult = statement();
+                        if (!statementResult) return std::unexpected(statementResult.error());
+                        current_mod->statements.push_back(std::move(*statementResult));
+                    }
                 }
             }
             return compileUnit;
@@ -70,127 +94,140 @@ namespace NG::parsing {
             return !state.eof() && state->type == type;
         }
 
-        void accept(TokenType type) {
+        ParseResult<void> accept(TokenType type) {
             if (!expect(type))
                 return unexpected(state);
             state.next();
+            return {};
         }
 
-        ASTRef<FunctionDef> funDef() {
-            accept(TokenType::KEYWORD_FUN);
+        ParseResult<ASTRef<FunctionDef>> funDef() {
+            if(auto result = accept(TokenType::KEYWORD_FUN); !result) return std::unexpected(result.error());
             if (expect(TokenType::ID)) {
                 auto def = makeast<FunctionDef>();
                 def->funName = state->repr;
-                accept(TokenType::ID);
+                if(auto result = accept(TokenType::ID); !result) return std::unexpected(result.error());
 
-                auto &&params = funParams();
-                def->params.insert(def->params.begin(), params.begin(), params.end());
+                auto paramsResult = funParams();
+                if(!paramsResult) return std::unexpected(paramsResult.error());
+                def->params = std::move(*paramsResult);
 
-                def->body = statement();
+                auto bodyResult = statement();
+                if(!bodyResult) return std::unexpected(bodyResult.error());
+                def->body = std::move(*bodyResult);
 
                 return def;
             }
-            return nullptr;
+            return std::unexpected("Expected function name");
         }
 
-        ASTRef<ImportDecl> importDecl() {
-            accept(TokenType::KEYWORD_IMPORT);
+        ParseResult<ASTRef<ImportDecl>> importDecl() {
+            if(auto result = accept(TokenType::KEYWORD_IMPORT); !result) return std::unexpected(result.error());
             auto imp = makeast<ImportDecl>();
 
             // direct import
             if (expect(TokenType::ID)) {
                 Str module = state->repr;
-                accept(TokenType::ID);
+                if(auto result = accept(TokenType::ID); !result) return std::unexpected(result.error());
                 imp->module = module;
                 imp->alias = module;
 
                 if (!expect(TokenType::SEMICOLON)) {
-                    unexpected(state);
+                    return unexpected(state);
                 }
             }
 
             // alias import
             if (expect(TokenType::STRING)) {
-                Str module = stringValue()->value;
-                imp->module = module;
+                auto stringValueResult = stringValue();
+                if(!stringValueResult) return std::unexpected(stringValueResult.error());
+                imp->module = (*stringValueResult)->value;
 
                 if (expect(TokenType::ID)) {
                     Str alias = state->repr;
-                    accept(TokenType::ID);
+                    if(auto result = accept(TokenType::ID); !result) return std::unexpected(result.error());
                     imp->alias = alias;
                 } else {
-                    imp->alias = module;
+                    imp->alias = imp->module;
                 }
             }
 
             // symbol import
             if (expect(TokenType::LEFT_PAREN)) {
-                accept(TokenType::LEFT_PAREN);
+                if(auto result = accept(TokenType::LEFT_PAREN); !result) return std::unexpected(result.error());
 
                 while (expect(TokenType::ID)) {
                     imp->imports.push_back(state->repr);
-                    accept(TokenType::ID);
+                    if(auto result = accept(TokenType::ID); !result) return std::unexpected(result.error());
                     if (!expect(TokenType::COMMA)) {
                         break;
                     }
-                    accept(TokenType::COMMA);
+                    if(auto result = accept(TokenType::COMMA); !result) return std::unexpected(result.error());
                 }
                 if (imp->imports.empty() && expect(TokenType::OPERATOR) && state->operatorType == Operators::TIMES) {
-                    accept(TokenType::OPERATOR);
+                    if(auto result = accept(TokenType::OPERATOR); !result) return std::unexpected(result.error());
                     imp->imports.push_back("*");
                 }
-                accept(TokenType::RIGHT_PAREN);
+                if(auto result = accept(TokenType::RIGHT_PAREN); !result) return std::unexpected(result.error());
             } else {
                 if (expect(TokenType::OPERATOR) && state->operatorType == Operators::TIMES) {
-                    accept(TokenType::OPERATOR);
+                    if(auto result = accept(TokenType::OPERATOR); !result) return std::unexpected(result.error());
                     imp->imports.push_back("*");
                 }
             }
 
-            accept(TokenType::SEMICOLON);
+            if(auto result = accept(TokenType::SEMICOLON); !result) return std::unexpected(result.error());
 
             return imp;
         }
 
-        ASTRef<ValDef> valDef() {
-            auto valDefStmt = valDefStatement();
+        ParseResult<ASTRef<ValDef>> valDef() {
+            auto valDefStmtResult = valDefStatement();
+            if(!valDefStmtResult) return std::unexpected(valDefStmtResult.error());
 
-            return makeast<ValDef>(valDefStmt);
+            return makeast<ValDef>(std::move(*valDefStmtResult));
         }
 
-        ASTRef<PropertyDef> propertyDef() {
-            accept(TokenType::KEYWORD_PROPERTY);
+        ParseResult<ASTRef<PropertyDef>> propertyDef() {
+            if(auto result = accept(TokenType::KEYWORD_PROPERTY); !result) return std::unexpected(result.error());
 
-            const Str &name = idExpression()->repr();
+            auto nameResult = idExpression();
+            if(!nameResult) return std::unexpected(nameResult.error());
 
-            accept(TokenType::SEMICOLON);
-            return makeast<PropertyDef>(name);
+            if(auto result = accept(TokenType::SEMICOLON); !result) return std::unexpected(result.error());
+            return makeast<PropertyDef>((*nameResult)->repr());
         }
 
-        ASTRef<TypeDef> typeDef() {
+        ParseResult<ASTRef<TypeDef>> typeDef() {
             ASTRef<TypeDef> typeDef = makeast<TypeDef>();
 
-            accept(TokenType::KEYWORD_TYPE);
+            if(auto result = accept(TokenType::KEYWORD_TYPE); !result) return std::unexpected(result.error());
 
-            typeDef->typeName = idExpression()->repr();
+            auto typeNameResult = idExpression();
+            if(!typeNameResult) return std::unexpected(typeNameResult.error());
+            typeDef->typeName = (*typeNameResult)->repr();
 
-            accept(TokenType::LEFT_CURLY);
+            if(auto result = accept(TokenType::LEFT_CURLY); !result) return std::unexpected(result.error());
             while (!expect(TokenType::RIGHT_CURLY)) {
                 if (expect(TokenType::KEYWORD_PROPERTY)) {
-                    typeDef->properties.push_back(propertyDef());
+                    auto propertyDefResult = propertyDef();
+                    if(!propertyDefResult) return std::unexpected(propertyDefResult.error());
+                    typeDef->properties.push_back(std::move(*propertyDefResult));
                 } else if (expect(TokenType::KEYWORD_FUN)) {
-                    typeDef->memberFunctions.push_back(funDef());
+                    auto funDefResult = funDef();
+                    if(!funDefResult) return std::unexpected(funDefResult.error());
+                    typeDef->memberFunctions.push_back(std::move(*funDefResult));
                 }
             }
-            accept(TokenType::RIGHT_CURLY);
+            if(auto result = accept(TokenType::RIGHT_CURLY); !result) return std::unexpected(result.error());
 
             return typeDef;
         }
 
-        ASTRef<Module> moduleDecl() {
+        ParseResult<ASTRef<Module>> moduleDecl() {
             auto mod = makeast<Module>();
             Str moduleName{};
-            accept(TokenType::KEYWORD_MODULE);
+            if(auto result = accept(TokenType::KEYWORD_MODULE); !result) return std::unexpected(result.error());
             while (expect(TokenType::ID) || expect(TokenType::DOT)) {
                 if (!moduleName.empty() && !expect(TokenType::DOT)) {
                     moduleName += ".";
@@ -201,15 +238,17 @@ namespace NG::parsing {
                 state.next();
             }
             if (expect(TokenType::KEYWORD_EXPORTS)) {
-                accept(TokenType::KEYWORD_EXPORTS);
+                if(auto result = accept(TokenType::KEYWORD_EXPORTS); !result) return std::unexpected(result.error());
                 if (state->type == TokenType::OPERATOR && state->operatorType == Operators::TIMES) {
-                    accept(TokenType::OPERATOR);
+                    if(auto result = accept(TokenType::OPERATOR); !result) return std::unexpected(result.error());
                     mod->exports.push_back("*");
                 } else {
-                    mod->exports = exportList();
+                    auto exportListResult = exportList();
+                    if(!exportListResult) return std::unexpected(exportListResult.error());
+                    mod->exports = std::move(*exportListResult);
                 }
             }
-            accept(TokenType::SEMICOLON);
+            if(auto result = accept(TokenType::SEMICOLON); !result) return std::unexpected(result.error());
             if (mod->name == "default") {
                 mod->name = moduleName;
             } else {
@@ -219,44 +258,44 @@ namespace NG::parsing {
             return mod;
         }
 
-        Vec<Str> exportList() {
+        ParseResult<Vec<Str>> exportList() {
             bool withParen = false;
 
             Vec<Str> exports{};
 
             if (expect(TokenType::LEFT_PAREN)) {
                 withParen = true;
-                accept(TokenType::LEFT_PAREN);
+                if(auto result = accept(TokenType::LEFT_PAREN); !result) return std::unexpected(result.error());
             }
 
             while (expect(TokenType::ID)) {
                 auto &&symbol = state->repr;
                 exports.push_back(symbol);
-                accept(TokenType::ID);
+                if(auto result = accept(TokenType::ID); !result) return std::unexpected(result.error());
                 if (!expect(TokenType::COMMA)) {
                     break;
                 }
-                accept(TokenType::COMMA);
+                if(auto result = accept(TokenType::COMMA); !result) return std::unexpected(result.error());
             }
             if (withParen) {
-                accept(TokenType::RIGHT_PAREN);
+                if(auto result = accept(TokenType::RIGHT_PAREN); !result) return std::unexpected(result.error());
             }
 
             return exports;
         }
 
-        Vec<ASTRef<Param>> funParams() {
+        ParseResult<Vec<ASTRef<Param>>> funParams() {
             Vec<ASTRef<Param>> params{};
             if (expect(TokenType::LEFT_PAREN)) {
-                accept(TokenType::LEFT_PAREN);
+                if(auto result = accept(TokenType::LEFT_PAREN); !result) return std::unexpected(result.error());
 
                 while (expect(TokenType::ID)) {
                     const Str &name = state->repr;
-                    accept(TokenType::ID);
+                    if(auto result = accept(TokenType::ID); !result) return std::unexpected(result.error());
                     if (expect(TokenType::COLON)) {
-                        accept(TokenType::COLON);
+                        if(auto result = accept(TokenType::COLON); !result) return std::unexpected(result.error());
                         const Str &type = state->repr;
-                        accept(TokenType::ID);
+                        if(auto result = accept(TokenType::ID); !result) return std::unexpected(result.error());
 
                         params.push_back(makeast<Param>(name, type));
                     } else {
@@ -266,15 +305,15 @@ namespace NG::parsing {
                     if (!expect(TokenType::COMMA)) {
                         break;
                     }
-                    accept(TokenType::COMMA);
+                    if(auto result = accept(TokenType::COMMA); !result) return std::unexpected(result.error());
                 }
 
-                accept(TokenType::RIGHT_PAREN);
+                if(auto result = accept(TokenType::RIGHT_PAREN); !result) return std::unexpected(result.error());
             }
             return params;
         }
 
-        ASTRef<Statement> statement() {
+        ParseResult<ASTRef<Statement>> statement() {
             switch (state->type) {
                 case TokenType::LEFT_CURLY:
                     return compoundStatement();
@@ -291,90 +330,110 @@ namespace NG::parsing {
             }
         }
 
-        ASTRef<SimpleStatement> simpleStatement() {
-            auto expr = expression();
+        ParseResult<ASTRef<SimpleStatement>> simpleStatement() {
+            auto exprResult = expression();
+            if(!exprResult) return std::unexpected(exprResult.error());
 
-            accept(TokenType::SEMICOLON);
+            if(auto result = accept(TokenType::SEMICOLON); !result) return std::unexpected(result.error());
             auto stmt = makeast<SimpleStatement>();
-            stmt->expression = expr;
+            stmt->expression = std::move(*exprResult);
 
             return stmt;
         }
 
-        ASTRef<ValDefStatement> valDefStatement() {
-            accept(TokenType::KEYWORD_VAL);
+        ParseResult<ASTRef<ValDefStatement>> valDefStatement() {
+            if(auto result = accept(TokenType::KEYWORD_VAL); !result) return std::unexpected(result.error());
             auto name = state->repr;
-            accept(TokenType::ID);
+            if(auto result = accept(TokenType::ID); !result) return std::unexpected(result.error());
             if (state->operatorType != Operators::ASSIGN) {
-                unexpected(state);
-                return nullptr;
+                return unexpected(state);
             }
-            accept(TokenType::OPERATOR); // Assignment operator
-            auto value = expression();
-            accept(TokenType::SEMICOLON);
+            if(auto result = accept(TokenType::OPERATOR); !result) return std::unexpected(result.error()); // Assignment operator
+            auto valueResult = expression();
+            if(!valueResult) return std::unexpected(valueResult.error());
+            if(auto result = accept(TokenType::SEMICOLON); !result) return std::unexpected(result.error());
             auto def = makeast<ValDefStatement>(name);
-            def->value = value;
+            def->value = std::move(*valueResult);
             return def;
         }
 
-        ASTRef<IfStatement> ifStatement() {
+        ParseResult<ASTRef<IfStatement>> ifStatement() {
 
             auto ifstmt = makeast<IfStatement>();
-            accept(TokenType::KEYWORD_IF);
-            accept(TokenType::LEFT_PAREN);
+            if(auto result = accept(TokenType::KEYWORD_IF); !result) return std::unexpected(result.error());
+            if(auto result = accept(TokenType::LEFT_PAREN); !result) return std::unexpected(result.error());
 
-            ifstmt->testing = expression();
-            accept(TokenType::RIGHT_PAREN);
-            ifstmt->consequence = statement();
+            auto testingResult = expression();
+            if(!testingResult) return std::unexpected(testingResult.error());
+            ifstmt->testing = std::move(*testingResult);
+            if(auto result = accept(TokenType::RIGHT_PAREN); !result) return std::unexpected(result.error());
+            auto consequenceResult = statement();
+            if(!consequenceResult) return std::unexpected(consequenceResult.error());
+            ifstmt->consequence = std::move(*consequenceResult);
 
             if (expect(TokenType::KEYWORD_ELSE)) {
-                accept(TokenType::KEYWORD_ELSE);
-                ifstmt->alternative = statement();
+                if(auto result = accept(TokenType::KEYWORD_ELSE); !result) return std::unexpected(result.error());
+                auto alternativeResult = statement();
+                if(!alternativeResult) return std::unexpected(alternativeResult.error());
+                ifstmt->alternative = std::move(*alternativeResult);
             }
 
             return ifstmt;
         }
 
-        ASTRef<CompoundStatement> compoundStatement() {
-            accept(TokenType::LEFT_CURLY);
+        ParseResult<ASTRef<CompoundStatement>> compoundStatement() {
+            if(auto result = accept(TokenType::LEFT_CURLY); !result) return std::unexpected(result.error());
             auto stmt = makeast<CompoundStatement>();
             while (!expect(TokenType::RIGHT_CURLY)) {
-                stmt->statements.push_back(statement());
+                auto statementResult = statement();
+                if(!statementResult) return std::unexpected(statementResult.error());
+                stmt->statements.push_back(std::move(*statementResult));
             }
-            accept(TokenType::RIGHT_CURLY);
+            if(auto result = accept(TokenType::RIGHT_CURLY); !result) return std::unexpected(result.error());
 
             return stmt;
         }
 
-        ASTRef<ReturnStatement> returnBy(TokenType type) {
-            accept(type);
-            auto expr = expression();
+        ParseResult<ASTRef<ReturnStatement>> returnBy(TokenType type) {
+            if(auto result = accept(type); !result) return std::unexpected(result.error());
+            auto exprResult = expression();
+            if(!exprResult) return std::unexpected(exprResult.error());
             auto ret = makeast<ReturnStatement>();
-            ret->expression = expr;
-            accept(TokenType::SEMICOLON);
+            ret->expression = std::move(*exprResult);
+            if(auto result = accept(TokenType::SEMICOLON); !result) return std::unexpected(result.error());
             return ret;
         }
 
-        ASTRef<ReturnStatement> returnStatement() {
+        ParseResult<ASTRef<ReturnStatement>> returnStatement() {
             return returnBy(TokenType::KEYWORD_RETURN);
         }
 
-        ASTRef<ReturnStatement> arrowReturn() {
+        ParseResult<ASTRef<ReturnStatement>> arrowReturn() {
             return returnBy(TokenType::DUAL_ARROW);
         }
 
-        ASTRef<Expression> expression() {
-            auto expr = primaryExpression();
+        ParseResult<ASTRef<Expression>> expression() {
+            auto exprResult = primaryExpression();
+            if(!exprResult) return std::unexpected(exprResult.error());
+            auto expr = std::move(*exprResult);
 
             while (!expectExpressionTerminator() || expect(TokenType::OPERATOR)) {
                 if (expect(TokenType::LEFT_PAREN)) {
-                    expr = funCallExpression(expr);
+                    auto funCallResult = funCallExpression(std::move(expr));
+                    if(!funCallResult) return std::unexpected(funCallResult.error());
+                    expr = std::move(*funCallResult);
                 } else if (expect(TokenType::DOT)) {
-                    expr = idAccessorExpression(expr);
+                    auto idAccResult = idAccessorExpression(std::move(expr));
+                    if(!idAccResult) return std::unexpected(idAccResult.error());
+                    expr = std::move(*idAccResult);
                 } else if (expect(TokenType::OPERATOR)) {
-                    expr = binaryExpression(expr);
+                    auto binExprResult = binaryExpression(std::move(expr));
+                    if(!binExprResult) return std::unexpected(binExprResult.error());
+                    expr = std::move(*binExprResult);
                 } else if (expect(TokenType::LEFT_SQUARE)) {
-                    expr = indexAccessorExpression(expr);
+                    auto indexAccResult = indexAccessorExpression(std::move(expr));
+                    if(!indexAccResult) return std::unexpected(indexAccResult.error());
+                    expr = std::move(*indexAccResult);
                 }
             }
 
@@ -394,113 +453,126 @@ namespace NG::parsing {
                    state.eof();
         }
 
-        ASTRef<BinaryExpression> binaryExpression(ASTRef<Expression> expr) {
+        ParseResult<ASTRef<BinaryExpression>> binaryExpression(ASTRef<Expression> expr) {
             auto &&token = state.current();
-            accept(TokenType::OPERATOR);
+            if(auto result = accept(TokenType::OPERATOR); !result) return std::unexpected(result.error());
             auto binexpr = makeast<BinaryExpression>();
             binexpr->optr = new Token{token};
-            binexpr->left = expr;
-            binexpr->right = expression();
+            binexpr->left = std::move(expr);
+            auto rightResult = expression();
+            if(!rightResult) return std::unexpected(rightResult.error());
+            binexpr->right = std::move(*rightResult);
             return binexpr;
         }
 
-        ASTRef<FunCallExpression> funCallExpression(ASTRef<Expression> primaryExpression) {
-            accept(TokenType::LEFT_PAREN);
+        ParseResult<ASTRef<FunCallExpression>> funCallExpression(ASTRef<Expression> primaryExpression) {
+            if(auto result = accept(TokenType::LEFT_PAREN); !result) return std::unexpected(result.error());
             Vec<ASTRef<Expression>> args{};
             while (!expect(TokenType::RIGHT_PAREN)) {
-                auto arg = expression();
-                args.push_back(arg);
+                auto argResult = expression();
+                if(!argResult) return std::unexpected(argResult.error());
+                args.push_back(std::move(*argResult));
                 if (!expect(TokenType::COMMA)) {
                     break;
                 }
-                accept(TokenType::COMMA);
+                if(auto result = accept(TokenType::COMMA); !result) return std::unexpected(result.error());
             }
-            accept(TokenType::RIGHT_PAREN);
+            if(auto result = accept(TokenType::RIGHT_PAREN); !result) return std::unexpected(result.error());
             auto funcall = makeast<FunCallExpression>();
-            funcall->primaryExpression = primaryExpression;
-            funcall->arguments.insert(funcall->arguments.begin(), args.begin(), args.end());
+            funcall->primaryExpression = std::move(primaryExpression);
+            funcall->arguments = std::move(args);
             return funcall;
         }
 
-        ASTRef<IdAccessorExpression> idAccessorExpression(ASTRef<Expression> expr) {
-            accept(TokenType::DOT);
+        ParseResult<ASTRef<IdAccessorExpression>> idAccessorExpression(ASTRef<Expression> expr) {
+            if(auto result = accept(TokenType::DOT); !result) return std::unexpected(result.error());
             auto idacc = makeast<IdAccessorExpression>();
-            idacc->primaryExpression = expr;
+            idacc->primaryExpression = std::move(expr);
 
             if (expect(TokenType::ID)) {
-                idacc->accessor = idExpression();
+                auto idExprResult = idExpression();
+                if(!idExprResult) return std::unexpected(idExprResult.error());
+                idacc->accessor = std::move(*idExprResult);
             } else {
-                unexpected(state);
+                return unexpected(state);
             }
 
             if (expect(TokenType::LEFT_PAREN)) {
-                accept(TokenType::LEFT_PAREN);
+                if(auto result = accept(TokenType::LEFT_PAREN); !result) return std::unexpected(result.error());
 
                 Vec<ASTRef<Expression>> args{};
 
                 while (!expect(TokenType::RIGHT_PAREN)) {
-                    args.push_back(expression());
+                    auto exprResult = expression();
+                    if(!exprResult) return std::unexpected(exprResult.error());
+                    args.push_back(std::move(*exprResult));
                     if (!expect(TokenType::COMMA)) {
                         break;
                     }
-                    accept(TokenType::COMMA);
+                    if(auto result = accept(TokenType::COMMA); !result) return std::unexpected(result.error());
                 }
 
-                accept(TokenType::RIGHT_PAREN);
+                if(auto result = accept(TokenType::RIGHT_PAREN); !result) return std::unexpected(result.error());
 
-                idacc->arguments = args;
+                idacc->arguments = std::move(args);
             }
             return idacc;
         }
 
-        ASTRef<Expression> indexAccessorExpression(ASTRef<Expression> primary) {
-            accept(TokenType::LEFT_SQUARE);
+        ParseResult<ASTRef<Expression>> indexAccessorExpression(ASTRef<Expression> primary) {
+            if(auto result = accept(TokenType::LEFT_SQUARE); !result) return std::unexpected(result.error());
 
-            auto accessor = expression();
+            auto accessorResult = expression();
+            if(!accessorResult) return std::unexpected(accessorResult.error());
 
-            accept(TokenType::RIGHT_SQUARE);
+            if(auto result = accept(TokenType::RIGHT_SQUARE); !result) return std::unexpected(result.error());
             if (expect(TokenType::OPERATOR) && state->operatorType == Operators::ASSIGN) {
-                accept(TokenType::OPERATOR);
-                auto value = expression();
-                return makeast<IndexAssignmentExpression>(primary, accessor, value);
+                if(auto result = accept(TokenType::OPERATOR); !result) return std::unexpected(result.error());
+                auto valueResult = expression();
+                if(!valueResult) return std::unexpected(valueResult.error());
+                return makeast<IndexAssignmentExpression>(std::move(primary), std::move(*accessorResult), std::move(*valueResult));
             }
-            return makeast<IndexAccessorExpression>(primary, accessor);
+            return makeast<IndexAccessorExpression>(std::move(primary), std::move(*accessorResult));
         }
 
-        ASTRef<NewObjectExpression> newObjectExpression() {
+        ParseResult<ASTRef<NewObjectExpression>> newObjectExpression() {
             ASTRef<NewObjectExpression> newObj = makeast<NewObjectExpression>();
 
-            accept(TokenType::KEYWORD_NEW);
+            if(auto result = accept(TokenType::KEYWORD_NEW); !result) return std::unexpected(result.error());
 
-            newObj->typeName = idExpression()->repr();
+            auto typeNameResult = idExpression();
+            if(!typeNameResult) return std::unexpected(typeNameResult.error());
+            newObj->typeName = (*typeNameResult)->repr();
 
-            accept(TokenType::LEFT_CURLY);
+            if(auto result = accept(TokenType::LEFT_CURLY); !result) return std::unexpected(result.error());
 
             while (!expect(TokenType::RIGHT_CURLY)) {
-                auto &&propertyName = idExpression()->repr();
-                accept(TokenType::COLON);
-                auto &&expr = expression();
+                auto propertyNameResult = idExpression();
+                if(!propertyNameResult) return std::unexpected(propertyNameResult.error());
+                if(auto result = accept(TokenType::COLON); !result) return std::unexpected(result.error());
+                auto exprResult = expression();
+                if(!exprResult) return std::unexpected(exprResult.error());
 
-                newObj->properties[propertyName] = expr;
+                newObj->properties[(*propertyNameResult)->repr()] = std::move(*exprResult);
                 if (!expect(TokenType::COMMA)) {
                     break;
                 }
-                accept(TokenType::COMMA);
+                if(auto result = accept(TokenType::COMMA); !result) return std::unexpected(result.error());
             }
 
-            accept(TokenType::RIGHT_CURLY);
+            if(auto result = accept(TokenType::RIGHT_CURLY); !result) return std::unexpected(result.error());
 
             return newObj;
         }
 
-        ASTRef<Expression> primaryExpression() {
+        ParseResult<ASTRef<Expression>> primaryExpression() {
             if (expect(TokenType::LEFT_PAREN)) {
-                accept(TokenType::LEFT_PAREN);
+                if(auto result = accept(TokenType::LEFT_PAREN); !result) return std::unexpected(result.error());
                 auto expr = expression();
                 if (expect(TokenType::COMMA)) {
                     // TODO: TupleLiteral!
                 }
-                accept(TokenType::RIGHT_PAREN);
+                if(auto result = accept(TokenType::RIGHT_PAREN); !result) return std::unexpected(result.error());
 
                 return expr;
             } else if (expect(TokenType::ID)) {
@@ -511,12 +583,12 @@ namespace NG::parsing {
                 return stringValue();
             } else if (expect(TokenType::KEYWORD_TRUE)) {
                 auto &val = state->type;
-                accept(TokenType::KEYWORD_TRUE);
+                if(auto result = accept(TokenType::KEYWORD_TRUE); !result) return std::unexpected(result.error());
 
                 return makeast<BooleanValue>(true);
             } else if (expect(TokenType::KEYWORD_FALSE)) {
                 auto &val = state->type;
-                accept(TokenType::KEYWORD_FALSE);
+                if(auto result = accept(TokenType::KEYWORD_FALSE); !result) return std::unexpected(result.error());
 
                 return makeast<BooleanValue>(false);
             } else if (expect(TokenType::LEFT_SQUARE)) {
@@ -524,49 +596,50 @@ namespace NG::parsing {
             } else if (expect(TokenType::KEYWORD_NEW)) {
                 return newObjectExpression();
             }
-            return nullptr;
+            return std::unexpected("Unexpected primary expression");
         }
 
-        ASTRef<StringValue> stringValue() {
+        ParseResult<ASTRef<StringValue>> stringValue() {
             auto &str = state->repr;
-            accept(TokenType::STRING);
+            if(auto result = accept(TokenType::STRING); !result) return std::unexpected(result.error());
             return makeast<StringValue>(str);
         }
 
-        ASTRef<Expression> numberLiteral() {
+        ParseResult<ASTRef<Expression>> numberLiteral() {
             auto integer = state->repr;
-            accept(TokenType::NUMBER);
+            if(auto result = accept(TokenType::NUMBER); !result) return std::unexpected(result.error());
             return makeast<IntegerValue>(std::stoi(integer));
         }
 
-        ASTRef<IdExpression> idExpression() {
+        ParseResult<ASTRef<IdExpression>> idExpression() {
             auto id = state->repr;
-            accept(TokenType::ID);
+            if(auto result = accept(TokenType::ID); !result) return std::unexpected(result.error());
             return makeast<IdExpression>(id);
         }
 
-        ASTRef<Expression> arrayLiteral() {
-            accept(TokenType::LEFT_SQUARE);
+        ParseResult<ASTRef<Expression>> arrayLiteral() {
+            if(auto result = accept(TokenType::LEFT_SQUARE); !result) return std::unexpected(result.error());
 
             Vec<ASTRef<Expression>> elements{};
 
             while (!expect(TokenType::RIGHT_SQUARE)) {
-                auto elem = expression();
-                elements.push_back(elem);
+                auto elemResult = expression();
+                if(!elemResult) return std::unexpected(elemResult.error());
+                elements.push_back(std::move(*elemResult));
                 if (!expect(TokenType::COMMA)) {
                     break;
                 }
-                accept(TokenType::COMMA);
+                if(auto result = accept(TokenType::COMMA); !result) return std::unexpected(result.error());
             }
-            accept(TokenType::RIGHT_SQUARE);
+            if(auto result = accept(TokenType::RIGHT_SQUARE); !result) return std::unexpected(result.error());
 
-            return makeast<ArrayLiteral>(elements);
+            return makeast<ArrayLiteral>(std::move(elements));
         }
 
     };
 
 
-    ASTRef<ASTNode> Parser::parse(const Str &fileName) {
+    ParseResult<ASTRef<ASTNode>> Parser::parse(const Str &fileName) {
         return ParserImpl(state).parse(fileName);
     }
 

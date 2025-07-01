@@ -8,7 +8,7 @@
 
 #include <ast.hpp>
 #include <parser.hpp>
-#include <intp/Interpreter.hpp>
+#include <intp/intp.hpp>
 #include <intp/runtime.hpp>
 #include <token.hpp>
 

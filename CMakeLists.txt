@@ -23,7 +23,7 @@ set(NG_LIB_SRC
         src/parsing/ParserImpl.cpp
         src/ast/IASTVisitor.cpp
         src/ast/DefaultDummyAstVisitor.cpp
-        src/intp/Interpreter.cpp
+        src/intp/stupid.cpp
         src/runtime/IBasicObject.cpp
         src/runtime/IOverloadableOperators.cpp
         src/runtime/NGObject.cpp

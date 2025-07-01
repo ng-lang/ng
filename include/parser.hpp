@@ -71,13 +71,14 @@ namespace NG::parsing {
 
     struct Parser {
         ParseState state;
+        Str module_filename;
 
     public:
         explicit Parser(ParseState state) : state(std::move(state)) {}
 
         Parser(const Parser &) = delete;
 
-        ast::ASTRef <ASTNode> parse(const Str &filename = "untitled.ng");
+        ParseResult<ast::ASTRef <ASTNode>> parse(const Str &filename = "untitled.ng");
     };
 
 } // namespace NG

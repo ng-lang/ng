@@ -5,20 +5,24 @@ using namespace NG::parsing;
 using namespace NG::intp;
 using namespace NG::ast;
 
-static ASTRef<ASTNode> parse(const Str &source) {
+static ParseResult<ASTRef<ASTNode>> parse(const Str &source) {
     return Parser(ParseState(Lexer(LexState{source}).lex())).parse();
 }
 
 static void interpret(const Str &source) {
-    IInterperter *intp = NG::intp::interpreter();
+    Interpreter *intp = NG::intp::stupid();
 
-    auto &&ast = parse(source);
+    auto astResult = parse(source);
+    REQUIRE(astResult.has_value());
+
+    auto& ast = *astResult;
 
     ast->accept(intp);
 
     intp->summary();
 
     delete intp;
+    destroyast(ast);
 }
 
 TEST_CASE("interpreter should accept simple definitions", "[InterpreterTest]") {
@@ -191,5 +195,3 @@ hel.hello();
 
 )");
 }
-
-

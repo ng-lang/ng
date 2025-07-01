@@ -99,6 +99,7 @@ namespace NG::ast {
     struct CompileUnit : ASTNode {
         Vec<ASTRef<Module>> modules;
         Str fileName;
+        Str path;
 
         ASTNodeType astNodeType() const override { return ASTNodeType::COMPILE_UNIT; }
 

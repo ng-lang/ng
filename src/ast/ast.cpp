@@ -613,7 +613,7 @@ namespace NG::ast {
     }
 
     Str CompileUnit::repr() {
-        return Str{"Compile Unit"} + fileName;
+        return Str{"Compile Unit: "} + fileName;
     }
 
     CompileUnit::~CompileUnit() {
