@@ -418,7 +418,7 @@ namespace NG::intp
             // clear
             context->objects = {};
             context->types = {};
-            context->functions = {};
+            context->functions = predefs();
         }
 
         void visit(ImportDecl *importDecl) override

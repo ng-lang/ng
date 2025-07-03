@@ -10,3 +10,8 @@ CMakeCache.txt
 
 libng.a
 Makefile
+
+build/
+build.ninja
+.ninja_deps
+.ninja_log

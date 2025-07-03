@@ -5,6 +5,8 @@
 #include <expected>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
+#include <concepts>
 
 #include "config.h"
 
@@ -62,7 +64,9 @@ namespace NG {
     };
 
     template<class T>
-    uintptr_t code(T &&t) {
+    concept codable = std::is_enum_v<T> || std::is_integral_v<T>;
+
+    uintptr_t code(codable auto &&t) {
         return static_cast<uintptr_t>(t);
     }
 
