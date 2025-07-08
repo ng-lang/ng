@@ -2,8 +2,10 @@
 #include "common.hpp"
 #include "parser.hpp"
 #include "token.hpp"
+#include <debug.hpp>
 #include <ast.hpp>
 #include <filesystem>
+#include <utility>
 
 namespace fs = std::filesystem;
 
@@ -293,11 +295,12 @@ namespace NG::parsing {
                     const Str &name = state->repr;
                     if(auto result = accept(TokenType::ID); !result) return std::unexpected(result.error());
                     if (expect(TokenType::COLON)) {
-                        if(auto result = accept(TokenType::COLON); !result) return std::unexpected(result.error());
-                        const Str &type = state->repr;
-                        if(auto result = accept(TokenType::ID); !result) return std::unexpected(result.error());
+                        accept(TokenType::COLON);
 
-                        params.push_back(makeast<Param>(name, type));
+                        auto annoResult = typeAnnotation();
+                        if(!annoResult) return std::unexpected(annoResult.error());
+
+                        params.push_back(makeast<Param>(name, annoResult.value()));
                     } else {
                         params.push_back(makeast<Param>(name));
                     }
@@ -341,10 +344,36 @@ namespace NG::parsing {
             return stmt;
         }
 
+        ParseResult<ASTRef<TypeAnnotation>> typeAnnotation() {
+            TokenType maybeBuiltin = state->type;
+            if (code(TokenType::KEYWORD_INT) <= code(maybeBuiltin) &&
+                code(TokenType::KEYWORD_F128) >= code(maybeBuiltin)) {
+                ASTRef<TypeAnnotation> anno = makeast<TypeAnnotation>(state->repr);
+                uintptr_t builtin_type_code = code(maybeBuiltin) - code(TokenType::KEYWORD_INT) + code(TypeAnnotationType::BUILTIN_INT);
+                anno->type = from_code<TypeAnnotationType>(builtin_type_code);
+                accept(maybeBuiltin);
+                return anno;
+            } else if (maybeBuiltin == TokenType::ID) {
+                debug_log("Some Customized", state->repr);
+                ASTRef<TypeAnnotation> anno = makeast<TypeAnnotation>(state->repr);
+                accept(TokenType::ID);
+                anno->type = TypeAnnotationType::CUSTOMIZED;
+                return anno;
+            }
+            return std::unexpected("Unknown type annotation");
+        }
+
         ParseResult<ASTRef<ValDefStatement>> valDefStatement() {
             if(auto result = accept(TokenType::KEYWORD_VAL); !result) return std::unexpected(result.error());
             auto name = state->repr;
+            std::optional<ASTRef<TypeAnnotation>> anno {};
             if(auto result = accept(TokenType::ID); !result) return std::unexpected(result.error());
+            if(expect(TokenType::COLON)) {
+                accept(TokenType::COLON);
+                auto annoResult = typeAnnotation();
+                if (!annoResult) return std::unexpected(annoResult.error());
+                anno = annoResult.value();
+            }
             if (state->operatorType != Operators::ASSIGN) {
                 return unexpected(state);
             }
@@ -354,6 +383,7 @@ namespace NG::parsing {
             if(auto result = accept(TokenType::SEMICOLON); !result) return std::unexpected(result.error());
             auto def = makeast<ValDefStatement>(name);
             def->value = std::move(*valueResult);
+            def->typeAnnotation.swap(anno);
             return def;
         }
 

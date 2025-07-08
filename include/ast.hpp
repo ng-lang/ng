@@ -23,6 +23,7 @@ namespace NG::ast {
     enum class [[nodiscard]] ASTNodeType : uint32_t {
         UNKNOWN = 0,
         COMPILE_UNIT = 0x01,
+        TYPE_ANNOTATION = 0x02,
         NODE = 0xDEADBEEF,
 
         DEFINITION = 0x100,
@@ -109,17 +110,68 @@ namespace NG::ast {
         Annotated = 0x02
     };
 
+    enum TypeAnnotationType {
+        BUILTIN,
+        BUILTIN_INT,
+        BUILTIN_BOOL,
+        BUILTIN_STRING,
+        BUILTIN_FLOAT,
+
+        // integer variants
+        BUILTIN_BYTE,
+        BUILTIN_UBYTE,
+        BUILTIN_SHORT,
+        BUILTIN_USHORT,
+        BUILTIN_UINT,
+        BUILTIN_LONG,
+        BUILTIN_ULONG,
+        BUILTIN_U8,
+        BUILTIN_I8,
+        BUILTIN_U16,
+        BUILTIN_I16,
+        BUILTIN_U32,
+        BUILTIN_I32,
+        BUILTIN_U64,
+        BUILTIN_I64,
+        BUILTIN_UPTR,
+        BUILTIN_IPTR,
+
+        // floating point variants
+        BUILTIN_HALF,
+        BUILTIN_DOUBLE,
+        BUILTIN_QUADRUPLE,
+        BUILTIN_F16,
+        BUILTIN_F32,
+        BUILTIN_F64,
+        BUILTIN_F128,
+        CUSTOMIZED,
+    };
+
+
+    struct TypeAnnotation : ASTNode {
+        const Str name;
+        TypeAnnotationType type;
+
+        explicit TypeAnnotation(Str _name) : name(std::move(_name)) {}
+
+        void accept(AstVisitor *visitor) override;
+        ASTNodeType astNodeType() const override { return ASTNodeType::TYPE_ANNOTATION; }
+
+        bool operator==(const ASTNode& node) const override;
+        Str repr() override;
+        ~TypeAnnotation() override;
+    };
     struct Param : ASTNode {
         const ParamType type;
         const Str paramName;
-        const Str annotatedType;
+        std::optional<ASTRef<TypeAnnotation>> annotatedType;
 
-        explicit Param(const Str &name) : Param(name, "", ParamType::Simple) {}
+        explicit Param(const Str &name) : Param(name, {}, ParamType::Simple) {}
 
-        Param(const Str &name, const Str &type) : Param(name, type, ParamType::Annotated) {}
+        Param(const Str &name, ASTRef<TypeAnnotation> type) : Param(name, type, ParamType::Annotated) {}
 
-        Param(Str name, Str _annotatedType, ParamType type)
-                : paramName(std::move(name)), annotatedType(std::move(_annotatedType)), type(type) {}
+        Param(Str name, std::optional<ASTRef<TypeAnnotation>> _annotatedType, ParamType type)
+                : paramName(std::move(name)), annotatedType(_annotatedType), type(type) {}
 
         void accept(AstVisitor *visitor) override;
 
@@ -251,8 +303,6 @@ namespace NG::ast {
         ~CompileUnit() override;
     };
 
-
-
     struct FunCallExpression : Expression {
         ASTRef<Expression> primaryExpression;
         Vec<ASTRef<Expression>> arguments;
@@ -343,6 +393,8 @@ namespace NG::ast {
         const Str name;
 
         ASTRef<Expression> value{};
+
+        std::optional<ASTRef<TypeAnnotation>> typeAnnotation {};
 
         explicit ValDefStatement(Str _name) : name(std::move(_name)) {}
 

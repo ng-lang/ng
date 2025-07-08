@@ -2,6 +2,7 @@
 #include <parser.hpp>
 #include <token.hpp>
 #include <common.hpp>
+#include <debug.hpp>
 
 #include <sstream>
 #include <unordered_map>
@@ -70,6 +71,38 @@ namespace NG::parsing {
             {"true", TokenType::KEYWORD_TRUE},
             {"false", TokenType::KEYWORD_FALSE},
             {"unit", TokenType::KEYWORD_UNIT},
+            {"int", TokenType::KEYWORD_INT},
+            {"bool", TokenType::KEYWORD_BOOL},
+            {"string", TokenType::KEYWORD_STRING},
+            {"float", TokenType::KEYWORD_FLOAT},
+    
+            // integer variants
+            {"byte", TokenType::KEYWORD_BYTE},
+            {"ubyte", TokenType::KEYWORD_UBYTE},
+            {"short", TokenType::KEYWORD_SHORT},
+            {"ushort", TokenType::KEYWORD_USHORT},
+            {"uint", TokenType::KEYWORD_UINT},
+            {"long", TokenType::KEYWORD_LONG},
+            {"ulong", TokenType::KEYWORD_ULONG},
+            {"u8", TokenType::KEYWORD_U8},
+            {"i8", TokenType::KEYWORD_I8},
+            {"u16", TokenType::KEYWORD_U16},
+            {"i16", TokenType::KEYWORD_I16},
+            {"u32", TokenType::KEYWORD_U32},
+            {"i32", TokenType::KEYWORD_I32},
+            {"u64", TokenType::KEYWORD_U64},
+            {"i64", TokenType::KEYWORD_I64},
+            {"uptr", TokenType::KEYWORD_UPTR},
+            {"iptr", TokenType::KEYWORD_IPTR},
+    
+            // floating point variants
+            {"half", TokenType::KEYWORD_HALF},
+            {"double", TokenType::KEYWORD_DOUBLE},
+            {"quadruple", TokenType::KEYWORD_QUADRUPLE},
+            {"f16", TokenType::KEYWORD_F16},
+            {"f32", TokenType::KEYWORD_F32},
+            {"f64", TokenType::KEYWORD_F64},
+            {"f128", TokenType::KEYWORD_F128},
 
             {"(", TokenType::LEFT_PAREN},
             {")", TokenType::RIGHT_PAREN},
@@ -125,7 +158,7 @@ namespace NG::parsing {
                 state.next();
                 continue;
             }
-            if (isalpha(c))
+            if (isalpha(c) || c == '_')
                 lexSymbol(state, tokens);
             else if (isdigit(c))
                 lexNumber(state, tokens);
@@ -166,6 +199,7 @@ namespace NG::parsing {
                 state.next();
             }
         }
+        debug_log("tokens", tokens.size());
 
         return tokens;
     }
@@ -173,7 +207,7 @@ namespace NG::parsing {
     static void lexSymbol(LexState &state, Vec<Token> &tokens) {
         TokenPosition pos{state.line, state.col};
         Str result = withStream(state, [](LexState &state, Stream &stream) {
-            while (isalnum(state.current())) {
+            while (isalnum(state.current()) || state.current() == '_') {
                 stream << state.current();
                 state.next();
             }

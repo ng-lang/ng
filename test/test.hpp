@@ -11,6 +11,7 @@
 #include <intp/intp.hpp>
 #include <intp/runtime.hpp>
 #include <token.hpp>
+#include <debug.hpp>
 
 #include <unordered_map>
 #include <vector>

@@ -70,6 +70,23 @@ namespace NG::ast {
         return "unknown";
     }
 
+    void TypeAnnotation::accept(AstVisitor *visitor) {
+        visitor->visit(this);
+    }
+
+    bool TypeAnnotation::operator==(const ASTNode& node) const {
+        auto &anno = dynamic_cast<const TypeAnnotation&>(node);
+        return astNodeType() == node.astNodeType() &&
+            anno.name == name &&
+            anno.type == type;
+    }
+
+    Str TypeAnnotation::repr() {
+        return this->name;
+    }
+
+    TypeAnnotation::~TypeAnnotation() = default;
+
     void Param::accept(AstVisitor *visitor) {
         visitor->visit(this);
     }
@@ -83,7 +100,7 @@ namespace NG::ast {
     }
 
     Str Param::repr() {
-        return paramName + ": " + annotatedType;
+        return paramName + (annotatedType.has_value() ? ( ": " + (*annotatedType)->repr()) : "");
     }
 
     void CompoundStatement::accept(AstVisitor *visitor) {

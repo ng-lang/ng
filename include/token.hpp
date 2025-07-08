@@ -42,6 +42,40 @@ namespace NG {
         KEYWORD_FALSE,
         KEYWORD_UNIT,
 
+        // types
+        KEYWORD_INT,
+        KEYWORD_BOOL,
+        KEYWORD_STRING,
+        KEYWORD_FLOAT,
+
+        // integer variants
+        KEYWORD_BYTE,
+        KEYWORD_UBYTE,
+        KEYWORD_SHORT,
+        KEYWORD_USHORT,
+        KEYWORD_UINT,
+        KEYWORD_LONG,
+        KEYWORD_ULONG,
+        KEYWORD_U8,
+        KEYWORD_I8,
+        KEYWORD_U16,
+        KEYWORD_I16,
+        KEYWORD_U32,
+        KEYWORD_I32,
+        KEYWORD_U64,
+        KEYWORD_I64,
+        KEYWORD_UPTR,
+        KEYWORD_IPTR,
+
+        // floating point variants
+        KEYWORD_HALF,
+        KEYWORD_DOUBLE,
+        KEYWORD_QUADRUPLE,
+        KEYWORD_F16,
+        KEYWORD_F32,
+        KEYWORD_F64,
+        KEYWORD_F128,
+
         LEFT_PAREN,
         RIGHT_PAREN,
         LEFT_SQUARE,

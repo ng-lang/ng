@@ -5,7 +5,11 @@ using namespace NG::ast;
 using namespace NG::parsing;
 
 static ParseResult<ASTRef<ASTNode>> parse(const Str &source) {
-    return Parser(ParseState(Lexer(LexState{source}).lex())).parse();
+    auto result =  Parser(ParseState(Lexer(LexState{source}).lex())).parse();
+    if (!result) {
+        debug_log(result.error());
+    }
+    return result;
 }
 
 TEST_CASE("parser should parse function", "[ParserTest]") {
@@ -236,6 +240,23 @@ import "hello" *;
 
 // import symbols with alias
 import "hello" hell(a, b, c);
+)");
+    REQUIRE(astResult.has_value());
+    destroyast(*astResult);
+}
+
+
+
+TEST_CASE("parser should parse builtin types", "[ParserTestBuiltin]") {
+    auto astResult = parse(R"(
+val x: int = 1;
+
+val y: bool = false;
+val z: float = 1;
+
+type SomeType {}
+
+val some_object: SomeObject = new SomeObject {};
 )");
     REQUIRE(astResult.has_value());
     destroyast(*astResult);

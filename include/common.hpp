@@ -72,8 +72,13 @@ namespace NG {
     template<class T>
     concept codable = std::is_enum_v<T> || std::is_integral_v<T>;
 
-    uintptr_t code(codable auto &&t) {
+    uintptr_t code(const codable auto &t) {
         return static_cast<uintptr_t>(t);
+    }
+
+    template<codable T>
+    T from_code(uintptr_t code) {
+        return static_cast<T>(code);
     }
 
 } // namespace NG;
