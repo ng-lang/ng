@@ -21,8 +21,10 @@ namespace NG::parsing {
 
     constexpr std::array<char, 8> operators{'>', '<', '=', '-', '+', '*', '/', '%'};
 
-    template<class Container>
-    inline bool is(const Container &container, char c) {
+    constexpr std::array<int, 6> bitlengths {8, 16, 32, 64, 128};
+
+    template<class Container, class T>
+    inline bool is(const Container &container, T c) {
         return std::find(container.begin(), container.end(), c) != container.end();
     }
 
@@ -128,7 +130,7 @@ namespace NG::parsing {
     static void lexString(LexState &state, Vec<Token> &tokens);
 
     static bool isTermintator(char c) {
-        return c == ',' || c == ';' || c == ')' || c == ']' || c == '}' || c == '.';
+        return c == ',' || c == ';' || c == ')' || c == ']' || c == '}';
     }
 
     static bool isNumSign(char c) {
@@ -199,7 +201,6 @@ namespace NG::parsing {
                 state.next();
             }
         }
-        debug_log("tokens", tokens.size());
 
         return tokens;
     }
@@ -223,22 +224,113 @@ namespace NG::parsing {
             tokens.push_back(Token{TokenType::ID, result, pos});
     }
 
+    static TokenType resolveIntegralType(char sign, int bits) {
+        TokenType result = TokenType::NUMBER_I32;
+        switch (bits) {
+            case 8:
+                result = TokenType::NUMBER_I8;
+                break;
+                case 16:
+                result = TokenType::NUMBER_I16;
+                break;
+                case 32:
+                result = TokenType::NUMBER_I32;
+                break;
+                case 64:
+                result = TokenType::NUMBER_I64;
+                break;
+            default:
+                throw LexException("Invalid bits");                
+        };
+        if (tolower(sign) == 'u') {
+            return from_code<TokenType>(code(result) - 1);
+        } else if (tolower(sign) == 'i') {
+            return result;
+        }
+        throw LexException("Invalid sign, should be u or i");
+    }
+
+    static TokenType resolveFloatingPointType(int bits) {
+        TokenType result = TokenType::NUMBER_F32;
+        switch (bits) {
+            case 16:
+                result = TokenType::NUMBER_F16;
+                break;
+            case 32:
+                result = TokenType::NUMBER_F32;
+                break;
+            case 64:
+                result = TokenType::NUMBER_F64;
+                break;
+            case 128:
+                result = TokenType::NUMBER_F128;
+                break;
+            default:
+                throw LexException("Invalid bits");                
+        };
+        return result;
+    }
+
+    static int numberTypePostfix(LexState &state) {
+        Str postfix = withStream(state, [](LexState& state, Stream &stream) {
+            auto c = state.current();
+            while(isdigit(c)) {
+                stream << c;
+                state.next();
+                c = state.current();
+            }
+        });
+        
+        int result = std::stoi(postfix);
+        if (!is(bitlengths, result)) {
+            throw LexException("Invalid bit length");
+        }
+        return result;
+    }
+
     static void lexNumber(LexState &state, Vec<Token> &tokens) {
         TokenPosition pos{state.line, state.col};
-        Str result = withStream(state, [](LexState &state, Stream &stream) {
+        TokenType tokenType = TokenType::NUMBER;
+        Str result = withStream(state, [&tokenType](LexState &state, Stream &stream) {
             auto c = state.current();
+            bool decimalPointSet = false;
+            bool exponentalSet = false;
             while (c && !(isblank(c) || isspace(c) || isTermintator(c) || is(operators, c))) {
-                if (isdigit(c))
+                if (isdigit(c)) {
                     stream << state.current();
-                else
+                } else if(c == '_') {
+                    // skip just as seperator.
+                } else if (c == '.' && !decimalPointSet && !exponentalSet) {
+                    if (!isdigit(state.lookAhead())) {
+                        return;
+                    }
+                    decimalPointSet = true;
+                    tokenType = TokenType::FLOATING_POINT;
+                    stream << c;
+                } else if (c == 'e' && !exponentalSet) {
+                    exponentalSet = true;
+                    tokenType = TokenType::FLOATING_POINT;
+                    stream << c;
+                } else if ((tolower(c) == 'u' || tolower(c) == 'i') && tokenType != TokenType::FLOATING_POINT) {
+                    state.next();
+                    int bitlength = numberTypePostfix(state);
+                    tokenType = resolveIntegralType(c, bitlength);
+                    return;
+                } else if ((tolower(c) == 'f')) {
+                    state.next();
+                    int bitlength = numberTypePostfix(state);
+                    tokenType = resolveFloatingPointType(bitlength);
+                    return;
+                } else {
                     throw LexException();
+                }
                 state.next();
                 c = state.current();
             }
         });
 
         if (!result.empty())
-            tokens.push_back(Token{TokenType::NUMBER, result, pos});
+            tokens.push_back(Token{tokenType, result, pos});
         else
             throw LexException();
     }

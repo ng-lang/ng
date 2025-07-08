@@ -59,7 +59,7 @@ TEST_CASE("should run with array", "[Integration]") {
     runIntegrationTest("example/06.array.ng");
 }
 
-TEST_CASE("should run with multiple modules import and export", "[IntegrationModule]") {
+TEST_CASE("should run with multiple modules import and export", "[Integration]") {
     runIntegrationTest("example/08.imports.ng");
 }
 

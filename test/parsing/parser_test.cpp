@@ -247,7 +247,7 @@ import "hello" hell(a, b, c);
 
 
 
-TEST_CASE("parser should parse builtin types", "[ParserTestBuiltin]") {
+TEST_CASE("parser should parse builtin types", "[ParserTest]") {
     auto astResult = parse(R"(
 val x: int = 1;
 
