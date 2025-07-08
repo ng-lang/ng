@@ -5,93 +5,94 @@
 
 namespace NG::runtime {
 
-    NGObject *NGObject::boolean(bool boolean) {
-        return new NGBoolean{boolean};
+    RuntimeRef<NGObject> NGObject::boolean(bool boolean) {
+        return makert<NGBoolean>(boolean);
     }
 
     Str NGObject::show() {
         return "[NGObject]";
     }
 
-    bool NGObject::opEquals(NGObject *other) const {
+    bool NGObject::opEquals(RuntimeRef<NGObject> other) const {
         return false;
     }
 
-    NGObject *NGObject::opIndex(NGObject *index) const {
+    RuntimeRef<NGObject> NGObject::opIndex(RuntimeRef<NGObject> index) const {
         throw IllegalTypeException("Not index-accessible");
     }
 
-    NGObject *NGObject::opIndex(NGObject *accessor, NGObject *newValue) {
+    RuntimeRef<NGObject> NGObject::opIndex(RuntimeRef<NGObject> accessor, RuntimeRef<NGObject> newValue) {
         throw IllegalTypeException("Not index-accessible");
     }
 
-    NGObject *NGObject::opPlus(NGObject *other) const {
+    RuntimeRef<NGObject> NGObject::opPlus(RuntimeRef<NGObject> other) const {
         throw NotImplementedException();
     }
 
-    NGObject *NGObject::opMinus(NGObject *other) const {
+    RuntimeRef<NGObject> NGObject::opMinus(RuntimeRef<NGObject> other) const {
         throw NotImplementedException();
     }
 
-    NGObject *NGObject::opTimes(NGObject *other) const {
+    RuntimeRef<NGObject> NGObject::opTimes(RuntimeRef<NGObject> other) const {
         throw NotImplementedException();
     }
 
-    NGObject *NGObject::opDividedBy(NGObject *other) const {
+    RuntimeRef<NGObject> NGObject::opDividedBy(RuntimeRef<NGObject> other) const {
         throw NotImplementedException();
     }
 
-    NGObject *NGObject::opModulus(NGObject *other) const {
+    RuntimeRef<NGObject> NGObject::opModulus(RuntimeRef<NGObject> other) const {
         throw NotImplementedException();
     }
 
-    bool NGObject::opGreaterThan(NGObject *other) const {
+    bool NGObject::opGreaterThan(RuntimeRef<NGObject> other) const {
         throw NotImplementedException();
     }
 
-    bool NGObject::opLessThan(NGObject *other) const {
+    bool NGObject::opLessThan(RuntimeRef<NGObject> other) const {
         throw NotImplementedException();
     }
 
-    bool NGObject::opGreaterEqual(NGObject *other) const {
+    bool NGObject::opGreaterEqual(RuntimeRef<NGObject> other) const {
         throw NotImplementedException();
     }
 
-    bool NGObject::opLessEqual(NGObject *other) const {
+    bool NGObject::opLessEqual(RuntimeRef<NGObject> other) const {
         throw NotImplementedException();
     }
 
-    NGObject *NGObject::respond(const Str &member, NGContext *context, NGInvocationContext *invocationContext) {
+    RuntimeRef<NGObject> NGObject::respond(const Str &member, RuntimeRef<NGContext> context, RuntimeRef<NGInvocationContext> invocationContext) {
         Map<Str, NGInvocationHandler> &fns = this->type()->memberFunctions;
         if (fns.find(member) != fns.end()) {
-            NGContext newContext{*context};
-            newContext.objects["self"] = this;
-            fns[member](*this, newContext, *invocationContext);
+            RuntimeRef<NGContext> newContext = makert<NGContext>(*context);
+            RuntimeRef<NGObject> self = invocationContext->target;
+            newContext->objects["self"] = self;
+            fns[member](self, newContext, invocationContext);
 
-            return newContext.retVal;
+            return newContext->retVal;
         }
 
         throw NotImplementedException();
     }
 
-    bool NGObject::opNotEqual(NGObject *other) const {
+    bool NGObject::opNotEqual(RuntimeRef<NGObject> other) const {
         return !opEquals(other);
     }
 
-    NGObject *NGObject::opLShift(NGObject *other) {
+    RuntimeRef<NGObject> NGObject::opLShift(RuntimeRef<NGObject> other) {
         throw NotImplementedException();
     }
 
-    NGObject *NGObject::opRShift(NGObject *other) {
+    RuntimeRef<NGObject> NGObject::opRShift(RuntimeRef<NGObject> other) {
         throw NotImplementedException();
     }
 
-    NGType *NGObject::objectType() {
-        static NGType objectType{};
-        return &objectType;
+    RuntimeRef<NGType> NGObject::objectType() {
+        static RuntimeRef<NGType> objectType = makert<NGType>();
+        return objectType;
     }
 
-    NGType *NGObject::type() {
+    RuntimeRef<NGType> NGObject::type() {
         return objectType();
     }
 

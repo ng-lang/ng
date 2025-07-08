@@ -9,8 +9,8 @@ namespace NG::runtime {
         return "\"" + value + "\"";
     }
 
-    bool NGString::opEquals(NGObject *other) const {
-        if (auto otherString = dynamic_cast<NGString *>(other); otherString != nullptr) {
+    bool NGString::opEquals(RuntimeRef<NGObject> other) const {
+        if (auto otherString = std::dynamic_pointer_cast<NGString>(other); otherString != nullptr) {
             return otherString->value == value;
         }
         return false;
@@ -20,35 +20,33 @@ namespace NG::runtime {
         return !value.empty();
     }
 
-    NGType *NGString::type() {
+    RuntimeRef<NGType> NGString::type() {
         return NGString::stringType();
     }
 
-    NGType *NGString::stringType() {
-        static NGType stringType{
-                .memberFunctions = {
-                        {"size",   [](NGObject &self, NGContext &context, InvCtx &invCtx) {
-                            auto &str = dynamic_cast<NGString &>(self);
+    RuntimeRef<NGType> NGString::stringType() {
+        static RuntimeRef<NGType> stringType = makert<NGType>(NGType{
+            .memberFunctions = {
+                    {"size",   [](RuntimeRef<NGObject> self, RuntimeRef<NGContext> context, RuntimeRef<InvCtx> invCtx) {
+                        auto str = std::dynamic_pointer_cast<NGString>(self);
 
-                            context.retVal = new NGInteger(str.value.size());
-                        }},
-                        {"charAt", [](NGObject &self, NGContext &context, InvCtx &invCtx) {
-                            auto &str = dynamic_cast<NGString &>(self);
-                            auto index = dynamic_cast<NGInteger *>(invCtx.params[0]);
+                        context->retVal = makert<NGInteger>(str->value.size());
+                    }},
+                    {"charAt", [](RuntimeRef<NGObject> self, RuntimeRef<NGContext> context, RuntimeRef<InvCtx> invCtx) {
+                        auto str = std::dynamic_pointer_cast<NGString>(self);
+                        auto index = std::dynamic_pointer_cast<NGInteger>(invCtx->params[0]);
 
-                            context.retVal = new NGInteger(str.value[index->asSize()]);
-                        }}
-                }
-        };
+                        context->retVal = makert<NGInteger>(str->value[index->asSize()]);
+                    }}
+            }
+        });
 
-        return &stringType;
+        return stringType;
     }
 
-    NGObject *NGString::opPlus(NGObject *other) const {
-        if (auto str = dynamic_cast<NGString *>(other); str != nullptr) {
-
-
-            return new NGString{value + str->value};
+    RuntimeRef<NGObject> NGString::opPlus(RuntimeRef<NGObject> other) const {
+        if (auto str = std::dynamic_pointer_cast<NGString>(other); str != nullptr) {
+            return makert<NGString>(value + str->value);
         }
 
         throw IllegalTypeException("Not a string");

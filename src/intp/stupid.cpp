@@ -30,7 +30,7 @@ namespace NG::intp
 
     ISummarizable::~ISummarizable() = default;
 
-    static NGObject *evaluateExpr(Operators optr, NGObject *leftParam, NGObject *rightParam)
+    static RuntimeRef<NGObject> evaluateExpr(Operators optr, RuntimeRef<NGObject> leftParam, RuntimeRef<NGObject> rightParam)
     {
         switch (optr)
         {
@@ -70,9 +70,9 @@ namespace NG::intp
     static Map<Str, NGInvocationHandler> predefs()
     {
         return {
-            {"print", [](NGObject &dummy, NGContext &context, NGInvocationContext &invocationContext)
+            {"print", [](RuntimeRef<NGObject> self, RuntimeRef<NGContext> context, RuntimeRef<NGInvocationContext> invCtx)
              {
-                 Vec<NGObject *> &params = invocationContext.params;
+                 Vec<RuntimeRef<NGObject>> &params = invCtx->params;
                  for (size_t i = 0; i < params.size(); ++i)
                  {
                      std::cout << params[i]->show();
@@ -83,11 +83,11 @@ namespace NG::intp
                  }
                  std::cout << std::endl;
              }},
-            {"assert", [](NGObject &dummy, NGContext &context, NGInvocationContext &invocationContext)
+            {"assert", [](RuntimeRef<NGObject> self, RuntimeRef<NGContext> context, RuntimeRef<NGInvocationContext> invCtx)
              {
-                 for (const auto &param : invocationContext.params)
+                 for (const auto &param : invCtx->params)
                  {
-                     auto ngBool = dynamic_cast<NGBoolean *>(param);
+                     auto ngBool = std::dynamic_pointer_cast<NGBoolean>(param);
                      if (ngBool == nullptr || !ngBool->value)
                      {
                          std::cerr << param->show();
@@ -111,47 +111,48 @@ namespace NG::intp
     struct ExpressionVisitor : public DummyVisitor
     {
 
-        NGObject *object = nullptr;
+        RuntimeRef<NGObject> object = nullptr;
 
-        NGContext *context = nullptr;
+        RuntimeRef<NGContext> context = nullptr;
 
-        explicit ExpressionVisitor(NGContext *context) : context(context) {}
+        explicit ExpressionVisitor(RuntimeRef<NGContext> context) : context(context) {}
 
         void visit(IntegerValue *intVal) override
         {
-            object = new NGInteger(intVal->value);
+            object = makert<NGInteger>(intVal->value);
         }
 
         void visit(StringValue *strVal) override
         {
-            object = new NGString(strVal->value);
+            object = makert<NGString>(strVal->value);
         }
 
         void visit(BooleanValue *boolVal) override
         {
-            object = new NGBoolean(boolVal->value);
+            object = makert<NGBoolean>(boolVal->value);
         }
 
         void visit(FunCallExpression *funCallExpr) override
         {
             FunctionPathVisitor fpVis{};
             funCallExpr->primaryExpression->accept(&fpVis);
-            NGInvocationContext invocationContext{};
+            RuntimeRef<NGInvocationContext> invocationContext = makert<NGInvocationContext>();
 
             for (auto &param : funCallExpr->arguments)
             {
                 param->accept(this);
-                invocationContext.params.push_back(this->object);
+                invocationContext->params.push_back(this->object);
             }
 
-            NGObject dummy{};
+            RuntimeRef<NGObject> dummy = makert<NGObject>();
+            invocationContext->target = dummy;
 
             if (!context->functions.contains(fpVis.path))
             {
                 throw RuntimeException("No such function: " + fpVis.path);
             }
 
-            context->functions[fpVis.path](dummy, *context, invocationContext);
+            context->functions[fpVis.path](dummy, context, invocationContext);
 
             this->object = context->retVal;
             context->retVal = nullptr;
@@ -174,7 +175,7 @@ namespace NG::intp
 
         void visit(ArrayLiteral *array) override
         {
-            Vec<NGObject *> objects;
+            Vec<RuntimeRef<NGObject> > objects;
 
             ExpressionVisitor vis{context};
 
@@ -184,7 +185,7 @@ namespace NG::intp
                 objects.push_back(vis.object);
             }
 
-            object = new NGArray(objects);
+            object = makert<NGArray>(objects);
         }
 
         void visit(IndexAccessorExpression *index) override
@@ -193,11 +194,11 @@ namespace NG::intp
 
             index->primary->accept(&vis);
 
-            NGObject *primaryObject = vis.object;
+            RuntimeRef<NGObject> primaryObject = vis.object;
 
             index->accessor->accept(&vis);
 
-            NGObject *accessorObject = vis.object;
+            RuntimeRef<NGObject> accessorObject = vis.object;
 
             object = primaryObject->opIndex(accessorObject);
         }
@@ -208,15 +209,15 @@ namespace NG::intp
 
             index->primary->accept(&vis);
 
-            NGObject *primaryObject = vis.object;
+            RuntimeRef<NGObject> primaryObject = vis.object;
 
             index->accessor->accept(&vis);
 
-            NGObject *accessorObject = vis.object;
+            RuntimeRef<NGObject> accessorObject = vis.object;
 
             index->value->accept(&vis);
 
-            NGObject *valueObject = vis.object;
+            RuntimeRef<NGObject> valueObject = vis.object;
 
             object = primaryObject->opIndex(accessorObject, valueObject);
         }
@@ -229,16 +230,17 @@ namespace NG::intp
 
             idAccExpr->primaryExpression->accept(&vis);
 
-            NGObject *main = vis.object;
+            RuntimeRef<NGObject> main = vis.object;
 
-            NGInvocationContext invCtx{};
+            auto invCtx = makert<NGInvocationContext>();
+            invCtx->target = main;
             for (const auto &argument : idAccExpr->arguments)
             {
                 argument->accept(&vis);
-                invCtx.params.push_back(vis.object);
+                invCtx->params.push_back(vis.object);
             }
 
-            object = main->respond(repr, context, &invCtx);
+            object = main->respond(repr, context, invCtx);
         }
 
         void visit(NewObjectExpression *newObj) override
@@ -246,17 +248,17 @@ namespace NG::intp
             Str &typeName = newObj->typeName;
             auto ngType = context->types[typeName];
 
-            auto structural = new NGStructuralObject{};
+            auto structural = makert<NGStructuralObject>();
 
             structural->customizedType = ngType;
 
-            NGContext newContext{*context};
-            ExpressionVisitor visitor{&newContext};
+            RuntimeRef<NGContext> newContext = makert<NGContext>(*context);
+            ExpressionVisitor visitor{newContext};
 
             for (auto &&[name, expr] : newObj->properties)
             {
                 expr->accept(&visitor);
-                NGObject *result = visitor.object;
+                RuntimeRef<NGObject> result = visitor.object;
 
                 visitor.context->objects[name] = result;
 
@@ -267,7 +269,7 @@ namespace NG::intp
             {
                 if (structural->properties.find(property) == structural->properties.end())
                 {
-                    structural->properties[property] = new NGObject{};
+                    structural->properties[property] = makert<NGObject>();
                 }
             }
 
@@ -277,9 +279,9 @@ namespace NG::intp
 
     struct StatementVisitor : public DummyVisitor
     {
-        NGContext *context;
+        RuntimeRef<NGContext> context;
 
-        explicit StatementVisitor(NGContext *context) : context(context) {}
+        explicit StatementVisitor(RuntimeRef<NGContext> context) : context(context) {}
 
         void visit(ReturnStatement *returnStatement) override
         {
@@ -335,19 +337,19 @@ namespace NG::intp
 
     struct Stupid : public Interpreter, DummyVisitor
     {
-        NGContext *context;
+        RuntimeRef<NGContext> context;
 
         Map<Str, ASTRef<ASTNode>> externalModuleAstCache;
 
-        void withNewContext(NGContext &newContext, const std::function<void()> &execution)
+        void withNewContext(RuntimeRef<NGContext> newContext, const std::function<void()> &execution)
         {
-            NGContext *previousContext = context;
-            context = &newContext;
+            RuntimeRef<NGContext> previousContext = context;
+            context = newContext;
             execution();
             context = previousContext;
         }
 
-        explicit Stupid(NGContext *_context) : context(_context)
+        explicit Stupid(RuntimeRef<NGContext> _context) : context(_context)
         {
         }
 
@@ -373,7 +375,7 @@ namespace NG::intp
             }
 
             context->currentModuleName = mod->name;
-            context->currentModule = new NGModule{};
+            context->currentModule = makert<NGModule>();
 
             context->currentModule->exports = mod->exports;
 
@@ -430,14 +432,14 @@ namespace NG::intp
                 auto &&ast = loader.load(importDecl->module);
 
                 externalModuleAstCache.insert_or_assign(importDecl->module, ast);
-                NGContext ctx{};
+                RuntimeRef<NGContext> ctx = makert<NGContext>();
                 withNewContext(ctx, [&ast, intp = this]()
                                {
                                     ast->accept(intp);
                                     intp->saveModule(); });
-                context->modules.insert_or_assign(importDecl->module, ctx.currentModule);
+                context->modules.insert_or_assign(importDecl->module, ctx->currentModule);
             }
-            NGModule *targetModule = context->modules[importDecl->module];
+            RuntimeRef<NGModule> targetModule = context->modules[importDecl->module];
             Set<Str> imports = resolveImports(importDecl, targetModule);
 
             for (auto &&imp : imports)
@@ -462,7 +464,7 @@ namespace NG::intp
             }
         }
 
-        Set<Str> resolveImports(ImportDecl *importDecl, NGModule *targetModule)
+        Set<Str> resolveImports(ImportDecl *importDecl, RuntimeRef<NGModule> targetModule)
         {
             bool importAll = (std::find(begin(importDecl->imports), end(importDecl->imports),
                                         "*") != end(importDecl->imports));
@@ -512,14 +514,14 @@ namespace NG::intp
         // virtual void visit(Param *param);
         void visit(FunctionDef *funDef) override
         {
-            context->functions[funDef->funName] = [this, funDef](NGObject &dummy,
-                                                                 NGContext &ngContext,
-                                                                 NGInvocationContext &invocationContext)
+            context->functions[funDef->funName] = [this, funDef](RuntimeRef<NGObject> dummy,
+                                                                 RuntimeRef<NGContext> ngContext,
+                                                                 RuntimeRef<NGInvocationContext> invocationContext)
             {
-                NGContext newContext{ngContext};
+                RuntimeRef<NGContext> newContext = makert<NGContext>(*ngContext);
                 for (size_t i = 0; i < funDef->params.size(); ++i)
                 {
-                    newContext.objects[funDef->params[i]->paramName] = invocationContext.params[i];
+                    newContext->objects[funDef->params[i]->paramName] = invocationContext->params[i];
                 }
 
                 withNewContext(newContext, [this, funDef]
@@ -527,7 +529,7 @@ namespace NG::intp
                     StatementVisitor vis{context};
 
                     funDef->body->accept(&vis); });
-                ngContext.retVal = newContext.retVal;
+                ngContext->retVal = newContext->retVal;
             };
         }
 
@@ -546,7 +548,7 @@ namespace NG::intp
 
         void visit(TypeDef *typeDef) override
         {
-            auto type = new NGType{};
+            auto type = makert<NGType>();
 
             type->name = typeDef->typeName;
 
@@ -557,23 +559,23 @@ namespace NG::intp
 
             for (const auto &memFn : typeDef->memberFunctions)
             {
-                type->memberFunctions[memFn->funName] = [this, memFn](NGObject &dummy,
-                                                                      NGContext &ngContext,
-                                                                      NGInvocationContext &invocationContext)
+                type->memberFunctions[memFn->funName] = [this, memFn](RuntimeRef<NGObject> dummy,
+                                                                      RuntimeRef<NGContext> ngContext,
+                                                                      RuntimeRef<NGInvocationContext> invocationContext)
                 {
-                    NGContext newContext{ngContext};
+                    RuntimeRef<NGContext> newContext = makert<NGContext>(*ngContext);
                     for (size_t i = 0; i < memFn->params.size(); ++i)
                     {
-                        newContext.objects[memFn->params[i]->paramName] = invocationContext.params[i];
+                        newContext->objects[memFn->params[i]->paramName] = invocationContext->params[i];
                     }
 
-                    newContext.objects["self"] = &dummy;
+                    newContext->objects["self"] = dummy;
 
-                    if (auto structural = dynamic_cast<NGStructuralObject *>(&dummy); structural != nullptr)
+                    if (auto structural = std::dynamic_pointer_cast<NGStructuralObject>(dummy); structural != nullptr)
                     {
                         for (const auto &property : structural->properties)
                         {
-                            newContext.objects[property.first] = property.second;
+                            newContext->objects[property.first] = property.second;
                         }
                     }
 
@@ -582,7 +584,7 @@ namespace NG::intp
                         StatementVisitor vis{context};
 
                         memFn->body->accept(&vis); });
-                    ngContext.retVal = newContext.retVal;
+                    ngContext->retVal = newContext->retVal;
                 };
             }
 
@@ -612,23 +614,22 @@ namespace NG::intp
             }
         }
 
-        NGContext *intpContext() override
+        NGContext * intpContext() override
         {
-            return context;
+            return context.get();
         }
 
         ~Stupid() override
         {
-            delete context;
         }
     };
 
     Interpreter *stupid()
     {
-        auto context = new NGContext{
+        auto context = makert<NGContext>(NGContext {
             .functions = predefs(),
             .modulePaths = {""},
-        };
+        });
 
         return new Stupid(context);
     }

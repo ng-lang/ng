@@ -3,29 +3,29 @@
 
 namespace NG::runtime {
 
-    NGObject *NGArray::opIndex(NGObject *index) const {
+    RuntimeRef<NGObject> NGArray::opIndex(RuntimeRef<NGObject> index) const {
 
-        auto ngInt = dynamic_cast<NGInteger *>(index);
+        auto ngInt = std::dynamic_pointer_cast<NGInteger>(index);
         if (ngInt == nullptr) {
             throw IllegalTypeException("Not a valid index");
         }
 
-        return this->items[ngInt->asSize()];
+        return (*this->items)[ngInt->asSize()];
     }
 
-    NGObject *NGArray::opIndex(NGObject *index, NGObject *newValue) {
-        auto ngInt = dynamic_cast<NGInteger *>(index);
+    RuntimeRef<NGObject> NGArray::opIndex(RuntimeRef<NGObject> index, RuntimeRef<NGObject> newValue) {
+        auto ngInt = std::dynamic_pointer_cast<NGInteger>(index);
         if (ngInt == nullptr) {
             throw IllegalTypeException("Not a valid index");
         }
 
-        return items[ngInt->asSize()] = newValue;
+        return (*items)[ngInt->asSize()] = newValue;
     }
 
     Str NGArray::show() {
         Str result{};
 
-        for (const auto &item : this->items) {
+        for (const auto &item : (*this->items)) {
             if (!result.empty()) {
                 result += ", ";
             }
@@ -36,14 +36,14 @@ namespace NG::runtime {
         return "[" + result + "]";
     }
 
-    bool NGArray::opEquals(NGObject *other) const {
+    bool NGArray::opEquals(RuntimeRef<NGObject> other) const {
 
-        if (auto array = dynamic_cast<NGArray *>(other); array != nullptr) {
-            if (items.size() != array->items.size()) {
+        if (auto array = std::dynamic_pointer_cast<NGArray>(other); array != nullptr) {
+            if (items->size() != array->items->size()) {
                 return false;
             }
-            for (size_t i = 0; i < items.size(); ++i) {
-                if (!items[i]->opEquals(array->items[i])) {
+            for (size_t i = 0; i < items->size(); ++i) {
+                if (!(*items)[i]->opEquals((*array->items)[i])) {
                     return false;
                 }
             }
@@ -54,12 +54,13 @@ namespace NG::runtime {
     }
 
     bool NGArray::boolValue() {
-        return !items.empty();
+        return !items->empty();
     }
 
-    NGObject *NGArray::opLShift(NGObject *other) {
-        items.push_back(other);
-
-        return this;
+    RuntimeRef<NGObject> NGArray::opLShift(RuntimeRef<NGObject> other) {
+        items->push_back(other);
+        auto resp = makert<NGArray>();
+        resp->items = items;
+        return resp;
     }
 }

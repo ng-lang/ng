@@ -9,18 +9,24 @@
 #include <concepts>
 
 #include "config.h"
+#include <fwd.hpp>
 
 namespace NG {
 
     template<class T>
     using ParseResult = std::expected<T, std::string>;
 
+    template<class T>
+    concept noncopyable = !std::copyable<T>;
+
     struct NonCopyable {
         NonCopyable();
 
-        NonCopyable(NonCopyable &noncopyable) = delete;
+        NonCopyable(const NonCopyable &noncopyable) = delete;
+        NonCopyable(const NonCopyable &&noncopyable) = delete;
 
-        NonCopyable &operator=(NonCopyable &) = delete;
+        NonCopyable &operator=(const NonCopyable &) = delete;
+        NonCopyable &operator=(const NonCopyable &&noncopyable) = delete;
 
         virtual ~NonCopyable() = 0;
     };

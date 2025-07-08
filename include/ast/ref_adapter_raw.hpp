@@ -1,9 +1,10 @@
 
 #include <utility>
+#include <common.hpp>
 
 namespace NG::ast {
 
-    template<class T>
+    template<class T> requires noncopyable<T> && std::derived_from<T, ASTNode>
     using ASTRef = T *;
 
     template<class T, class... Args>

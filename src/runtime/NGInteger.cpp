@@ -19,44 +19,44 @@ namespace NG::runtime {
         return Orders::EQ;
     }
 
-    NGObject *NGInteger::opPlus(NGObject *other) const {
-        if (auto integer = dynamic_cast<NGInteger *>(other); integer != nullptr) {
+    RuntimeRef<NGObject> NGInteger::opPlus(RuntimeRef<NGObject> other) const {
+        if (auto integer = std::dynamic_pointer_cast<NGInteger>(other); integer != nullptr) {
 
-            return new NGInteger{value + integer->value};
+            return makert<NGInteger>(value + integer->value);
         }
-        throw IllegalTypeException("Not a number");
+        throw IllegalTypeException("+ Not a number" + other->show());
     }
 
-    NGObject *NGInteger::opMinus(NGObject *other) const {
-        if (auto integer = dynamic_cast<NGInteger *>(other); integer != nullptr) {
+    RuntimeRef<NGObject> NGInteger::opMinus(RuntimeRef<NGObject> other) const {
+        if (auto integer = std::dynamic_pointer_cast<NGInteger>(other); integer != nullptr) {
 
-            return new NGInteger{value - integer->value};
+            return makert<NGInteger>(value - integer->value);
         }
-        throw IllegalTypeException("Not a number");
+        throw IllegalTypeException("- Not a number" + other->show());
     }
 
-    NGObject *NGInteger::opTimes(NGObject *other) const {
-        if (auto integer = dynamic_cast<NGInteger *>(other); integer != nullptr) {
+    RuntimeRef<NGObject> NGInteger::opTimes(RuntimeRef<NGObject> other) const {
+        if (auto integer = std::dynamic_pointer_cast<NGInteger>(other); integer != nullptr) {
 
-            return new NGInteger{value * integer->value};
+            return makert<NGInteger>(value * integer->value);
         }
-        throw IllegalTypeException("Not a number");
+        throw IllegalTypeException("* Not a number" + other->show());
     }
 
-    NGObject *NGInteger::opDividedBy(NGObject *other) const {
-        if (auto integer = dynamic_cast<NGInteger *>(other); integer != nullptr) {
+    RuntimeRef<NGObject> NGInteger::opDividedBy(RuntimeRef<NGObject> other) const {
+        if (auto integer = std::dynamic_pointer_cast<NGInteger>(other); integer != nullptr) {
 
-            return new NGInteger{value / integer->value};
+            return makert<NGInteger>(value / integer->value);
         }
-        throw IllegalTypeException("Not a number");
+        throw IllegalTypeException("/ Not a number" + other->show());
     }
 
-    NGObject *NGInteger::opModulus(NGObject *other) const {
-        if (auto integer = dynamic_cast<NGInteger *>(other); integer != nullptr) {
+    RuntimeRef<NGObject> NGInteger::opModulus(RuntimeRef<NGObject> other) const {
+        if (auto integer = std::dynamic_pointer_cast<NGInteger>(other); integer != nullptr) {
 
-            return new NGInteger{value % integer->value};
+            return makert<NGInteger>(value % integer->value);
         }
-        throw IllegalTypeException("Not a number");
+        throw IllegalTypeException("% Not a number" + other->show());
     }
 
     bool NGInteger::boolValue() {

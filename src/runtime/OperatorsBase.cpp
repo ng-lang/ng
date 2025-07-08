@@ -2,51 +2,51 @@
 #include <intp/runtime.hpp>
 
 namespace NG::runtime {
-    NGObject *OperatorsBase::opIndex(NGObject *index) const {
+    RuntimeRef<NGObject> OperatorsBase::opIndex(RuntimeRef<NGObject> index) const {
         return nullptr;
     }
 
-    NGObject *OperatorsBase::opIndex(NGObject *index, NGObject *newValue) {
+    RuntimeRef<NGObject> OperatorsBase::opIndex(RuntimeRef<NGObject> index, RuntimeRef<NGObject> newValue) {
         return nullptr;
     }
 
-    bool OperatorsBase::opGreaterThan(NGObject *other) const {
+    bool OperatorsBase::opGreaterThan(RuntimeRef<NGObject> other) const {
         return false;
     }
 
-    bool OperatorsBase::opGreaterEqual(NGObject *other) const {
+    bool OperatorsBase::opGreaterEqual(RuntimeRef<NGObject> other) const {
         return false;
     }
 
-    bool OperatorsBase::opLessThan(NGObject *other) const { return false; }
+    bool OperatorsBase::opLessThan(RuntimeRef<NGObject> other) const { return false; }
 
-    bool OperatorsBase::opLessEqual(NGObject *other) const { return false; }
+    bool OperatorsBase::opLessEqual(RuntimeRef<NGObject> other) const { return false; }
 
-    bool OperatorsBase::opEquals(NGObject *other) const { return false; }
+    bool OperatorsBase::opEquals(RuntimeRef<NGObject> other) const { return false; }
 
-    bool OperatorsBase::opNotEqual(NGObject *other) const { return false; }
+    bool OperatorsBase::opNotEqual(RuntimeRef<NGObject> other) const { return false; }
 
-    NGObject *OperatorsBase::opPlus(NGObject *other) const { return nullptr; }
+    RuntimeRef<NGObject> OperatorsBase::opPlus(RuntimeRef<NGObject> other) const { return nullptr; }
 
-    NGObject *OperatorsBase::opMinus(NGObject *other) const { return nullptr; }
+    RuntimeRef<NGObject> OperatorsBase::opMinus(RuntimeRef<NGObject> other) const { return nullptr; }
 
-    NGObject *OperatorsBase::opTimes(NGObject *other) const { return nullptr; }
+    RuntimeRef<NGObject> OperatorsBase::opTimes(RuntimeRef<NGObject> other) const { return nullptr; }
 
-    NGObject *OperatorsBase::opModulus(NGObject *other) const { return nullptr; }
+    RuntimeRef<NGObject> OperatorsBase::opModulus(RuntimeRef<NGObject> other) const { return nullptr; }
 
-    NGObject *OperatorsBase::opDividedBy(NGObject *other) const { return nullptr; }
+    RuntimeRef<NGObject> OperatorsBase::opDividedBy(RuntimeRef<NGObject> other) const { return nullptr; }
 
 
-    NGObject *OperatorsBase::respond(const Str &member, NGContext *context,
-                                            NGInvocationContext *invocationContext) {
+    RuntimeRef<NGObject> OperatorsBase::respond(const Str &member, RuntimeRef<NGContext> context,
+                                            RuntimeRef<NGInvocationContext> invocationContext) {
         return nullptr;
     }
 
-    NGObject *OperatorsBase::opLShift(NGObject *object) {
+    RuntimeRef<NGObject> OperatorsBase::opLShift(RuntimeRef<NGObject> object) {
         return nullptr;
     }
 
-    NGObject *OperatorsBase::opRShift(NGObject *object) {
+    RuntimeRef<NGObject> OperatorsBase::opRShift(RuntimeRef<NGObject> object) {
         return nullptr;
     }
 

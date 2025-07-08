@@ -3,19 +3,20 @@
 
 namespace NG::runtime {
 
-    NGType *NGStructuralObject::type() {
+    RuntimeRef<NGType> NGStructuralObject::type() {
         return this->customizedType;
     }
 
-    NGObject *NGStructuralObject::respond(const Str &member, NGContext *context,
-                                          NGInvocationContext *invocationContext) {
+    RuntimeRef<NGObject> NGStructuralObject::respond(const Str &member, RuntimeRef<NGContext> context,
+                                          RuntimeRef<NGInvocationContext> invocationContext) {
 
         if (selfMemberFunctions.find(member) != selfMemberFunctions.end()) {
-            NGContext newContext{*context};
-            context->objects["self"] = this;
-            selfMemberFunctions[member](*this, newContext, *invocationContext);
+            RuntimeRef<NGContext> newContext = makert<NGContext>(*context);
+            RuntimeRef<NGStructuralObject> self = std::dynamic_pointer_cast<NGStructuralObject>(invocationContext->target);
+            context->objects["self"] = self;
+            selfMemberFunctions[member](self, newContext, invocationContext);
 
-            return newContext.retVal;
+            return newContext->retVal;
         } else if (properties.find(member) != properties.end()) {
             return properties[member];
         } else {

@@ -7,8 +7,8 @@ namespace NG::runtime {
         return value ? "true" : "false";
     }
 
-    bool NGBoolean::opEquals(NGObject *other) const {
-        if (auto otherBoolean = dynamic_cast<NGBoolean *>(other); otherBoolean != nullptr) {
+    bool NGBoolean::opEquals(RuntimeRef<NGObject> other) const {
+        if (auto otherBoolean = std::dynamic_pointer_cast<NGBoolean>(other); otherBoolean != nullptr) {
             return otherBoolean->value == value;
         }
         return false;

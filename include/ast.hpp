@@ -95,52 +95,11 @@ namespace NG::ast {
     };
 
     struct Module;
-
-    struct CompileUnit : ASTNode {
-        Vec<ASTRef<Module>> modules;
-        Str fileName;
-        Str path;
-
-        ASTNodeType astNodeType() const override { return ASTNodeType::COMPILE_UNIT; }
-
-        bool operator==(const ASTNode &node) const override;
-
-        void accept(AstVisitor *visitor) override;
-
-        Str repr() override;
-
-        ~CompileUnit() override;
-    };
-
-    struct Module : ASTNode {
-        const ASTNodeType ast_node_type = ASTNodeType::MODULE;
-        Str name;
-
-        Vec<ASTRef<Definition>> definitions;
-
-        Vec<ASTRef<Statement>> statements;
-
-        Vec<Str> exports;
-
-        Vec<ASTRef<ImportDecl>> imports;
-
-        explicit Module(Str _name = "default") : name(std::move(_name)) {
-        }
-
-        ASTNodeType astNodeType() const override { return ast_node_type; }
-
-        bool operator==(const ASTNode &node) const override;
-
-        void accept(AstVisitor *visitor) override;
-
-        Str repr() override;
-
-        ~Module() override;
-    };
-
     struct Statement : ASTNode {
     };
 
+    struct Expression : ASTNode {
+    };
     struct Definition : ASTNode {
         [[nodiscard]] virtual Str name() const = 0;
     };
@@ -250,8 +209,49 @@ namespace NG::ast {
         ~SimpleStatement() override;
     };
 
-    struct Expression : ASTNode {
+    struct Module : ASTNode {
+        const ASTNodeType ast_node_type = ASTNodeType::MODULE;
+        Str name;
+
+        Vec<ASTRef<Definition>> definitions;
+
+        Vec<ASTRef<Statement>> statements;
+
+        Vec<Str> exports;
+
+        Vec<ASTRef<ImportDecl>> imports;
+
+        explicit Module(Str _name = "default") : name(std::move(_name)) {
+        }
+
+        ASTNodeType astNodeType() const override { return ast_node_type; }
+
+        bool operator==(const ASTNode &node) const override;
+
+        void accept(AstVisitor *visitor) override;
+
+        Str repr() override;
+
+        ~Module() override;
     };
+
+    struct CompileUnit : ASTNode {
+        Vec<ASTRef<Module>> modules;
+        Str fileName;
+        Str path;
+
+        ASTNodeType astNodeType() const override { return ASTNodeType::COMPILE_UNIT; }
+
+        bool operator==(const ASTNode &node) const override;
+
+        void accept(AstVisitor *visitor) override;
+
+        Str repr() override;
+
+        ~CompileUnit() override;
+    };
+
+
 
     struct FunCallExpression : Expression {
         ASTRef<Expression> primaryExpression;
