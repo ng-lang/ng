@@ -5,5 +5,5 @@ give suggestion via github issues.
 
 Here is few documents may be helpful to understand the internal and build/add new features:
 
- - [Internals](./Internals.md)
- - [Steps for adding new syntax](../guide/Steps-for-new-syntax.md)
+ - [Internals](./docs/ref/Internals.md)
+ - [Steps for adding new syntax](./docs/guide/Steps-for-new-syntax.md)
