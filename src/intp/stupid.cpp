@@ -218,12 +218,10 @@ namespace NG::intp
 
         void visit(BinaryExpression *binExpr) override
         {
-            debug_log("BinExpr", binExpr->repr());
             ExpressionVisitor leftVisitor{context};
             ExpressionVisitor rightVisitor{context};
             binExpr->left->accept(&leftVisitor);
             binExpr->right->accept(&rightVisitor);
-            debug_log("BinExpr", binExpr->repr(), leftVisitor.object->show(), typeid(leftVisitor.object).name(), rightVisitor.object->show(), typeid(rightVisitor.object).name());
 
             object = evaluateExpr(binExpr->optr->operatorType, leftVisitor.object, rightVisitor.object);
         }

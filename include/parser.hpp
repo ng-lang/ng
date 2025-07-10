@@ -6,8 +6,20 @@
 #include <ast.hpp>
 #include <token.hpp>
 #include <utility>
+#include <list>
 
 namespace NG::parsing {
+
+    struct ParseError {
+        Token token;
+        Str message;
+        std::list<TokenType> expected;
+    };
+
+
+    template<class T>
+    using ParseResult = std::expected<T, ParseError>;
+
 
     struct LexState {
         const Str source;
@@ -67,6 +79,14 @@ namespace NG::parsing {
         void next(int n = 1);
 
         void revert(size_t n = 1);
+
+        ParseError error(Str message, std::list<TokenType> expected = {}) {
+            return ParseError {
+                .token = current(),
+                .message = std::move(message),
+                .expected = std::move(expected),
+            };
+        }
     };
 
     struct Parser {

@@ -14,9 +14,6 @@
 namespace NG {
 
     template<class T>
-    using ParseResult = std::expected<T, std::string>;
-
-    template<class T>
     concept noncopyable = !std::copyable<T>;
 
     struct NonCopyable {

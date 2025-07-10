@@ -17,8 +17,8 @@ namespace NG::parsing {
     class ParserImpl {
         ParseState &state;
 
-        auto unexpected(ParseState &state) {
-            return std::unexpected(std::string{"Unexpected token "} + state->repr);
+        auto unexpected(ParseState &state, std::list<TokenType> types = {}) {
+            return std::unexpected(state.error(std::string{"Unexpected token "} + state->repr, std::move(types)));
         }
 
     public:
@@ -98,7 +98,7 @@ namespace NG::parsing {
 
         ParseResult<void> accept(TokenType type) {
             if (!expect(type))
-                return unexpected(state);
+                return unexpected(state, {type});
             state.next();
             return {};
         }
@@ -120,7 +120,7 @@ namespace NG::parsing {
 
                 return def;
             }
-            return std::unexpected("Expected function name");
+            return std::unexpected(state.error("Expected function name", {TokenType::ID}));
         }
 
         ParseResult<ASTRef<ImportDecl>> importDecl() {
@@ -359,7 +359,7 @@ namespace NG::parsing {
                 anno->type = TypeAnnotationType::CUSTOMIZED;
                 return anno;
             }
-            return std::unexpected("Unknown type annotation");
+            return std::unexpected(state.error("Unknown type annotation"));
         }
 
         ParseResult<ASTRef<ValDefStatement>> valDefStatement() {
@@ -627,7 +627,7 @@ namespace NG::parsing {
             } else if (expect(TokenType::KEYWORD_NEW)) {
                 return newObjectExpression();
             }
-            return std::unexpected("Unexpected primary expression");
+            return std::unexpected(state.error("Unexpected primary annotation"));
         }
 
         ParseResult<ASTRef<StringValue>> stringValue() {
@@ -673,7 +673,7 @@ namespace NG::parsing {
                     accept(state->type);
                     return makeast<FloatingPointValue<float>>(static_cast<float>(std::stof(integer)));
                 case TokenType::NUMBER_F16:
-                    return std::unexpected("Float16 currently supporeted");
+                return std::unexpected(state.error("Float16 not supported"));
                 //     accept(state->type);
                 //     return makeast<FloatingPointValue<float16_t>>(static_cast<float16_t>(std::stof(integer)));
                 case TokenType::NUMBER_F32:
@@ -683,11 +683,11 @@ namespace NG::parsing {
                     accept(state->type);
                     return makeast<FloatingPointValue<double>>(static_cast<uint64_t>(std::stod(integer)));
                 case TokenType::NUMBER_F128:
-                    return std::unexpected("Float128 currently supporeted");
+                    return std::unexpected(state.error("Float128 not supported"));
                 //     accept(state->type);
                 //     return makeast<FloatingPointValue<float128_t>>(static_cast<float128_t>(std::stold(integer)));
                 default:
-                    return std::unexpected("Invalid numeral literal");
+                    return std::unexpected(state.error("Invalid number literal"));
             }
         }
 

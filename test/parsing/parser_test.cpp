@@ -7,7 +7,8 @@ using namespace NG::parsing;
 static ParseResult<ASTRef<ASTNode>> parse(const Str &source) {
     auto result =  Parser(ParseState(Lexer(LexState{source}).lex())).parse();
     if (!result) {
-        debug_log(result.error());
+        debug_log(result.error().message);
+        debug_log(result.error().token.position.col, result.error().token.position.line);
     }
     return result;
 }

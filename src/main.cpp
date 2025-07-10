@@ -33,7 +33,7 @@ int main(int argc, char **argv) {
 
     auto astResult = parse(source, argv[1]);
     if (!astResult) {
-        std::cout << "Error parsing file: " << astResult.error() << std::endl;
+        std::cout << "Error parsing file: " << astResult.error().message << std::endl;
         return -1;
     }
 
