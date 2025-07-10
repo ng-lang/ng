@@ -7,3 +7,16 @@ fun add() {
 val z = add();
 
 print(z);
+
+val a = 1i16;
+val b = 1u32;
+val c = 1u64;
+
+assert(a == b);
+assert(b == c);
+assert(a == c);
+
+val fa = 1f32;
+val fb = 1f64;
+
+assert(fa == fb);

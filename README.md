@@ -16,3 +16,4 @@ programming.
 - [x] `module` & `import`
 - [x] using `shared_ptr` in runtime to avoid memory leaks(interpreter)
 - [ ] compile to native
+- [ ] Add more test to fix infinite loops in parser.
