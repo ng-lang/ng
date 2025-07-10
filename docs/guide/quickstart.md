@@ -1,104 +1,88 @@
+# NG Quickstart Guide
 
-# ng quickstart
+## Getting Started
 
-## Hello world!
-
+First, build and run the NG interpreter:
+```bash
+mkdir build && cd build
+cmake .. && make
+./ngi
 ```
+
+## Basic Syntax
+
+### Hello World
+```ng
 print("Hello world!");
 ```
 
-## Types
-
-- Integer
-- String
-- Boolean
-- Array
-- Object
-
-```
+### Variables and Types
+```ng
+// Primitive types
 val anInt = 1;
-
 val aString = "string";
+val aBool = true;
 
-val aBoolean = true;
-
+// Collections
 val anArray = [1, 2, 3];
 
-type SimpleObject {
-    property prop;
+// Type declarations
+type Person {
+    property name;
+    property age;
 }
-
-val anObject = new SimpleObject { prop: "this is a property" };
-
 ```
+
+## Control Flow
+
+### Conditionals
+```ng
+if (x > 0) {
+    print("Positive");
+} else if (x < 0) {
+    print("Negative");
+} else {
+    print("Zero");
+}
+```
+
 
 ## Functions
 
-```
-fun id(x) {
-    return x;
-}
-
-fun fact(n) {
-    if (n > 0) {
-        return n * fact(n-1);
-    }
-    return n;
+### Basic Functions
+```ng
+fun square(x) {
+    return x * x;
 }
 ```
 
-## Member functions
-
-```
-val size = "hello".size();
-
-type Person {
-    property firstName;
-    property lastName;
-    fun name() {
-        return firstName + " " + lastName;
-    }
-}
-
-val person = new Person {
-    firstName: "Kimmy",
-    lastName: "Leo"
-};
-
-val name = person.name();
-````
-
-## Arrays
-
-```
-val simpleArray = [1, 2, 3];
-
-val arrayItem = simpleArray[0];
-
-val twoDimArray = [[1, 2], [3, 4]];
-
-val anotherItem = twoDimArray[1][0];
-
-simpleArray[1] = 5;
-
-simpleArray << 10;
-```
-
-## Import and export
-
-file: `external.ng`
-```
-module external exports *;
-
-fun hello() {
-  print("Hellp");
+### Recursion
+```ng
+fun factorial(n) {
+    if (n <= 1) return 1;
+    return n * factorial(n - 1);
 }
 ```
 
-file: `hello.ng`
+## Modules
+
+### Creating a Module
+File: `math.ng`
+```ng
+module math exports *;
+
+fun add(a, b) {
+    return a + b;
+}
+
+fun sub(a, b) {
+    return a - b;
+}
 ```
-import "external" ext;
 
-ext.hello();
+### Using a Module
+```ng
+import "math" m;
 
+val sum = m.add(2, 3);
 ```
