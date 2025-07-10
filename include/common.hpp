@@ -1,6 +1,4 @@
-
-#ifndef __NG_COMMON_HPP
-#define __NG_COMMON_HPP
+#pragma once
 
 #include <expected>
 #include <stdexcept>
@@ -19,15 +17,15 @@ namespace NG
 
     struct NonCopyable
     {
-        NonCopyable();
+        constexpr NonCopyable() = default;
 
         NonCopyable(const NonCopyable &noncopyable) = delete;
-        NonCopyable(const NonCopyable &&noncopyable) = delete;
+        auto operator=(const NonCopyable &) -> NonCopyable & = delete;
 
-        NonCopyable &operator=(const NonCopyable &) = delete;
-        NonCopyable &operator=(const NonCopyable &&noncopyable) = delete;
+        NonCopyable(NonCopyable &&noncopyable) = delete;
+        auto operator=(NonCopyable &&noncopyable) -> NonCopyable & = delete;
 
-        virtual ~NonCopyable() = 0;
+        ~NonCopyable() = default;
     };
 
     struct LexException : std::logic_error
@@ -86,17 +84,15 @@ namespace NG
     template <class T>
     concept codable = std::is_enum_v<T> || std::is_integral_v<T>;
 
-    uintptr_t code(const codable auto &t)
+    constexpr auto code(const codable auto &enumValue) -> uintptr_t
     {
-        return static_cast<uintptr_t>(t);
+        return static_cast<uintptr_t>(enumValue);
     }
 
     template <codable T>
-    T from_code(uintptr_t code)
+    auto from_code(uintptr_t code) -> T
     {
         return static_cast<T>(code);
     }
 
 } // namespace NG;
-
-#endif

@@ -1,12 +1,13 @@
 
-#ifndef __NG_INTP_RUNTIME_HPP
-#define __NG_INTP_RUNTIME_HPP
+#pragma once
 
+#include <algorithm>
 #include <fwd.hpp>
 #include <functional>
 #include "common.hpp"
 #include <memory>
 #include <debug.hpp>
+#include <utility>
 
 namespace NG::runtime
 {
@@ -15,9 +16,9 @@ namespace NG::runtime
     using RuntimeRef = std::shared_ptr<T>;
 
     template <class T, class... Args>
-    inline RuntimeRef<T> makert(Args &&...args)
+    inline auto makert(Args &&...args) -> RuntimeRef<T>
     {
-        return std::make_shared<T>(std::move(args)...);
+        return std::make_shared<T>(std::forward<Args>(args)...);
     }
 
     struct NGInvocationContext
@@ -38,8 +39,8 @@ namespace NG::runtime
 
     struct NGContext
     {
-        Str currentModuleName{};
-        Vec<Str> modulePaths{};
+        Str currentModuleName;
+        Vec<Str> modulePaths;
         Map<Str, RuntimeRef<NGObject>> objects;
         Map<Str, NGInvocationHandler> functions;
         Map<Str, RuntimeRef<NGType>> types;
@@ -52,68 +53,66 @@ namespace NG::runtime
 
         void appendModulePath(const Str &path)
         {
-            if (std::find(std::begin(modulePaths), std::end(modulePaths), path) == std::end(modulePaths))
+            if (std::ranges::find(modulePaths, path) == std::end(modulePaths))
             {
                 modulePaths.push_back(path);
             }
         }
-
-        ~NGContext();
     };
 
-    struct OperatorsBase
+    struct OperatorsBase // NOLINT(cppcoreguidelines-special-member-functions)
     {
-        virtual RuntimeRef<NGObject> opIndex(RuntimeRef<NGObject> index) const = 0;
+        [[nodiscard]] virtual auto opIndex(RuntimeRef<NGObject> index) const -> RuntimeRef<NGObject> = 0;
 
         // obj[index] = newValue
-        virtual RuntimeRef<NGObject> opIndex(RuntimeRef<NGObject> index, RuntimeRef<NGObject> newValue) = 0;
+        virtual auto opIndex(RuntimeRef<NGObject> index, RuntimeRef<NGObject> newValue) -> RuntimeRef<NGObject> = 0;
 
         // obj == other
 
-        virtual RuntimeRef<NGObject> opPlus(RuntimeRef<NGObject> other) const = 0;
+        [[nodiscard]] virtual auto opPlus(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject> = 0;
 
-        virtual RuntimeRef<NGObject> opMinus(RuntimeRef<NGObject> other) const = 0;
+        [[nodiscard]] virtual auto opMinus(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject> = 0;
 
-        virtual RuntimeRef<NGObject> opTimes(RuntimeRef<NGObject> other) const = 0;
+        [[nodiscard]] virtual auto opTimes(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject> = 0;
 
-        virtual RuntimeRef<NGObject> opDividedBy(RuntimeRef<NGObject> other) const = 0;
+        [[nodiscard]] virtual auto opDividedBy(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject> = 0;
 
-        virtual RuntimeRef<NGObject> opModulus(RuntimeRef<NGObject> other) const = 0;
+        [[nodiscard]] virtual auto opModulus(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject> = 0;
 
-        virtual bool opEquals(RuntimeRef<NGObject> other) const = 0;
+        [[nodiscard]] virtual auto opEquals(RuntimeRef<NGObject> other) const -> bool = 0;
 
-        virtual bool opNotEqual(RuntimeRef<NGObject> other) const = 0;
+        [[nodiscard]] virtual auto opNotEqual(RuntimeRef<NGObject> other) const -> bool = 0;
 
-        virtual bool opGreaterThan(RuntimeRef<NGObject> other) const = 0;
+        [[nodiscard]] virtual auto opGreaterThan(RuntimeRef<NGObject> other) const -> bool = 0;
 
-        virtual bool opLessThan(RuntimeRef<NGObject> other) const = 0;
+        [[nodiscard]] virtual auto opLessThan(RuntimeRef<NGObject> other) const -> bool = 0;
 
-        virtual bool opGreaterEqual(RuntimeRef<NGObject> other) const = 0;
+        [[nodiscard]] virtual auto opGreaterEqual(RuntimeRef<NGObject> other) const -> bool = 0;
 
-        virtual bool opLessEqual(RuntimeRef<NGObject> other) const = 0;
+        [[nodiscard]] virtual auto opLessEqual(RuntimeRef<NGObject> other) const -> bool = 0;
 
-        virtual RuntimeRef<NGObject> opLShift(RuntimeRef<NGObject> other) = 0;
+        virtual auto opLShift(RuntimeRef<NGObject> other) -> RuntimeRef<NGObject> = 0;
 
-        virtual RuntimeRef<NGObject> opRShift(RuntimeRef<NGObject> other) = 0;
+        virtual auto opRShift(RuntimeRef<NGObject> other) -> RuntimeRef<NGObject> = 0;
 
         // Meta-Object function
-        virtual RuntimeRef<NGObject> respond(const Str &member, RuntimeRef<NGContext> context, RuntimeRef<NGInvocationContext> invocationContext) = 0;
+        virtual auto respond(const Str &member, RuntimeRef<NGContext> context, RuntimeRef<NGInvocationContext> invocationContext) -> RuntimeRef<NGObject> = 0;
 
         virtual ~OperatorsBase() noexcept = 0;
     };
 
-    struct ObjectBase
+    struct ObjectBase : NonCopyable // NOLINT(cppcoreguidelines-special-member-functions)
     {
-        virtual Str show() const = 0;
+        [[nodiscard]] virtual auto show() const -> Str = 0;
 
-        virtual bool boolValue() const = 0;
+        [[nodiscard]] virtual auto boolValue() const -> bool = 0;
 
-        virtual RuntimeRef<NGType> type() const = 0;
+        [[nodiscard]] virtual auto type() const -> RuntimeRef<NGType> = 0;
 
         virtual ~ObjectBase() = 0;
     };
 
-    enum class Orders
+    enum class Orders : int8_t
     {
         GT,
         EQ,
@@ -121,23 +120,25 @@ namespace NG::runtime
         UNORDERED
     };
 
-    struct NGObject : public virtual OperatorsBase, public virtual ObjectBase
+    struct NGObject : // NOLINT(cppcoreguidelines-special-member-functions)
+                      public virtual OperatorsBase,
+                      public virtual ObjectBase
     {
 
         NGObject() = default;
 
-        static RuntimeRef<NGObject> boolean(bool boolean);
+        static auto boolean(bool boolean) -> RuntimeRef<NGObject>;
 
-        static RuntimeRef<NGType> objectType();
+        static auto objectType() -> RuntimeRef<NGType>;
 
-        bool boolValue() const override
+        [[nodiscard]] auto boolValue() const -> bool override
         {
             return true;
         }
 
-        Str show() const override;
+        [[nodiscard]] auto show() const -> Str override;
 
-        RuntimeRef<NGType> type() const override;
+        [[nodiscard]] auto type() const -> RuntimeRef<NGType> override;
 
         ~NGObject() override;
 
@@ -149,48 +150,48 @@ namespace NG::runtime
         // Operators overloading
 
         // obj[index]
-        RuntimeRef<NGObject> opIndex(RuntimeRef<NGObject> index) const override;
+        [[nodiscard]] auto opIndex(RuntimeRef<NGObject> index) const -> RuntimeRef<NGObject> override;
 
         // obj[index] = newValue
-        RuntimeRef<NGObject> opIndex(RuntimeRef<NGObject> index, RuntimeRef<NGObject> newValue) override;
+        auto opIndex(RuntimeRef<NGObject> index, RuntimeRef<NGObject> newValue) -> RuntimeRef<NGObject> override;
 
         // obj == other
-        bool opEquals(RuntimeRef<NGObject> other) const override;
+        [[nodiscard]] auto opEquals(RuntimeRef<NGObject> other) const -> bool override;
 
-        bool opNotEqual(RuntimeRef<NGObject> other) const override;
+        [[nodiscard]] auto opNotEqual(RuntimeRef<NGObject> other) const -> bool override;
 
-        RuntimeRef<NGObject> opPlus(RuntimeRef<NGObject> other) const override;
+        [[nodiscard]] auto opPlus(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject> override;
 
-        RuntimeRef<NGObject> opMinus(RuntimeRef<NGObject> other) const override;
+        [[nodiscard]] auto opMinus(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject> override;
 
-        RuntimeRef<NGObject> opTimes(RuntimeRef<NGObject> other) const override;
+        [[nodiscard]] auto opTimes(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject> override;
 
-        RuntimeRef<NGObject> opDividedBy(RuntimeRef<NGObject> other) const override;
+        [[nodiscard]] auto opDividedBy(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject> override;
 
-        RuntimeRef<NGObject> opModulus(RuntimeRef<NGObject> other) const override;
+        [[nodiscard]] auto opModulus(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject> override;
 
-        virtual Orders compareTo(const NGObject *other) const
+        virtual auto compareTo(const NGObject *other) const -> Orders
         {
             return Orders::UNORDERED;
         };
 
-        bool opGreaterThan(RuntimeRef<NGObject> other) const override;
+        [[nodiscard]] auto opGreaterThan(RuntimeRef<NGObject> other) const -> bool override;
 
-        bool opLessThan(RuntimeRef<NGObject> other) const override;
+        [[nodiscard]] auto opLessThan(RuntimeRef<NGObject> other) const -> bool override;
 
-        bool opGreaterEqual(RuntimeRef<NGObject> other) const override;
+        [[nodiscard]] auto opGreaterEqual(RuntimeRef<NGObject> other) const -> bool override;
 
-        bool opLessEqual(RuntimeRef<NGObject> other) const override;
+        [[nodiscard]] auto opLessEqual(RuntimeRef<NGObject> other) const -> bool override;
 
-        RuntimeRef<NGObject> opLShift(RuntimeRef<NGObject> other) override;
+        auto opLShift(RuntimeRef<NGObject> other) -> RuntimeRef<NGObject> override;
 
-        RuntimeRef<NGObject> opRShift(RuntimeRef<NGObject> other) override;
+        auto opRShift(RuntimeRef<NGObject> other) -> RuntimeRef<NGObject> override;
 
         // Meta-Object function
-        RuntimeRef<NGObject> respond(const Str &member, RuntimeRef<NGContext> context, RuntimeRef<NGInvocationContext> invocationContext) override;
+        auto respond(const Str &member, RuntimeRef<NGContext> context, RuntimeRef<NGInvocationContext> invocationContext) -> RuntimeRef<NGObject> override;
     };
 
-    inline Orders negate(Orders order)
+    inline auto negate(Orders order) -> Orders
     {
         switch (order)
         {
@@ -207,37 +208,37 @@ namespace NG::runtime
     struct ThreeWayComparable : public virtual NGObject
     {
 
-        Orders compareTo(const NGObject *other) const override
+        auto compareTo(const NGObject *other) const -> Orders override
         {
             return T::comparator(this, other);
         }
 
-        bool opEquals(RuntimeRef<NGObject> other) const override
+        [[nodiscard]] auto opEquals(RuntimeRef<NGObject> other) const -> bool override
         {
             return T::comparator(this, other.get()) == Orders::EQ;
         }
 
-        bool opNotEqual(RuntimeRef<NGObject> other) const override
+        [[nodiscard]] auto opNotEqual(RuntimeRef<NGObject> other) const -> bool override
         {
             return !this->opEquals(other);
         }
 
-        bool opLessThan(RuntimeRef<NGObject> other) const override
+        [[nodiscard]] auto opLessThan(RuntimeRef<NGObject> other) const -> bool override
         {
             return T::comparator(this, other.get()) == Orders::LT;
         }
 
-        bool opGreaterThan(RuntimeRef<NGObject> other) const override
+        [[nodiscard]] auto opGreaterThan(RuntimeRef<NGObject> other) const -> bool override
         {
             return T::comparator(this, other.get()) == Orders::GT;
         }
 
-        bool opLessEqual(RuntimeRef<NGObject> other) const override
+        [[nodiscard]] auto opLessEqual(RuntimeRef<NGObject> other) const -> bool override
         {
             return !this->opGreaterThan(other);
         }
 
-        bool opGreaterEqual(RuntimeRef<NGObject> other) const override
+        [[nodiscard]] auto opGreaterEqual(RuntimeRef<NGObject> other) const -> bool override
         {
             return !this->opLessThan(other);
         }
@@ -249,7 +250,7 @@ namespace NG::runtime
         NG::ast::ASTNode *defbody;
     };
 
-    struct NGModule : public virtual NGObject
+    struct NGModule : public virtual NGObject // NOLINT(cppcoreguidelines-special-member-functions)
     {
         Vec<Str> imports;
         Vec<Str> exports;
@@ -258,12 +259,12 @@ namespace NG::runtime
         Map<Str, NGInvocationHandler> functions;
         Map<Str, RuntimeRef<NGType>> types;
 
-        size_t size() const
+        [[nodiscard]] auto size() const -> size_t
         {
             return objects.size() + functions.size() + types.size();
         }
 
-        RuntimeRef<NGObject> respond(const Str &member, RuntimeRef<NGContext> context, RuntimeRef<NGInvocationContext> invocationContext) override;
+        auto respond(const Str &member, RuntimeRef<NGContext> context, RuntimeRef<NGInvocationContext> invocationContext) -> RuntimeRef<NGObject> override;
 
         ~NGModule() override;
     };
@@ -274,17 +275,17 @@ namespace NG::runtime
 
         explicit NGArray(const Vec<RuntimeRef<NGObject>> &vec = {}) : items{makert<Vec<RuntimeRef<NGObject>>>(vec)} {}
 
-        RuntimeRef<NGObject> opIndex(RuntimeRef<NGObject> index) const override;
+        [[nodiscard]] auto opIndex(RuntimeRef<NGObject> index) const -> RuntimeRef<NGObject> override;
 
-        RuntimeRef<NGObject> opIndex(RuntimeRef<NGObject> index, RuntimeRef<NGObject> newValue) override;
+        auto opIndex(RuntimeRef<NGObject> index, RuntimeRef<NGObject> newValue) -> RuntimeRef<NGObject> override;
 
-        Str show() const override;
+        [[nodiscard]] auto show() const -> Str override;
 
-        bool boolValue() const override;
+        [[nodiscard]] auto boolValue() const -> bool override;
 
-        bool opEquals(RuntimeRef<NGObject> other) const override;
+        [[nodiscard]] auto opEquals(RuntimeRef<NGObject> other) const -> bool override;
 
-        RuntimeRef<NGObject> opLShift(RuntimeRef<NGObject> other) override;
+        auto opLShift(RuntimeRef<NGObject> other) -> RuntimeRef<NGObject> override;
     };
 
     struct NGBoolean final : NGObject
@@ -293,46 +294,44 @@ namespace NG::runtime
 
         explicit NGBoolean(bool value = false) : value{value} {}
 
-        Str show() const override;
+        [[nodiscard]] auto show() const -> Str override;
 
-        bool opEquals(RuntimeRef<NGObject> other) const override;
+        [[nodiscard]] auto opEquals(RuntimeRef<NGObject> other) const -> bool override;
 
-        bool boolValue() const override;
+        [[nodiscard]] auto boolValue() const -> bool override;
     };
 
     struct NGString final : NGObject
     {
         Str value;
 
-        static RuntimeRef<NGType> stringType();
+        static auto stringType() -> RuntimeRef<NGType>;
 
-        RuntimeRef<NGType> type() const override;
+        [[nodiscard]] auto type() const -> RuntimeRef<NGType> override;
 
-        explicit NGString(const Str &str) : value{str} {}
+        explicit NGString(Str str) : value{std::move(str)} {}
 
-        Str show() const override;
+        [[nodiscard]] auto show() const -> Str override;
 
-        bool boolValue() const override;
+        [[nodiscard]] auto boolValue() const -> bool override;
 
-        bool opEquals(RuntimeRef<NGObject> other) const override;
+        [[nodiscard]] auto opEquals(RuntimeRef<NGObject> other) const -> bool override;
 
-        RuntimeRef<NGObject> opPlus(RuntimeRef<NGObject> other) const override;
+        [[nodiscard]] auto opPlus(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject> override;
     };
 
     struct NGStructuralObject : NGObject
     {
-        RuntimeRef<NGType> customizedType{};
-        Map<Str, RuntimeRef<NGObject>> properties{};
+        RuntimeRef<NGType> customizedType;
+        Map<Str, RuntimeRef<NGObject>> properties;
 
-        Map<Str, NGInvocationHandler> selfMemberFunctions{};
+        Map<Str, NGInvocationHandler> selfMemberFunctions;
 
-        RuntimeRef<NGObject> respond(const Str &member, RuntimeRef<NGContext> context, RuntimeRef<NGInvocationContext> invocationContext) override;
+        auto respond(const Str &member, RuntimeRef<NGContext> context, RuntimeRef<NGInvocationContext> invocationContext) -> RuntimeRef<NGObject> override;
 
-        RuntimeRef<NGType> type() const override;
+        [[nodiscard]] auto type() const -> RuntimeRef<NGType> override;
 
-        Str show() const override;
+        [[nodiscard]] auto show() const -> Str override;
     };
 
 }
-
-#endif // __NG_RUNTIME_HPP

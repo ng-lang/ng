@@ -1,3 +1,4 @@
+#pragma once
 
 #include <utility>
 #include <common.hpp>
@@ -10,22 +11,19 @@ namespace NG::ast
     using ASTRef = T *;
 
     template <class T, class... Args>
-    inline ASTRef<T> makeast(Args &&...args)
+    inline auto makeast(Args &&...args) -> ASTRef<T>
     {
-        return new T{std::move(args)...};
+        return new T{std::forward<Args>(args)...}; // NOLINT(cppcoreguidelines-owning-memory)
     }
 
     template <class T>
-    inline void destroyast(ASTRef<T> t)
+    inline void destroyast(ASTRef<T> ref)
     {
-        if (t != nullptr)
-        {
-            delete t;
-        }
+        delete ref; // NOLINT(cppcoreguidelines-owning-memory)
     }
 
     template <class T, class N>
-    ASTRef<T> dynamic_ast_cast(ASTRef<N> ast)
+    auto dynamic_ast_cast(ASTRef<N> ast) -> ASTRef<T>
     {
         return dynamic_cast<ASTRef<T>>(ast);
     }

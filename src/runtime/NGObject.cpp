@@ -26,7 +26,8 @@ namespace NG::runtime
         throw IllegalTypeException("Not index-accessible");
     }
 
-    auto NGObject::opIndex(RuntimeRef<NGObject> accessor, RuntimeRef<NGObject> newValue) -> RuntimeRef<NGObject>
+    // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+    auto NGObject::opIndex(RuntimeRef<NGObject> index, RuntimeRef<NGObject> newValue) -> RuntimeRef<NGObject>
     {
         throw IllegalTypeException("Not index-accessible");
     }
@@ -119,6 +120,4 @@ namespace NG::runtime
     }
 
     NGObject::~NGObject() = default;
-
-    NGContext::~NGContext() = default;
 }

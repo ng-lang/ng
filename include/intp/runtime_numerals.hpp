@@ -1,6 +1,4 @@
-
-#ifndef __NG_INTP_RUNTIME_NUMERALS_HPP
-#define __NG_INTP_RUNTIME_NUMERALS_HPP
+#pragma once
 
 #include <intp/runtime.hpp>
 
@@ -9,15 +7,25 @@ namespace NG::runtime
 
     struct NumeralBase
     {
-        virtual size_t bytesize() const = 0;
-        virtual bool signedness() const = 0;
-        virtual bool floating_point() const = 0;
+        [[nodiscard]] virtual auto bytesize() const -> size_t = 0;
+        [[nodiscard]] virtual auto signedness() const -> bool = 0;
+        [[nodiscard]] virtual auto floating_point() const -> bool = 0;
 
-        virtual RuntimeRef<NGObject> opPlus(const NumeralBase *other) const = 0;
-        virtual RuntimeRef<NGObject> opMinus(const NumeralBase *other) const = 0;
-        virtual RuntimeRef<NGObject> opTimes(const NumeralBase *other) const = 0;
-        virtual RuntimeRef<NGObject> opDividedBy(const NumeralBase *other) const = 0;
-        virtual RuntimeRef<NGObject> opModulus(const NumeralBase *other) const = 0;
+        virtual auto opPlus(const NumeralBase *other) const -> RuntimeRef<NGObject> = 0;
+        virtual auto opMinus(const NumeralBase *other) const -> RuntimeRef<NGObject> = 0;
+        virtual auto opTimes(const NumeralBase *other) const -> RuntimeRef<NGObject> = 0;
+        virtual auto opDividedBy(const NumeralBase *other) const -> RuntimeRef<NGObject> = 0;
+        virtual auto opModulus(const NumeralBase *other) const -> RuntimeRef<NGObject> = 0;
+
+        NumeralBase() = default;
+
+        NumeralBase(const NumeralBase &) = delete;
+        auto operator=(const NumeralBase &) -> NumeralBase & = delete;
+
+        NumeralBase(NumeralBase &&) = delete;
+        auto operator=(NumeralBase &&) -> NumeralBase & = delete;
+
+        virtual ~NumeralBase() = 0;
     };
 
 #pragma region Runtime Integrals
@@ -27,9 +35,9 @@ namespace NG::runtime
     {
         T value = 0;
         using value_type = T;
-        static Orders comparator(const NGObject *left, const NGObject *right);
+        static auto comparator(const NGObject *left, const NGObject *right) -> Orders;
 
-        constexpr static inline T valueOf(const NumeralBase *numeralBase)
+        constexpr static auto valueOf(const NumeralBase *numeralBase) -> T
         {
             switch (numeralBase->bytesize())
             {
@@ -79,62 +87,62 @@ namespace NG::runtime
             value = valueOf(other);
         }
 
-        Str show() const override
+        [[nodiscard]] auto show() const -> Str override
         {
             return std::to_string(value);
         }
 
-        size_t bytesize() const override
+        [[nodiscard]] auto bytesize() const -> size_t override
         {
             return sizeof(T);
         }
 
-        bool signedness() const override
+        [[nodiscard]] auto signedness() const -> bool override
         {
             return std::is_signed_v<T>;
         }
 
-        bool floating_point() const override
+        [[nodiscard]] auto floating_point() const -> bool override
         {
             return false;
         }
 
-        bool boolValue() const override
+        [[nodiscard]] auto boolValue() const -> bool override
         {
             return value != 0;
         }
 
-        RuntimeRef<NGObject> opPlus(RuntimeRef<NGObject> other) const override;
+        [[nodiscard]] auto opPlus(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject> override;
 
-        RuntimeRef<NGObject> opPlus(const NumeralBase *other) const override;
+        auto opPlus(const NumeralBase *other) const -> RuntimeRef<NGObject> override;
 
-        RuntimeRef<NGObject> opMinus(RuntimeRef<NGObject> other) const override;
+        [[nodiscard]] auto opMinus(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject> override;
 
-        RuntimeRef<NGObject> opMinus(const NumeralBase *other) const override;
+        auto opMinus(const NumeralBase *other) const -> RuntimeRef<NGObject> override;
 
-        RuntimeRef<NGObject> opTimes(RuntimeRef<NGObject> other) const override;
+        [[nodiscard]] auto opTimes(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject> override;
 
-        RuntimeRef<NGObject> opTimes(const NumeralBase *other) const override;
+        auto opTimes(const NumeralBase *other) const -> RuntimeRef<NGObject> override;
 
-        RuntimeRef<NGObject> opDividedBy(RuntimeRef<NGObject> other) const override;
+        [[nodiscard]] auto opDividedBy(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject> override;
 
-        RuntimeRef<NGObject> opDividedBy(const NumeralBase *other) const override;
+        auto opDividedBy(const NumeralBase *other) const -> RuntimeRef<NGObject> override;
 
-        RuntimeRef<NGObject> opModulus(RuntimeRef<NGObject> other) const override;
+        [[nodiscard]] auto opModulus(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject> override;
 
-        RuntimeRef<NGObject> opModulus(const NumeralBase *other) const override;
+        auto opModulus(const NumeralBase *other) const -> RuntimeRef<NGObject> override;
 
-        [[nodiscard]] inline size_t asSize() const
+        [[nodiscard]] auto asSize() const -> size_t
         {
             return static_cast<size_t>(value);
         }
     };
 
     template <std::integral T>
-    Orders NGIntegral<T>::comparator(const NGObject *left, const NGObject *right)
+    auto NGIntegral<T>::comparator(const NGObject *left, const NGObject *right) -> Orders
     {
-        const NGIntegral<T> *leftNum = dynamic_cast<const NGIntegral<T> *>(left);
-        const NumeralBase *rightNum = dynamic_cast<const NumeralBase *>(right);
+        const auto *leftNum = dynamic_cast<const NGIntegral<T> *>(left);
+        const auto *rightNum = dynamic_cast<const NumeralBase *>(right);
         if (leftNum == nullptr || rightNum == nullptr)
         {
             return Orders::UNORDERED;
@@ -146,7 +154,7 @@ namespace NG::runtime
             {
                 return Orders::GT;
             }
-            else if (result < 0)
+            if (result < 0)
             {
                 return Orders::LT;
             }
@@ -156,7 +164,7 @@ namespace NG::runtime
     }
 
     template <std::integral T>
-    RuntimeRef<NGObject> NGIntegral<T>::opPlus(RuntimeRef<NGObject> other) const
+    auto NGIntegral<T>::opPlus(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject>
     {
         auto result = std::dynamic_pointer_cast<NumeralBase>(other);
         if (!result)
@@ -171,13 +179,13 @@ namespace NG::runtime
     }
 
     template <std::integral T>
-    RuntimeRef<NGObject> NGIntegral<T>::opPlus(const NumeralBase *other) const
+    auto NGIntegral<T>::opPlus(const NumeralBase *other) const -> RuntimeRef<NGObject>
     {
         return makert<NGIntegral<T>>(value + NGIntegral<T>(other).value);
     }
 
     template <std::integral T>
-    RuntimeRef<NGObject> NGIntegral<T>::opMinus(RuntimeRef<NGObject> other) const
+    auto NGIntegral<T>::opMinus(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject>
     {
         auto result = std::dynamic_pointer_cast<NumeralBase>(other);
         if (!result)
@@ -192,13 +200,13 @@ namespace NG::runtime
     }
 
     template <std::integral T>
-    RuntimeRef<NGObject> NGIntegral<T>::opMinus(const NumeralBase *other) const
+    auto NGIntegral<T>::opMinus(const NumeralBase *other) const -> RuntimeRef<NGObject>
     {
         return makert<NGIntegral<T>>(value - NGIntegral<T>(other).value);
     }
 
     template <std::integral T>
-    RuntimeRef<NGObject> NGIntegral<T>::opTimes(RuntimeRef<NGObject> other) const
+    auto NGIntegral<T>::opTimes(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject>
     {
         auto result = std::dynamic_pointer_cast<NumeralBase>(other);
         if (!result)
@@ -213,13 +221,13 @@ namespace NG::runtime
     }
 
     template <std::integral T>
-    RuntimeRef<NGObject> NGIntegral<T>::opTimes(const NumeralBase *other) const
+    auto NGIntegral<T>::opTimes(const NumeralBase *other) const -> RuntimeRef<NGObject>
     {
         return makert<NGIntegral<T>>(value * NGIntegral<T>(other).value);
     }
 
     template <std::integral T>
-    RuntimeRef<NGObject> NGIntegral<T>::opDividedBy(RuntimeRef<NGObject> other) const
+    auto NGIntegral<T>::opDividedBy(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject>
     {
         auto result = std::dynamic_pointer_cast<NumeralBase>(other);
         if (!result)
@@ -234,13 +242,13 @@ namespace NG::runtime
     }
 
     template <std::integral T>
-    RuntimeRef<NGObject> NGIntegral<T>::opDividedBy(const NumeralBase *other) const
+    auto NGIntegral<T>::opDividedBy(const NumeralBase *other) const -> RuntimeRef<NGObject>
     {
         return makert<NGIntegral<T>>(value / NGIntegral<T>(other).value);
     }
 
     template <std::integral T>
-    RuntimeRef<NGObject> NGIntegral<T>::opModulus(RuntimeRef<NGObject> other) const
+    auto NGIntegral<T>::opModulus(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject>
     {
         auto result = std::dynamic_pointer_cast<NumeralBase>(other);
         if (!result)
@@ -255,7 +263,7 @@ namespace NG::runtime
     }
 
     template <std::integral T>
-    RuntimeRef<NGObject> NGIntegral<T>::opModulus(const NumeralBase *other) const
+    auto NGIntegral<T>::opModulus(const NumeralBase *other) const -> RuntimeRef<NGObject>
     {
         return makert<NGIntegral<T>>(value % NGIntegral<T>(other).value);
     }
@@ -269,9 +277,9 @@ namespace NG::runtime
     {
         T value = 0;
         using value_type = T;
-        static Orders comparator(const NGObject *left, const NGObject *right);
+        static auto comparator(const NGObject *left, const NGObject *right) -> Orders;
 
-        constexpr static inline T valueOf(const NumeralBase *numeralBase)
+        constexpr static auto valueOf(const NumeralBase *numeralBase) -> T
         {
             if (!numeralBase->floating_point())
             {
@@ -313,62 +321,62 @@ namespace NG::runtime
             value = valueOf(other);
         }
 
-        Str show() const override
+        [[nodiscard]] auto show() const -> Str override
         {
             return std::to_string(value);
         }
 
-        size_t bytesize() const override
+        [[nodiscard]] auto bytesize() const -> size_t override
         {
             return sizeof(T);
         }
 
-        bool signedness() const override
+        [[nodiscard]] auto signedness() const -> bool override
         {
             return value < 0;
         }
 
-        bool floating_point() const override
+        [[nodiscard]] auto floating_point() const -> bool override
         {
             return true;
         }
 
-        bool boolValue() const override
+        [[nodiscard]] auto boolValue() const -> bool override
         {
             return value != 0;
         }
 
-        RuntimeRef<NGObject> opPlus(RuntimeRef<NGObject> other) const override;
+        [[nodiscard]] auto opPlus(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject> override;
 
-        RuntimeRef<NGObject> opPlus(const NumeralBase *other) const override;
+        auto opPlus(const NumeralBase *other) const -> RuntimeRef<NGObject> override;
 
-        RuntimeRef<NGObject> opMinus(RuntimeRef<NGObject> other) const override;
+        [[nodiscard]] auto opMinus(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject> override;
 
-        RuntimeRef<NGObject> opMinus(const NumeralBase *other) const override;
+        auto opMinus(const NumeralBase *other) const -> RuntimeRef<NGObject> override;
 
-        RuntimeRef<NGObject> opTimes(RuntimeRef<NGObject> other) const override;
+        [[nodiscard]] auto opTimes(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject> override;
 
-        RuntimeRef<NGObject> opTimes(const NumeralBase *other) const override;
+        auto opTimes(const NumeralBase *other) const -> RuntimeRef<NGObject> override;
 
-        RuntimeRef<NGObject> opDividedBy(RuntimeRef<NGObject> other) const override;
+        [[nodiscard]] auto opDividedBy(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject> override;
 
-        RuntimeRef<NGObject> opDividedBy(const NumeralBase *other) const override;
+        auto opDividedBy(const NumeralBase *other) const -> RuntimeRef<NGObject> override;
 
-        RuntimeRef<NGObject> opModulus(RuntimeRef<NGObject> other) const override;
+        [[nodiscard]] auto opModulus(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject> override;
 
-        RuntimeRef<NGObject> opModulus(const NumeralBase *other) const override;
+        auto opModulus(const NumeralBase *other) const -> RuntimeRef<NGObject> override;
 
-        [[nodiscard]] inline size_t asSize() const
+        [[nodiscard]] auto asSize() const -> size_t
         {
             return static_cast<size_t>(value);
         }
     };
 
     template <std::floating_point T>
-    Orders NGFloatingPoint<T>::comparator(const NGObject *left, const NGObject *right)
+    auto NGFloatingPoint<T>::comparator(const NGObject *left, const NGObject *right) -> Orders
     {
-        const NGFloatingPoint<T> *leftNum = dynamic_cast<const NGFloatingPoint<T> *>(left);
-        const NumeralBase *rightNum = dynamic_cast<const NumeralBase *>(right);
+        const auto *leftNum = dynamic_cast<const NGFloatingPoint<T> *>(left);
+        const auto *rightNum = dynamic_cast<const NumeralBase *>(right);
         if (leftNum == nullptr || rightNum == nullptr)
         {
             return Orders::UNORDERED;
@@ -380,7 +388,7 @@ namespace NG::runtime
             {
                 return Orders::GT;
             }
-            else if (result < 0)
+            if (result < 0)
             {
                 return Orders::LT;
             }
@@ -390,7 +398,7 @@ namespace NG::runtime
     }
 
     template <std::floating_point T>
-    RuntimeRef<NGObject> NGFloatingPoint<T>::opPlus(RuntimeRef<NGObject> other) const
+    auto NGFloatingPoint<T>::opPlus(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject>
     {
         auto result = std::dynamic_pointer_cast<NumeralBase>(other);
         if (!result)
@@ -405,13 +413,13 @@ namespace NG::runtime
     }
 
     template <std::floating_point T>
-    RuntimeRef<NGObject> NGFloatingPoint<T>::opPlus(const NumeralBase *other) const
+    auto NGFloatingPoint<T>::opPlus(const NumeralBase *other) const -> RuntimeRef<NGObject>
     {
         return makert<NGFloatingPoint<T>>(value + NGFloatingPoint<T>(other).value);
     }
 
     template <std::floating_point T>
-    RuntimeRef<NGObject> NGFloatingPoint<T>::opMinus(RuntimeRef<NGObject> other) const
+    auto NGFloatingPoint<T>::opMinus(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject>
     {
         auto result = std::dynamic_pointer_cast<NumeralBase>(other);
         if (!result)
@@ -426,13 +434,13 @@ namespace NG::runtime
     }
 
     template <std::floating_point T>
-    RuntimeRef<NGObject> NGFloatingPoint<T>::opMinus(const NumeralBase *other) const
+    auto NGFloatingPoint<T>::opMinus(const NumeralBase *other) const -> RuntimeRef<NGObject>
     {
         return makert<NGFloatingPoint<T>>(value - NGFloatingPoint<T>(other).value);
     }
 
     template <std::floating_point T>
-    RuntimeRef<NGObject> NGFloatingPoint<T>::opTimes(RuntimeRef<NGObject> other) const
+    auto NGFloatingPoint<T>::opTimes(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject>
     {
         auto result = std::dynamic_pointer_cast<NumeralBase>(other);
         if (!result)
@@ -447,13 +455,13 @@ namespace NG::runtime
     }
 
     template <std::floating_point T>
-    RuntimeRef<NGObject> NGFloatingPoint<T>::opTimes(const NumeralBase *other) const
+    auto NGFloatingPoint<T>::opTimes(const NumeralBase *other) const -> RuntimeRef<NGObject>
     {
         return makert<NGFloatingPoint<T>>(value * NGFloatingPoint<T>(other).value);
     }
 
     template <std::floating_point T>
-    RuntimeRef<NGObject> NGFloatingPoint<T>::opDividedBy(RuntimeRef<NGObject> other) const
+    auto NGFloatingPoint<T>::opDividedBy(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject>
     {
         auto result = std::dynamic_pointer_cast<NumeralBase>(other);
         if (!result)
@@ -468,19 +476,19 @@ namespace NG::runtime
     }
 
     template <std::floating_point T>
-    RuntimeRef<NGObject> NGFloatingPoint<T>::opDividedBy(const NumeralBase *other) const
+    auto NGFloatingPoint<T>::opDividedBy(const NumeralBase *other) const -> RuntimeRef<NGObject>
     {
         return makert<NGFloatingPoint<T>>(value / NGFloatingPoint<T>(other).value);
     }
 
     template <std::floating_point T>
-    RuntimeRef<NGObject> NGFloatingPoint<T>::opModulus(RuntimeRef<NGObject> other) const
+    auto NGFloatingPoint<T>::opModulus(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject>
     {
         throw std::logic_error("floating point not support modulus operation");
     }
 
     template <std::floating_point T>
-    RuntimeRef<NGObject> NGFloatingPoint<T>::opModulus(const NumeralBase *other) const
+    auto NGFloatingPoint<T>::opModulus(const NumeralBase *other) const -> RuntimeRef<NGObject>
     {
         throw std::logic_error("floating point not support modulus operation");
     }
@@ -488,5 +496,3 @@ namespace NG::runtime
 #pragma endregion
 
 }
-
-#endif // __NG_INTP_RUNTIME_NUMERALS_HPP

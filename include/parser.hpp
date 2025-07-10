@@ -1,6 +1,4 @@
-
-#ifndef __NG_PARSER_HPP
-#define __NG_PARSER_HPP
+#pragma once
 
 #include <fwd.hpp>
 #include <ast.hpp>
@@ -23,8 +21,8 @@ namespace NG::parsing
 
     struct LexState
     {
-        const Str source;
-        const size_t size;
+        Str source;
+        size_t size;
         size_t index;
 
         size_t line;
@@ -32,9 +30,9 @@ namespace NG::parsing
 
         explicit LexState(const Str &_source);
 
-        [[nodiscard]] char current() const;
+        [[nodiscard]] auto current() const -> char;
 
-        [[nodiscard]] bool eof() const;
+        [[nodiscard]] auto eof() const -> bool;
 
         void next(int n = 1);
 
@@ -42,50 +40,48 @@ namespace NG::parsing
 
         void nextLine();
 
-        [[nodiscard]] char lookAhead() const;
+        [[nodiscard]] auto lookAhead() const -> char;
     };
 
-    class Lexer
+    class Lexer : NonCopyable
     {
         LexState state;
 
     public:
         explicit Lexer(LexState state) : state(std::move(state)) {}
 
-        LexState &operator->()
+        auto operator->() -> LexState &
         {
             return state;
         }
 
-        Lexer(const Lexer &) = delete;
-
-        Vec<Token> lex();
+        auto lex() -> Vec<Token>;
     };
 
     using NG::ast::ASTNode;
 
     struct ParseState
     {
-        const Vec<Token> tokens;
-        const size_t size;
+        Vec<Token> tokens;
+        size_t size;
         size_t index;
 
-        explicit ParseState(const Vec<Token> &source);
+        explicit ParseState(const Vec<Token> &tokens);
 
-        const Token &current();
+        auto current() -> const Token &;
 
-        const Token *operator->()
+        auto operator->() -> const Token *
         {
             return &current();
         }
 
-        bool eof() const;
+        [[nodiscard]] auto eof() const -> bool;
 
         void next(int n = 1);
 
         void revert(size_t n = 1);
 
-        ParseError error(Str message, std::list<TokenType> expected = {})
+        auto error(Str message, std::list<TokenType> expected = {}) -> ParseError
         {
             return ParseError{
                 .token = current(),
@@ -95,7 +91,7 @@ namespace NG::parsing
         }
     };
 
-    struct Parser
+    struct Parser : NonCopyable
     {
         ParseState state;
         Str module_filename;
@@ -103,11 +99,7 @@ namespace NG::parsing
     public:
         explicit Parser(ParseState state) : state(std::move(state)) {}
 
-        Parser(const Parser &) = delete;
-
-        ParseResult<ast::ASTRef<ASTNode>> parse(const Str &filename = "untitled.ng");
+        auto parse(const Str &filename = "untitled.ng") -> ParseResult<ast::ASTRef<ASTNode>>;
     };
 
 } // namespace NG
-
-#endif // __NG_PARSER_HPP

@@ -16,7 +16,6 @@ FetchContent_MakeAvailable(Catch2)
 
 set(NG_LIB_SRC
         src/ast/ast.cpp
-        src/NonCopyable.cpp
         src/parsing/LexState.cpp
         src/parsing/Lexer.cpp
         src/parsing/ParseState.cpp

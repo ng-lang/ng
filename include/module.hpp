@@ -1,6 +1,4 @@
-
-#ifndef COMMON_MODULE_HOO
-#define COMMON_MODULE_HOO
+#pragma once
 
 #include <ast.hpp>
 
@@ -9,13 +7,15 @@ namespace NG::module
     using NG::ast::ASTNode;
     using NG::ast::ASTRef;
 
+    // NOLINTNEXTLINE(cppcoreguidelines-special-member-functions)
     struct ModuleLoader : NonCopyable
     {
-        virtual ASTRef<ASTNode> load(const Str &module) = 0;
+        virtual auto load(const Str &module) -> ASTRef<ASTNode> = 0;
 
         virtual ~ModuleLoader() noexcept = 0;
     };
 
+    // NOLINTNEXTLINE(cppcoreguidelines-special-member-functions)
     struct FileBasedExternalModuleLoader : public virtual ModuleLoader
     {
 
@@ -25,10 +25,8 @@ namespace NG::module
         {
         }
 
-        ASTRef<NG::ast::ASTNode> load(const Str &module) override;
+        auto load(const Str &module) -> ASTRef<NG::ast::ASTNode> override;
 
         ~FileBasedExternalModuleLoader() override;
     };
 }
-
-#endif // COMMON_MODULE_HOO

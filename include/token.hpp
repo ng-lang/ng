@@ -1,6 +1,4 @@
-
-#ifndef __NG_TOKEN_HPP
-#define __NG_TOKEN_HPP
+#pragma once
 
 #include <string>
 
@@ -9,7 +7,8 @@ namespace NG
 
     using Str = std::string;
 
-    enum class TokenType
+    // NOLINTNEXTLINE(performance-enum-size)
+    enum class TokenType : uint32_t
     {
         NONE,
         KEYWORD,
@@ -114,7 +113,7 @@ namespace NG
         RESERVED,
     };
 
-    enum class Operators
+    enum class Operators : uint8_t
     {
         NONE,
         PLUS,    // +
@@ -150,13 +149,12 @@ namespace NG
         TokenPosition position;
         Operators operatorType;
 
-        bool operator==(const Token &t) const
+        auto operator==(const Token &token) const -> bool
         {
-            return type == t.type &&
-                   operatorType == t.operatorType &&
-                   repr == t.repr;
+            return type == token.type &&
+                   operatorType == token.operatorType &&
+                   repr == token.repr;
         }
     };
 
 } // namespace NG
-#endif // __NG_HOKEN_HPP

@@ -1,6 +1,5 @@
 
-#ifndef __NG_INTP_INTERPRETER_HPP
-#define __NG_INTP_INTERPRETER_HPP
+#pragma once
 
 #include <fwd.hpp>
 #include <visitor.hpp>
@@ -12,15 +11,21 @@ namespace NG::intp
     {
         virtual void summary() = 0;
 
+        ISummarizable() = default;
+
+        ISummarizable(const ISummarizable &) = delete;
+        ISummarizable(ISummarizable &&) = delete;
+
+        auto operator=(const ISummarizable &) -> ISummarizable & = delete;
+        auto operator=(ISummarizable &&) -> ISummarizable & = delete;
+
         virtual ~ISummarizable() = 0;
     };
 
     struct Interpreter : public virtual ISummarizable, public virtual NG::ast::AstVisitor
     {
-        virtual NG::runtime::NGContext *intpContext() = 0;
+        virtual auto intpContext() -> NG::runtime::NGContext * = 0;
     };
 
-    Interpreter *stupid();
+    auto stupid() -> Interpreter *;
 }
-
-#endif // __NG_INTERPRETER_HPP

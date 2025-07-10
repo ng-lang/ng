@@ -1,12 +1,11 @@
-
-#ifndef NG_AST_VISITOR_HPP
-#define NG_AST_VISITOR_HPP
+#pragma once
 
 #include <ast.hpp>
 
 namespace NG::ast
 {
 
+    // NOLINTNEXTLINE(cppcoreguidelines-special-member-functions)
     struct AstVisitor : NonCopyable
     {
     public:
@@ -50,8 +49,6 @@ namespace NG::ast
 
         virtual void visit(AssignmentExpression *assignmentExpr) = 0;
 
-        virtual void visit(IntegerValue *intVal) = 0;
-
         virtual void visit(IntegralValue<int8_t> *intVal) = 0;
         virtual void visit(IntegralValue<uint8_t> *intVal) = 0;
         virtual void visit(IntegralValue<int16_t> *intVal) = 0;
@@ -82,9 +79,10 @@ namespace NG::ast
 
         virtual void visit(CompileUnit *compileUnit) = 0;
 
-        ~AstVisitor() override = 0;
+        virtual ~AstVisitor() = 0;
     };
 
+    // NOLINTNEXTLINE(cppcoreguidelines-special-member-functions)
     class DummyVisitor : public virtual AstVisitor
     {
     public:
@@ -128,7 +126,6 @@ namespace NG::ast
 
         void visit(AssignmentExpression *assignmentExpr) override;
 
-        void visit(IntegerValue *intVal) override;
         void visit(IntegralValue<int8_t> *intVal) override;
         void visit(IntegralValue<uint8_t> *intVal) override;
         void visit(IntegralValue<int16_t> *intVal) override;
@@ -175,5 +172,3 @@ namespace NG::ast
     }
 
 } // namespace NG::AST
-
-#endif // NG_AST_VISITOR_HPP

@@ -40,7 +40,6 @@ namespace NG::ast
 
     void AstVisitor::visit(Module *mod) {}
 
-    void AstVisitor::visit(IntegerValue *intVal) {}
     void AstVisitor::visit(IntegralValue<int8_t> *intVal) {}
     void AstVisitor::visit(IntegralValue<uint8_t> *intVal) {}
     void AstVisitor::visit(IntegralValue<int16_t> *intVal) {}
@@ -72,7 +71,7 @@ namespace NG::ast
 
     void AstVisitor::visit(ImportDecl *importDecl) {}
 
-    void AstVisitor::visit(CompileUnit *importDecl) {}
+    void AstVisitor::visit(CompileUnit *compileUnit) {}
 
     AstVisitor::~AstVisitor() = default;
 }

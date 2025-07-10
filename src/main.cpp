@@ -17,7 +17,8 @@ static inline auto parse(const Str &source, const Str &file) -> ParseResult<ASTR
     return Parser(ParseState(Lexer(LexState{source}).lex())).parse(file);
 }
 
-auto main(int argc, char **argv) -> int
+// NOLINTNEXTLINE(bugprone-exception-escape)
+auto main(int argc, char *argv[]) -> int
 {
 
     if (argc < 2)
@@ -26,16 +27,20 @@ auto main(int argc, char **argv) -> int
         return -1;
     }
 
+    // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
     if (!std::filesystem::exists(argv[1]))
     {
         std::cout << "file " << argv[1] << " not found";
         return -1;
     }
 
-    std::ifstream file(argv[1]);
+    std::string filename{argv[1]};
+    // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+
+    std::ifstream file{filename};
     std::string source{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
 
-    auto astResult = parse(source, argv[1]);
+    auto astResult = parse(source, filename);
     if (!astResult)
     {
         std::cout << "Error parsing file: " << astResult.error().message << '\n';

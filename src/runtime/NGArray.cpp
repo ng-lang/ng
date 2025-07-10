@@ -18,6 +18,7 @@ namespace NG::runtime
         return (*this->items)[indexVal];
     }
 
+    // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
     auto NGArray::opIndex(RuntimeRef<NGObject> index, RuntimeRef<NGObject> newValue) -> RuntimeRef<NGObject>
     {
         auto ngInt = std::dynamic_pointer_cast<NumeralBase>(index);

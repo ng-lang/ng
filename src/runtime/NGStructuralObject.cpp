@@ -22,14 +22,13 @@ namespace NG::runtime
 
             return newContext->retVal;
         }
-        if (properties.find(member) != properties.end())
+        if (properties.contains(member))
         {
             return properties[member];
         }
-        else
-        {
-            return NGObject::respond(member, context, invocationContext);
-        }
+        
+                    return NGObject::respond(member, context, invocationContext);
+       
     }
 
     auto NGStructuralObject::show() const -> Str

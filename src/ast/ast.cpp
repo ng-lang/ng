@@ -9,7 +9,7 @@ namespace NG::ast
 {
 
     template <class T>
-    static auto strOfNodeList(const Vec<T>& nodes, const Str &separator = ", ") -> Str
+    static auto strOfNodeList(const Vec<T> &nodes, const Str &separator = ", ") -> Str
     {
         Str str{};
         for (const auto &node : nodes)
@@ -131,7 +131,7 @@ namespace NG::ast
 
     CompoundStatement::~CompoundStatement()
     {
-        for (const auto& stmt : statements)
+        for (const auto &stmt : statements)
         {
             destroyast(stmt);
         }
@@ -260,7 +260,7 @@ namespace NG::ast
     FunCallExpression::~FunCallExpression()
     {
         destroyast(primaryExpression);
-        for (const auto& arg : arguments)
+        for (const auto &arg : arguments)
         {
             destroyast(arg);
         }
@@ -287,9 +287,10 @@ namespace NG::ast
 
     AssignmentExpression::~AssignmentExpression()
     {
-        if (value != nullptr) {
+        if (value != nullptr)
+        {
             destroyast(value);
-}
+        }
     }
 
     auto AssignmentExpression::repr() const -> Str
@@ -313,9 +314,10 @@ namespace NG::ast
 
     ValDefStatement::~ValDefStatement()
     {
-        if (value != nullptr) {
+        if (value != nullptr)
+        {
             destroyast(value);
-}
+        }
     }
 
     auto ValDefStatement::repr() const -> Str
@@ -394,23 +396,6 @@ namespace NG::ast
     {
         return this->primaryExpression->repr() +
                (this->accessor == nullptr ? "" : ("." + this->accessor->repr()));
-    }
-
-    void IntegerValue::accept(AstVisitor *visitor)
-    {
-        visitor->visit(this);
-    }
-
-    auto IntegerValue::operator==(const ASTNode &node) const -> bool
-    {
-        const auto &intVal = dynamic_cast<const IntegerValue &>(node);
-        return astNodeType() == node.astNodeType() &&
-               intVal.value == value;
-    }
-
-    auto IntegerValue::repr() const -> Str
-    {
-        return std::to_string(this->value);
     }
 
     void StringValue::accept(AstVisitor *visitor)
@@ -497,7 +482,7 @@ namespace NG::ast
 
     FunctionDef::~FunctionDef()
     {
-        for (const auto& param : params)
+        for (const auto &param : params)
         {
             destroyast(param);
         }
@@ -532,7 +517,6 @@ namespace NG::ast
     {
         destroyast(left);
         destroyast(right);
-        delete optr;
     }
 
     auto BinaryExpression::repr() const -> Str
@@ -719,7 +703,7 @@ namespace NG::ast
 
     NewObjectExpression::~NewObjectExpression()
     {
-        for (auto &[_, value] : properties)
+        for (auto &[_, value] : properties) // NOLINT(readability-identifier-length)
         {
             destroyast(value);
         }
@@ -748,10 +732,10 @@ namespace NG::ast
 
     auto CompileUnit::operator==(const ASTNode &node) const -> bool
     {
-        auto &&cu = dynamic_cast<const CompileUnit &>(node);
+        auto &&compileUnit = dynamic_cast<const CompileUnit &>(node);
 
-        return this->fileName == cu.fileName &&
-               std::equal(begin(this->modules), end(this->modules), begin(cu.modules), ASTComparator);
+        return this->fileName == compileUnit.fileName &&
+               std::equal(begin(this->modules), end(this->modules), begin(compileUnit.modules), ASTComparator);
     }
 
     void CompileUnit::accept(AstVisitor *visitor)

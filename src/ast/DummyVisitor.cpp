@@ -40,7 +40,6 @@ namespace NG::ast
 
     void DummyVisitor::visit(Module *mod) {}
 
-    void DummyVisitor::visit(IntegerValue *intVal) {}
     void DummyVisitor::visit(IntegralValue<int8_t> *intVal) {}
     void DummyVisitor::visit(IntegralValue<uint8_t> *intVal) {}
     void DummyVisitor::visit(IntegralValue<int16_t> *intVal) {}

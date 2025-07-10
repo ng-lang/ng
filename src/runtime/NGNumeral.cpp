@@ -38,4 +38,6 @@ namespace NG::runtime
     {
         return nullptr;
     }
+
+    NumeralBase::~NumeralBase() = default;
 }

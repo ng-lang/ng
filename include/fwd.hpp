@@ -1,6 +1,4 @@
-
-#ifndef __NG_FWD_HPP
-#define __NG_FWD_HPP
+#pragma once
 
 #include <vector>
 #include <string>
@@ -40,5 +38,3 @@ namespace NG::runtime
     struct NGType;
     struct NGArray;
 } // namespace NG::runtime
-
-#endif // __NG_FWD_HPP
