@@ -2,6 +2,7 @@
 #include "common.hpp"
 #include "parser.hpp"
 #include "token.hpp"
+#include <visitor.hpp>
 #include <debug.hpp>
 #include <ast.hpp>
 #include <filesystem>
@@ -22,8 +23,7 @@ namespace NG::parsing {
 
     public:
         explicit ParserImpl(ParseState &state)
-                : state(state) {
-        }
+                : state(state) {}
 
 
         ParseResult<ASTRef<ASTNode>> parse(const Str &fileName) {
@@ -354,7 +354,6 @@ namespace NG::parsing {
                 accept(maybeBuiltin);
                 return anno;
             } else if (maybeBuiltin == TokenType::ID) {
-                debug_log("Some Customized", state->repr);
                 ASTRef<TypeAnnotation> anno = makeast<TypeAnnotation>(state->repr);
                 accept(TokenType::ID);
                 anno->type = TypeAnnotationType::CUSTOMIZED;
@@ -607,7 +606,9 @@ namespace NG::parsing {
                 return expr;
             } else if (expect(TokenType::ID)) {
                 return idExpression();
-            } else if (expect(TokenType::NUMBER)) {
+            } else if (expect(TokenType::NUMBER) || 
+                (code(state->type) >= code(TokenType::NUMBER) &&
+                 code(state->type) <= code(TokenType::NUMBER_F128))) {
                 return numberLiteral();
             } else if (expect(TokenType::STRING)) {
                 return stringValue();
@@ -637,8 +638,57 @@ namespace NG::parsing {
 
         ParseResult<ASTRef<Expression>> numberLiteral() {
             auto integer = state->repr;
-            if(auto result = accept(TokenType::NUMBER); !result) return std::unexpected(result.error());
-            return makeast<IntegerValue>(std::stoi(integer));
+            switch (state->type) {
+                case TokenType::NUMBER:
+                    accept(state->type);
+                    return makeast<IntegralValue<int32_t>>(std::stoi(integer));
+                case TokenType::INTEGRAL:
+                    accept(state->type);
+                    return makeast<IntegralValue<int32_t>>(static_cast<int32_t>(std::stoi(integer)));
+                case TokenType::NUMBER_I8:
+                    accept(state->type);
+                    return makeast<IntegralValue<int8_t>>(static_cast<int8_t>(std::stoi(integer)));
+                case TokenType::NUMBER_U8:
+                    accept(state->type);
+                    return makeast<IntegralValue<uint8_t>>(static_cast<uint8_t>(std::stoi(integer)));
+                case TokenType::NUMBER_I16:
+                    accept(state->type);
+                    return makeast<IntegralValue<int16_t>>(static_cast<int16_t>(std::stoi(integer)));
+                case TokenType::NUMBER_U16:
+                    accept(state->type);
+                    return makeast<IntegralValue<uint16_t>>(static_cast<uint16_t>(std::stoi(integer)));
+                case TokenType::NUMBER_I32:
+                    accept(state->type);
+                    return makeast<IntegralValue<int32_t>>(static_cast<int32_t>(std::stoi(integer)));
+                case TokenType::NUMBER_U32:
+                    accept(state->type);
+                    return makeast<IntegralValue<uint32_t>>(static_cast<uint32_t>(std::stoul(integer)));
+                case TokenType::NUMBER_I64:
+                    accept(state->type);
+                    return makeast<IntegralValue<int64_t>>(static_cast<int64_t>(std::stoll(integer)));
+                case TokenType::NUMBER_U64:
+                    accept(state->type);
+                    return makeast<IntegralValue<uint64_t>>(static_cast<uint64_t>(std::stoull(integer)));
+                case TokenType::FLOATING_POINT:
+                    accept(state->type);
+                    return makeast<FloatingPointValue<float>>(static_cast<float>(std::stof(integer)));
+                case TokenType::NUMBER_F16:
+                    return std::unexpected("Float16 currently supporeted");
+                //     accept(state->type);
+                //     return makeast<FloatingPointValue<float16_t>>(static_cast<float16_t>(std::stof(integer)));
+                case TokenType::NUMBER_F32:
+                    accept(state->type);
+                    return makeast<FloatingPointValue<float>>(static_cast<float>(std::stof(integer)));
+                case TokenType::NUMBER_F64:
+                    accept(state->type);
+                    return makeast<FloatingPointValue<double>>(static_cast<uint64_t>(std::stod(integer)));
+                case TokenType::NUMBER_F128:
+                    return std::unexpected("Float128 currently supporeted");
+                //     accept(state->type);
+                //     return makeast<FloatingPointValue<float128_t>>(static_cast<float128_t>(std::stold(integer)));
+                default:
+                    return std::unexpected("Invalid numeral literal");
+            }
         }
 
         ParseResult<ASTRef<IdExpression>> idExpression() {

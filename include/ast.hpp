@@ -51,6 +51,8 @@ namespace NG::ast {
         STRING_VALUE,
         BOOLEAN_VALUE,
         ARRAY_LITERAL,
+        INTEGRAL_VALUE,
+        FLOATING_POINT_VALUE,
 
         STATEMENT = 0x400,
         SIMPLE_STATEMENT,
@@ -71,7 +73,7 @@ namespace NG::ast {
 
         virtual bool operator==(const ASTNode &node) const = 0;
 
-        virtual Str repr() = 0;
+        virtual Str repr() const = 0;
 
         ~ASTNode() override = 0;
     };
@@ -89,7 +91,7 @@ namespace NG::ast {
 
         void accept(AstVisitor *visitor) override;
 
-        Str repr() override;
+        Str repr() const override;
 
         ~ImportDecl() override;
 
@@ -158,7 +160,7 @@ namespace NG::ast {
         ASTNodeType astNodeType() const override { return ASTNodeType::TYPE_ANNOTATION; }
 
         bool operator==(const ASTNode& node) const override;
-        Str repr() override;
+        Str repr() const override;
         ~TypeAnnotation() override;
     };
     struct Param : ASTNode {
@@ -181,7 +183,7 @@ namespace NG::ast {
 
         ~Param() override = default;
 
-        Str repr() override;
+        Str repr() const override;
     };
 
     struct FunctionDef : Definition {
@@ -197,7 +199,7 @@ namespace NG::ast {
 
         bool operator==(const ASTNode &node) const override;
 
-        Str repr() override;
+        Str repr() const override;
 
         ~FunctionDef() override;
     };
@@ -211,7 +213,7 @@ namespace NG::ast {
 
         bool operator==(const ASTNode &node) const override;
 
-        Str repr() override;
+        Str repr() const override;
 
         ~CompoundStatement() override;
     };
@@ -225,7 +227,7 @@ namespace NG::ast {
 
         bool operator==(const ASTNode &node) const override;
 
-        Str repr() override;
+        Str repr() const override;
 
         ~ReturnStatement() override;
     };
@@ -241,7 +243,7 @@ namespace NG::ast {
 
         bool operator==(const ASTNode &node) const override;
 
-        Str repr() override;
+        Str repr() const override;
 
         ~IfStatement() override;
     };
@@ -256,7 +258,7 @@ namespace NG::ast {
 
         bool operator==(const ASTNode &node) const override;
 
-        Str repr() override;
+        Str repr() const override;
 
         ~SimpleStatement() override;
     };
@@ -282,7 +284,7 @@ namespace NG::ast {
 
         void accept(AstVisitor *visitor) override;
 
-        Str repr() override;
+        Str repr() const override;
 
         ~Module() override;
     };
@@ -298,7 +300,7 @@ namespace NG::ast {
 
         void accept(AstVisitor *visitor) override;
 
-        Str repr() override;
+        Str repr() const override;
 
         ~CompileUnit() override;
     };
@@ -313,7 +315,7 @@ namespace NG::ast {
 
         bool operator==(const ASTNode &node) const override;
 
-        Str repr() override;
+        Str repr() const override;
 
         ~FunCallExpression() override;
     };
@@ -328,7 +330,7 @@ namespace NG::ast {
         bool operator==(const ASTNode &node) const override;
         bool operator==(const IdExpression &node) const;
 
-        Str repr() override;
+        Str repr() const override;
 
         void accept(AstVisitor *visitor) override;
     };
@@ -344,7 +346,7 @@ namespace NG::ast {
 
         bool operator==(const ASTNode &node) const override;
 
-        Str repr() override;
+        Str repr() const override;
 
         ~IdAccessorExpression() override;
     };
@@ -362,7 +364,7 @@ namespace NG::ast {
 
         bool operator==(const ASTNode &node) const override;
 
-        Str repr() override;
+        Str repr() const override;
 
         ~IndexAccessorExpression() override;
     };
@@ -384,7 +386,7 @@ namespace NG::ast {
 
         bool operator==(const ASTNode &node) const override;
 
-        Str repr() override;
+        Str repr() const override;
 
         ~IndexAssignmentExpression() override;
     };
@@ -404,7 +406,7 @@ namespace NG::ast {
 
         bool operator==(const ASTNode &node) const override;
 
-        Str repr() override;
+        Str repr() const override;
 
         ~ValDefStatement() override;
     };
@@ -424,7 +426,7 @@ namespace NG::ast {
 
         bool operator==(const ASTNode &node) const override;
 
-        Str repr() override;
+        Str repr() const override;
 
         ~ValDef() override;
     };
@@ -441,7 +443,7 @@ namespace NG::ast {
 
         bool operator==(const ASTNode &node) const override;
 
-        Str repr() override;
+        Str repr() const override;
 
         ~AssignmentExpression() override;
     };
@@ -457,7 +459,7 @@ namespace NG::ast {
 
         bool operator==(const ASTNode &node) const override;
 
-        Str repr() override;
+        Str repr() const override;
 
         ~BinaryExpression() override;
     };
@@ -471,11 +473,56 @@ namespace NG::ast {
 
         ASTNodeType astNodeType() const override { return ASTNodeType::INTEGER_VALUE; }
 
-        Str repr() override;
+        Str repr() const override;
 
         bool operator==(const ASTNode &node) const override;
     };
 
+    template<std::integral T>
+    struct IntegralValue : Expression {
+        const T value;
+        constexpr static size_t size = sizeof(T);
+
+        explicit IntegralValue(T v): value(v) {}
+
+        void accept(AstVisitor *visitor) override;
+
+        ASTNodeType astNodeType() const override {
+            return ASTNodeType::INTEGRAL_VALUE;
+        }
+
+        Str repr() const override {
+            return std::to_string(this->value);
+        }
+
+        bool operator==(const ASTNode& node) const override {
+            return this->astNodeType() == node.astNodeType() &&
+                this->repr() == node.repr();
+        }
+    };
+
+    template<std::floating_point T>
+    struct FloatingPointValue : Expression {
+        const T value;
+        constexpr static size_t size = sizeof(T);
+
+        explicit FloatingPointValue(T v): value(v) {}
+
+        void accept(AstVisitor *visitor) override;
+
+        ASTNodeType astNodeType() const override {
+            return ASTNodeType::FLOATING_POINT_VALUE;
+        }
+
+        Str repr() const override {
+            return std::to_string(this->value);
+        }
+
+        bool operator==(const ASTNode& node) const override {
+            return this->astNodeType() == node.astNodeType() &&
+                this->repr() == node.repr();
+        }
+    };
     struct StringValue : Expression {
         const Str value;
 
@@ -485,7 +532,7 @@ namespace NG::ast {
 
         ASTNodeType astNodeType() const override { return ASTNodeType::STRING_VALUE; }
 
-        Str repr() override;
+        Str repr() const override;
 
         bool operator==(const ASTNode &node) const override;
     };
@@ -499,7 +546,7 @@ namespace NG::ast {
 
         ASTNodeType astNodeType() const override { return ASTNodeType::BOOLEAN_VALUE; }
 
-        Str repr() override;
+        Str repr() const override;
 
         bool operator==(const ASTNode &node) const override;
     };
@@ -516,7 +563,7 @@ namespace NG::ast {
 
         ASTNodeType astNodeType() const override;
 
-        Str repr() override;
+        Str repr() const override;
 
         bool operator==(const ASTNode &node) const override;
 
@@ -536,7 +583,7 @@ namespace NG::ast {
 
         void accept(AstVisitor *visitor) override;
 
-        Str repr() override;
+        Str repr() const override;
     };
 
     struct TypeDef : Definition {
@@ -553,7 +600,7 @@ namespace NG::ast {
 
         bool operator==(const ASTNode &node) const override;
 
-        Str repr() override;
+        Str repr() const override;
 
         ~TypeDef() override;
     };
@@ -568,7 +615,7 @@ namespace NG::ast {
 
         bool operator==(const ASTNode &node) const override;
 
-        Str repr() override;
+        Str repr() const override;
 
         ~NewObjectExpression() override;
     };

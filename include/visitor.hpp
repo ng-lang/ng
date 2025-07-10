@@ -51,6 +51,20 @@ namespace NG::ast {
 
         virtual void visit(IntegerValue *intVal) = 0;
 
+        virtual void visit(IntegralValue<int8_t> *intVal) = 0;
+        virtual void visit(IntegralValue<uint8_t> *intVal) = 0;
+        virtual void visit(IntegralValue<int16_t> *intVal) = 0;
+        virtual void visit(IntegralValue<uint16_t> *intVal) = 0;
+        virtual void visit(IntegralValue<int32_t> *intVal) = 0;
+        virtual void visit(IntegralValue<uint32_t> *intVal) = 0;
+        virtual void visit(IntegralValue<int64_t> *intVal) = 0;
+        virtual void visit(IntegralValue<uint64_t> *intVal) = 0;
+
+        // virtual void visit(FloatingPointValue<float16_t> *floatVal) = 0;
+        virtual void visit(FloatingPointValue<float/* float32_t */> *floatVal) = 0;
+        virtual void visit(FloatingPointValue<double /* float64_t */> *floatVal) = 0;
+        // virtual void visit(FloatingPointValue<float128_t> *floatVal) = 0;
+
         virtual void visit(StringValue *strVal) = 0;
 
         virtual void visit(BooleanValue *boolVal) = 0;
@@ -113,7 +127,20 @@ namespace NG::ast {
         void visit(AssignmentExpression *assignmentExpr) override;
 
         void visit(IntegerValue *intVal) override;
+        void visit(IntegralValue<int8_t> *intVal) override;
+        void visit(IntegralValue<uint8_t> *intVal) override;
+        void visit(IntegralValue<int16_t> *intVal) override;
+        void visit(IntegralValue<uint16_t> *intVal) override;
+        void visit(IntegralValue<int32_t> *intVal) override;
+        void visit(IntegralValue<uint32_t> *intVal) override;
+        void visit(IntegralValue<int64_t> *intVal) override;
+        void visit(IntegralValue<uint64_t> *intVal) override;
 
+        // void visit(FloatingPointValue<float16_t> *floatVal) override;
+        void visit(FloatingPointValue<float/* float32_t */> *floatVal) override;
+        void visit(FloatingPointValue<double /* float64_t */> *floatVal) override;
+        // void visit(FloatingPointValue<float128_t> *floatVal) override;
+        
         void visit(StringValue *strVal) override;
 
         void visit(BooleanValue *boolVal) override;
@@ -132,6 +159,17 @@ namespace NG::ast {
 
         ~DummyVisitor() override;
     };
+
+    template<std::integral T>
+    void IntegralValue<T>::accept(AstVisitor* visitor) {
+        visitor->visit(this);
+    }
+
+    template<std::floating_point T>
+    void FloatingPointValue<T>::accept(AstVisitor* visitor) {
+        visitor->visit(this);
+    }
+
 } // namespace NG::AST
 
 #endif // NG_AST_VISITOR_HPP

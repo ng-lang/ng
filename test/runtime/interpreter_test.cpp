@@ -195,3 +195,33 @@ hel.hello();
 
 )");
 }
+
+
+TEST_CASE("should be able interpret integral values", "[InterpreterTest]") {
+    interpret(R"(
+val x = 1i8;
+
+val y = 2u16;
+
+val z = x + y;
+
+print(z);
+
+)");
+}
+
+
+
+TEST_CASE("should be able interpret integral & floating values", "[InterpreterTest]") {
+    interpret(R"(
+val x = 1f32;
+
+val y = 2f64;
+
+val a = 3i32;
+
+val z = x + y + a;
+
+print(z);
+)");
+}

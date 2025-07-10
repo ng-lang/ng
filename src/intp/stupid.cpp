@@ -1,6 +1,7 @@
 
 #include <intp/intp.hpp>
 #include <intp/runtime.hpp>
+#include <intp/runtime_numerals.hpp>
 #include <ast.hpp>
 #include <visitor.hpp>
 #include <token.hpp>
@@ -117,10 +118,67 @@ namespace NG::intp
 
         explicit ExpressionVisitor(RuntimeRef<NGContext> context) : context(context) {}
 
+        #pragma region Visit numeral literals
+
         void visit(IntegerValue *intVal) override
         {
-            object = makert<NGInteger>(intVal->value);
+            object = makert<NGIntegral<int32_t>>(intVal->value);
         }
+
+        void visit(IntegralValue<int8_t> *intVal) override
+        {
+            object = makert<NGIntegral<int8_t>>(intVal->value);
+        }
+        void visit(IntegralValue<uint8_t> *intVal) override
+        {
+            object = std::make_shared<NGIntegral<uint8_t>>(intVal->value);
+        }
+        void visit(IntegralValue<int16_t> *intVal) override
+        {
+            object = std::make_shared<NGIntegral<int16_t>>(intVal->value);
+        }
+        void visit(IntegralValue<uint16_t> *intVal) override
+        {
+            object = std::make_shared<NGIntegral<uint16_t>>(intVal->value);
+        }
+        void visit(IntegralValue<int32_t> *intVal) override
+        {
+            object = std::make_shared<NGIntegral<int32_t>>(intVal->value);
+        }
+        void visit(IntegralValue<uint32_t> *intVal) override
+        {
+            object = std::make_shared<NGIntegral<uint32_t>>(intVal->value);
+        }
+        void visit(IntegralValue<int64_t> *intVal) override
+        {
+            object = std::make_shared<NGIntegral<int64_t>>(intVal->value);
+        }
+        void visit(IntegralValue<uint64_t> *intVal) override
+        {
+            object = std::make_shared<NGIntegral<uint64_t>>(intVal->value);
+        }
+
+        // void visit(FloatingPointValue<float16_t> *floatVal) override
+        // {
+        //     object = std::make_shared<FloatingPointValue<float16_t>>(floatVal->value);
+        // }
+
+        void visit(FloatingPointValue<float /*float32_t*/> *floatVal) override
+        {
+            object = std::make_shared<NGFloatingPoint<float /* float32_t */>>(floatVal->value);
+        }
+
+        void visit(FloatingPointValue<double /*float64_t*/> *floatVal) override
+        {
+            object = std::make_shared<NGFloatingPoint<float /* float64_t */>>(floatVal->value);
+        }
+
+        // void visit(FloatingPointValue<float128_t> *floatVal) override
+        // {
+        //     object = std::make_shared<FloatingPointValue<float128_t>>(floatVal->value);
+        // }
+
+        #pragma endregion
 
         void visit(StringValue *strVal) override
         {
@@ -160,10 +218,12 @@ namespace NG::intp
 
         void visit(BinaryExpression *binExpr) override
         {
+            debug_log("BinExpr", binExpr->repr());
             ExpressionVisitor leftVisitor{context};
             ExpressionVisitor rightVisitor{context};
             binExpr->left->accept(&leftVisitor);
             binExpr->right->accept(&rightVisitor);
+            debug_log("BinExpr", binExpr->repr(), leftVisitor.object->show(), typeid(leftVisitor.object).name(), rightVisitor.object->show(), typeid(rightVisitor.object).name());
 
             object = evaluateExpr(binExpr->optr->operatorType, leftVisitor.object, rightVisitor.object);
         }
@@ -175,7 +235,7 @@ namespace NG::intp
 
         void visit(ArrayLiteral *array) override
         {
-            Vec<RuntimeRef<NGObject> > objects;
+            Vec<RuntimeRef<NGObject>> objects;
 
             ExpressionVisitor vis{context};
 
@@ -614,7 +674,7 @@ namespace NG::intp
             }
         }
 
-        NGContext * intpContext() override
+        NGContext *intpContext() override
         {
             return context.get();
         }
@@ -626,7 +686,7 @@ namespace NG::intp
 
     Interpreter *stupid()
     {
-        auto context = makert<NGContext>(NGContext {
+        auto context = makert<NGContext>(NGContext{
             .functions = predefs(),
             .modulePaths = {""},
         });

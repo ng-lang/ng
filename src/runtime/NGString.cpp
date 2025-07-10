@@ -1,11 +1,11 @@
 
 #include <intp/runtime.hpp>
-
+#include <intp/runtime_numerals.hpp>
 namespace NG::runtime {
     using InvCtx = NGInvocationContext;
 
 
-    Str NGString::show() {
+    Str NGString::show() const {
         return "\"" + value + "\"";
     }
 
@@ -16,11 +16,11 @@ namespace NG::runtime {
         return false;
     }
 
-    bool NGString::boolValue() {
+    bool NGString::boolValue() const {
         return !value.empty();
     }
 
-    RuntimeRef<NGType> NGString::type() {
+    RuntimeRef<NGType> NGString::type() const {
         return NGString::stringType();
     }
 
@@ -30,13 +30,15 @@ namespace NG::runtime {
                     {"size",   [](RuntimeRef<NGObject> self, RuntimeRef<NGContext> context, RuntimeRef<InvCtx> invCtx) {
                         auto str = std::dynamic_pointer_cast<NGString>(self);
 
-                        context->retVal = makert<NGInteger>(str->value.size());
+                        context->retVal = makert<NGIntegral<uint32_t>>(str->value.size());
                     }},
                     {"charAt", [](RuntimeRef<NGObject> self, RuntimeRef<NGContext> context, RuntimeRef<InvCtx> invCtx) {
                         auto str = std::dynamic_pointer_cast<NGString>(self);
-                        auto index = std::dynamic_pointer_cast<NGInteger>(invCtx->params[0]);
+                        auto numeral = std::dynamic_pointer_cast<NumeralBase>(invCtx->params[0]);
 
-                        context->retVal = makert<NGInteger>(str->value[index->asSize()]);
+                        auto index = NGIntegral<int32_t>::valueOf(numeral.get());
+
+                        context->retVal = makert<NGIntegral<int32_t>>(str->value[index]);
                     }}
             }
         });

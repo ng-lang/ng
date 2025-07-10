@@ -40,6 +40,18 @@ namespace NG::ast {
     void AstVisitor::visit(Module *mod) {}
 
     void AstVisitor::visit(IntegerValue *intVal) {}
+    void AstVisitor::visit(IntegralValue<int8_t> *intVal) {}
+    void AstVisitor::visit(IntegralValue<uint8_t> *intVal) {}
+    void AstVisitor::visit(IntegralValue<int16_t> *intVal) {}
+    void AstVisitor::visit(IntegralValue<uint16_t> *intVal) {}
+    void AstVisitor::visit(IntegralValue<int32_t> *intVal) {}
+    void AstVisitor::visit(IntegralValue<uint32_t> *intVal) {}
+    void AstVisitor::visit(IntegralValue<int64_t> *intVal) {}
+    void AstVisitor::visit(IntegralValue<uint64_t> *intVal) {}
+    // void AstVisitor::visit(FloatingPointValue<float16_t> *floatVal) {}
+    void AstVisitor::visit(FloatingPointValue<float/* float32_t */> *floatVal) {}
+    void AstVisitor::visit(FloatingPointValue<double /* float64_t */> *floatVal) {}
+    // void AstVisitor::visit(FloatingPointValue<float128_t> *floatVal) {}
 
     void AstVisitor::visit(StringValue *strVal) {}
 

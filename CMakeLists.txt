@@ -31,6 +31,7 @@ set(NG_LIB_SRC
         src/runtime/NGInteger.cpp
         src/runtime/NGString.cpp
         src/runtime/NGArray.cpp
+        src/runtime/NGNumeral.cpp
         src/runtime/NGStructuralObject.cpp
         src/runtime/NGModule.cpp
         src/module/ModuleLoader.cpp)

@@ -3,7 +3,7 @@
 
 namespace NG::runtime {
 
-    Str NGBoolean::show() {
+    Str NGBoolean::show() const {
         return value ? "true" : "false";
     }
 
@@ -14,7 +14,7 @@ namespace NG::runtime {
         return false;
     }
 
-    bool NGBoolean::boolValue() {
+    bool NGBoolean::boolValue() const {
         return value;
     }
 

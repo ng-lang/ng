@@ -1,28 +1,31 @@
 
 #include <intp/runtime.hpp>
-
+#include <intp/runtime_numerals.hpp>
 namespace NG::runtime {
 
     RuntimeRef<NGObject> NGArray::opIndex(RuntimeRef<NGObject> index) const {
 
-        auto ngInt = std::dynamic_pointer_cast<NGInteger>(index);
+        auto ngInt = std::dynamic_pointer_cast<NumeralBase>(index);
         if (ngInt == nullptr) {
             throw IllegalTypeException("Not a valid index");
         }
 
-        return (*this->items)[ngInt->asSize()];
+        auto indexVal = NGIntegral<int32_t>::valueOf(ngInt.get());
+
+        return (*this->items)[indexVal];
     }
 
     RuntimeRef<NGObject> NGArray::opIndex(RuntimeRef<NGObject> index, RuntimeRef<NGObject> newValue) {
-        auto ngInt = std::dynamic_pointer_cast<NGInteger>(index);
+        auto ngInt = std::dynamic_pointer_cast<NumeralBase>(index);
         if (ngInt == nullptr) {
             throw IllegalTypeException("Not a valid index");
         }
+        auto indexVal = NGIntegral<uint32_t>::valueOf(ngInt.get());
 
-        return (*items)[ngInt->asSize()] = newValue;
+        return (*items)[indexVal] = newValue;
     }
 
-    Str NGArray::show() {
+    Str NGArray::show() const {
         Str result{};
 
         for (const auto &item : (*this->items)) {
@@ -53,7 +56,7 @@ namespace NG::runtime {
         return false;
     }
 
-    bool NGArray::boolValue() {
+    bool NGArray::boolValue() const {
         return !items->empty();
     }
 

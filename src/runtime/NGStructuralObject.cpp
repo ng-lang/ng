@@ -3,7 +3,7 @@
 
 namespace NG::runtime {
 
-    RuntimeRef<NGType> NGStructuralObject::type() {
+    RuntimeRef<NGType> NGStructuralObject::type() const {
         return this->customizedType;
     }
 
@@ -25,7 +25,7 @@ namespace NG::runtime {
 
     }
 
-    Str NGStructuralObject::show() {
+    Str NGStructuralObject::show() const {
         Str repr{};
         for (const auto &[name, value] : properties) {
             if (!repr.empty()) {

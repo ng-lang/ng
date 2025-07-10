@@ -9,7 +9,7 @@ namespace NG::runtime {
         return makert<NGBoolean>(boolean);
     }
 
-    Str NGObject::show() {
+    Str NGObject::show() const {
         return "[NGObject]";
     }
 
@@ -92,7 +92,7 @@ namespace NG::runtime {
         return objectType;
     }
 
-    RuntimeRef<NGType> NGObject::type() {
+    RuntimeRef<NGType> NGObject::type() const {
         return objectType();
     }
 

@@ -62,7 +62,7 @@ namespace NG::ast {
         }
     }
 
-    Str Module::repr() {
+    Str Module::repr() const {
         return Str{"module:"} + this->name + "\n" + strOfNodeList(definitions, "\n") + strOfNodeList(statements, "\n");
     }
 
@@ -81,7 +81,7 @@ namespace NG::ast {
             anno.type == type;
     }
 
-    Str TypeAnnotation::repr() {
+    Str TypeAnnotation::repr() const {
         return this->name;
     }
 
@@ -99,7 +99,7 @@ namespace NG::ast {
                type == param.type;
     }
 
-    Str Param::repr() {
+    Str Param::repr() const {
         return paramName + (annotatedType.has_value() ? ( ": " + (*annotatedType)->repr()) : "");
     }
 
@@ -122,7 +122,7 @@ namespace NG::ast {
                           ASTComparator);
     }
 
-    Str CompoundStatement::repr() {
+    Str CompoundStatement::repr() const {
         return "{\n" + strOfNodeList(this->statements, "\n") + "}";
     }
 
@@ -142,7 +142,7 @@ namespace NG::ast {
                *expression == *ret.expression;
     }
 
-    Str ReturnStatement::repr() {
+    Str ReturnStatement::repr() const {
         return "return " + this->expression->repr() + ";";
     }
 
@@ -172,7 +172,7 @@ namespace NG::ast {
                 *alternative == *ifstmt.alternative);
     }
 
-    Str IfStatement::repr() {
+    Str IfStatement::repr() const {
         return "if (" + this->testing->repr() + ") {\n" + this->consequence->repr() + "}" +
                (this->alternative == nullptr ? "" : (" else {\n" + this->alternative->repr() + "}"));
     }
@@ -193,7 +193,7 @@ namespace NG::ast {
                *expression == *simple.expression;
     }
 
-    Str SimpleStatement::repr() {
+    Str SimpleStatement::repr() const {
         return this->expression->repr() + ";";
     }
 
@@ -219,7 +219,7 @@ namespace NG::ast {
         }
     }
 
-    Str FunCallExpression::repr() {
+    Str FunCallExpression::repr() const {
         return this->primaryExpression->repr() + "(" + strOfNodeList(this->arguments) + ")";
     }
 
@@ -240,7 +240,7 @@ namespace NG::ast {
             destroyast(value);
     }
 
-    Str AssignmentExpression::repr() {
+    Str AssignmentExpression::repr() const {
         return this->name + " = " + this->value->repr();
     }
 
@@ -261,7 +261,7 @@ namespace NG::ast {
             destroyast(value);
     }
 
-    Str ValDefStatement::repr() {
+    Str ValDefStatement::repr() const {
         return "val " + this->name + " = " + this->value->repr() + ";";
     }
 
@@ -282,7 +282,7 @@ namespace NG::ast {
         }
     }
 
-    Str ValDef::repr() {
+    Str ValDef::repr() const {
         return this->body->repr();
     }
 
@@ -300,7 +300,7 @@ namespace NG::ast {
         return node.id == id;
     }
 
-    Str IdExpression::repr() {
+    Str IdExpression::repr() const {
         return id;
     }
 
@@ -320,7 +320,7 @@ namespace NG::ast {
         destroyast(accessor);
     }
 
-    Str IdAccessorExpression::repr() {
+    Str IdAccessorExpression::repr() const {
         return this->primaryExpression->repr() +
                (this->accessor == nullptr ? "" : ("." + this->accessor->repr()));
     }
@@ -335,7 +335,7 @@ namespace NG::ast {
                intVal.value == value;
     }
 
-    Str IntegerValue::repr() {
+    Str IntegerValue::repr() const {
         return std::to_string(this->value);
     }
 
@@ -349,7 +349,7 @@ namespace NG::ast {
                strVal.value == value;
     }
 
-    Str StringValue::repr() {
+    Str StringValue::repr() const {
         return "\"" + this->value + "\"";
     }
 
@@ -363,7 +363,7 @@ namespace NG::ast {
                value == val.value;
     }
 
-    Str BooleanValue::repr() {
+    Str BooleanValue::repr() const {
         return this->value ? "true" : "false";
     }
 
@@ -375,7 +375,7 @@ namespace NG::ast {
         return ASTNodeType::ARRAY_LITERAL;
     }
 
-    Str ArrayLiteral::repr() {
+    Str ArrayLiteral::repr() const {
         return "[" + strOfNodeList(elements) + "]";
     }
 
@@ -418,7 +418,7 @@ namespace NG::ast {
         return funName;
     }
 
-    Str FunctionDef::repr() {
+    Str FunctionDef::repr() const {
         return "fun " + funName + "(" + strOfNodeList(params) + ")" + body->repr();
     }
 
@@ -440,7 +440,7 @@ namespace NG::ast {
         delete optr;
     }
 
-    Str BinaryExpression::repr() {
+    Str BinaryExpression::repr() const {
         return left->repr() + this->optr->repr + right->repr();
     }
 
@@ -459,7 +459,7 @@ namespace NG::ast {
                *accessor == *(indexAccExpr.accessor);
     }
 
-    Str IndexAccessorExpression::repr() {
+    Str IndexAccessorExpression::repr() const {
         return primary->repr() + "[" + accessor->repr() + "]";
     }
 
@@ -485,7 +485,7 @@ namespace NG::ast {
 
     }
 
-    Str IndexAssignmentExpression::repr() {
+    Str IndexAssignmentExpression::repr() const {
         return primary->repr() + "[" + accessor->repr() + "] = " + value->repr();
     }
 
@@ -522,7 +522,7 @@ namespace NG::ast {
 
     }
 
-    Str TypeDef::repr() {
+    Str TypeDef::repr() const {
         const Str &propertiesRepr = strOfNodeList(properties, "\n");
         const Str &membersRepr = strOfNodeList(memberFunctions, "\n");
 
@@ -557,7 +557,7 @@ namespace NG::ast {
         visitor->visit(this);
     }
 
-    Str PropertyDef::repr() {
+    Str PropertyDef::repr() const {
         return "property " + propertyName + ";";
     }
 
@@ -580,7 +580,7 @@ namespace NG::ast {
                           });
     }
 
-    Str NewObjectExpression::repr() {
+    Str NewObjectExpression::repr() const {
         Str props{};
 
         for (const auto &property : properties) {
@@ -612,7 +612,7 @@ namespace NG::ast {
         visitor->visit(this);
     }
 
-    Str ImportDecl::repr() {
+    Str ImportDecl::repr() const {
         return module;
     }
 
@@ -629,7 +629,7 @@ namespace NG::ast {
         visitor->visit(this);
     }
 
-    Str CompileUnit::repr() {
+    Str CompileUnit::repr() const {
         return Str{"Compile Unit: "} + fileName;
     }
 

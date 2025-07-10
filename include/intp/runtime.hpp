@@ -6,6 +6,7 @@
 #include <functional>
 #include "common.hpp"
 #include <memory>
+#include <debug.hpp>
 
 namespace NG::runtime {
 
@@ -94,13 +95,18 @@ namespace NG::runtime {
     };
 
     struct ObjectBase {
-        virtual Str show() = 0;
+        virtual Str show() const = 0;
 
-        virtual bool boolValue() = 0;
+        virtual bool boolValue() const = 0;
 
-        virtual RuntimeRef<NGType> type() = 0;
+        virtual RuntimeRef<NGType> type() const = 0;
 
         virtual ~ObjectBase() = 0;
+    };
+
+    enum class Orders {
+        GT, EQ, LT,
+        UNORDERED
     };
 
     struct NGObject : public virtual OperatorsBase, public virtual ObjectBase {
@@ -111,13 +117,13 @@ namespace NG::runtime {
 
         static RuntimeRef<NGType> objectType();
 
-        bool boolValue() override {
+        bool boolValue() const override {
             return true;
         }
 
-        Str show() override;
+        Str show() const override;
 
-        RuntimeRef<NGType> type() override;
+        RuntimeRef<NGType> type() const override;
 
         ~NGObject() override;
 
@@ -149,6 +155,10 @@ namespace NG::runtime {
 
         RuntimeRef<NGObject> opModulus(RuntimeRef<NGObject> other) const override;
 
+        virtual Orders compareTo(const NGObject* other) const {
+            return Orders::UNORDERED;
+        };
+
         bool opGreaterThan(RuntimeRef<NGObject> other) const override;
 
         bool opLessThan(RuntimeRef<NGObject> other) const override;
@@ -165,13 +175,20 @@ namespace NG::runtime {
         RuntimeRef<NGObject> respond(const Str &member, RuntimeRef<NGContext> context, RuntimeRef<NGInvocationContext> invocationContext) override;
     };
 
-    enum class Orders {
-        GT, EQ, LT,
-        UNORDERED
-    };
+    inline Orders negate(Orders order) {
+        switch (order) {
+            case Orders::GT: return Orders::LT;
+            case Orders::LT: return Orders::GT;
+            default: return order;
+        }
+    }
 
     template<class T>
     struct ThreeWayComparable : public virtual NGObject {
+
+        Orders compareTo(const NGObject* other) const override {
+            return T::comparator(this, other);
+        }
 
         bool opEquals(RuntimeRef<NGObject> other) const override {
             return T::comparator(this, other.get()) == Orders::EQ;
@@ -205,11 +222,11 @@ namespace NG::runtime {
 
         explicit NGInteger(long long value = 0) : value{value} {}
 
-        Str show() override {
+        Str show() const override {
             return std::to_string(value);
         }
 
-        bool boolValue() override;
+        bool boolValue() const override;
 
         RuntimeRef<NGObject> opPlus(RuntimeRef<NGObject> other) const override;
 
@@ -257,9 +274,9 @@ namespace NG::runtime {
 
         RuntimeRef<NGObject> opIndex(RuntimeRef<NGObject> index, RuntimeRef<NGObject> newValue) override;
 
-        Str show() override;
+        Str show() const override;
 
-        bool boolValue() override;
+        bool boolValue() const override;
 
         bool opEquals(RuntimeRef<NGObject> other) const override;
 
@@ -271,11 +288,11 @@ namespace NG::runtime {
 
         explicit NGBoolean(bool value = false) : value{value} {}
 
-        Str show() override;
+        Str show() const override;
 
         bool opEquals(RuntimeRef<NGObject> other) const override;
 
-        bool boolValue() override;
+        bool boolValue() const override;
     };
 
     struct NGString final : NGObject {
@@ -283,13 +300,13 @@ namespace NG::runtime {
 
         static RuntimeRef<NGType> stringType();
 
-        RuntimeRef<NGType> type() override;
+        RuntimeRef<NGType> type() const override;
 
         explicit NGString(const Str &str) : value{str} {}
 
-        Str show() override;
+        Str show() const override;
 
-        bool boolValue() override;
+        bool boolValue() const override;
 
         bool opEquals(RuntimeRef<NGObject> other) const override;
 
@@ -305,9 +322,9 @@ namespace NG::runtime {
 
         RuntimeRef<NGObject> respond(const Str &member, RuntimeRef<NGContext> context, RuntimeRef<NGInvocationContext> invocationContext) override;
 
-        RuntimeRef<NGType> type() override;
+        RuntimeRef<NGType> type() const override;
 
-        Str show() override;
+        Str show() const override;
     };
 
 }

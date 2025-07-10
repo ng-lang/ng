@@ -3,11 +3,11 @@
 
 namespace NG::runtime {
 
-    Str ObjectBase::show() {
+    Str ObjectBase::show() const {
         return NG::Str();
     }
 
-    bool ObjectBase::boolValue() {
+    bool ObjectBase::boolValue() const {
         return false;
     }
 

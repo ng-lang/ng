@@ -59,7 +59,7 @@ namespace NG::runtime {
         throw IllegalTypeException("% Not a number" + other->show());
     }
 
-    bool NGInteger::boolValue() {
+    bool NGInteger::boolValue() const {
         return value != 0;
     }
 }

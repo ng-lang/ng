@@ -261,3 +261,18 @@ val some_object: SomeObject = new SomeObject {};
     REQUIRE(astResult.has_value());
     destroyast(*astResult);
 }
+
+
+TEST_CASE("parser should parse builtin integral and floating_point values", "[ParserTest]") {
+    auto astResult = parse(R"(
+val x: int = 1i32;
+
+val y: uint = 1u32;
+
+val a: f32 = 1.0;
+
+val y: f64 = 2.6f64;
+)");
+    REQUIRE(astResult.has_value());
+    destroyast(*astResult);
+}
