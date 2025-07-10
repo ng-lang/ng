@@ -18,9 +18,11 @@
 #include <ast/ref_adapter_raw.hpp>
 #endif // NG_CONING_USING_SHARED_PTR_FOR_AST
 
-namespace NG::ast {
+namespace NG::ast
+{
 
-    enum class [[nodiscard]] ASTNodeType : uint32_t {
+    enum class [[nodiscard]] ASTNodeType : uint32_t
+    {
         UNKNOWN = 0,
         COMPILE_UNIT = 0x01,
         TYPE_ANNOTATION = 0x02,
@@ -64,7 +66,8 @@ namespace NG::ast {
         BOTTOM
     };
 
-    struct ASTNode : NonCopyable {
+    struct ASTNode : NonCopyable
+    {
         ASTNode() = default;
 
         virtual void accept(AstVisitor *visitor) = 0;
@@ -78,12 +81,14 @@ namespace NG::ast {
         ~ASTNode() override = 0;
     };
 
-    struct ImportDecl : ASTNode {
+    struct ImportDecl : ASTNode
+    {
         Str module;
         Str alias;
         Vec<Str> imports;
 
-        ASTNodeType astNodeType() const override {
+        ASTNodeType astNodeType() const override
+        {
             return ASTNodeType::IMPORT_DECLARATION;
         }
 
@@ -94,25 +99,29 @@ namespace NG::ast {
         Str repr() const override;
 
         ~ImportDecl() override;
-
     };
 
     struct Module;
-    struct Statement : ASTNode {
+    struct Statement : ASTNode
+    {
     };
 
-    struct Expression : ASTNode {
+    struct Expression : ASTNode
+    {
     };
-    struct Definition : ASTNode {
+    struct Definition : ASTNode
+    {
         [[nodiscard]] virtual Str name() const = 0;
     };
 
-    enum class ParamType : int32_t {
+    enum class ParamType : int32_t
+    {
         Simple = 0x01,
         Annotated = 0x02
     };
 
-    enum TypeAnnotationType {
+    enum TypeAnnotationType
+    {
         BUILTIN,
         BUILTIN_INT,
         BUILTIN_BOOL,
@@ -149,8 +158,8 @@ namespace NG::ast {
         CUSTOMIZED,
     };
 
-
-    struct TypeAnnotation : ASTNode {
+    struct TypeAnnotation : ASTNode
+    {
         const Str name;
         TypeAnnotationType type;
 
@@ -159,11 +168,12 @@ namespace NG::ast {
         void accept(AstVisitor *visitor) override;
         ASTNodeType astNodeType() const override { return ASTNodeType::TYPE_ANNOTATION; }
 
-        bool operator==(const ASTNode& node) const override;
+        bool operator==(const ASTNode &node) const override;
         Str repr() const override;
         ~TypeAnnotation() override;
     };
-    struct Param : ASTNode {
+    struct Param : ASTNode
+    {
         const ParamType type;
         const Str paramName;
         std::optional<ASTRef<TypeAnnotation>> annotatedType;
@@ -173,7 +183,7 @@ namespace NG::ast {
         Param(const Str &name, ASTRef<TypeAnnotation> type) : Param(name, type, ParamType::Annotated) {}
 
         Param(Str name, std::optional<ASTRef<TypeAnnotation>> _annotatedType, ParamType type)
-                : paramName(std::move(name)), annotatedType(_annotatedType), type(type) {}
+            : paramName(std::move(name)), annotatedType(_annotatedType), type(type) {}
 
         void accept(AstVisitor *visitor) override;
 
@@ -186,7 +196,8 @@ namespace NG::ast {
         Str repr() const override;
     };
 
-    struct FunctionDef : Definition {
+    struct FunctionDef : Definition
+    {
         Str funName{};
         Vec<ASTRef<Param>> params{};
         ASTRef<Statement> body = nullptr;
@@ -204,7 +215,8 @@ namespace NG::ast {
         ~FunctionDef() override;
     };
 
-    struct CompoundStatement : Statement {
+    struct CompoundStatement : Statement
+    {
         Vec<ASTRef<Statement>> statements{};
 
         void accept(AstVisitor *visitor) override;
@@ -218,7 +230,8 @@ namespace NG::ast {
         ~CompoundStatement() override;
     };
 
-    struct ReturnStatement : Statement {
+    struct ReturnStatement : Statement
+    {
         ASTRef<Expression> expression = nullptr;
 
         void accept(AstVisitor *visitor) override;
@@ -232,7 +245,8 @@ namespace NG::ast {
         ~ReturnStatement() override;
     };
 
-    struct IfStatement : Statement {
+    struct IfStatement : Statement
+    {
         ASTRef<Expression> testing = nullptr;
         ASTRef<Statement> consequence = nullptr;
         ASTRef<Statement> alternative = nullptr;
@@ -248,7 +262,8 @@ namespace NG::ast {
         ~IfStatement() override;
     };
 
-    struct SimpleStatement : Statement {
+    struct SimpleStatement : Statement
+    {
 
         ASTRef<Expression> expression = nullptr;
 
@@ -263,7 +278,8 @@ namespace NG::ast {
         ~SimpleStatement() override;
     };
 
-    struct Module : ASTNode {
+    struct Module : ASTNode
+    {
         const ASTNodeType ast_node_type = ASTNodeType::MODULE;
         Str name;
 
@@ -275,7 +291,8 @@ namespace NG::ast {
 
         Vec<ASTRef<ImportDecl>> imports;
 
-        explicit Module(Str _name = "default") : name(std::move(_name)) {
+        explicit Module(Str _name = "default") : name(std::move(_name))
+        {
         }
 
         ASTNodeType astNodeType() const override { return ast_node_type; }
@@ -289,7 +306,8 @@ namespace NG::ast {
         ~Module() override;
     };
 
-    struct CompileUnit : ASTNode {
+    struct CompileUnit : ASTNode
+    {
         Vec<ASTRef<Module>> modules;
         Str fileName;
         Str path;
@@ -305,7 +323,8 @@ namespace NG::ast {
         ~CompileUnit() override;
     };
 
-    struct FunCallExpression : Expression {
+    struct FunCallExpression : Expression
+    {
         ASTRef<Expression> primaryExpression;
         Vec<ASTRef<Expression>> arguments;
 
@@ -320,7 +339,8 @@ namespace NG::ast {
         ~FunCallExpression() override;
     };
 
-    struct IdExpression : Expression {
+    struct IdExpression : Expression
+    {
         const Str id;
 
         explicit IdExpression(Str _id) : id(std::move(_id)) {}
@@ -335,7 +355,8 @@ namespace NG::ast {
         void accept(AstVisitor *visitor) override;
     };
 
-    struct IdAccessorExpression : Expression {
+    struct IdAccessorExpression : Expression
+    {
         ASTRef<Expression> primaryExpression;
         ASTRef<IdExpression> accessor;
         Vec<ASTRef<Expression>> arguments;
@@ -351,7 +372,8 @@ namespace NG::ast {
         ~IdAccessorExpression() override;
     };
 
-    struct IndexAccessorExpression : Expression {
+    struct IndexAccessorExpression : Expression
+    {
         ASTRef<Expression> primary;
         ASTRef<Expression> accessor;
 
@@ -369,16 +391,16 @@ namespace NG::ast {
         ~IndexAccessorExpression() override;
     };
 
-    struct IndexAssignmentExpression : Expression {
+    struct IndexAssignmentExpression : Expression
+    {
         ASTRef<Expression> primary;
         ASTRef<Expression> accessor;
         ASTRef<Expression> value;
 
         IndexAssignmentExpression(
-                ASTRef<Expression> primary,
-                ASTRef<Expression> accessor,
-                ASTRef<Expression> value
-        ) : primary{primary}, accessor{accessor}, value{value} {}
+            ASTRef<Expression> primary,
+            ASTRef<Expression> accessor,
+            ASTRef<Expression> value) : primary{primary}, accessor{accessor}, value{value} {}
 
         void accept(AstVisitor *visitor) override;
 
@@ -391,12 +413,13 @@ namespace NG::ast {
         ~IndexAssignmentExpression() override;
     };
 
-    struct ValDefStatement : Statement {
+    struct ValDefStatement : Statement
+    {
         const Str name;
 
         ASTRef<Expression> value{};
 
-        std::optional<ASTRef<TypeAnnotation>> typeAnnotation {};
+        std::optional<ASTRef<TypeAnnotation>> typeAnnotation{};
 
         explicit ValDefStatement(Str _name) : name(std::move(_name)) {}
 
@@ -411,10 +434,12 @@ namespace NG::ast {
         ~ValDefStatement() override;
     };
 
-    struct ValDef : Definition {
+    struct ValDef : Definition
+    {
         ASTRef<ValDefStatement> body = nullptr;
 
-        [[nodiscard]] Str name() const override {
+        [[nodiscard]] Str name() const override
+        {
             return body->name;
         }
 
@@ -431,7 +456,8 @@ namespace NG::ast {
         ~ValDef() override;
     };
 
-    struct AssignmentExpression : Expression {
+    struct AssignmentExpression : Expression
+    {
         const Str name;
         ASTRef<Expression> value{};
 
@@ -448,7 +474,8 @@ namespace NG::ast {
         ~AssignmentExpression() override;
     };
 
-    struct BinaryExpression : Expression {
+    struct BinaryExpression : Expression
+    {
         Token *optr;
         ASTRef<Expression> left;
         ASTRef<Expression> right;
@@ -464,7 +491,8 @@ namespace NG::ast {
         ~BinaryExpression() override;
     };
 
-    struct IntegerValue : Expression {
+    struct IntegerValue : Expression
+    {
         const int value;
 
         explicit IntegerValue(int v) : value(v) {}
@@ -478,52 +506,61 @@ namespace NG::ast {
         bool operator==(const ASTNode &node) const override;
     };
 
-    template<std::integral T>
-    struct IntegralValue : Expression {
+    template <std::integral T>
+    struct IntegralValue : Expression
+    {
         const T value;
         constexpr static size_t size = sizeof(T);
 
-        explicit IntegralValue(T v): value(v) {}
+        explicit IntegralValue(T v) : value(v) {}
 
         void accept(AstVisitor *visitor) override;
 
-        ASTNodeType astNodeType() const override {
+        ASTNodeType astNodeType() const override
+        {
             return ASTNodeType::INTEGRAL_VALUE;
         }
 
-        Str repr() const override {
+        Str repr() const override
+        {
             return std::to_string(this->value);
         }
 
-        bool operator==(const ASTNode& node) const override {
+        bool operator==(const ASTNode &node) const override
+        {
             return this->astNodeType() == node.astNodeType() &&
-                this->repr() == node.repr();
+                   this->repr() == node.repr();
         }
     };
 
-    template<std::floating_point T>
-    struct FloatingPointValue : Expression {
+    template <std::floating_point T>
+    struct FloatingPointValue : Expression
+    {
         const T value;
         constexpr static size_t size = sizeof(T);
 
-        explicit FloatingPointValue(T v): value(v) {}
+        explicit FloatingPointValue(T v) : value(v) {}
 
         void accept(AstVisitor *visitor) override;
 
-        ASTNodeType astNodeType() const override {
+        ASTNodeType astNodeType() const override
+        {
             return ASTNodeType::FLOATING_POINT_VALUE;
         }
 
-        Str repr() const override {
+        Str repr() const override
+        {
             return std::to_string(this->value);
         }
 
-        bool operator==(const ASTNode& node) const override {
+        bool operator==(const ASTNode &node) const override
+        {
             return this->astNodeType() == node.astNodeType() &&
-                this->repr() == node.repr();
+                   this->repr() == node.repr();
         }
     };
-    struct StringValue : Expression {
+    struct StringValue : Expression
+    {
         const Str value;
 
         explicit StringValue(Str v) : value(std::move(v)) {}
@@ -537,7 +574,8 @@ namespace NG::ast {
         bool operator==(const ASTNode &node) const override;
     };
 
-    struct BooleanValue : Expression {
+    struct BooleanValue : Expression
+    {
         const bool value;
 
         explicit BooleanValue(bool _value) : value(_value) {}
@@ -551,10 +589,12 @@ namespace NG::ast {
         bool operator==(const ASTNode &node) const override;
     };
 
-    struct ArrayLiteral : Expression {
+    struct ArrayLiteral : Expression
+    {
         Vec<ASTRef<Expression>> elements;
 
-        explicit ArrayLiteral() : elements{} {
+        explicit ArrayLiteral() : elements{}
+        {
         }
 
         explicit ArrayLiteral(const Vec<ASTRef<Expression>> &exprs) : elements{exprs} {}
@@ -570,7 +610,8 @@ namespace NG::ast {
         ~ArrayLiteral() override;
     };
 
-    struct PropertyDef : Definition {
+    struct PropertyDef : Definition
+    {
         Str propertyName;
 
         explicit PropertyDef(Str name) : propertyName{std::move(name)} {}
@@ -586,11 +627,11 @@ namespace NG::ast {
         Str repr() const override;
     };
 
-    struct TypeDef : Definition {
+    struct TypeDef : Definition
+    {
         Str typeName;
         Vec<ASTRef<FunctionDef>> memberFunctions;
         Vec<ASTRef<PropertyDef>> properties;
-
 
         ASTNodeType astNodeType() const override;
 
@@ -605,7 +646,8 @@ namespace NG::ast {
         ~TypeDef() override;
     };
 
-    struct NewObjectExpression : Expression {
+    struct NewObjectExpression : Expression
+    {
         Str typeName;
         Map<Str, ASTRef<Expression>> properties;
 

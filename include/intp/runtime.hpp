@@ -8,23 +8,27 @@
 #include <memory>
 #include <debug.hpp>
 
-namespace NG::runtime {
+namespace NG::runtime
+{
 
-    template<class T>
+    template <class T>
     using RuntimeRef = std::shared_ptr<T>;
 
-    template<class T, class... Args>
-    inline RuntimeRef<T> makert(Args &&... args) {
+    template <class T, class... Args>
+    inline RuntimeRef<T> makert(Args &&...args)
+    {
         return std::make_shared<T>(std::move(args)...);
     }
 
-    struct NGInvocationContext {
+    struct NGInvocationContext
+    {
         RuntimeRef<NGObject> target;
         Vec<RuntimeRef<NGObject>> params;
     };
 
     using NGInvocationHandler = std::function<void(RuntimeRef<NGObject> self, RuntimeRef<NGContext> ctx, RuntimeRef<NGInvocationContext> invCtx)>;
-    struct NGType {
+    struct NGType
+    {
         Str name;
 
         Vec<Str> properties;
@@ -32,7 +36,8 @@ namespace NG::runtime {
         Map<Str, NGInvocationHandler> memberFunctions;
     };
 
-    struct NGContext {
+    struct NGContext
+    {
         Str currentModuleName{};
         Vec<Str> modulePaths{};
         Map<Str, RuntimeRef<NGObject>> objects;
@@ -45,8 +50,10 @@ namespace NG::runtime {
 
         RuntimeRef<NGObject> retVal;
 
-        void appendModulePath(const Str& path) {
-            if (std::find(std::begin(modulePaths), std::end(modulePaths), path) == std::end(modulePaths)) {
+        void appendModulePath(const Str &path)
+        {
+            if (std::find(std::begin(modulePaths), std::end(modulePaths), path) == std::end(modulePaths))
+            {
                 modulePaths.push_back(path);
             }
         }
@@ -54,7 +61,8 @@ namespace NG::runtime {
         ~NGContext();
     };
 
-    struct OperatorsBase {
+    struct OperatorsBase
+    {
         virtual RuntimeRef<NGObject> opIndex(RuntimeRef<NGObject> index) const = 0;
 
         // obj[index] = newValue
@@ -94,7 +102,8 @@ namespace NG::runtime {
         virtual ~OperatorsBase() noexcept = 0;
     };
 
-    struct ObjectBase {
+    struct ObjectBase
+    {
         virtual Str show() const = 0;
 
         virtual bool boolValue() const = 0;
@@ -104,12 +113,16 @@ namespace NG::runtime {
         virtual ~ObjectBase() = 0;
     };
 
-    enum class Orders {
-        GT, EQ, LT,
+    enum class Orders
+    {
+        GT,
+        EQ,
+        LT,
         UNORDERED
     };
 
-    struct NGObject : public virtual OperatorsBase, public virtual ObjectBase {
+    struct NGObject : public virtual OperatorsBase, public virtual ObjectBase
+    {
 
         NGObject() = default;
 
@@ -117,7 +130,8 @@ namespace NG::runtime {
 
         static RuntimeRef<NGType> objectType();
 
-        bool boolValue() const override {
+        bool boolValue() const override
+        {
             return true;
         }
 
@@ -128,9 +142,9 @@ namespace NG::runtime {
         ~NGObject() override;
 
         // TODO: reference counting
-//        virtual void acquire() = 0;
-//
-//        virtual void release() = 0;
+        //        virtual void acquire() = 0;
+        //
+        //        virtual void release() = 0;
 
         // Operators overloading
 
@@ -155,7 +169,8 @@ namespace NG::runtime {
 
         RuntimeRef<NGObject> opModulus(RuntimeRef<NGObject> other) const override;
 
-        virtual Orders compareTo(const NGObject* other) const {
+        virtual Orders compareTo(const NGObject *other) const
+        {
             return Orders::UNORDERED;
         };
 
@@ -175,52 +190,67 @@ namespace NG::runtime {
         RuntimeRef<NGObject> respond(const Str &member, RuntimeRef<NGContext> context, RuntimeRef<NGInvocationContext> invocationContext) override;
     };
 
-    inline Orders negate(Orders order) {
-        switch (order) {
-            case Orders::GT: return Orders::LT;
-            case Orders::LT: return Orders::GT;
-            default: return order;
+    inline Orders negate(Orders order)
+    {
+        switch (order)
+        {
+        case Orders::GT:
+            return Orders::LT;
+        case Orders::LT:
+            return Orders::GT;
+        default:
+            return order;
         }
     }
 
-    template<class T>
-    struct ThreeWayComparable : public virtual NGObject {
+    template <class T>
+    struct ThreeWayComparable : public virtual NGObject
+    {
 
-        Orders compareTo(const NGObject* other) const override {
+        Orders compareTo(const NGObject *other) const override
+        {
             return T::comparator(this, other);
         }
 
-        bool opEquals(RuntimeRef<NGObject> other) const override {
+        bool opEquals(RuntimeRef<NGObject> other) const override
+        {
             return T::comparator(this, other.get()) == Orders::EQ;
         }
 
-        bool opNotEqual(RuntimeRef<NGObject> other) const override {
+        bool opNotEqual(RuntimeRef<NGObject> other) const override
+        {
             return !this->opEquals(other);
         }
 
-        bool opLessThan(RuntimeRef<NGObject> other) const override {
+        bool opLessThan(RuntimeRef<NGObject> other) const override
+        {
             return T::comparator(this, other.get()) == Orders::LT;
         }
 
-        bool opGreaterThan(RuntimeRef<NGObject> other) const override {
+        bool opGreaterThan(RuntimeRef<NGObject> other) const override
+        {
             return T::comparator(this, other.get()) == Orders::GT;
         }
 
-        bool opLessEqual(RuntimeRef<NGObject> other) const override {
+        bool opLessEqual(RuntimeRef<NGObject> other) const override
+        {
             return !this->opGreaterThan(other);
         }
 
-        bool opGreaterEqual(RuntimeRef<NGObject> other) const override {
+        bool opGreaterEqual(RuntimeRef<NGObject> other) const override
+        {
             return !this->opLessThan(other);
         }
     };
 
-    struct NGDefinition {
+    struct NGDefinition
+    {
         Str name;
         NG::ast::ASTNode *defbody;
     };
 
-    struct NGModule : public virtual NGObject {
+    struct NGModule : public virtual NGObject
+    {
         Vec<Str> imports;
         Vec<Str> exports;
 
@@ -228,7 +258,8 @@ namespace NG::runtime {
         Map<Str, NGInvocationHandler> functions;
         Map<Str, RuntimeRef<NGType>> types;
 
-        size_t size() const {
+        size_t size() const
+        {
             return objects.size() + functions.size() + types.size();
         }
 
@@ -237,7 +268,8 @@ namespace NG::runtime {
         ~NGModule() override;
     };
 
-    struct NGArray : NGObject {
+    struct NGArray : NGObject
+    {
         RuntimeRef<Vec<RuntimeRef<NGObject>>> items;
 
         explicit NGArray(const Vec<RuntimeRef<NGObject>> &vec = {}) : items{makert<Vec<RuntimeRef<NGObject>>>(vec)} {}
@@ -255,7 +287,8 @@ namespace NG::runtime {
         RuntimeRef<NGObject> opLShift(RuntimeRef<NGObject> other) override;
     };
 
-    struct NGBoolean final : NGObject {
+    struct NGBoolean final : NGObject
+    {
         bool value;
 
         explicit NGBoolean(bool value = false) : value{value} {}
@@ -267,7 +300,8 @@ namespace NG::runtime {
         bool boolValue() const override;
     };
 
-    struct NGString final : NGObject {
+    struct NGString final : NGObject
+    {
         Str value;
 
         static RuntimeRef<NGType> stringType();
@@ -285,8 +319,8 @@ namespace NG::runtime {
         RuntimeRef<NGObject> opPlus(RuntimeRef<NGObject> other) const override;
     };
 
-
-    struct NGStructuralObject : NGObject {
+    struct NGStructuralObject : NGObject
+    {
         RuntimeRef<NGType> customizedType{};
         Map<Str, RuntimeRef<NGObject>> properties{};
 

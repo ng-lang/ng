@@ -118,7 +118,7 @@ namespace NG::intp
 
         explicit ExpressionVisitor(RuntimeRef<NGContext> context) : context(context) {}
 
-        #pragma region Visit numeral literals
+#pragma region Visit numeral literals
 
         void visit(IntegerValue *intVal) override
         {
@@ -178,7 +178,7 @@ namespace NG::intp
         //     object = std::make_shared<FloatingPointValue<float128_t>>(floatVal->value);
         // }
 
-        #pragma endregion
+#pragma endregion
 
         void visit(StringValue *strVal) override
         {
@@ -685,8 +685,8 @@ namespace NG::intp
     Interpreter *stupid()
     {
         auto context = makert<NGContext>(NGContext{
-            .functions = predefs(),
             .modulePaths = {""},
+            .functions = predefs(),
         });
 
         return new Stupid(context);

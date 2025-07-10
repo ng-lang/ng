@@ -1,12 +1,15 @@
 
 #include <intp/runtime.hpp>
 #include <intp/runtime_numerals.hpp>
-namespace NG::runtime {
+namespace NG::runtime
+{
 
-    RuntimeRef<NGObject> NGArray::opIndex(RuntimeRef<NGObject> index) const {
+    RuntimeRef<NGObject> NGArray::opIndex(RuntimeRef<NGObject> index) const
+    {
 
         auto ngInt = std::dynamic_pointer_cast<NumeralBase>(index);
-        if (ngInt == nullptr) {
+        if (ngInt == nullptr)
+        {
             throw IllegalTypeException("Not a valid index");
         }
 
@@ -15,9 +18,11 @@ namespace NG::runtime {
         return (*this->items)[indexVal];
     }
 
-    RuntimeRef<NGObject> NGArray::opIndex(RuntimeRef<NGObject> index, RuntimeRef<NGObject> newValue) {
+    RuntimeRef<NGObject> NGArray::opIndex(RuntimeRef<NGObject> index, RuntimeRef<NGObject> newValue)
+    {
         auto ngInt = std::dynamic_pointer_cast<NumeralBase>(index);
-        if (ngInt == nullptr) {
+        if (ngInt == nullptr)
+        {
             throw IllegalTypeException("Not a valid index");
         }
         auto indexVal = NGIntegral<uint32_t>::valueOf(ngInt.get());
@@ -25,11 +30,14 @@ namespace NG::runtime {
         return (*items)[indexVal] = newValue;
     }
 
-    Str NGArray::show() const {
+    Str NGArray::show() const
+    {
         Str result{};
 
-        for (const auto &item : (*this->items)) {
-            if (!result.empty()) {
+        for (const auto &item : (*this->items))
+        {
+            if (!result.empty())
+            {
                 result += ", ";
             }
 
@@ -39,14 +47,19 @@ namespace NG::runtime {
         return "[" + result + "]";
     }
 
-    bool NGArray::opEquals(RuntimeRef<NGObject> other) const {
+    bool NGArray::opEquals(RuntimeRef<NGObject> other) const
+    {
 
-        if (auto array = std::dynamic_pointer_cast<NGArray>(other); array != nullptr) {
-            if (items->size() != array->items->size()) {
+        if (auto array = std::dynamic_pointer_cast<NGArray>(other); array != nullptr)
+        {
+            if (items->size() != array->items->size())
+            {
                 return false;
             }
-            for (size_t i = 0; i < items->size(); ++i) {
-                if (!(*items)[i]->opEquals((*array->items)[i])) {
+            for (size_t i = 0; i < items->size(); ++i)
+            {
+                if (!(*items)[i]->opEquals((*array->items)[i]))
+                {
                     return false;
                 }
             }
@@ -56,11 +69,13 @@ namespace NG::runtime {
         return false;
     }
 
-    bool NGArray::boolValue() const {
+    bool NGArray::boolValue() const
+    {
         return !items->empty();
     }
 
-    RuntimeRef<NGObject> NGArray::opLShift(RuntimeRef<NGObject> other) {
+    RuntimeRef<NGObject> NGArray::opLShift(RuntimeRef<NGObject> other)
+    {
         items->push_back(other);
         auto resp = makert<NGArray>();
         resp->items = items;

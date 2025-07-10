@@ -1,20 +1,25 @@
 
 #include <intp/runtime.hpp>
 
-namespace NG::runtime {
-    RuntimeRef<NGObject> OperatorsBase::opIndex(RuntimeRef<NGObject> index) const {
+namespace NG::runtime
+{
+    RuntimeRef<NGObject> OperatorsBase::opIndex(RuntimeRef<NGObject> index) const
+    {
         return nullptr;
     }
 
-    RuntimeRef<NGObject> OperatorsBase::opIndex(RuntimeRef<NGObject> index, RuntimeRef<NGObject> newValue) {
+    RuntimeRef<NGObject> OperatorsBase::opIndex(RuntimeRef<NGObject> index, RuntimeRef<NGObject> newValue)
+    {
         return nullptr;
     }
 
-    bool OperatorsBase::opGreaterThan(RuntimeRef<NGObject> other) const {
+    bool OperatorsBase::opGreaterThan(RuntimeRef<NGObject> other) const
+    {
         return false;
     }
 
-    bool OperatorsBase::opGreaterEqual(RuntimeRef<NGObject> other) const {
+    bool OperatorsBase::opGreaterEqual(RuntimeRef<NGObject> other) const
+    {
         return false;
     }
 
@@ -36,17 +41,19 @@ namespace NG::runtime {
 
     RuntimeRef<NGObject> OperatorsBase::opDividedBy(RuntimeRef<NGObject> other) const { return nullptr; }
 
-
     RuntimeRef<NGObject> OperatorsBase::respond(const Str &member, RuntimeRef<NGContext> context,
-                                            RuntimeRef<NGInvocationContext> invocationContext) {
+                                                RuntimeRef<NGInvocationContext> invocationContext)
+    {
         return nullptr;
     }
 
-    RuntimeRef<NGObject> OperatorsBase::opLShift(RuntimeRef<NGObject> object) {
+    RuntimeRef<NGObject> OperatorsBase::opLShift(RuntimeRef<NGObject> object)
+    {
         return nullptr;
     }
 
-    RuntimeRef<NGObject> OperatorsBase::opRShift(RuntimeRef<NGObject> object) {
+    RuntimeRef<NGObject> OperatorsBase::opRShift(RuntimeRef<NGObject> object)
+    {
         return nullptr;
     }
 

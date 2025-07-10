@@ -2,7 +2,8 @@
 #include <ast.hpp>
 #include <visitor.hpp>
 
-namespace NG::ast {
+namespace NG::ast
+{
     void AstVisitor::visit(ASTNode *node) {}
 
     void AstVisitor::visit(Expression *expr) {}
@@ -49,7 +50,7 @@ namespace NG::ast {
     void AstVisitor::visit(IntegralValue<int64_t> *intVal) {}
     void AstVisitor::visit(IntegralValue<uint64_t> *intVal) {}
     // void AstVisitor::visit(FloatingPointValue<float16_t> *floatVal) {}
-    void AstVisitor::visit(FloatingPointValue<float/* float32_t */> *floatVal) {}
+    void AstVisitor::visit(FloatingPointValue<float /* float32_t */> *floatVal) {}
     void AstVisitor::visit(FloatingPointValue<double /* float64_t */> *floatVal) {}
     // void AstVisitor::visit(FloatingPointValue<float128_t> *floatVal) {}
 

@@ -8,20 +8,21 @@
 #include <utility>
 #include <list>
 
-namespace NG::parsing {
+namespace NG::parsing
+{
 
-    struct ParseError {
+    struct ParseError
+    {
         Token token;
         Str message;
         std::list<TokenType> expected;
     };
 
-
-    template<class T>
+    template <class T>
     using ParseResult = std::expected<T, ParseError>;
 
-
-    struct LexState {
+    struct LexState
+    {
         const Str source;
         const size_t size;
         size_t index;
@@ -44,33 +45,37 @@ namespace NG::parsing {
         [[nodiscard]] char lookAhead() const;
     };
 
-    class Lexer {
+    class Lexer
+    {
         LexState state;
 
     public:
         explicit Lexer(LexState state) : state(std::move(state)) {}
 
-        LexState &operator->() {
+        LexState &operator->()
+        {
             return state;
         }
 
         Lexer(const Lexer &) = delete;
 
-        Vec <Token> lex();
+        Vec<Token> lex();
     };
 
     using NG::ast::ASTNode;
 
-    struct ParseState {
-        const Vec <Token> tokens;
+    struct ParseState
+    {
+        const Vec<Token> tokens;
         const size_t size;
         size_t index;
 
-        explicit ParseState(const Vec <Token> &source);
+        explicit ParseState(const Vec<Token> &source);
 
         const Token &current();
 
-        const Token *operator->() {
+        const Token *operator->()
+        {
             return &current();
         }
 
@@ -80,8 +85,9 @@ namespace NG::parsing {
 
         void revert(size_t n = 1);
 
-        ParseError error(Str message, std::list<TokenType> expected = {}) {
-            return ParseError {
+        ParseError error(Str message, std::list<TokenType> expected = {})
+        {
+            return ParseError{
                 .token = current(),
                 .message = std::move(message),
                 .expected = std::move(expected),
@@ -89,7 +95,8 @@ namespace NG::parsing {
         }
     };
 
-    struct Parser {
+    struct Parser
+    {
         ParseState state;
         Str module_filename;
 
@@ -98,7 +105,7 @@ namespace NG::parsing {
 
         Parser(const Parser &) = delete;
 
-        ParseResult<ast::ASTRef <ASTNode>> parse(const Str &filename = "untitled.ng");
+        ParseResult<ast::ASTRef<ASTNode>> parse(const Str &filename = "untitled.ng");
     };
 
 } // namespace NG

@@ -1,13 +1,16 @@
 
 #include <intp/runtime.hpp>
 
-namespace NG::runtime {
+namespace NG::runtime
+{
 
-    Str ObjectBase::show() const {
+    Str ObjectBase::show() const
+    {
         return NG::Str();
     }
 
-    bool ObjectBase::boolValue() const {
+    bool ObjectBase::boolValue() const
+    {
         return false;
     }
 

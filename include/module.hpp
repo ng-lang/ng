@@ -4,27 +4,31 @@
 
 #include <ast.hpp>
 
-namespace NG::module {
-    using NG::ast::ASTRef;
+namespace NG::module
+{
     using NG::ast::ASTNode;
+    using NG::ast::ASTRef;
 
-    struct ModuleLoader : NonCopyable {
-        virtual ASTRef<ASTNode> load(const Str& module) = 0;
+    struct ModuleLoader : NonCopyable
+    {
+        virtual ASTRef<ASTNode> load(const Str &module) = 0;
 
-        virtual ~ModuleLoader() noexcept  =  0;
+        virtual ~ModuleLoader() noexcept = 0;
     };
 
-    struct FileBasedExternalModuleLoader : public virtual ModuleLoader {
+    struct FileBasedExternalModuleLoader : public virtual ModuleLoader
+    {
 
         Vec<Str> basePaths;
 
-        FileBasedExternalModuleLoader(Vec<Str> basePaths): basePaths(std::move(basePaths)) {
-        } 
+        FileBasedExternalModuleLoader(Vec<Str> basePaths) : basePaths(std::move(basePaths))
+        {
+        }
 
-        ASTRef<NG::ast::ASTNode> load(const Str& module) override;
+        ASTRef<NG::ast::ASTNode> load(const Str &module) override;
 
         ~FileBasedExternalModuleLoader() override;
     };
 }
 
-#endif //COMMON_MODULE_HOO
+#endif // COMMON_MODULE_HOO

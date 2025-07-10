@@ -6,20 +6,22 @@
 #include <string>
 #include <unordered_map>
 
-namespace NG {
-    template<class T>
+namespace NG
+{
+    template <class T>
     using Vec = std::vector<T>;
 
     using Str = std::string;
 
-    template<class K, class V>
+    template <class K, class V>
     using Map = std::unordered_map<K, V>;
 
     struct Token;
 
 } // namespace NG
 
-namespace NG::ast {
+namespace NG::ast
+{
     struct ASTNode;
 
     struct AstVisitor;
@@ -30,7 +32,8 @@ namespace NG::ast {
 
 } // namespace NG::AST
 
-namespace NG::runtime {
+namespace NG::runtime
+{
     struct NGObject;
     struct NGModule;
     struct NGContext;

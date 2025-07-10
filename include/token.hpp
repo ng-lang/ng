@@ -4,11 +4,13 @@
 
 #include <string>
 
-namespace NG {
+namespace NG
+{
 
     using Str = std::string;
 
-    enum class TokenType {
+    enum class TokenType
+    {
         NONE,
         KEYWORD,
         KEYWORD_TYPE,
@@ -112,7 +114,8 @@ namespace NG {
         RESERVED,
     };
 
-    enum class Operators {
+    enum class Operators
+    {
         NONE,
         PLUS,    // +
         MINUS,   // -
@@ -134,18 +137,21 @@ namespace NG {
         UNKNOWN
     };
 
-    struct TokenPosition {
+    struct TokenPosition
+    {
         size_t line;
         size_t col;
     };
 
-    struct Token {
+    struct Token
+    {
         TokenType type;
         Str repr;
         TokenPosition position;
         Operators operatorType;
 
-        bool operator==(const Token &t) const {
+        bool operator==(const Token &t) const
+        {
             return type == t.type &&
                    operatorType == t.operatorType &&
                    repr == t.repr;

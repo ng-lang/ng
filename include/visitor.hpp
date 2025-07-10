@@ -4,10 +4,11 @@
 
 #include <ast.hpp>
 
-namespace NG::ast {
+namespace NG::ast
+{
 
-
-    struct AstVisitor : NonCopyable {
+    struct AstVisitor : NonCopyable
+    {
     public:
         virtual void visit(ASTNode *astNode) = 0;
 
@@ -61,7 +62,7 @@ namespace NG::ast {
         virtual void visit(IntegralValue<uint64_t> *intVal) = 0;
 
         // virtual void visit(FloatingPointValue<float16_t> *floatVal) = 0;
-        virtual void visit(FloatingPointValue<float/* float32_t */> *floatVal) = 0;
+        virtual void visit(FloatingPointValue<float /* float32_t */> *floatVal) = 0;
         virtual void visit(FloatingPointValue<double /* float64_t */> *floatVal) = 0;
         // virtual void visit(FloatingPointValue<float128_t> *floatVal) = 0;
 
@@ -84,7 +85,8 @@ namespace NG::ast {
         ~AstVisitor() override = 0;
     };
 
-    class DummyVisitor : public virtual AstVisitor {
+    class DummyVisitor : public virtual AstVisitor
+    {
     public:
         void visit(ASTNode *astNode) override;
 
@@ -137,10 +139,10 @@ namespace NG::ast {
         void visit(IntegralValue<uint64_t> *intVal) override;
 
         // void visit(FloatingPointValue<float16_t> *floatVal) override;
-        void visit(FloatingPointValue<float/* float32_t */> *floatVal) override;
+        void visit(FloatingPointValue<float /* float32_t */> *floatVal) override;
         void visit(FloatingPointValue<double /* float64_t */> *floatVal) override;
         // void visit(FloatingPointValue<float128_t> *floatVal) override;
-        
+
         void visit(StringValue *strVal) override;
 
         void visit(BooleanValue *boolVal) override;
@@ -160,13 +162,15 @@ namespace NG::ast {
         ~DummyVisitor() override;
     };
 
-    template<std::integral T>
-    void IntegralValue<T>::accept(AstVisitor* visitor) {
+    template <std::integral T>
+    void IntegralValue<T>::accept(AstVisitor *visitor)
+    {
         visitor->visit(this);
     }
 
-    template<std::floating_point T>
-    void FloatingPointValue<T>::accept(AstVisitor* visitor) {
+    template <std::floating_point T>
+    void FloatingPointValue<T>::accept(AstVisitor *visitor)
+    {
         visitor->visit(this);
     }
 

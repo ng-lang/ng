@@ -5,15 +5,18 @@
 #include <fwd.hpp>
 #include <visitor.hpp>
 
-namespace NG::intp {
+namespace NG::intp
+{
 
-    struct ISummarizable {
+    struct ISummarizable
+    {
         virtual void summary() = 0;
 
         virtual ~ISummarizable() = 0;
     };
 
-    struct Interpreter : public virtual ISummarizable, public virtual NG::ast::AstVisitor {
+    struct Interpreter : public virtual ISummarizable, public virtual NG::ast::AstVisitor
+    {
         virtual NG::runtime::NGContext *intpContext() = 0;
     };
 

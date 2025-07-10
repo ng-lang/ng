@@ -1,7 +1,8 @@
 
 #include "common.hpp"
 
-namespace NG {
+namespace NG
+{
 
     NonCopyable::NonCopyable() = default;
 

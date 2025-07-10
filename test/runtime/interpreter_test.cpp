@@ -5,28 +5,30 @@ using namespace NG::parsing;
 using namespace NG::intp;
 using namespace NG::ast;
 
-static ParseResult<ASTRef<ASTNode>> parse(const Str &source) {
+static ParseResult<ASTRef<ASTNode>> parse(const Str &source)
+{
     return Parser(ParseState(Lexer(LexState{source}).lex())).parse();
 }
 
-static void interpret(const Str &source) {
+static void interpret(const Str &source)
+{
     Interpreter *intp = NG::intp::stupid();
 
     auto astResult = parse(source);
 
-    if (!astResult) {
+    if (!astResult)
+    {
         ParseError error = astResult.error();
-        auto&& position = error.token.position;
+        auto &&position = error.token.position;
         Str location = std::format("Location: {} / {}", position.line, position.col);
 
         debug_log("Error parse result:",
-            error.message,
-            location
-        );
+                  error.message,
+                  location);
     }
     REQUIRE(astResult.has_value());
 
-    auto& ast = *astResult;
+    auto &ast = *astResult;
 
     ast->accept(intp);
 
@@ -36,7 +38,8 @@ static void interpret(const Str &source) {
     destroyast(ast);
 }
 
-TEST_CASE("interpreter should accept simple definitions", "[InterpreterTest]") {
+TEST_CASE("interpreter should accept simple definitions", "[InterpreterTest]")
+{
 
     interpret(R"(
         val x = 1;
@@ -59,7 +62,8 @@ TEST_CASE("interpreter should accept simple definitions", "[InterpreterTest]") {
     )");
 }
 
-TEST_CASE("interpreter should run statements", "[InterpreterTest]") {
+TEST_CASE("interpreter should run statements", "[InterpreterTest]")
+{
 
     interpret(R"(
         fun max(a, b) {
@@ -78,7 +82,8 @@ TEST_CASE("interpreter should run statements", "[InterpreterTest]") {
     )");
 }
 
-TEST_CASE("interpreter should run recursion", "[InterpreterTest]") {
+TEST_CASE("interpreter should run recursion", "[InterpreterTest]")
+{
 
     interpret(R"(
         fun fact(x) {
@@ -94,8 +99,8 @@ TEST_CASE("interpreter should run recursion", "[InterpreterTest]") {
     )");
 }
 
-
-TEST_CASE("interpreter should run complex recursion", "[InterpreterTest]") {
+TEST_CASE("interpreter should run complex recursion", "[InterpreterTest]")
+{
 
     interpret(R"(
         fun gcd(a, b) {
@@ -112,7 +117,8 @@ TEST_CASE("interpreter should run complex recursion", "[InterpreterTest]") {
     )");
 }
 
-TEST_CASE("shoud be able to interpret array literal", "[InterpreterTest]") {
+TEST_CASE("shoud be able to interpret array literal", "[InterpreterTest]")
+{
 
     interpret(R"(
         val arr = [1, 2, 3, 4, 5];
@@ -121,7 +127,8 @@ TEST_CASE("shoud be able to interpret array literal", "[InterpreterTest]") {
     )");
 }
 
-TEST_CASE("shoud be able to interpret array index", "[InterpreterTest]") {
+TEST_CASE("shoud be able to interpret array index", "[InterpreterTest]")
+{
 
     interpret(R"(
         val arr = [1, 2, 3, 4, 5];
@@ -138,7 +145,8 @@ TEST_CASE("shoud be able to interpret array index", "[InterpreterTest]") {
     )");
 }
 
-TEST_CASE("should be able interpret string member function", "[InterpreterTest]") {
+TEST_CASE("should be able interpret string member function", "[InterpreterTest]")
+{
     interpret(R"(
         val x = "123";
 
@@ -152,8 +160,8 @@ TEST_CASE("should be able interpret string member function", "[InterpreterTest]"
     )");
 }
 
-
-TEST_CASE("should be able interpret simple type definition", "[InterpreterTest]") {
+TEST_CASE("should be able interpret simple type definition", "[InterpreterTest]")
+{
     interpret(R"(
 type Person {
     property firstName;
@@ -182,8 +190,8 @@ print(person.firstName);
 )");
 }
 
-
-TEST_CASE("should be able interpret exports", "[InterpreterTest]") {
+TEST_CASE("should be able interpret exports", "[InterpreterTest]")
+{
     interpret(R"(
 module hello exports (hello, a);
 
@@ -207,8 +215,8 @@ hel.hello();
 )");
 }
 
-
-TEST_CASE("should be able interpret integral values", "[InterpreterTest]") {
+TEST_CASE("should be able interpret integral values", "[InterpreterTest]")
+{
     interpret(R"(
 val x = 1i8;
 
@@ -221,9 +229,8 @@ print(z);
 )");
 }
 
-
-
-TEST_CASE("should be able interpret integral & floating values", "[InterpreterTest]") {
+TEST_CASE("should be able interpret integral & floating values", "[InterpreterTest]")
+{
     interpret(R"(
 val x = 1f32;
 

@@ -1,7 +1,8 @@
 
 #include <visitor.hpp>
 
-namespace NG::ast {
+namespace NG::ast
+{
 
     void DummyVisitor::visit(ASTNode *node) {}
 
@@ -50,10 +51,10 @@ namespace NG::ast {
     void DummyVisitor::visit(IntegralValue<uint64_t> *intVal) {}
 
     // void DummyVisitor::visit(FloatingPointValue<float16_t> *floatVal) {}
-    void DummyVisitor::visit(FloatingPointValue<float/* float32_t */> *floatVal) {}
+    void DummyVisitor::visit(FloatingPointValue<float /* float32_t */> *floatVal) {}
     void DummyVisitor::visit(FloatingPointValue<double /* float64_t */> *floatVal) {}
     // void DummyVisitor::visit(FloatingPointValue<float128_t> *floatVal) {}
-    
+
     void DummyVisitor::visit(StringValue *strVal) {}
 
     void DummyVisitor::visit(BooleanValue *boolVal) {}

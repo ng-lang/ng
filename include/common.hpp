@@ -11,12 +11,14 @@
 #include "config.h"
 #include <fwd.hpp>
 
-namespace NG {
+namespace NG
+{
 
-    template<class T>
+    template <class T>
     concept noncopyable = !std::copyable<T>;
 
-    struct NonCopyable {
+    struct NonCopyable
+    {
         NonCopyable();
 
         NonCopyable(const NonCopyable &noncopyable) = delete;
@@ -28,53 +30,70 @@ namespace NG {
         virtual ~NonCopyable() = 0;
     };
 
-    struct LexException : std::logic_error {
-        explicit LexException() : logic_error("Error: lex exception found") {
+    struct LexException : std::logic_error
+    {
+        explicit LexException() : logic_error("Error: lex exception found")
+        {
         }
 
-        explicit LexException(const char *msg) : logic_error(msg) {
-        }
-    };
-
-    struct EOFException : std::out_of_range {
-        explicit EOFException() : out_of_range("Error: end of file") {
+        explicit LexException(const char *msg) : logic_error(msg)
+        {
         }
     };
 
-    struct NotImplementedException : std::runtime_error {
-        explicit NotImplementedException() : runtime_error("Error: not implemented") {
+    struct EOFException : std::out_of_range
+    {
+        explicit EOFException() : out_of_range("Error: end of file")
+        {
         }
     };
 
-    struct ParseException : std::logic_error {
-        explicit ParseException(const std::string &message) : logic_error(message) {
+    struct NotImplementedException : std::runtime_error
+    {
+        explicit NotImplementedException() : runtime_error("Error: not implemented")
+        {
         }
     };
 
-    struct IllegalTypeException : std::runtime_error {
-        explicit IllegalTypeException(const std::string &message) : runtime_error(message) {
+    struct ParseException : std::logic_error
+    {
+        explicit ParseException(const std::string &message) : logic_error(message)
+        {
         }
     };
 
-    struct AssertionException : std::logic_error {
-        explicit AssertionException() : logic_error("Assertion Failed") {
+    struct IllegalTypeException : std::runtime_error
+    {
+        explicit IllegalTypeException(const std::string &message) : runtime_error(message)
+        {
         }
     };
 
-    struct RuntimeException : std::runtime_error {
-        explicit RuntimeException(const std::string &messge) : runtime_error(messge) {
+    struct AssertionException : std::logic_error
+    {
+        explicit AssertionException() : logic_error("Assertion Failed")
+        {
         }
     };
 
-    template<class T>
+    struct RuntimeException : std::runtime_error
+    {
+        explicit RuntimeException(const std::string &messge) : runtime_error(messge)
+        {
+        }
+    };
+
+    template <class T>
     concept codable = std::is_enum_v<T> || std::is_integral_v<T>;
 
-    uintptr_t code(const codable auto &t) {
+    uintptr_t code(const codable auto &t)
+    {
         return static_cast<uintptr_t>(t);
     }
 
-    template<codable T>
-    T from_code(uintptr_t code) {
+    template <codable T>
+    T from_code(uintptr_t code)
+    {
         return static_cast<T>(code);
     }
 
