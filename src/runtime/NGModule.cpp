@@ -3,7 +3,7 @@
 #include <debug.hpp>
 namespace NG::runtime
 {
-    RuntimeRef<NGObject> NGModule::respond(const Str &member, RuntimeRef<NGContext> context, RuntimeRef<NGInvocationContext> invocationContext)
+    auto NGModule::respond(const Str &member, RuntimeRef<NGContext> context, RuntimeRef<NGInvocationContext> invocationContext) -> RuntimeRef<NGObject>
     {
         if (this->functions.contains(member))
         {
@@ -15,7 +15,7 @@ namespace NG::runtime
 
             return newContext->retVal;
         }
-        else if (this->objects.contains(member))
+        if (this->objects.contains(member))
         {
             return this->objects[member];
         }

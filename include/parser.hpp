@@ -79,7 +79,7 @@ namespace NG::parsing
             return &current();
         }
 
-        bool eof();
+        bool eof() const;
 
         void next(int n = 1);
 

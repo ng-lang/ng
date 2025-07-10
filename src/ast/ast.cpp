@@ -9,7 +9,7 @@ namespace NG::ast
 {
 
     template <class T>
-    static Str strOfNodeList(Vec<T> nodes, const Str &separator = ", ")
+    static auto strOfNodeList(const Vec<T>& nodes, const Str &separator = ", ") -> Str
     {
         Str str{};
         for (const auto &node : nodes)
@@ -35,14 +35,14 @@ namespace NG::ast
         visitor->visit(this);
     }
 
-    bool ASTNode::operator==(const ASTNode &node) const
+    auto ASTNode::operator==(const ASTNode &node) const -> bool
     {
         return false;
     }
 
-    bool Module::operator==(const ASTNode &node) const
+    auto Module::operator==(const ASTNode &node) const -> bool
     {
-        auto &mod = dynamic_cast<const Module &>(node);
+        const auto &mod = dynamic_cast<const Module &>(node);
         return astNodeType() == node.astNodeType() &&
                name == mod.name &&
                definitions.size() == mod.definitions.size() &&
@@ -75,12 +75,12 @@ namespace NG::ast
         }
     }
 
-    Str Module::repr() const
+    auto Module::repr() const -> Str
     {
         return Str{"module:"} + this->name + "\n" + strOfNodeList(definitions, "\n") + strOfNodeList(statements, "\n");
     }
 
-    Str Definition::name() const
+    auto Definition::name() const -> Str
     {
         return "unknown";
     }
@@ -90,15 +90,15 @@ namespace NG::ast
         visitor->visit(this);
     }
 
-    bool TypeAnnotation::operator==(const ASTNode &node) const
+    auto TypeAnnotation::operator==(const ASTNode &node) const -> bool
     {
-        auto &anno = dynamic_cast<const TypeAnnotation &>(node);
+        const auto &anno = dynamic_cast<const TypeAnnotation &>(node);
         return astNodeType() == node.astNodeType() &&
                anno.name == name &&
                anno.type == type;
     }
 
-    Str TypeAnnotation::repr() const
+    auto TypeAnnotation::repr() const -> Str
     {
         return this->name;
     }
@@ -110,16 +110,16 @@ namespace NG::ast
         visitor->visit(this);
     }
 
-    bool Param::operator==(const ASTNode &node) const
+    auto Param::operator==(const ASTNode &node) const -> bool
     {
-        auto &param = dynamic_cast<const Param &>(node);
+        const auto &param = dynamic_cast<const Param &>(node);
         return astNodeType() == node.astNodeType() &&
                paramName == param.paramName &&
                annotatedType == param.annotatedType &&
                type == param.type;
     }
 
-    Str Param::repr() const
+    auto Param::repr() const -> Str
     {
         return paramName + (annotatedType.has_value() ? (": " + (*annotatedType)->repr()) : "");
     }
@@ -131,15 +131,15 @@ namespace NG::ast
 
     CompoundStatement::~CompoundStatement()
     {
-        for (auto stmt : statements)
+        for (const auto& stmt : statements)
         {
             destroyast(stmt);
         }
     }
 
-    bool CompoundStatement::operator==(const ASTNode &node) const
+    auto CompoundStatement::operator==(const ASTNode &node) const -> bool
     {
-        auto &stmt = dynamic_cast<const CompoundStatement &>(node);
+        const auto &stmt = dynamic_cast<const CompoundStatement &>(node);
         return astNodeType() == node.astNodeType() &&
                std::equal(begin(statements),
                           end(statements),
@@ -147,7 +147,7 @@ namespace NG::ast
                           ASTComparator);
     }
 
-    Str CompoundStatement::repr() const
+    auto CompoundStatement::repr() const -> Str
     {
         return "{\n" + strOfNodeList(this->statements, "\n") + "}";
     }
@@ -165,14 +165,14 @@ namespace NG::ast
         }
     }
 
-    bool ReturnStatement::operator==(const ASTNode &node) const
+    auto ReturnStatement::operator==(const ASTNode &node) const -> bool
     {
-        auto &ret = dynamic_cast<const ReturnStatement &>(node);
+        const auto &ret = dynamic_cast<const ReturnStatement &>(node);
         return astNodeType() == node.astNodeType() &&
                *expression == *ret.expression;
     }
 
-    Str ReturnStatement::repr() const
+    auto ReturnStatement::repr() const -> Str
     {
         return "return " + this->expression->repr() + ";";
     }
@@ -198,9 +198,9 @@ namespace NG::ast
         }
     }
 
-    bool IfStatement::operator==(const ASTNode &node) const
+    auto IfStatement::operator==(const ASTNode &node) const -> bool
     {
-        auto &ifstmt = dynamic_cast<const IfStatement &>(node);
+        const auto &ifstmt = dynamic_cast<const IfStatement &>(node);
         return astNodeType() == node.astNodeType() &&
                *testing == *ifstmt.testing &&
                *consequence == *ifstmt.consequence &&
@@ -209,7 +209,7 @@ namespace NG::ast
                 *alternative == *ifstmt.alternative);
     }
 
-    Str IfStatement::repr() const
+    auto IfStatement::repr() const -> Str
     {
         return "if (" + this->testing->repr() + ") {\n" + this->consequence->repr() + "}" +
                (this->alternative == nullptr ? "" : (" else {\n" + this->alternative->repr() + "}"));
@@ -228,14 +228,14 @@ namespace NG::ast
         visitor->visit(this);
     }
 
-    bool SimpleStatement::operator==(const ASTNode &node) const
+    auto SimpleStatement::operator==(const ASTNode &node) const -> bool
     {
-        auto &simple = dynamic_cast<const SimpleStatement &>(node);
+        const auto &simple = dynamic_cast<const SimpleStatement &>(node);
         return astNodeType() == node.astNodeType() &&
                *expression == *simple.expression;
     }
 
-    Str SimpleStatement::repr() const
+    auto SimpleStatement::repr() const -> Str
     {
         return this->expression->repr() + ";";
     }
@@ -245,9 +245,9 @@ namespace NG::ast
         visitor->visit(this);
     }
 
-    bool FunCallExpression::operator==(const ASTNode &node) const
+    auto FunCallExpression::operator==(const ASTNode &node) const -> bool
     {
-        auto &funCall = dynamic_cast<const FunCallExpression &>(node);
+        const auto &funCall = dynamic_cast<const FunCallExpression &>(node);
 
         return astNodeType() == node.astNodeType() &&
                *funCall.primaryExpression == *primaryExpression &&
@@ -260,13 +260,13 @@ namespace NG::ast
     FunCallExpression::~FunCallExpression()
     {
         destroyast(primaryExpression);
-        for (auto arg : arguments)
+        for (const auto& arg : arguments)
         {
             destroyast(arg);
         }
     }
 
-    Str FunCallExpression::repr() const
+    auto FunCallExpression::repr() const -> Str
     {
         return this->primaryExpression->repr() + "(" + strOfNodeList(this->arguments) + ")";
     }
@@ -276,9 +276,9 @@ namespace NG::ast
         visitor->visit(this);
     }
 
-    bool AssignmentExpression::operator==(const ASTNode &node) const
+    auto AssignmentExpression::operator==(const ASTNode &node) const -> bool
     {
-        auto &assign = dynamic_cast<const AssignmentExpression &>(node);
+        const auto &assign = dynamic_cast<const AssignmentExpression &>(node);
 
         return astNodeType() == node.astNodeType() &&
                name == assign.name &&
@@ -287,11 +287,12 @@ namespace NG::ast
 
     AssignmentExpression::~AssignmentExpression()
     {
-        if (value != nullptr)
+        if (value != nullptr) {
             destroyast(value);
+}
     }
 
-    Str AssignmentExpression::repr() const
+    auto AssignmentExpression::repr() const -> Str
     {
         return this->name + " = " + this->value->repr();
     }
@@ -301,9 +302,9 @@ namespace NG::ast
         visitor->visit(this);
     }
 
-    bool ValDefStatement::operator==(const ASTNode &node) const
+    auto ValDefStatement::operator==(const ASTNode &node) const -> bool
     {
-        auto &valDef = dynamic_cast<const ValDefStatement &>(node);
+        const auto &valDef = dynamic_cast<const ValDefStatement &>(node);
 
         return astNodeType() == node.astNodeType() &&
                valDef.name == name &&
@@ -312,23 +313,24 @@ namespace NG::ast
 
     ValDefStatement::~ValDefStatement()
     {
-        if (value != nullptr)
+        if (value != nullptr) {
             destroyast(value);
+}
     }
 
-    Str ValDefStatement::repr() const
+    auto ValDefStatement::repr() const -> Str
     {
         return "val " + this->name + " = " + this->value->repr() + ";";
     }
 
     void ValDef::accept(AstVisitor *visitor)
     {
-        return visitor->visit(this);
+        visitor->visit(this);
     }
 
-    bool ValDef::operator==(const ASTNode &node) const
+    auto ValDef::operator==(const ASTNode &node) const -> bool
     {
-        auto &valDef = dynamic_cast<const ValDef &>(node);
+        const auto &valDef = dynamic_cast<const ValDef &>(node);
 
         return astNodeType() == node.astNodeType() &&
                valDef.body->operator==(*(valDef.body));
@@ -342,7 +344,7 @@ namespace NG::ast
         }
     }
 
-    Str ValDef::repr() const
+    auto ValDef::repr() const -> Str
     {
         return this->body->repr();
     }
@@ -352,19 +354,19 @@ namespace NG::ast
         visitor->visit(this);
     }
 
-    bool IdExpression::operator==(const ASTNode &node) const
+    auto IdExpression::operator==(const ASTNode &node) const -> bool
     {
-        auto &idexpr = dynamic_cast<const IdExpression &>(node);
+        const auto &idexpr = dynamic_cast<const IdExpression &>(node);
         return astNodeType() == node.astNodeType() &&
                idexpr.id == id;
     }
 
-    bool IdExpression::operator==(const IdExpression &node) const
+    auto IdExpression::operator==(const IdExpression &node) const -> bool
     {
         return node.id == id;
     }
 
-    Str IdExpression::repr() const
+    auto IdExpression::repr() const -> Str
     {
         return id;
     }
@@ -374,9 +376,9 @@ namespace NG::ast
         visitor->visit(this);
     }
 
-    bool IdAccessorExpression::operator==(const ASTNode &node) const
+    auto IdAccessorExpression::operator==(const ASTNode &node) const -> bool
     {
-        auto &idacc = dynamic_cast<const IdAccessorExpression &>(node);
+        const auto &idacc = dynamic_cast<const IdAccessorExpression &>(node);
         return astNodeType() == node.astNodeType() &&
                *idacc.primaryExpression == *primaryExpression &&
                *idacc.accessor == *accessor;
@@ -388,7 +390,7 @@ namespace NG::ast
         destroyast(accessor);
     }
 
-    Str IdAccessorExpression::repr() const
+    auto IdAccessorExpression::repr() const -> Str
     {
         return this->primaryExpression->repr() +
                (this->accessor == nullptr ? "" : ("." + this->accessor->repr()));
@@ -399,14 +401,14 @@ namespace NG::ast
         visitor->visit(this);
     }
 
-    bool IntegerValue::operator==(const ASTNode &node) const
+    auto IntegerValue::operator==(const ASTNode &node) const -> bool
     {
-        auto &intVal = dynamic_cast<const IntegerValue &>(node);
+        const auto &intVal = dynamic_cast<const IntegerValue &>(node);
         return astNodeType() == node.astNodeType() &&
                intVal.value == value;
     }
 
-    Str IntegerValue::repr() const
+    auto IntegerValue::repr() const -> Str
     {
         return std::to_string(this->value);
     }
@@ -416,31 +418,31 @@ namespace NG::ast
         visitor->visit(this);
     }
 
-    bool StringValue::operator==(const ASTNode &node) const
+    auto StringValue::operator==(const ASTNode &node) const -> bool
     {
-        auto &strVal = dynamic_cast<const StringValue &>(node);
+        const auto &strVal = dynamic_cast<const StringValue &>(node);
         return astNodeType() == node.astNodeType() &&
                strVal.value == value;
     }
 
-    Str StringValue::repr() const
+    auto StringValue::repr() const -> Str
     {
         return "\"" + this->value + "\"";
     }
 
     void BooleanValue::accept(AstVisitor *visitor)
     {
-        return visitor->visit(this);
+        visitor->visit(this);
     }
 
-    bool BooleanValue::operator==(const ASTNode &node) const
+    auto BooleanValue::operator==(const ASTNode &node) const -> bool
     {
-        auto &val = dynamic_cast<const BooleanValue &>(node);
+        const auto &val = dynamic_cast<const BooleanValue &>(node);
         return astNodeType() == node.astNodeType() &&
                value == val.value;
     }
 
-    Str BooleanValue::repr() const
+    auto BooleanValue::repr() const -> Str
     {
         return this->value ? "true" : "false";
     }
@@ -450,19 +452,19 @@ namespace NG::ast
         visitor->visit(this);
     }
 
-    ASTNodeType ArrayLiteral::astNodeType() const
+    auto ArrayLiteral::astNodeType() const -> ASTNodeType
     {
         return ASTNodeType::ARRAY_LITERAL;
     }
 
-    Str ArrayLiteral::repr() const
+    auto ArrayLiteral::repr() const -> Str
     {
         return "[" + strOfNodeList(elements) + "]";
     }
 
-    bool ArrayLiteral::operator==(const ASTNode &node) const
+    auto ArrayLiteral::operator==(const ASTNode &node) const -> bool
     {
-        auto &arrayLit = dynamic_cast<const ArrayLiteral &>(node);
+        const auto &arrayLit = dynamic_cast<const ArrayLiteral &>(node);
         return astNodeType() == arrayLit.astNodeType() &&
                elements.size() == arrayLit.elements.size() &&
                std::equal(begin(elements), end(elements), begin(arrayLit.elements), ASTComparator);
@@ -481,9 +483,9 @@ namespace NG::ast
         visitor->visit(this);
     }
 
-    bool FunctionDef::operator==(const ASTNode &node) const
+    auto FunctionDef::operator==(const ASTNode &node) const -> bool
     {
-        auto &funDef = dynamic_cast<const FunctionDef &>(node);
+        const auto &funDef = dynamic_cast<const FunctionDef &>(node);
         return astNodeType() == node.astNodeType() &&
                funDef.funName == funName &&
                std::equal(begin(params),
@@ -495,19 +497,19 @@ namespace NG::ast
 
     FunctionDef::~FunctionDef()
     {
-        for (auto param : params)
+        for (const auto& param : params)
         {
             destroyast(param);
         }
         destroyast(body);
     }
 
-    Str FunctionDef::name() const
+    auto FunctionDef::name() const -> Str
     {
         return funName;
     }
 
-    Str FunctionDef::repr() const
+    auto FunctionDef::repr() const -> Str
     {
         return "fun " + funName + "(" + strOfNodeList(params) + ")" + body->repr();
     }
@@ -517,7 +519,7 @@ namespace NG::ast
         visitor->visit(this);
     }
 
-    bool BinaryExpression::operator==(const ASTNode &node) const
+    auto BinaryExpression::operator==(const ASTNode &node) const -> bool
     {
         auto &&binexpr = dynamic_cast<const BinaryExpression &>(node);
         return astNodeType() == node.astNodeType() &&
@@ -533,7 +535,7 @@ namespace NG::ast
         delete optr;
     }
 
-    Str BinaryExpression::repr() const
+    auto BinaryExpression::repr() const -> Str
     {
         return left->repr() + this->optr->repr + right->repr();
     }
@@ -543,20 +545,20 @@ namespace NG::ast
         visitor->visit(this);
     }
 
-    ASTNodeType IndexAccessorExpression::astNodeType() const
+    auto IndexAccessorExpression::astNodeType() const -> ASTNodeType
     {
         return ASTNodeType::INDEX_ACCESSOR_EXPRESSION;
     }
 
-    bool IndexAccessorExpression::operator==(const ASTNode &node) const
+    auto IndexAccessorExpression::operator==(const ASTNode &node) const -> bool
     {
-        auto &indexAccExpr = dynamic_cast<const IndexAccessorExpression &>(node);
+        const auto &indexAccExpr = dynamic_cast<const IndexAccessorExpression &>(node);
 
         return *primary == *(indexAccExpr.primary) &&
                *accessor == *(indexAccExpr.accessor);
     }
 
-    Str IndexAccessorExpression::repr() const
+    auto IndexAccessorExpression::repr() const -> Str
     {
         return primary->repr() + "[" + accessor->repr() + "]";
     }
@@ -572,21 +574,21 @@ namespace NG::ast
         visitor->visit(this);
     }
 
-    ASTNodeType IndexAssignmentExpression::astNodeType() const
+    auto IndexAssignmentExpression::astNodeType() const -> ASTNodeType
     {
         return ASTNodeType::INDEX_ASSIGNMENT_EXPRESSION;
     }
 
-    bool IndexAssignmentExpression::operator==(const ASTNode &node) const
+    auto IndexAssignmentExpression::operator==(const ASTNode &node) const -> bool
     {
-        auto &indexAssExpr = dynamic_cast<const IndexAssignmentExpression &>(node);
+        const auto &indexAssExpr = dynamic_cast<const IndexAssignmentExpression &>(node);
 
         return *primary == *(indexAssExpr.primary) &&
                *accessor == *(indexAssExpr.accessor) &&
                *value == *(indexAssExpr.value);
     }
 
-    Str IndexAssignmentExpression::repr() const
+    auto IndexAssignmentExpression::repr() const -> Str
     {
         return primary->repr() + "[" + accessor->repr() + "] = " + value->repr();
     }
@@ -598,12 +600,12 @@ namespace NG::ast
         destroyast(value);
     }
 
-    Str TypeDef::name() const
+    auto TypeDef::name() const -> Str
     {
         return this->typeName;
     }
 
-    ASTNodeType TypeDef::astNodeType() const
+    auto TypeDef::astNodeType() const -> ASTNodeType
     {
         return ASTNodeType::TYPE_DEFINITION;
     }
@@ -613,7 +615,7 @@ namespace NG::ast
         visitor->visit(this);
     }
 
-    bool TypeDef::operator==(const ASTNode &node) const
+    auto TypeDef::operator==(const ASTNode &node) const -> bool
     {
         auto &&typeDef = dynamic_cast<const TypeDef &>(node);
 
@@ -628,7 +630,7 @@ namespace NG::ast
                           ASTComparator);
     }
 
-    Str TypeDef::repr() const
+    auto TypeDef::repr() const -> Str
     {
         const Str &propertiesRepr = strOfNodeList(properties, "\n");
         const Str &membersRepr = strOfNodeList(memberFunctions, "\n");
@@ -649,19 +651,19 @@ namespace NG::ast
         }
     }
 
-    ASTNodeType PropertyDef::astNodeType() const
+    auto PropertyDef::astNodeType() const -> ASTNodeType
     {
         return ASTNodeType::PROPERTY_DEFINITION;
     }
 
-    Str PropertyDef::name() const
+    auto PropertyDef::name() const -> Str
     {
         return propertyName;
     }
 
-    bool PropertyDef::operator==(const ASTNode &node) const
+    auto PropertyDef::operator==(const ASTNode &node) const -> bool
     {
-        auto &property = dynamic_cast<const PropertyDef &>(node);
+        const auto &property = dynamic_cast<const PropertyDef &>(node);
 
         return propertyName == property.propertyName;
     }
@@ -671,12 +673,12 @@ namespace NG::ast
         visitor->visit(this);
     }
 
-    Str PropertyDef::repr() const
+    auto PropertyDef::repr() const -> Str
     {
         return "property " + propertyName + ";";
     }
 
-    ASTNodeType NewObjectExpression::astNodeType() const
+    auto NewObjectExpression::astNodeType() const -> ASTNodeType
     {
         return ASTNodeType::NEW_OBJECT_EXPRESSION;
     }
@@ -686,7 +688,7 @@ namespace NG::ast
         visitor->visit(this);
     }
 
-    bool NewObjectExpression::operator==(const ASTNode &node) const
+    auto NewObjectExpression::operator==(const ASTNode &node) const -> bool
     {
         auto &&newObj = dynamic_cast<const NewObjectExpression &>(node);
 
@@ -698,7 +700,7 @@ namespace NG::ast
                           });
     }
 
-    Str NewObjectExpression::repr() const
+    auto NewObjectExpression::repr() const -> Str
     {
         Str props{};
 
@@ -723,7 +725,7 @@ namespace NG::ast
         }
     }
 
-    bool ImportDecl::operator==(const ASTNode &node) const
+    auto ImportDecl::operator==(const ASTNode &node) const -> bool
     {
         auto &&imports = dynamic_cast<const ImportDecl &>(node);
 
@@ -737,14 +739,14 @@ namespace NG::ast
         visitor->visit(this);
     }
 
-    Str ImportDecl::repr() const
+    auto ImportDecl::repr() const -> Str
     {
         return module;
     }
 
     ImportDecl::~ImportDecl() = default;
 
-    bool CompileUnit::operator==(const ASTNode &node) const
+    auto CompileUnit::operator==(const ASTNode &node) const -> bool
     {
         auto &&cu = dynamic_cast<const CompileUnit &>(node);
 
@@ -757,7 +759,7 @@ namespace NG::ast
         visitor->visit(this);
     }
 
-    Str CompileUnit::repr() const
+    auto CompileUnit::repr() const -> Str
     {
         return Str{"Compile Unit: "} + fileName;
     }

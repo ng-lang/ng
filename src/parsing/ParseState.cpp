@@ -10,14 +10,16 @@ namespace NG::parsing
     {
     }
 
-    const Token &ParseState::current()
+    auto ParseState::current() -> const Token &
     {
         if (!eof())
+        {
             return tokens.at(index);
+        }
         throw EOFException();
     }
 
-    bool ParseState::eof()
+    auto ParseState::eof() const -> bool
     {
         return index >= size;
     }
@@ -33,7 +35,9 @@ namespace NG::parsing
     void ParseState::revert(size_t n)
     {
         if (n > index)
+        {
             return;
+        }
         index = n;
     }
 }

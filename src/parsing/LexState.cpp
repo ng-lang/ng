@@ -7,19 +7,20 @@ namespace NG::parsing
 
     LexState::LexState(const Str &_source) : source(_source), size(_source.size()), index(0), line(1), col(1) {}
 
-    char LexState::current() const
+    auto LexState::current() const -> char
     {
-        if (!eof())
+        if (!eof()) {
             return source.at(index);
+}
         return '\0';
     }
 
-    bool LexState::eof() const
+    auto LexState::eof() const -> bool
     {
         return index >= size;
     }
 
-    char LexState::lookAhead() const
+    auto LexState::lookAhead() const -> char
     {
         if (eof())
         {
@@ -39,8 +40,9 @@ namespace NG::parsing
 
     static void resetLineAndCol(LexState &state, size_t index)
     {
-        if (index > state.size)
+        if (index > state.size) {
             return;
+}
         state.line = 1;
         state.col = 0;
         for (size_t i = 0; i <= index; i++)
@@ -56,12 +58,14 @@ namespace NG::parsing
 
     void LexState::revert(size_t n)
     {
-        if (n > index)
+        if (n > index) {
             return;
-        if (index - n > col)
+}
+        if (index - n > col) {
             resetLineAndCol(*this, n);
-        else
+        } else {
             col -= (index - n);
+}
         index = n;
     }
 

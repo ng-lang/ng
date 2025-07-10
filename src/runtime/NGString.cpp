@@ -5,12 +5,12 @@ namespace NG::runtime
 {
     using InvCtx = NGInvocationContext;
 
-    Str NGString::show() const
+    auto NGString::show() const -> Str
     {
         return "\"" + value + "\"";
     }
 
-    bool NGString::opEquals(RuntimeRef<NGObject> other) const
+    auto NGString::opEquals(RuntimeRef<NGObject> other) const -> bool
     {
         if (auto otherString = std::dynamic_pointer_cast<NGString>(other); otherString != nullptr)
         {
@@ -19,27 +19,27 @@ namespace NG::runtime
         return false;
     }
 
-    bool NGString::boolValue() const
+    auto NGString::boolValue() const -> bool
     {
         return !value.empty();
     }
 
-    RuntimeRef<NGType> NGString::type() const
+    auto NGString::type() const -> RuntimeRef<NGType>
     {
         return NGString::stringType();
     }
 
-    RuntimeRef<NGType> NGString::stringType()
+    auto NGString::stringType() -> RuntimeRef<NGType>
     {
         static RuntimeRef<NGType> stringType = makert<NGType>(NGType{
             .memberFunctions = {
-                {"size", [](RuntimeRef<NGObject> self, RuntimeRef<NGContext> context, RuntimeRef<InvCtx> invCtx)
+                {"size", [](const RuntimeRef<NGObject>& self, const RuntimeRef<NGContext>& context, const RuntimeRef<InvCtx>& invCtx)
                  {
                      auto str = std::dynamic_pointer_cast<NGString>(self);
 
                      context->retVal = makert<NGIntegral<uint32_t>>(str->value.size());
                  }},
-                {"charAt", [](RuntimeRef<NGObject> self, RuntimeRef<NGContext> context, RuntimeRef<InvCtx> invCtx)
+                {"charAt", [](const RuntimeRef<NGObject>& self, const RuntimeRef<NGContext>& context, const RuntimeRef<InvCtx>& invCtx)
                  {
                      auto str = std::dynamic_pointer_cast<NGString>(self);
                      auto numeral = std::dynamic_pointer_cast<NumeralBase>(invCtx->params[0]);
@@ -52,7 +52,7 @@ namespace NG::runtime
         return stringType;
     }
 
-    RuntimeRef<NGObject> NGString::opPlus(RuntimeRef<NGObject> other) const
+    auto NGString::opPlus(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject>
     {
         if (auto str = std::dynamic_pointer_cast<NGString>(other); str != nullptr)
         {

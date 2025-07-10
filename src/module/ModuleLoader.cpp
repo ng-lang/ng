@@ -14,21 +14,21 @@ namespace NG::module
     using namespace NG::parsing;
     namespace fs = std::filesystem;
 
-    ASTRef<ASTNode> ModuleLoader::load(const Str &module)
+    auto ModuleLoader::load(const Str &module) -> ASTRef<ASTNode>
     {
-        return ASTRef<ASTNode>();
+        return {};
     }
 
     ModuleLoader::~ModuleLoader() noexcept = default;
 
-    ASTRef<ASTNode> FileBasedExternalModuleLoader::load(const Str &module)
+    auto FileBasedExternalModuleLoader::load(const Str &module) -> ASTRef<ASTNode>
     {
         Str path = module;
         if (!path.ends_with(".ng"))
         {
             path += ".ng";
         }
-        for (auto base : this->basePaths)
+        for (const auto& base : this->basePaths)
         {
             fs::path module_path{base};
             module_path.append(path);

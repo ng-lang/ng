@@ -4,12 +4,12 @@
 namespace NG::runtime
 {
 
-    Str ObjectBase::show() const
+    auto ObjectBase::show() const -> Str
     {
-        return NG::Str();
+        return {};
     }
 
-    bool ObjectBase::boolValue() const
+    auto ObjectBase::boolValue() const -> bool
     {
         return false;
     }

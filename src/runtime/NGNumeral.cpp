@@ -3,38 +3,38 @@
 
 namespace NG::runtime
 {
-    size_t NumeralBase::bytesize() const
+    auto NumeralBase::bytesize() const -> size_t
     {
         return 0;
     }
 
-    bool NumeralBase::signedness() const
+    auto NumeralBase::signedness() const -> bool
     {
         return false;
     }
 
-    bool NumeralBase::floating_point() const
+    auto NumeralBase::floating_point() const -> bool
     {
         return false;
     }
 
-    RuntimeRef<NGObject> NumeralBase::opPlus(const NumeralBase *) const
+    auto NumeralBase::opPlus(const NumeralBase * /*unused*/) const -> RuntimeRef<NGObject>
     {
         return nullptr;
     }
-    RuntimeRef<NGObject> NumeralBase::opMinus(const NumeralBase *) const
+    auto NumeralBase::opMinus(const NumeralBase * /*unused*/) const -> RuntimeRef<NGObject>
     {
         return nullptr;
     }
-    RuntimeRef<NGObject> NumeralBase::opTimes(const NumeralBase *) const
+    auto NumeralBase::opTimes(const NumeralBase * /*unused*/) const -> RuntimeRef<NGObject>
     {
         return nullptr;
     }
-    RuntimeRef<NGObject> NumeralBase::opDividedBy(const NumeralBase *) const
+    auto NumeralBase::opDividedBy(const NumeralBase * /*unused*/) const -> RuntimeRef<NGObject>
     {
         return nullptr;
     }
-    RuntimeRef<NGObject> NumeralBase::opModulus(const NumeralBase *) const
+    auto NumeralBase::opModulus(const NumeralBase * /*unused*/) const -> RuntimeRef<NGObject>
     {
         return nullptr;
     }

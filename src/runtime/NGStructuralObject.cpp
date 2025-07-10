@@ -4,16 +4,16 @@
 namespace NG::runtime
 {
 
-    RuntimeRef<NGType> NGStructuralObject::type() const
+    auto NGStructuralObject::type() const -> RuntimeRef<NGType>
     {
         return this->customizedType;
     }
 
-    RuntimeRef<NGObject> NGStructuralObject::respond(const Str &member, RuntimeRef<NGContext> context,
-                                                     RuntimeRef<NGInvocationContext> invocationContext)
+    auto NGStructuralObject::respond(const Str &member, RuntimeRef<NGContext> context,
+                                                     RuntimeRef<NGInvocationContext> invocationContext) -> RuntimeRef<NGObject>
     {
 
-        if (selfMemberFunctions.find(member) != selfMemberFunctions.end())
+        if (selfMemberFunctions.contains(member))
         {
             RuntimeRef<NGContext> newContext = makert<NGContext>(*context);
             RuntimeRef<NGStructuralObject> self = std::dynamic_pointer_cast<NGStructuralObject>(invocationContext->target);
@@ -22,7 +22,7 @@ namespace NG::runtime
 
             return newContext->retVal;
         }
-        else if (properties.find(member) != properties.end())
+        if (properties.find(member) != properties.end())
         {
             return properties[member];
         }
@@ -32,7 +32,7 @@ namespace NG::runtime
         }
     }
 
-    Str NGStructuralObject::show() const
+    auto NGStructuralObject::show() const -> Str
     {
         Str repr{};
         for (const auto &[name, value] : properties)

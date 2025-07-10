@@ -4,7 +4,7 @@
 namespace NG::runtime
 {
 
-    RuntimeRef<NGObject> NGArray::opIndex(RuntimeRef<NGObject> index) const
+    auto NGArray::opIndex(RuntimeRef<NGObject> index) const -> RuntimeRef<NGObject>
     {
 
         auto ngInt = std::dynamic_pointer_cast<NumeralBase>(index);
@@ -18,7 +18,7 @@ namespace NG::runtime
         return (*this->items)[indexVal];
     }
 
-    RuntimeRef<NGObject> NGArray::opIndex(RuntimeRef<NGObject> index, RuntimeRef<NGObject> newValue)
+    auto NGArray::opIndex(RuntimeRef<NGObject> index, RuntimeRef<NGObject> newValue) -> RuntimeRef<NGObject>
     {
         auto ngInt = std::dynamic_pointer_cast<NumeralBase>(index);
         if (ngInt == nullptr)
@@ -30,7 +30,7 @@ namespace NG::runtime
         return (*items)[indexVal] = newValue;
     }
 
-    Str NGArray::show() const
+    auto NGArray::show() const -> Str
     {
         Str result{};
 
@@ -47,7 +47,7 @@ namespace NG::runtime
         return "[" + result + "]";
     }
 
-    bool NGArray::opEquals(RuntimeRef<NGObject> other) const
+    auto NGArray::opEquals(RuntimeRef<NGObject> other) const -> bool
     {
 
         if (auto array = std::dynamic_pointer_cast<NGArray>(other); array != nullptr)
@@ -69,12 +69,12 @@ namespace NG::runtime
         return false;
     }
 
-    bool NGArray::boolValue() const
+    auto NGArray::boolValue() const -> bool
     {
         return !items->empty();
     }
 
-    RuntimeRef<NGObject> NGArray::opLShift(RuntimeRef<NGObject> other)
+    auto NGArray::opLShift(RuntimeRef<NGObject> other) -> RuntimeRef<NGObject>
     {
         items->push_back(other);
         auto resp = makert<NGArray>();

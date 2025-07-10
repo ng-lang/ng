@@ -12,12 +12,12 @@ using namespace NG;
 using namespace NG::ast;
 using namespace NG::parsing;
 
-static inline ParseResult<ASTRef<ASTNode>> parse(const Str &source, const Str &file)
+static inline auto parse(const Str &source, const Str &file) -> ParseResult<ASTRef<ASTNode>>
 {
     return Parser(ParseState(Lexer(LexState{source}).lex())).parse(file);
 }
 
-int main(int argc, char **argv)
+auto main(int argc, char **argv) -> int
 {
 
     if (argc < 2)
@@ -38,7 +38,7 @@ int main(int argc, char **argv)
     auto astResult = parse(source, argv[1]);
     if (!astResult)
     {
-        std::cout << "Error parsing file: " << astResult.error().message << std::endl;
+        std::cout << "Error parsing file: " << astResult.error().message << '\n';
         return -1;
     }
 
