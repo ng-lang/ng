@@ -215,34 +215,6 @@ namespace NG::runtime {
         }
     };
 
-    struct NGInteger final : ThreeWayComparable<NGInteger> {
-        long long value = 0;
-
-        static Orders comparator(const NGObject *left, const NGObject *right);
-
-        explicit NGInteger(long long value = 0) : value{value} {}
-
-        Str show() const override {
-            return std::to_string(value);
-        }
-
-        bool boolValue() const override;
-
-        RuntimeRef<NGObject> opPlus(RuntimeRef<NGObject> other) const override;
-
-        RuntimeRef<NGObject> opMinus(RuntimeRef<NGObject> other) const override;
-
-        RuntimeRef<NGObject> opTimes(RuntimeRef<NGObject> other) const override;
-
-        RuntimeRef<NGObject> opDividedBy(RuntimeRef<NGObject> other) const override;
-
-        RuntimeRef<NGObject> opModulus(RuntimeRef<NGObject> other) const override;
-
-        [[nodiscard]] inline size_t asSize() const {
-            return static_cast<size_t>(value);
-        }
-    };
-
     struct NGDefinition {
         Str name;
         NG::ast::ASTNode *defbody;
