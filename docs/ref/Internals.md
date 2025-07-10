@@ -1,17 +1,23 @@
-Internals
-========
+# Internals
 
+ng is an interpreted language with the following execution stages:
 
-ng has few stages, including:
+1. Lexical analysis - converts source code to tokens
+2. Syntax analysis - builds abstract syntax tree (AST) 
+3. Interpretation - directly executes the AST
 
-  - Lexical analysis
-  - Grammar analysis
-  - Semantic analysis
-  - Optimization
-  - Code generating
+The interpreter consists of:
+- Parser (lexer + AST builder)
+- Runtime system (objects, types, operators)
+- Visitor-based execution engine
 
-As ng implemented in C++ (for now), this document shows how these stages implemented and
-some internal data structure.
+## Runtime System
+
+Key runtime components:
+- `NGObject`: Base class for all runtime objects
+- `NGContext`: Execution context (variables, functions)
+- `NGType`: Type information for objects
+- `NGModule`: Module system implementation
 
 ## 1. Lexical analysis
 
@@ -62,7 +68,7 @@ After whole lexical process, Lexer::lex will produce a list of tokens (`std::vec
 Grammar analysis will produce an AST for a ng source file. AST is a noncopyable object
 tree and all its definitions in `src/include/ast.hpp`. The basic structure of AST is the
 `ASTRef<T>` type, it is currently just a basic alias of `T*`. You can replace it with
-self-defined reference/pointer type to make it more convienent to use.
+self-defined reference/pointer type to make it more convenient to use.
 
 `ASTRef` must be created by `makeast` and destroyed by `destroyast` functions, and make
 sure you are calling `destroyast` in the parent AST node destructor.
@@ -119,7 +125,14 @@ class AstVisitor : NonCopyable
 };
 ```
 
-ng provides a default implementation `DummyVisitor` which set all `visit` functions
-to empty, you can directly inherite it just modify what you need.
+ng provides a default implementation `DummyVisitor` which sets all `visit` functions
+to empty. You can directly inherit it and modify what you need.
 
-There is an exmaple `NG::ASTDumper` in `src/ast_dump.cpp`.
+The interpreter uses specialized visitors:
+- `ExpressionVisitor`: Evaluates expressions
+- `StatementVisitor`: Executes statements
+- `Stupid`: Main interpreter implementation
+
+Example visitors:
+- `NG::ASTDumper` in `src/ast_dump.cpp` (AST visualization)
+- `ExpressionVisitor` in `src/intp/stupid.cpp` (expression evaluation)

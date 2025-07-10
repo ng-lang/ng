@@ -1,13 +1,17 @@
 # Overview
 
-## Phases of Compilation
+ng is an interpreted, dynamically-typed scripting language with the following key features:
 
-The process of compiling is divided into multiple phases, each phases has no dependence
-on subsequent phases. This seperation of the passes makes language tools relatively easy to
-produce. It is also possible to compress D source by storing it in tokenized form.
+- Object-oriented programming support (classes, inheritance, polymorphism)
+- Functional programming features (higher-order functions, closures)
+- Imperative programming constructs
+- Built-in string and collection operations
+- Module system for code organization
 
- 1. Lexical analysis
- 2. Syntax analysis
- 3. Semantic analysis
- 4. Optimization
- 5. Code generation
+## Execution Model
+
+ng code is executed through the following phases:
+
+1. Lexical analysis - converts source code to tokens
+2. Syntax analysis - builds abstract syntax tree (AST)
+3. Interpretation - directly executes the AST

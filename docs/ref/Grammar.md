@@ -1,12 +1,10 @@
-Grammar
-========
+# Grammar
 
-This is grammar of ng. It just shows the structure how ng structure itself, but not
-related to actual AST and parser implementation.
+This document describes the syntax of ng language.
 
 ## 1. Declarations
 
-ng is combined with declarations, includes module declaration:
+ng programs consist of declarations including:
 
 ```
 [Module]:
@@ -20,7 +18,7 @@ ng is combined with declarations, includes module declaration:
 ### 1.1 Module and use declaration
 
 Module declaration is used to specify a module name for current compilation unit.
-Module name is seperated by DOT (`.`), moudle name can also be an string literal if
+Module name is separated by DOT (`.`), module name can also be a string literal if
 it is a keyword.
 ```
 [ModuleDeclaration]:
@@ -58,7 +56,7 @@ Function declaration is to declare or define a function inside a module.
     fun [FunctionSignature] [FunctionBody]
 
 [FunctionSignature]:
-    [FunctionName] "(" ([FunctionParameter] ("," [FunctionParameter])* )? ")" [FunctionReturnDeclaration]
+    [FunctionName] "(" ([FunctionParameter] ("," [FunctionParameter])* )? ")"
 
 [FunctionName]:
     [Identifier]
@@ -133,14 +131,33 @@ ng has few jump statement to implement advanced control flow:
 
 ## 3. Expression
 
-Expression is used to descirbe the calculations and function calls in ng to perform actual program logic.
+Expression is used to describe the calculations and function calls in ng to perform actual program logic.
 
 ```
 [Expression]:
     [PrimaryExpression]
-    [FunCallExpression]
+    [FunCallExpression] 
     [IdAccessorExpression]
     [BinaryExpression]
+    [NewObjectExpression]
+
+[NewObjectExpression]:
+    new [TypeName] "{" ([PropertyAssignment] ",")* [PropertyAssignment] "}"
+
+[PropertyAssignment]:
+    [Identifier] ":" [Expression]
+
+[TypeDeclaration]:
+    type [TypeName] "{" 
+        ([PropertyDeclaration] ";")*
+        ([MethodDeclaration] ";")*
+    "}"
+
+[PropertyDeclaration]:
+    property [Identifier]
+
+[MethodDeclaration]:
+    fun [MethodName] "(" ([FunctionParameter] ("," [FunctionParameter])* ")" [FunctionBody]
 
 [PrimaryExpression]:
     [Identifier]
@@ -154,4 +171,3 @@ Expression is used to descirbe the calculations and function calls in ng to perf
 
 [BinaryExpression]:
     [Expression] [Operator] [Expression]
-```

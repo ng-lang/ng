@@ -1,8 +1,7 @@
 # The ng Programming Language Reference
 
-ng is a static-typed multiple paradigm programming language desgined for efficiency
-and productivity. It is a general purpose programming language focused on system
-programming.
+ng is a dynamically-typed multiple paradigm programming language designed for efficiency 
+and productivity. It supports object-oriented, functional and imperative programming styles.
 
 ## Contents
 

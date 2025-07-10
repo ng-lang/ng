@@ -18,32 +18,24 @@ Source text currently only can be in ASCII encoding texts.
   [NumberLiteral]
   [Keyword]
   [UserDefinedOperator]
-  +
-  -
-  *
-  /
-  %
-  >
-  >=
-  >>
-  <
-  <=
-  <<
-  =
-  ==
-  :
-  ::
-  .
-  ;
-  ,
-  ->
-  =>
-  {
-  }
-  (
-  )
-  [
-  ]
+  +  (addition, string concatenation)
+  -  (subtraction)
+  *  (multiplication)
+  /  (division)
+  %  (modulus)
+  >  (greater than)
+  >= (greater than or equal)
+  <  (less than)
+  <= (less than or equal)
+  == (equality)
+  != (inequality)
+  :  (property initialization)
+  .  (method access)
+  ;  (statement terminator)
+  ,  (separator)
+  => (return)
+  { } (block delimiters)
+  ( ) (grouping, function call)
 ```
 
 ### 2.1 Keywords
@@ -53,29 +45,21 @@ Keyword:
   type
   fun
   val
-  sig
-  struct
-  cons
-
+  property
+  new
+  
   module
+  import
   export
-  use
-
+  
   if
-  then
   else
-
-  loop
-  collect
-
-  case
+  
   return
-  break
-  continue
-
+  
   true
   false
-  unit
+  self
 ```
 
 for a whole list of reserved symbols please see `src/reserved.inc`.
