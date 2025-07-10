@@ -7,7 +7,7 @@ namespace NG::runtime
 
     auto NGString::show() const -> Str
     {
-        return "\"" + value + "\"";
+        return value;
     }
 
     auto NGString::opEquals(RuntimeRef<NGObject> other) const -> bool
@@ -33,13 +33,13 @@ namespace NG::runtime
     {
         static RuntimeRef<NGType> stringType = makert<NGType>(NGType{
             .memberFunctions = {
-                {"size", [](const RuntimeRef<NGObject>& self, const RuntimeRef<NGContext>& context, const RuntimeRef<InvCtx>& invCtx)
+                {"size", [](const RuntimeRef<NGObject> &self, const RuntimeRef<NGContext> &context, const RuntimeRef<InvCtx> &invCtx)
                  {
                      auto str = std::dynamic_pointer_cast<NGString>(self);
 
                      context->retVal = makert<NGIntegral<uint32_t>>(str->value.size());
                  }},
-                {"charAt", [](const RuntimeRef<NGObject>& self, const RuntimeRef<NGContext>& context, const RuntimeRef<InvCtx>& invCtx)
+                {"charAt", [](const RuntimeRef<NGObject> &self, const RuntimeRef<NGContext> &context, const RuntimeRef<InvCtx> &invCtx)
                  {
                      auto str = std::dynamic_pointer_cast<NGString>(self);
                      auto numeral = std::dynamic_pointer_cast<NumeralBase>(invCtx->params[0]);

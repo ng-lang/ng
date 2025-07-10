@@ -19,4 +19,5 @@ val person = new Person {
 
 assert(person.name().size() == 9);
 
+print(person.name());
 print(person.kid.name());

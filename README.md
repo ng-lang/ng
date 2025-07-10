@@ -11,9 +11,11 @@ programming.
 
 ## TODO
 
-- [x] assignment operator
-- [ ] operator overloading
+- [x] Assignment Operator
+- [ ] Operator Overloading
 - [x] `module` & `import`
-- [x] using `shared_ptr` in runtime to avoid memory leaks(interpreter)
-- [ ] compile to native
+- [x] Using Smart Pointers to Avoid Memory Leaks (Interpreter)
+- [ ] Compile to Native
 - [ ] Add more test to fix infinite loops in parser.
+- [ ] Naive Type Checking
+- [ ] Bytecode Based Runtime - ORGASM (Organized Assembly)
