@@ -13,8 +13,9 @@ static void interpret(const Str &source) {
     Interpreter *intp = NG::intp::stupid();
 
     auto astResult = parse(source);
+
     if (!astResult) {
-        ParseError error =             astResult.error();
+        ParseError error = astResult.error();
         auto&& position = error.token.position;
         Str location = std::format("Location: {} / {}", position.line, position.col);
 

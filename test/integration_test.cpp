@@ -15,6 +15,18 @@ runIntegrationTest(const std::string &filename) {
     std::ifstream file(filename);
     std::string source{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
     auto astResult = parse(source, filename);
+
+    if (!astResult) {
+        ParseError error = astResult.error();
+        auto&& position = error.token.position;
+        Str location = std::format("Location: {} / {}", position.line, position.col);
+
+        debug_log("Error parse result:",
+            error.message,
+            location
+        );
+    }
+
     REQUIRE(astResult.has_value());
 
     auto& ast = *astResult;

@@ -5,12 +5,19 @@ using namespace NG::ast;
 using namespace NG::parsing;
 
 static ParseResult<ASTRef<ASTNode>> parse(const Str &source) {
-    auto result =  Parser(ParseState(Lexer(LexState{source}).lex())).parse();
-    if (!result) {
-        debug_log(result.error().message);
-        debug_log(result.error().token.position.col, result.error().token.position.line);
+    auto astResult =  Parser(ParseState(Lexer(LexState{source}).lex())).parse();
+
+    if (!astResult) {
+        ParseError error = astResult.error();
+        auto&& position = error.token.position;
+        Str location = std::format("Location: {} / {}", position.line, position.col);
+
+        debug_log("Error parse result:",
+            error.message,
+            location
+        );
     }
-    return result;
+    return astResult;
 }
 
 TEST_CASE("parser should parse function", "[ParserTest]") {
