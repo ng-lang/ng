@@ -11,9 +11,11 @@ jobs:
         uses: KyleMayes/install-llvm-action@v2.0.7
         with:
           version: "20"
-      - name: Build project
-        uses: nicledomaS/cmake_build_action@v1.4
-        with:
-          submodule_update: ON
-          run_tests: ON
-          unit_test_build: -Dtest=ON
+      - uses: lukka/get-cmake@latest
+      - run: mkdir -p build
+      - run: cmake ../ -GNinja -DCMAKE_C_COMPILER=${{ env.LLVM_PATH }}/bin/clang -DCMAKE_CXX_COMPILER=${{ env.LLVM_PATH }}/bin/clang++
+        working-directory: ./build
+      - run: ninja
+        working-directory: ./build
+      - run: ninja test
+        working-directory: ./build
