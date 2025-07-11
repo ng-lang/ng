@@ -556,7 +556,7 @@ namespace NG::parsing
                 code(TokenType::KEYWORD_F128) >= code(maybeBuiltin))
             {
                 ASTRef<TypeAnnotation> anno = makeast<TypeAnnotation>(state->repr);
-                uintptr_t builtin_type_code = code(maybeBuiltin) - code(TokenType::KEYWORD_INT) + code(TypeAnnotationType::BUILTIN_INT);
+                size_t builtin_type_code = code(maybeBuiltin) - code(TokenType::KEYWORD_INT) + code(TypeAnnotationType::BUILTIN_INT);
                 anno->type = from_code<TypeAnnotationType>(builtin_type_code);
                 accept(maybeBuiltin); // NOLINT(*-unused-return-value)
                 return anno;
