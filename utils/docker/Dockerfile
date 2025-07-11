@@ -15,4 +15,4 @@ ENV HOMEBREW_INSTALL_FROM_API=1
 RUN /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
 RUN eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)" && echo "eval \"\$($(brew --prefix)/bin/brew shellenv)\"" >> ~/.bashrc
-RUN /home/linuxbrew/.linuxbrew/bin/brew install llvm gcc
+RUN /home/linuxbrew/.linuxbrew/bin/brew install llvm gcc cmake ninja

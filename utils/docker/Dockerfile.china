@@ -27,3 +27,5 @@ ENV ALL_PROXY ${PROXY}
 
 RUN eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)" && echo "eval \"\$($(brew --prefix)/bin/brew shellenv)\"" >> ~/.bashrc
 RUN /home/linuxbrew/.linuxbrew/bin/brew install llvm gcc
+
+RUN /home/linuxbrew/.linuxbrew/bin/brew install cmake ninja
