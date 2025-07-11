@@ -6,6 +6,7 @@
 #include <fstream>
 #include <iostream>
 #include <streambuf>
+#include <filesystem>
 #include "intp/intp.hpp"
 
 using namespace NG;
