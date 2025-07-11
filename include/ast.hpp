@@ -4,6 +4,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include <optional>
 
 #include "common.hpp"
 #include <fwd.hpp>

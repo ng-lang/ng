@@ -1,0 +1,29 @@
+FROM public.ecr.aws/docker/library/debian:bookworm-slim
+
+RUN sed -i s/deb.debian.org/mirrors.tuna.tsinghua.edu.cn/g /etc/apt/sources.list.d/debian.sources 
+
+ARG PROXY
+
+RUN apt-get update &&\
+    apt-get install -y ca-certificates build-essential procps curl file git
+
+RUN useradd -ms /bin/bash linuxbrew
+RUN usermod -a -G sudo linuxbrew
+USER linuxbrew
+
+WORKDIR /home/linuxbrew
+
+ENV NONINTERACTIVE=1
+ENV HOMEBREW_BREW_GIT_REMOTE="https://mirrors.tuna.tsinghua.edu.cn/git/homebrew/brew.git"
+ENV HOMEBREW_CORE_GIT_REMOTE="https://mirrors.tuna.tsinghua.edu.cn/git/homebrew/homebrew-core.git"
+
+ENV HOMEBREW_INSTALL_FROM_API=1
+RUN git clone --depth=1 https://mirrors.tuna.tsinghua.edu.cn/git/homebrew/install.git brew-install
+RUN /bin/bash brew-install/install.sh
+
+ENV HTTP_PROXY ${PROXY}
+ENV HTTPS_PROXY ${PROXY}
+ENV ALL_PROXY ${PROXY}
+
+RUN eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)" && echo "eval \"\$($(brew --prefix)/bin/brew shellenv)\"" >> ~/.bashrc
+RUN /home/linuxbrew/.linuxbrew/bin/brew install llvm gcc

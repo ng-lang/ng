@@ -1,7 +1,6 @@
 #pragma once
 
 #include <iostream>
-#include <print>
 #include <config.h>
 #include <vector>
 #include <unordered_map>
@@ -22,7 +21,7 @@ template <class T>
 inline void show(T &&value)
 {
 #ifdef NG_CONFIG_ENABLE_DEBUG_LOG
-    std::println("[DEBUG] >> {}", std::forward<T>(value));
+    std::cout << "[DEBUG] >> {}" << std::forward<T>(value) << std::endl;
 #endif // NG_CONFIG_ENABLE_DEBUG_LOG
 }
 

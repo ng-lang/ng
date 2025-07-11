@@ -1,0 +1,14 @@
+{
+    "name": "NG Workspace",
+    "image": "ngbuilder:250711",
+    // "build": {
+    //     "dockerfile": "../utils/docker/Dockerfile",
+    //     "context": "../"
+    // }
+    "containerEnv": {
+        "HTTP_PROXY": "http://192.168.3.13:7890/",
+        "HTTPS_PROXY": "http://192.168.3.13:7890/",
+        "HOMEBREW_BREW_GIT_REMOTE": "https://mirrors.tuna.tsinghua.edu.cn/git/homebrew/brew.git",
+        "HOMEBREW_CORE_GIT_REMOTE": "https://mirrors.tuna.tsinghua.edu.cn/git/homebrew/homebrew-core.git"
+    }
+}

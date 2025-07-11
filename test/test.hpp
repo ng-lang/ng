@@ -16,6 +16,7 @@
 #include <vector>
 #include <string>
 #include <fstream>
+#include <format>
 
 using namespace NG;
 using namespace NG::ast;
