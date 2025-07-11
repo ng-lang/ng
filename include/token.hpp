@@ -32,6 +32,7 @@ namespace NG
         KEYWORD_ELSE,
         KEYWORD_LOOP,
         KEYWORD_COLLECT,
+        KEYWORD_NEXT,
         KWYWORD_SWITCH,
         KEYWORD_CASE,
         KEYWORD_OTHERWISE,

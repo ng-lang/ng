@@ -5,6 +5,7 @@ set(CMAKE_BUILD_TYPE Debug)
 project(ng)
 
 Include(FetchContent)
+Include(CTest)
 
 FetchContent_Declare(
   Catch2
@@ -13,6 +14,8 @@ FetchContent_Declare(
 )
 
 FetchContent_MakeAvailable(Catch2)
+
+Include(Catch)
 
 set(NG_LIB_SRC
         src/ast/ast.cpp
@@ -48,5 +51,17 @@ add_library(ng ${NG_LIB_SRC})
 add_executable(ngi src/main.cpp)
 target_link_libraries(ngi ng)
 
+if (APPLE)
+target_compile_options(ng PRIVATE -fprofile-instr-generate -fcoverage-mapping -fcoverage-mcdc)
+target_link_options(ngi PRIVATE -coverage)
+endif()
+
 add_executable(ng_test ${NG_TEST_SRC})
 target_link_libraries(ng_test PRIVATE ng Catch2::Catch2WithMain)
+
+if (APPLE)
+target_compile_options(ng_test PRIVATE -fprofile-instr-generate -fcoverage-mapping -fcoverage-mcdc)
+target_link_options(ng_test PRIVATE -coverage)
+endif()
+
+catch_discover_tests(ng_test)

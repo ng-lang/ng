@@ -1,17 +1,51 @@
+
+# Build target
+
 ngi
 ngi.exe
-
+libng.a
 ng_test
+
+# CMake
+
 CMakeFiles/
 _deps/
-.vscode
 cmake_install.cmake
 CMakeCache.txt
 
-libng.a
+#CTest
+
+Testing/
+CTestTestfile.cmake
+DartConfiguration.tcl
+ng_test*_include.cmake
+ng_test*_tests.cmake
+
+# Make
+
 Makefile
 
-build/
+# Ninja
+
 build.ninja
 .ninja_deps
 .ninja_log
+
+# VS Code
+
+.vscode
+build/
+
+# LLVM Coverages
+
+coverage/
+index.html
+style.css
+control.js
+*.profdata
+*.profraw
+
+# Leaks
+LeaksReport.txt
+
+reports/

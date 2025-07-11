@@ -65,6 +65,7 @@ namespace NG::parsing
         {"else", TokenType::KEYWORD_ELSE},
         {"loop", TokenType::KEYWORD_LOOP},
         {"collect", TokenType::KEYWORD_COLLECT},
+        {"next", TokenType::KEYWORD_NEXT},
         {"switch", TokenType::KWYWORD_SWITCH},
         {"case", TokenType::KEYWORD_CASE},
         {"otherwise", TokenType::KEYWORD_OTHERWISE},

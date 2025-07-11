@@ -33,7 +33,7 @@ TEST_CASE("lexer should accept all keywords", "[LexerTest]")
         R"(
     type val sig fun cons
     module export import
-    if else loop collect case
+    if else loop collect next
     return break continue
     unit true false
     exports
@@ -54,7 +54,7 @@ TEST_CASE("lexer should accept all keywords", "[LexerTest]")
     REQUIRE(tokens[9].type == TokenType::KEYWORD_ELSE);
     REQUIRE(tokens[10].type == TokenType::KEYWORD_LOOP);
     REQUIRE(tokens[11].type == TokenType::KEYWORD_COLLECT);
-    REQUIRE(tokens[12].type == TokenType::KEYWORD_CASE);
+    REQUIRE(tokens[12].type == TokenType::KEYWORD_NEXT);
     REQUIRE(tokens[13].type == TokenType::KEYWORD_RETURN);
     REQUIRE(tokens[14].type == TokenType::KEYWORD_BREAK);
     REQUIRE(tokens[15].type == TokenType::KEYWORD_CONTINUE);

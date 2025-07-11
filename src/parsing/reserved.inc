@@ -1,4 +1,4 @@
-#define RESERVED(keyword) { #keyword , TokenType::RESERVED }
+#define RESERVED(keyword) {#keyword, TokenType::RESERVED}
 
 // to be defined
 RESERVED(and),
@@ -147,6 +147,8 @@ RESERVED(how),
 RESERVED(why),
 RESERVED(what),
 RESERVED(when),
+
+RESERVED(yield),
 
 RESERVED(unless),
 RESERVED(until),
