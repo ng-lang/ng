@@ -9,6 +9,8 @@
         "HTTP_PROXY": "http://192.168.3.13:7890/",
         "HTTPS_PROXY": "http://192.168.3.13:7890/",
         "HOMEBREW_BREW_GIT_REMOTE": "https://mirrors.tuna.tsinghua.edu.cn/git/homebrew/brew.git",
-        "HOMEBREW_CORE_GIT_REMOTE": "https://mirrors.tuna.tsinghua.edu.cn/git/homebrew/homebrew-core.git"
+        "HOMEBREW_CORE_GIT_REMOTE": "https://mirrors.tuna.tsinghua.edu.cn/git/homebrew/homebrew-core.git",
+        "LIBRARY_PATH": "$LIBRARY_PATH:/home/linuxbrew/.linuxbrew/lib",
+        "LD_LIBRARY_PATH": "$LD_LIBRARY_PATH:/home/linuxbrew/.linuxbrew/lib"
     }
 }
