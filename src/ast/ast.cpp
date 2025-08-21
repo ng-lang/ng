@@ -9,8 +9,12 @@ namespace NG::ast
 {
 
     template <class T>
-    static auto strOfNodeList(const Vec<T> &nodes, const Str &separator = ", ") -> Str
+    static auto strOfNodeList(const Vec<ASTRef<T>> &nodes, const Str &separator = ", ") -> Str
     {
+        // return nodes | views::transform([](ASTRef<T> node)
+        //                                 { return node->repr(); }) |
+        //        views::join_with(", ");
+
         Str str{};
         for (const auto &node : nodes)
         {
@@ -213,6 +217,75 @@ namespace NG::ast
     {
         return "if (" + this->testing->repr() + ") {\n" + this->consequence->repr() + "}" +
                (this->alternative == nullptr ? "" : (" else {\n" + this->alternative->repr() + "}"));
+    }
+
+    LoopStatement::~LoopStatement()
+    {
+        if (loopBody != nullptr)
+        {
+            destroyast(loopBody);
+        }
+
+        for (auto binding : this->bindings)
+        {
+            destroyast(binding.target);
+        }
+    }
+
+    void LoopStatement::accept(AstVisitor *visitor)
+    {
+        return visitor->visit(this);
+    }
+
+    auto LoopStatement::operator==(const ASTNode &node) const -> bool
+    {
+        const auto &loopStmt = dynamic_cast<const LoopStatement &>(node);
+        return astNodeType() == node.astNodeType() &&
+               *loopBody == *loopStmt.loopBody &&
+               bindings.size() == loopStmt.bindings.size() &&
+               std::equal(std::begin(bindings),
+                          std::end(bindings),
+                          begin(loopStmt.bindings),
+                          [](auto &&left, auto &&right)
+                          {
+                              return left.name == right.name &&
+                                     left.type == right.type &&
+                                     ASTComparator(left.target, right.target);
+                          });
+    }
+
+    auto LoopStatement::repr() const -> Str
+    {
+        return "loop (...) " + loopBody->repr();
+    }
+
+    NextStatement::~NextStatement()
+    {
+        for (auto expr : this->expressions)
+        {
+            destroyast(expr);
+        }
+    }
+
+    void NextStatement::accept(AstVisitor *visitor)
+    {
+        return visitor->visit(this);
+    }
+
+    auto NextStatement::operator==(const ASTNode &node) const -> bool
+    {
+        const auto &nextStmt = dynamic_cast<const NextStatement &>(node);
+        return astNodeType() == node.astNodeType() &&
+               expressions.size() == nextStmt.expressions.size() &&
+               std::equal(std::begin(expressions),
+                          std::end(expressions),
+                          begin(nextStmt.expressions),
+                          ASTComparator);
+    }
+
+    auto NextStatement::repr() const -> Str
+    {
+        return "next " + strOfNodeList(this->expressions);
     }
 
     SimpleStatement::~SimpleStatement()

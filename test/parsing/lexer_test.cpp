@@ -37,11 +37,11 @@ TEST_CASE("lexer should accept all keywords", "[LexerTest]")
     return break continue
     unit true false
     exports
-    property new
+    property new in
 )"}};
 
     auto &&tokens = lexer.lex();
-    REQUIRE(tokens.size() == 22);
+    REQUIRE(tokens.size() == 23);
     REQUIRE(tokens[0].type == TokenType::KEYWORD_TYPE);
     REQUIRE(tokens[1].type == TokenType::KEYWORD_VAL);
     REQUIRE(tokens[2].type == TokenType::KEYWORD_SIG);
@@ -64,6 +64,7 @@ TEST_CASE("lexer should accept all keywords", "[LexerTest]")
     REQUIRE(tokens[19].type == TokenType::KEYWORD_EXPORTS);
     REQUIRE(tokens[20].type == TokenType::KEYWORD_PROPERTY);
     REQUIRE(tokens[21].type == TokenType::KEYWORD_NEW);
+    REQUIRE(tokens[22].type == TokenType::KEYWORD_IN);
 }
 
 TEST_CASE("lexer should accept numbers", "[LexerTest]")

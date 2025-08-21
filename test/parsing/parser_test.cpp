@@ -300,3 +300,24 @@ val y: f64 = 2.6f64;
     REQUIRE(astResult.has_value());
     destroyast(*astResult);
 }
+
+TEST_CASE("Parser should parse loop statement", "[ParserTestLoop]")
+{
+    auto astResult = parse(R"(
+loop x = 1 {
+    if (x < 10) {
+        next i;
+    }
+}
+
+loop a in [1, 2, 3], b = 2 {
+    if (b < 5) {
+        next a, b;
+    }
+}
+
+)");
+
+    REQUIRE(astResult.has_value());
+    destroyast(*astResult);
+}

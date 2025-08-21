@@ -1,0 +1,21 @@
+1 + 1;
+
+a + b;
+
+let x = 1 in x + 1;
+
+let x = 1 and y = 2 in
+if x > y then x else y;
+
+let x = [1, 2, 3] in
+x.length;
+
+let t = (123, true) in
+snd t;
+
+let (f, g) = destruct() in
+compose f g;
+
+flip (flip flip) flip;
+
+fun compose f g = fun x -> f (g x);

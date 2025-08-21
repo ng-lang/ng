@@ -107,6 +107,7 @@ namespace NG::parsing
                 case TokenType::KEYWORD_LOOP:
                 case TokenType::KEYWORD_COLLECT:
                 case TokenType::KEYWORD_UNIT:
+                case TokenType::KEYWORD_NEXT:
                 default:
                 {
                     auto statementResult = statement();
@@ -526,6 +527,10 @@ namespace NG::parsing
                 return ifStatement();
             case TokenType::KEYWORD_VAL:
                 return valDefStatement();
+            case TokenType::KEYWORD_LOOP:
+                return loopStatement();
+            case TokenType::KEYWORD_NEXT:
+                return nextStatement();
             default:
                 return simpleStatement();
             }
@@ -662,6 +667,110 @@ namespace NG::parsing
             return ifstmt;
         }
 
+        auto loopStatement() -> ParseResult<ASTRef<LoopStatement>>
+        {
+            if (auto result = accept(TokenType::KEYWORD_LOOP); !result)
+            {
+                return std::unexpected(result.error());
+            }
+            auto loopStmt = makeast<LoopStatement>();
+            while (expect(TokenType::ID))
+            {
+                auto identifier = state->repr;
+                accept(TokenType::ID);
+                auto loopBindingType = LoopBindingType::LOOP_ASSIGN;
+                switch (state->type)
+                {
+                case TokenType::OPERATOR:
+                    if (state->operatorType == Operators::ASSIGN)
+                    {
+                        accept(TokenType::OPERATOR);
+                        loopBindingType = LoopBindingType::LOOP_ASSIGN;
+                    }
+                    else
+                    {
+                        return std::unexpected(state.error("Unexpected loop binding"));
+                    }
+                    break;
+                case TokenType::KEYWORD_IN:
+                    accept(TokenType::KEYWORD_IN);
+                    loopBindingType = LoopBindingType::LOOP_IN;
+                    break;
+                default:
+                    return std::unexpected(state.error("Unexpected loop binding"));
+                }
+                auto bindingTarget = expression();
+
+                if (bindingTarget)
+                {
+                    loopStmt->bindings.emplace_back(LoopBinding{
+                        .name = identifier,
+                        .type = loopBindingType,
+                        .target = bindingTarget.value()});
+                }
+                else
+                {
+                    return std::unexpected(bindingTarget.error());
+                }
+                if (expect(TokenType::COMMA))
+                {
+                    accept(TokenType::COMMA);
+                    continue;
+                }
+                else
+                {
+                    break;
+                }
+            }
+
+            auto body = statement();
+            if (body)
+            {
+                loopStmt->loopBody = *body;
+            }
+            else
+            {
+                return std::unexpected(body.error());
+            }
+            return loopStmt;
+        }
+
+        auto nextStatement() -> ParseResult<ASTRef<NextStatement>>
+        {
+            if (auto result = accept(TokenType::KEYWORD_NEXT); !result)
+            {
+                return std::unexpected(result.error());
+            }
+            auto nextStmt = makeast<NextStatement>();
+
+            while (!expect(TokenType::SEMICOLON))
+            {
+                auto expr = expression();
+                if (expr)
+                {
+                    nextStmt->expressions.push_back(expr.value());
+                }
+                else
+                {
+                    return std::unexpected(expr.error());
+                }
+                if (!expect(TokenType::SEMICOLON))
+                {
+                    if (auto result = accept(TokenType::COMMA); !result)
+                    {
+                        return std::unexpected(result.error());
+                    }
+                }
+            }
+
+            if (auto result = accept(TokenType::SEMICOLON); !result)
+            {
+                return std::unexpected(result.error());
+            }
+
+            return nextStmt;
+        }
+
         auto compoundStatement() -> ParseResult<ASTRef<CompoundStatement>>
         {
             if (auto result = accept(TokenType::LEFT_CURLY); !result)
@@ -778,6 +887,7 @@ namespace NG::parsing
                    expect(TokenType::RIGHT_CURLY) ||  // }
                    expect(TokenType::RIGHT_SQUARE) || // ]
                    expect(TokenType::SEMICOLON) ||    // ;
+                   expect(TokenType::LEFT_CURLY) ||   // {
                    expect(TokenType::OPERATOR) ||
                    state.eof();
         }

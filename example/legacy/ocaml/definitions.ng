@@ -1,0 +1,88 @@
+fun hello(x) {
+    print(x)
+}
+
+fun id(x) = x;
+
+fun compose f g = ...;
+
+val x = 1
+and y = 2;
+
+val (x, y) = (y, x)
+and [a, b, c, rest...] = get_list();
+
+fun hd [x, ys...] = x;
+
+fun tl [_, rest...] = rest;
+
+val BinExpr(left, right) =
+    get_binexpr();
+
+type int;
+
+type option t;
+
+type result l r;
+
+type multimap k (list v);
+
+type map k v = ...;
+
+type name_alias = string;
+type age_alias = int;
+
+data name_t(string);
+data age_t(string);
+
+data pair l r (l, r);
+
+data node t {
+    value: t;
+    next: option (ref (node t));
+}
+
+type basic_color =
+    | Red
+    | Green
+    | Blue;
+
+type list t =
+    | Cons (t, (list t))
+    | Nil;
+
+type ints = [int];
+
+sig id :: t => t -> t;
+
+sig plus :: int -> int -> int;
+
+sig compose :: a, b, c => (a -> b) -> (b -> c) -> (a -> c);
+
+sig map :: Monad (m _), a, b => m a -> (a -> b) -> m b;
+
+type arr a b = a -> b;
+
+concept Eq t {
+    equal :: t -> t -> bool;
+}
+
+concept Iterable t {
+    type elem_t = t;
+    type itereator_t;
+    val iterator: itereator_t;
+    ...
+}
+
+val x: int;
+
+val y: t;
+
+impl Iterable for List t {
+    type elem_t = t;
+    ...
+}
+
+val m: int = 1;
+
+fun plus (x:int) (y:int) = x + y;

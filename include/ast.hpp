@@ -61,6 +61,11 @@ namespace NG::ast
         VAL_DEF_STATEMENT = 0x403,
         RETURN_STATEMENT = 0x404,
         IF_STATEMENT = 0x405,
+        LOOP_STATEMENT = 0x406,
+
+        LOOP_DECLARATION = 0x501,
+        NEXT_STATEMENT = 0x503,
+        YIELD_STATEMENT = 0x504,
 
         BOTTOM = 1030
     };
@@ -239,6 +244,7 @@ namespace NG::ast
         ~CompoundStatement() override;
     };
 
+    // todo: multiple returns
     struct ReturnStatement : Statement
     {
         ASTRef<Expression> expression = nullptr;
@@ -271,6 +277,54 @@ namespace NG::ast
         auto repr() const -> Str override;
 
         ~IfStatement() override;
+    };
+
+    enum class LoopBindingType
+    {
+        LOOP_ASSIGN = 0,
+        LOOP_IN = 1,
+        // not supported now
+        LOOP_DESTRUCT = 2,
+    };
+
+    struct LoopBinding
+    {
+        Str name;
+        LoopBindingType type;
+        ASTRef<Expression> target;
+    };
+
+    struct LoopStatement : Statement
+    {
+        ASTRef<Statement> loopBody = nullptr;
+        Vec<LoopBinding> bindings{};
+
+        void accept(AstVisitor *visitor) override;
+
+        auto astNodeType() const -> ASTNodeType override { return ASTNodeType::LOOP_STATEMENT; }
+
+        auto operator==(const ASTNode &node) const -> bool override;
+
+        [[nodiscard]]
+        auto repr() const -> Str override;
+
+        ~LoopStatement() override;
+    };
+
+    struct NextStatement : Statement
+    {
+        Vec<ASTRef<Expression>> expressions{};
+
+        void accept(AstVisitor *visitor) override;
+
+        auto astNodeType() const -> ASTNodeType override { return ASTNodeType::NEXT_STATEMENT; }
+
+        auto operator==(const ASTNode &node) const -> bool override;
+
+        [[nodiscard]]
+        auto repr() const -> Str override;
+
+        ~NextStatement() override;
     };
 
     struct SimpleStatement : Statement

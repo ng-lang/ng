@@ -39,6 +39,7 @@ namespace NG
         KEYWORD_RETURN,
         KEYWORD_BREAK,
         KEYWORD_CONTINUE,
+        KEYWORD_IN,
 
         KEYWORD_TRUE,
         KEYWORD_FALSE,

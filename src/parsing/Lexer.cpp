@@ -72,6 +72,7 @@ namespace NG::parsing
         {"return", TokenType::KEYWORD_RETURN},
         {"break", TokenType::KEYWORD_BREAK},
         {"continue", TokenType::KEYWORD_CONTINUE},
+        {"in", TokenType::KEYWORD_IN},
 
         {"true", TokenType::KEYWORD_TRUE},
         {"false", TokenType::KEYWORD_FALSE},
