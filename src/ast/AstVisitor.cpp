@@ -73,5 +73,8 @@ namespace NG::ast
 
     void AstVisitor::visit(CompileUnit *compileUnit) {}
 
+    void AstVisitor::visit(NextStatement *nextStatement) {}
+    void AstVisitor::visit(LoopStatement *loopStatement) {}
+
     AstVisitor::~AstVisitor() = default;
 }

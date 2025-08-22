@@ -1,0 +1,17 @@
+val a = 1;
+
+assert(a == 1);
+{
+    val a = 2;
+    assert(a == 2);
+}
+assert(a == 1);
+
+val b = 1;
+assert(b == 1);
+{
+    b = 2;
+    assert(b == 2);
+}
+
+assert(b == 2);

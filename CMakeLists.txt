@@ -36,6 +36,7 @@ set(NG_LIB_SRC
         src/runtime/OperatorsBase.cpp
         src/runtime/NGObject.cpp
         src/runtime/NGBoolean.cpp
+        src/runtime/NGContext.cpp
         src/runtime/NGString.cpp
         src/runtime/NGArray.cpp
         src/runtime/NGNumeral.cpp

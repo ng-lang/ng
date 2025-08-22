@@ -74,6 +74,10 @@ namespace NG::ast
 
     void DummyVisitor::visit(CompileUnit *compileUnit) {}
 
+    void DummyVisitor::visit(NextStatement *nextStatement) {}
+
+    void DummyVisitor::visit(LoopStatement *loopStatement) {}
+
     DummyVisitor::~DummyVisitor() = default;
 
 }

@@ -8,9 +8,9 @@ namespace NG::runtime
         if (this->functions.contains(member))
         {
             auto &&fns = this->functions;
-            RuntimeRef<NGContext> newContext = makert<NGContext>(*context);
+            RuntimeRef<NGContext> newContext = context->fork();
             RuntimeRef<NGObject> self = invocationContext->target;
-            newContext->objects["self"] = self;
+            newContext->define("self", self);
             fns[member](self, newContext, invocationContext);
 
             return newContext->retVal;

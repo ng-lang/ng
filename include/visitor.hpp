@@ -79,6 +79,9 @@ namespace NG::ast
 
         virtual void visit(CompileUnit *compileUnit) = 0;
 
+        virtual void visit(NextStatement *nextStatement) = 0;
+        virtual void visit(LoopStatement *loopStatement) = 0;
+
         virtual ~AstVisitor() = 0;
     };
 
@@ -155,6 +158,9 @@ namespace NG::ast
         void visit(ImportDecl *importDecl) override;
 
         void visit(CompileUnit *compileUnit) override;
+
+        void visit(NextStatement *nextStatement) override;
+        void visit(LoopStatement *loopStatement) override;
 
         ~DummyVisitor() override;
     };

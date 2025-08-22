@@ -3,9 +3,11 @@
 
 #include <fwd.hpp>
 #include <visitor.hpp>
+#include <intp/runtime.hpp>
 
 namespace NG::intp
 {
+    using namespace NG::runtime;
 
     struct ISummarizable
     {
@@ -28,4 +30,6 @@ namespace NG::intp
     };
 
     auto stupid() -> Interpreter *;
+
+    auto predefs() -> Map<Str, NGInvocationHandler>;
 }

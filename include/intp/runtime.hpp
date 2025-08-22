@@ -8,9 +8,14 @@
 #include <memory>
 #include <debug.hpp>
 #include <utility>
+#include <unordered_set>
+#include <ast.hpp>
 
 namespace NG::runtime
 {
+
+    template <class T>
+    using Set = std::unordered_set<T>;
 
     template <class T>
     using RuntimeRef = std::shared_ptr<T>;
@@ -39,8 +44,42 @@ namespace NG::runtime
 
     struct NGContext
     {
-        Str currentModuleName;
+
+        RuntimeRef<NGObject> retVal;
+
+        void appendModulePath(const Str &path);
+
+        auto fork() -> RuntimeRef<NGContext>;
+
+        auto get(Str name) -> RuntimeRef<NGObject>;
+        void set(Str name, RuntimeRef<NGObject> value);
+
+        void define(Str name, RuntimeRef<NGObject> value);
+        void define_function(Str name, NGInvocationHandler value);
+        void define_type(Str name, RuntimeRef<NGType> type);
+        void define_module(Str name, RuntimeRef<NGModule> module);
+
+        auto has_object(Str name, bool global = false) -> bool;
+        auto has_function(Str name, bool global = false) -> bool;
+        auto has_type(Str name, bool global = false) -> bool;
+        auto has_module(Str name, bool global = false) -> bool;
+
+        auto get_function(Str name) -> NGInvocationHandler;
+        auto get_type(Str name) -> RuntimeRef<NGType>;
+        auto get_module(Str name) -> RuntimeRef<NGModule>;
+
+        void try_save_module();
+        void new_current(NG::ast::Module *e);
+        auto current_module() -> RuntimeRef<NGModule>;
+
+        void summary();
+
         Vec<Str> modulePaths;
+
+        NGContext(Vec<Str> modulePaths, Map<Str, NGInvocationHandler> functions) : modulePaths(modulePaths), functions(functions) {}
+
+    private:
+        Str currentModuleName;
         Map<Str, RuntimeRef<NGObject>> objects;
         Map<Str, NGInvocationHandler> functions;
         Map<Str, RuntimeRef<NGType>> types;
@@ -49,15 +88,9 @@ namespace NG::runtime
 
         Map<Str, RuntimeRef<NGModule>> modules;
 
-        RuntimeRef<NGObject> retVal;
+        Set<Str> locals;
 
-        void appendModulePath(const Str &path)
-        {
-            if (std::ranges::find(modulePaths, path) == std::end(modulePaths))
-            {
-                modulePaths.push_back(path);
-            }
-        }
+        NGContext *parent = nullptr;
     };
 
     struct OperatorsBase // NOLINT(cppcoreguidelines-special-member-functions)

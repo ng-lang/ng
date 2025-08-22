@@ -216,10 +216,6 @@ namespace NG::parsing
                     }
                     imp->alias = alias;
                 }
-                else
-                {
-                    imp->alias = imp->module;
-                }
             }
 
             // symbol import
@@ -856,12 +852,24 @@ namespace NG::parsing
                 }
                 else if (expect(TokenType::OPERATOR))
                 {
-                    auto binExprResult = binaryExpression(std::move(expr));
-                    if (!binExprResult)
+                    if (state->operatorType == Operators::ASSIGN)
                     {
-                        return std::unexpected(binExprResult.error());
+                        auto assignExpr = assignmentExpression(std::move(expr));
+                        if (!assignExpr)
+                        {
+                            return std::unexpected(assignExpr.error());
+                        }
+                        expr = std::move(*assignExpr);
                     }
-                    expr = std::move(*binExprResult);
+                    else
+                    {
+                        auto binExprResult = binaryExpression(std::move(expr));
+                        if (!binExprResult)
+                        {
+                            return std::unexpected(binExprResult.error());
+                        }
+                        expr = std::move(*binExprResult);
+                    }
                 }
                 else if (expect(TokenType::LEFT_SQUARE))
                 {
@@ -875,6 +883,37 @@ namespace NG::parsing
             }
 
             return expr;
+        }
+
+        auto assignmentExpression(ASTRef<Expression> ref) -> ParseResult<ASTRef<AssignmentExpression>>
+        {
+            auto idExpr = dynamic_ast_cast<IdExpression>(ref);
+
+            if (!idExpr)
+            {
+                return std::unexpected(state.error("Unexpected expression, expect identifier to assign"));
+            }
+
+            if (state->operatorType != Operators::ASSIGN)
+            {
+                return std::unexpected(state.error("Only assignment operator can assign"));
+            }
+
+            if (auto result = accept(TokenType::OPERATOR); !result)
+            {
+                return std::unexpected(result.error());
+            }
+            auto result = expression();
+            if (!result)
+            {
+                return std::unexpected(result.error());
+            }
+
+            auto assignmentExpr = makeast<AssignmentExpression>(idExpr->id);
+
+            assignmentExpr->value = *result;
+
+            return assignmentExpr;
         }
 
         auto expectExpressionTerminator() -> bool

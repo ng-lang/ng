@@ -82,9 +82,9 @@ namespace NG::runtime
         Map<Str, NGInvocationHandler> &fns = this->type()->memberFunctions;
         if (fns.contains(member))
         {
-            RuntimeRef<NGContext> newContext = makert<NGContext>(*context);
+            RuntimeRef<NGContext> newContext = context->fork();
             RuntimeRef<NGObject> self = invocationContext->target;
-            newContext->objects["self"] = self;
+            newContext->define("self", self);
             fns[member](self, newContext, invocationContext);
 
             return newContext->retVal;

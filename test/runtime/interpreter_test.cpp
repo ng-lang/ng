@@ -206,11 +206,17 @@ module main;
 import "hello" (*);
 hello();
 
-module fuck;
+module main2;
 
 import "hello" hel;
 
 hel.hello();
+
+module main3;
+
+import hello;
+
+hello.hello();
 
 )");
 }

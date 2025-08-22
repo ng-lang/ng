@@ -82,3 +82,8 @@ TEST_CASE("should run with multiple modules import and export", "[Integration]")
 {
     runIntegrationTest("example/08.imports.ng");
 }
+
+TEST_CASE("should run with multi level scopes", "[Integration]")
+{
+    runIntegrationTest("example/09.scope.ng");
+}
