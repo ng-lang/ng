@@ -136,6 +136,11 @@ namespace NG::runtime
         {
             return static_cast<size_t>(value);
         }
+
+        void next() override
+        {
+            value++;
+        }
     };
 
     template <std::integral T>

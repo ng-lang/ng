@@ -249,3 +249,24 @@ val z = x + y + a;
 print(z);
 )");
 }
+
+TEST_CASE("basic loop (single variable)", "[InterpreterTest]")
+{
+    interpret(R"(
+fun sum(n) {
+  val s = 0;
+  loop i = 0 {
+    s = s + i;
+    if (i < n) {
+      next i;
+    }
+  }
+  return s;
+}
+
+val result = sum(10);
+
+assert(result == 55);
+
+)");
+}

@@ -132,6 +132,8 @@ namespace NG::runtime
         virtual auto respond(const Str &member, RuntimeRef<NGContext> context, RuntimeRef<NGInvocationContext> invocationContext) -> RuntimeRef<NGObject> = 0;
 
         virtual ~OperatorsBase() noexcept = 0;
+
+        virtual void next() = 0;
     };
 
     struct ObjectBase : NonCopyable // NOLINT(cppcoreguidelines-special-member-functions)
@@ -219,6 +221,8 @@ namespace NG::runtime
         auto opLShift(RuntimeRef<NGObject> other) -> RuntimeRef<NGObject> override;
 
         auto opRShift(RuntimeRef<NGObject> other) -> RuntimeRef<NGObject> override;
+
+        void next() override;
 
         // Meta-Object function
         auto respond(const Str &member, RuntimeRef<NGContext> context, RuntimeRef<NGInvocationContext> invocationContext) -> RuntimeRef<NGObject> override;

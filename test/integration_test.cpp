@@ -87,3 +87,8 @@ TEST_CASE("should run with multi level scopes", "[Integration]")
 {
     runIntegrationTest("example/09.scope.ng");
 }
+
+TEST_CASE("should run with basic single variable loop", "[Integration]")
+{
+    runIntegrationTest("example/10.loop.ng");
+}

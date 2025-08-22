@@ -75,5 +75,9 @@ namespace NG::runtime
         return nullptr;
     }
 
+    void OperatorsBase::next()
+    {
+    }
+
     OperatorsBase::~OperatorsBase() noexcept = default;
 }

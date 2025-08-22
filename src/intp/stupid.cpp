@@ -24,6 +24,14 @@ namespace NG::intp
 
     using namespace NG::runtime;
 
+    struct NextIteration : public std::exception
+    {
+    };
+
+    struct StopIteration : public std::exception
+    {
+    };
+
     template <class T>
     using Set = std::unordered_set<T>;
 
@@ -405,7 +413,53 @@ namespace NG::intp
 
         void visit(LoopStatement *loopStatement) override
         {
+            auto context = this->context->fork();
             ExpressionVisitor vis{context};
+            for (auto &&binding : loopStatement->bindings)
+            {
+                binding.target->accept(&vis);
+                switch (binding.type)
+                {
+                case LoopBindingType::LOOP_ASSIGN:
+                    context->define(binding.name, vis.object);
+                    break;
+                default:
+                    throw RuntimeException("Unsupported loop binding");
+                }
+            }
+
+            StatementVisitor stmtVis{context};
+            bool stopLoop = false;
+            while (!stopLoop)
+            {
+                try
+                {
+                    loopStatement->loopBody->accept(&stmtVis);
+                    stopLoop = true;
+                }
+                catch (NextIteration)
+                {
+                    stopLoop = false;
+                }
+            }
+        }
+
+        void visit(NextStatement *nextStatement) override
+        {
+            ExpressionVisitor vis{context};
+            try
+            {
+                for (auto &&expr : nextStatement->expressions)
+                {
+                    expr->accept(&vis);
+                    vis.object->next();
+                }
+                throw NextIteration();
+            }
+            catch (StopIteration)
+            {
+                // do nothing
+            }
         }
     };
 

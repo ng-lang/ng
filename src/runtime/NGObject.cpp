@@ -119,5 +119,10 @@ namespace NG::runtime
         return objectType();
     }
 
+    void NGObject::next()
+    {
+        throw NotImplementedException();
+    }
+
     NGObject::~NGObject() = default;
 }
