@@ -3,12 +3,26 @@ fun sum(n) {
   loop i = 0 {
     s = s + i;
     if (i < n) {
-      next i;
+      next i + 1;
     }
   }
   return s;
 }
 
-val result = sum(10);
+fun sum2(i: int, n: int) {
+  if (i == 0) {
+    return n;
+  }
+  next i-1, n+i;
+}
 
-assert(result == 55);
+fun sum3(i, n) {
+  if (i == 0) {
+    return n;
+  }
+  return sum3(i - 1, n + i);
+}
+
+val result = sum2(3206, 0);
+
+print(result);

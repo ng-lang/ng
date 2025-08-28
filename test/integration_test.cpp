@@ -6,6 +6,8 @@ using namespace NG::ast;
 using namespace NG::intp;
 using namespace NG::parsing;
 
+namespace fs = std::filesystem;
+
 static inline ParseResult<ASTRef<ASTNode>> parse(const Str &source, const Str &module_filename)
 {
     return Parser(ParseState(Lexer(LexState{source}).lex())).parse(module_filename);
@@ -14,9 +16,15 @@ static inline ParseResult<ASTRef<ASTNode>> parse(const Str &source, const Str &m
 static inline void
 runIntegrationTest(const std::string &filename)
 {
-    std::ifstream file(filename);
+    std::string target = filename;
+    fs::path cwd = std::filesystem::current_path();
+    if (!fs::is_directory(cwd / "example"))
+    {
+        target = "../" + filename;
+    }
+    std::ifstream file(target);
     std::string source{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
-    auto astResult = parse(source, filename);
+    auto astResult = parse(source, target);
 
     if (!astResult)
     {
@@ -88,7 +96,7 @@ TEST_CASE("should run with multi level scopes", "[Integration]")
     runIntegrationTest("example/09.scope.ng");
 }
 
-TEST_CASE("should run with basic single variable loop", "[Integration]")
+TEST_CASE("should run with basic single variable loop", "[IntegrationLoop]")
 {
     runIntegrationTest("example/10.loop.ng");
 }

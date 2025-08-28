@@ -26,6 +26,8 @@ namespace NG::intp
 
     struct NextIteration : public std::exception
     {
+        Vec<RuntimeRef<NGObject>> slotValues;
+        NextIteration(Vec<RuntimeRef<NGObject>> slotValues) : slotValues(slotValues) {};
     };
 
     struct StopIteration : public std::exception
@@ -437,9 +439,13 @@ namespace NG::intp
                     loopStatement->loopBody->accept(&stmtVis);
                     stopLoop = true;
                 }
-                catch (NextIteration)
+                catch (NextIteration iter)
                 {
-                    stopLoop = false;
+                    int i = 0;
+                    for (auto &&object : iter.slotValues)
+                    {
+                        context->set(loopStatement->bindings[i].name, object);
+                    }
                 }
             }
         }
@@ -449,12 +455,13 @@ namespace NG::intp
             ExpressionVisitor vis{context};
             try
             {
+                Vec<RuntimeRef<NGObject>> slotValues{};
                 for (auto &&expr : nextStatement->expressions)
                 {
                     expr->accept(&vis);
-                    vis.object->next();
+                    slotValues.push_back(vis.object);
                 }
-                throw NextIteration();
+                throw NextIteration{slotValues};
             }
             catch (StopIteration)
             {
@@ -628,10 +635,22 @@ namespace NG::intp
                 }
 
                 withNewContext(newContext, [this, funDef]
-                               {
-                    StatementVisitor vis{context};
-
-                    funDef->body->accept(&vis); });
+                                {
+                                bool tailRecur = true;
+                                while (tailRecur) {
+                                    try {
+                                        StatementVisitor vis{context};
+                                        funDef->body->accept(&vis);   
+                                        tailRecur = false;              
+                                    } catch (NextIteration nextIter) {
+                                        tailRecur = true;
+                                        for (size_t i = 0; i < nextIter.slotValues.size(); i++)
+                                        {
+                                            context->set(funDef->params[i]->paramName, nextIter.slotValues[i]);
+                                        }   
+                                    }
+                                }
+                });
                 ngContext->retVal = newContext->retVal; });
         }
 

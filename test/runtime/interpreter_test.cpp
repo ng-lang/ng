@@ -258,7 +258,7 @@ fun sum(n) {
   loop i = 0 {
     s = s + i;
     if (i < n) {
-      next i;
+      next i + 1;
     }
   }
   return s;

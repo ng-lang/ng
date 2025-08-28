@@ -17,6 +17,7 @@
 #include <string>
 #include <fstream>
 #include <format>
+#include <filesystem>
 
 using namespace NG;
 using namespace NG::ast;
