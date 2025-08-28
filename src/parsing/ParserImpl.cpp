@@ -471,6 +471,7 @@ namespace NG::parsing
                 while (expect(TokenType::ID))
                 {
                     const Str &name = state->repr;
+                    ASTRef<Param> param = nullptr;
                     if (auto result = accept(TokenType::ID); !result)
                     {
                         return std::unexpected(result.error());
@@ -484,11 +485,23 @@ namespace NG::parsing
                             return std::unexpected(annoResult.error());
                         }
 
-                        params.push_back(makeast<Param>(name, annoResult.value()));
+                        param = makeast<Param>(name, annoResult.value());
+                        params.push_back(param);
                     }
                     else
                     {
-                        params.push_back(makeast<Param>(name));
+                        param = makeast<Param>(name);
+                        params.push_back(param);
+                    }
+                    if (expect(TokenType::OPERATOR) && state->operatorType == Operators::ASSIGN)
+                    {
+                        accept(TokenType::OPERATOR);
+                        auto value = expression();
+                        if (!value)
+                        {
+                            return std::unexpected(value.error());
+                        }
+                        param->value = value.value();
                     }
 
                     if (!expect(TokenType::COMMA))

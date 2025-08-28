@@ -188,6 +188,7 @@ namespace NG::ast
         const ParamType type;
         const Str paramName;
         std::optional<ASTRef<TypeAnnotation>> annotatedType;
+        ASTRef<Expression> value = nullptr;
 
         explicit Param(const Str &name) : Param(name, {}, ParamType::Simple) {}
 

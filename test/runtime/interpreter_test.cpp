@@ -270,3 +270,20 @@ assert(result == 55);
 
 )");
 }
+
+TEST_CASE("basic tail recursion (with default parameters)", "[InterpreterTest]")
+{
+    interpret(R"(
+
+fun sum(i, n = 0) {
+  if (i == 0) {
+    return n;
+  }
+  next i - 1, n + i;
+}
+
+val result = sum(10);
+
+assert(result == 55);
+)");
+}

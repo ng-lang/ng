@@ -11,11 +11,11 @@ fun sum(n) {
 
 assert(sum(10) == 55);
 
-fun sum_recur(i, n) {
+fun sum_recur(i, n = 0) {
   if (i == 0) {
     return n;
   }
   next i - 1, n + i;
 }
 
-assert(sum_recur(10, 0) == 55);
+assert(sum_recur(10) == 55);

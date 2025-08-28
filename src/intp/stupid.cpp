@@ -631,7 +631,19 @@ namespace NG::intp
                 RuntimeRef<NGContext> newContext = ngContext->fork();
                 for (size_t i = 0; i < funDef->params.size(); ++i)
                 {
-                    newContext->define(funDef->params[i]->paramName, invocationContext->params[i]);
+                    if (invocationContext->params.size() > i) 
+                    {
+                        newContext->define(funDef->params[i]->paramName, invocationContext->params[i]);
+                    } 
+                    else if (funDef->params[i]->value != nullptr) 
+                    {
+                        ExpressionVisitor vis {ngContext};
+                        funDef->params[i]->value->accept(&vis);
+                        auto value = vis.object;
+                        newContext->define(funDef->params[i]->paramName, value);
+                    } else {
+                        throw RuntimeException("No matched parameter");
+                    }
                 }
 
                 withNewContext(newContext, [this, funDef]
