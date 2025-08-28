@@ -11,7 +11,6 @@ set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -stdlib=libc++ -lc++abi")
 project(ng)
 
 Include(FetchContent)
-Include(CTest)
 
 FetchContent_Declare(
   Catch2
@@ -70,5 +69,3 @@ if (APPLE)
 target_compile_options(ng_test PRIVATE -fprofile-instr-generate -fcoverage-mapping -fcoverage-mcdc)
 target_link_options(ng_test PRIVATE -coverage)
 endif()
-
-catch_discover_tests(ng_test)
