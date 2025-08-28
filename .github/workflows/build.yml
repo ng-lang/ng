@@ -17,5 +17,5 @@ jobs:
         working-directory: ./build
       - run: ninja
         working-directory: ./build
-      - run: ninja test
+      - run: ./ng_test
         working-directory: ./build
