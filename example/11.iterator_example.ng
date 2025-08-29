@@ -57,8 +57,22 @@ type List {
     fun getNext() {
         return node;
     }
-}
 
+    fun toString() {
+        val text = "[";
+        loop i = self {
+            if (i.hasNext()) {
+                val v = i.getNext();
+                if (not(text.size() == 1)) {
+                    text = text.append(", ");
+                }
+                text = text.append(v.content);
+                next v;
+            }
+        }
+        return text.append("]");
+    }
+}
 
 val x = new List { node: new None {}, size: 0 };
 
@@ -66,7 +80,8 @@ x.append(1);
 x.append(2);
 x.append(3);
 
-print("List size", x.size);
+print(x);
+print(x.toString());
 
 loop i = x {
     if (i.hasNext()) {
@@ -75,4 +90,3 @@ loop i = x {
         next v;
     }
 }
-

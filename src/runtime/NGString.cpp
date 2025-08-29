@@ -47,6 +47,12 @@ namespace NG::runtime
                      auto index = NGIntegral<int32_t>::valueOf(numeral.get());
 
                      context->retVal = makert<NGIntegral<int32_t>>(str->value[index]);
+                 }},
+                {"append", [](const RuntimeRef<NGObject> &self, const RuntimeRef<NGContext> &context, const RuntimeRef<InvCtx> &invCtx)
+                 {
+                     auto str = std::dynamic_pointer_cast<NGString>(self);
+                     auto extra = invCtx->params[0]->show();
+                     context->retVal = makert<NGString>(str->value + extra);
                  }}}});
 
         return stringType;

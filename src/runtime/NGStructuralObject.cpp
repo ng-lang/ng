@@ -39,8 +39,15 @@ namespace NG::runtime
             {
                 repr += ", ";
             }
-
-            repr += (name + ": " + value->show());
+            // to avoid cycle objects
+            if (auto result = std::dynamic_pointer_cast<NGStructuralObject>(value); result)
+            {
+                repr += (name + ": #[obj]");
+            }
+            else
+            {
+                repr += (name + ": " + value->show());
+            }
         }
 
         return "{ " + repr + " }";
