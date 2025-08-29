@@ -1,6 +1,8 @@
 name: build
 on:
   - push
+env:
+  RUNNING_ON_GITHUB: "true"
 jobs:
   build:
     runs-on: ubuntu-latest
