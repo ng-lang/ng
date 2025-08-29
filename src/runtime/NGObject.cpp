@@ -110,8 +110,10 @@ namespace NG::runtime
 
     auto NGObject::objectType() -> RuntimeRef<NGType>
     {
-        static RuntimeRef<NGType> objectType = makert<NGType>();
-        return objectType;
+        static RuntimeRef<NGType> OBJECT_TYPE = makert<NGType>(NGType{
+            .name = "Object",
+        });
+        return OBJECT_TYPE;
     }
 
     auto NGObject::type() const -> RuntimeRef<NGType>

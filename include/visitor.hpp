@@ -45,6 +45,8 @@ namespace NG::ast
 
         virtual void visit(IndexAssignmentExpression *index) = 0;
 
+        virtual void visit(TypeCheckingExpression *typeCheck) = 0;
+
         virtual void visit(BinaryExpression *binExpr) = 0;
 
         virtual void visit(AssignmentExpression *assignmentExpr) = 0;
@@ -124,6 +126,8 @@ namespace NG::ast
         void visit(IndexAccessorExpression *index) override;
 
         void visit(IndexAssignmentExpression *index) override;
+
+        void visit(TypeCheckingExpression *typeCheck) override;
 
         void visit(BinaryExpression *binExpr) override;
 

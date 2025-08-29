@@ -354,12 +354,16 @@ namespace NG::ast
         const auto &assign = dynamic_cast<const AssignmentExpression &>(node);
 
         return astNodeType() == node.astNodeType() &&
-               name == assign.name &&
+               *target == *assign.target &&
                *value == *assign.value;
     }
 
     AssignmentExpression::~AssignmentExpression()
     {
+        if (target != nullptr)
+        {
+            destroyast(target);
+        }
         if (value != nullptr)
         {
             destroyast(value);
@@ -368,7 +372,7 @@ namespace NG::ast
 
     auto AssignmentExpression::repr() const -> Str
     {
-        return this->name + " = " + this->value->repr();
+        return this->target->repr() + " = " + this->value->repr();
     }
 
     void ValDefStatement::accept(AstVisitor *visitor)
@@ -640,7 +644,7 @@ namespace NG::ast
     {
         const auto &indexAssExpr = dynamic_cast<const IndexAssignmentExpression &>(node);
 
-        return *primary == *(indexAssExpr.primary) &&
+        return astNodeType() == node.astNodeType() && *primary == *(indexAssExpr.primary) &&
                *accessor == *(indexAssExpr.accessor) &&
                *value == *(indexAssExpr.value);
     }
@@ -655,6 +659,35 @@ namespace NG::ast
         destroyast(primary);
         destroyast(accessor);
         destroyast(value);
+    }
+
+    void TypeCheckingExpression::accept(AstVisitor *visitor)
+    {
+        visitor->visit(this);
+    }
+
+    auto TypeCheckingExpression::astNodeType() const -> ASTNodeType
+    {
+        return ASTNodeType::TYPE_CHECKING_EXPRESSION;
+    }
+
+    auto TypeCheckingExpression::operator==(const ASTNode &node) const -> bool
+    {
+        const auto &typeCheckingExpr = dynamic_cast<const TypeCheckingExpression &>(node);
+        return astNodeType() == node.astNodeType() &&
+               typeCheckingExpr.type == type &&
+               typeCheckingExpr.value == value;
+    }
+
+    auto TypeCheckingExpression::repr() const -> Str
+    {
+        return value->repr() + " is " + this->type->repr();
+    }
+
+    TypeCheckingExpression::~TypeCheckingExpression()
+    {
+        destroyast(value);
+        destroyast(type);
     }
 
     auto TypeDef::name() const -> Str

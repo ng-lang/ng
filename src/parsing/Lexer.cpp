@@ -73,6 +73,7 @@ namespace NG::parsing
         {"break", TokenType::KEYWORD_BREAK},
         {"continue", TokenType::KEYWORD_CONTINUE},
         {"in", TokenType::KEYWORD_IN},
+        {"is", TokenType::KEYWORD_IS},
 
         {"true", TokenType::KEYWORD_TRUE},
         {"false", TokenType::KEYWORD_FALSE},
@@ -260,7 +261,7 @@ namespace NG::parsing
             auto type = tokenType.at(result);
             if (type == TokenType::RESERVED)
             {
-                throw LexException("You are using a reserved token");
+                throw LexException("You are using a reserved token: " + result);
             }
             tokens.push_back(Token{.type = tokenType.at(result), .repr = result, .position = pos});
         }

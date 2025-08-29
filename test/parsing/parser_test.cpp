@@ -306,14 +306,31 @@ TEST_CASE("Parser should parse loop statement", "[ParserTestLoop]")
     auto astResult = parse(R"(
 loop x = 1 {
     if (x < 10) {
-        next i;
+        next x + 1;
     }
 }
 
 loop a in [1, 2, 3], b = 2 {
     if (b < 5) {
-        next a, b;
+        next a.iter(), b + 1;
     }
+}
+
+)");
+
+    REQUIRE(astResult.has_value());
+    destroyast(*astResult);
+}
+
+TEST_CASE("Parser should parse type checking", "[ParserTestLoop]")
+{
+    auto astResult = parse(R"(
+if (x is Type) {
+   valid(x);
+}
+
+if (x is some_module.Type) {
+    valid(x);
 }
 
 )");

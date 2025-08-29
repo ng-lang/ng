@@ -34,7 +34,7 @@ namespace NG
         {
         }
 
-        explicit LexException(const char *msg) : logic_error(msg)
+        explicit LexException(const Str &msg) : logic_error(msg)
         {
         }
     };

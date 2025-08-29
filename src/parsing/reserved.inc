@@ -3,7 +3,7 @@
 // to be defined
 RESERVED(and),
 RESERVED(or),
-RESERVED(not),
+// RESERVED(not), // become a builtin function instead.
 
 // banned
 // RESERVED(a),

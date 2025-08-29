@@ -40,6 +40,22 @@ namespace NG::runtime
         Vec<Str> properties;
 
         Map<Str, NGInvocationHandler> memberFunctions;
+
+        auto operator==(const NGType &other) const -> bool
+        {
+            if (this == &other)
+            {
+                return true;
+            }
+            return this->name == other.name &&
+                   this->properties == other.properties &&
+                   std::all_of(begin(other.memberFunctions), end(other.memberFunctions),
+                               [this](const std::pair<Str, NGInvocationHandler> &pair)
+                                   -> bool
+                               {
+                                   return this->memberFunctions.contains(pair.first);
+                               });
+        }
     };
 
     struct NGContext

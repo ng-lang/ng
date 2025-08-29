@@ -108,6 +108,11 @@ namespace NG::intp
                          throw AssertionException();
                      }
                  }
+             }},
+            {"not", [](const RuntimeRef<NGObject> &self, const RuntimeRef<NGContext> &context, const RuntimeRef<NGInvocationContext> &invCtx)
+             {
+                 auto result = invCtx->params[0];
+                 context->retVal = NGObject::boolean(!result->boolValue());
              }}};
     }
 
@@ -349,8 +354,58 @@ namespace NG::intp
 
             assignmentExpr->value->accept(&vis);
             auto result = vis.object;
-            context->set(assignmentExpr->name, result);
-            object = vis.object;
+            if (auto idexpr = dynamic_ast_cast<IdExpression>(assignmentExpr->target); idexpr)
+            {
+                context->set(idexpr->id, result);
+                object = result;
+            }
+            else if (auto idAcc = dynamic_ast_cast<IdAccessorExpression>(assignmentExpr->target); idAcc)
+            {
+                idAcc->primaryExpression->accept(&vis);
+                auto obj = std::dynamic_pointer_cast<NGStructuralObject>(vis.object);
+                obj->properties[idAcc->accessor->id] = result;
+            }
+            else
+            {
+                throw RuntimeException("Invalid assignment: " + assignmentExpr->repr());
+            }
+        }
+
+        void visit(TypeCheckingExpression *typeCheckExpr) override
+        {
+            ExpressionVisitor vis{context};
+            typeCheckExpr->value->accept(&vis);
+            RuntimeRef<NGObject> value = vis.object;
+
+            if (auto idExpr = dynamic_ast_cast<IdExpression>(typeCheckExpr->type); idExpr)
+            {
+                auto name = idExpr->id;
+                auto targetType = context->get_type(name);
+
+                this->object = makert<NGBoolean>(*(value->type()) == *(targetType));
+            }
+            else if (auto idAcccessor = dynamic_ast_cast<IdAccessorExpression>(typeCheckExpr->type); idAcccessor)
+            {
+                idAcccessor->primaryExpression->accept(&vis);
+                auto name = idAcccessor->accessor->id;
+                auto result = vis.object;
+                auto mod = std::dynamic_pointer_cast<NGModule>(result);
+                if (!mod)
+                {
+                    throw RuntimeException("Invalid module to locate type: " + name);
+                }
+                auto targetType = mod->types[name];
+                if (!targetType)
+                {
+                    throw RuntimeException("Invalid type name, cannot found." + name);
+                }
+
+                this->object = makert<NGBoolean>(*(value->type()) == *(targetType));
+            }
+            else
+            {
+                throw RuntimeException("Invalid target expresssion for type checking: " + typeCheckExpr->type->repr());
+            }
         }
     };
 

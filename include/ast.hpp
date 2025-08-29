@@ -46,6 +46,7 @@ namespace NG::ast
         INDEX_ACCESSOR_EXPRESSION = 0x206,
         INDEX_ASSIGNMENT_EXPRESSION = 0x207,
         NEW_OBJECT_EXPRESSION = 0x208,
+        TYPE_CHECKING_EXPRESSION = 0x209,
 
         LITERAL = 0x300,
         INTEGER_VALUE = 0x301,
@@ -487,6 +488,27 @@ namespace NG::ast
         ~IndexAssignmentExpression() override;
     };
 
+    struct TypeCheckingExpression : Expression
+    {
+        ASTRef<Expression> value;
+        ASTRef<Expression> type;
+
+        TypeCheckingExpression(
+            ASTRef<Expression> value,
+            ASTRef<Expression> type) : value{value}, type{type} {}
+
+        void accept(AstVisitor *visitor) override;
+
+        auto astNodeType() const -> ASTNodeType override;
+
+        auto operator==(const ASTNode &node) const -> bool override;
+
+        [[nodiscard]]
+        auto repr() const -> Str override;
+
+        ~TypeCheckingExpression() override;
+    };
+
     struct ValDefStatement : Statement
     {
         const Str name;
@@ -534,10 +556,10 @@ namespace NG::ast
 
     struct AssignmentExpression : Expression
     {
-        const Str name;
+        ASTRef<Expression> target;
         ASTRef<Expression> value;
 
-        explicit AssignmentExpression(Str _name) : name(std::move(_name)) {}
+        explicit AssignmentExpression(ASTRef<Expression> target) : target(target) {}
 
         void accept(AstVisitor *visitor) override;
 

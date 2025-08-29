@@ -287,3 +287,34 @@ val result = sum(10);
 assert(result == 55);
 )");
 }
+
+TEST_CASE("type checking", "[InterpreterTestChecking]")
+{
+    interpret(R"(
+type SomeType {}
+
+type OtherType {}
+
+val some_obj = new SomeType {};
+
+assert(some_obj is SomeType);
+assert(not(some_obj is OtherType));
+)");
+}
+
+TEST_CASE("object property update", "[InterpreterTestChecking]")
+{
+    interpret(R"(
+type SomeType {
+  property a;
+}
+
+val some_obj = new SomeType { a: 1 };
+
+assert(some_obj.a == 1);
+
+some_obj.a = 2;
+
+assert(some_obj.a == 2);
+)");
+}

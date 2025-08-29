@@ -40,6 +40,7 @@ namespace NG
         KEYWORD_BREAK,
         KEYWORD_CONTINUE,
         KEYWORD_IN,
+        KEYWORD_IS,
 
         KEYWORD_TRUE,
         KEYWORD_FALSE,

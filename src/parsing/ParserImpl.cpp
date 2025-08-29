@@ -21,7 +21,7 @@ namespace NG::parsing
 
         static auto unexpected(ParseState &state, std::list<TokenType> types = {})
         {
-            return std::unexpected(state.error(std::string{"Unexpected token "} + state->repr, std::move(types)));
+            return std::unexpected(state.error(std::string{"Unexpected token "} + state->repr + " at " + std::to_string(state->position.line) + ":" + std::to_string(state->position.col), std::move(types)));
         }
 
     public:
@@ -834,6 +834,25 @@ namespace NG::parsing
             return returnBy(TokenType::DUAL_ARROW);
         }
 
+        auto typeCheckExpr(ASTRef<Expression> expr) -> ParseResult<ASTRef<TypeCheckingExpression>>
+        {
+            if (auto result = accept(TokenType::KEYWORD_IS); !result)
+            {
+                return std::unexpected(result.error());
+            }
+            auto type = expression();
+            if (!type)
+            {
+                return std::unexpected(type.error());
+            }
+            if (!dynamic_ast_cast<IdExpression>(*type) && !dynamic_ast_cast<IdAccessorExpression>(*type))
+            {
+                std::unexpected("Unexpected expression " + (*type)->repr());
+            }
+
+            return makeast<TypeCheckingExpression>(expr, *type);
+        }
+
         auto expression() -> ParseResult<ASTRef<Expression>>
         {
             auto exprResult = primaryExpression();
@@ -862,6 +881,15 @@ namespace NG::parsing
                         return std::unexpected(idAccResult.error());
                     }
                     expr = std::move(*idAccResult);
+                }
+                else if (expect(TokenType::KEYWORD_IS))
+                {
+                    auto typeCheckResult = typeCheckExpr(expr);
+                    if (!typeCheckResult)
+                    {
+                        return std::unexpected(typeCheckResult.error());
+                    }
+                    expr = *typeCheckResult;
                 }
                 else if (expect(TokenType::OPERATOR))
                 {
@@ -901,8 +929,8 @@ namespace NG::parsing
         auto assignmentExpression(ASTRef<Expression> ref) -> ParseResult<ASTRef<AssignmentExpression>>
         {
             auto idExpr = dynamic_ast_cast<IdExpression>(ref);
-
-            if (!idExpr)
+            auto idAccessor = dynamic_ast_cast<IdAccessorExpression>(ref);
+            if (!idExpr && !idAccessor)
             {
                 return std::unexpected(state.error("Unexpected expression, expect identifier to assign"));
             }
@@ -922,7 +950,7 @@ namespace NG::parsing
                 return std::unexpected(result.error());
             }
 
-            auto assignmentExpr = makeast<AssignmentExpression>(idExpr->id);
+            auto assignmentExpr = makeast<AssignmentExpression>(ref);
 
             assignmentExpr->value = *result;
 

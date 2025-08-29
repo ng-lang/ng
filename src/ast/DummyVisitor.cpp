@@ -64,6 +64,8 @@ namespace NG::ast
 
     void DummyVisitor::visit(IndexAssignmentExpression *index) {}
 
+    void DummyVisitor::visit(TypeCheckingExpression *typeCheck) {}
+
     void DummyVisitor::visit(TypeDef *typeDef) {}
 
     void DummyVisitor::visit(PropertyDef *propertyDef) {}

@@ -1,0 +1,78 @@
+
+type None {
+}
+
+type Node {
+    property _next;
+    property content;
+
+    fun hasNext() {
+        return not(self._next is None);
+    }
+
+    fun getNext() {
+        return self._next;
+    }
+}
+
+type List {
+    property node;
+    property size;
+
+    fun append(value) {
+        self.size = self.size + 1;
+        if (self.node is None) {
+            self.node = new Node {
+                _next: new None {},
+                content: value
+            };
+        } else if (not(self.node.hasNext())) {
+            self.node._next = new Node {
+                _next: new None {},
+                content: value
+            };
+        } else {
+            loop current = self {
+                if (current.hasNext()) {
+                    current = current.getNext();
+
+                    if (not(current.hasNext())) {
+                        current._next = new Node {
+                            prev: current,
+                            _next: current._next,
+                            content: value
+                        };
+                    } else {
+                        next current;
+                    }
+                }
+            }
+        }
+    }
+
+    fun hasNext() {
+        return not(self.node is None);
+    }
+
+    fun getNext() {
+        return node;
+    }
+}
+
+
+val x = new List { node: new None {}, size: 0 };
+
+x.append(1);
+x.append(2);
+x.append(3);
+
+print("List size", x.size);
+
+loop i = x {
+    if (i.hasNext()) {
+        val v = i.getNext();
+        print(v.content);
+        next v;
+    }
+}
+
