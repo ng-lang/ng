@@ -1,5 +1,6 @@
 
-import std.prelude (*);
+assert(not(false));
 
-
-assertTrue(1 == 1);
+if (not(false)) {
+    print(not(true));
+}

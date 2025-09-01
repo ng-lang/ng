@@ -1,16 +1,28 @@
 #pragma once
 
 #include <ast.hpp>
+#include <intp/runtime.hpp>
 
 namespace NG::module
 {
     using NG::ast::ASTNode;
     using NG::ast::ASTRef;
+    using NG::runtime::RuntimeRef;
+
+    struct ModuleInfo
+    {
+        Str moduleId;
+        Str moduleAbsolutePath;
+        Str moduleName;
+        Str moduleLoadingLocation;
+        ASTRef<NG::ast::ASTNode> moduleAst;
+        Str moduleSource;
+    };
 
     // NOLINTNEXTLINE(cppcoreguidelines-special-member-functions)
     struct ModuleLoader : NonCopyable
     {
-        virtual auto load(const Vec<Str> &module) -> ASTRef<ASTNode> = 0;
+        virtual auto load(const Vec<Str> &module) -> RuntimeRef<ModuleInfo> = 0;
 
         virtual ~ModuleLoader() noexcept = 0;
     };
@@ -25,7 +37,7 @@ namespace NG::module
         {
         }
 
-        auto load(const Vec<Str> &module) -> ASTRef<NG::ast::ASTNode> override;
+        auto load(const Vec<Str> &module) -> RuntimeRef<ModuleInfo> override;
 
         ~FileBasedExternalModuleLoader() override;
     };

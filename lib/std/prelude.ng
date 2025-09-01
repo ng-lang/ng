@@ -1,13 +1,8 @@
 module prelude exports (
-    assertTrue
+    not
 );
 
-print("Loaded");
 
-fun assertTrue(value) {
-    if (value) {
-        print("assert success");
-    } else {
-        print("assert failed");
-    }
+fun not(value: bool) {
+    return value == false;
 }

@@ -18,7 +18,19 @@ namespace NG::module
     namespace fs = std::filesystem;
 
     using NG::System::Process::current_executable_path;
-
+    static auto moduleId(const Vec<Str> &modulePath) -> Str
+    {
+        Str id = {};
+        for (auto &&seg : modulePath)
+        {
+            if (!id.empty())
+            {
+                id += ".";
+            }
+            id += seg;
+        }
+        return id;
+    }
     Str standard_library_base_path()
     {
         fs::path executable_path{current_executable_path()};
@@ -40,14 +52,31 @@ namespace NG::module
         throw RuntimeException("Cannot locate standard library");
     }
 
-    auto ModuleLoader::load(const Vec<Str> &module) -> ASTRef<ASTNode>
+    auto ModuleLoader::load(const Vec<Str> &module) -> RuntimeRef<ModuleInfo>
     {
         return {};
     }
 
     ModuleLoader::~ModuleLoader() noexcept = default;
 
-    auto FileBasedExternalModuleLoader::load(const Vec<Str> &module) -> ASTRef<ASTNode>
+    static Map<Str, NG::runtime::RuntimeRef<ModuleInfo>> global_module_info_cache{};
+
+    static auto isCached(Str modulePath) -> bool
+    {
+        return global_module_info_cache.contains(modulePath);
+    }
+
+    static auto getCached(Str modulePath) -> RuntimeRef<ModuleInfo>
+    {
+        return global_module_info_cache[modulePath];
+    }
+
+    static void putCached(Str modulePath, RuntimeRef<ModuleInfo> moduleInfo)
+    {
+        global_module_info_cache[modulePath] = moduleInfo;
+    }
+
+    auto FileBasedExternalModuleLoader::load(const Vec<Str> &module) -> RuntimeRef<ModuleInfo>
     {
         Str path = std::accumulate(module.begin(), module.end(), fs::path{}, [](const fs::path &path, const Str &segment) -> Str
                                    {
@@ -68,12 +97,25 @@ namespace NG::module
             {
                 continue;
             }
+            if (isCached(module_path))
+            {
+                return getCached(module_path);
+            }
             std::fstream file{module_path};
             std::string source{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
             auto result = Parser(ParseState(Lexer(LexState{source}).lex())).parse(module_path);
             if (result)
             {
-                return std::move(*result);
+                auto moduleInfo = runtime::makert<ModuleInfo>(ModuleInfo{
+                    .moduleId = moduleId(module),
+                    .moduleName = *(module.end() - 1),
+                    .moduleSource = source,
+                    .moduleAst = *result,
+                    .moduleAbsolutePath = path,
+                    .moduleLoadingLocation = "",
+                });
+                putCached(module_path, moduleInfo);
+                return moduleInfo;
             }
         }
         throw RuntimeException("Module not found: " + path);

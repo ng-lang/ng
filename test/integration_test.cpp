@@ -100,3 +100,19 @@ TEST_CASE("should run with basic single variable loop", "[IntegrationLoop]")
 {
     runIntegrationTest("example/10.loop.ng");
 }
+
+TEST_CASE("should run with customized iterator", "[IntegrationLoop]")
+{
+    runIntegrationTest("example/11.iterator_example.ng");
+}
+
+TEST_CASE("should run with max loop stack", "[IntegrationLoop]")
+{
+    // todo: fix possible stack overflow.
+    // runIntegrationTest("example/12.loop_max_stack.ng");
+}
+
+TEST_CASE("should run prelude as default import module", "[IntegrationLoop]")
+{
+    runIntegrationTest("example/13.import_std_prelude.ng");
+}

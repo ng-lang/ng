@@ -819,7 +819,8 @@ namespace NG::ast
     {
         auto &&imports = dynamic_cast<const ImportDecl &>(node);
 
-        return this->module == imports.module &&
+        return this->modulePath == imports.modulePath &&
+               this->module == imports.module &&
                this->alias == imports.alias &&
                this->imports == imports.imports;
     }

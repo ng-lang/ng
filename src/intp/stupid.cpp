@@ -108,11 +108,6 @@ namespace NG::intp
                          throw AssertionException();
                      }
                  }
-             }},
-            {"not", [](const RuntimeRef<NGObject> &self, const RuntimeRef<NGContext> &context, const RuntimeRef<NGInvocationContext> &invCtx)
-             {
-                 auto result = invCtx->params[0];
-                 context->retVal = NGObject::boolean(!result->boolValue());
              }}};
     }
 
@@ -534,8 +529,6 @@ namespace NG::intp
     {
         RuntimeRef<NGContext> context;
 
-        Map<Str, ASTRef<ASTNode>> externalModuleAstCache;
-
         void withNewContext(RuntimeRef<NGContext> newContext, const std::function<void()> &execution)
         {
             RuntimeRef<NGContext> previousContext = context;
@@ -546,6 +539,13 @@ namespace NG::intp
 
         explicit Stupid(RuntimeRef<NGContext> _context) : context(_context)
         {
+            // load std.prelude by default.
+            auto importPrelude = makeast<ImportDecl>();
+            importPrelude->module = "prelude";
+            importPrelude->modulePath.push_back("std");
+            importPrelude->modulePath.push_back("prelude");
+            importPrelude->imports.push_back("*");
+            importPrelude->accept(this);
         }
 
         void visit(CompileUnit *compileUnit) override
@@ -601,10 +601,13 @@ namespace NG::intp
             {
                 // load module
                 NG::module::FileBasedExternalModuleLoader loader{context->modulePaths};
-                auto &&ast = loader.load(importDecl->modulePath);
+                auto &&moduleInfo = loader.load(importDecl->modulePath);
+                auto &&ast = moduleInfo->moduleAst;
 
-                externalModuleAstCache.insert_or_assign(importDecl->module, ast);
-                RuntimeRef<NGContext> ctx = makert<NGContext>(Vec<Str>{}, predefs());
+                RuntimeRef<NGContext> ctx = makert<NGContext>(Vec<Str>{
+                                                                  NG::module::standard_library_base_path(),
+                                                              },
+                                                              predefs());
                 withNewContext(ctx, [&ast, intp = this]()
                                {
                                     ast->accept(intp);
