@@ -1,3 +1,5 @@
+import "std" (*);
+
 
 type None {
 }
@@ -38,7 +40,6 @@ type List {
 
                     if (not(current.hasNext())) {
                         current._next = new Node {
-                            prev: current,
                             _next: current._next,
                             content: value
                         };
@@ -59,18 +60,16 @@ type List {
     }
 
     fun toString() {
-        val text = "[";
-        loop i = self {
+        loop i = self, text = "[" {
             if (i.hasNext()) {
                 val v = i.getNext();
-                if (not(text.size() == 1)) {
-                    text = text.append(", ");
+                if (v.hasNext()) {
+                    next v, text.append(v.content).append(", ");
                 }
-                text = text.append(v.content);
-                next v;
+                next v, text.append(v.content);
             }
+            return text.append("]");
         }
-        return text.append("]");
     }
 }
 
@@ -83,10 +82,4 @@ x.append(3);
 print(x);
 print(x.toString());
 
-loop i = x {
-    if (i.hasNext()) {
-        val v = i.getNext();
-        print(v.content);
-        next v;
-    }
-}
+printList(x);

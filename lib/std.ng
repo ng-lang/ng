@@ -1,2 +1,13 @@
-module std;
+module std exports (
+    printList
+);
 
+fun printList(list) {
+    loop i = list {
+        if (i.hasNext()) {
+            val v = i.getNext();
+            print(v.content);
+            next v;
+        }
+    }
+}

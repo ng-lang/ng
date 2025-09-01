@@ -32,6 +32,7 @@ namespace NG::runtime
     auto NGString::stringType() -> RuntimeRef<NGType>
     {
         static RuntimeRef<NGType> stringType = makert<NGType>(NGType{
+            .name = "String",
             .memberFunctions = {
                 {"size", [](const RuntimeRef<NGObject> &self, const RuntimeRef<NGContext> &context, const RuntimeRef<InvCtx> &invCtx)
                  {

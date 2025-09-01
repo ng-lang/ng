@@ -492,6 +492,10 @@ namespace NG::intp
                 try
                 {
                     loopStatement->loopBody->accept(&stmtVis);
+                    if (vis.context->retVal != nullptr)
+                    {
+                        this->context->retVal = vis.context->retVal;
+                    }
                     stopLoop = true;
                 }
                 catch (NextIteration iter)
@@ -500,6 +504,7 @@ namespace NG::intp
                     for (auto &&object : iter.slotValues)
                     {
                         context->set(loopStatement->bindings[i].name, object);
+                        i++;
                     }
                 }
             }
@@ -794,7 +799,10 @@ namespace NG::intp
 
     auto stupid() -> Interpreter *
     {
-        auto context = makert<NGContext>(Vec<Str>{""}, predefs());
+        auto context = makert<NGContext>(Vec<Str>{
+                                             "",
+                                             NG::module::standard_library_base_path()},
+                                         predefs());
 
         return new Stupid(context); // NOLINT(cppcoreguidelines-owning-memory)
     }

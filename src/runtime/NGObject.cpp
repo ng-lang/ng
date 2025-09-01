@@ -79,7 +79,8 @@ namespace NG::runtime
 
     auto NGObject::respond(const Str &member, RuntimeRef<NGContext> context, RuntimeRef<NGInvocationContext> invocationContext) -> RuntimeRef<NGObject>
     {
-        Map<Str, NGInvocationHandler> &fns = this->type()->memberFunctions;
+        auto type = this->type();
+        Map<Str, NGInvocationHandler> &fns = type->memberFunctions;
         if (fns.contains(member))
         {
             RuntimeRef<NGContext> newContext = context->fork();
@@ -90,7 +91,7 @@ namespace NG::runtime
             return newContext->retVal;
         }
 
-        throw NotImplementedException();
+        throw NotImplementedException("Not implemented " + type->name + "#" + member);
     }
 
     auto NGObject::opNotEqual(RuntimeRef<NGObject> other) const -> bool

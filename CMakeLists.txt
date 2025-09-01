@@ -45,6 +45,7 @@ set(NG_LIB_SRC
         src/runtime/NGNumeral.cpp
         src/runtime/NGStructuralObject.cpp
         src/runtime/NGModule.cpp
+        src/sysdep/process.cpp
         src/module/ModuleLoader.cpp)
 
 set(NG_TEST_SRC

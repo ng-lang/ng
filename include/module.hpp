@@ -29,4 +29,6 @@ namespace NG::module
 
         ~FileBasedExternalModuleLoader() override;
     };
+
+    Str standard_library_base_path();
 }

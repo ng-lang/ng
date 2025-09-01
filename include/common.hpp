@@ -51,6 +51,9 @@ namespace NG
         explicit NotImplementedException() : runtime_error("Error: not implemented")
         {
         }
+        explicit NotImplementedException(const Str &reason) : runtime_error(reason)
+        {
+        }
     };
 
     struct ParseException : std::logic_error
