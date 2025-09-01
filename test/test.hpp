@@ -18,6 +18,7 @@
 #include <fstream>
 #include <format>
 #include <filesystem>
+#include <regex>
 
 using namespace NG;
 using namespace NG::ast;

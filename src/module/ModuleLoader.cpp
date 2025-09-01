@@ -7,6 +7,7 @@
 #include <fstream>
 #include <debug.hpp>
 #include <filesystem>
+#include <numeric>
 
 #include <sysdep/process.hpp>
 
@@ -39,16 +40,22 @@ namespace NG::module
         throw RuntimeException("Cannot locate standard library");
     }
 
-    auto ModuleLoader::load(const Str &module) -> ASTRef<ASTNode>
+    auto ModuleLoader::load(const Vec<Str> &module) -> ASTRef<ASTNode>
     {
         return {};
     }
 
     ModuleLoader::~ModuleLoader() noexcept = default;
 
-    auto FileBasedExternalModuleLoader::load(const Str &module) -> ASTRef<ASTNode>
+    auto FileBasedExternalModuleLoader::load(const Vec<Str> &module) -> ASTRef<ASTNode>
     {
-        Str path = module;
+        Str path = std::accumulate(module.begin(), module.end(), fs::path{}, [](const fs::path &path, const Str &segment) -> Str
+                                   {
+            if (path == "") {
+                return segment;
+            }
+            return path / segment; });
+
         if (!path.ends_with(".ng"))
         {
             path += ".ng";
@@ -69,7 +76,7 @@ namespace NG::module
                 return std::move(*result);
             }
         }
-        throw RuntimeException("Module not found: " + module);
+        throw RuntimeException("Module not found: " + path);
     }
 
     FileBasedExternalModuleLoader::~FileBasedExternalModuleLoader() = default;

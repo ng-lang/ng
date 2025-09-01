@@ -92,6 +92,7 @@ namespace NG::ast
     struct ImportDecl : ASTNode
     {
         Str module;
+        Vec<Str> modulePath;
         Str alias;
         Vec<Str> imports;
 
@@ -106,6 +107,20 @@ namespace NG::ast
 
         [[nodiscard]]
         auto repr() const -> Str override;
+
+        auto moduleId() const -> Str
+        {
+            Str id = {};
+            for (auto &&seg : modulePath)
+            {
+                if (!id.empty())
+                {
+                    id += ".";
+                }
+                id += seg;
+            }
+            return id;
+        }
 
         ~ImportDecl() override;
     };

@@ -10,7 +10,7 @@ namespace NG::module
     // NOLINTNEXTLINE(cppcoreguidelines-special-member-functions)
     struct ModuleLoader : NonCopyable
     {
-        virtual auto load(const Str &module) -> ASTRef<ASTNode> = 0;
+        virtual auto load(const Vec<Str> &module) -> ASTRef<ASTNode> = 0;
 
         virtual ~ModuleLoader() noexcept = 0;
     };
@@ -25,7 +25,7 @@ namespace NG::module
         {
         }
 
-        auto load(const Str &module) -> ASTRef<NG::ast::ASTNode> override;
+        auto load(const Vec<Str> &module) -> ASTRef<NG::ast::ASTNode> override;
 
         ~FileBasedExternalModuleLoader() override;
     };

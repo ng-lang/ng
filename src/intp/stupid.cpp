@@ -601,7 +601,7 @@ namespace NG::intp
             {
                 // load module
                 NG::module::FileBasedExternalModuleLoader loader{context->modulePaths};
-                auto &&ast = loader.load(importDecl->module);
+                auto &&ast = loader.load(importDecl->modulePath);
 
                 externalModuleAstCache.insert_or_assign(importDecl->module, ast);
                 RuntimeRef<NGContext> ctx = makert<NGContext>(Vec<Str>{}, predefs());

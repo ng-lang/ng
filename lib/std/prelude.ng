@@ -1,0 +1,13 @@
+module prelude exports (
+    assertTrue
+);
+
+print("Loaded");
+
+fun assertTrue(value) {
+    if (value) {
+        print("assert success");
+    } else {
+        print("assert failed");
+    }
+}

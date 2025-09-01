@@ -7,6 +7,7 @@
 #include <ast.hpp>
 #include <filesystem>
 #include <utility>
+#include <regex>
 
 namespace fs = std::filesystem;
 
@@ -14,6 +15,8 @@ namespace NG::parsing
 {
     using namespace NG;
     using namespace NG::ast;
+
+    const std::regex IMPORT_DECL_PATTERN{"^[A-Za-z_][A-Za-z_\\-0-9\\.]+$"};
 
     class ParserImpl
     {
@@ -172,6 +175,16 @@ namespace NG::parsing
             return std::unexpected(state.error("Expected function name", {TokenType::ID}));
         }
 
+        /**
+         * syntax:
+         *   import a.b.c;
+         *   import "a"."b"."c";
+         *   import "abc" c;
+         *   import abcdef c;
+         *   import a.b.c (a, b, c);
+         *   import a.b.c (*);
+         *   import a.b.c abc (a, b, c);
+         */
         auto importDecl() -> ParseResult<ASTRef<ImportDecl>> // NOLINT(readability-function-cognitive-complexity)
         {
             if (auto result = accept(TokenType::KEYWORD_IMPORT); !result)
@@ -180,42 +193,43 @@ namespace NG::parsing
             }
             auto imp = makeast<ImportDecl>();
 
-            // direct import
-            if (expect(TokenType::ID))
-            {
-                Str module = state->repr;
-                if (auto result = accept(TokenType::ID); !result)
-                {
-                    return std::unexpected(result.error());
-                }
-                imp->module = module;
-                imp->alias = module;
+            Vec<Str> modulePath{};
 
-                if (!expect(TokenType::SEMICOLON))
+            while (expect(TokenType::ID) || expect(TokenType::STRING))
+            {
+                Str moduleSegment = state->repr;
+                accept(state->type);
+                if (std::regex_match(moduleSegment, IMPORT_DECL_PATTERN))
                 {
-                    return unexpected(state);
+                    modulePath.push_back(moduleSegment);
+                    // always use latest
+                    imp->module = moduleSegment;
+                }
+                else
+                {
+                    return std::unexpected(state.error("Invalid module path when import."));
+                }
+                if (expect(TokenType::DOT))
+                {
+                    accept(TokenType::DOT);
+                    continue;
+                }
+                else
+                {
+                    imp->modulePath = modulePath;
+                    break;
                 }
             }
 
             // alias import
-            if (expect(TokenType::STRING))
+            if (expect(TokenType::ID))
             {
-                auto stringValueResult = stringValue();
-                if (!stringValueResult)
+                Str alias = state->repr;
+                if (auto result = accept(TokenType::ID); !result)
                 {
-                    return std::unexpected(stringValueResult.error());
+                    return std::unexpected(result.error());
                 }
-                imp->module = (*stringValueResult)->value;
-
-                if (expect(TokenType::ID))
-                {
-                    Str alias = state->repr;
-                    if (auto result = accept(TokenType::ID); !result)
-                    {
-                        return std::unexpected(result.error());
-                    }
-                    imp->alias = alias;
-                }
+                imp->alias = alias;
             }
 
             // symbol import
@@ -265,6 +279,10 @@ namespace NG::parsing
                     }
                     imp->imports.emplace_back("*");
                 }
+            }
+            if (imp->imports.empty() && imp->alias.empty())
+            {
+                imp->alias = imp->module;
             }
 
             if (auto result = accept(TokenType::SEMICOLON); !result)

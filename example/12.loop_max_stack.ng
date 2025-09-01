@@ -1,0 +1,27 @@
+fun sum(n) {
+  val s = 0;
+  loop i = 0 {
+    s = s + i;
+    if (i < n) {
+      next i + 1;
+    }
+  }
+  return s;
+}
+
+fun sum2(i: int, n: int = 0) {
+  if (i == 0) {
+    return n;
+  }
+  next i-1, n+i;
+}
+
+fun sum3(i, n = 0) {
+  if (i == 0) {
+    return n;
+  }
+  return sum3(i - 1, n + i);
+}
+
+assert(sum(2969) == sum2(2969), 
+       sum2(2969) == sum3(2969));

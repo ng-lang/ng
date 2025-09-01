@@ -190,7 +190,7 @@ print(person.firstName);
 )");
 }
 
-TEST_CASE("should be able interpret exports", "[InterpreterTest]")
+TEST_CASE("should be able interpret exports", "[InterpreterTestImport]")
 {
     interpret(R"(
 module hello exports (hello, a);

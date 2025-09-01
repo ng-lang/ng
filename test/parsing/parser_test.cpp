@@ -338,3 +338,24 @@ if (x is some_module.Type) {
     REQUIRE(astResult.has_value());
     destroyast(*astResult);
 }
+
+void match(const std::regex &regex, const Str &text, bool match)
+{
+    REQUIRE(std::regex_match(text, regex) == match);
+}
+
+TEST_CASE("Regex match", "[ParserTestRegexMatch]")
+{
+    std::regex pattern{"^[A-Za-z_][A-Za-z_\\-0-9\\.]+$"};
+
+    match(pattern, "abc", true);
+    match(pattern, "_abc", true);
+    match(pattern, "a1c", true);
+    match(pattern, "a_c", true);
+    match(pattern, "a-c", true);
+    match(pattern, "ab-", true);
+    match(pattern, "ab_", true);
+    match(pattern, "ab_123", true);
+    match(pattern, "0a", false);
+    match(pattern, "-a", false);
+}
