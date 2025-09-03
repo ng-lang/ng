@@ -9,8 +9,8 @@ namespace NG::runtime
         return this->customizedType;
     }
 
-    auto NGStructuralObject::respond(const Str &member, RuntimeRef<NGContext> context,
-                                     RuntimeRef<NGInvocationContext> invocationContext) -> RuntimeRef<NGObject>
+    auto NGStructuralObject::respond(const Str &member, NGCtx context,
+                                     NGInvCtx invocationContext) -> RuntimeRef<NGObject>
     {
 
         if (selfMemberFunctions.contains(member))

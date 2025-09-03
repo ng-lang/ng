@@ -26,6 +26,7 @@ namespace NG
         KEYWORD_IMPORT,
         KEYWORD_USE,
         KEYWORD_NEW,
+        KEYWORD_NATIVE,
 
         KEYWORD_IF,
         KEYWORD_THEN,

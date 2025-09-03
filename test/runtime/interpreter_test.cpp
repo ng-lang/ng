@@ -192,33 +192,34 @@ print(person.firstName);
 
 TEST_CASE("should be able interpret exports", "[InterpreterTestImport]")
 {
-    interpret(R"(
-module hello exports (hello, a);
+    // todo: replace with a multi module test.
+    //     interpret(R"(
+    // module hello exports (hello, a);
 
-fun hello() {
-  print("hello world");
-}
+    // fun hello() {
+    //   print("hello world");
+    // }
 
-val a = 1;
+    // val a = 1;
 
-module main;
+    // module main;
 
-import "hello" (*);
-hello();
+    // import "hello" (*);
+    // hello();
 
-module main2;
+    // module main2;
 
-import "hello" hel;
+    // import "hello" hel;
 
-hel.hello();
+    // hel.hello();
 
-module main3;
+    // module main3;
 
-import hello;
+    // import hello;
 
-hello.hello();
+    // hello.hello();
 
-)");
+    // )");
 }
 
 TEST_CASE("should be able interpret integral values", "[InterpreterTest]")

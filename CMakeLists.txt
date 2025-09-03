@@ -46,7 +46,9 @@ set(NG_LIB_SRC
         src/runtime/NGStructuralObject.cpp
         src/runtime/NGModule.cpp
         src/sysdep/process.cpp
-        src/module/ModuleLoader.cpp)
+        src/stdlib/prelude.cpp
+        src/module/ModuleLoader.cpp
+        src/module/ModuleRegistry.cpp)
 
 set(NG_TEST_SRC
         test/parsing/lexer_test.cpp

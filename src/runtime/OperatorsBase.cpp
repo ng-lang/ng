@@ -55,8 +55,8 @@ namespace NG::runtime
     auto OperatorsBase::opDividedBy(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject> { return nullptr; }
 
     // NOLINT(performance-unnecessary-value-param)
-    auto OperatorsBase::respond(const Str &member, RuntimeRef<NGContext> context,  // NOLINT(performance-unnecessary-value-param)
-                                RuntimeRef<NGInvocationContext> invocationContext) // NOLINT(performance-unnecessary-value-param)
+    auto OperatorsBase::respond(const Str &member, RuntimeRef<NGContext> context, // NOLINT(performance-unnecessary-value-param)
+                                NGInvCtx invocationContext)                       // NOLINT(performance-unnecessary-value-param)
 
         -> RuntimeRef<NGObject>
     {

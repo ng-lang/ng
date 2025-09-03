@@ -842,7 +842,7 @@ namespace NG::ast
         auto &&compileUnit = dynamic_cast<const CompileUnit &>(node);
 
         return this->fileName == compileUnit.fileName &&
-               std::equal(begin(this->modules), end(this->modules), begin(compileUnit.modules), ASTComparator);
+               ASTComparator(this->module, compileUnit.module);
     }
 
     void CompileUnit::accept(AstVisitor *visitor)
@@ -857,9 +857,6 @@ namespace NG::ast
 
     CompileUnit::~CompileUnit()
     {
-        for (auto &&module : modules)
-        {
-            destroyast(module);
-        }
+        destroyast(module);
     }
 } // namespace NG

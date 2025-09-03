@@ -99,7 +99,7 @@ namespace NG::parsing
     public:
         explicit Parser(ParseState state) : state(std::move(state)) {}
 
-        auto parse(const Str &filename = "untitled.ng") -> ParseResult<ast::ASTRef<ASTNode>>;
+        auto parse(const Str &filename = "[noname]") -> ParseResult<ast::ASTRef<ASTNode>>;
     };
 
 } // namespace NG

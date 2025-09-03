@@ -34,7 +34,6 @@ namespace NG::parsing
         auto parse(const Str &fileName) -> ParseResult<ASTRef<ASTNode>>
         {
             // file as default module
-            auto mod = makeast<Module>();
 
             auto compileUnit = makeast<CompileUnit>();
 
@@ -44,8 +43,19 @@ namespace NG::parsing
             {
                 compileUnit->path = filePath.parent_path().string();
             }
+
+            Str fileWithoutPath{filePath.filename()};
+            Str moudleName = fileWithoutPath;
+            if (moudleName.ends_with(".ng"))
+            {
+                moudleName = fileWithoutPath.substr(0, fileWithoutPath.size() - 3);
+            }
+
+            auto mod = makeast<Module>();
+            mod->name = moudleName;
             ASTRef<Module> current_mod = mod;
-            compileUnit->modules.push_back(std::move(mod));
+            compileUnit->module = mod;
+            bool moduleDeclared = false;
 
             while (!state.eof())
             {
@@ -85,13 +95,16 @@ namespace NG::parsing
                 case TokenType::KEYWORD_CONS:
                 case TokenType::KEYWORD_MODULE:
                 {
-                    auto subModuleResult = moduleDecl();
+                    if (moduleDeclared)
+                    {
+                        return std::unexpected(state.error("Redeclare a module"));
+                    }
+                    moduleDeclared = true;
+                    auto subModuleResult = moduleDecl(mod);
                     if (!subModuleResult)
                     {
                         return std::unexpected(subModuleResult.error());
                     }
-                    current_mod = subModuleResult.value();
-                    compileUnit->modules.push_back(std::move(*subModuleResult));
                     break;
                 }
                 case TokenType::KEYWORD_EXPORT:
@@ -162,6 +175,37 @@ namespace NG::parsing
                     return std::unexpected(paramsResult.error());
                 }
                 def->params = std::move(*paramsResult);
+
+                if (expect(TokenType::OPERATOR) && state->operatorType == Operators::ASSIGN)
+                {
+                    accept(TokenType::OPERATOR);
+                    if (expect(TokenType::KEYWORD_NATIVE))
+                    {
+                        accept(TokenType::KEYWORD_NATIVE);
+                        def->native = true;
+                        if (auto result = accept(TokenType::SEMICOLON); !result)
+                        {
+                            return std::unexpected(result.error());
+                        }
+                        return def;
+                    }
+                    else
+                    {
+                        auto expressionBody = expression();
+                        if (!expressionBody)
+                        {
+                            return std::unexpected(expressionBody.error());
+                        }
+                        auto body = makeast<ReturnStatement>();
+                        body->expression = *expressionBody;
+                        def->body = body;
+                        if (auto result = accept(TokenType::SEMICOLON); !result)
+                        {
+                            return std::unexpected(result.error());
+                        }
+                        return def;
+                    }
+                }
 
                 auto bodyResult = statement();
                 if (!bodyResult)
@@ -373,25 +417,27 @@ namespace NG::parsing
             return typeDef;
         }
 
-        auto moduleDecl() -> ParseResult<ASTRef<Module>>
+        auto moduleDecl(ASTRef<Module> mod) -> ParseResult<ASTRef<Module>>
         {
-            auto mod = makeast<Module>();
-            Str moduleName{};
             if (auto result = accept(TokenType::KEYWORD_MODULE); !result)
             {
                 return std::unexpected(result.error());
             }
-            while (expect(TokenType::ID) || expect(TokenType::DOT))
+            if (expect(TokenType::ID))
             {
-                if (!moduleName.empty() && !expect(TokenType::DOT))
+                auto moduleName = state->repr;
+                accept(TokenType::ID);
+                if (mod->name == moduleName)
                 {
-                    moduleName += ".";
                 }
-                if (expect(TokenType::ID))
+                else if (mod->name == "[noname]")
                 {
-                    moduleName += state->repr;
+                    mod->name = moduleName;
                 }
-                state.next();
+                else
+                {
+                    return std::unexpected(state.error("Invalid module name for module: " + moduleName + ", expected: " + mod->name));
+                }
             }
             if (expect(TokenType::KEYWORD_EXPORTS))
             {
@@ -420,15 +466,6 @@ namespace NG::parsing
             if (auto result = accept(TokenType::SEMICOLON); !result)
             {
                 return std::unexpected(result.error());
-            }
-            if (mod->name == "default")
-            {
-                mod->name = moduleName;
-            }
-            else
-            {
-                mod->name += ".";
-                mod->name += moduleName;
             }
             return mod;
         }

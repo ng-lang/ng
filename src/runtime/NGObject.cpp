@@ -77,10 +77,10 @@ namespace NG::runtime
         throw NotImplementedException();
     }
 
-    auto NGObject::respond(const Str &member, RuntimeRef<NGContext> context, RuntimeRef<NGInvocationContext> invocationContext) -> RuntimeRef<NGObject>
+    auto NGObject::respond(const Str &member, NGCtx context, NGInvCtx invocationContext) -> RuntimeRef<NGObject>
     {
         auto type = this->type();
-        Map<Str, NGInvocationHandler> &fns = type->memberFunctions;
+        Map<Str, NGInvocable> &fns = type->memberFunctions;
         if (fns.contains(member))
         {
             RuntimeRef<NGContext> newContext = context->fork();

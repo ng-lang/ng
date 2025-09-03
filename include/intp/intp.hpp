@@ -31,5 +31,5 @@ namespace NG::intp
 
     auto stupid() -> Interpreter *;
 
-    auto predefs() -> Map<Str, NGInvocationHandler>;
+    auto predefs() -> Map<Str, NGInvocable>;
 }

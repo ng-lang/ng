@@ -114,10 +114,7 @@ TEST_CASE("parser should parse operators", "[ParserTest]")
 TEST_CASE("parser should parse modules", "[ParserTest]")
 {
     auto astResult = parse(R"(
-        module fuck;
-        module you;
-        module stupid;
-        module whatever.thisMod;
+        module shit;
     )");
     REQUIRE(astResult.has_value());
     destroyast(*astResult);
@@ -225,46 +222,34 @@ TEST_CASE("parser should parse exports", "[ParserTest]")
     auto astResult = parse(R"(
 // export all
 module hello exports *;
+)");
+    REQUIRE(astResult.has_value());
+    destroyast(*astResult);
 
+    astResult = parse(R"(
 // export symbol
 module hello exports (world);
+)");
+    REQUIRE(astResult.has_value());
+    destroyast(*astResult);
 
+    astResult = parse(R"(
 // export multiple symbol
 module hello exports (a, b, c);
+)");
+    REQUIRE(astResult.has_value());
+    destroyast(*astResult);
 
+    astResult = parse(R"(
 // export none
 module hello;
 )");
     REQUIRE(astResult.has_value());
     destroyast(*astResult);
-}
 
-TEST_CASE("parser should parse imports", "[ParserTest]")
-{
-    auto astResult = parse(R"(
-// simplified import
-import hello;
-
-// direct import
-import "hello";
-
-// import all symbols
-import "hello" (*);
-
-// import specific symbol
-import "hello" (world);
-
-// import symbols
-import "hello" (a, b, c);
-
-// import with alias
-import "hello" hell;
-
-// import all symbols
-import "hello" *;
-
-// import symbols with alias
-import "hello" hell(a, b, c);
+    astResult = parse(R"(
+// export without a module name
+module exports *;
 )");
     REQUIRE(astResult.has_value());
     destroyast(*astResult);

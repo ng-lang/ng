@@ -3,6 +3,7 @@
 #include <vector>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace NG
 {
@@ -13,6 +14,9 @@ namespace NG
 
     template <class K, class V>
     using Map = std::unordered_map<K, V>;
+
+    template <class T>
+    using Set = std::unordered_set<T>;
 
     struct Token;
 

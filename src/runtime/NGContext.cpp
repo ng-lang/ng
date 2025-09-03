@@ -1,10 +1,11 @@
 #include <intp/intp.hpp>
 #include <intp/runtime.hpp>
+#include <module.hpp>
 
 namespace NG::runtime
 {
 
-    const static NGInvocationHandler DUMMY = [](RuntimeRef<NGObject>, RuntimeRef<NGContext>, RuntimeRef<NGInvocationContext>) {};
+    const static NGInvocable DUMMY = [](NGSelf, NGCtx, NGInvCtx) {};
     void NGContext::appendModulePath(const Str &path)
     {
         if (std::ranges::find(modulePaths, path) == std::end(modulePaths))
@@ -15,7 +16,9 @@ namespace NG::runtime
 
     auto NGContext::fork() -> RuntimeRef<NGContext>
     {
-        auto ctx = makert<NGContext>(Vec<Str>{}, intp::predefs());
+        auto ctx = makert<NGContext>(Vec<Str>{
+            NG::module::standard_library_base_path(),
+        });
         ctx->parent = this;
         ctx->modulePaths = this->modulePaths;
 
@@ -62,7 +65,7 @@ namespace NG::runtime
         objects[name] = value;
     }
 
-    void NGContext::define_function(Str name, NGInvocationHandler value)
+    void NGContext::define_function(Str name, NGInvocable value)
     {
         if (locals.contains(name))
         {
@@ -109,7 +112,7 @@ namespace NG::runtime
         return objects.contains(name) || (global && parent != nullptr && parent->has_type(name, global));
     }
 
-    auto NGContext::get_function(Str name) -> NGInvocationHandler
+    auto NGContext::get_function(Str name) -> NGInvocable
     {
         if (functions.contains(name))
         {

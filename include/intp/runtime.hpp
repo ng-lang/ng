@@ -15,9 +15,6 @@ namespace NG::runtime
 {
 
     template <class T>
-    using Set = std::unordered_set<T>;
-
-    template <class T>
     using RuntimeRef = std::shared_ptr<T>;
 
     template <class T, class... Args>
@@ -32,14 +29,19 @@ namespace NG::runtime
         Vec<RuntimeRef<NGObject>> params;
     };
 
-    using NGInvocationHandler = std::function<void(RuntimeRef<NGObject> self, RuntimeRef<NGContext> ctx, RuntimeRef<NGInvocationContext> invCtx)>;
+    using NGSelf = RuntimeRef<NGObject>;
+    using NGCtx = RuntimeRef<NGContext>;
+    using NGInvCtx = RuntimeRef<NGInvocationContext>;
+
+    using NGInvocable = std::function<void(NGSelf self, NGCtx ctx, NGInvCtx invCtx)>;
+
     struct NGType
     {
         Str name;
 
         Vec<Str> properties;
 
-        Map<Str, NGInvocationHandler> memberFunctions;
+        Map<Str, NGInvocable> memberFunctions;
 
         auto operator==(const NGType &other) const -> bool
         {
@@ -50,7 +52,7 @@ namespace NG::runtime
             return this->name == other.name &&
                    this->properties == other.properties &&
                    std::all_of(begin(other.memberFunctions), end(other.memberFunctions),
-                               [this](const std::pair<Str, NGInvocationHandler> &pair)
+                               [this](const std::pair<Str, NGInvocable> &pair)
                                    -> bool
                                {
                                    return this->memberFunctions.contains(pair.first);
@@ -71,7 +73,7 @@ namespace NG::runtime
         void set(Str name, RuntimeRef<NGObject> value);
 
         void define(Str name, RuntimeRef<NGObject> value);
-        void define_function(Str name, NGInvocationHandler value);
+        void define_function(Str name, NGInvocable value);
         void define_type(Str name, RuntimeRef<NGType> type);
         void define_module(Str name, RuntimeRef<NGModule> module);
 
@@ -80,7 +82,7 @@ namespace NG::runtime
         auto has_type(Str name, bool global = false) -> bool;
         auto has_module(Str name, bool global = false) -> bool;
 
-        auto get_function(Str name) -> NGInvocationHandler;
+        auto get_function(Str name) -> NGInvocable;
         auto get_type(Str name) -> RuntimeRef<NGType>;
         auto get_module(Str name) -> RuntimeRef<NGModule>;
 
@@ -92,12 +94,12 @@ namespace NG::runtime
 
         Vec<Str> modulePaths;
 
-        NGContext(Vec<Str> modulePaths, Map<Str, NGInvocationHandler> functions) : modulePaths(modulePaths), functions(functions) {}
+        NGContext(Vec<Str> modulePaths) : modulePaths(modulePaths) {}
+        Str currentModuleName;
 
     private:
-        Str currentModuleName;
         Map<Str, RuntimeRef<NGObject>> objects;
-        Map<Str, NGInvocationHandler> functions;
+        Map<Str, NGInvocable> functions;
         Map<Str, RuntimeRef<NGType>> types;
 
         RuntimeRef<NGModule> currentModule;
@@ -145,7 +147,7 @@ namespace NG::runtime
         virtual auto opRShift(RuntimeRef<NGObject> other) -> RuntimeRef<NGObject> = 0;
 
         // Meta-Object function
-        virtual auto respond(const Str &member, RuntimeRef<NGContext> context, RuntimeRef<NGInvocationContext> invocationContext) -> RuntimeRef<NGObject> = 0;
+        virtual auto respond(const Str &member, NGCtx context, NGInvCtx invocationContext) -> RuntimeRef<NGObject> = 0;
 
         virtual ~OperatorsBase() noexcept = 0;
     };
@@ -236,7 +238,7 @@ namespace NG::runtime
 
         auto opRShift(RuntimeRef<NGObject> other) -> RuntimeRef<NGObject> override;
         // Meta-Object function
-        auto respond(const Str &member, RuntimeRef<NGContext> context, RuntimeRef<NGInvocationContext> invocationContext) -> RuntimeRef<NGObject> override;
+        auto respond(const Str &member, NGCtx context, NGInvCtx invocationContext) -> RuntimeRef<NGObject> override;
     };
 
     inline auto negate(Orders order) -> Orders
@@ -304,15 +306,16 @@ namespace NG::runtime
         Vec<Str> exports;
 
         Map<Str, RuntimeRef<NGObject>> objects;
-        Map<Str, NGInvocationHandler> functions;
+        Map<Str, NGInvocable> functions;
         Map<Str, RuntimeRef<NGType>> types;
+        Map<Str, NGInvocable> native_functions;
 
         [[nodiscard]] auto size() const -> size_t
         {
             return objects.size() + functions.size() + types.size();
         }
 
-        auto respond(const Str &member, RuntimeRef<NGContext> context, RuntimeRef<NGInvocationContext> invocationContext) -> RuntimeRef<NGObject> override;
+        auto respond(const Str &member, NGCtx context, NGInvCtx invocationContext) -> RuntimeRef<NGObject> override;
 
         ~NGModule() override;
     };
@@ -373,13 +376,14 @@ namespace NG::runtime
         RuntimeRef<NGType> customizedType;
         Map<Str, RuntimeRef<NGObject>> properties;
 
-        Map<Str, NGInvocationHandler> selfMemberFunctions;
+        Map<Str, NGInvocable> selfMemberFunctions;
 
-        auto respond(const Str &member, RuntimeRef<NGContext> context, RuntimeRef<NGInvocationContext> invocationContext) -> RuntimeRef<NGObject> override;
+        auto respond(const Str &member, NGCtx context, NGInvCtx invocationContext) -> RuntimeRef<NGObject> override;
 
         [[nodiscard]] auto type() const -> RuntimeRef<NGType> override;
 
         [[nodiscard]] auto show() const -> Str override;
     };
 
+    void register_native_library(Str moduleId, Map<Str, NGInvocable> handlers);
 }

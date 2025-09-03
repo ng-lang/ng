@@ -1,8 +1,10 @@
-module prelude exports (
-    not
-);
+module prelude exports *;
 
 
 fun not(value: bool) {
     return value == false;
 }
+
+fun print(value) = native;
+
+fun assert(assertion) = native;

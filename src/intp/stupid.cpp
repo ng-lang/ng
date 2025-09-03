@@ -19,6 +19,20 @@
 using namespace NG;
 using namespace NG::ast;
 
+namespace NG::runtime
+{
+    static auto get_native_registry() -> Map<Str, Map<Str, NGInvocable>> &
+    {
+        static Map<Str, Map<Str, NGInvocable>> natives;
+        return natives;
+    }
+
+    void register_native_library(Str moduleId, Map<Str, NGInvocable> handlers)
+    {
+        get_native_registry().insert_or_assign(moduleId, handlers);
+    }
+}
+
 namespace NG::intp
 {
 
@@ -81,34 +95,9 @@ namespace NG::intp
         return nullptr;
     }
 
-    auto predefs() -> Map<Str, NGInvocationHandler>
+    auto predefs() -> Map<Str, NGInvocable>
     {
-        return {
-            {"print", [](const RuntimeRef<NGObject> &self, const RuntimeRef<NGContext> &context, const RuntimeRef<NGInvocationContext> &invCtx)
-             {
-                 Vec<RuntimeRef<NGObject>> &params = invCtx->params;
-                 for (size_t i = 0; i < params.size(); ++i)
-                 {
-                     std::cout << params[i]->show();
-                     if (i != params.size() - 1)
-                     {
-                         std::cout << ", ";
-                     }
-                 }
-                 std::cout << '\n';
-             }},
-            {"assert", [](const RuntimeRef<NGObject> &self, const RuntimeRef<NGContext> &context, const RuntimeRef<NGInvocationContext> &invCtx)
-             {
-                 for (const auto &param : invCtx->params)
-                 {
-                     auto ngBool = std::dynamic_pointer_cast<NGBoolean>(param);
-                     if (ngBool == nullptr || !ngBool->value)
-                     {
-                         std::cerr << param->show();
-                         throw AssertionException();
-                     }
-                 }
-             }}};
+        return {};
     }
 
     struct FunctionPathVisitor : public DummyVisitor
@@ -202,7 +191,7 @@ namespace NG::intp
         {
             FunctionPathVisitor fpVis{};
             funCallExpr->primaryExpression->accept(&fpVis);
-            RuntimeRef<NGInvocationContext> invocationContext = makert<NGInvocationContext>();
+            NGInvCtx invocationContext = makert<NGInvocationContext>();
 
             for (auto &param : funCallExpr->arguments)
             {
@@ -529,6 +518,8 @@ namespace NG::intp
     {
         RuntimeRef<NGContext> context;
 
+        bool loading_prelude = false;
+
         void withNewContext(RuntimeRef<NGContext> newContext, const std::function<void()> &execution)
         {
             RuntimeRef<NGContext> previousContext = context;
@@ -538,6 +529,11 @@ namespace NG::intp
         }
 
         explicit Stupid(RuntimeRef<NGContext> _context) : context(_context)
+        {
+            loadPrelude();
+        }
+
+        void loadPrelude()
         {
             // load std.prelude by default.
             auto importPrelude = makeast<ImportDecl>();
@@ -550,15 +546,17 @@ namespace NG::intp
 
         void visit(CompileUnit *compileUnit) override
         {
+            debug_log("Visiting module", compileUnit->module->name);
             if (!compileUnit->path.empty())
             {
                 context->appendModulePath(compileUnit->path);
             }
-
-            for (auto &&module : compileUnit->modules)
+            if (compileUnit->path.contains("std") && compileUnit->fileName.contains("prelude"))
             {
-                module->accept(this);
+                loading_prelude = true;
             }
+            compileUnit->module->accept(this);
+            loading_prelude = false;
         }
 
         void visit(Module *mod) override
@@ -567,6 +565,11 @@ namespace NG::intp
             context->try_save_module();
 
             context->new_current(mod);
+
+            if (!loading_prelude)
+            {
+                // this->loadPrelude();
+            }
             for (auto &&import : mod->imports)
             {
                 import->accept(this);
@@ -605,13 +608,17 @@ namespace NG::intp
                 auto &&ast = moduleInfo->moduleAst;
 
                 RuntimeRef<NGContext> ctx = makert<NGContext>(Vec<Str>{
-                                                                  NG::module::standard_library_base_path(),
-                                                              },
-                                                              predefs());
-                withNewContext(ctx, [&ast, intp = this]()
+                    NG::module::standard_library_base_path(),
+                });
+                withNewContext(ctx,
+                               [&ast, &moduleInfo, intp = this]()
                                {
                                     ast->accept(intp);
-                                    intp->context->try_save_module(); });
+                                    intp->context->try_save_module();
+                                    if (get_native_registry().contains(moduleInfo->moduleId)) {
+                                        intp->context->current_module()->native_functions 
+                                            = get_native_registry()[moduleInfo->moduleId];
+                                    } });
                 context->define_module(importDecl->module, ctx->current_module());
             }
             RuntimeRef<NGModule> targetModule = context->get_module(importDecl->module);
@@ -630,6 +637,10 @@ namespace NG::intp
                 if (targetModule->objects.contains(imp))
                 {
                     context->define(imp, targetModule->objects[imp]);
+                }
+                if (targetModule->native_functions.contains(imp))
+                {
+                    context->define_function(imp, targetModule->native_functions[imp]);
                 }
             }
 
@@ -662,6 +673,10 @@ namespace NG::intp
                 {
                     exported.insert(objName);
                 }
+                for (auto &&[fnName, _ignored] : targetModule->native_functions)
+                {
+                    exported.insert(fnName);
+                }
             }
             else
             {
@@ -687,9 +702,13 @@ namespace NG::intp
         // virtual void visit(Param *param);
         void visit(FunctionDef *funDef) override
         {
-            context->define_function(funDef->funName, [this, funDef](const RuntimeRef<NGObject> &dummy,
-                                                                     const RuntimeRef<NGContext> &ngContext,
-                                                                     const RuntimeRef<NGInvocationContext> &invocationContext)
+            if (funDef->native)
+            {
+                return;
+            }
+            context->define_function(funDef->funName, [this, funDef](const NGSelf &dummy,
+                                                                     const NGCtx &ngContext,
+                                                                     const NGInvCtx &invocationContext)
                                      {
                 RuntimeRef<NGContext> newContext = ngContext->fork();
                 for (size_t i = 0; i < funDef->params.size(); ++i)
@@ -755,9 +774,9 @@ namespace NG::intp
 
             for (const auto &memFn : typeDef->memberFunctions)
             {
-                type->memberFunctions[memFn->funName] = [this, memFn](const RuntimeRef<NGObject> &dummy,
-                                                                      const RuntimeRef<NGContext> &ngContext,
-                                                                      const RuntimeRef<NGInvocationContext> &invocationContext)
+                type->memberFunctions[memFn->funName] = [this, memFn](const NGSelf &dummy,
+                                                                      const NGCtx &ngContext,
+                                                                      const NGInvCtx &invocationContext)
                 {
                     RuntimeRef<NGContext> newContext = ngContext->fork();
                     for (size_t i = 0; i < memFn->params.size(); ++i)
@@ -802,10 +821,11 @@ namespace NG::intp
 
     auto stupid() -> Interpreter *
     {
+        NG::library::prelude::do_register();
         auto context = makert<NGContext>(Vec<Str>{
-                                             "",
-                                             NG::module::standard_library_base_path()},
-                                         predefs());
+            "",
+            NG::module::standard_library_base_path(),
+        });
 
         return new Stupid(context); // NOLINT(cppcoreguidelines-owning-memory)
     }

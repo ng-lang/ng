@@ -216,6 +216,7 @@ namespace NG::ast
         Str funName;
         Vec<ASTRef<Param>> params;
         ASTRef<Statement> body = nullptr;
+        bool native = false;
 
         [[nodiscard]] auto name() const -> Str override;
 
@@ -378,7 +379,7 @@ namespace NG::ast
 
     struct CompileUnit : ASTNode
     {
-        Vec<ASTRef<Module>> modules;
+        ASTRef<Module> module = nullptr;
         Str fileName;
         Str path;
 
