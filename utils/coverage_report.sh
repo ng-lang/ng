@@ -14,5 +14,5 @@ echo "Show llvm-cov runnning data"
 
 llvm-profdata merge -sparse default.profraw -o coverage.profdata
 
-llvm-cov show ./ng_test -instr-profile=coverage.profdata -format=html -ignore-filename-regex='catch2-src' -output-dir=reports/cov -show-line-counts-or-regions -Xdemangler c++filt -Xdemangler -n
-llvm-cov export ./ng_test -instr-profile=coverage.profdata -ignore-filename-regex='catch2-src' -format=lcov >coverage.lcov
+llvm-cov show ./ng_test -instr-profile=coverage.profdata -format=html -ignore-filename-regex='catch2-src|ng\/test' -output-dir=reports/cov -show-line-counts-or-regions -Xdemangler c++filt -Xdemangler -n
+llvm-cov export ./ng_test -instr-profile=coverage.profdata -ignore-filename-regex='catch2-src|ng\/test' -format=lcov >coverage.lcov
