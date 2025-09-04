@@ -8,11 +8,6 @@ using namespace NG::parsing;
 
 namespace fs = std::filesystem;
 
-static inline ParseResult<ASTRef<ASTNode>> parse(const Str &source, const Str &module_filename)
-{
-    return Parser(ParseState(Lexer(LexState{source}).lex())).parse(module_filename);
-}
-
 static inline void
 runIntegrationTest(const std::string &filename)
 {

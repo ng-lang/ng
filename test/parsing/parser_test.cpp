@@ -4,122 +4,6 @@ using namespace NG;
 using namespace NG::ast;
 using namespace NG::parsing;
 
-static ParseResult<ASTRef<ASTNode>> parse(const Str &source)
-{
-    auto astResult = Parser(ParseState(Lexer(LexState{source}).lex())).parse();
-
-    if (!astResult)
-    {
-        ParseError error = astResult.error();
-        auto &&position = error.token.position;
-        Str location = std::format("Location: {} / {}", position.line, position.col);
-
-        debug_log("Error parse result:",
-                  error.message,
-                  location);
-    }
-    return astResult;
-}
-
-TEST_CASE("parser should parse function", "[ParserTest]")
-{
-    auto astResult = parse("fun id(n) { return n; }");
-    REQUIRE(astResult.has_value());
-
-    destroyast(*astResult);
-}
-
-TEST_CASE("parser should parse arrow return", "[ParserTest]")
-{
-    auto astResult = parse("fun id (n) => n;");
-    REQUIRE(astResult.has_value());
-
-    auto value = *astResult;
-
-    destroyast(*astResult);
-}
-
-TEST_CASE("parser should parse if structure", "[ParserTest]")
-{
-    auto astResult = parse("fun id4(y) if (y) return y;");
-    REQUIRE(astResult.has_value());
-    destroyast(*astResult);
-
-    astResult = parse("fun id5(z) { if (x) return y; else return z; }");
-    REQUIRE(astResult.has_value());
-    destroyast(*astResult);
-
-    astResult = parse("fun id6(x) if (x) { if (y) return z; else return x1; } else return x2;");
-    REQUIRE(astResult.has_value());
-    destroyast(*astResult);
-
-    astResult = parse("fun id7(x) if (x) { if (y) return z; else return x1; } else if (y) return z;");
-    REQUIRE(astResult.has_value());
-    destroyast(*astResult);
-}
-
-TEST_CASE("parser should parse return", "[ParserTest]")
-{
-    auto astResult = parse("fun one() { return 1; }");
-    REQUIRE(astResult.has_value());
-    destroyast(*astResult);
-}
-
-TEST_CASE("parser should parse assignment", "[ParserTest]")
-{
-    auto astResult = parse("fun id(n) { val x = n; return x; }");
-    REQUIRE(astResult.has_value());
-    destroyast(*astResult);
-}
-
-TEST_CASE("parser should parse function calls", "[ParserTest]")
-{
-    auto astResult = parse("fun id(a, b, c, e, f, g) { a(b); b(c); e(c)(b)(a); f(a, b, c); f(b(c), a(b), c); }");
-    REQUIRE(astResult.has_value());
-    destroyast(*astResult);
-}
-
-TEST_CASE("parser should parse id accessors", "[ParserTest]")
-{
-    auto astResult = parse(R"(
-        fun id(a, b, c)
-        {
-            a.exec;
-            b.gg;
-            c.fuck;
-            a.shit(b);
-            a.fuck(b.c);
-            c.get(a, b);
-            a.b.c;
-            a.b().c().defg(a.bc().fuck);
-
-            a.b.c();
-        }
-    )");
-    REQUIRE(astResult.has_value());
-    destroyast(*astResult);
-}
-
-TEST_CASE("parser should parse operators", "[ParserTest]")
-{
-    auto astResult = parse(R"(
-        fun id() {
-            return 1 + 2 * 3 / 4.times(5);
-        }
-    )");
-    REQUIRE(astResult.has_value());
-    destroyast(*astResult);
-}
-
-TEST_CASE("parser should parse modules", "[ParserTest]")
-{
-    auto astResult = parse(R"(
-        module shit;
-    )");
-    REQUIRE(astResult.has_value());
-    destroyast(*astResult);
-}
-
 TEST_CASE("parser should parse strings", "[ParserTest]")
 {
     auto astResult = parse(R"(
@@ -182,106 +66,17 @@ TEST_CASE("parser should parse array index assign expression", "[ParserTest]")
     destroyast(*astResult);
 }
 
-TEST_CASE("parser should parse simple type definition", "[ParserTest]")
-{
-    auto astResult = parse(R"(
-        type Simple {}
-        type WithProperties {
-            property name;
-        }
-        type WithMultipleProperties {
-            property name;
-            property password;
-        }
-        type MixedPropertiesAndMembers {
-            property name;
-            property password;
-            fun validate(name, password) {
-                return self.password == password;
-            }
-        }
-    )");
-    REQUIRE(astResult.has_value());
-    destroyast(*astResult);
-}
-
-TEST_CASE("parser should parse new object creation", "[ParserTest]")
-{
-    auto astResult = parse(R"(
-val person = new Person {
-    firstName: "Kimmy",
-    lastName: "Leo"
-};
-    )");
-    REQUIRE(astResult.has_value());
-    destroyast(*astResult);
-}
-
-TEST_CASE("parser should parse exports", "[ParserTest]")
-{
-    auto astResult = parse(R"(
-// export all
-module hello exports *;
-)");
-    REQUIRE(astResult.has_value());
-    destroyast(*astResult);
-
-    astResult = parse(R"(
-// export symbol
-module hello exports (world);
-)");
-    REQUIRE(astResult.has_value());
-    destroyast(*astResult);
-
-    astResult = parse(R"(
-// export multiple symbol
-module hello exports (a, b, c);
-)");
-    REQUIRE(astResult.has_value());
-    destroyast(*astResult);
-
-    astResult = parse(R"(
-// export none
-module hello;
-)");
-    REQUIRE(astResult.has_value());
-    destroyast(*astResult);
-
-    astResult = parse(R"(
-// export without a module name
-module exports *;
-)");
-    REQUIRE(astResult.has_value());
-    destroyast(*astResult);
-}
-
-TEST_CASE("parser should parse builtin types", "[ParserTest]")
-{
-    auto astResult = parse(R"(
-val x: int = 1;
-
-val y: bool = false;
-val z: float = 1;
-
-type SomeType {}
-
-val some_object: SomeObject = new SomeObject {};
-)");
-    REQUIRE(astResult.has_value());
-    destroyast(*astResult);
-}
-
 TEST_CASE("parser should parse builtin integral and floating_point values", "[ParserTest]")
 {
     auto astResult = parse(R"(
-val x: int = 1i32;
+        val x: int = 1i32;
 
-val y: uint = 1u32;
+        val y: uint = 1u32;
 
-val a: f32 = 1.0;
+        val a: f32 = 1.0;
 
-val y: f64 = 2.6f64;
-)");
+        val y: f64 = 2.6f64;
+    )");
     REQUIRE(astResult.has_value());
     destroyast(*astResult);
 }
@@ -289,36 +84,19 @@ val y: f64 = 2.6f64;
 TEST_CASE("Parser should parse loop statement", "[ParserTestLoop]")
 {
     auto astResult = parse(R"(
-loop x = 1 {
-    if (x < 10) {
-        next x + 1;
-    }
-}
+        loop x = 1 {
+            if (x < 10) {
+                next x + 1;
+            }
+        }
 
-loop a in [1, 2, 3], b = 2 {
-    if (b < 5) {
-        next a.iter(), b + 1;
-    }
-}
+        loop a in [1, 2, 3], b = 2 {
+            if (b < 5) {
+                next a.iter(), b + 1;
+            }
+        }
 
-)");
-
-    REQUIRE(astResult.has_value());
-    destroyast(*astResult);
-}
-
-TEST_CASE("Parser should parse type checking", "[ParserTestLoop]")
-{
-    auto astResult = parse(R"(
-if (x is Type) {
-   valid(x);
-}
-
-if (x is some_module.Type) {
-    valid(x);
-}
-
-)");
+    )");
 
     REQUIRE(astResult.has_value());
     destroyast(*astResult);
@@ -343,31 +121,4 @@ TEST_CASE("Regex match", "[ParserTestRegexMatch]")
     match(pattern, "ab_123", true);
     match(pattern, "0a", false);
     match(pattern, "-a", false);
-}
-
-TEST_CASE("Should export single declaration", "[ParserTest]")
-{
-    auto astResult = parse(R"(
-export val x = 1;
-
-export fun get() = native;
-
-export type Simple {}
-)");
-
-    REQUIRE(astResult.has_value());
-    destroyast(*astResult);
-}
-
-TEST_CASE("Should not export statement", "[ParserTest]")
-{
-    auto astResult = parse(R"(
-
-export loop x = 1 {
-}
-
-)");
-
-    REQUIRE(!astResult.has_value());
-    // destroyast(*astResult);
 }

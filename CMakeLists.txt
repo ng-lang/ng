@@ -52,7 +52,13 @@ set(NG_LIB_SRC
 
 set(NG_TEST_SRC
         test/parsing/lexer_test.cpp
+        test/parsing/lexer_keyword_test.cpp
+        test/parsing/lexer_symbol_identifier_test.cpp
+        test/parsing/lexer_values_test.cpp
         test/parsing/parser_test.cpp
+        test/parsing/parser_function_test.cpp
+        test/parsing/parser_module_import_export_test.cpp
+        test/parsing/parser_type_object_test.cpp
         test/integration_test.cpp
         test/runtime/interpreter_test.cpp
         )

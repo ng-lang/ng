@@ -26,4 +26,22 @@ using namespace NG::parsing;
 using namespace NG::intp;
 using namespace NG::runtime;
 
+inline ParseResult<ASTRef<ASTNode>> parse(const Str &source, const Str &moduleName = "[noname]")
+{
+    // debug_log(source);
+    auto astResult = Parser(ParseState(Lexer(LexState{source}).lex())).parse(moduleName);
+
+    if (!astResult)
+    {
+        ParseError error = astResult.error();
+        auto &&position = error.token.position;
+        Str location = std::format("Location: {} / {}", position.line, position.col);
+
+        debug_log("Error parse result:",
+                  error.message,
+                  location);
+    }
+    return astResult;
+}
+
 #endif // __NG_TEST_HPP
