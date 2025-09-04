@@ -10,8 +10,7 @@ if [[ `uname -a` == *"Darwin"* ]]; then
     export PATH="/opt/homebrew/opt/llvm/bin/:$PATH"
 fi
 
-llvm-profdata merge -sparse default.profraw -o default.profdata
+llvm-profdata merge -sparse default.profraw -o coverage.profdata
 
-llvm-cov show ./ng_test -instr-profile=default.profdata -format=html -output-dir=reports/cov -show-line-counts-or-regions -Xdemangler c++filt -Xdemangler -n
-
-open reports/cov/index.html
+llvm-cov show ./ng_test -instr-profile=coverage.profdata -format=html -ignore-filename-regex='catch2-src' -output-dir=reports/cov -show-line-counts-or-regions -Xdemangler c++filt -Xdemangler -n
+llvm-cov export ./ng_test -instr-profile default.profdata -ignore-filename-regex='catch2-src' -format=lcov >coverage.lcov

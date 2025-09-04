@@ -21,3 +21,9 @@ jobs:
         working-directory: ./build
       - run: ./ng_test
         working-directory: ./build
+      - run: ../utils/coverage_report.sh
+        working-directory: ./build
+      - name: Upload coverage reports to Codecov with GitHub Action
+        uses: codecov/codecov-action@v5
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
