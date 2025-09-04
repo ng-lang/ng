@@ -71,7 +71,7 @@ endif()
 
 if (DEFINED ENV{RUNNING_ON_GITHUB})
 target_compile_options(ng PRIVATE -fprofile-instr-generate -fcoverage-mapping -fcoverage-mcdc)
-target_link_options(ngi PRIVATE -fprofile-instr-generate -fcoverage-mapping -coverage)
+target_link_options(ngi PRIVATE -fprofile-instr-generate -fcoverage-mapping)
 endif()
 
 add_executable(ng_test ${NG_TEST_SRC})
@@ -84,6 +84,6 @@ endif()
 
 if (DEFINED ENV{RUNNING_ON_GITHUB})
 target_compile_options(ng_test PRIVATE -fprofile-instr-generate -fcoverage-mapping -fcoverage-mcdc)
-target_link_options(ng_test PRIVATE  -fprofile-instr-generate -fcoverage-mapping -coverage)
+target_link_options(ng_test PRIVATE  -fprofile-instr-generate -fcoverage-mapping)
 endif()
 
