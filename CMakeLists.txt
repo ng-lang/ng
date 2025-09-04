@@ -64,16 +64,26 @@ add_library(ng ${NG_LIB_SRC})
 add_executable(ngi src/main.cpp)
 target_link_libraries(ngi ng)
 
-if (APPLE OR DEFINED ENV{RUNNING_ON_GITHUB})
+if (APPLE)
 target_compile_options(ng PRIVATE -fprofile-instr-generate -fcoverage-mapping -fcoverage-mcdc)
-target_link_options(ngi PRIVATE -coverage)
+target_link_options(ngi PRIVATE -fprofile-instr-generate -fcoverage-mapping -coverage)
+endif()
+
+if (DEFINED ENV{RUNNING_ON_GITHUB})
+target_compile_options(ng PRIVATE -fprofile-instr-generate -fcoverage-mapping -fcoverage-mcdc)
+target_link_options(ngi PRIVATE -fprofile-instr-generate -fcoverage-mapping -coverage)
 endif()
 
 add_executable(ng_test ${NG_TEST_SRC})
 target_link_libraries(ng_test PRIVATE ng Catch2::Catch2WithMain)
 
-if (APPLE OR DEFINED ENV{RUNNING_ON_GITHUB})
+if (APPLE)
 target_compile_options(ng_test PRIVATE -fprofile-instr-generate -fcoverage-mapping -fcoverage-mcdc)
-target_link_options(ng_test PRIVATE -coverage)
+target_link_options(ng_test PRIVATE  -fprofile-instr-generate -fcoverage-mapping -coverage)
+endif()
+
+if (DEFINED ENV{RUNNING_ON_GITHUB})
+target_compile_options(ng_test PRIVATE -fprofile-instr-generate -fcoverage-mapping -fcoverage-mcdc)
+target_link_options(ng_test PRIVATE  -fprofile-instr-generate -fcoverage-mapping -coverage)
 endif()
 
