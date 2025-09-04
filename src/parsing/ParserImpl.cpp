@@ -59,6 +59,13 @@ namespace NG::parsing
 
             while (!state.eof())
             {
+                bool exported = false;
+                if (expect(TokenType::KEYWORD_EXPORT))
+                {
+                    exported = true;
+                    accept(TokenType::KEYWORD_EXPORT);
+                    // todo: export single identifiers
+                }
                 switch (state->type)
                 {
                 case TokenType::KEYWORD_FUN:
@@ -67,6 +74,10 @@ namespace NG::parsing
                     if (!funDefResult)
                     {
                         return std::unexpected(funDefResult.error());
+                    }
+                    if (exported)
+                    {
+                        mod->exports.push_back((*funDefResult)->funName);
                     }
                     current_mod->definitions.push_back(std::move(*funDefResult));
                     break;
@@ -78,6 +89,10 @@ namespace NG::parsing
                     {
                         return std::unexpected(valDefResult.error());
                     }
+                    if (exported)
+                    {
+                        mod->exports.push_back((*valDefResult)->name());
+                    }
                     current_mod->definitions.push_back(std::move(*valDefResult));
                     break;
                 }
@@ -88,11 +103,13 @@ namespace NG::parsing
                     {
                         return std::unexpected(typeDefResult.error());
                     }
+                    if (exported)
+                    {
+                        mod->exports.push_back((*typeDefResult)->name());
+                    }
                     current_mod->definitions.push_back(std::move(*typeDefResult));
                     break;
                 }
-                case TokenType::KEYWORD_SIG:
-                case TokenType::KEYWORD_CONS:
                 case TokenType::KEYWORD_MODULE:
                 {
                     if (moduleDeclared)
@@ -107,7 +124,7 @@ namespace NG::parsing
                     }
                     break;
                 }
-                case TokenType::KEYWORD_EXPORT:
+                // todo: export an import.
                 case TokenType::KEYWORD_IMPORT:
                 {
                     auto importDeclResult = importDecl();
@@ -126,6 +143,10 @@ namespace NG::parsing
                 case TokenType::KEYWORD_NEXT:
                 default:
                 {
+                    if (exported)
+                    {
+                        return std::unexpected(state.error("Invalid export: only definitions can be exported"));
+                    }
                     auto statementResult = statement();
                     if (!statementResult)
                     {

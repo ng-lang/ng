@@ -1,4 +1,6 @@
 
-import "external" ext;
+import external (*);
 
-ext.hello();
+hello();
+
+hello2();

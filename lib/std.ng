@@ -1,3 +1,1 @@
-module std exports (
-    printList
-);
+module std;

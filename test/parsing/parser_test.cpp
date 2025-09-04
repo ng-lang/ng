@@ -344,3 +344,30 @@ TEST_CASE("Regex match", "[ParserTestRegexMatch]")
     match(pattern, "0a", false);
     match(pattern, "-a", false);
 }
+
+TEST_CASE("Should export single declaration", "[ParserTest]")
+{
+    auto astResult = parse(R"(
+export val x = 1;
+
+export fun get() = native;
+
+export type Simple {}
+)");
+
+    REQUIRE(astResult.has_value());
+    destroyast(*astResult);
+}
+
+TEST_CASE("Should not export statement", "[ParserTest]")
+{
+    auto astResult = parse(R"(
+
+export loop x = 1 {
+}
+
+)");
+
+    REQUIRE(!astResult.has_value());
+    // destroyast(*astResult);
+}
