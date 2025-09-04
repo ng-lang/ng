@@ -1,0 +1,10 @@
+---
+languages:
+  kotlin:
+    enabled: false
+  ocaml:
+    enabled: false
+
+engines:
+  cppcheck:
+    languages: c++
