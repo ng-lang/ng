@@ -1,5 +1,11 @@
-module external exports *;
+module external exports (
+    hello
+);
 
 fun hello() {
     print("Hello");
+}
+
+export fun hello2() {
+    print("Hello2");
 }

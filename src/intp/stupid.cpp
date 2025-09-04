@@ -546,7 +546,6 @@ namespace NG::intp
 
         void visit(CompileUnit *compileUnit) override
         {
-            debug_log("Visiting module", compileUnit->module->name);
             if (!compileUnit->path.empty())
             {
                 context->appendModulePath(compileUnit->path);
