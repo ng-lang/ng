@@ -19,7 +19,7 @@ jobs:
         working-directory: ./build
       - run: ninja
         working-directory: ./build
-      - run: ./ng_test
+      - run: ./ng_test && ls -al
         working-directory: ./build
       - run: ../utils/coverage_report.sh
         working-directory: ./build
