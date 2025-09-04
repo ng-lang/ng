@@ -3,6 +3,7 @@ on:
   - push
 env:
   RUNNING_ON_GITHUB: "true"
+  LLVM_PROFILE_FILE: default.profraw
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -19,7 +20,7 @@ jobs:
         working-directory: ./build
       - run: ninja
         working-directory: ./build
-      - run: ./ng_test && ls -al
+      - run: ./ng_test && ls -al && ls ../ -al
         working-directory: ./build
       - run: ../utils/coverage_report.sh
         working-directory: ./build

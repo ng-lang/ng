@@ -10,6 +10,10 @@ if [[ `uname -a` == *"Darwin"* ]]; then
     export PATH="/opt/homebrew/opt/llvm/bin/:$PATH"
 fi
 
+echo "Show llvm-cov runnning data"
+
+pwd && ls -al
+
 llvm-profdata merge -sparse default.profraw -o coverage.profdata
 
 llvm-cov show ./ng_test -instr-profile=coverage.profdata -format=html -ignore-filename-regex='catch2-src' -output-dir=reports/cov -show-line-counts-or-regions -Xdemangler c++filt -Xdemangler -n
