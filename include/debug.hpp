@@ -33,13 +33,13 @@ template <class T>
 inline void show(T &&value)
 {
 #ifdef NG_CONFIG_ENABLE_DEBUG_LOG
-    std::cout << "[DEBUG] >> {}" << std::forward<T>(value) << std::endl;
+    std::cout << "[DEBUG] -- {}" << std::forward<T>(value) << std::endl;
 #endif // NG_CONFIG_ENABLE_DEBUG_LOG
 }
 
 inline void show(Container auto &&value)
 {
-    std::cout << "[DEBUG] >> Container[";
+    std::cout << "[DEBUG] -- Container[";
     for (auto &&x : value)
     {
         std::cout << x << ", ";
