@@ -11,10 +11,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
       - name: Install LLVM and Clang
-        uses: KyleMayes/install-llvm-action@v2.0.7
+        uses: KyleMayes/install-llvm-action@a7a1a882e2d06ebe05d5bb97c3e1f8c984ae96fc
         with:
           version: "20"
-      - uses: lukka/get-cmake@latest
+      - uses: lukka/get-cmake@2ecc21724e5215b0e567bc399a2602d2ecb48541
       - run: mkdir -p build
       - run: cmake ../ -GNinja -DCMAKE_C_COMPILER=${{ env.LLVM_PATH }}/bin/clang -DCMAKE_CXX_COMPILER=${{ env.LLVM_PATH }}/bin/clang++
         working-directory: ./build
@@ -25,6 +25,6 @@ jobs:
       - run: ../utils/coverage_report.sh
         working-directory: ./build
       - name: Upload coverage reports to Codecov with GitHub Action
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@fdcc8476540edceab3de004e990f80d881c6cc00
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
