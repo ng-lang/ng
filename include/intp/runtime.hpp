@@ -193,11 +193,6 @@ namespace NG::runtime
 
         ~NGObject() override;
 
-        // TODO: reference counting
-        //        virtual void acquire() = 0;
-        //
-        //        virtual void release() = 0;
-
         // Operators overloading
 
         // obj[index]
