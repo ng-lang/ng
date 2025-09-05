@@ -1,9 +1,9 @@
-[submodule "vendored/Catch2"]
-    path = vendored/Catch2
+[submodule "vendored/Catch2@v3.8.1"]
+	path = vendored/Catch2@v3.8.1
     url = git@github.com:catchorg/Catch2.git
-[submodule "vendored/SDL"]
-    path = vendored/SDL
+[submodule "vendored/SDL@release-3.2.22"]
+	path = vendored/SDL@release-3.2.22
     url = git@github.com:libsdl-org/SDL.git
-[submodule "vendored/imgui/imgui"]
-    path = vendored/imgui/imgui
+[submodule "vendored/imgui/imgui@v1.92.2b"]
+	path = vendored/imgui/imgui@v1.92.2b
     url = git@github.com:ocornut/imgui.git
