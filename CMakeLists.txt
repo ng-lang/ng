@@ -14,25 +14,11 @@ endif()
 
 project(ng)
 
-Include(FetchContent)
-
-FetchContent_Declare(
-  Catch2
-  GIT_REPOSITORY https://github.com/catchorg/Catch2.git
-  GIT_TAG        v3.8.1 # or a later release
-  GIT_PROGRESS   TRUE
-)
-
-FetchContent_Declare(
-  SDL
-  GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
-  GIT_TAG        release-3.2.22
-  GIT_PROGRESS   TRUE
-)
-
 set(SDL_STATIC ON CACHE BOOL "Build SDL as a shared library." FORCE)
 
-FetchContent_MakeAvailable(Catch2 SDL)
+add_subdirectory(vendored/Catch2 EXCLUDE_FROM_ALL)
+
+add_subdirectory(vendored/SDL EXCLUDE_FROM_ALL)
 
 add_subdirectory(vendored/imgui)
 

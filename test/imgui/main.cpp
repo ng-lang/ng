@@ -100,8 +100,8 @@ int main(int, char **)
     io.Fonts->AddFontFromFileTTF("../misc/fonts/SourceSerif/SourceSerif4-Regular.otf");
     io.Fonts->AddFontFromFileTTF("../misc/fonts/SourceSans/SourceSans3-Regular.otf");
     io.Fonts->AddFontFromFileTTF("../misc/fonts/SourceCodePro/SourceCodePro-Regular.otf");
-    io.Fonts->AddFontFromFileTTF("../misc/fonts/SourceHanSerif/SimplifiedChinese/SourceHanSerifSC-Regular.otf");
-    io.Fonts->AddFontFromFileTTF("../misc/fonts/SourceHanSans/SimplifiedChinese/SourceHanSansSC-Regular.otf");
+    // io.Fonts->AddFontFromFileTTF("../misc/fonts/SourceHanSerif/SimplifiedChinese/SourceHanSerifSC-Regular.otf");
+    // io.Fonts->AddFontFromFileTTF("../misc/fonts/SourceHanSans/SimplifiedChinese/SourceHanSansSC-Regular.otf");
     // io.Fonts->AddFontFromFileTTF("../../misc/fonts/Roboto-Medium.ttf");
     // io.Fonts->AddFontFromFileTTF("../../misc/fonts/Cousine-Regular.ttf");
     // ImFont* font = io.Fonts->AddFontFromFileTTF("c:\\Windows\\Fonts\\ArialUni.ttf");
