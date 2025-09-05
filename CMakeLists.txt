@@ -20,10 +20,8 @@ endif()
 
 set(SDL_STATIC ON CACHE BOOL "Build SDL as a static library." FORCE)
 
-add_subdirectory(vendored/Catch2 EXCLUDE_FROM_ALL)
-
-add_subdirectory(vendored/SDL EXCLUDE_FROM_ALL)
-
+add_subdirectory(vendored/Catch2@v3.8.1 EXCLUDE_FROM_ALL)
+add_subdirectory(vendored/SDL@release-3.2.22 EXCLUDE_FROM_ALL)
 add_subdirectory(vendored/imgui)
 
 set(NG_LIB_SRC
@@ -67,21 +65,22 @@ set(NG_TEST_SRC
 add_library(ng ${NG_LIB_SRC})
 target_include_directories(ng PUBLIC include)
 
+# region ngi
+
 add_executable(ngi src/main.cpp)
 target_link_libraries(ngi PRIVATE ng imgui SDL3::SDL3-static)
-
-add_executable(ng_imgui_demo test/imgui/main.cpp)
-target_link_libraries(ng_imgui_demo PRIVATE imgui SDL3::SDL3-static)
 
 if (APPLE)
 target_compile_options(ng PRIVATE -fprofile-instr-generate -fcoverage-mapping -fcoverage-mcdc)
 target_link_options(ngi PRIVATE -fprofile-instr-generate -fcoverage-mapping -coverage)
-endif()
-
-if (DEFINED ENV{RUNNING_ON_GITHUB})
+elseif (DEFINED ENV{RUNNING_ON_GITHUB})
 target_compile_options(ng PRIVATE -fprofile-instr-generate -fcoverage-mapping -fcoverage-mcdc)
 target_link_options(ngi PRIVATE -fprofile-instr-generate -fcoverage-mapping)
 endif()
+# endregion ngi
+
+
+# region ng_test
 
 add_executable(ng_test ${NG_TEST_SRC})
 target_link_libraries(ng_test PRIVATE ng Catch2::Catch2WithMain)
@@ -89,10 +88,15 @@ target_link_libraries(ng_test PRIVATE ng Catch2::Catch2WithMain)
 if (APPLE)
 target_compile_options(ng_test PRIVATE -fprofile-instr-generate -fcoverage-mapping -fcoverage-mcdc)
 target_link_options(ng_test PRIVATE  -fprofile-instr-generate -fcoverage-mapping -coverage)
-endif()
-
-if (DEFINED ENV{RUNNING_ON_GITHUB})
+elseif (DEFINED ENV{RUNNING_ON_GITHUB})
 target_compile_options(ng_test PRIVATE -fprofile-instr-generate -fcoverage-mapping -fcoverage-mcdc)
 target_link_options(ng_test PRIVATE  -fprofile-instr-generate -fcoverage-mapping)
 endif()
+# endregion ng_test
 
+# region ng_imgui_demo
+
+add_executable(ng_imgui_demo test/imgui/main.cpp)
+target_link_libraries(ng_imgui_demo PRIVATE imgui SDL3::SDL3-static)
+
+ # endregion ng_imgui_demo
