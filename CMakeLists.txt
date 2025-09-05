@@ -14,7 +14,11 @@ endif()
 
 project(ng)
 
-set(SDL_STATIC ON CACHE BOOL "Build SDL as a shared library." FORCE)
+if(DEFINED ENV{RUNNING_ON_GITHUB})
+set(SDL_UNIX_CONSOLE_BUILD ON)
+endif()
+
+set(SDL_STATIC ON CACHE BOOL "Build SDL as a static library." FORCE)
 
 add_subdirectory(vendored/Catch2 EXCLUDE_FROM_ALL)
 
