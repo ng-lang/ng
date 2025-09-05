@@ -1,0 +1,22 @@
+import std.imgui (*);
+
+init();
+
+loop {
+    eventLoop();
+    checkMinimized();
+
+    NewFrame();
+    {
+        Begin("Hello, world!");
+        Text("This is from NG std.imgui module");
+        End();
+    }
+    Render();
+
+    if (not(Aborted())) {
+        next;
+    }
+}
+
+cleanup();

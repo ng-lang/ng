@@ -37,17 +37,6 @@ namespace NG::intp
 {
 
     using namespace NG::runtime;
-
-    struct NextIteration : public std::exception
-    {
-        Vec<RuntimeRef<NGObject>> slotValues;
-        NextIteration(Vec<RuntimeRef<NGObject>> slotValues) : slotValues(slotValues) {};
-    };
-
-    struct StopIteration : public std::exception
-    {
-    };
-
     template <class T>
     using Set = std::unordered_set<T>;
 
@@ -821,6 +810,7 @@ namespace NG::intp
     auto stupid() -> Interpreter *
     {
         NG::library::prelude::do_register();
+        NG::library::imgui::do_register();
         auto context = makert<NGContext>(Vec<Str>{
             "",
             NG::module::standard_library_base_path(),
