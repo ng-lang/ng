@@ -29,6 +29,16 @@ namespace NG::runtime
         Vec<RuntimeRef<NGObject>> params;
     };
 
+    struct NextIteration : public std::exception
+    {
+        Vec<RuntimeRef<NGObject>> slotValues;
+        NextIteration(Vec<RuntimeRef<NGObject>> slotValues) : slotValues(slotValues) {};
+    };
+
+    struct StopIteration : public std::exception
+    {
+    };
+
     using NGSelf = RuntimeRef<NGObject>;
     using NGCtx = RuntimeRef<NGContext>;
     using NGInvCtx = RuntimeRef<NGInvocationContext>;

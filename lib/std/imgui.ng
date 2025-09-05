@@ -1,0 +1,21 @@
+module imgui exports *;
+
+fun init() = native;
+
+fun eventLoop() = native;
+
+fun checkMinimized() = native;
+
+fun NewFrame() = native;
+
+fun Begin(str) = native;
+
+fun Text(str) = native;
+
+fun End() = native;
+
+fun Aborted() = native;
+
+fun Render() = native;
+
+fun cleanup() = native;

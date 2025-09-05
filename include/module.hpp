@@ -7,6 +7,10 @@ namespace NG::library::prelude
 {
     void do_register();
 }
+namespace NG::library::imgui
+{
+    void do_register();
+}
 
 namespace NG::module
 {

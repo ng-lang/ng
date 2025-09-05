@@ -45,6 +45,7 @@ set(NG_LIB_SRC
         src/runtime/NGModule.cpp
         src/sysdep/process.cpp
         src/stdlib/prelude.cpp
+        src/stdlib/imgui.cpp
         src/module/ModuleLoader.cpp
         src/module/ModuleRegistry.cpp)
 
@@ -57,6 +58,7 @@ set(NG_TEST_SRC
         test/parsing/parser_function_test.cpp
         test/parsing/parser_module_import_export_test.cpp
         test/parsing/parser_type_object_test.cpp
+        test/parsing/parser_control_flow_test.cpp
         test/integration_test.cpp
         test/runtime/interpreter_test.cpp
         )
@@ -64,11 +66,12 @@ set(NG_TEST_SRC
 
 add_library(ng ${NG_LIB_SRC})
 target_include_directories(ng PUBLIC include)
+target_link_libraries(ng PRIVATE imgui SDL3::SDL3-static)
 
 # region ngi
 
 add_executable(ngi src/main.cpp)
-target_link_libraries(ngi PRIVATE ng imgui SDL3::SDL3-static)
+target_link_libraries(ngi PRIVATE ng)
 
 if (APPLE)
 target_compile_options(ng PRIVATE -fprofile-instr-generate -fcoverage-mapping -fcoverage-mcdc)
