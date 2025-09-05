@@ -14,17 +14,17 @@ endif()
 
 project(ng)
 
-Include(FetchContent)
+if(DEFINED ENV{RUNNING_ON_GITHUB})
+set(SDL_UNIX_CONSOLE_BUILD ON)
+endif()
 
-FetchContent_Declare(
-  Catch2
-  GIT_REPOSITORY https://github.com/catchorg/Catch2.git
-  GIT_TAG        v3.8.1 # or a later release
-)
+set(SDL_STATIC ON CACHE BOOL "Build SDL as a static library." FORCE)
 
-FetchContent_MakeAvailable(Catch2)
+add_subdirectory(vendored/Catch2 EXCLUDE_FROM_ALL)
 
-Include(Catch)
+add_subdirectory(vendored/SDL EXCLUDE_FROM_ALL)
+
+add_subdirectory(vendored/imgui)
 
 set(NG_LIB_SRC
         src/ast/ast.cpp
@@ -63,12 +63,15 @@ set(NG_TEST_SRC
         test/runtime/interpreter_test.cpp
         )
 
-include_directories(include)
 
 add_library(ng ${NG_LIB_SRC})
+target_include_directories(ng PUBLIC include)
 
 add_executable(ngi src/main.cpp)
-target_link_libraries(ngi ng)
+target_link_libraries(ngi PRIVATE ng imgui SDL3::SDL3-static)
+
+add_executable(ng_imgui_demo test/imgui/main.cpp)
+target_link_libraries(ng_imgui_demo PRIVATE imgui SDL3::SDL3-static)
 
 if (APPLE)
 target_compile_options(ng PRIVATE -fprofile-instr-generate -fcoverage-mapping -fcoverage-mcdc)
