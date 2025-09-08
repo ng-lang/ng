@@ -506,19 +506,17 @@ namespace NG::intp
 
         Vec<Str> modulePaths;
 
-        bool loading_prelude = false;
-
-        void withNewContext(RuntimeRef<NGContext> newContext, const std::function<void()> &execution)
+        explicit Stupid(Vec<Str> modulePaths, bool loadingPrelude = false) : context(makert<NGContext>()), modulePaths(modulePaths)
         {
-            RuntimeRef<NGContext> previousContext = context;
-            context = newContext;
-            execution();
-            context = previousContext;
+            if (!loadingPrelude)
+            {
+                loadPrelude();
+            }
         }
 
-        explicit Stupid(RuntimeRef<NGContext> _context, Vec<Str> modulePaths) : context(_context), modulePaths(modulePaths)
+        RuntimeRef<NGModule> asModule()
         {
-            loadPrelude();
+            return makert<NGModule>(context);
         }
 
         void loadPrelude()
@@ -531,7 +529,7 @@ namespace NG::intp
             {
                 auto targetModule = target->runtimeModule;
                 context->define_module(target->moduleName, target->runtimeModule);
-                importModule(context, {"*"}, targetModule);
+                importInto(context, {"*"}, targetModule);
             }
             else
             {
@@ -559,20 +557,11 @@ namespace NG::intp
             {
                 appendModulePath(compileUnit->path);
             }
-            if (compileUnit->path.contains("std") && compileUnit->fileName.contains("prelude"))
-            {
-                loading_prelude = true;
-            }
             compileUnit->module->accept(this);
-            loading_prelude = false;
         }
 
         void visit(Module *mod) override
         {
-            if (!loading_prelude)
-            {
-                this->loadPrelude();
-            }
             for (auto &&import : mod->imports)
             {
                 import->accept(this);
@@ -615,26 +604,22 @@ namespace NG::intp
                 else
                 {
                     auto &&ast = moduleInfo->moduleAst;
-
-                    RuntimeRef<NGContext> ctx = makert<NGContext>();
-                    withNewContext(ctx,
-                                   [&ast, &ctx, &moduleInfo, intp = this]()
-                                   {
-                                       ast->accept(intp);
-                                       auto runtimeModule = makert<NGModule>(ctx);
-                                       if (get_native_registry().contains(moduleInfo->moduleId))
-                                       {
-                                           runtimeModule->native_functions = get_native_registry()[moduleInfo->moduleId];
-                                       }
-                                       moduleInfo->runtimeModule = runtimeModule;
-                                   });
+                    bool loadingPrelude = moduleInfo->moduleId == "std.prelude";
+                    Stupid stupid{modulePaths, loadingPrelude};
+                    ast->accept(&stupid);
+                    auto runtimeModule = stupid.asModule();
+                    if (get_native_registry().contains(moduleInfo->moduleId))
+                    {
+                        runtimeModule->native_functions = get_native_registry()[moduleInfo->moduleId];
+                    }
+                    moduleInfo->runtimeModule = runtimeModule;
                     registry.addModuleInfo(moduleInfo);
                     context->define_module(importDecl->module, moduleInfo->runtimeModule);
                 }
             }
             RuntimeRef<NGModule> targetModule = context->get_module(importDecl->module);
 
-            importModule(context, importDecl->imports, targetModule);
+            importInto(context, importDecl->imports, targetModule);
 
             if (!importDecl->alias.empty())
             {
@@ -642,27 +627,27 @@ namespace NG::intp
             }
         }
 
-        static void importModule(RuntimeRef<NGContext> context, Vec<Str> declaredImports, const RuntimeRef<NGModule> &targetModule)
+        static void importInto(RuntimeRef<NGContext> context, Vec<Str> declaredImports, const RuntimeRef<NGModule> &fromModule)
         {
-            Set<Str> imports = resolveImports(declaredImports, targetModule);
+            Set<Str> imports = resolveImports(declaredImports, fromModule);
 
             for (auto &&imp : imports)
             {
-                if (targetModule->functions.contains(imp))
+                if (fromModule->functions.contains(imp))
                 {
-                    context->define_function(imp, targetModule->functions[imp]);
+                    context->define_function(imp, fromModule->functions[imp]);
                 }
-                if (targetModule->types.contains(imp))
+                if (fromModule->types.contains(imp))
                 {
-                    context->define_type(imp, targetModule->types[imp]);
+                    context->define_type(imp, fromModule->types[imp]);
                 }
-                if (targetModule->objects.contains(imp))
+                if (fromModule->objects.contains(imp))
                 {
-                    context->define(imp, targetModule->objects[imp]);
+                    context->define(imp, fromModule->objects[imp]);
                 }
-                if (targetModule->native_functions.contains(imp))
+                if (fromModule->native_functions.contains(imp))
                 {
-                    context->define_function(imp, targetModule->native_functions[imp]);
+                    context->define_function(imp, fromModule->native_functions[imp]);
                 }
             }
         }
@@ -743,24 +728,20 @@ namespace NG::intp
                         throw RuntimeException("No matched parameter");
                     }
                 }
-
-                withNewContext(newContext, [this, funDef]
-                                {
-                                bool tailRecur = true;
-                                while (tailRecur) {
-                                    try {
-                                        StatementVisitor vis{context};
-                                        funDef->body->accept(&vis);   
-                                        tailRecur = false;              
-                                    } catch (NextIteration nextIter) {
-                                        tailRecur = true;
-                                        for (size_t i = 0; i < nextIter.slotValues.size(); i++)
-                                        {
-                                            context->set(funDef->params[i]->paramName, nextIter.slotValues[i]);
-                                        }   
-                                    }
-                                }
-                });
+                bool tailRecur = true;
+                while (tailRecur) {
+                    try {
+                        StatementVisitor vis{newContext};
+                        funDef->body->accept(&vis);   
+                        tailRecur = false;              
+                    } catch (NextIteration nextIter) {
+                        tailRecur = true;
+                        for (size_t i = 0; i < nextIter.slotValues.size(); i++)
+                        {
+                            newContext->set(funDef->params[i]->paramName, nextIter.slotValues[i]);
+                        }
+                    }
+                }
                 ngContext->retVal = newContext->retVal; });
         }
 
@@ -810,11 +791,8 @@ namespace NG::intp
                         }
                     }
 
-                    withNewContext(newContext, [this, memFn]
-                                   {
-                        StatementVisitor vis{context};
-
-                        memFn->body->accept(&vis); });
+                    StatementVisitor vis{newContext};
+                    memFn->body->accept(&vis);
                     ngContext->retVal = newContext->retVal;
                 };
             }
@@ -839,12 +817,11 @@ namespace NG::intp
     {
         NG::library::prelude::do_register();
         NG::library::imgui::do_register();
-        auto context = makert<NGContext>();
 
-        return new Stupid(context, Vec<Str>{
-                                       "",
-                                       NG::module::standard_library_base_path(),
-                                   }); // NOLINT(cppcoreguidelines-owning-memory)
+        return new Stupid(Vec<Str>{
+            "",
+            NG::module::standard_library_base_path(),
+        }); // NOLINT(cppcoreguidelines-owning-memory)
     }
 
 } // namespace NG::interpreter
