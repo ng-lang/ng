@@ -6,21 +6,11 @@ namespace NG::runtime
 {
 
     const static NGInvocable DUMMY = [](NGSelf, NGCtx, NGInvCtx) {};
-    void NGContext::appendModulePath(const Str &path)
-    {
-        if (std::ranges::find(modulePaths, path) == std::end(modulePaths))
-        {
-            modulePaths.push_back(path);
-        }
-    }
 
     auto NGContext::fork() -> RuntimeRef<NGContext>
     {
-        auto ctx = makert<NGContext>(Vec<Str>{
-            NG::module::standard_library_base_path(),
-        });
+        auto ctx = makert<NGContext>();
         ctx->parent = this;
-        ctx->modulePaths = this->modulePaths;
 
         return ctx;
     }
@@ -136,6 +126,7 @@ namespace NG::runtime
         }
         return nullptr;
     }
+
     auto NGContext::get_type(Str name) -> RuntimeRef<NGType>
     {
         if (types.contains(name))
@@ -147,39 +138,6 @@ namespace NG::runtime
             return parent->get_type(name);
         }
         return nullptr;
-    }
-
-    void NGContext::try_save_module()
-    {
-        if (currentModule != nullptr)
-        {
-            // copy
-            this->currentModule->objects = objects;
-            this->currentModule->types = types;
-            this->currentModule->functions = functions;
-
-            // save
-            this->modules.insert_or_assign(this->currentModuleName, this->currentModule);
-
-            // clear
-            this->objects = {};
-            this->types = {};
-            this->functions = {};
-            this->locals = {};
-        }
-    }
-
-    void NGContext::new_current(ast::Module *mod)
-    {
-        this->currentModuleName = mod->name;
-        this->currentModule = makert<NGModule>();
-
-        this->currentModule->exports = mod->exports;
-    }
-
-    auto NGContext::current_module() -> RuntimeRef<NGModule>
-    {
-        return this->currentModule;
     }
 
     void NGContext::summary()

@@ -58,8 +58,6 @@ auto repl() -> int
             }
         }
 
-        debug_log("Tokens", tokens);
-
         ParseState parse_state{tokens};
         auto ast = Parser(parse_state).parse("[interperter]");
 
@@ -70,7 +68,14 @@ auto repl() -> int
         }
         tokens.clear();
 
-        (*ast)->accept(stupid);
+        try
+        {
+            (*ast)->accept(stupid);
+        }
+        catch (NG::RuntimeException ex)
+        {
+            debug_log("Runtime error", ex.what());
+        }
 
         destroyast(*ast);
 
