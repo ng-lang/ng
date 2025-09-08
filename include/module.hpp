@@ -26,6 +26,7 @@ namespace NG::module
         Str moduleLoadingLocation;
         ASTRef<NG::ast::ASTNode> moduleAst;
         Str moduleSource;
+        RuntimeRef<NG::runtime::NGModule> runtimeModule;
     };
 
     class ModuleRegistry : NonCopyable
@@ -37,12 +38,8 @@ namespace NG::module
         ModuleRegistry(Map<Str, RuntimeRef<ModuleInfo>> modules, Vec<Str> basePaths)
             : modules(modules), basePaths(basePaths) {}
 
-        void addModuleInfo(ModuleInfo moduleInfo);
-
+        void addModuleInfo(RuntimeRef<ModuleInfo> moduleInfo);
         RuntimeRef<ModuleInfo> queryModuleById(Str moduleId) const;
-        RuntimeRef<ModuleInfo> queryModuleByAbsolutePath(Str modulePath, Str moduleName) const;
-        RuntimeRef<ModuleInfo> queryModuleByRelativePath(Str currentPath, Str currentFile, Str moduleName) const;
-        RuntimeRef<ModuleInfo> queryModuleByRelativeModuleRef(Str currentPath, Str currentFile, Str currentModule, Str moudleName) const;
     };
 
     // NOLINTNEXTLINE(cppcoreguidelines-special-member-functions)

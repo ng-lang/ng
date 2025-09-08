@@ -5,7 +5,7 @@
 First, build and run the NG interpreter:
 ```bash
 mkdir build && cd build
-cmake .. && make
+cmake -GNinja ../ && ninja
 ./ngi
 ```
 

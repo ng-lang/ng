@@ -15,7 +15,7 @@ namespace NG::runtime
 
         if (selfMemberFunctions.contains(member))
         {
-            RuntimeRef<NGContext> newContext = makert<NGContext>(*context);
+            RuntimeRef<NGContext> newContext = context->fork();
             RuntimeRef<NGStructuralObject> self = std::dynamic_pointer_cast<NGStructuralObject>(invocationContext->target);
             context->define("self", self);
             selfMemberFunctions[member](self, newContext, invocationContext);

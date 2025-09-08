@@ -3,6 +3,12 @@
 #include <debug.hpp>
 namespace NG::runtime
 {
+
+    NGModule::NGModule(RuntimeRef<NGContext> ctx)
+        : objects(ctx->objects), functions(ctx->functions),
+          types(ctx->types), exports(ctx->exports)
+    {
+    }
     auto NGModule::respond(const Str &member, NGCtx context, NGInvCtx invocationContext) -> RuntimeRef<NGObject>
     {
         if (this->functions.contains(member))

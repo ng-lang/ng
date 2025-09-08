@@ -1,5 +1,0 @@
-(library
- (name ng_hir)
- (libraries common_ast occam_ext)
- (preprocess
-  (pps ppx_deriving.show)))

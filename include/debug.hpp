@@ -42,7 +42,7 @@ inline void show(Container auto &&value)
     std::cout << "[DEBUG] -- Container[";
     for (auto &&x : value)
     {
-        std::cout << x << ", ";
+        show(x);
     }
     std::cout << "];" << std::endl;
 }

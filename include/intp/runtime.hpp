@@ -75,8 +75,6 @@ namespace NG::runtime
 
         RuntimeRef<NGObject> retVal;
 
-        void appendModulePath(const Str &path);
-
         auto fork() -> RuntimeRef<NGContext>;
 
         auto get(Str name) -> RuntimeRef<NGObject>;
@@ -96,28 +94,16 @@ namespace NG::runtime
         auto get_type(Str name) -> RuntimeRef<NGType>;
         auto get_module(Str name) -> RuntimeRef<NGModule>;
 
-        void try_save_module();
-        void new_current(NG::ast::Module *e);
-        auto current_module() -> RuntimeRef<NGModule>;
-
         void summary();
 
-        Vec<Str> modulePaths;
-
-        NGContext(Vec<Str> modulePaths) : modulePaths(modulePaths) {}
-        Str currentModuleName;
-
-    private:
         Map<Str, RuntimeRef<NGObject>> objects;
         Map<Str, NGInvocable> functions;
         Map<Str, RuntimeRef<NGType>> types;
-
-        RuntimeRef<NGModule> currentModule;
-
         Map<Str, RuntimeRef<NGModule>> modules;
-
+        Vec<Str> exports;
         Set<Str> locals;
 
+    private:
         NGContext *parent = nullptr;
     };
 
@@ -314,6 +300,8 @@ namespace NG::runtime
         Map<Str, NGInvocable> functions;
         Map<Str, RuntimeRef<NGType>> types;
         Map<Str, NGInvocable> native_functions;
+
+        NGModule(RuntimeRef<NGContext> ctx);
 
         [[nodiscard]] auto size() const -> size_t
         {

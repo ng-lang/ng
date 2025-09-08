@@ -451,7 +451,7 @@ namespace NG::parsing
                 if (mod->name == moduleName)
                 {
                 }
-                else if (mod->name == "[noname]")
+                else if (mod->name == "[noname]" || mod->name == "[interpreter]")
                 {
                     mod->name = moduleName;
                 }

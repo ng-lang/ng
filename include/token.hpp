@@ -1,5 +1,6 @@
 #pragma once
 
+#include "common.hpp"
 #include <string>
 
 namespace NG
@@ -160,5 +161,7 @@ namespace NG
                    repr == token.repr;
         }
     };
+
+    auto operator<<(std::ostream &stream, const Token &token) -> std::ostream &;
 
 } // namespace NG
