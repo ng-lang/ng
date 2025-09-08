@@ -21,6 +21,12 @@ namespace NG::parsing
         return index >= size;
     }
 
+    void LexState::extend(const Str &source)
+    {
+        this->source += source;
+        this->size += source.size();
+    }
+
     auto LexState::lookAhead() const -> char
     {
         if (eof())

@@ -40,22 +40,27 @@ namespace NG::parsing
 
         void nextLine();
 
+        void extend(const Str &source);
+
         [[nodiscard]] auto lookAhead() const -> char;
     };
 
     class Lexer : NonCopyable
     {
         LexState state;
+        Vec<Token> tokens{};
 
     public:
         explicit Lexer(LexState state) : state(std::move(state)) {}
 
-        auto operator->() -> LexState &
+        auto operator->() -> LexState *
         {
-            return state;
+            return &state;
         }
 
         auto lex() -> Vec<Token>;
+
+        auto next() -> Token;
     };
 
     using NG::ast::ASTNode;

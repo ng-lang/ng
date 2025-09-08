@@ -164,7 +164,7 @@ namespace NG::runtime
             // clear
             this->objects = {};
             this->types = {};
-            this->functions = intp::predefs();
+            this->functions = {};
             this->locals = {};
         }
     }

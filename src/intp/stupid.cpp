@@ -84,11 +84,6 @@ namespace NG::intp
         return nullptr;
     }
 
-    auto predefs() -> Map<Str, NGInvocable>
-    {
-        return {};
-    }
-
     struct FunctionPathVisitor : public DummyVisitor
     {
 
@@ -192,6 +187,7 @@ namespace NG::intp
             RuntimeRef<NGObject> dummy = makert<NGObject>();
             invocationContext->target = dummy;
 
+            debug_log("No function for context", reinterpret_cast<size_t>(context.get()), context->has_function("print"));
             if (!context->has_function(fpVis.path, true))
             {
                 throw RuntimeException("No such function: " + fpVis.path);
@@ -549,10 +545,14 @@ namespace NG::intp
 
         void visit(Module *mod) override
         {
+            debug_log("ContextInfo", context->has_function("print", true), context->currentModuleName, mod->name,
+                      reinterpret_cast<size_t>(context.get()));
+            if (!(context->currentModuleName == "[interpreter]"))
+            {
+                context->try_save_module();
 
-            context->try_save_module();
-
-            context->new_current(mod);
+                context->new_current(mod);
+            }
 
             if (!loading_prelude)
             {

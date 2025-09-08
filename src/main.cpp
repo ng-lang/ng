@@ -13,19 +13,76 @@ using namespace NG;
 using namespace NG::ast;
 using namespace NG::parsing;
 
-static inline auto parse(const Str &source, const Str &file) -> ParseResult<ASTRef<ASTNode>>
+static inline auto parse(const Str &source, const Str &file = "[noname]") -> ParseResult<ASTRef<ASTNode>>
 {
     return Parser(ParseState(Lexer(LexState{source}).lex())).parse(file);
 }
 
 // NOLINTNEXTLINE(bugprone-exception-escape)
+
+auto repl() -> int
+{
+
+    std::cout << ">> ";
+    std::string line{};
+    std::getline(std::cin, line);
+    std::string source{line};
+    LexState state{source};
+    Lexer lexer{LexState{line}};
+    NG::intp::Interpreter *stupid = NG::intp::stupid();
+
+    Token current;
+    Vec<Token> tokens;
+    while (true)
+    {
+        while (true)
+        {
+            if (lexer->eof())
+            {
+                std::cout << ">> ";
+                if (std::getline(std::cin, line))
+                {
+
+                    lexer->extend(line);
+                }
+                else
+                {
+                    exit(0);
+                }
+            }
+            current = lexer.next();
+            tokens.push_back(current);
+            if (current.type == TokenType::SEMICOLON)
+            {
+                break;
+            }
+        }
+
+        debug_log("Tokens", tokens);
+
+        ParseState parse_state{tokens};
+        auto ast = Parser(parse_state).parse("[interperter]");
+
+        if (!ast)
+        {
+            debug_log("Syntax error:", ast.error().token, ast.error().message);
+            continue;
+        }
+        tokens.clear();
+
+        (*ast)->accept(stupid);
+
+        destroyast(*ast);
+
+        stupid->summary();
+    }
+}
 auto main(int argc, char *argv[]) -> int
 {
 
     if (argc < 2)
     {
-        std::cout << "must specify a file";
-        return -1;
+        return repl();
     }
 
     // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
@@ -50,7 +107,7 @@ auto main(int argc, char *argv[]) -> int
 
     auto &ast = *astResult;
 
-    AstVisitor *stupid = NG::intp::stupid();
+    NG::intp::Interpreter *stupid = NG::intp::stupid();
 
     ast->accept(stupid);
 

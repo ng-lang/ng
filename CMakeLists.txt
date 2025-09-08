@@ -26,6 +26,7 @@ add_subdirectory(vendored/imgui)
 
 set(NG_LIB_SRC
         src/ast/ast.cpp
+        src/token.cpp
         src/parsing/LexState.cpp
         src/parsing/Lexer.cpp
         src/parsing/ParseState.cpp

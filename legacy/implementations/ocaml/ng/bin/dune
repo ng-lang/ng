@@ -1,4 +1,0 @@
-(executables
- (names ngc ngtop ngast ngrun)
- (public_names ngc ngtop ngast ngrun)
- (libraries ng_lib ng_hir))

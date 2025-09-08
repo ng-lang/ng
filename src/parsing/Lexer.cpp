@@ -127,13 +127,13 @@ namespace NG::parsing
 
     };
 
-    static void lexSymbol(LexState &state, Vec<Token> &tokens);
+    static Token lexSymbol(LexState &state, Vec<Token> &tokens);
 
-    static void lexNumber(LexState &state, Vec<Token> &tokens);
+    static Token lexNumber(LexState &state, Vec<Token> &tokens);
 
-    static void lexOperator(LexState &state, Vec<Token> &tokens);
+    static Token lexOperator(LexState &state, Vec<Token> &tokens);
 
-    static void lexString(LexState &state, Vec<Token> &tokens);
+    static Token lexString(LexState &state, Vec<Token> &tokens);
 
     static auto isTermintator(char character) -> bool
     {
@@ -161,13 +161,12 @@ namespace NG::parsing
         }
     }
 
-    auto Lexer::lex() -> Vec<Token> // NOLINT(readability-function-cognitive-complexity)
+    auto Lexer::next() -> Token
     {
-        Vec<Token> tokens{};
-        while (char current = state.current())
+        while (const char current = state.current())
         {
             TokenPosition pos{.line = state.line, .col = state.col};
-            if ((isblank(current) != 0) || (isspace(current) != 0))
+            if (isblank(current) || isspace(current))
             {
                 if (current == '\n')
                 {
@@ -176,24 +175,26 @@ namespace NG::parsing
                 state.next();
                 continue;
             }
-            if ((isalpha(current) != 0) || current == '_')
+            if (isalpha(current) || current == '_')
             {
-                lexSymbol(state, tokens);
+                return lexSymbol(state, tokens);
             }
-            else if (isdigit(current) != 0)
+            else if (isdigit(current))
             {
-                lexNumber(state, tokens);
+                return lexNumber(state, tokens);
             }
             else if (current == '"')
             {
-                lexString(state, tokens);
+                return lexString(state, tokens);
             }
             else if (is(brackets, current))
             {
                 Str result{};
                 result += current;
-                tokens.push_back(Token{.type = tokenType.at(result), .repr = result, .position = pos});
+                Token token{.type = tokenType.at(result), .repr = result, .position = pos};
+                tokens.push_back(token);
                 state.next();
+                return token;
             }
             else if (current == '/')
             {
@@ -207,47 +208,66 @@ namespace NG::parsing
                 }
                 else
                 {
-                    lexOperator(state, tokens);
+                    return lexOperator(state, tokens);
                 }
             }
             else if (is(operators, current))
             {
-                lexOperator(state, tokens);
+                return lexOperator(state, tokens);
             }
             else if (current == ':')
             {
                 if (state.lookAhead() == ':')
                 {
-                    tokens.push_back(Token{.type = TokenType::SEPERATOR, .repr = "::", .position = pos});
+                    Token token{.type = TokenType::SEPERATOR, .repr = "::", .position = pos};
+                    tokens.push_back(token);
                     state.next(2);
+                    return token;
                 }
                 else
                 {
-                    tokens.push_back(Token{.type = TokenType::COLON, .repr = ":", .position = pos});
+                    Token token{.type = TokenType::COLON, .repr = ":", .position = pos};
+                    tokens.push_back(token);
                     state.next();
+                    return token;
                 }
             }
             else if (current == ';')
             {
-                tokens.push_back(Token{.type = TokenType::SEMICOLON, .repr = ";", .position = pos});
+                Token token{.type = TokenType::SEMICOLON, .repr = ";", .position = pos};
+                tokens.push_back(token);
                 state.next();
+                return token;
             }
             else if (current == ',')
             {
-                tokens.push_back(Token{.type = TokenType::COMMA, .repr = ",", .position = pos});
+                Token token{.type = TokenType::COMMA, .repr = ",", .position = pos};
+                tokens.push_back(token);
                 state.next();
+                return token;
             }
             else if (current == '.')
             {
-                tokens.push_back(Token{.type = TokenType::DOT, .repr = ".", .position = pos});
+                Token token{.type = TokenType::DOT, .repr = ".", .position = pos};
+                tokens.push_back(token);
                 state.next();
+                return token;
             }
+        }
+        return {};
+    }
+
+    auto Lexer::lex() -> Vec<Token> // NOLINT(readability-function-cognitive-complexity)
+    {
+        while (const char current = state.current())
+        {
+            next();
         }
 
         return tokens;
     }
 
-    static void lexSymbol(LexState &state, Vec<Token> &tokens)
+    static Token lexSymbol(LexState &state, Vec<Token> &tokens)
     {
         TokenPosition pos{.line = state.line, .col = state.col};
         Str result = withStream(state, [](LexState &state, Stream &stream)
@@ -264,11 +284,15 @@ namespace NG::parsing
             {
                 throw LexException("You are using a reserved token: " + result);
             }
-            tokens.push_back(Token{.type = tokenType.at(result), .repr = result, .position = pos});
+            Token token{.type = tokenType.at(result), .repr = result, .position = pos};
+            tokens.push_back(token);
+            return token;
         }
         else
         {
-            tokens.push_back(Token{.type = TokenType::ID, .repr = result, .position = pos});
+            Token token{.type = TokenType::ID, .repr = result, .position = pos};
+            tokens.push_back(token);
+            return token;
         }
     }
 
@@ -364,7 +388,7 @@ namespace NG::parsing
         return result;
     }
 
-    static void lexNumber(LexState &state, Vec<Token> &tokens)
+    static Token lexNumber(LexState &state, Vec<Token> &tokens)
     {
         TokenPosition pos{.line = state.line, .col = state.col};
         TokenType tokenType = TokenType::NUMBER;
@@ -408,7 +432,9 @@ namespace NG::parsing
 
         if (!result.empty())
         {
-            tokens.push_back(Token{.type = tokenType, .repr = result, .position = pos});
+            Token token{.type = tokenType, .repr = result, .position = pos};
+            tokens.push_back(token);
+            return token;
         }
         else
         {
@@ -530,7 +556,7 @@ namespace NG::parsing
         return state.current();
     }
 
-    static void lexString(LexState &state, Vec<Token> &tokens)
+    static Token lexString(LexState &state, Vec<Token> &tokens)
     {
         TokenPosition pos{.line = state.line, .col = state.col};
 
@@ -546,11 +572,12 @@ namespace NG::parsing
                 }
             } });
         state.next();
-
-        tokens.push_back(Token{.type = TokenType::STRING, .repr = result, .position = pos});
+        Token token{.type = TokenType::STRING, .repr = result, .position = pos};
+        tokens.push_back(token);
+        return token;
     }
 
-    static void lexOperator(LexState &state, Vec<Token> &tokens)
+    static Token lexOperator(LexState &state, Vec<Token> &tokens)
     {
         TokenPosition pos{.line = state.line, .col = state.col};
         Str result = withStream(state, [](LexState &state, Stream &stream)
@@ -564,8 +591,9 @@ namespace NG::parsing
 
         if (tokenType.contains(result))
         {
-            tokens.push_back(Token{.type = tokenType.at(result), .repr = result, .position = pos});
-            return;
+            Token token{.type = tokenType.at(result), .repr = result, .position = pos};
+            tokens.push_back(token);
+            return token;
         }
 
         Operators operatorType = Operators::UNKNOWN;
@@ -573,7 +601,8 @@ namespace NG::parsing
         {
             operatorType = operator_types.at(result);
         }
-
-        tokens.push_back(Token{.type = TokenType::OPERATOR, .repr = result, .position = pos, .operatorType = operatorType});
+        Token token{.type = TokenType::OPERATOR, .repr = result, .position = pos, .operatorType = operatorType};
+        tokens.push_back(token);
+        return token;
     }
 }

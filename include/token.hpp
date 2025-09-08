@@ -161,4 +161,6 @@ namespace NG
         }
     };
 
+    auto operator<<(std::ostream &stream, const Token &token) -> std::ostream &;
+
 } // namespace NG
