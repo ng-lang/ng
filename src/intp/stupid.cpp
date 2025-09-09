@@ -630,6 +630,7 @@ namespace NG::intp
         static void importInto(RuntimeRef<NGContext> context, Vec<Str> declaredImports, const RuntimeRef<NGModule> &fromModule)
         {
             Set<Str> imports = resolveImports(declaredImports, fromModule);
+            context->imported.append_range(imports);
 
             for (auto &&imp : imports)
             {
@@ -664,19 +665,31 @@ namespace NG::intp
             {
                 for (auto &&[fnName, _ignored] : targetModule->functions)
                 {
-                    exported.insert(fnName);
+                    if (!targetModule->imports.contains(fnName) || targetModule->exports.contains(fnName))
+                    {
+                        exported.insert(fnName);
+                    }
                 }
                 for (auto &&[typeName, _ignored] : targetModule->types)
                 {
-                    exported.insert(typeName);
+                    if (!targetModule->imports.contains(typeName) || targetModule->exports.contains(typeName))
+                    {
+                        exported.insert(typeName);
+                    }
                 }
                 for (auto &&[objName, _ignored] : targetModule->objects)
                 {
-                    exported.insert(objName);
+                    if (!targetModule->imports.contains(objName) || targetModule->exports.contains(objName))
+                    {
+                        exported.insert(objName);
+                    }
                 }
                 for (auto &&[fnName, _ignored] : targetModule->native_functions)
                 {
-                    exported.insert(fnName);
+                    if (!targetModule->imports.contains(fnName) || targetModule->exports.contains(fnName))
+                    {
+                        exported.insert(fnName);
+                    }
                 }
             }
             else
@@ -707,34 +720,42 @@ namespace NG::intp
             {
                 return;
             }
-            context->define_function(funDef->funName, [this, funDef](const NGSelf &dummy,
-                                                                     const NGCtx &ngContext,
-                                                                     const NGInvCtx &invocationContext)
-                                     {
+
+            auto functionInvoker =
+                [this, funDef](const NGSelf &dummy,
+                               const NGCtx &ngContext,
+                               const NGInvCtx &invocationContext)
+            {
                 RuntimeRef<NGContext> newContext = ngContext->fork();
                 for (size_t i = 0; i < funDef->params.size(); ++i)
                 {
-                    if (invocationContext->params.size() > i) 
+                    if (invocationContext->params.size() > i)
                     {
                         newContext->define(funDef->params[i]->paramName, invocationContext->params[i]);
-                    } 
-                    else if (funDef->params[i]->value != nullptr) 
+                    }
+                    else if (funDef->params[i]->value != nullptr)
                     {
-                        ExpressionVisitor vis {ngContext};
+                        ExpressionVisitor vis{ngContext};
                         funDef->params[i]->value->accept(&vis);
                         auto value = vis.object;
                         newContext->define(funDef->params[i]->paramName, value);
-                    } else {
+                    }
+                    else
+                    {
                         throw RuntimeException("No matched parameter");
                     }
                 }
                 bool tailRecur = true;
-                while (tailRecur) {
-                    try {
+                while (tailRecur)
+                {
+                    try
+                    {
                         StatementVisitor vis{newContext};
-                        funDef->body->accept(&vis);   
-                        tailRecur = false;              
-                    } catch (NextIteration nextIter) {
+                        funDef->body->accept(&vis);
+                        tailRecur = false;
+                    }
+                    catch (NextIteration nextIter)
+                    {
                         tailRecur = true;
                         for (size_t i = 0; i < nextIter.slotValues.size(); i++)
                         {
@@ -742,7 +763,10 @@ namespace NG::intp
                         }
                     }
                 }
-                ngContext->retVal = newContext->retVal; });
+                ngContext->retVal = newContext->retVal;
+            };
+
+            context->define_function(funDef->funName, functionInvoker);
         }
 
         void visit(Statement *stmt) override

@@ -101,6 +101,7 @@ namespace NG::runtime
         Map<Str, RuntimeRef<NGType>> types;
         Map<Str, RuntimeRef<NGModule>> modules;
         Vec<Str> exports;
+        Vec<Str> imported;
         Set<Str> locals;
 
     private:
@@ -293,8 +294,8 @@ namespace NG::runtime
 
     struct NGModule : public virtual NGObject // NOLINT(cppcoreguidelines-special-member-functions)
     {
-        Vec<Str> imports;
-        Vec<Str> exports;
+        Set<Str> imports;
+        Set<Str> exports;
 
         Map<Str, RuntimeRef<NGObject>> objects;
         Map<Str, NGInvocable> functions;
