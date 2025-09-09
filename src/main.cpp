@@ -91,10 +91,6 @@ start:
                     braceCount = 0;
                     goto start;
                 }
-                if (braceCount == 0)
-                {
-                    break;
-                }
             }
             if (current.type == TokenType::SEMICOLON && braceCount == 0)
             {

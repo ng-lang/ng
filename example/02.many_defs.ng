@@ -10,3 +10,15 @@ fun id5(x, y, z) { if (x) return y; else return z; }
 fun id6(x, y, z, x1, x2) if (x) { if (y) return z; else return x1; } else return x2;
 
 fun id7(x, y, z, x1) if (x) { if (y) return z; else return x1; } else if (y) return z;
+
+print(id1(id2(id3(1))));
+
+print(id5(id1(true), id2(2), id3(3)));
+
+print(id6(true, false, 2, 3, 4));
+
+print(id7(true, true, 4, 5));
+
+print(id7(true, false, 4, 5));
+
+print(id7(false, true, 6, 7));

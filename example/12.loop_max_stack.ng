@@ -25,3 +25,5 @@ fun sum3(i, n = 0) {
 
 assert(sum(2969) == sum2(2969), 
        sum2(2969) == sum3(2969));
+
+print(sum3(2969));
