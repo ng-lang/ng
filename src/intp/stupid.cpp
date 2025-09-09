@@ -15,6 +15,8 @@
 #include <functional>
 
 #include <unordered_set>
+#include <algorithm>
+#include <iterator>
 
 using namespace NG;
 using namespace NG::ast;
@@ -630,7 +632,7 @@ namespace NG::intp
         static void importInto(RuntimeRef<NGContext> context, Vec<Str> declaredImports, const RuntimeRef<NGModule> &fromModule)
         {
             Set<Str> imports = resolveImports(declaredImports, fromModule);
-            context->imported.append_range(imports);
+            std::copy(imports.begin(), imports.end(), std::back_inserter(context->imported));
 
             for (auto &&imp : imports)
             {
