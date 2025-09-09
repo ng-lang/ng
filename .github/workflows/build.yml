@@ -1,6 +1,10 @@
 name: build
 on:
   - push
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
 env:
   RUNNING_ON_GITHUB: "true"
   LLVM_PROFILE_FILE: default.profraw
