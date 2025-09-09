@@ -85,6 +85,13 @@ namespace NG
         }
     };
 
+    struct TypeCheckingException : std::logic_error
+    {
+        explicit TypeCheckingException(const std::string &message) : logic_error(message)
+        {
+        }
+    };
+
     template <class T>
     concept codable = std::is_enum_v<T> || std::is_integral_v<T>;
 

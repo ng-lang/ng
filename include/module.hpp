@@ -16,6 +16,7 @@ namespace NG::module
 {
     using NG::ast::ASTNode;
     using NG::ast::ASTRef;
+    using NG::runtime::NGInvocable;
     using NG::runtime::RuntimeRef;
 
     struct ModuleInfo
@@ -66,4 +67,5 @@ namespace NG::module
     };
 
     Str standard_library_base_path();
+    ModuleRegistry &get_module_registry();
 }

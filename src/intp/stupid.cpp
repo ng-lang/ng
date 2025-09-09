@@ -21,7 +21,7 @@ using namespace NG::ast;
 
 namespace NG::runtime
 {
-    static auto get_native_registry() -> Map<Str, Map<Str, NGInvocable>> &
+    auto get_native_registry() -> Map<Str, Map<Str, NGInvocable>> &
     {
         static Map<Str, Map<Str, NGInvocable>> natives;
         return natives;
@@ -37,6 +37,7 @@ namespace NG::intp
 {
 
     using namespace NG::runtime;
+    using namespace NG::module;
     template <class T>
     using Set = std::unordered_set<T>;
 
@@ -497,7 +498,6 @@ namespace NG::intp
             }
         }
     };
-    static NG::module::ModuleRegistry registry({}, {});
 
     struct Stupid : public Interpreter,
                     DummyVisitor // NOLINT(cppcoreguidelines-special-member-functions)
@@ -525,7 +525,7 @@ namespace NG::intp
             {
                 return;
             }
-            if (auto target = registry.queryModuleById("std.prelude"); target)
+            if (auto target = get_module_registry().queryModuleById("std.prelude"); target)
             {
                 auto targetModule = target->runtimeModule;
                 context->define_module(target->moduleName, target->runtimeModule);
@@ -597,7 +597,7 @@ namespace NG::intp
                 // load module
                 NG::module::FileBasedExternalModuleLoader loader{this->modulePaths};
                 auto &&moduleInfo = loader.load(importDecl->modulePath);
-                if (auto target = registry.queryModuleById(moduleInfo->moduleId); target)
+                if (auto target = get_module_registry().queryModuleById(moduleInfo->moduleId); target)
                 {
                     context->define_module(importDecl->module, target->runtimeModule);
                 }
@@ -613,7 +613,7 @@ namespace NG::intp
                         runtimeModule->native_functions = get_native_registry()[moduleInfo->moduleId];
                     }
                     moduleInfo->runtimeModule = runtimeModule;
-                    registry.addModuleInfo(moduleInfo);
+                    get_module_registry().addModuleInfo(moduleInfo);
                     context->define_module(importDecl->module, moduleInfo->runtimeModule);
                 }
             }

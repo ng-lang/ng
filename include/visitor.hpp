@@ -29,6 +29,8 @@ namespace NG::ast
 
         virtual void visit(Param *param) = 0;
 
+        virtual void visit(TypeAnnotation *typeAnno) = 0;
+
         virtual void visit(FunctionDef *funDef) = 0;
 
         virtual void visit(ValDef *valDef) = 0;
@@ -110,6 +112,8 @@ namespace NG::ast
         void visit(Definition *def) override;
 
         void visit(Param *param) override;
+
+        void visit(TypeAnnotation *typeAnno) override;
 
         void visit(FunctionDef *funDef) override;
 

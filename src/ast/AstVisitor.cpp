@@ -21,6 +21,7 @@ namespace NG::ast
     void AstVisitor::visit(Definition *def) {}
 
     void AstVisitor::visit(Param *param) {}
+    void AstVisitor::visit(TypeAnnotation *typeAnno) {}
 
     void AstVisitor::visit(FunctionDef *funDef) {}
 
