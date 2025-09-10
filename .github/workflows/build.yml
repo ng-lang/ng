@@ -12,18 +12,6 @@ env:
   RUNNING_ON_GITHUB: "true"
   LLVM_PROFILE_FILE: default.profraw
 jobs:
-  analysis-action:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
-        with:
-          languages: actions
-          build-mode: none
-      - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
-        with:
-          category: "/language:actions"
   build:
     runs-on: ubuntu-latest
     steps:
