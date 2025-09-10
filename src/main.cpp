@@ -16,6 +16,14 @@ using namespace NG;
 using namespace NG::ast;
 using namespace NG::parsing;
 
+#ifdef _WIN32
+#include <io.h>
+#define isatty _isatty
+#define STDIN_FILENO 0
+#else
+#include <unistd.h>
+#endif
+
 static inline auto parse(const Str &source, const Str &file = "[noname]") -> ParseResult<ASTRef<ASTNode>>
 {
     return Parser(ParseState(Lexer(LexState{source}).lex())).parse(file);
