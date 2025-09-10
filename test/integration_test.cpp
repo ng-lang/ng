@@ -1,10 +1,10 @@
 
 #include "test.hpp"
+#include <intp/intp.hpp>
+#include <filesystem>
+#include <fstream>
 
-using namespace NG;
-using namespace NG::ast;
 using namespace NG::intp;
-using namespace NG::parsing;
 
 namespace fs = std::filesystem;
 

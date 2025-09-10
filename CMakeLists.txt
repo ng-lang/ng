@@ -48,7 +48,11 @@ set(NG_LIB_SRC
         src/stdlib/prelude.cpp
         src/stdlib/imgui.cpp
         src/module/ModuleLoader.cpp
-        src/module/ModuleRegistry.cpp)
+        src/module/ModuleRegistry.cpp
+        src/typecheck/typecheck.cpp
+        src/typecheck/typeinfo.cpp
+        src/typecheck/PrimitiveType.cpp
+        )
 
 set(NG_TEST_SRC
         test/parsing/lexer_test.cpp
@@ -62,6 +66,8 @@ set(NG_TEST_SRC
         test/parsing/parser_control_flow_test.cpp
         test/integration_test.cpp
         test/runtime/interpreter_test.cpp
+        test/typecheck/typeinfo_primitive_test.cpp
+        test/typecheck/typecheck_primitive_test.cpp
         )
 
 

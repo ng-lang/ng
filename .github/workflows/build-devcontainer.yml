@@ -2,7 +2,9 @@
 name: Build devcontainer
 env:
   IMAGE_NAME: ngbuilder
-
+permissions:
+  contents: read
+  packages: write
 on:
   push:
     paths:

@@ -12,4 +12,11 @@ namespace NG::module
             return this->modules.at(moduleId);
         return {};
     }
+
+    ModuleRegistry &get_module_registry() noexcept
+    {
+        static ModuleRegistry registry({}, {});
+        return registry;
+    }
+
 } // namespace NG::module

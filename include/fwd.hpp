@@ -4,6 +4,7 @@
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <list>
 
 namespace NG
 {
@@ -11,6 +12,9 @@ namespace NG
     using Vec = std::vector<T>;
 
     using Str = std::string;
+
+    template <class T>
+    using List = std::list<T>;
 
     template <class K, class V>
     using Map = std::unordered_map<K, V>;

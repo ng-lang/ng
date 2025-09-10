@@ -1,4 +1,5 @@
 #include "../test.hpp"
+#include <intp/intp.hpp>
 
 using namespace NG;
 using namespace NG::parsing;

@@ -4,24 +4,19 @@
 #include <intp/intp.hpp>
 #include <intp/runtime_numerals.hpp>
 #include <ast.hpp>
-#include <utility>
 #include <visitor.hpp>
 #include <token.hpp>
 #include <module.hpp>
 
-#include <debug.hpp>
-
-#include <unordered_map>
 #include <functional>
-
-#include <unordered_set>
+#include <iterator>
 
 using namespace NG;
 using namespace NG::ast;
 
 namespace NG::runtime
 {
-    static auto get_native_registry() -> Map<Str, Map<Str, NGInvocable>> &
+    auto get_native_registry() -> Map<Str, Map<Str, NGInvocable>> &
     {
         static Map<Str, Map<Str, NGInvocable>> natives;
         return natives;
@@ -37,8 +32,9 @@ namespace NG::intp
 {
 
     using namespace NG::runtime;
-    template <class T>
-    using Set = std::unordered_set<T>;
+    using NG::module::FileBasedExternalModuleLoader;
+    using NG::module::get_module_registry;
+    using NG::module::standard_library_base_path;
 
     void ISummarizable::summary()
     {
@@ -151,7 +147,7 @@ namespace NG::intp
 
         void visit(FloatingPointValue<double /*float64_t*/> *floatVal) override
         {
-            object = std::make_shared<NGFloatingPoint<float /* float64_t */>>(floatVal->value);
+            object = std::make_shared<NGFloatingPoint<double /* float64_t */>>(floatVal->value);
         }
 
         // void visit(FloatingPointValue<float128_t> *floatVal) override
@@ -331,6 +327,10 @@ namespace NG::intp
             {
                 idAcc->primaryExpression->accept(&vis);
                 auto obj = std::dynamic_pointer_cast<NGStructuralObject>(vis.object);
+                if (!obj)
+                {
+                    throw RuntimeException("Left-hand side of member assignment is not an object: " + idAcc->primaryExpression->repr());
+                }
                 obj->properties[idAcc->accessor->id] = result;
             }
             else
@@ -362,17 +362,17 @@ namespace NG::intp
                 {
                     throw RuntimeException("Invalid module to locate type: " + name);
                 }
-                auto targetType = mod->types[name];
-                if (!targetType)
+                auto typeIt = mod->types.find(name);
+                if (typeIt == mod->types.end() || !typeIt->second)
                 {
-                    throw RuntimeException("Invalid type name, cannot found." + name);
+                    throw RuntimeException("Invalid type name, cannot find: " + name);
                 }
-
+                auto targetType = typeIt->second;
                 this->object = makert<NGBoolean>(*(value->type()) == *(targetType));
             }
             else
             {
-                throw RuntimeException("Invalid target expresssion for type checking: " + typeCheckExpr->type->repr());
+                throw RuntimeException("Invalid target expression for type checking: " + typeCheckExpr->type->repr());
             }
         }
     };
@@ -497,7 +497,6 @@ namespace NG::intp
             }
         }
     };
-    static NG::module::ModuleRegistry registry({}, {});
 
     struct Stupid : public Interpreter,
                     DummyVisitor // NOLINT(cppcoreguidelines-special-member-functions)
@@ -525,7 +524,7 @@ namespace NG::intp
             {
                 return;
             }
-            if (auto target = registry.queryModuleById("std.prelude"); target)
+            if (auto target = get_module_registry().queryModuleById("std.prelude"); target)
             {
                 auto targetModule = target->runtimeModule;
                 context->define_module(target->moduleName, target->runtimeModule);
@@ -597,7 +596,7 @@ namespace NG::intp
                 // load module
                 NG::module::FileBasedExternalModuleLoader loader{this->modulePaths};
                 auto &&moduleInfo = loader.load(importDecl->modulePath);
-                if (auto target = registry.queryModuleById(moduleInfo->moduleId); target)
+                if (auto target = get_module_registry().queryModuleById(moduleInfo->moduleId); target)
                 {
                     context->define_module(importDecl->module, target->runtimeModule);
                 }
@@ -610,10 +609,11 @@ namespace NG::intp
                     auto runtimeModule = stupid.asModule();
                     if (get_native_registry().contains(moduleInfo->moduleId))
                     {
-                        runtimeModule->native_functions = get_native_registry()[moduleInfo->moduleId];
+                        auto &n = get_native_registry()[moduleInfo->moduleId];
+                        runtimeModule->native_functions.insert(n.begin(), n.end());
                     }
                     moduleInfo->runtimeModule = runtimeModule;
-                    registry.addModuleInfo(moduleInfo);
+                    get_module_registry().addModuleInfo(moduleInfo);
                     context->define_module(importDecl->module, moduleInfo->runtimeModule);
                 }
             }
@@ -630,6 +630,7 @@ namespace NG::intp
         static void importInto(RuntimeRef<NGContext> context, Vec<Str> declaredImports, const RuntimeRef<NGModule> &fromModule)
         {
             Set<Str> imports = resolveImports(declaredImports, fromModule);
+            std::copy(imports.begin(), imports.end(), std::back_inserter(context->imported));
 
             for (auto &&imp : imports)
             {
@@ -664,19 +665,31 @@ namespace NG::intp
             {
                 for (auto &&[fnName, _ignored] : targetModule->functions)
                 {
-                    exported.insert(fnName);
+                    if (!targetModule->imports.contains(fnName) || targetModule->exports.contains(fnName))
+                    {
+                        exported.insert(fnName);
+                    }
                 }
                 for (auto &&[typeName, _ignored] : targetModule->types)
                 {
-                    exported.insert(typeName);
+                    if (!targetModule->imports.contains(typeName) || targetModule->exports.contains(typeName))
+                    {
+                        exported.insert(typeName);
+                    }
                 }
                 for (auto &&[objName, _ignored] : targetModule->objects)
                 {
-                    exported.insert(objName);
+                    if (!targetModule->imports.contains(objName) || targetModule->exports.contains(objName))
+                    {
+                        exported.insert(objName);
+                    }
                 }
                 for (auto &&[fnName, _ignored] : targetModule->native_functions)
                 {
-                    exported.insert(fnName);
+                    if (!targetModule->imports.contains(fnName) || targetModule->exports.contains(fnName))
+                    {
+                        exported.insert(fnName);
+                    }
                 }
             }
             else
@@ -707,34 +720,45 @@ namespace NG::intp
             {
                 return;
             }
-            context->define_function(funDef->funName, [this, funDef](const NGSelf &dummy,
-                                                                     const NGCtx &ngContext,
-                                                                     const NGInvCtx &invocationContext)
-                                     {
+
+            auto functionInvoker =
+                [this, funDef](const NGSelf &dummy,
+                               const NGCtx &ngContext,
+                               const NGInvCtx &invocationContext)
+            {
                 RuntimeRef<NGContext> newContext = ngContext->fork();
                 for (size_t i = 0; i < funDef->params.size(); ++i)
                 {
-                    if (invocationContext->params.size() > i) 
+                    if (invocationContext->params.size() > i)
                     {
                         newContext->define(funDef->params[i]->paramName, invocationContext->params[i]);
-                    } 
-                    else if (funDef->params[i]->value != nullptr) 
+                    }
+                    else if (funDef->params[i]->value != nullptr)
                     {
-                        ExpressionVisitor vis {ngContext};
+                        ExpressionVisitor vis{ngContext};
                         funDef->params[i]->value->accept(&vis);
                         auto value = vis.object;
                         newContext->define(funDef->params[i]->paramName, value);
-                    } else {
-                        throw RuntimeException("No matched parameter");
+                    }
+                    else
+                    {
+                        throw RuntimeException("Missing argument for parameter '" +
+                                               funDef->params[i]->paramName +
+                                               "' in function '" +
+                                               funDef->funName + "'");
                     }
                 }
                 bool tailRecur = true;
-                while (tailRecur) {
-                    try {
+                while (tailRecur)
+                {
+                    try
+                    {
                         StatementVisitor vis{newContext};
-                        funDef->body->accept(&vis);   
-                        tailRecur = false;              
-                    } catch (NextIteration nextIter) {
+                        funDef->body->accept(&vis);
+                        tailRecur = false;
+                    }
+                    catch (NextIteration nextIter)
+                    {
                         tailRecur = true;
                         for (size_t i = 0; i < nextIter.slotValues.size(); i++)
                         {
@@ -742,7 +766,10 @@ namespace NG::intp
                         }
                     }
                 }
-                ngContext->retVal = newContext->retVal; });
+                ngContext->retVal = newContext->retVal;
+            };
+
+            context->define_function(funDef->funName, functionInvoker);
         }
 
         void visit(Statement *stmt) override

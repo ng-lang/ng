@@ -2,14 +2,11 @@
 #pragma once
 
 #include <algorithm>
-#include <fwd.hpp>
+#include <ast.hpp>
 #include <functional>
-#include "common.hpp"
 #include <memory>
 #include <debug.hpp>
 #include <utility>
-#include <unordered_set>
-#include <ast.hpp>
 
 namespace NG::runtime
 {
@@ -101,6 +98,7 @@ namespace NG::runtime
         Map<Str, RuntimeRef<NGType>> types;
         Map<Str, RuntimeRef<NGModule>> modules;
         Vec<Str> exports;
+        Vec<Str> imported;
         Set<Str> locals;
 
     private:
@@ -293,8 +291,8 @@ namespace NG::runtime
 
     struct NGModule : public virtual NGObject // NOLINT(cppcoreguidelines-special-member-functions)
     {
-        Vec<Str> imports;
-        Vec<Str> exports;
+        Set<Str> imports;
+        Set<Str> exports;
 
         Map<Str, RuntimeRef<NGObject>> objects;
         Map<Str, NGInvocable> functions;

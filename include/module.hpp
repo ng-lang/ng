@@ -66,4 +66,5 @@ namespace NG::module
     };
 
     Str standard_library_base_path();
+    ModuleRegistry &get_module_registry() noexcept;
 }

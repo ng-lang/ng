@@ -7,6 +7,9 @@
 #include <iostream>
 #include <streambuf>
 #include <filesystem>
+#include <cstdlib>
+#include <functional>
+#include <unistd.h>
 #include "intp/intp.hpp"
 
 using namespace NG;
@@ -20,10 +23,18 @@ static inline auto parse(const Str &source, const Str &file = "[noname]") -> Par
 
 // NOLINTNEXTLINE(bugprone-exception-escape)
 
+auto showHint() -> bool
+{
+    return isatty(STDIN_FILENO);
+}
+
 auto repl() -> int
 {
 
-    std::cout << ">> ";
+    if (showHint())
+    {
+        std::cout << ">> ";
+    }
     std::string line{};
     std::getline(std::cin, line);
     std::string source{line};
@@ -33,17 +44,29 @@ auto repl() -> int
 
     Token current;
     Vec<Token> tokens;
+    Vec<ASTRef<ASTNode>> histories;
+
+    bool shouldRestart = true;
     while (true)
     {
+        shouldRestart = false;
+        int braceCount = 0;
+        tokens.clear();
         while (true)
         {
             if (lexer->eof())
             {
-                std::cout << ">> ";
+                if (showHint())
+                {
+                    std::cout << ">> ";
+                }
                 if (std::getline(std::cin, line))
                 {
-
-                    lexer->extend(line);
+                    if (std::find_if(begin(line), end(line), std::not_fn([](char &c) -> bool
+                                                                         { return std::isblank(c); })) != line.end())
+                    {
+                        lexer->extend(line);
+                    }
                 }
                 else
                 {
@@ -51,11 +74,33 @@ auto repl() -> int
                 }
             }
             current = lexer.next();
+            if (current.type == TokenType::NONE)
+            {
+                continue;
+            }
             tokens.push_back(current);
-            if (current.type == TokenType::SEMICOLON)
+            if (current.type == TokenType::LEFT_CURLY)
+            {
+                braceCount++;
+            }
+            if (current.type == TokenType::RIGHT_CURLY)
+            {
+                braceCount--;
+                if (braceCount < 0)
+                {
+                    debug_log("Invalid input, unbalanced curly brackets");
+                    shouldRestart = true;
+                    break;
+                }
+            }
+            if (current.type == TokenType::SEMICOLON && braceCount == 0)
             {
                 break;
             }
+        }
+        if (shouldRestart)
+        {
+            continue;
         }
 
         ParseState parse_state{tokens};
@@ -71,15 +116,17 @@ auto repl() -> int
         try
         {
             (*ast)->accept(stupid);
+            histories.push_back(*ast);
         }
         catch (NG::RuntimeException ex)
         {
             debug_log("Runtime error", ex.what());
         }
+    }
 
-        destroyast(*ast);
-
-        stupid->summary();
+    for (auto ast : histories)
+    {
+        destroyast(ast);
     }
 }
 auto main(int argc, char *argv[]) -> int
