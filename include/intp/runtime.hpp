@@ -2,14 +2,11 @@
 #pragma once
 
 #include <algorithm>
-#include <fwd.hpp>
+#include <ast.hpp>
 #include <functional>
-#include "common.hpp"
 #include <memory>
 #include <debug.hpp>
 #include <utility>
-#include <unordered_set>
-#include <ast.hpp>
 
 namespace NG::runtime
 {

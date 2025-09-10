@@ -4,6 +4,13 @@
 #include <token.hpp>
 namespace NG::typecheck
 {
+    using namespace NG::ast;
+
+    inline bool isIntegralType(primitive_tag tag)
+    {
+        auto c = code(tag);
+        return c >= code(primitive_tag::SIGNED) && c < code(FLOATING_POINT);
+    }
 
     struct TypeChecker : DummyVisitor
     {
@@ -133,8 +140,7 @@ namespace NG::typecheck
                 case Operators::MODULUS:
                 case Operators::LSHIFT:
                 case Operators::RSHIFT:
-                    if (code(leftPrimitive.primitive()) < code(primitive_tag::SIGNED) ||
-                        code(leftPrimitive.primitive()) > code(primitive_tag::FLOATING_POINT))
+                    if (!isIntegralType(leftPrimitive.primitive()))
                     {
                         throw TypeCheckingException("Invalid type for modulus: " + leftPrimitive.repr());
                     }
@@ -192,7 +198,15 @@ namespace NG::typecheck
             }
             else
             {
-                result = locals.at(annotation->name);
+                auto it = locals.find(annotation->name);
+                if (it != locals.end())
+                {
+                    result = it->second;
+                }
+                else
+                {
+                    throw TypeCheckingException("Unknown type: " + annotation->name);
+                }
             }
         }
     };

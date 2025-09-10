@@ -1,8 +1,6 @@
 #pragma once
 
-#include <expected>
 #include <stdexcept>
-#include <string>
 #include <type_traits>
 #include <concepts>
 #include <cstdint>
@@ -35,7 +33,7 @@ namespace NG
         {
         }
 
-        explicit LexException(const Str &msg) : logic_error(msg)
+        explicit LexException(const std::string &msg) : logic_error(msg)
         {
         }
     };
@@ -52,7 +50,7 @@ namespace NG
         explicit NotImplementedException() : runtime_error("Error: not implemented")
         {
         }
-        explicit NotImplementedException(const Str &reason) : runtime_error(reason)
+        explicit NotImplementedException(const std::string &reason) : runtime_error(reason)
         {
         }
     };

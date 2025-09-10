@@ -6,8 +6,8 @@ namespace NG::runtime
 
     NGModule::NGModule(RuntimeRef<NGContext> ctx)
         : objects(ctx->objects), functions(ctx->functions),
-          types(ctx->types), exports(begin(ctx->exports), end(ctx->exports)),
-          imports(begin(ctx->imported), end(ctx->imported))
+          types(ctx->types), exports(ctx->exports.begin(), ctx->exports.end()),
+          imports(ctx->imported.begin(), ctx->imported.end())
     {
     }
     auto NGModule::respond(const Str &member, NGCtx context, NGInvCtx invocationContext) -> RuntimeRef<NGObject>

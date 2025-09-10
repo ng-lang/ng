@@ -44,12 +44,14 @@ auto repl() -> int
 
     Token current;
     Vec<Token> tokens;
-    int braceCount = 0;
     Vec<ASTRef<ASTNode>> histories;
 
-start:
+    bool shouldRestart = true;
     while (true)
     {
+        shouldRestart = false;
+        int braceCount = 0;
+        tokens.clear();
         while (true)
         {
             if (lexer->eof())
@@ -87,15 +89,18 @@ start:
                 if (braceCount < 0)
                 {
                     debug_log("Invalid input, unbalanced curly brackets");
-                    tokens.clear();
-                    braceCount = 0;
-                    goto start;
+                    shouldRestart = true;
+                    break;
                 }
             }
             if (current.type == TokenType::SEMICOLON && braceCount == 0)
             {
                 break;
             }
+        }
+        if (shouldRestart)
+        {
+            continue;
         }
 
         ParseState parse_state{tokens};

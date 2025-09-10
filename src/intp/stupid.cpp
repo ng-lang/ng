@@ -4,18 +4,11 @@
 #include <intp/intp.hpp>
 #include <intp/runtime_numerals.hpp>
 #include <ast.hpp>
-#include <utility>
 #include <visitor.hpp>
 #include <token.hpp>
 #include <module.hpp>
 
-#include <debug.hpp>
-
-#include <unordered_map>
 #include <functional>
-
-#include <unordered_set>
-#include <algorithm>
 #include <iterator>
 
 using namespace NG;
@@ -39,9 +32,9 @@ namespace NG::intp
 {
 
     using namespace NG::runtime;
-    using namespace NG::module;
-    template <class T>
-    using Set = std::unordered_set<T>;
+    using NG::module::FileBasedExternalModuleLoader;
+    using NG::module::get_module_registry;
+    using NG::module::standard_library_base_path;
 
     void ISummarizable::summary()
     {
@@ -154,7 +147,7 @@ namespace NG::intp
 
         void visit(FloatingPointValue<double /*float64_t*/> *floatVal) override
         {
-            object = std::make_shared<NGFloatingPoint<float /* float64_t */>>(floatVal->value);
+            object = std::make_shared<NGFloatingPoint<double /* float64_t */>>(floatVal->value);
         }
 
         // void visit(FloatingPointValue<float128_t> *floatVal) override
@@ -334,6 +327,10 @@ namespace NG::intp
             {
                 idAcc->primaryExpression->accept(&vis);
                 auto obj = std::dynamic_pointer_cast<NGStructuralObject>(vis.object);
+                if (!obj)
+                {
+                    throw RuntimeException("Left-hand side of member assignment is not an object: " + idAcc->primaryExpression->repr());
+                }
                 obj->properties[idAcc->accessor->id] = result;
             }
             else
@@ -365,17 +362,17 @@ namespace NG::intp
                 {
                     throw RuntimeException("Invalid module to locate type: " + name);
                 }
-                auto targetType = mod->types[name];
-                if (!targetType)
+                auto typeIt = mod->types.find(name);
+                if (typeIt == mod->types.end() || !typeIt->second)
                 {
-                    throw RuntimeException("Invalid type name, cannot found." + name);
+                    throw RuntimeException("Invalid type name, cannot find: " + name);
                 }
-
+                auto targetType = typeIt->second;
                 this->object = makert<NGBoolean>(*(value->type()) == *(targetType));
             }
             else
             {
-                throw RuntimeException("Invalid target expresssion for type checking: " + typeCheckExpr->type->repr());
+                throw RuntimeException("Invalid target expression for type checking: " + typeCheckExpr->type->repr());
             }
         }
     };
@@ -612,7 +609,8 @@ namespace NG::intp
                     auto runtimeModule = stupid.asModule();
                     if (get_native_registry().contains(moduleInfo->moduleId))
                     {
-                        runtimeModule->native_functions = get_native_registry()[moduleInfo->moduleId];
+                        auto &n = get_native_registry()[moduleInfo->moduleId];
+                        runtimeModule->native_functions.insert(n.begin(), n.end());
                     }
                     moduleInfo->runtimeModule = runtimeModule;
                     get_module_registry().addModuleInfo(moduleInfo);
@@ -744,7 +742,10 @@ namespace NG::intp
                     }
                     else
                     {
-                        throw RuntimeException("No matched parameter");
+                        throw RuntimeException("Missing argument for parameter '" +
+                                               funDef->params[i]->paramName +
+                                               "' in function '" +
+                                               funDef->funName + "'");
                     }
                 }
                 bool tailRecur = true;

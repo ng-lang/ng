@@ -1,4 +1,5 @@
 #include "../test.hpp"
+#include <typecheck/typecheck.hpp>
 
 using namespace NG::typecheck;
 

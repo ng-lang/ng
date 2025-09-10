@@ -1,13 +1,10 @@
 #pragma once
 
 #include <memory>
-#include <string>
 #include <utility>
-#include <vector>
 #include <optional>
 
-#include "common.hpp"
-#include <fwd.hpp>
+#include <common.hpp>
 
 #ifdef NG_CONING_USING_SHARED_PTR_FOR_AST
 

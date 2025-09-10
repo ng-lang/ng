@@ -13,7 +13,7 @@ namespace NG::module
         return {};
     }
 
-    ModuleRegistry &get_module_registry()
+    ModuleRegistry &get_module_registry() noexcept
     {
         static ModuleRegistry registry({}, {});
         return registry;

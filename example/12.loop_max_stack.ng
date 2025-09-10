@@ -23,7 +23,7 @@ fun sum3(i, n = 0) {
   return sum3(i - 1, n + i);
 }
 
-assert(sum(2969) == sum2(2969), 
-       sum2(2969) == sum3(2969));
+val n = 2969;
+assert(sum(n) == sum2(n), sum2(n) == sum3(n));
 
-print(sum3(2969));
+print(sum3(n));

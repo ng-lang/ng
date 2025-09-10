@@ -1,15 +1,14 @@
 
 #include "../test.hpp"
+#include <typecheck/typecheck.hpp>
 
 using namespace NG::typecheck;
 
 void check_by_order(Vec<CheckingRef<PrimitiveType>> &&vecs)
 {
-    ;
-
-    for (int i = 0; i < vecs.size(); i++)
+    for (size_t i = 0; i < vecs.size(); i++)
     {
-        for (int j = 0; j <= i; j++)
+        for (size_t j = 0; j <= i; j++)
         {
             REQUIRE(vecs[i]->match(*vecs[j]));
         }
@@ -96,4 +95,8 @@ TEST_CASE("should run primitive checks via type annotation type", "[Type][Checki
     check_by_order(Vec<CheckingRef<PrimitiveType>>{i8Type, i16Type, i32Type, i64Type});
     check_by_order(Vec<CheckingRef<PrimitiveType>>{u8Type, u16Type, u32Type, u64Type});
     check_by_order(Vec<CheckingRef<PrimitiveType>>{f16Type, f32Type, f64Type, f128Type});
+
+    check_by_order(Vec<CheckingRef<PrimitiveType>>{ubyteType, i16Type});
+    check_by_order(Vec<CheckingRef<PrimitiveType>>{ubyteType, ushortType, i32Type});
+    check_by_order(Vec<CheckingRef<PrimitiveType>>{ubyteType, ushortType, uintType, i64Type});
 }

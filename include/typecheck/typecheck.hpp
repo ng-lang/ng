@@ -8,7 +8,8 @@
 
 namespace NG::typecheck
 {
-    using namespace NG::ast;
+    using NG::ast::ASTNode;
+    using NG::ast::ASTRef;
 
     using TypeIndex = Map<Str, CheckingRef<TypeInfo>>;
 

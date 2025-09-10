@@ -15,7 +15,7 @@ namespace NG::typecheck
     {
         return false;
     }
-    TypeInfo::~TypeInfo() {}
+    TypeInfo::~TypeInfo() = default;
 
     auto Untyped::tag() const -> typeinfo_tag
     {
@@ -32,7 +32,5 @@ namespace NG::typecheck
         return false;
     }
 
-    Untyped::~Untyped()
-    {
-    }
+    Untyped::~Untyped() = default;
 }
