@@ -5,10 +5,25 @@ permissions:
   contents: read
   pull-requests: write
   issues: write
+  actions: read
+  packages: read
+  security-events: write
 env:
   RUNNING_ON_GITHUB: "true"
   LLVM_PROFILE_FILE: default.profraw
 jobs:
+  analysis-action:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: actions
+          build-mode: none
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:actions"
   build:
     runs-on: ubuntu-latest
     steps:
@@ -24,8 +39,17 @@ jobs:
       - run: mkdir -p build
       - run: cmake ../ -GNinja -DCMAKE_C_COMPILER=${{ env.LLVM_PATH }}/bin/clang -DCMAKE_CXX_COMPILER=${{ env.LLVM_PATH }}/bin/clang++
         working-directory: ./build
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: c-cpp
+          build-mode: manual
       - run: ninja
         working-directory: ./build
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:cpp"
       - run: ./ng_test --reporter JUnit::out=ng_test.junit.xml --reporter console::out=-::colour-mode=ansi
         working-directory: ./build
       - run: ../utils/coverage_report.sh
@@ -36,7 +60,7 @@ jobs:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload test results to Codecov
         if: ${{ !cancelled() }}
-        uses: codecov/test-results-action@47f89e9acb64b76debcd5ea40642d25a4adced9f
+        uses: codecov/test-results-a47f8ction@9e9acb64b76debcd5ea40642d25a4adced9f
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Codacy coverage
