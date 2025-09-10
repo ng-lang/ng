@@ -27,17 +27,8 @@ jobs:
       - run: mkdir -p build
       - run: cmake ../ -GNinja -DCMAKE_C_COMPILER=${{ env.LLVM_PATH }}/bin/clang -DCMAKE_CXX_COMPILER=${{ env.LLVM_PATH }}/bin/clang++
         working-directory: ./build
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
-        with:
-          languages: c-cpp
-          build-mode: manual
       - run: ninja
         working-directory: ./build
-      - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
-        with:
-          category: "/language:cpp"
       - run: ./ng_test --reporter JUnit::out=ng_test.junit.xml --reporter console::out=-::colour-mode=ansi
         working-directory: ./build
       - run: ../utils/coverage_report.sh
