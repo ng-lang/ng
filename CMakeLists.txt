@@ -65,8 +65,10 @@ set(NG_TEST_SRC
         test/parsing/parser_module_import_export_test.cpp
         test/parsing/parser_type_object_test.cpp
         test/parsing/parser_control_flow_test.cpp
+        test/parsing/parser_unary_expression_test.cpp
         test/integration_test.cpp
         test/runtime/interpreter_test.cpp
+        test/runtime/runtime_numeral_test.cpp
         test/typecheck/typeinfo_primitive_test.cpp
         test/typecheck/typeinfo_function_test.cpp
         test/typecheck/typecheck_primitive_test.cpp

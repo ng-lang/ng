@@ -47,6 +47,7 @@ namespace NG::ast
         INDEX_ASSIGNMENT_EXPRESSION = 0x207,
         NEW_OBJECT_EXPRESSION = 0x208,
         TYPE_CHECKING_EXPRESSION = 0x209,
+        UNARY_EXPRESSION = 0x210,
 
         LITERAL = 0x300,
         INTEGER_VALUE = 0x301,
@@ -682,6 +683,26 @@ namespace NG::ast
         auto repr() const -> Str override;
 
         ~AssignmentExpression() override;
+    };
+
+    /**
+     * @brief A unary expression.
+     */
+    struct UnaryExpression : Expression
+    {
+        std::shared_ptr<Token> optr = nullptr; ///< The operator of the expression.
+        ASTRef<Expression> operand = nullptr;  ///< The operand of the expression.
+
+        void accept(AstVisitor *visitor) override;
+
+        auto astNodeType() const -> ASTNodeType override { return ASTNodeType::UNARY_EXPRESSION; }
+
+        auto operator==(const ASTNode &node) const -> bool override;
+
+        [[nodiscard]]
+        auto repr() const -> Str override;
+
+        ~UnaryExpression() override;
     };
 
     /**

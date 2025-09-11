@@ -14,8 +14,9 @@ using namespace NG::parsing;
 
 inline ParseResult<ASTRef<ASTNode>> parse(const Str &source, const Str &moduleName = "[noname]")
 {
-    // debug_log(source);
-    auto astResult = Parser(ParseState(Lexer(LexState{source}).lex())).parse(moduleName);
+    auto &&tokens = Lexer(LexState{source}).lex();
+    // debug_log(source, tokens);
+    auto astResult = Parser(ParseState(tokens)).parse(moduleName);
 
     if (!astResult)
     {

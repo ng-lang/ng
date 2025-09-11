@@ -144,6 +144,10 @@ namespace NG
         LSHIFT, // <<
         RSHIFT, // >>
 
+        NOT,       // !
+        QUERY,     // ?
+        UNDEFINED, // ???
+
         UNKNOWN
     };
 
@@ -161,8 +165,8 @@ namespace NG
      */
     struct Token
     {
-        TokenType type; ///< The type of the token.
-        Str repr; ///< The representation of the token.
+        TokenType type;         ///< The type of the token.
+        Str repr;               ///< The representation of the token.
         TokenPosition position; ///< The position of the token.
         Operators operatorType; ///< The type of the operator if the token is an operator.
 

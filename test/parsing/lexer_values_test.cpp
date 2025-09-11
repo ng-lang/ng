@@ -94,3 +94,26 @@ TEST_CASE("lexer should lex numbers with types and floating points", "[Lexer][Nu
     REQUIRE(tokens[22].type == TokenType::NUMBER_F64);
     REQUIRE(tokens[23].type == TokenType::NUMBER_F128);
 }
+
+TEST_CASE("should lex numbers with negative sign", "[Lex][Numeral][Negative][Operator]")
+{
+    Lexer lexer{LexState{R"(
+        -1 -1.0 -1i8 -1.0f32 -2.0e-1 -a
+)"}};
+
+    auto &&tokens = lexer.lex();
+
+    REQUIRE(tokens.size() == 12);
+    REQUIRE(tokens[0].type == TokenType::OPERATOR);
+    REQUIRE(tokens[1].type == TokenType::NUMBER);
+    REQUIRE(tokens[2].type == TokenType::OPERATOR);
+    REQUIRE(tokens[3].type == TokenType::FLOATING_POINT);
+    REQUIRE(tokens[4].type == TokenType::OPERATOR);
+    REQUIRE(tokens[5].type == TokenType::NUMBER_I8);
+    REQUIRE(tokens[6].type == TokenType::OPERATOR);
+    REQUIRE(tokens[7].type == TokenType::NUMBER_F32);
+    REQUIRE(tokens[8].type == TokenType::OPERATOR);
+    REQUIRE(tokens[9].type == TokenType::FLOATING_POINT);
+    REQUIRE(tokens[10].type == TokenType::OPERATOR);
+    REQUIRE(tokens[11].type == TokenType::ID);
+}

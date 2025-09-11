@@ -583,6 +583,29 @@ namespace NG::ast
                body->repr();
     }
 
+    void UnaryExpression::accept(AstVisitor *visitor)
+    {
+        visitor->visit(this);
+    }
+
+    auto UnaryExpression::operator==(const ASTNode &node) const -> bool
+    {
+        auto &&uniexpr = dynamic_cast<const UnaryExpression &>(node);
+        return astNodeType() == node.astNodeType() &&
+               *uniexpr.optr == *optr &&
+               *operand == *uniexpr.operand;
+    }
+
+    UnaryExpression::~UnaryExpression()
+    {
+        destroyast(operand);
+    }
+
+    auto UnaryExpression::repr() const -> Str
+    {
+        return this->optr->repr + operand->repr();
+    }
+
     void BinaryExpression::accept(AstVisitor *visitor)
     {
         visitor->visit(this);

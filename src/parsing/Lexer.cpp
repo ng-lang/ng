@@ -20,7 +20,7 @@ namespace NG::parsing
 
     constexpr std::array<char, 6> brackets{'(', ')', '{', '}', '[', ']'};
 
-    constexpr std::array<char, 8> operators{'>', '<', '=', '-', '+', '*', '/', '%'};
+    constexpr std::array<char, 10> operators{'>', '<', '=', '-', '+', '*', '/', '%', '!', '?'};
 
     constexpr std::array<int, 6> bitlengths{8, 16, 32, 64, 128};
 
@@ -44,6 +44,10 @@ namespace NG::parsing
         {">=", Operators::GE},
         {"<=", Operators::LE},
         {"<<", Operators::LSHIFT},
+        {">>", Operators::RSHIFT},
+        {"!", Operators::NOT},
+        {"?", Operators::QUERY},
+        {"???", Operators::UNDEFINED},
     };
 
     const static Map<Str, TokenType> tokenType = {
@@ -140,11 +144,6 @@ namespace NG::parsing
         return character == ',' || character == ';' || character == ')' || character == ']' || character == '}';
     }
 
-    [[nodiscard]] inline auto isNumSign(char character) -> bool
-    {
-        return character == '-' || character == '+';
-    }
-
     [[nodiscard]] inline auto withStream(LexState &state, const std::function<void(LexState &state, Stream &stream)> &func) -> Str
     {
         auto current = state.index;
@@ -215,6 +214,10 @@ namespace NG::parsing
                 {
                     return lexOperator(state, tokens);
                 }
+            }
+            else if (current == '-')
+            {
+                return lexOperator(state, tokens);
             }
             else if (is(operators, current))
             {
@@ -418,6 +421,10 @@ namespace NG::parsing
                     exponentalSet = true;
                     tokenType = TokenType::FLOATING_POINT;
                     stream << current;
+                    if (state.lookAhead() == '-') {
+                        state.next();
+                        stream << state.current();
+                    }
                 } else if ((tolower(current) == 'u' || tolower(current) == 'i') && tokenType != TokenType::FLOATING_POINT) {
                     state.next();
                     int bitlength = numberTypePostfix(state);

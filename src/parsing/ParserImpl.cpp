@@ -18,6 +18,17 @@ namespace NG::parsing
 
     const std::regex IMPORT_DECL_PATTERN{"^[A-Za-z_][A-Za-z_\\-0-9\\.]+$"};
 
+    static const Set<Operators> unary_operators{
+        Operators::NOT,
+        Operators::MINUS,
+        Operators::QUERY,
+    };
+
+    [[nodiscard]] inline auto isUnaryOperator(Operators optr) -> bool
+    {
+        return unary_operators.contains(optr);
+    }
+
     class ParserImpl
     {
         ParseState state;
@@ -952,12 +963,14 @@ namespace NG::parsing
 
         auto expression() -> ParseResult<ASTRef<Expression>>
         {
+            debug_log("Try primary expression with", state.current());
             auto exprResult = primaryExpression();
             if (!exprResult)
             {
                 return std::unexpected(exprResult.error());
             }
             auto expr = std::move(*exprResult);
+            debug_log("After primary expressiob", state.current());
 
             while (!expectExpressionTerminator() || expect(TokenType::OPERATOR))
             {
@@ -990,6 +1003,7 @@ namespace NG::parsing
                 }
                 else if (expect(TokenType::OPERATOR))
                 {
+                    debug_log("Found operator", state.current().repr);
                     if (state->operatorType == Operators::ASSIGN)
                     {
                         auto assignExpr = assignmentExpression(std::move(expr));
@@ -1331,7 +1345,42 @@ namespace NG::parsing
             {
                 return newObjectExpression();
             }
+            if (expect(TokenType::OPERATOR))
+            {
+                if (isUnaryOperator(state->operatorType))
+                {
+                    return unaryExpression();
+                }
+                return std::unexpected(state.error("Unexpected operator as unary operator"));
+            }
             return std::unexpected(state.error("Unexpected primary annotation"));
+        }
+
+        auto unaryExpression() -> ParseResult<ASTRef<UnaryExpression>>
+        {
+            auto optrToken = state.current();
+
+            switch (optrToken.operatorType)
+            {
+            case Operators::NOT:
+            case Operators::MINUS:
+            case Operators::QUERY:
+            {
+
+                accept(TokenType::OPERATOR);
+                auto operandResult = expression();
+                if (!operandResult)
+                {
+                    return std::unexpected(operandResult.error());
+                }
+                auto expr = makeast<UnaryExpression>();
+                expr->optr = std::make_shared<Token>(optrToken);
+                expr->operand = *operandResult;
+                return expr;
+            }
+            default:
+                return std::unexpected(state.error("Invalid unary operator."));
+            }
         }
 
         auto stringValue() -> ParseResult<ASTRef<StringValue>>
