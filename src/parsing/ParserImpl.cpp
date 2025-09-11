@@ -139,7 +139,6 @@ namespace NG::parsing
                 case TokenType::KEYWORD_CASE:
                 case TokenType::KEYWORD_LOOP:
                 case TokenType::KEYWORD_COLLECT:
-                case TokenType::KEYWORD_UNIT:
                 case TokenType::KEYWORD_NEXT:
                 default:
                 {
@@ -197,6 +196,17 @@ namespace NG::parsing
                 }
                 def->params = std::move(*paramsResult);
 
+                if (expect(TokenType::SINGLE_ARROW))
+                {
+                    accept(TokenType::SINGLE_ARROW);
+                    auto typeAnnoResult = typeAnnotation();
+                    if (!typeAnnoResult)
+                    {
+                        return std::unexpected(typeAnnoResult.error());
+                    }
+                    def->returnType = *typeAnnoResult;
+                }
+
                 if (expect(TokenType::OPERATOR) && state->operatorType == Operators::ASSIGN)
                 {
                     accept(TokenType::OPERATOR);
@@ -204,6 +214,10 @@ namespace NG::parsing
                     {
                         accept(TokenType::KEYWORD_NATIVE);
                         def->native = true;
+                        if (def->returnType == nullptr)
+                        {
+                            return std::unexpected(state.error("Native function '" + def->funName + "' must declare a return type."));
+                        }
                         if (auto result = accept(TokenType::SEMICOLON); !result)
                         {
                             return std::unexpected(result.error());
@@ -649,6 +663,13 @@ namespace NG::parsing
                 size_t builtin_type_code = code(maybeBuiltin) - code(TokenType::KEYWORD_INT) + code(TypeAnnotationType::BUILTIN_INT);
                 anno->type = from_code<TypeAnnotationType>(builtin_type_code);
                 accept(maybeBuiltin); // NOLINT(*-unused-return-value)
+                return anno;
+            }
+            if (maybeBuiltin == TokenType::KEYWORD_UNIT)
+            {
+                ASTRef<TypeAnnotation> anno = makeast<TypeAnnotation>(state->repr);
+                anno->type = TypeAnnotationType::BUILTIN_UNIT;
+                accept(maybeBuiltin);
                 return anno;
             }
             if (maybeBuiltin == TokenType::ID)

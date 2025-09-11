@@ -52,6 +52,7 @@ set(NG_LIB_SRC
         src/typecheck/typecheck.cpp
         src/typecheck/typeinfo.cpp
         src/typecheck/PrimitiveType.cpp
+        src/typecheck/FunctionType.cpp
         )
 
 set(NG_TEST_SRC
@@ -67,7 +68,9 @@ set(NG_TEST_SRC
         test/integration_test.cpp
         test/runtime/interpreter_test.cpp
         test/typecheck/typeinfo_primitive_test.cpp
+        test/typecheck/typeinfo_function_test.cpp
         test/typecheck/typecheck_primitive_test.cpp
+        test/typecheck/typecheck_function_test.cpp
         )
 
 

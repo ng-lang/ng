@@ -8,62 +8,50 @@ namespace NG::typecheck
     {
         switch (annotation)
         {
+        case TypeAnnotationType::BUILTIN_UNIT:
+            return makecheck<PrimitiveType>(primitive_tag::UNIT);
         case TypeAnnotationType::BUILTIN_BOOL:
             return makecheck<PrimitiveType>(primitive_tag::BOOL);
-            break;
         case TypeAnnotationType::BUILTIN_STRING:
             return makecheck<PrimitiveType>(primitive_tag::STRING);
-            break;
         case TypeAnnotationType::BUILTIN_UBYTE:
         case TypeAnnotationType::BUILTIN_U8:
             return makecheck<PrimitiveType>(primitive_tag::U8);
-            break;
         case TypeAnnotationType::BUILTIN_BYTE:
         case TypeAnnotationType::BUILTIN_I8:
             return makecheck<PrimitiveType>(primitive_tag::I8);
-            break;
         case TypeAnnotationType::BUILTIN_USHORT:
         case TypeAnnotationType::BUILTIN_U16:
             return makecheck<PrimitiveType>(primitive_tag::U16);
-            break;
         case TypeAnnotationType::BUILTIN_SHORT:
         case TypeAnnotationType::BUILTIN_I16:
             return makecheck<PrimitiveType>(primitive_tag::I16);
-            break;
         case TypeAnnotationType::BUILTIN_UINT:
         case TypeAnnotationType::BUILTIN_U32:
             return makecheck<PrimitiveType>(primitive_tag::U32);
-            break;
         case TypeAnnotationType::BUILTIN_INT:
         case TypeAnnotationType::BUILTIN_I32:
             return makecheck<PrimitiveType>(primitive_tag::I32);
-            break;
         case TypeAnnotationType::BUILTIN_UPTR:
         case TypeAnnotationType::BUILTIN_ULONG:
         case TypeAnnotationType::BUILTIN_U64:
             return makecheck<PrimitiveType>(primitive_tag::U64);
-            break;
         case TypeAnnotationType::BUILTIN_IPTR:
         case TypeAnnotationType::BUILTIN_LONG:
         case TypeAnnotationType::BUILTIN_I64:
             return makecheck<PrimitiveType>(primitive_tag::I64);
-            break;
         case TypeAnnotationType::BUILTIN_HALF:
         case TypeAnnotationType::BUILTIN_F16:
             return makecheck<PrimitiveType>(primitive_tag::F16);
-            break;
         case TypeAnnotationType::BUILTIN_FLOAT:
         case TypeAnnotationType::BUILTIN_F32:
             return makecheck<PrimitiveType>(primitive_tag::F32);
-            break;
         case TypeAnnotationType::BUILTIN_DOUBLE:
         case TypeAnnotationType::BUILTIN_F64:
             return makecheck<PrimitiveType>(primitive_tag::F64);
-            break;
         case TypeAnnotationType::BUILTIN_QUADRUPLE:
         case TypeAnnotationType::BUILTIN_F128:
             return makecheck<PrimitiveType>(primitive_tag::F128);
-            break;
         default:
             return {};
         }
@@ -71,6 +59,10 @@ namespace NG::typecheck
 
     auto PrimitiveType::from(const Str &primitive_type) -> CheckingRef<PrimitiveType>
     {
+        if (primitive_type == "unit")
+        {
+            return makecheck<PrimitiveType>(primitive_tag::UNIT);
+        }
         if (primitive_type == "bool")
         {
             return makecheck<PrimitiveType>(primitive_tag::BOOL);
@@ -154,6 +146,8 @@ namespace NG::typecheck
     {
         switch (type)
         {
+        case primitive_tag::UNIT:
+            return "unit";
         case primitive_tag::BOOL:
             return "bool";
         case primitive_tag::I8:

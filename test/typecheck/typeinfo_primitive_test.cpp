@@ -1,8 +1,4 @@
-
-#include "../test.hpp"
-#include <typecheck/typecheck.hpp>
-
-using namespace NG::typecheck;
+#include "typecheck_utils.hpp"
 
 void check_by_order(Vec<CheckingRef<PrimitiveType>> &&vecs)
 {

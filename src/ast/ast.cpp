@@ -96,9 +96,12 @@ namespace NG::ast
 
     auto TypeAnnotation::operator==(const ASTNode &node) const -> bool
     {
+        if (astNodeType() != node.astNodeType())
+        {
+            return false;
+        }
         const auto &anno = dynamic_cast<const TypeAnnotation &>(node);
-        return astNodeType() == node.astNodeType() &&
-               anno.name == name &&
+        return anno.name == name &&
                anno.type == type;
     }
 
@@ -125,7 +128,7 @@ namespace NG::ast
 
     auto Param::repr() const -> Str
     {
-        return paramName + (annotatedType.has_value() ? (": " + (*annotatedType)->repr()) : "");
+        return paramName + (annotatedType ? (": " + annotatedType->repr()) : "");
     }
 
     void CompoundStatement::accept(AstVisitor *visitor)
@@ -412,7 +415,7 @@ namespace NG::ast
         const auto &valDef = dynamic_cast<const ValDef &>(node);
 
         return astNodeType() == node.astNodeType() &&
-               valDef.body->operator==(*(valDef.body));
+               body->operator==(*(valDef.body));
     }
 
     ValDef::~ValDef()
@@ -554,7 +557,8 @@ namespace NG::ast
                           end(params),
                           begin(funDef.params),
                           ASTComparator) &&
-               *funDef.body == *body;
+               *funDef.body == *body &&
+               funDef.returnType->operator==(*returnType);
     }
 
     FunctionDef::~FunctionDef()
@@ -563,6 +567,7 @@ namespace NG::ast
         {
             destroyast(param);
         }
+        destroyast(returnType);
         destroyast(body);
     }
 
@@ -573,7 +578,9 @@ namespace NG::ast
 
     auto FunctionDef::repr() const -> Str
     {
-        return "fun " + funName + "(" + strOfNodeList(params) + ")" + body->repr();
+        return "fun " + funName + "(" + strOfNodeList(params) + ")" +
+               (returnType ? " -> " + returnType->repr() : "") +
+               body->repr();
     }
 
     void BinaryExpression::accept(AstVisitor *visitor)

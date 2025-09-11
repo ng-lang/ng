@@ -131,8 +131,10 @@ namespace NG::ast
     {
         UNKNOWN,
 
-        BUILTIN,
-        BUILTIN_INT,
+        BUILTIN = 0x01,
+        BUILTIN_UNIT = 0x11,
+
+        BUILTIN_INT = 0x31,
         BUILTIN_BOOL,
         BUILTIN_STRING,
         BUILTIN_FLOAT,
@@ -164,7 +166,7 @@ namespace NG::ast
         BUILTIN_F32,
         BUILTIN_F64,
         BUILTIN_F128,
-        CUSTOMIZED,
+        CUSTOMIZED = 0x81,
     };
 
     struct TypeAnnotation : ASTNode
@@ -186,15 +188,15 @@ namespace NG::ast
     {
         const ParamType type;
         const Str paramName;
-        std::optional<ASTRef<TypeAnnotation>> annotatedType;
+        ASTRef<TypeAnnotation> annotatedType = nullptr;
         ASTRef<Expression> value = nullptr;
 
         explicit Param(const Str &name) : Param(name, {}, ParamType::Simple) {}
 
         Param(const Str &name, ASTRef<TypeAnnotation> type) : Param(name, type, ParamType::Annotated) {}
 
-        Param(Str name, std::optional<ASTRef<TypeAnnotation>> _annotatedType, ParamType type)
-            : paramName(std::move(name)), annotatedType(std::move(std::move(_annotatedType))), type(type) {}
+        Param(Str name, ASTRef<TypeAnnotation> _annotatedType, ParamType type)
+            : paramName(std::move(name)), annotatedType(std::move(_annotatedType)), type(type) {}
 
         void accept(AstVisitor *visitor) override;
 
@@ -212,6 +214,7 @@ namespace NG::ast
     {
         Str funName;
         Vec<ASTRef<Param>> params;
+        ASTRef<TypeAnnotation> returnType = nullptr;
         ASTRef<Statement> body = nullptr;
         bool native = false;
 
@@ -428,8 +431,8 @@ namespace NG::ast
 
     struct IdAccessorExpression : Expression
     {
-        ASTRef<Expression> primaryExpression;
-        ASTRef<IdExpression> accessor;
+        ASTRef<Expression> primaryExpression = nullptr;
+        ASTRef<IdExpression> accessor = nullptr;
         Vec<ASTRef<Expression>> arguments;
 
         void accept(AstVisitor *visitor) override;
@@ -446,8 +449,8 @@ namespace NG::ast
 
     struct IndexAccessorExpression : Expression
     {
-        ASTRef<Expression> primary;
-        ASTRef<Expression> accessor;
+        ASTRef<Expression> primary = nullptr;
+        ASTRef<Expression> accessor = nullptr;
 
         IndexAccessorExpression(ASTRef<Expression> primary, ASTRef<Expression> accessor) : primary{std::move(std::move(primary))},
                                                                                            accessor{std::move(std::move(accessor))} {}
@@ -466,9 +469,9 @@ namespace NG::ast
 
     struct IndexAssignmentExpression : Expression
     {
-        ASTRef<Expression> primary;
-        ASTRef<Expression> accessor;
-        ASTRef<Expression> value;
+        ASTRef<Expression> primary = nullptr;
+        ASTRef<Expression> accessor = nullptr;
+        ASTRef<Expression> value = nullptr;
 
         IndexAssignmentExpression(
             ASTRef<Expression> primary,
@@ -489,8 +492,8 @@ namespace NG::ast
 
     struct TypeCheckingExpression : Expression
     {
-        ASTRef<Expression> value;
-        ASTRef<Expression> type;
+        ASTRef<Expression> value = nullptr;
+        ASTRef<Expression> type = nullptr;
 
         TypeCheckingExpression(
             ASTRef<Expression> value,
@@ -512,7 +515,7 @@ namespace NG::ast
     {
         const Str name;
 
-        ASTRef<Expression> value;
+        ASTRef<Expression> value = nullptr;
 
         std::optional<ASTRef<TypeAnnotation>> typeAnnotation;
 
@@ -555,8 +558,8 @@ namespace NG::ast
 
     struct AssignmentExpression : Expression
     {
-        ASTRef<Expression> target;
-        ASTRef<Expression> value;
+        ASTRef<Expression> target = nullptr;
+        ASTRef<Expression> value = nullptr;
 
         explicit AssignmentExpression(ASTRef<Expression> target) : target(target) {}
 
@@ -574,9 +577,9 @@ namespace NG::ast
 
     struct BinaryExpression : Expression
     {
-        std::shared_ptr<Token> optr;
-        ASTRef<Expression> left;
-        ASTRef<Expression> right;
+        std::shared_ptr<Token> optr = nullptr;
+        ASTRef<Expression> left = nullptr;
+        ASTRef<Expression> right = nullptr;
 
         void accept(AstVisitor *visitor) override;
 
