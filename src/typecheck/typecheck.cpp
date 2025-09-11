@@ -53,9 +53,17 @@ namespace NG::typecheck
                 param->accept(&checker);
                 paramTypes.push_back(checker.result);
             }
-            funDef->returnType->accept(&checker);
-            CheckingRef<TypeInfo> returnType = checker.result;
-
+            CheckingRef<TypeInfo> returnType;
+            if (funDef->returnType)
+            {
+                funDef->returnType->accept(&checker);
+                returnType = checker.result;
+            }
+            else
+            {
+                // No annotation provided: assume unit to keep type-checking total.
+                returnType = makecheck<PrimitiveType>(primitive_tag::UNIT);
+            }
             // todo: check function definition body to ensure return type corrects
             auto funType = makecheck<FunctionType>(returnType, paramTypes);
 
@@ -218,7 +226,7 @@ namespace NG::typecheck
             TypeChecker checker{locals};
             if (param->annotatedType)
             {
-                (*param->annotatedType)->accept(&checker);
+                param->annotatedType->accept(&checker);
                 if (!checker.result)
                 {
                     throw TypeCheckingException("Unknown type annotation for parameter: " + param->paramName);

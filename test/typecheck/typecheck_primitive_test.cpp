@@ -29,7 +29,7 @@ TEST_CASE("should be able check primitive definitions", "[TypeCheck][Primitive][
     check_primitive_type(*index["z"], primitive_tag::I16);
 }
 
-TEST_CASE("shoud type check primitives fail", "[Primitive][TypeCheck][Failure]")
+TEST_CASE("should type check primitives fail", "[Primitive][TypeCheck][Failure]")
 {
     typecheck_failure("val x: int = 1.0;", "Type Mismatch");
     typecheck_failure("val x: int = 1 + 2.0;", "Mismatch type on arithmetic operation");

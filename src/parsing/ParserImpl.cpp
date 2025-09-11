@@ -216,7 +216,7 @@ namespace NG::parsing
                         def->native = true;
                         if (def->returnType == nullptr)
                         {
-                            return std::unexpected(state.error("Native function [" + def->funName + "] should mark return type."));
+                            return std::unexpected(state.error("Native function '" + def->funName + "' must declare a return type."));
                         }
                         if (auto result = accept(TokenType::SEMICOLON); !result)
                         {

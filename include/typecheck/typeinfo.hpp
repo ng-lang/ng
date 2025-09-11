@@ -136,7 +136,6 @@ namespace NG::typecheck
         }
 
         auto collection_tag() const -> collection_type_tag override;
-        auto applyWith(const Vec<CheckingRef<TypeInfo>> &types) const -> bool;
 
         auto repr() const -> Str override;
         auto match(const TypeInfo &other) const -> bool override;

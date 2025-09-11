@@ -9,8 +9,9 @@
 #include <filesystem>
 #include <cstdlib>
 #include <functional>
-#include <unistd.h>
 #include "intp/intp.hpp"
+#include <algorithm>
+#include <cctype>
 
 using namespace NG;
 using namespace NG::ast;
@@ -19,7 +20,9 @@ using namespace NG::parsing;
 #ifdef _WIN32
 #include <io.h>
 #define isatty _isatty
+#ifndef STDIN_FILENO
 #define STDIN_FILENO 0
+#endif
 #else
 #include <unistd.h>
 #endif
@@ -70,8 +73,9 @@ auto repl() -> int
                 }
                 if (std::getline(std::cin, line))
                 {
-                    if (std::find_if(begin(line), end(line), std::not_fn([](char &c) -> bool
-                                                                         { return std::isblank(c); })) != line.end())
+                    if (std::find_if(begin(line), end(line),
+                                     [](unsigned char c) -> bool
+                                     { return !std::isblank(c); }) != line.end())
                     {
                         lexer->extend(line);
                     }
@@ -112,7 +116,7 @@ auto repl() -> int
         }
 
         ParseState parse_state{tokens};
-        auto ast = Parser(parse_state).parse("[interperter]");
+        auto ast = Parser(parse_state).parse("[interpreter]");
 
         if (!ast)
         {
@@ -126,7 +130,7 @@ auto repl() -> int
             (*ast)->accept(stupid);
             histories.push_back(*ast);
         }
-        catch (NG::RuntimeException ex)
+        catch (const NG::RuntimeException &ex)
         {
             debug_log("Runtime error", ex.what());
         }

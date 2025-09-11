@@ -29,6 +29,6 @@ inline void typecheck_failure(const Str &source, const Str &expected_error = "")
             debug_log(ex.what());
         }
     }
-
+    destroyast(*astResult);
     REQUIRE(typecheckingExceptionFound);
 }

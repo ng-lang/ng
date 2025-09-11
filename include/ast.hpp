@@ -188,15 +188,15 @@ namespace NG::ast
     {
         const ParamType type;
         const Str paramName;
-        std::optional<ASTRef<TypeAnnotation>> annotatedType;
+        ASTRef<TypeAnnotation> annotatedType = nullptr;
         ASTRef<Expression> value = nullptr;
 
         explicit Param(const Str &name) : Param(name, {}, ParamType::Simple) {}
 
         Param(const Str &name, ASTRef<TypeAnnotation> type) : Param(name, type, ParamType::Annotated) {}
 
-        Param(Str name, std::optional<ASTRef<TypeAnnotation>> _annotatedType, ParamType type)
-            : paramName(std::move(name)), annotatedType(std::move(std::move(_annotatedType))), type(type) {}
+        Param(Str name, ASTRef<TypeAnnotation> _annotatedType, ParamType type)
+            : paramName(std::move(name)), annotatedType(std::move(_annotatedType)), type(type) {}
 
         void accept(AstVisitor *visitor) override;
 

@@ -1,6 +1,8 @@
 #include <typecheck/typeinfo.hpp>
 #include <debug.hpp>
 #include <functional>
+#include <algorithm>
+#include <iterator>
 
 namespace NG::typecheck
 {
@@ -53,7 +55,7 @@ namespace NG::typecheck
                 Vec<CheckingRef<TypeInfo>> actualTypes{};
                 std::transform(this->parametersType.begin(), this->parametersType.end(), std::back_inserter(actualTypes),
                                unwrapParamWithDefault);
-                return otherFunction.applyWith(this->parametersType);
+                return otherFunction.applyWith(actualTypes);
             }
         }
         return false;

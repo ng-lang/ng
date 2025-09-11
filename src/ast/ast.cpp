@@ -128,7 +128,7 @@ namespace NG::ast
 
     auto Param::repr() const -> Str
     {
-        return paramName + (annotatedType.has_value() ? (": " + (*annotatedType)->repr()) : "");
+        return paramName + (annotatedType ? (": " + annotatedType->repr()) : "");
     }
 
     void CompoundStatement::accept(AstVisitor *visitor)
@@ -578,7 +578,9 @@ namespace NG::ast
 
     auto FunctionDef::repr() const -> Str
     {
-        return "fun " + funName + "(" + strOfNodeList(params) + ")" + body->repr();
+        return "fun " + funName + "(" + strOfNodeList(params) + ")" +
+               (returnType ? " -> " + returnType->repr() : "") +
+               body->repr();
     }
 
     void BinaryExpression::accept(AstVisitor *visitor)

@@ -68,6 +68,7 @@ set(NG_TEST_SRC
         test/integration_test.cpp
         test/runtime/interpreter_test.cpp
         test/typecheck/typeinfo_primitive_test.cpp
+        test/typecheck/typeinfo_function_test.cpp
         test/typecheck/typecheck_primitive_test.cpp
         test/typecheck/typecheck_function_test.cpp
         )
