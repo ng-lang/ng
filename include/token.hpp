@@ -8,6 +8,9 @@ namespace NG
 
     using Str = std::string;
 
+    /**
+     * @brief The type of a token.
+     */
     // NOLINTNEXTLINE(performance-enum-size)
     enum class TokenType : uint32_t
     {
@@ -118,6 +121,9 @@ namespace NG
         RESERVED,
     };
 
+    /**
+     * @brief The type of an operator.
+     */
     enum class Operators : uint8_t
     {
         NONE,
@@ -138,21 +144,31 @@ namespace NG
         LSHIFT, // <<
         RSHIFT, // >>
 
+        NOT,       // !
+        QUERY,     // ?
+        UNDEFINED, // ???
+
         UNKNOWN
     };
 
+    /**
+     * @brief The position of a token in the source code.
+     */
     struct TokenPosition
     {
-        size_t line;
-        size_t col;
+        size_t line; ///< The line number.
+        size_t col;  ///< The column number.
     };
 
+    /**
+     * @brief A token.
+     */
     struct Token
     {
-        TokenType type;
-        Str repr;
-        TokenPosition position;
-        Operators operatorType;
+        TokenType type;         ///< The type of the token.
+        Str repr;               ///< The representation of the token.
+        TokenPosition position; ///< The position of the token.
+        Operators operatorType; ///< The type of the operator if the token is an operator.
 
         auto operator==(const Token &token) const -> bool
         {
@@ -162,6 +178,13 @@ namespace NG
         }
     };
 
+    /**
+     * @brief Writes a token to a stream.
+     *
+     * @param stream The stream to write to.
+     * @param token The token to write.
+     * @return The stream.
+     */
     auto operator<<(std::ostream &stream, const Token &token) -> std::ostream &;
 
 } // namespace NG

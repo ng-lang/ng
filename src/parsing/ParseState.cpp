@@ -10,7 +10,7 @@ namespace NG::parsing
     {
     }
 
-    auto ParseState::current() -> const Token &
+    auto ParseState::current() const -> const Token &
     {
         if (!eof())
         {

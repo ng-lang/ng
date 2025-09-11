@@ -20,7 +20,7 @@ namespace NG::parsing
 
     constexpr std::array<char, 6> brackets{'(', ')', '{', '}', '[', ']'};
 
-    constexpr std::array<char, 8> operators{'>', '<', '=', '-', '+', '*', '/', '%'};
+    constexpr std::array<char, 10> operators{'>', '<', '=', '-', '+', '*', '/', '%', '!', '?'};
 
     constexpr std::array<int, 6> bitlengths{8, 16, 32, 64, 128};
 
@@ -44,6 +44,10 @@ namespace NG::parsing
         {">=", Operators::GE},
         {"<=", Operators::LE},
         {"<<", Operators::LSHIFT},
+        {">>", Operators::RSHIFT},
+        {"!", Operators::NOT},
+        {"?", Operators::QUERY},
+        {"???", Operators::UNDEFINED},
     };
 
     const static Map<Str, TokenType> tokenType = {
@@ -135,17 +139,12 @@ namespace NG::parsing
 
     static Token lexString(LexState &state, Vec<Token> &tokens);
 
-    static auto isTermintator(char character) -> bool
+    [[nodiscard]] inline auto isTermintator(char character) -> bool
     {
         return character == ',' || character == ';' || character == ')' || character == ']' || character == '}';
     }
 
-    static auto isNumSign(char character) -> bool
-    {
-        return character == '-' || character == '+';
-    }
-
-    static auto withStream(LexState &state, const std::function<void(LexState &state, Stream &stream)> &func) -> Str
+    [[nodiscard]] inline auto withStream(LexState &state, const std::function<void(LexState &state, Stream &stream)> &func) -> Str
     {
         auto current = state.index;
         try
@@ -159,6 +158,11 @@ namespace NG::parsing
             state.revert(current);
             return "";
         }
+    }
+
+    [[nodiscard]] inline auto isBlankSpaceTerminatorOrOperator(char current) -> bool
+    {
+        return isblank(current) || isspace(current) || isTermintator(current) || is(operators, current);
     }
 
     auto Lexer::next() -> Token
@@ -210,6 +214,10 @@ namespace NG::parsing
                 {
                     return lexOperator(state, tokens);
                 }
+            }
+            else if (current == '-')
+            {
+                return lexOperator(state, tokens);
             }
             else if (is(operators, current))
             {
@@ -397,7 +405,7 @@ namespace NG::parsing
             auto current = state.current();
             bool decimalPointSet = false;
             bool exponentalSet = false;
-            while (current && !(isblank(current) || isspace(current) || isTermintator(current) || is(operators, current))) {
+            while (current && !(isBlankSpaceTerminatorOrOperator(current))) {
                 if (isdigit(current)) {
                     stream << state.current();
                 } else if(current == '_') {
@@ -413,6 +421,10 @@ namespace NG::parsing
                     exponentalSet = true;
                     tokenType = TokenType::FLOATING_POINT;
                     stream << current;
+                    if (state.lookAhead() == '-') {
+                        state.next();
+                        stream << state.current();
+                    }
                 } else if ((tolower(current) == 'u' || tolower(current) == 'i') && tokenType != TokenType::FLOATING_POINT) {
                     state.next();
                     int bitlength = numberTypePostfix(state);

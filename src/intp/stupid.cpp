@@ -832,11 +832,6 @@ namespace NG::intp
             context->summary();
         }
 
-        auto intpContext() -> NGContext * override
-        {
-            return context.get();
-        }
-
         ~Stupid() override = default;
     };
 

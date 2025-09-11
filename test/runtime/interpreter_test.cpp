@@ -18,7 +18,7 @@ static void interpret(const Str &source)
 
     ast->accept(intp);
 
-    intp->summary();
+    // intp->summary();
 
     delete intp;
     destroyast(ast);

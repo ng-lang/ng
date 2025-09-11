@@ -29,7 +29,7 @@ namespace NG::parsing
 
     auto LexState::lookAhead() const -> char
     {
-        if (eof())
+        if (index + 1 >= size)
         {
             return '\0';
         }

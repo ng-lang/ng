@@ -17,56 +17,86 @@ NG is a static-typed, multiple paradigm programming language designed for effici
 ## Getting Started
 
 ### Prerequisites
-- CMake 4.0+
-- C++23 compatible compiler (GCC, Clang, MSVC)
-- Make or Ninja
 
-### Building
+-   **C++ Compiler:** A C++23 compatible compiler (e.g., GCC, Clang, MSVC).
+-   **CMake:** Version 4.0 or higher.
+-   **Build Tool:** Make or Ninja.
+
+### Building the Project
+
+1.  **Clone the repository:**
+
+    ```bash
+    git clone https://github.com/ng-lang/ng.git
+    cd ng
+    ```
+
+2.  **Create a build directory:**
+
+    ```bash
+    mkdir build
+    cd build
+    ```
+
+3.  **Configure the project with CMake:**
+
+    ```bash
+    cmake -GNinja ..
+    ```
+
+4.  **Build the project:**
+
+    ```bash
+    ninja
+    ```
+
+### Running the Interpreter
+
+After building the project, you can use the `ngi` interpreter to run NG scripts.
+
 ```bash
-mkdir build && cd build
-cmake -GNinja ../
-ninja
-```
-
-### Running Examples
-```shell
-./ngi ../example/<examplefile>.ng
+./ngi ../example/01.id.ng
 ```
 
 ## Documentation
 
-- [Quick Start Guide](./docs/guide/quickstart.md)
-- [Language Reference](./docs/ref/Contents.md)
-- [Grammar Specification](./docs/ref/Grammar.md)
-- [Internals](./docs/ref/Internals.md)
-
-## Examples
-
-Check the [examples directory](./example/) for sample NG code:
-
-## Legacy Implementations
-
-The project includes legacy implementations in:
-- [Kotlin](./legacy/implementations/kotlin/ng/)
-- [OCaml](./legacy/implementations/ocaml/ng/)
-
-## Testing
-
-Run tests with:
-```bash
-cd build && ctest
-```
+- [A Guide to the NG Programming Language](./docs/guide/language_guide.md)
 
 ## Roadmap
 
-- [x] Assignment Operator
-- [x] `module` & `import`
-- [x] Using Smart Pointers to Avoid Memory Leaks (Interpreter)
-- [ ] Operator Overloading
+### Core Language Features
+- [ ] Robust error handling (e.g., `try/catch` or a `Result` type)
+- [ ] Pattern matching
+- [ ] Closures/Lambdas
+- [ ] Generics
+- [ ] Enums
 - [ ] Compile to Native
 - [ ] Naive Type Checking
 - [ ] Bytecode Based Runtime - ORGASM (Organized Assembly)
 
+### Standard Library
+- [ ] Comprehensive file I/O module
+- [ ] Advanced string manipulation module (e.g., regex)
+- [ ] Rich collections library (e.g., hashmaps, sets)
+- [ ] Process management module
+- [ ] Networking module (e.g., HTTP)
+- [ ] Date and time module
+
+### Tooling and Ecosystem
+- [ ] Package manager
+- [x] REPL (Read-Eval-Print Loop)
+- [ ] Automatic code formatter
+- [ ] Linter
+- [ ] Debugger
+
+## Community
+
+We welcome contributions and feedback from the community! Here are a few ways to get involved:
+
+-   **Discussions:** For general discussions, questions, and ideas, please use the [GitHub Discussions](https://github.com/ng-lang/ng/discussions).
+-   **Issue Tracker:** For bug reports and feature requests, please use the [GitHub Issues](https://github.com/ng-lang/ng/issues).
+-   **Pull Requests:** For contributions, please use [GitHub Pull Requests](https://github.com/ng-lang/ng/pulls).
+
 ## Contributing
 
-See [CONTRIBUTION.md](./CONTRIBUTION.md) for guidelines on how to contribute to the project.
+We welcome contributions from everyone. Please read our [Contribution Guide](./CONTRIBUTING.md) to get started.

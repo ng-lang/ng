@@ -1,20 +1,69 @@
 #pragma once
 
 #include <intp/runtime.hpp>
+#include <cmath>
 
 namespace NG::runtime
 {
 
+    /**
+     * @brief Base class for all numeral types.
+     */
     struct NumeralBase
     {
+        /**
+         * @brief Returns the size of the numeral in bytes.
+         *
+         * @return The size of the numeral in bytes.
+         */
         [[nodiscard]] virtual auto bytesize() const -> size_t = 0;
+        /**
+         * @brief Returns whether the numeral is signed.
+         *
+         * @return `true` if the numeral is signed, `false` otherwise.
+         */
         [[nodiscard]] virtual auto signedness() const -> bool = 0;
+        /**
+         * @brief Returns whether the numeral is a floating-point number.
+         *
+         * @return `true` if the numeral is a floating-point number, `false` otherwise.
+         */
         [[nodiscard]] virtual auto floating_point() const -> bool = 0;
 
+        /**
+         * @brief Adds another numeral to this one.
+         *
+         * @param other The other numeral.
+         * @return The result of the addition.
+         */
         virtual auto opPlus(const NumeralBase *other) const -> RuntimeRef<NGObject> = 0;
+        /**
+         * @brief Subtracts another numeral from this one.
+         *
+         * @param other The other numeral.
+         * @return The result of the subtraction.
+         */
         virtual auto opMinus(const NumeralBase *other) const -> RuntimeRef<NGObject> = 0;
+        /**
+         * @brief Multiplies this numeral by another one.
+         *
+         * @param other The other numeral.
+         * @return The result of the multiplication.
+         */
         virtual auto opTimes(const NumeralBase *other) const -> RuntimeRef<NGObject> = 0;
+        /**
+         * @brief Divides this numeral by another one.
+         *
+         * @param other The other numeral.
+         * @return The result of the division.
+         */
         virtual auto opDividedBy(const NumeralBase *other) const -> RuntimeRef<NGObject> = 0;
+        /**
+         * @brief Computes the modulus of this numeral with another one.
+         *
+         * @param other The other numeral.
+         * @return The result of the modulus operation.
+         */
         virtual auto opModulus(const NumeralBase *other) const -> RuntimeRef<NGObject> = 0;
 
         NumeralBase() = default;
@@ -30,13 +79,31 @@ namespace NG::runtime
 
 #pragma region Runtime Integrals
 
+    /**
+     * @brief Represents an integral number in the runtime.
+     *
+     * @tparam T The underlying integral type.
+     */
     template <std::integral T>
     struct NGIntegral final : ThreeWayComparable<NGIntegral<T>>, NumeralBase
     {
-        T value = 0;
-        using value_type = T;
+        T value = 0;          ///< The value of the integral.
+        using value_type = T; ///< The underlying integral type.
+        /**
+         * @brief Compares two `NGIntegral` objects.
+         *
+         * @param left The left operand.
+         * @param right The right operand.
+         * @return The result of the comparison.
+         */
         static auto comparator(const NGObject *left, const NGObject *right) -> Orders;
 
+        /**
+         * @brief Converts a `NumeralBase` to the underlying integral type.
+         *
+         * @param numeralBase The `NumeralBase` to convert.
+         * @return The converted value.
+         */
         constexpr static auto valueOf(const NumeralBase *numeralBase) -> T
         {
             switch (numeralBase->bytesize())
@@ -132,6 +199,11 @@ namespace NG::runtime
 
         auto opModulus(const NumeralBase *other) const -> RuntimeRef<NGObject> override;
 
+        /**
+         * @brief Returns the value as a `size_t`.
+         *
+         * @return The value as a `size_t`.
+         */
         [[nodiscard]] auto asSize() const -> size_t
         {
             return static_cast<size_t>(value);
@@ -149,15 +221,11 @@ namespace NG::runtime
         }
         if (leftNum->bytesize() >= rightNum->bytesize())
         {
-            long long int result = leftNum->value - NGIntegral<T>(rightNum).value;
-            if (result > 0)
-            {
-                return Orders::GT;
-            }
-            if (result < 0)
-            {
+            const auto rv = NGIntegral<T>(rightNum).value;
+            if (leftNum->value < rv)
                 return Orders::LT;
-            }
+            if (leftNum->value > rv)
+                return Orders::GT;
             return Orders::EQ;
         }
         return negate(right->compareTo(left));
@@ -244,7 +312,12 @@ namespace NG::runtime
     template <std::integral T>
     auto NGIntegral<T>::opDividedBy(const NumeralBase *other) const -> RuntimeRef<NGObject>
     {
-        return makert<NGIntegral<T>>(value / NGIntegral<T>(other).value);
+        const auto d = NGIntegral<T>(other).value;
+        if (d == 0)
+        {
+            throw RuntimeException("Division by zero");
+        }
+        return makert<NGIntegral<T>>(value / d);
     }
 
     template <std::integral T>
@@ -265,20 +338,43 @@ namespace NG::runtime
     template <std::integral T>
     auto NGIntegral<T>::opModulus(const NumeralBase *other) const -> RuntimeRef<NGObject>
     {
-        return makert<NGIntegral<T>>(value % NGIntegral<T>(other).value);
+        const auto d = NGIntegral<T>(other).value;
+        if (d == 0)
+        {
+            throw RuntimeException("Division by zero");
+        }
+        return makert<NGIntegral<T>>(value % d);
     }
 
 #pragma endregion
 
 #pragma region Runtime FloatingPoints
 
+    /**
+     * @brief Represents a floating-point number in the runtime.
+     *
+     * @tparam T The underlying floating-point type.
+     */
     template <std::floating_point T>
     struct NGFloatingPoint final : ThreeWayComparable<NGFloatingPoint<T>>, NumeralBase
     {
-        T value = 0;
-        using value_type = T;
+        T value = 0;          ///< The value of the floating-point number.
+        using value_type = T; ///< The underlying floating-point type.
+        /**
+         * @brief Compares two `NGFloatingPoint` objects.
+         *
+         * @param left The left operand.
+         * @param right The right operand.
+         * @return The result of the comparison.
+         */
         static auto comparator(const NGObject *left, const NGObject *right) -> Orders;
 
+        /**
+         * @brief Converts a `NumeralBase` to the underlying floating-point type.
+         *
+         * @param numeralBase The `NumeralBase` to convert.
+         * @return The converted value.
+         */
         constexpr static auto valueOf(const NumeralBase *numeralBase) -> T
         {
             if (!numeralBase->floating_point())
@@ -306,7 +402,7 @@ namespace NG::runtime
 
         explicit NGFloatingPoint(T value = 0) : value{std::move(value)} {}
 
-        template <std::integral U>
+        template <std::floating_point U>
             requires(sizeof(T) >= sizeof(U))
         explicit NGFloatingPoint(NGFloatingPoint<U> other) : value{other.value}
         {
@@ -333,7 +429,7 @@ namespace NG::runtime
 
         [[nodiscard]] auto signedness() const -> bool override
         {
-            return value < 0;
+            return true;
         }
 
         [[nodiscard]] auto floating_point() const -> bool override
@@ -366,6 +462,11 @@ namespace NG::runtime
 
         auto opModulus(const NumeralBase *other) const -> RuntimeRef<NGObject> override;
 
+        /**
+         * @brief Returns the value as a `size_t`.
+         *
+         * @return The value as a `size_t`.
+         */
         [[nodiscard]] auto asSize() const -> size_t
         {
             return static_cast<size_t>(value);
@@ -383,15 +484,14 @@ namespace NG::runtime
         }
         if (leftNum->bytesize() >= rightNum->bytesize())
         {
-            long long int result = leftNum->value - NGFloatingPoint<T>(rightNum).value;
-            if (result > 0)
-            {
-                return Orders::GT;
-            }
-            if (result < 0)
-            {
+            const T rv = NGFloatingPoint<T>(rightNum).value;
+            const T lv = leftNum->value;
+            if (std::isnan(lv) || std::isnan(rv))
+                return Orders::UNORDERED;
+            if (lv < rv)
                 return Orders::LT;
-            }
+            if (lv > rv)
+                return Orders::GT;
             return Orders::EQ;
         }
         return negate(right->compareTo(left));

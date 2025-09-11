@@ -15,6 +15,7 @@ TEST_CASE("lexer should accept tokens", "[Lexer][Token]")
 
     REQUIRE(state.eof());
     REQUIRE(!state.current());
+    REQUIRE(state.lookAhead() == '\0');
 }
 
 TEST_CASE("lexer should produce correct positions", "[Lexer][Position][Line][Column]")

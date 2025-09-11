@@ -20,8 +20,6 @@ TEST_CASE("should be able check primitive definitions", "[TypeCheck][Primitive][
 
     auto index = type_check(*astResult);
 
-    debug_log("index", index.size());
-
     REQUIRE(index["x"]->tag() == typeinfo_tag::PRIMITIVE);
     check_primitive_type(*index["x"], primitive_tag::I32);
     check_primitive_type(*index["y"], primitive_tag::I64);
