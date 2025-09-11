@@ -9,8 +9,14 @@ namespace NG::intp
 {
     using namespace NG::runtime;
 
+    /**
+     * @brief Interface for objects that can be summarized.
+     */
     struct ISummarizable
     {
+        /**
+         * @brief Prints a summary of the object.
+         */
         virtual void summary() = 0;
 
         ISummarizable() = default;
@@ -24,12 +30,23 @@ namespace NG::intp
         virtual ~ISummarizable() = 0;
     };
 
+    /**
+     * @brief Interface for the interpreter.
+     */
     struct Interpreter : public virtual ISummarizable, public virtual NG::ast::AstVisitor
     {
+        /**
+         * @brief Gets the interpreter's context.
+         *
+         * @return A pointer to the interpreter's context.
+         */
         virtual auto intpContext() -> NG::runtime::NGContext * = 0;
     };
 
+    /**
+     * @brief Creates a new instance of the stupid interpreter.
+     *
+     * @return A pointer to the new interpreter instance.
+     */
     auto stupid() -> Interpreter *;
-
-    auto predefs() -> Map<Str, NGInvocable>;
 }
