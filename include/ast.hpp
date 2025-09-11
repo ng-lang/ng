@@ -131,8 +131,10 @@ namespace NG::ast
     {
         UNKNOWN,
 
-        BUILTIN,
-        BUILTIN_INT,
+        BUILTIN = 0x01,
+        BUILTIN_UNIT = 0x11,
+
+        BUILTIN_INT = 0x31,
         BUILTIN_BOOL,
         BUILTIN_STRING,
         BUILTIN_FLOAT,
@@ -164,7 +166,7 @@ namespace NG::ast
         BUILTIN_F32,
         BUILTIN_F64,
         BUILTIN_F128,
-        CUSTOMIZED,
+        CUSTOMIZED = 0x81,
     };
 
     struct TypeAnnotation : ASTNode
@@ -212,6 +214,7 @@ namespace NG::ast
     {
         Str funName;
         Vec<ASTRef<Param>> params;
+        ASTRef<TypeAnnotation> returnType;
         ASTRef<Statement> body = nullptr;
         bool native = false;
 

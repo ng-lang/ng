@@ -57,7 +57,7 @@ TEST_CASE("Should export single declaration", "[Parser][Export][Native]")
     auto astResult = parse(R"(
         export val x = 1;
 
-        export fun get() = native;
+        export fun get() -> int = native;
 
         export type Simple {}
     )");

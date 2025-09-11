@@ -41,6 +41,7 @@ namespace NG::typecheck
     {
         NONE = 0x00,
         ANY,
+        UNIT,
         BOOL,
         SIGNED = 0x10,
         I8 = 0x11,
@@ -65,10 +66,12 @@ namespace NG::typecheck
 
     enum collection_type_tag
     {
-        UNIT,
-        ARRAY = 0x01,
-        TUPLE = 0x11,
+        UNKNOWN,
+        ARRAY = 0x11,
+        TUPLE = 0x21,
         REFERENCE = 0x31,
+        FUNCTION = 0x51,
+        PARAM_WITH_DEFAULT_VALUE = 0x52,
     };
 
     struct Untyped : TypeInfo
@@ -102,6 +105,39 @@ namespace NG::typecheck
 
         auto primitive() const -> primitive_tag;
         auto tag() const -> typeinfo_tag override;
+        auto repr() const -> Str override;
+        auto match(const TypeInfo &other) const -> bool override;
+    };
+
+    struct FunctionType : CollectionType
+    {
+        CheckingRef<TypeInfo> returnType;
+        Vec<CheckingRef<TypeInfo>> parametersType;
+
+        FunctionType(CheckingRef<TypeInfo> returnType, Vec<CheckingRef<TypeInfo>> parametersType)
+            : returnType(returnType), parametersType(parametersType)
+        {
+        }
+
+        auto collection_tag() const -> collection_type_tag override;
+        auto applyWith(const Vec<CheckingRef<TypeInfo>> &types) const -> bool;
+
+        auto repr() const -> Str override;
+        auto match(const TypeInfo &other) const -> bool override;
+    };
+
+    struct ParamWithDefaultValueType : CollectionType
+    {
+        CheckingRef<TypeInfo> paramType;
+
+        ParamWithDefaultValueType(CheckingRef<TypeInfo> paramType)
+            : paramType(paramType)
+        {
+        }
+
+        auto collection_tag() const -> collection_type_tag override;
+        auto applyWith(const Vec<CheckingRef<TypeInfo>> &types) const -> bool;
+
         auto repr() const -> Str override;
         auto match(const TypeInfo &other) const -> bool override;
     };

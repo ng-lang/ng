@@ -1,21 +1,21 @@
 module imgui exports *;
 
-fun init() = native;
+fun init() -> unit = native;
 
-fun eventLoop() = native;
+fun eventLoop() -> unit = native;
 
-fun checkMinimized() = native;
+fun checkMinimized() -> unit = native;
 
-fun NewFrame() = native;
+fun NewFrame() -> unit = native;
 
-fun Begin(str) = native;
+fun Begin(str) -> unit = native;
 
-fun Text(str) = native;
+fun Text(str) -> unit = native;
 
-fun End() = native;
+fun End() -> unit = native;
 
-fun Aborted() = native;
+fun Aborted() -> bool = native;
 
-fun Render() = native;
+fun Render() -> unit = native;
 
-fun cleanup() = native;
+fun cleanup() -> unit = native;

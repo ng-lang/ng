@@ -5,6 +5,6 @@ fun not(value: bool) {
     return value == false;
 }
 
-fun print(value) = native;
+fun print(value) -> unit = native;
 
-fun assert(assertion) = native;
+fun assert(assertion) -> unit = native;

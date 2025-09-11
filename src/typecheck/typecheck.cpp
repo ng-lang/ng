@@ -44,17 +44,37 @@ namespace NG::typecheck
             valDef->body->accept(this);
         }
 
+        void visit(FunctionDef *funDef) override
+        {
+            TypeChecker checker{locals};
+            Vec<CheckingRef<TypeInfo>> paramTypes;
+            for (auto param : funDef->params)
+            {
+                param->accept(&checker);
+                paramTypes.push_back(checker.result);
+            }
+            funDef->returnType->accept(&checker);
+            CheckingRef<TypeInfo> returnType = checker.result;
+
+            // todo: check function definition body to ensure return type corrects
+            auto funType = makecheck<FunctionType>(returnType, paramTypes);
+
+            if (!funDef->funName.empty())
+            {
+                locals.insert_or_assign(funDef->funName, funType);
+            }
+            result = funType;
+        }
+
         void visit(ValDefStatement *valDefStatement) override
         {
             TypeChecker checker{locals};
             valDefStatement->value->accept(&checker);
             auto valType = checker.result;
-            debug_log("Val type", valType->repr());
             if (valDefStatement->typeAnnotation)
             {
                 (*valDefStatement->typeAnnotation)->accept(&checker);
                 auto annoType = checker.result;
-                debug_log("AnnoType type", annoType->repr());
 
                 if (annoType && annoType->match(*valType))
                 {
@@ -189,6 +209,48 @@ namespace NG::typecheck
             }
         }
 
+        void visit(Param *param) override
+        {
+            if (param->type == ParamType::Simple || param->annotatedType)
+            {
+                result = makecheck<Untyped>();
+            }
+            TypeChecker checker{locals};
+            if (param->annotatedType)
+            {
+                (*param->annotatedType)->accept(&checker);
+                if (!checker.result)
+                {
+                    throw TypeCheckingException("Unknown type annotation for parameter: " + param->paramName);
+                }
+                result = checker.result;
+            }
+            if (param->value)
+            {
+                param->value->accept(&checker);
+                auto valueType = checker.result;
+                if (valueType)
+                {
+                    if (result->tag() != typeinfo_tag::UNTYPED)
+                    {
+                        if (!result->match(*valueType))
+                        {
+                            throw TypeCheckingException("Invalid default value for type: " + result->repr());
+                        }
+                        result = makecheck<ParamWithDefaultValueType>(result);
+                    }
+                    else
+                    {
+                        result = makecheck<ParamWithDefaultValueType>(valueType);
+                    }
+                }
+                else
+                {
+                    throw TypeCheckingException("Unexpected default expression type for parameter: " + param->paramName);
+                }
+            }
+        }
+
         void visit(TypeAnnotation *annotation) override
         {
             auto typecode = code(annotation->type);
@@ -208,6 +270,50 @@ namespace NG::typecheck
                     throw TypeCheckingException("Unknown type: " + annotation->name);
                 }
             }
+        }
+
+        void visit(IdExpression *id) override
+        {
+            auto it = locals.find(id->id);
+            if (it != locals.end())
+            {
+                result = it->second;
+            }
+            else
+            {
+                throw TypeCheckingException("Unknown type for object: " + id->id);
+            }
+        }
+
+        void visit(FunCallExpression *funCall) override
+        {
+            TypeChecker checker{locals};
+            funCall->primaryExpression->accept(&checker);
+            auto primaryType = checker.result;
+            if (!primaryType)
+            {
+                throw TypeCheckingException("Invalid function call expression: " + funCall->primaryExpression->repr());
+            }
+
+            auto funcType = dynamic_cast<FunctionType *>(&(*primaryType));
+
+            if (!funcType)
+            {
+                throw TypeCheckingException("Invalid function type: " + primaryType->repr());
+            }
+
+            Vec<CheckingRef<TypeInfo>> argumentTypes;
+            for (auto arg : funCall->arguments)
+            {
+                arg->accept(&checker);
+                argumentTypes.push_back(checker.result);
+            }
+
+            if (!funcType->applyWith(argumentTypes))
+            {
+                throw TypeCheckingException("Invalid argument types for function: " + funcType->repr());
+            }
+            result = funcType->returnType;
         }
     };
 
