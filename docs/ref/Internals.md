@@ -1,138 +1,88 @@
-# Internals
+# NG Internals
 
-ng is an interpreted language with the following execution stages:
+This document provides a detailed overview of the internal implementation of the NG programming language.
 
-1. Lexical analysis - converts source code to tokens
-2. Syntax analysis - builds abstract syntax tree (AST) 
-3. Interpretation - directly executes the AST
+## 1. Compiler Pipeline
 
-The interpreter consists of:
-- Parser (lexer + AST builder)
-- Runtime system (objects, types, operators)
-- Visitor-based execution engine
+The NG compiler follows a traditional pipeline to process source code and execute it.
 
-## Runtime System
+1.  **Lexical Analysis:** The source code is scanned and converted into a stream of tokens.
+2.  **Parsing:** The token stream is parsed to build an Abstract Syntax Tree (AST).
+3.  **Type Checking:** The AST is traversed to perform type checking and inference.
+4.  **Interpretation:** The AST is directly executed by the interpreter.
 
-Key runtime components:
-- `NGObject`: Base class for all runtime objects
-- `NGContext`: Execution context (variables, functions)
-- `NGType`: Type information for objects
-- `NGModule`: Module system implementation
+## 2. Lexer
 
-## 1. Lexical analysis
+The lexer is responsible for converting the source code into a sequence of tokens. It is implemented in `src/parsing/Lexer.cpp`.
 
-ng internally using the `NG::Token` struct to describe the lexical tokens, you can find
-the details in `src/include/token.hpp`
-```C++
-struct Token
-{
-    TokenType type;
-    std::string repr;
-    TokenPosition position;
-    Operators operatorType;
-};
-```
+The lexer maintains a `LexState` struct, which keeps track of the current position in the source code.
 
-ng has few token types: keywords (including both actual keywords and reserved words),
-identifiers, literals, special symbols and operators. You can goto [Lexical](Lexical.md) to
-get full list of these definitions.
-
-Lexer manipulates a structure `NG::LexState`, to visit and perform lexical analysis:
-```C++
-// see src/include/parser.hpp
+```cpp
 struct LexState
 {
-    const std::string source;
-    const size_t size;
+    Str source;
+    size_t size;
     size_t index;
-
     size_t line;
     size_t col;
-
-    LexState(std::string _source);
-
-    char current() const;
-    bool eof() const;
-    void next(int n = 1);
-    void revert(size_t n = 1);
-    void nextLine();
-
-    char lookAhead() const;
+    // ...
 };
 ```
 
-After whole lexical process, Lexer::lex will produce a list of tokens (`std::vector<NG::Token>`) for parser as its input.
+The `Lexer::lex()` method iterates through the source code and produces a `std::vector<Token>`.
 
-## 2. Grammar analysis
+## 3. Parser
 
-Grammar analysis will produce an AST for a ng source file. AST is a noncopyable object
-tree and all its definitions in `src/include/ast.hpp`. The basic structure of AST is the
-`ASTRef<T>` type, it is currently just a basic alias of `T*`. You can replace it with
-self-defined reference/pointer type to make it more convenient to use.
+The parser takes the token stream from the lexer and builds an AST. The parser is implemented in `src/parsing/ParserImpl.cpp`.
 
-`ASTRef` must be created by `makeast` and destroyed by `destroyast` functions, and make
-sure you are calling `destroyast` in the parent AST node destructor.
-```C++
-template<class T>
-using ASTRef<T> = ...;
+It uses a recursive descent parsing strategy to parse the language grammar. The `ParserImpl` class contains methods for parsing different parts of the grammar, such as `funDef()`, `statement()`, and `expression()`.
 
-template<class T, class Args...>
-ASTRef makeast(Args... args);
+## 4. Abstract Syntax Tree (AST)
 
-template<class T>
-void destroyast(ASTRef<T> ast);
-```
+The AST is a tree representation of the source code. The base class for all AST nodes is `ASTNode`, defined in `include/ast.hpp`.
 
-### 2.1 AST node structure
-
-This is current definition of few useful basic:
-```C++
-/** pure abstract **/
+```cpp
 struct ASTNode : NonCopyable
 {
-    ASTNode() {}
-    virtual void accept(AstVisitor *visitor);
-    virtual ~ASTNode() = 0;
-};
-
-struct Statement : ASTNode
-{
-};
-
-struct Definition : ASTNode
-{
-    virtual Str name() const = 0;
-};
-
-struct Expression : ASTNode
-{
+    virtual void accept(AstVisitor *visitor) = 0;
+    virtual auto astNodeType() const -> ASTNodeType = 0;
+    // ...
 };
 ```
 
-### 2.2 AST visitor
+NG uses the visitor pattern to traverse the AST. The `AstVisitor` interface defines a `visit` method for each type of AST node.
 
-AST will be analyzed by visitors, all AST visitor must follow the `AstVisitor` interface.
-```C++
-class AstVisitor : NonCopyable
-{
-  public:
-    virtual void visit(ASTRef<ASTNode> astNode) = 0;
+## 5. Type Checker
 
-    virtual void visit(ASTRef<Statement> statement) = 0;
-    ...; // other visit function definitions
+The type checker traverses the AST and verifies that the program is well-typed. The type checker is implemented in `src/typecheck/typecheck.cpp`.
 
-    virtual ~AstVisitor() = 0;
-};
+It uses a `TypeChecker` class, which is an `AstVisitor`, to visit each node in the AST and infer its type. The type information is stored in a `TypeIndex`, which is a map from variable names to `TypeInfo` objects.
+
+## 6. Interpreter
+
+The interpreter executes the AST directly. The main interpreter logic is in `src/intp/stupid.cpp`.
+
+The `Interpreter` class is also an `AstVisitor`. It traverses the AST and executes the code for each node.
+
+### Runtime Environment
+
+The runtime environment consists of the following components:
+
+*   **`NGContext`:** Represents the execution context, which includes the call stack, local variables, and the current module.
+*   **`NGObject`:** The base class for all runtime objects.
+*   **`NGType`:** Represents a type in the runtime.
+*   **`NGModule`:** Represents a module in the runtime.
+
+### Memory Management
+
+NG uses `std::shared_ptr` for automatic memory management of runtime objects. This means that memory is automatically deallocated when an object is no longer referenced.
+
+## 7. Foreign Function Interface (FFI)
+
+NG provides a simple FFI to call native C++ functions from NG code. Native functions are declared using the `= native` syntax.
+
+```ng
+fun my_native_function(arg: i32) -> unit = native;
 ```
 
-ng provides a default implementation `DummyVisitor` which sets all `visit` functions
-to empty. You can directly inherit it and modify what you need.
-
-The interpreter uses specialized visitors:
-- `ExpressionVisitor`: Evaluates expressions
-- `StatementVisitor`: Executes statements
-- `Stupid`: Main interpreter implementation
-
-Example visitors:
-- `NG::ASTDumper` in `src/ast_dump.cpp` (AST visualization)
-- `ExpressionVisitor` in `src/intp/stupid.cpp` (expression evaluation)
+These native functions must be registered with the interpreter using the `register_native_library` function.
