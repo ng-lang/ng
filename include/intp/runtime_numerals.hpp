@@ -1,6 +1,7 @@
 #pragma once
 
 #include <intp/runtime.hpp>
+#include <cmath>
 
 namespace NG::runtime
 {
