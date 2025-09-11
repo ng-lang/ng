@@ -6,12 +6,12 @@
 
 namespace NG::typecheck
 {
-    inline bool isParamWithDefault(CheckingRef<TypeInfo> ref)
+    inline bool isParamWithDefault(const CheckingRef<TypeInfo> &ref)
     {
         return std::dynamic_pointer_cast<ParamWithDefaultValueType>(ref) != nullptr;
     }
 
-    inline CheckingRef<TypeInfo> unwrapParamWithDefault(CheckingRef<TypeInfo> ref)
+    inline CheckingRef<TypeInfo> unwrapParamWithDefault(const CheckingRef<TypeInfo> &ref)
     {
         if (auto param = std::dynamic_pointer_cast<ParamWithDefaultValueType>(ref); param != nullptr)
         {
@@ -53,6 +53,7 @@ namespace NG::typecheck
                     return false;
                 }
                 Vec<CheckingRef<TypeInfo>> actualTypes{};
+                actualTypes.reserve(this->parametersType.size());
                 std::transform(this->parametersType.begin(), this->parametersType.end(), std::back_inserter(actualTypes),
                                unwrapParamWithDefault);
                 return otherFunction.applyWith(actualTypes);

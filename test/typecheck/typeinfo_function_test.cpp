@@ -55,6 +55,11 @@ TEST_CASE("test FunctionType#match", "[TypeCheck][Function][Covariance]")
     // transitive
     REQUIRE(wider_return_type.match(narrower_return_type));
 
+    // arity mismatch (no defaults): fun (i32) -> i32 vs fun (i32, i32) -> i32
+    auto arity_one = make_function(primitive_tag::I32, {primitive_tag::I32});
+    REQUIRE(!arity_one.match(basic_function));
+    REQUIRE(!basic_function.match(arity_one));
+
     // fun (i32, i32 = default) -> i32
     auto same_signature_with_default_parameters =
         make_function(primitive_tag::I32, {primitive_tag::I32}, {primitive_tag::I32});

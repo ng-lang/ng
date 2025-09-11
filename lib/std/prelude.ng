@@ -1,7 +1,7 @@
 module prelude exports *;
 
 
-fun not(value: bool) {
+fun not(value: bool) -> bool {
     return value == false;
 }
 
