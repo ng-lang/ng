@@ -22,7 +22,7 @@ The design of NG is guided by the following principles:
 Before you can start using NG, you will need to have the following tools installed on your system:
 
 *   **C++ Compiler:** A C++23 compatible compiler (e.g., GCC, Clang, MSVC).
-*   **CMake:** Version 4.0 or higher.
+*   **CMake:** Version 3.25.1 or higher.
 *   **Build Tool:** Make or Ninja.
 
 ### Building the Project
@@ -203,7 +203,7 @@ fun my_native_function(arg: i32) -> unit = native;
 
 ### Arrays
 
-Arrays are fixed-size collections of elements of the same type.
+Arrays are collections of elements of the same type.
 
 ```ng
 val arr = [1, 2, 3, 4, 5];

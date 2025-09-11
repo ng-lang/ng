@@ -6,7 +6,8 @@
 #include <unordered_map>
 #include <algorithm>
 #include <iterator>
-#include <unordered_set>
+#include <concepts>
+#include <cstddef>
 
 /**
  * @brief Extracts the keys from an unordered_map.
@@ -20,6 +21,7 @@ template <class K, class V>
 auto keys_of(std::unordered_map<K, V> map) -> std::vector<K>
 {
     std::vector<K> keys{};
+    keys.reserve(map.size());
     std::transform(map.begin(), map.end(), std::back_inserter(keys),
                    [](const auto &pair)
                    { return pair.first; });
@@ -62,7 +64,7 @@ template <class T>
 inline void show(T &&value)
 {
 #ifdef NG_CONFIG_ENABLE_DEBUG_LOG
-    std::cout << "[DEBUG] -- {}" << std::forward<T>(value) << std::endl;
+    std::cout << "[DEBUG] -- " << std::forward<T>(value) << std::endl;
 #endif // NG_CONFIG_ENABLE_DEBUG_LOG
 }
 
@@ -75,14 +77,31 @@ inline void show(T &&value)
  */
 inline void show(Container auto &&value)
 {
+#ifdef NG_CONFIG_ENABLE_DEBUG_LOG
     std::cout << "[DEBUG] -- Container[";
     for (auto &&x : value)
     {
         show(x);
     }
     std::cout << "];" << std::endl;
+#endif // NG_CONFIG_ENABLE_DEBUG_LOG
 }
-
+/**
+ * @brief Prints a pair for debugging.
+ *
+ * This function is only enabled when `NG_CONFIG_ENABLE_DEBUG_LOG` is defined.
+ *
+ * @tparam A The type of pair's first value.
+ * @tparam B The type of pair's second value.
+ * @param p The pair to print.
+ */
+template <class A, class B>
+inline void show(const std::pair<A, B> &p)
+{
+#ifdef NG_CONFIG_ENABLE_DEBUG_LOG
+    std::cout << "[DEBUG] -- {" << p.first << ", " << p.second << "}" << std::endl;
+#endif
+}
 /**
  * @brief Logs debug messages.
  *

@@ -106,7 +106,7 @@ namespace NG
      */
     struct RuntimeException : std::runtime_error
     {
-        explicit RuntimeException(const std::string &messge) : runtime_error(messge)
+        explicit RuntimeException(const std::string &message) : runtime_error(message)
         {
         }
     };
@@ -135,7 +135,7 @@ namespace NG
      * @param enumValue The value to convert.
      * @return The size_t representation of the value.
      */
-    constexpr auto code(const codable auto &enumValue) -> size_t
+    constexpr auto code(const codable auto &enumValue) noexcept -> size_t
     {
         return static_cast<size_t>(enumValue);
     }
@@ -148,7 +148,7 @@ namespace NG
      * @return The converted value.
      */
     template <codable T>
-    auto from_code(size_t code) -> T
+    constexpr auto from_code(size_t code) noexcept -> T
     {
         return static_cast<T>(code);
     }

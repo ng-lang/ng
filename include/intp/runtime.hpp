@@ -27,7 +27,7 @@ namespace NG::runtime
      * @return A `RuntimeRef<T>` to the newly created object.
      */
     template <class T, class... Args>
-    inline auto makert(Args &&...args) -> RuntimeRef<T>
+    [[nodiscard]] inline auto makert(Args &&...args) -> RuntimeRef<T>
     {
         return std::make_shared<T>(std::forward<Args>(args)...);
     }
@@ -47,7 +47,7 @@ namespace NG::runtime
     struct NextIteration : public std::exception
     {
         Vec<RuntimeRef<NGObject>> slotValues; ///< Values to be passed to the next iteration.
-        NextIteration(Vec<RuntimeRef<NGObject>> slotValues) : slotValues(slotValues) {};
+        explicit NextIteration(Vec<RuntimeRef<NGObject>> slotValues) : slotValues(slotValues) {};
     };
 
     /**
@@ -83,14 +83,22 @@ namespace NG::runtime
             {
                 return true;
             }
-            return this->name == other.name &&
-                   this->properties == other.properties &&
-                   std::all_of(begin(other.memberFunctions), end(other.memberFunctions),
-                               [this](const std::pair<Str, NGInvocable> &pair)
-                                   -> bool
-                               {
-                                   return this->memberFunctions.contains(pair.first);
-                               });
+            if (name != other.name || properties != other.properties)
+            {
+                return false;
+            }
+            if (memberFunctions.size() != other.memberFunctions.size())
+            {
+                return false;
+            }
+            for (const auto &kv : memberFunctions)
+            {
+                if (!other.memberFunctions.contains(kv.first))
+                {
+                    return false;
+                }
+            }
+            return true;
         }
     };
 

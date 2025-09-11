@@ -24,7 +24,7 @@ namespace NG::ast
      * @return A shared pointer to the new AST node.
      */
     template <class T, class... Args>
-    inline auto makeast(Args &&...args) -> ASTRef<T>
+    [[nodiscard]] inline auto makeast(Args &&...args) -> ASTRef<T>
     {
         return std::make_shared<T>(std::forward<Args>(args)...);
     }
@@ -36,7 +36,7 @@ namespace NG::ast
      * @param ref The AST node to destroy.
      */
     template <class T>
-    inline void destroyast(ASTRef<T> ref)
+    inline void destroyast(ASTRef<T> ref) noexcept
     {
     }
 
@@ -49,7 +49,8 @@ namespace NG::ast
      * @return The casted AST node.
      */
     template <class T, class N>
-    auto dynamic_ast_cast(ASTRef<N> ast) -> ASTRef<T>
+        requires std::derived_from<T, ASTNode> && std::derived_from<N, ASTNode>
+    [[nodiscard]] auto dynamic_ast_cast(ASTRef<N> ast) -> ASTRef<T>
     {
         return std::dynamic_pointer_cast<T>(ast);
     }

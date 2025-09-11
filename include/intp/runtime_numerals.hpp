@@ -86,7 +86,7 @@ namespace NG::runtime
     template <std::integral T>
     struct NGIntegral final : ThreeWayComparable<NGIntegral<T>>, NumeralBase
     {
-        T value = 0; ///< The value of the integral.
+        T value = 0;          ///< The value of the integral.
         using value_type = T; ///< The underlying integral type.
         /**
          * @brief Compares two `NGIntegral` objects.
@@ -220,15 +220,11 @@ namespace NG::runtime
         }
         if (leftNum->bytesize() >= rightNum->bytesize())
         {
-            long long int result = leftNum->value - NGIntegral<T>(rightNum).value;
-            if (result > 0)
-            {
-                return Orders::GT;
-            }
-            if (result < 0)
-            {
+            const auto rv = NGIntegral<T>(rightNum).value;
+            if (leftNum->value < rv)
                 return Orders::LT;
-            }
+            if (leftNum->value > rv)
+                return Orders::GT;
             return Orders::EQ;
         }
         return negate(right->compareTo(left));
@@ -315,7 +311,12 @@ namespace NG::runtime
     template <std::integral T>
     auto NGIntegral<T>::opDividedBy(const NumeralBase *other) const -> RuntimeRef<NGObject>
     {
-        return makert<NGIntegral<T>>(value / NGIntegral<T>(other).value);
+        const auto d = NGIntegral<T>(other).value;
+        if (d == 0)
+        {
+            throw RuntimeException("Division by zero");
+        }
+        return makert<NGIntegral<T>>(value / d);
     }
 
     template <std::integral T>
@@ -336,7 +337,12 @@ namespace NG::runtime
     template <std::integral T>
     auto NGIntegral<T>::opModulus(const NumeralBase *other) const -> RuntimeRef<NGObject>
     {
-        return makert<NGIntegral<T>>(value % NGIntegral<T>(other).value);
+        const auto d = NGIntegral<T>(other).value;
+        if (d == 0)
+        {
+            throw RuntimeException("Division by zero");
+        }
+        return makert<NGIntegral<T>>(value % d);
     }
 
 #pragma endregion
@@ -351,7 +357,7 @@ namespace NG::runtime
     template <std::floating_point T>
     struct NGFloatingPoint final : ThreeWayComparable<NGFloatingPoint<T>>, NumeralBase
     {
-        T value = 0; ///< The value of the floating-point number.
+        T value = 0;          ///< The value of the floating-point number.
         using value_type = T; ///< The underlying floating-point type.
         /**
          * @brief Compares two `NGFloatingPoint` objects.
@@ -395,7 +401,7 @@ namespace NG::runtime
 
         explicit NGFloatingPoint(T value = 0) : value{std::move(value)} {}
 
-        template <std::integral U>
+        template <std::floating_point U>
             requires(sizeof(T) >= sizeof(U))
         explicit NGFloatingPoint(NGFloatingPoint<U> other) : value{other.value}
         {
@@ -422,7 +428,7 @@ namespace NG::runtime
 
         [[nodiscard]] auto signedness() const -> bool override
         {
-            return value < 0;
+            return true;
         }
 
         [[nodiscard]] auto floating_point() const -> bool override
@@ -477,15 +483,14 @@ namespace NG::runtime
         }
         if (leftNum->bytesize() >= rightNum->bytesize())
         {
-            long long int result = leftNum->value - NGFloatingPoint<T>(rightNum).value;
-            if (result > 0)
-            {
-                return Orders::GT;
-            }
-            if (result < 0)
-            {
+            const T rv = NGFloatingPoint<T>(rightNum).value;
+            const T lv = leftNum->value;
+            if (std::isnan(lv) || std::isnan(rv))
+                return Orders::UNORDERED;
+            if (lv < rv)
                 return Orders::LT;
-            }
+            if (lv > rv)
+                return Orders::GT;
             return Orders::EQ;
         }
         return negate(right->compareTo(left));

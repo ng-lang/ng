@@ -135,17 +135,17 @@ namespace NG::parsing
 
     static Token lexString(LexState &state, Vec<Token> &tokens);
 
-    static auto isTermintator(char character) -> bool
+    [[nodiscard]] inline auto isTermintator(char character) -> bool
     {
         return character == ',' || character == ';' || character == ')' || character == ']' || character == '}';
     }
 
-    static auto isNumSign(char character) -> bool
+    [[nodiscard]] inline auto isNumSign(char character) -> bool
     {
         return character == '-' || character == '+';
     }
 
-    static auto withStream(LexState &state, const std::function<void(LexState &state, Stream &stream)> &func) -> Str
+    [[nodiscard]] inline auto withStream(LexState &state, const std::function<void(LexState &state, Stream &stream)> &func) -> Str
     {
         auto current = state.index;
         try
@@ -159,6 +159,11 @@ namespace NG::parsing
             state.revert(current);
             return "";
         }
+    }
+
+    [[nodiscard]] inline auto isBlankSpaceTerminatorOrOperator(char current) -> bool
+    {
+        return isblank(current) || isspace(current) || isTermintator(current) || is(operators, current);
     }
 
     auto Lexer::next() -> Token
@@ -397,7 +402,7 @@ namespace NG::parsing
             auto current = state.current();
             bool decimalPointSet = false;
             bool exponentalSet = false;
-            while (current && !(isblank(current) || isspace(current) || isTermintator(current) || is(operators, current))) {
+            while (current && !(isBlankSpaceTerminatorOrOperator(current))) {
                 if (isdigit(current)) {
                     stream << state.current();
                 } else if(current == '_') {

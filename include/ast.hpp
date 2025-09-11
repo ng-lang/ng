@@ -6,13 +6,13 @@
 
 #include <common.hpp>
 
-#ifdef NG_CONING_USING_SHARED_PTR_FOR_AST
+#ifdef NG_CONFIG_USING_SHARED_PTR_FOR_AST
 
 #include <ast/ref_adapter_shared_ptr.hpp>
 
-#else // ifndef NG_CONING_USING_SHARED_PTR_FOR_AST
+#else // ifndef NG_CONFIG_USING_SHARED_PTR_FOR_AST
 #include <ast/ref_adapter_raw.hpp>
-#endif // NG_CONING_USING_SHARED_PTR_FOR_AST
+#endif // NG_CONFIG_USING_SHARED_PTR_FOR_AST
 
 namespace NG::ast
 {
@@ -430,7 +430,6 @@ namespace NG::ast
      */
     struct Module : ASTNode
     {
-        const ASTNodeType ast_node_type = ASTNodeType::MODULE;
         Str name; ///< The name of the module.
 
         Vec<ASTRef<Definition>> definitions; ///< The definitions in the module.
@@ -445,7 +444,7 @@ namespace NG::ast
         {
         }
 
-        auto astNodeType() const -> ASTNodeType override { return ast_node_type; }
+        auto astNodeType() const -> ASTNodeType override { return ASTNodeType::MODULE; }
 
         auto operator==(const ASTNode &node) const -> bool override;
 
@@ -547,8 +546,8 @@ namespace NG::ast
         ASTRef<Expression> primary = nullptr;  ///< The primary expression of the accessor.
         ASTRef<Expression> accessor = nullptr; ///< The accessor of the expression.
 
-        IndexAccessorExpression(ASTRef<Expression> primary, ASTRef<Expression> accessor) : primary{std::move(std::move(primary))},
-                                                                                           accessor{std::move(std::move(accessor))} {}
+        IndexAccessorExpression(ASTRef<Expression> primary, ASTRef<Expression> accessor) : primary{std::move(primary)},
+                                                                                           accessor{std::move(accessor)} {}
 
         void accept(AstVisitor *visitor) override;
 
@@ -574,7 +573,7 @@ namespace NG::ast
         IndexAssignmentExpression(
             ASTRef<Expression> primary,
             ASTRef<Expression> accessor,
-            ASTRef<Expression> value) : primary{std::move(std::move(primary))}, accessor{std::move(std::move(accessor))}, value{std::move(std::move(value))} {}
+            ASTRef<Expression> value) : primary{std::move(primary)}, accessor{std::move(accessor)}, value{std::move(value)} {}
 
         void accept(AstVisitor *visitor) override;
 
@@ -649,7 +648,7 @@ namespace NG::ast
             return body->name;
         }
 
-        explicit ValDef(ASTRef<ValDefStatement> defStmt) : body(std::move(std::move(defStmt))) {}
+        explicit ValDef(ASTRef<ValDefStatement> defStmt) : body(std::move(defStmt)) {}
 
         void accept(AstVisitor *visitor) override;
 

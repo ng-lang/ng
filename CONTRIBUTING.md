@@ -15,7 +15,7 @@ We follow the standard GitHub flow for contributions:
 3.  **Make your changes:** Make your changes to the codebase.
 4.  **Write tests:** Add tests for your changes to ensure they work as expected.
 5.  **Update documentation:** If you are adding a new feature, be sure to update the documentation.
-6.  **Submit a pull request:** Open a pull request from your branch to the `main` branch of the `ng-lang/ng` repository.
+6.  **Submit a pull request:** Open a pull request from your branch to the `master` branch of the `ng-lang/ng` repository.
 
 ## Where to Contribute
 

@@ -35,12 +35,7 @@ namespace NG::intp
      */
     struct Interpreter : public virtual ISummarizable, public virtual NG::ast::AstVisitor
     {
-        /**
-         * @brief Gets the interpreter's context.
-         *
-         * @return A pointer to the interpreter's context.
-         */
-        virtual auto intpContext() -> NG::runtime::NGContext * = 0;
+        virtual ~Interpreter() override = default;
     };
 
     /**

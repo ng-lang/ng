@@ -14,8 +14,8 @@ namespace NG::parsing
      */
     struct ParseError
     {
-        Token token; ///< The token that caused the error.
-        Str message; ///< The error message.
+        Token token;                   ///< The token that caused the error.
+        Str message;                   ///< The error message.
         std::list<TokenType> expected; ///< The expected token types.
     };
 
@@ -32,12 +32,12 @@ namespace NG::parsing
      */
     struct LexState
     {
-        Str source; ///< The source code.
-        size_t size; ///< The size of the source code.
+        Str source;   ///< The source code.
+        size_t size;  ///< The size of the source code.
         size_t index; ///< The current index in the source code.
 
         size_t line; ///< The current line number.
-        size_t col; ///< The current column number.
+        size_t col;  ///< The current column number.
 
         explicit LexState(const Str &_source);
 
@@ -94,7 +94,7 @@ namespace NG::parsing
      */
     class Lexer : NonCopyable
     {
-        LexState state; ///< The state of the lexer.
+        LexState state;      ///< The state of the lexer.
         Vec<Token> tokens{}; ///< The tokens that have been lexed.
 
     public:
@@ -128,8 +128,8 @@ namespace NG::parsing
     struct ParseState
     {
         Vec<Token> tokens; ///< The tokens to parse.
-        size_t size; ///< The number of tokens.
-        size_t index; ///< The current index in the tokens.
+        size_t size;       ///< The number of tokens.
+        size_t index;      ///< The current index in the tokens.
 
         explicit ParseState(const Vec<Token> &tokens);
 
@@ -138,7 +138,7 @@ namespace NG::parsing
          *
          * @return The current token.
          */
-        auto current() -> const Token &;
+        [[nodiscard]] auto current() const -> const Token &;
 
         auto operator->() -> const Token *
         {
@@ -175,8 +175,22 @@ namespace NG::parsing
          */
         auto error(Str message, std::list<TokenType> expected = {}) -> ParseError
         {
+            Token tok{};
+            if (!eof())
+            {
+                tok = current();
+            }
+            else
+            {
+                tok.repr = "<eof>";
+                // Keep position stable if possible.
+                if (!tokens.empty())
+                {
+                    tok.position = tokens.back().position;
+                }
+            }
             return ParseError{
-                .token = current(),
+                .token = std::move(tok),
                 .message = std::move(message),
                 .expected = std::move(expected),
             };
@@ -188,7 +202,7 @@ namespace NG::parsing
      */
     struct Parser : NonCopyable
     {
-        ParseState state; ///< The state of the parser.
+        ParseState state;    ///< The state of the parser.
         Str module_filename; ///< The filename of the module being parsed.
 
     public:

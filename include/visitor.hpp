@@ -361,4 +361,4 @@ namespace NG::ast
         visitor->visit(this);
     }
 
-} // namespace NG::AST
+} // namespace NG::ast

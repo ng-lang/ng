@@ -4,7 +4,7 @@
  * @brief If defined, `std::shared_ptr` will be used for Abstract Syntax Tree (AST) node references (`ASTRef`).
  * This provides automatic memory management for AST nodes.
  */
-#define NG_CONING_USING_SHARED_PTR_FOR_AST
+#define NG_CONFIG_USING_SHARED_PTR_FOR_AST
 
 /**
  * @brief If defined, debug logging will be enabled throughout the application.

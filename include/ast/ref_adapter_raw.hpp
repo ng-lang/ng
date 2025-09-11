@@ -24,7 +24,7 @@ namespace NG::ast
      * @return A raw pointer to the new AST node.
      */
     template <class T, class... Args>
-    inline auto makeast(Args &&...args) -> ASTRef<T>
+    [[nodiscard]] inline auto makeast(Args &&...args) -> ASTRef<T>
     {
         return new T{std::forward<Args>(args)...}; // NOLINT(cppcoreguidelines-owning-memory)
     }
@@ -36,7 +36,7 @@ namespace NG::ast
      * @param ref The AST node to destroy.
      */
     template <class T>
-    inline void destroyast(ASTRef<T> ref)
+    inline void destroyast(ASTRef<T> ref) noexcept
     {
         delete ref; // NOLINT(cppcoreguidelines-owning-memory)
     }
@@ -50,7 +50,8 @@ namespace NG::ast
      * @return The casted AST node.
      */
     template <class T, class N>
-    auto dynamic_ast_cast(ASTRef<N> ast) -> ASTRef<T>
+        requires std::derived_from<T, ASTNode> && std::derived_from<N, ASTNode>
+    [[nodiscard]] auto dynamic_ast_cast(ASTRef<N> ast) -> ASTRef<T>
     {
         return dynamic_cast<ASTRef<T>>(ast);
     }
