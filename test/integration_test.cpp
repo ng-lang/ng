@@ -17,6 +17,7 @@ runIntegrationTest(const std::string &filename)
     {
         target = "../" + filename;
     }
+    debug_log("Running " + target);
     std::ifstream file(target);
     std::string source{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
     auto astResult = parse(source, target);
@@ -40,7 +41,7 @@ runIntegrationTest(const std::string &filename)
 
     ast->accept(intp);
 
-    intp->summary();
+    // intp->summary();
 
     delete intp;
     destroyast(ast);

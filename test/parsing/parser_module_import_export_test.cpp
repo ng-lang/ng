@@ -1,9 +1,12 @@
 
 #include "../test.hpp"
+#include <catch2/matchers/catch_matchers_string.hpp>
 
 using namespace NG;
 using namespace NG::ast;
 using namespace NG::parsing;
+
+using Catch::Matchers::ContainsSubstring;
 
 TEST_CASE("parser should parse modules", "[Parser][Module]")
 {
@@ -68,11 +71,10 @@ TEST_CASE("Should export single declaration", "[Parser][Export][Native]")
 
 TEST_CASE("Should not export statement", "[Parser][Export]")
 {
-    auto astResult = parse(R"(
+    parseInvalid(
+        R"(
         export loop x = 1 {
         }
-    )");
-
-    REQUIRE(!astResult.has_value());
-    // destroyast(*astResult);
+    )",
+        "Invalid export");
 }

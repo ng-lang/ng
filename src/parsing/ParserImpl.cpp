@@ -963,14 +963,12 @@ namespace NG::parsing
 
         auto expression() -> ParseResult<ASTRef<Expression>>
         {
-            debug_log("Try primary expression with", state.current());
             auto exprResult = primaryExpression();
             if (!exprResult)
             {
                 return std::unexpected(exprResult.error());
             }
             auto expr = std::move(*exprResult);
-            debug_log("After primary expressiob", state.current());
 
             while (!expectExpressionTerminator() || expect(TokenType::OPERATOR))
             {
@@ -1003,7 +1001,6 @@ namespace NG::parsing
                 }
                 else if (expect(TokenType::OPERATOR))
                 {
-                    debug_log("Found operator", state.current().repr);
                     if (state->operatorType == Operators::ASSIGN)
                     {
                         auto assignExpr = assignmentExpression(std::move(expr));
