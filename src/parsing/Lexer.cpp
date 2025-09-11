@@ -261,6 +261,10 @@ namespace NG::parsing
                 state.next();
                 return token;
             }
+            else
+            {
+                throw LexException("Unknown token: " + std::string(1, current));
+            }
         }
         return {};
     }

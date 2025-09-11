@@ -29,12 +29,12 @@ namespace NG::module
      */
     struct ModuleInfo
     {
-        Str moduleId; ///< The unique ID of the module.
-        Str moduleAbsolutePath; ///< The absolute path to the module.
-        Str moduleName; ///< The name of the module.
-        Str moduleLoadingLocation; ///< The location from which the module was loaded.
-        ASTRef<NG::ast::ASTNode> moduleAst; ///< The AST of the module.
-        Str moduleSource; ///< The source code of the module.
+        Str moduleId;                                    ///< The unique ID of the module.
+        Str moduleName;                                  ///< The name of the module.
+        Str moduleSource;                                ///< The source code of the module.
+        ASTRef<NG::ast::ASTNode> moduleAst;              ///< The AST of the module.
+        Str moduleAbsolutePath;                          ///< The absolute path to the module.
+        Str moduleLoadingLocation;                       ///< The location from which the module was loaded.
         RuntimeRef<NG::runtime::NGModule> runtimeModule; ///< The runtime representation of the module.
     };
 
@@ -44,7 +44,7 @@ namespace NG::module
     class ModuleRegistry : NonCopyable
     {
         Map<Str, RuntimeRef<ModuleInfo>> modules; ///< The modules in the registry.
-        Vec<Str> basePaths; ///< The base paths for module resolution.
+        Vec<Str> basePaths;                       ///< The base paths for module resolution.
 
     public:
         ModuleRegistry(Map<Str, RuntimeRef<ModuleInfo>> modules, Vec<Str> basePaths)
