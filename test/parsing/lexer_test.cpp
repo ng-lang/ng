@@ -18,6 +18,13 @@ TEST_CASE("lexer should accept tokens", "[Lexer][Token]")
     REQUIRE(state.lookAhead() == '\0');
 }
 
+TEST_CASE("lexer should reject unexpected tokens", "[Lexer][Token][Failure]")
+{
+    Lexer lexer{LexState{"@"}};
+
+    REQUIRE_THROWS_AS(lexer.lex(), LexException);
+}
+
 TEST_CASE("lexer should produce correct positions", "[Lexer][Position][Line][Column]")
 {
     Lexer lexer{LexState{">> \n   123\n\n\r\n Bc def"}};
@@ -75,8 +82,12 @@ TEST_CASE("lexer should accept assignment", "[Lexer][Assignment]")
 TEST_CASE("lexer should lex comment", "[Lexer][Comment][Identifier]")
 {
     Lexer lexer{LexState{R"(
+#!shebang like comment
 // comment
-hello
+hello /* multiline comment*/
+/**
+ *  multiline comment
+ */
 // comment
 )"}};
 

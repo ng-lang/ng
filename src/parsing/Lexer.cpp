@@ -210,10 +210,26 @@ namespace NG::parsing
                     }
                     state.next();
                 }
+                else if (state.lookAhead() == '*')
+                {
+                    while (!(state.current() == '*' && state.lookAhead() == '/'))
+                    {
+                        state.next();
+                    }
+                    state.next(2);
+                }
                 else
                 {
                     return lexOperator(state, tokens);
                 }
+            }
+            else if (current == '#')
+            {
+                while (state.current() != '\n')
+                {
+                    state.next();
+                }
+                state.next();
             }
             else if (current == '-')
             {
