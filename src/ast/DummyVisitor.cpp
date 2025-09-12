@@ -14,6 +14,8 @@ namespace NG::ast
 
     void DummyVisitor::visit(IdAccessorExpression *idAccExpr) {}
 
+    void DummyVisitor::visit(UnaryExpression *unoExpr) {}
+
     void DummyVisitor::visit(BinaryExpression *binExpr) {}
 
     void DummyVisitor::visit(AssignmentExpression *assignmentExpr) {}

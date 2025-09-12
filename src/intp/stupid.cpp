@@ -194,6 +194,34 @@ namespace NG::intp
             context->retVal = nullptr;
         }
 
+        void visit(UnaryExpression *unoExpr) override
+        {
+            ExpressionVisitor operandVisitor{context};
+            unoExpr->operand->accept(&operandVisitor);
+            auto result = operandVisitor.object;
+
+            switch (unoExpr->optr->operatorType)
+            {
+            case Operators::MINUS:
+            {
+                auto numeric = dynamic_cast<NumeralBase *>(&(*result));
+                if (numeric)
+                {
+                    this->object = numeric->opNegate();
+                    break;
+                }
+                throw RuntimeException("Cannot negate a non-number");
+            }
+            case Operators::NOT:
+                this->object = NGObject::boolean(!result->boolValue());
+                break;
+            case Operators::QUERY:
+                throw NotImplementedException("Operator QUERY (?) not implemented yet");
+            default:
+                throw RuntimeException("Unsupported Operator");
+            }
+        }
+
         void visit(BinaryExpression *binExpr) override
         {
             ExpressionVisitor leftVisitor{context};

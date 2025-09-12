@@ -65,7 +65,12 @@ namespace NG::runtime
          * @return The result of the modulus operation.
          */
         virtual auto opModulus(const NumeralBase *other) const -> RuntimeRef<NGObject> = 0;
-
+        /**
+         * @brief Computes the negate of this numeral.
+         *
+         * @return The result of the negate operation.
+         */
+        virtual auto opNegate() const -> RuntimeRef<NGObject> = 0;
         NumeralBase() = default;
 
         NumeralBase(const NumeralBase &) = delete;
@@ -198,6 +203,8 @@ namespace NG::runtime
         [[nodiscard]] auto opModulus(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject> override;
 
         auto opModulus(const NumeralBase *other) const -> RuntimeRef<NGObject> override;
+
+        auto opNegate() const -> RuntimeRef<NGObject> override;
 
         /**
          * @brief Returns the value as a `size_t`.
@@ -346,6 +353,16 @@ namespace NG::runtime
         return makert<NGIntegral<T>>(value % d);
     }
 
+    template <std::integral T>
+    auto NGIntegral<T>::opNegate() const -> RuntimeRef<NGObject>
+    {
+        if (signedness())
+        {
+            return makert<NGIntegral<T>>(-value);
+        }
+        throw RuntimeException("Cannot negate unsigned integers");
+    }
+
 #pragma endregion
 
 #pragma region Runtime FloatingPoints
@@ -461,6 +478,8 @@ namespace NG::runtime
         [[nodiscard]] auto opModulus(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject> override;
 
         auto opModulus(const NumeralBase *other) const -> RuntimeRef<NGObject> override;
+
+        auto opNegate() const -> RuntimeRef<NGObject> override;
 
         /**
          * @brief Returns the value as a `size_t`.
@@ -591,6 +610,12 @@ namespace NG::runtime
     auto NGFloatingPoint<T>::opModulus(const NumeralBase *other) const -> RuntimeRef<NGObject>
     {
         throw std::logic_error("floating point not support modulus operation");
+    }
+
+    template <std::floating_point T>
+    auto NGFloatingPoint<T>::opNegate() const -> RuntimeRef<NGObject>
+    {
+        return makert<NGFloatingPoint<T>>(-value);
     }
 
 #pragma endregion

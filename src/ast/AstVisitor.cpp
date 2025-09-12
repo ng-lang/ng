@@ -14,6 +14,8 @@ namespace NG::ast
 
     void AstVisitor::visit(IdAccessorExpression *idAccExpr) {}
 
+    void AstVisitor::visit(UnaryExpression *unoExpr) {}
+
     void AstVisitor::visit(BinaryExpression *binExpr) {}
 
     void AstVisitor::visit(AssignmentExpression *assignmentExpr) {}
