@@ -90,6 +90,7 @@ auto repl() -> int
             {
                 continue;
             }
+            // debug_log(current);
             tokens.push_back(current);
             if (current.type == TokenType::LEFT_CURLY)
             {

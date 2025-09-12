@@ -109,7 +109,7 @@ TEST_CASE("shoud be able to interpret array literal", "[InterpreterTest]")
     interpret(R"(
         val arr = [1, 2, 3, 4, 5];
 
-        print(arr);
+        assert(arr[4] == 5);
     )");
 }
 
@@ -121,13 +121,10 @@ TEST_CASE("shoud be able to interpret array index", "[InterpreterTest]")
 
 
         assert(arr[3] == 4);
-        print(arr[3]);
 
         assert(arr[4] == 5);
         arr[4] = 6;
         assert(arr[4] == 6);
-
-        print(arr);
     )");
 }
 
@@ -139,10 +136,8 @@ TEST_CASE("should be able interpret string member function", "[InterpreterTest]"
         val y = x.size();
 
         assert(y == 3);
-        print(y);
 
         assert(x.charAt(1) == 50);
-        print(x.charAt(2));
     )");
 }
 
@@ -170,42 +165,10 @@ val person = new Person {
 
 assert(person.name().size() == 9);
 
-print(person.kid.name());
+assert(person.kid.name() == "Tiny Leo");
 
-print(person.firstName);
+assert(person.firstName == "Kimmy");
 )");
-}
-
-TEST_CASE("should be able interpret exports", "[InterpreterTestImport]")
-{
-    // todo: replace with a multi module test.
-    //     interpret(R"(
-    // module hello exports (hello, a);
-
-    // fun hello() {
-    //   print("hello world");
-    // }
-
-    // val a = 1;
-
-    // module main;
-
-    // import "hello" (*);
-    // hello();
-
-    // module main2;
-
-    // import "hello" hel;
-
-    // hel.hello();
-
-    // module main3;
-
-    // import hello;
-
-    // hello.hello();
-
-    // )");
 }
 
 TEST_CASE("should be able interpret integral values", "[InterpreterTest]")
@@ -217,7 +180,7 @@ val y = 2u16;
 
 val z = x + y;
 
-print(z);
+assert(z == 3);
 
 )");
 }
@@ -233,7 +196,7 @@ val a = 3i32;
 
 val z = x + y + a;
 
-print(z);
+assert(z == 6.0);
 )");
 }
 
@@ -254,7 +217,6 @@ fun sum(n) {
 val result = sum(10);
 
 assert(result == 55);
-
 )");
 }
 
@@ -304,4 +266,32 @@ some_obj.a = 2;
 
 assert(some_obj.a == 2);
 )");
+}
+
+TEST_CASE("invalid unary operator usage", "[InterpreterTestChecking]")
+{
+    // operator query not implemented
+    REQUIRE_THROWS_MATCHES(interpret("val x = ?5;"), NotImplementedException,
+                           MessageMatches(ContainsSubstring("not implemented yet")));
+
+    // cannot negate non-number
+    REQUIRE_THROWS_MATCHES(interpret("val x = -false;"), RuntimeException,
+                           MessageMatches(ContainsSubstring("Cannot negate a non-number")));
+
+    // cannot negate unsigned number
+    REQUIRE_THROWS_MATCHES(interpret("val x = -1u8;"), RuntimeException,
+                           MessageMatches(ContainsSubstring("Cannot negate unsigned integers")));
+}
+
+TEST_CASE("unary operator usage", "[InterpreterTestChecking]")
+{
+    interpret(R"(
+            val x = 1;
+            val y = -1;
+            assert(x == -y);
+            assert(x != y);
+            assert(!false);
+            assert(!(!true));
+            assert(0.0 > -1.0);
+        )");
 }

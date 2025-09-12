@@ -19,8 +19,10 @@ TEST_CASE("test NGIntegral<T> dbz", "[Numeral][Runtime][Failure]")
     auto a = makert<NGIntegral<int>>(1);
     auto zero = makert<NGIntegral<int>>(0);
 
-    REQUIRE_THROWS_AS(a->opDividedBy(zero), NG::RuntimeException);
-    REQUIRE_THROWS_AS(a->opModulus(zero), NG::RuntimeException);
+    REQUIRE_THROWS_MATCHES(a->opDividedBy(zero), NG::RuntimeException,
+                           MessageMatches(ContainsSubstring("Division by zero")));
+    REQUIRE_THROWS_MATCHES(a->opModulus(zero), NG::RuntimeException,
+                           MessageMatches(ContainsSubstring("Modulus by zero")));
 }
 
 TEST_CASE("test NGFloatingPoint<T>", "[Numeral][Runtime][Failure]")
@@ -32,4 +34,14 @@ TEST_CASE("test NGFloatingPoint<T>", "[Numeral][Runtime][Failure]")
 
     REQUIRE(a->opLessEqual(b));
     REQUIRE(b->opGreaterEqual(a));
+}
+
+TEST_CASE("test NGInteger<T> negates", "[Numeral][Runtime][Failure]")
+{
+    auto a = makert<NGIntegral<int>>(std::numeric_limits<int>::min());
+
+    REQUIRE(a->signedness());
+
+    REQUIRE_THROWS_MATCHES(a->opNegate(), RuntimeException,
+                           MessageMatches(ContainsSubstring("Overflow on negation")));
 }

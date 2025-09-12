@@ -153,6 +153,13 @@ namespace NG::ast
         virtual void visit(TypeCheckingExpression *typeCheck) = 0;
 
         /**
+         * @brief Visits a unary expression.
+         *
+         * @param unoExpr The unary expression to visit.
+         */
+        virtual void visit(UnaryExpression *unoExpr) = 0;
+
+        /**
          * @brief Visits a binary expression.
          *
          * @param binExpr The binary expression to visit.
@@ -308,6 +315,8 @@ namespace NG::ast
         void visit(IndexAssignmentExpression *index) override;
 
         void visit(TypeCheckingExpression *typeCheck) override;
+
+        void visit(UnaryExpression *unoExpr) override;
 
         void visit(BinaryExpression *binExpr) override;
 

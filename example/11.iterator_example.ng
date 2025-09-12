@@ -20,13 +20,14 @@ type List {
     property size;
 
     fun append(value) {
+        print("append", value, self);
         self.size = self.size + 1;
         if (self.node is None) {
             self.node = new Node {
                 _next: new None {},
                 content: value
             };
-        } else if (not(self.node.hasNext())) {
+        } else if (!self.node.hasNext()) {
             self.node._next = new Node {
                 _next: new None {},
                 content: value
@@ -36,7 +37,7 @@ type List {
                 if (current.hasNext()) {
                     current = current.getNext();
 
-                    if (not(current.hasNext())) {
+                    if (!current.hasNext()) {
                         current._next = new Node {
                             _next: current._next,
                             content: value
@@ -50,7 +51,7 @@ type List {
     }
 
     fun hasNext() {
-        return not(self.node is None);
+        return !(self.node is None);
     }
 
     fun getNext() {

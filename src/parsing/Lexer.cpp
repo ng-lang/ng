@@ -204,16 +204,56 @@ namespace NG::parsing
             {
                 if (state.lookAhead() == '/')
                 {
-                    while (state.current() != '\n')
+                    while (state.current() != '\n' && !state.eof())
                     {
                         state.next();
                     }
+                    if (!state.eof())
+                    {
+                        state.nextLine();
+                    }
                     state.next();
+                }
+                else if (state.lookAhead() == '*')
+                {
+                    // consume '/*'
+                    state.next(2);
+                    while (!state.eof())
+                    {
+                        if (state.current() == '\n')
+                        {
+                            state.next();
+                            state.nextLine();
+                            continue;
+                        }
+                        if (state.current() == '*' && state.lookAhead() == '/')
+                        {
+                            state.next(2);
+                            break;
+                        }
+                        state.next();
+                    }
+                    if (state.eof())
+                    {
+                        throw LexException("Unterminated block comment");
+                    }
                 }
                 else
                 {
                     return lexOperator(state, tokens);
                 }
+            }
+            else if (current == '#')
+            {
+                while (state.current() != '\n' && !state.eof())
+                {
+                    state.next();
+                }
+                if (!state.eof())
+                {
+                    state.nextLine();
+                }
+                state.next();
             }
             else if (current == '-')
             {
@@ -260,6 +300,10 @@ namespace NG::parsing
                 tokens.push_back(token);
                 state.next();
                 return token;
+            }
+            else
+            {
+                throw LexException("Unknown token: " + std::string(1, current));
             }
         }
         return {};
