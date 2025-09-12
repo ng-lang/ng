@@ -6,20 +6,25 @@ namespace NG::typecheck
 {
     using namespace NG::ast;
 
-    constexpr inline bool isIntegralType(primitive_tag tag) noexcept
+    constexpr inline bool isIntegralType(typeinfo_tag tag) noexcept
     {
         auto c = code(tag);
-        return c >= code(primitive_tag::SIGNED) && c < code(FLOATING_POINT);
+        return c >= code(typeinfo_tag::SIGNED) && c < code(typeinfo_tag::FLOATING_POINT);
     }
-    constexpr inline bool isSigned(primitive_tag tag) noexcept
+    constexpr inline bool isSigned(typeinfo_tag tag) noexcept
     {
         auto c = code(tag);
-        return (c & 0xF0) == code(primitive_tag::SIGNED);
+        return (c & 0xF0) == code(typeinfo_tag::SIGNED);
     }
-    constexpr inline bool isFloatingPoint(primitive_tag tag) noexcept
+    constexpr inline bool isPrimitive(typeinfo_tag tag) noexcept
     {
         auto c = code(tag);
-        return (c & 0xF0) == code(primitive_tag::FLOATING_POINT);
+        return c >= code(typeinfo_tag::PRIMITIVES) && c < code(typeinfo_tag::COLLECTION_TYPE);
+    }
+    constexpr inline bool isFloatingPoint(typeinfo_tag tag) noexcept
+    {
+        auto c = code(tag);
+        return (c & 0xF0) == code(typeinfo_tag::FLOATING_POINT);
     }
 
     struct TypeChecker : DummyVisitor
@@ -72,7 +77,7 @@ namespace NG::typecheck
             else
             {
                 // No annotation provided: assume unit to keep type-checking total.
-                returnType = makecheck<PrimitiveType>(primitive_tag::UNIT);
+                returnType = makecheck<PrimitiveType>(typeinfo_tag::UNIT);
             }
             // todo: check function definition body to ensure return type corrects
             auto funType = makecheck<FunctionType>(returnType, paramTypes);
@@ -113,53 +118,53 @@ namespace NG::typecheck
 
         void visit(StringValue *value) override
         {
-            result = makecheck<PrimitiveType>(primitive_tag::STRING);
+            result = makecheck<PrimitiveType>(typeinfo_tag::STRING);
         }
 
         void visit(BooleanValue *value) override
         {
-            result = makecheck<PrimitiveType>(primitive_tag::BOOL);
+            result = makecheck<PrimitiveType>(typeinfo_tag::BOOL);
         }
         void visit(IntegralValue<int8_t> *intVal) override
         {
-            result = makecheck<PrimitiveType>(primitive_tag::I8);
+            result = makecheck<PrimitiveType>(typeinfo_tag::I8);
         }
         void visit(IntegralValue<uint8_t> *intVal) override
         {
-            result = makecheck<PrimitiveType>(primitive_tag::U8);
+            result = makecheck<PrimitiveType>(typeinfo_tag::U8);
         }
         void visit(IntegralValue<int16_t> *intVal) override
         {
-            result = makecheck<PrimitiveType>(primitive_tag::I16);
+            result = makecheck<PrimitiveType>(typeinfo_tag::I16);
         }
         void visit(IntegralValue<uint16_t> *intVal) override
         {
-            result = makecheck<PrimitiveType>(primitive_tag::U16);
+            result = makecheck<PrimitiveType>(typeinfo_tag::U16);
         }
         void visit(IntegralValue<int32_t> *intVal) override
         {
-            result = makecheck<PrimitiveType>(primitive_tag::I32);
+            result = makecheck<PrimitiveType>(typeinfo_tag::I32);
         }
         void visit(IntegralValue<uint32_t> *intVal) override
         {
-            result = makecheck<PrimitiveType>(primitive_tag::U32);
+            result = makecheck<PrimitiveType>(typeinfo_tag::U32);
         }
         void visit(IntegralValue<int64_t> *intVal) override
         {
-            result = makecheck<PrimitiveType>(primitive_tag::I64);
+            result = makecheck<PrimitiveType>(typeinfo_tag::I64);
         }
         void visit(IntegralValue<uint64_t> *intVal) override
         {
-            result = makecheck<PrimitiveType>(primitive_tag::U64);
+            result = makecheck<PrimitiveType>(typeinfo_tag::U64);
         }
         // void visit(FloatingPointValue<float16_t> *floatVal) override {}
         void visit(FloatingPointValue<float /* float32_t */> *floatVal) override
         {
-            result = makecheck<PrimitiveType>(primitive_tag::F32);
+            result = makecheck<PrimitiveType>(typeinfo_tag::F32);
         }
         void visit(FloatingPointValue<double /* float64_t */> *floatVal) override
         {
-            result = makecheck<PrimitiveType>(primitive_tag::F64);
+            result = makecheck<PrimitiveType>(typeinfo_tag::F64);
         }
         // void AstVisitor::visit(FloatingPointValue<float128_t> *floatVal) override {}
 
@@ -172,10 +177,10 @@ namespace NG::typecheck
             {
             case Operators::MINUS:
             {
-                if (operandType->tag() == typeinfo_tag::PRIMITIVE)
+                if (isPrimitive(operandType->tag()))
                 {
                     PrimitiveType &primitive = static_cast<PrimitiveType &>(*operandType);
-                    if (isSigned(primitive.primitive()) || isFloatingPoint(primitive.primitive()))
+                    if (isSigned(primitive.tag()) || isFloatingPoint(primitive.tag()))
                     {
                         result = operandType;
                         return;
@@ -186,7 +191,7 @@ namespace NG::typecheck
             }
             case Operators::NOT:
             {
-                result = makecheck<PrimitiveType>(primitive_tag::BOOL);
+                result = makecheck<PrimitiveType>(typeinfo_tag::BOOL);
                 return;
             }
             case Operators::QUERY:
@@ -205,7 +210,7 @@ namespace NG::typecheck
             auto leftType = checker.result;
             expression->right->accept(&checker);
             auto rightType = checker.result;
-            if (leftType->tag() == typeinfo_tag::PRIMITIVE)
+            if (isPrimitive(leftType->tag()))
             {
                 PrimitiveType &leftPrimitive = static_cast<PrimitiveType &>(*leftType);
                 switch (expression->optr->operatorType)
@@ -213,7 +218,7 @@ namespace NG::typecheck
                 case Operators::MODULUS:
                 case Operators::LSHIFT:
                 case Operators::RSHIFT:
-                    if (!isIntegralType(leftPrimitive.primitive()))
+                    if (!isIntegralType(leftPrimitive.tag()))
                     {
                         throw TypeCheckingException("Invalid type for modulus: " + leftPrimitive.repr());
                     }
@@ -248,7 +253,7 @@ namespace NG::typecheck
                 case Operators::LT:
                     if (leftPrimitive.match(*rightType) || rightType->match(leftPrimitive))
                     {
-                        result = makecheck<PrimitiveType>(primitive_tag::BOOL);
+                        result = makecheck<PrimitiveType>(typeinfo_tag::BOOL);
                     }
                     else
                     {
@@ -307,9 +312,26 @@ namespace NG::typecheck
         void visit(TypeAnnotation *annotation) override
         {
             auto typecode = code(annotation->type);
-            if (typecode > code(TypeAnnotationType::BUILTIN) && typecode < code(TypeAnnotationType::CUSTOMIZED))
+            if (typecode > code(TypeAnnotationType::BUILTIN) && typecode < code(TypeAnnotationType::END_OF_BUILTIN))
             {
                 result = PrimitiveType::from(annotation->type);
+            }
+            else if (annotation->type == TypeAnnotationType::ARRAY)
+            {
+                if (annotation->arguments.size() == 1)
+                {
+                    auto arg = annotation->arguments[0];
+                    TypeChecker checker{locals};
+                    arg->accept(&checker);
+                    auto argType = checker.result;
+                    if (argType)
+                    {
+                        result = makecheck<ArrayType>(argType);
+                        return;
+                    }
+                    throw TypeCheckingException("Unknown element type for array");
+                    // todo: ArrayLiteral, IndexAccessor, IndexAssignment, opLshift
+                }
             }
             else
             {

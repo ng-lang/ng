@@ -102,7 +102,9 @@ namespace NG::ast
         }
         const auto &anno = dynamic_cast<const TypeAnnotation &>(node);
         return anno.name == name &&
-               anno.type == type;
+               anno.type == type &&
+               std::equal(arguments.begin(), arguments.end(), anno.arguments.begin(),
+                          ASTComparator);
     }
 
     auto TypeAnnotation::repr() const -> Str

@@ -211,9 +211,17 @@ namespace NG::ast
         BUILTIN_F32,
         BUILTIN_F64,
         BUILTIN_F128,
-        CUSTOMIZED = 0x81,
+        END_OF_BUILTIN = 0x7F,
+        COMPOSITE = 0x80,
+        ARRAY = 0x81,
+        VECTOR = 0x82,
+        // TUPLE,
+        // LIST,
+        // DICT,
+        CUSTOMIZED = 0xD1,
     };
 
+    struct TypeAnnotation;
     /**
      * @brief A type annotation.
      */
@@ -221,6 +229,7 @@ namespace NG::ast
     {
         const Str name;            ///< The name of the type.
         TypeAnnotationType type{}; ///< The type of the annotation.
+        Vec<ASTRef<ASTNode>> arguments;
 
         explicit TypeAnnotation(Str _name) : name(std::move(_name)) {}
 

@@ -13,11 +13,10 @@ TEST_CASE("should be able check unary expression", "[TypeCheck][UnaryExpression]
 
     auto index = type_check(*astResult);
 
-    REQUIRE(index["x"]->tag() == typeinfo_tag::PRIMITIVE);
-    check_primitive_type(*index["x"], primitive_tag::I32);
-    check_primitive_type(*index["y"], primitive_tag::I32);
-    check_primitive_type(*index["z"], primitive_tag::F32);
-    check_primitive_type(*index["result"], primitive_tag::BOOL);
+    check_type_tag(*index["x"], typeinfo_tag::I32);
+    check_type_tag(*index["y"], typeinfo_tag::I32);
+    check_type_tag(*index["z"], typeinfo_tag::F32);
+    check_type_tag(*index["result"], typeinfo_tag::BOOL);
 }
 
 TEST_CASE("should type check unary expression fail", "[UnaryExpression][TypeCheck][Failure]")

@@ -683,6 +683,20 @@ namespace NG::parsing
                 accept(maybeBuiltin);
                 return anno;
             }
+            if (maybeBuiltin == TokenType::LEFT_SQUARE)
+            {
+                auto array = makeast<TypeAnnotation>("array");
+                accept(TokenType::LEFT_SQUARE);
+                array->type = TypeAnnotationType::ARRAY;
+                auto argumentRst = typeAnnotation();
+                if (!argumentRst)
+                {
+                    return std::unexpected(argumentRst.error());
+                }
+                array->arguments.push_back(*argumentRst);
+                accept(TokenType::RIGHT_SQUARE);
+                return array;
+            }
             if (maybeBuiltin == TokenType::ID)
             {
                 ASTRef<TypeAnnotation> anno = makeast<TypeAnnotation>(state->repr);

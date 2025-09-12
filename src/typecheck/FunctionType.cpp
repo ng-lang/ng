@@ -20,9 +20,9 @@ namespace NG::typecheck
         return ref;
     }
 
-    auto FunctionType::collection_tag() const -> collection_type_tag
+    auto FunctionType::tag() const -> typeinfo_tag
     {
-        return collection_type_tag::FUNCTION;
+        return typeinfo_tag::FUNCTION;
     }
     auto FunctionType::repr() const -> Str
     {
@@ -42,22 +42,18 @@ namespace NG::typecheck
     }
     auto FunctionType::match(const TypeInfo &other) const -> bool
     {
-        if (other.tag() == typeinfo_tag::COLLECTION)
+        if (other.tag() == typeinfo_tag::FUNCTION)
         {
-            const CollectionType &otherCollection = static_cast<const CollectionType &>(other);
-            if (otherCollection.collection_tag() == collection_type_tag::FUNCTION)
+            const FunctionType &otherFunction = static_cast<const FunctionType &>(other);
+            if (!this->returnType->match(*otherFunction.returnType))
             {
-                const FunctionType &otherFunction = static_cast<const FunctionType &>(other);
-                if (!this->returnType->match(*otherFunction.returnType))
-                {
-                    return false;
-                }
-                Vec<CheckingRef<TypeInfo>> actualTypes{};
-                actualTypes.reserve(this->parametersType.size());
-                std::transform(this->parametersType.begin(), this->parametersType.end(), std::back_inserter(actualTypes),
-                               unwrapParamWithDefault);
-                return otherFunction.applyWith(actualTypes);
+                return false;
             }
+            Vec<CheckingRef<TypeInfo>> actualTypes{};
+            actualTypes.reserve(this->parametersType.size());
+            std::transform(this->parametersType.begin(), this->parametersType.end(), std::back_inserter(actualTypes),
+                           unwrapParamWithDefault);
+            return otherFunction.applyWith(actualTypes);
         }
         return false;
     }
@@ -92,8 +88,8 @@ namespace NG::typecheck
         return paramType->match(other);
     }
 
-    auto ParamWithDefaultValueType::collection_tag() const -> collection_type_tag
+    auto ParamWithDefaultValueType::tag() const -> typeinfo_tag
     {
-        return collection_type_tag::PARAM_WITH_DEFAULT_VALUE;
+        return typeinfo_tag::PARAM_WITH_DEFAULT_VALUE;
     }
 }

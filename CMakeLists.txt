@@ -53,6 +53,7 @@ set(NG_LIB_SRC
         src/typecheck/typeinfo.cpp
         src/typecheck/PrimitiveType.cpp
         src/typecheck/FunctionType.cpp
+        src/typecheck/ArrayType.cpp
         )
 
 set(NG_TEST_SRC
@@ -66,6 +67,7 @@ set(NG_TEST_SRC
         test/parsing/parser_type_object_test.cpp
         test/parsing/parser_control_flow_test.cpp
         test/parsing/parser_unary_expression_test.cpp
+        test/parsing/parse_composite_type_test.cpp
         test/integration_test.cpp
         test/runtime/interpreter_test.cpp
         test/runtime/runtime_numeral_test.cpp

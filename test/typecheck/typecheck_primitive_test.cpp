@@ -13,11 +13,11 @@ TEST_CASE("should be able check primitive definitions", "[TypeCheck][Primitive][
 
     auto index = type_check(*astResult);
 
-    REQUIRE(index["x"]->tag() == typeinfo_tag::PRIMITIVE);
-    check_primitive_type(*index["x"], primitive_tag::I32);
-    check_primitive_type(*index["y"], primitive_tag::I64);
-    check_primitive_type(*index["greater"], primitive_tag::BOOL);
-    check_primitive_type(*index["z"], primitive_tag::I16);
+    REQUIRE(index["x"]->tag() == typeinfo_tag::I32);
+    check_type_tag(*index["x"], typeinfo_tag::I32);
+    check_type_tag(*index["y"], typeinfo_tag::I64);
+    check_type_tag(*index["greater"], typeinfo_tag::BOOL);
+    check_type_tag(*index["z"], typeinfo_tag::I16);
 }
 
 TEST_CASE("should type check primitives fail", "[Primitive][TypeCheck][Failure]")
