@@ -23,13 +23,11 @@ type List {
         print("append", value, self);
         self.size = self.size + 1;
         if (self.node is None) {
-            print("append to none", value, self);
             self.node = new Node {
                 _next: new None {},
                 content: value
             };
         } else if (!self.node.hasNext()) {
-            print("append to first", value, self);
             self.node._next = new Node {
                 _next: new None {},
                 content: value
@@ -40,7 +38,6 @@ type List {
                     current = current.getNext();
 
                     if (!current.hasNext()) {
-                        print("append to last", value, self);
                         current._next = new Node {
                             _next: current._next,
                             content: value
