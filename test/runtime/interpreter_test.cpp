@@ -271,13 +271,16 @@ assert(some_obj.a == 2);
 TEST_CASE("invalid unary operator usage", "[InterpreterTestChecking]")
 {
     // operator query not implemented
-    REQUIRE_THROWS_AS(interpret("val x = ?5;"), NotImplementedException);
+    REQUIRE_THROWS_MATCHES(interpret("val x = ?5;"), NotImplementedException,
+                           MessageMatches(ContainsSubstring("not implemented yet")));
 
     // cannot negate non-number
-    REQUIRE_THROWS_AS(interpret("val x = -false;"), RuntimeException);
+    REQUIRE_THROWS_MATCHES(interpret("val x = -false;"), RuntimeException,
+                           MessageMatches(ContainsSubstring("Cannot negate a non-number")));
 
     // cannot negate unsigned number
-    REQUIRE_THROWS_AS(interpret("val x = -1u8;"), RuntimeException);
+    REQUIRE_THROWS_MATCHES(interpret("val x = -1u8;"), RuntimeException,
+                           MessageMatches(ContainsSubstring("Cannot negate unsigned integers")));
 }
 
 TEST_CASE("unary operator usage", "[InterpreterTestChecking]")

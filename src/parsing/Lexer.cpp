@@ -204,19 +204,39 @@ namespace NG::parsing
             {
                 if (state.lookAhead() == '/')
                 {
-                    while (state.current() != '\n')
+                    while (state.current() != '\n' && !state.eof())
                     {
                         state.next();
+                    }
+                    if (!state.eof())
+                    {
+                        state.nextLine();
                     }
                     state.next();
                 }
                 else if (state.lookAhead() == '*')
                 {
-                    while (!(state.current() == '*' && state.lookAhead() == '/'))
+                    // consume '/*'
+                    state.next(2);
+                    while (!state.eof())
                     {
+                        if (state.current() == '\n')
+                        {
+                            state.next();
+                            state.nextLine();
+                            continue;
+                        }
+                        if (state.current() == '*' && state.lookAhead() == '/')
+                        {
+                            state.next(2);
+                            break;
+                        }
                         state.next();
                     }
-                    state.next(2);
+                    if (state.eof())
+                    {
+                        throw LexException("Unterminated block comment");
+                    }
                 }
                 else
                 {
@@ -225,9 +245,13 @@ namespace NG::parsing
             }
             else if (current == '#')
             {
-                while (state.current() != '\n')
+                while (state.current() != '\n' && !state.eof())
                 {
                     state.next();
+                }
+                if (!state.eof())
+                {
+                    state.nextLine();
                 }
                 state.next();
             }

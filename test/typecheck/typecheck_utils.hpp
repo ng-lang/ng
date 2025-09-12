@@ -35,7 +35,8 @@ inline void typecheck_failure(const Str &source, const Str &expected_error = "")
 
 inline void check_primitive_type(TypeInfo &typeInfo, primitive_tag primitive_tag)
 {
-    PrimitiveType &primitive = static_cast<PrimitiveType &>(typeInfo);
+    REQUIRE(typeInfo.tag() == typeinfo_tag::PRIMITIVE);
+    auto &primitive = static_cast<PrimitiveType &>(typeInfo);
 
     REQUIRE(primitive.primitive() == primitive_tag);
 }

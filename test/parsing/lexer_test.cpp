@@ -22,7 +22,8 @@ TEST_CASE("lexer should reject unexpected tokens", "[Lexer][Token][Failure]")
 {
     Lexer lexer{LexState{"@"}};
 
-    REQUIRE_THROWS_AS(lexer.lex(), LexException);
+    REQUIRE_THROWS_MATCHES(lexer.lex(), LexException,
+                           MessageMatches(ContainsSubstring("Unknown token")));
 }
 
 TEST_CASE("lexer should produce correct positions", "[Lexer][Position][Line][Column]")
@@ -95,4 +96,20 @@ hello /* multiline comment*/
 
     REQUIRE(tokens.size() == 1);
     REQUIRE(tokens[0].type == TokenType::ID);
+}
+
+TEST_CASE("lexer should lex single line comment without newline", "[Lexer][Comment][Identifier]")
+{
+    REQUIRE(Lexer{LexState{"// comment"}}.lex().size() == 0);
+
+    REQUIRE(Lexer{LexState{"# comment"}}.lex().size() == 0);
+}
+
+TEST_CASE("lexer should fail with invalid multiline comment", "[Lexer][Comment][Identifier][Failure]")
+{
+    REQUIRE_THROWS_MATCHES(Lexer{LexState{"/*/"}}.lex(), LexException,
+                           MessageMatches(ContainsSubstring("Unterminated block comment")));
+
+    REQUIRE_THROWS_MATCHES(Lexer{LexState{"/*"}}.lex(), LexException,
+                           MessageMatches(ContainsSubstring("Unterminated block comment")));
 }

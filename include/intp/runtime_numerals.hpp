@@ -2,6 +2,7 @@
 
 #include <intp/runtime.hpp>
 #include <cmath>
+#include <limits>
 
 namespace NG::runtime
 {
@@ -348,7 +349,7 @@ namespace NG::runtime
         const auto d = NGIntegral<T>(other).value;
         if (d == 0)
         {
-            throw RuntimeException("Division by zero");
+            throw RuntimeException("Modulus by zero");
         }
         return makert<NGIntegral<T>>(value % d);
     }
@@ -358,6 +359,11 @@ namespace NG::runtime
     {
         if (signedness())
         {
+            using Lim = std::numeric_limits<T>;
+            if (value == Lim::min())
+            {
+                throw RuntimeException("Overflow on negation");
+            }
             return makert<NGIntegral<T>>(-value);
         }
         throw RuntimeException("Cannot negate unsigned integers");

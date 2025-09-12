@@ -204,17 +204,17 @@ namespace NG::intp
             {
             case Operators::MINUS:
             {
-                auto numeric = dynamic_cast<NumeralBase *>(&(*result));
+                auto numeric = dynamic_cast<NumeralBase *>(result.get());
                 if (numeric)
                 {
                     this->object = numeric->opNegate();
-                    break;
+                    return;
                 }
                 throw RuntimeException("Cannot negate a non-number");
             }
             case Operators::NOT:
                 this->object = NGObject::boolean(!result->boolValue());
-                break;
+                return;
             case Operators::QUERY:
                 throw NotImplementedException("Operator QUERY (?) not implemented yet");
             default:

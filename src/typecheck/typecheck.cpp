@@ -194,7 +194,7 @@ namespace NG::typecheck
                 throw TypeCheckingException("Not supported operator QUERY (?).");
             }
             default:
-                break;
+                throw TypeCheckingException("Unsupported unary operator.");
             }
         }
 
