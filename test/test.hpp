@@ -38,6 +38,7 @@ inline ParseResult<ASTRef<ASTNode>> parse(const Str &source, const Str &moduleNa
                       location);
         }
     }
+    // debug_log("Parsed ast", (*astResult)->repr());
     return astResult;
 }
 

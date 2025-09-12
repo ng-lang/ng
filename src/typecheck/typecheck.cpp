@@ -11,6 +11,16 @@ namespace NG::typecheck
         auto c = code(tag);
         return c >= code(primitive_tag::SIGNED) && c < code(FLOATING_POINT);
     }
+    inline bool isSigned(primitive_tag tag)
+    {
+        auto c = code(tag);
+        return (c & 0xF0) == code(primitive_tag::SIGNED);
+    }
+    inline bool isFloatingPoint(primitive_tag tag)
+    {
+        auto c = code(tag);
+        return (c & 0xF0) == code(primitive_tag::FLOATING_POINT);
+    }
 
     struct TypeChecker : DummyVisitor
     {
@@ -152,6 +162,41 @@ namespace NG::typecheck
             result = makecheck<PrimitiveType>(primitive_tag::F64);
         }
         // void AstVisitor::visit(FloatingPointValue<float128_t> *floatVal) override {}
+
+        void visit(UnaryExpression *unoExpr) override
+        {
+            TypeChecker checker{locals};
+            unoExpr->operand->accept(&checker);
+            auto operandType = checker.result;
+            switch (unoExpr->optr->operatorType)
+            {
+            case Operators::MINUS:
+            {
+                if (operandType->tag() == typeinfo_tag::PRIMITIVE)
+                {
+                    PrimitiveType &primitive = static_cast<PrimitiveType &>(*operandType);
+                    if (isSigned(primitive.primitive()) || isFloatingPoint(primitive.primitive()))
+                    {
+                        result = operandType;
+                        return;
+                    }
+                }
+
+                throw TypeCheckingException("Invalid operand type for negate operation.");
+            }
+            case Operators::NOT:
+            {
+                result = makecheck<PrimitiveType>(primitive_tag::BOOL);
+                return;
+            }
+            case Operators::QUERY:
+            {
+                throw TypeCheckingException("Not supported operator QUERY (?).");
+            }
+            default:
+                break;
+            }
+        }
 
         void visit(BinaryExpression *expression) override
         {
