@@ -6,17 +6,17 @@ namespace NG::typecheck
 {
     using namespace NG::ast;
 
-    inline bool isIntegralType(primitive_tag tag)
+    constexpr inline bool isIntegralType(primitive_tag tag) noexcept
     {
         auto c = code(tag);
         return c >= code(primitive_tag::SIGNED) && c < code(FLOATING_POINT);
     }
-    inline bool isSigned(primitive_tag tag)
+    constexpr inline bool isSigned(primitive_tag tag) noexcept
     {
         auto c = code(tag);
         return (c & 0xF0) == code(primitive_tag::SIGNED);
     }
-    inline bool isFloatingPoint(primitive_tag tag)
+    constexpr inline bool isFloatingPoint(primitive_tag tag) noexcept
     {
         auto c = code(tag);
         return (c & 0xF0) == code(primitive_tag::FLOATING_POINT);

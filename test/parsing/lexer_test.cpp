@@ -82,19 +82,19 @@ TEST_CASE("lexer should accept assignment", "[Lexer][Assignment]")
 
 TEST_CASE("lexer should lex comment", "[Lexer][Comment][Identifier]")
 {
-    Lexer lexer{LexState{R"(
-#!shebang like comment
+    Lexer lexer{LexState{R"(#!shebang like comment
 // comment
 hello /* multiline comment*/
 /**
  *  multiline comment
  */
+hello world
 // comment
 )"}};
 
     auto &&tokens = lexer.lex();
 
-    REQUIRE(tokens.size() == 1);
+    REQUIRE(tokens.size() == 3);
     REQUIRE(tokens[0].type == TokenType::ID);
 }
 
@@ -103,6 +103,8 @@ TEST_CASE("lexer should lex single line comment without newline", "[Lexer][Comme
     REQUIRE(Lexer{LexState{"// comment"}}.lex().size() == 0);
 
     REQUIRE(Lexer{LexState{"# comment"}}.lex().size() == 0);
+
+    REQUIRE(Lexer{LexState{"#!/usr/bin/env ng"}}.lex().size() == 0);
 }
 
 TEST_CASE("lexer should fail with invalid multiline comment", "[Lexer][Comment][Identifier][Failure]")
@@ -111,5 +113,8 @@ TEST_CASE("lexer should fail with invalid multiline comment", "[Lexer][Comment][
                            MessageMatches(ContainsSubstring("Unterminated block comment")));
 
     REQUIRE_THROWS_MATCHES(Lexer{LexState{"/*"}}.lex(), LexException,
+                           MessageMatches(ContainsSubstring("Unterminated block comment")));
+
+    REQUIRE_THROWS_MATCHES(Lexer{LexState{"/**"}}.lex(), LexException,
                            MessageMatches(ContainsSubstring("Unterminated block comment")));
 }

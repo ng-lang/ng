@@ -45,3 +45,17 @@ TEST_CASE("test NGInteger<T> negates", "[Numeral][Runtime][Failure]")
     REQUIRE_THROWS_MATCHES(a->opNegate(), RuntimeException,
                            MessageMatches(ContainsSubstring("Overflow on negation")));
 }
+
+TEST_CASE("NGIntegral<unsigned> negates: disallowed", "[Numeral][Runtime][Failure]")
+{
+    auto u = makert<NGIntegral<unsigned int>>(42u);
+    REQUIRE_THROWS_MATCHES(u->opNegate(), RuntimeException,
+                           MessageMatches(ContainsSubstring("Cannot negate unsigned integers")));
+}
+
+TEST_CASE("NGFloatingPoint<T> negates", "[Numeral][Runtime]")
+{
+    auto f = makert<NGFloatingPoint<float>>(-3.5f);
+    auto n = f->opNegate();
+    REQUIRE(n->opEquals(makert<NGFloatingPoint<float>>(3.5f)));
+}
