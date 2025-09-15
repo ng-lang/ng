@@ -29,6 +29,8 @@ jobs:
         working-directory: ./build
       - run: ./ng_test --reporter JUnit::out=ng_test.junit.xml --reporter console::out=-::colour-mode=ansi
         working-directory: ./build
+      - run: ./feature_test
+        working-directory: ./build
       - run: ../utils/coverage_report.sh
         working-directory: ./build
       - name: Upload coverage reports to Codecov with GitHub Action

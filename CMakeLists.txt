@@ -24,6 +24,9 @@ add_subdirectory(vendored/Catch2@v3.8.1 EXCLUDE_FROM_ALL)
 add_subdirectory(vendored/SDL@release-3.2.22 EXCLUDE_FROM_ALL)
 add_subdirectory(vendored/imgui)
 
+Include(CTest)
+Include(Catch)
+
 set(NG_LIB_SRC
         src/ast/ast.cpp
         src/token.cpp
@@ -76,8 +79,9 @@ set(NG_TEST_SRC
         test/typecheck/typecheck_primitive_test.cpp
         test/typecheck/typecheck_function_test.cpp
         test/typecheck/typecheck_expression_test.cpp
-        )
+)
 
+add_executable(feature_test test/feature_test.cpp)
 
 add_library(ng ${NG_LIB_SRC})
 target_include_directories(ng PUBLIC include)
@@ -117,4 +121,6 @@ endif()
 add_executable(ng_imgui_demo test/imgui/main.cpp)
 target_link_libraries(ng_imgui_demo PRIVATE imgui SDL3::SDL3-static)
 
- # endregion ng_imgui_demo
+# endregion ng_imgui_demo
+
+catch_discover_tests(ng_test)
