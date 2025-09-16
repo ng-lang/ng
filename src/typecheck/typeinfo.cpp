@@ -33,9 +33,4 @@ namespace NG::typecheck
     }
 
     Untyped::~Untyped() = default;
-
-    auto CollectionType::collection_tag() const -> collection_type_tag
-    {
-        return collection_type_tag::UNKNOWN;
-    }
 }

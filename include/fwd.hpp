@@ -5,6 +5,53 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <list>
+#include <concepts>
+#include <type_traits>
+#include <iterator>
+#include <cstddef>
+#include <algorithm>
+
+/**
+ * @brief Extracts the keys from an unordered_map.
+ *
+ * @tparam K The key type of the map.
+ * @tparam V The value type of the map.
+ * @param map The map from which to extract keys.
+ * @return A vector containing the keys of the map.
+ */
+template <class K, class V>
+auto keys_of(const std::unordered_map<K, V> &map) -> std::vector<K>
+{
+    std::vector<K> keys{};
+    keys.reserve(map.size());
+    std::transform(map.begin(), map.end(), std::back_inserter(keys),
+                   [](const auto &pair)
+                   { return pair.first; });
+    return keys;
+}
+
+/**
+ * @brief Concept for container-like types.
+ *
+ * A type is considered a container if it has `begin()`, `end()`, and `size()` methods,
+ * and is not a `std::string`.
+ *
+ * @tparam T The type to check.
+ */
+template <typename T>
+concept Container = !std::same_as<std::decay_t<T>, std::string> && requires(T t) {
+    { t.begin() } -> std::input_iterator;
+    { t.end() } -> std::input_iterator;
+    { t.size() } -> std::convertible_to<std::size_t>;
+};
+
+/**
+ * @brief Concept for non-container types.
+ *
+ * @tparam T The type to check.
+ */
+template <typename T>
+concept NonContainer = !Container<T>;
 
 namespace NG
 {

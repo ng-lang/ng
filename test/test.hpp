@@ -6,6 +6,7 @@
 
 #include <ast.hpp>
 #include <parser.hpp>
+#include <token.hpp>
 #include <debug.hpp>
 
 #include <format>

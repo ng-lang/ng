@@ -13,11 +13,10 @@ TEST_CASE("should be able check unary expression", "[TypeCheck][UnaryExpression]
 
     auto index = type_check(*astResult);
 
-    REQUIRE(index["x"]->tag() == typeinfo_tag::PRIMITIVE);
-    check_primitive_type(*index["x"], primitive_tag::I32);
-    check_primitive_type(*index["y"], primitive_tag::I32);
-    check_primitive_type(*index["z"], primitive_tag::F32);
-    check_primitive_type(*index["result"], primitive_tag::BOOL);
+    check_type_tag(*index["x"], typeinfo_tag::I32);
+    check_type_tag(*index["y"], typeinfo_tag::I32);
+    check_type_tag(*index["z"], typeinfo_tag::F32);
+    check_type_tag(*index["result"], typeinfo_tag::BOOL);
 }
 
 TEST_CASE("should type check unary expression fail", "[UnaryExpression][TypeCheck][Failure]")
@@ -25,4 +24,16 @@ TEST_CASE("should type check unary expression fail", "[UnaryExpression][TypeChec
     typecheck_failure("val x: int = -5u8;", "Invalid operand type");
     typecheck_failure("val x: int = -false;", "Invalid operand type");
     typecheck_failure("val x: int = ?false;", "Not supported operator");
+}
+
+TEST_CASE("should type check binary expression of unsupported type failure", "[BinaryExpression][TypeCheck][Failure]")
+{
+
+    typecheck_failure(
+        R"(
+            fun something_unit(x: int) -> unit = native;
+            val x = something_unit(1);
+            val y = x + 1;
+        )",
+        "Unsupported type for binary expression: unit");
 }

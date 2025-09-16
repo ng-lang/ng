@@ -14,13 +14,42 @@ namespace NG::typecheck
     enum typeinfo_tag
     {
         UNTYPED,
+        NONE,
+        BOTTOM,
         PRIMITIVE,
-        COLLECTION,
-        STRUCTURAL,
-        CUSTOMIZED,
-        POLYMORPHIC,
-        PARAMETER,
-        ARGUMENT,
+        ANY,
+        UNIT,
+
+        PRIMITIVES = 0x28,
+        BOOL = 0x29,
+        SIGNED = 0x30,
+        I8 = 0x31,
+        I16,
+        I32,
+        I64,
+        I128,
+        UNSIGNED = 0x40,
+        U8 = 0x41,
+        U16,
+        U32,
+        U64,
+        U128,
+        FLOATING_POINT = 0x50,
+        F16 = 0x51,
+        F32,
+        F64,
+        F128,
+        F256,
+        STRING = 0x61,
+
+        COLLECTION_TYPE = 0xA0,
+        ARRAY = 0xA1,
+        VECTOR = 0xA2,
+        TUPLE = 0xA3,
+        LIST = 0xA4,
+        REFERENCE = 0xA5,
+        FUNCTION = 0xA6,
+        PARAM_WITH_DEFAULT_VALUE = 0xA7,
     };
 
     /**
@@ -71,49 +100,6 @@ namespace NG::typecheck
     }
 
     /**
-     * @brief The tag for a primitive type.
-     */
-    enum primitive_tag
-    {
-        NONE = 0x00,
-        ANY,
-        UNIT,
-        BOOL,
-        SIGNED = 0x10,
-        I8 = 0x11,
-        I16,
-        I32,
-        I64,
-        I128,
-        UNSIGNED = 0x20,
-        U8 = 0x21,
-        U16,
-        U32,
-        U64,
-        U128,
-        FLOATING_POINT = 0x30,
-        F16 = 0x31,
-        F32,
-        F64,
-        F128,
-        F256,
-        STRING = 0x41,
-    };
-
-    /**
-     * @brief The tag for a collection type.
-     */
-    enum collection_type_tag
-    {
-        UNKNOWN,
-        ARRAY = 0x11,
-        TUPLE = 0x21,
-        REFERENCE = 0x31,
-        FUNCTION = 0x51,
-        PARAM_WITH_DEFAULT_VALUE = 0x52,
-    };
-
-    /**
      * @brief An untyped type.
      */
     struct Untyped : TypeInfo
@@ -126,31 +112,14 @@ namespace NG::typecheck
     };
 
     /**
-     * @brief A collection type.
-     */
-    struct CollectionType : TypeInfo
-    {
-        /**
-         * @brief Returns the tag of the collection type.
-         *
-         * @return The tag of the collection type.
-         */
-        virtual auto collection_tag() const -> collection_type_tag = 0;
-        auto tag() const -> typeinfo_tag override
-        {
-            return typeinfo_tag::COLLECTION;
-        }
-    };
-
-    /**
      * @brief A primitive type.
      */
     struct PrimitiveType : TypeInfo
     {
 
-        primitive_tag type; ///< The tag of the primitive type.
+        typeinfo_tag type; ///< The tag of the primitive type.
 
-        explicit PrimitiveType(primitive_tag tag) noexcept : type(tag)
+        explicit PrimitiveType(typeinfo_tag tag) noexcept : type(tag)
         {
         }
         /**
@@ -173,7 +142,7 @@ namespace NG::typecheck
          *
          * @return The tag of the primitive type.
          */
-        auto primitive() const -> primitive_tag;
+        auto primitive() const -> typeinfo_tag;
         auto tag() const -> typeinfo_tag override;
         auto repr() const -> Str override;
         auto match(const TypeInfo &other) const -> bool override;
@@ -182,7 +151,7 @@ namespace NG::typecheck
     /**
      * @brief A function type.
      */
-    struct FunctionType : CollectionType
+    struct FunctionType : TypeInfo
     {
         CheckingRef<TypeInfo> returnType;          ///< The return type of the function.
         Vec<CheckingRef<TypeInfo>> parametersType; ///< The parameter types of the function.
@@ -191,8 +160,6 @@ namespace NG::typecheck
             : returnType(returnType), parametersType(parametersType)
         {
         }
-
-        auto collection_tag() const -> collection_type_tag override;
         /**
          * @brief Applies the function with the given types.
          *
@@ -201,6 +168,7 @@ namespace NG::typecheck
          */
         [[nodiscard]] auto applyWith(const Vec<CheckingRef<TypeInfo>> &types) const -> bool;
 
+        auto tag() const -> typeinfo_tag override;
         auto repr() const -> Str override;
         auto match(const TypeInfo &other) const -> bool override;
     };
@@ -208,7 +176,7 @@ namespace NG::typecheck
     /**
      * @brief A parameter with a default value type.
      */
-    struct ParamWithDefaultValueType : CollectionType
+    struct ParamWithDefaultValueType : TypeInfo
     {
         CheckingRef<TypeInfo> paramType; ///< The type of the parameter.
 
@@ -217,8 +185,32 @@ namespace NG::typecheck
         {
         }
 
-        auto collection_tag() const -> collection_type_tag override;
+        auto tag() const -> typeinfo_tag override;
 
+        auto repr() const -> Str override;
+        auto match(const TypeInfo &other) const -> bool override;
+    };
+
+    /**
+     * @brief A array type.
+     */
+    struct ArrayType : TypeInfo
+    {
+        CheckingRef<TypeInfo> elementType; ///< The element type of the array.
+
+        ArrayType(CheckingRef<TypeInfo> elementType)
+            : elementType(elementType)
+        {
+        }
+        /**
+         * @brief Applies the function with the given types.
+         *
+         * @param types The types to apply with.
+         * @return `true` if the application is successful, `false` otherwise.
+         */
+        [[nodiscard]] auto containing(const TypeInfo &other) const -> bool;
+
+        auto tag() const -> typeinfo_tag override;
         auto repr() const -> Str override;
         auto match(const TypeInfo &other) const -> bool override;
     };

@@ -6,20 +6,25 @@ namespace NG::typecheck
 {
     using namespace NG::ast;
 
-    inline bool isIntegralType(primitive_tag tag)
+    constexpr inline bool isIntegralType(typeinfo_tag tag) noexcept
     {
         auto c = code(tag);
-        return c >= code(primitive_tag::SIGNED) && c < code(FLOATING_POINT);
+        return c >= code(typeinfo_tag::SIGNED) && c < code(typeinfo_tag::FLOATING_POINT);
     }
-    inline bool isSigned(primitive_tag tag)
+    constexpr inline bool isSigned(typeinfo_tag tag) noexcept
     {
         auto c = code(tag);
-        return (c & 0xF0) == code(primitive_tag::SIGNED);
+        return (c & 0xF0) == code(typeinfo_tag::SIGNED);
     }
-    inline bool isFloatingPoint(primitive_tag tag)
+    constexpr inline bool isPrimitive(typeinfo_tag tag) noexcept
     {
         auto c = code(tag);
-        return (c & 0xF0) == code(primitive_tag::FLOATING_POINT);
+        return c >= code(typeinfo_tag::PRIMITIVES) && c < code(typeinfo_tag::COLLECTION_TYPE);
+    }
+    constexpr inline bool isFloatingPoint(typeinfo_tag tag) noexcept
+    {
+        auto c = code(tag);
+        return (c & 0xF0) == code(typeinfo_tag::FLOATING_POINT);
     }
 
     struct TypeChecker : DummyVisitor
@@ -45,6 +50,10 @@ namespace NG::typecheck
             for (auto def : module->definitions)
             {
                 def->accept(this);
+            }
+            for (auto stmt : module->statements)
+            {
+                stmt->accept(this);
             }
             type_index.merge(locals);
         }
@@ -72,7 +81,7 @@ namespace NG::typecheck
             else
             {
                 // No annotation provided: assume unit to keep type-checking total.
-                returnType = makecheck<PrimitiveType>(primitive_tag::UNIT);
+                returnType = makecheck<PrimitiveType>(typeinfo_tag::UNIT);
             }
             // todo: check function definition body to ensure return type corrects
             auto funType = makecheck<FunctionType>(returnType, paramTypes);
@@ -82,6 +91,13 @@ namespace NG::typecheck
                 locals.insert_or_assign(funDef->funName, funType);
             }
             result = funType;
+        }
+
+        void visit(SimpleStatement *simpleStatement) override
+        {
+            TypeChecker checker{locals};
+            simpleStatement->expression->accept(&checker);
+            result = checker.result;
         }
 
         void visit(ValDefStatement *valDefStatement) override
@@ -113,53 +129,53 @@ namespace NG::typecheck
 
         void visit(StringValue *value) override
         {
-            result = makecheck<PrimitiveType>(primitive_tag::STRING);
+            result = makecheck<PrimitiveType>(typeinfo_tag::STRING);
         }
 
         void visit(BooleanValue *value) override
         {
-            result = makecheck<PrimitiveType>(primitive_tag::BOOL);
+            result = makecheck<PrimitiveType>(typeinfo_tag::BOOL);
         }
         void visit(IntegralValue<int8_t> *intVal) override
         {
-            result = makecheck<PrimitiveType>(primitive_tag::I8);
+            result = makecheck<PrimitiveType>(typeinfo_tag::I8);
         }
         void visit(IntegralValue<uint8_t> *intVal) override
         {
-            result = makecheck<PrimitiveType>(primitive_tag::U8);
+            result = makecheck<PrimitiveType>(typeinfo_tag::U8);
         }
         void visit(IntegralValue<int16_t> *intVal) override
         {
-            result = makecheck<PrimitiveType>(primitive_tag::I16);
+            result = makecheck<PrimitiveType>(typeinfo_tag::I16);
         }
         void visit(IntegralValue<uint16_t> *intVal) override
         {
-            result = makecheck<PrimitiveType>(primitive_tag::U16);
+            result = makecheck<PrimitiveType>(typeinfo_tag::U16);
         }
         void visit(IntegralValue<int32_t> *intVal) override
         {
-            result = makecheck<PrimitiveType>(primitive_tag::I32);
+            result = makecheck<PrimitiveType>(typeinfo_tag::I32);
         }
         void visit(IntegralValue<uint32_t> *intVal) override
         {
-            result = makecheck<PrimitiveType>(primitive_tag::U32);
+            result = makecheck<PrimitiveType>(typeinfo_tag::U32);
         }
         void visit(IntegralValue<int64_t> *intVal) override
         {
-            result = makecheck<PrimitiveType>(primitive_tag::I64);
+            result = makecheck<PrimitiveType>(typeinfo_tag::I64);
         }
         void visit(IntegralValue<uint64_t> *intVal) override
         {
-            result = makecheck<PrimitiveType>(primitive_tag::U64);
+            result = makecheck<PrimitiveType>(typeinfo_tag::U64);
         }
         // void visit(FloatingPointValue<float16_t> *floatVal) override {}
         void visit(FloatingPointValue<float /* float32_t */> *floatVal) override
         {
-            result = makecheck<PrimitiveType>(primitive_tag::F32);
+            result = makecheck<PrimitiveType>(typeinfo_tag::F32);
         }
         void visit(FloatingPointValue<double /* float64_t */> *floatVal) override
         {
-            result = makecheck<PrimitiveType>(primitive_tag::F64);
+            result = makecheck<PrimitiveType>(typeinfo_tag::F64);
         }
         // void AstVisitor::visit(FloatingPointValue<float128_t> *floatVal) override {}
 
@@ -172,10 +188,10 @@ namespace NG::typecheck
             {
             case Operators::MINUS:
             {
-                if (operandType->tag() == typeinfo_tag::PRIMITIVE)
+                if (isPrimitive(operandType->tag()))
                 {
                     PrimitiveType &primitive = static_cast<PrimitiveType &>(*operandType);
-                    if (isSigned(primitive.primitive()) || isFloatingPoint(primitive.primitive()))
+                    if (isSigned(primitive.tag()) || isFloatingPoint(primitive.tag()))
                     {
                         result = operandType;
                         return;
@@ -186,7 +202,7 @@ namespace NG::typecheck
             }
             case Operators::NOT:
             {
-                result = makecheck<PrimitiveType>(primitive_tag::BOOL);
+                result = makecheck<PrimitiveType>(typeinfo_tag::BOOL);
                 return;
             }
             case Operators::QUERY:
@@ -205,7 +221,7 @@ namespace NG::typecheck
             auto leftType = checker.result;
             expression->right->accept(&checker);
             auto rightType = checker.result;
-            if (leftType->tag() == typeinfo_tag::PRIMITIVE)
+            if (isPrimitive(leftType->tag()))
             {
                 PrimitiveType &leftPrimitive = static_cast<PrimitiveType &>(*leftType);
                 switch (expression->optr->operatorType)
@@ -213,7 +229,7 @@ namespace NG::typecheck
                 case Operators::MODULUS:
                 case Operators::LSHIFT:
                 case Operators::RSHIFT:
-                    if (!isIntegralType(leftPrimitive.primitive()))
+                    if (!isIntegralType(leftPrimitive.tag()))
                     {
                         throw TypeCheckingException("Invalid type for modulus: " + leftPrimitive.repr());
                     }
@@ -222,6 +238,7 @@ namespace NG::typecheck
                         result = leftType;
                         return;
                     }
+                    [[fallthrough]];
                 case Operators::PLUS:
                 case Operators::MINUS:
                 case Operators::TIMES:
@@ -248,7 +265,7 @@ namespace NG::typecheck
                 case Operators::LT:
                     if (leftPrimitive.match(*rightType) || rightType->match(leftPrimitive))
                     {
-                        result = makecheck<PrimitiveType>(primitive_tag::BOOL);
+                        result = makecheck<PrimitiveType>(typeinfo_tag::BOOL);
                     }
                     else
                     {
@@ -259,6 +276,44 @@ namespace NG::typecheck
                 default:
                     throw TypeCheckingException("Unsupported operator for primitive types");
                 }
+            }
+            else if (leftType->tag() == typeinfo_tag::ARRAY)
+            {
+                ArrayType &arrayType = static_cast<ArrayType &>(*leftType);
+                switch (expression->optr->operatorType)
+                {
+                case Operators::LSHIFT: // push to array
+                    if (arrayType.elementType->match(*rightType))
+                    {
+                        result = leftType;
+                        return;
+                    }
+                    else
+                    {
+                        throw TypeCheckingException("Invalid element type for array push: " + rightType->repr());
+                    }
+                // // TBD: Array comparison
+                // case Operators::EQUAL:
+                // case Operators::NOT_EQUAL:
+                //     if (rightType->tag() == typeinfo_tag::ARRAY)
+                //     {
+                //         ArrayType &rightArrayType = static_cast<ArrayType &>(*rightType);
+                //         if (arrayType.elementType->match(*rightArrayType.elementType) ||
+                //             rightArrayType.elementType->match(*arrayType.elementType))
+                //         {
+                //             result = makecheck<PrimitiveType>(typeinfo_tag::BOOL);
+                //             return;
+                //         }
+                //     }
+                //     throw TypeCheckingException("Mismatch type on array comparison: " +
+                //                                 leftType->repr() + ", " + rightType->repr());
+                default:
+                    throw TypeCheckingException("Unsupported operator for array types");
+                }
+            }
+            else
+            {
+                throw TypeCheckingException("Unsupported type for binary expression: " + leftType->repr());
             }
         }
 
@@ -307,9 +362,29 @@ namespace NG::typecheck
         void visit(TypeAnnotation *annotation) override
         {
             auto typecode = code(annotation->type);
-            if (typecode > code(TypeAnnotationType::BUILTIN) && typecode < code(TypeAnnotationType::CUSTOMIZED))
+            if (typecode > code(TypeAnnotationType::BUILTIN) && typecode < code(TypeAnnotationType::END_OF_BUILTIN))
             {
                 result = PrimitiveType::from(annotation->type);
+            }
+            else if (annotation->type == TypeAnnotationType::ARRAY)
+            {
+                if (annotation->arguments.size() == 1)
+                {
+                    auto arg = annotation->arguments[0];
+                    TypeChecker checker{locals};
+                    arg->accept(&checker);
+                    auto argType = checker.result;
+                    if (argType)
+                    {
+                        result = makecheck<ArrayType>(argType);
+                        return;
+                    }
+                    throw TypeCheckingException("Unknown element type for array");
+                }
+                else
+                {
+                    throw TypeCheckingException("Array type expects exactly 1 type argument");
+                }
             }
             else
             {
@@ -323,6 +398,88 @@ namespace NG::typecheck
                     throw TypeCheckingException("Unknown type: " + annotation->name);
                 }
             }
+        }
+
+        void visit(ArrayLiteral *arrayLit) override
+        {
+            if (arrayLit->elements.empty())
+            {
+                result = makecheck<ArrayType>(makecheck<Untyped>());
+                return;
+            }
+            TypeChecker checker{locals};
+            arrayLit->elements[0]->accept(&checker);
+            auto elemType = checker.result;
+            for (size_t i = 1; i < arrayLit->elements.size(); ++i)
+            {
+                arrayLit->elements[i]->accept(&checker);
+                auto nextType = checker.result;
+                if (!elemType->match(*nextType))
+                {
+                    if (nextType->match(*elemType))
+                    {
+                        elemType = nextType;
+                    }
+                    else
+                    {
+                        throw TypeCheckingException("Mismatched element type in array literal: " +
+                                                    elemType->repr() + ", " + nextType->repr());
+                    }
+                }
+            }
+            result = makecheck<ArrayType>(elemType);
+        }
+
+        void visit(IndexAccessorExpression *indexAccess) override
+        {
+            TypeChecker checker{locals};
+            indexAccess->primary->accept(&checker);
+            auto primaryType = checker.result;
+            if (!primaryType)
+            {
+                throw TypeCheckingException("Invalid index accessor expression: " + indexAccess->primary->repr());
+            }
+            if (primaryType->tag() != typeinfo_tag::ARRAY)
+            {
+                throw TypeCheckingException("Index accessor on non-array type: " + primaryType->repr());
+            }
+            indexAccess->accessor->accept(&checker);
+            auto indexType = checker.result;
+            if (!indexType || !isIntegralType(indexType->tag()))
+            {
+                throw TypeCheckingException("Invalid index type for array: " + indexAccess->accessor->repr());
+            }
+            ArrayType &arrayType = static_cast<ArrayType &>(*primaryType);
+            result = arrayType.elementType;
+        }
+
+        void visit(IndexAssignmentExpression *indexAssign) override
+        {
+            TypeChecker checker{locals};
+            indexAssign->primary->accept(&checker);
+            auto primaryType = checker.result;
+            if (!primaryType)
+            {
+                throw TypeCheckingException("Invalid index assignment expression: " + indexAssign->primary->repr());
+            }
+            if (primaryType->tag() != typeinfo_tag::ARRAY)
+            {
+                throw TypeCheckingException("Index assignment on non-array type: " + primaryType->repr());
+            }
+            indexAssign->accessor->accept(&checker);
+            auto indexType = checker.result;
+            if (!indexType || !isIntegralType(indexType->tag()))
+            {
+                throw TypeCheckingException("Invalid index type for array: " + indexAssign->accessor->repr());
+            }
+            indexAssign->value->accept(&checker);
+            auto valueType = checker.result;
+            ArrayType &arrayType = static_cast<ArrayType &>(*primaryType);
+            if (!arrayType.elementType->match(*valueType))
+            {
+                throw TypeCheckingException("Invalid value type for array assignment: " + valueType->repr());
+            }
+            result = arrayType.elementType;
         }
 
         void visit(IdExpression *id) override

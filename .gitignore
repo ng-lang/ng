@@ -7,6 +7,8 @@ ngi.exe
 libng.a
 ng_test
 
+data/
+
 # CMake
 
 CMakeFiles/
