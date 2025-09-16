@@ -686,7 +686,10 @@ namespace NG::parsing
             if (maybeBuiltin == TokenType::LEFT_SQUARE)
             {
                 auto array = makeast<TypeAnnotation>("array");
-                accept(TokenType::LEFT_SQUARE);
+                if (auto r = accept(TokenType::LEFT_SQUARE); !r)
+                {
+                    return std::unexpected(r.error());
+                }
                 array->type = TypeAnnotationType::ARRAY;
                 auto argumentRst = typeAnnotation();
                 if (!argumentRst)
@@ -694,7 +697,10 @@ namespace NG::parsing
                     return std::unexpected(argumentRst.error());
                 }
                 array->arguments.push_back(*argumentRst);
-                accept(TokenType::RIGHT_SQUARE);
+                if (auto r = accept(TokenType::RIGHT_SQUARE); !r)
+                {
+                    return std::unexpected(r.error());
+                }
                 return array;
             }
             if (maybeBuiltin == TokenType::ID)

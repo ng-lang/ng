@@ -188,13 +188,17 @@ namespace NG::typecheck
     }
     auto PrimitiveType::match(const TypeInfo &other) const -> bool
     {
-        const PrimitiveType &otherPrimitive = static_cast<const PrimitiveType &>(other);
-        if (this->type == otherPrimitive.type)
+        const auto *otherPrimitive = dynamic_cast<const PrimitiveType *>(&other);
+        if (otherPrimitive == nullptr)
+        {
+            return false;
+        }
+        if (this->type == otherPrimitive->type)
         {
             return true;
         }
         auto this_tag = code(this->type);
-        auto other_tag = code(otherPrimitive.type);
+        auto other_tag = code(otherPrimitive->type);
         auto this_category = (this_tag & 0xF0);
         auto other_category = (other_tag & 0xF0);
         if (this_category == other_category)

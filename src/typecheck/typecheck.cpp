@@ -381,6 +381,10 @@ namespace NG::typecheck
                     }
                     throw TypeCheckingException("Unknown element type for array");
                 }
+                else
+                {
+                    throw TypeCheckingException("Array type expects exactly 1 type argument");
+                }
             }
             else
             {

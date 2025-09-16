@@ -1,8 +1,5 @@
 #include <typecheck/typeinfo.hpp>
 #include <debug.hpp>
-#include <functional>
-#include <algorithm>
-#include <iterator>
 
 namespace NG::typecheck
 {
