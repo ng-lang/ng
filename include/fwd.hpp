@@ -9,6 +9,7 @@
 #include <type_traits>
 #include <iterator>
 #include <cstddef>
+#include <algorithm>
 
 /**
  * @brief Extracts the keys from an unordered_map.
