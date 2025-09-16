@@ -1,0 +1,73 @@
+C++11 CORE (20/20)
+__cpp_alias_templates                         2007-04  =  2007-04
+__cpp_attributes                              2008-09  =  2008-09
+__cpp_constexpr                               2022-11  >  2007-04
+__cpp_constexpr_in_decltype                   2017-11  =  2017-11
+__cpp_decltype                                2007-07  =  2007-07
+__cpp_delegating_constructors                 2006-04  =  2006-04
+__cpp_inheriting_constructors                 2015-11  =  2015-11
+__cpp_initializer_lists                       2008-06  =  2008-06
+__cpp_lambdas                                 2009-07  =  2009-07
+__cpp_nsdmi                                   2008-09  =  2008-09
+__cpp_range_based_for                         2022-11  >  2009-07
+__cpp_raw_strings                             2007-10  =  2007-10
+__cpp_ref_qualifiers                          2007-10  =  2007-10
+__cpp_rvalue_references                       2006-10  =  2006-10
+__cpp_static_assert                           2023-06  >  2004-10
+__cpp_threadsafe_static_init                  2008-06  =  2008-06
+__cpp_unicode_characters                      2007-04  =  2007-04
+__cpp_unicode_literals                        2007-10  =  2007-10
+__cpp_user_defined_literals                   2008-09  =  2008-09
+__cpp_variadic_templates                      2007-04  =  2007-04
+
+C++14 CORE (9/9)
+__cpp_aggregate_nsdmi                         2013-04  =  2013-04
+__cpp_binary_literals                         2013-04  =  2013-04
+__cpp_constexpr                               2022-11  >  2013-04
+__cpp_decltype_auto                           2013-04  =  2013-04
+__cpp_generic_lambdas                         2017-07  >  2013-04
+__cpp_init_captures                           2018-03  >  2013-04
+__cpp_return_type_deduction                   2013-04  =  2013-04
+__cpp_sized_deallocation                      2013-09  =  2013-09
+__cpp_variable_templates                      2013-04  =  2013-04
+
+C++14 LIB (20/20)
+__cpp_lib_chrono_udls                         2013-04  =  2013-04
+__cpp_lib_complex_udls                        2013-09  =  2013-09
+__cpp_lib_exchange_function                   2013-04  =  2013-04
+__cpp_lib_generic_associative_lookup          2013-04  =  2013-04
+__cpp_lib_integer_sequence                    2013-04  =  2013-04
+__cpp_lib_integral_constant_callable          2013-04  =  2013-04
+__cpp_lib_void_t                              2014-11  =  2014-11
+
+ATTRIBUTES (10/11)
+assume                                        2022-07  =  2022-07
+carries_dependency                            2008-09  =  2008-09
+deprecated                                    2013-09  =  2013-09
+fallthrough                                   2016-03  =  2016-03
+indeterminate                                 -------  <  2024-03
+likely                                        2018-03  =  2018-03
+maybe_unused                                  2016-03  =  2016-03
+no_unique_address                             2018-03  =  2018-03
+nodiscard                                     2019-07  =  2019-07
+noreturn                                      2008-09  =  2008-09
+unlikely                                      2018-03  =  2018-03
+
+OTHER MACROS:
+__cplusplus                                   202302L
+__clang_major__                               20
+__clang_minor__                               1
+__clang_patchlevel__                          4
+__GNUG__                                      4
+__GNUC_MINOR__                                2
+__GNUC_PATCHLEVEL__                           1
+__STDCPP_DEFAULT_NEW_ALIGNMENT__              16UL
+__STDCPP_THREADS__                            1
+__STDC_EMBED_NOT_FOUND__                      0
+__STDC_EMBED_FOUND__                          1
+__STDC_EMBED_EMPTY__                          2
+__STDC__                                      1
+__STDC_HOSTED__                               1
+__STDC_ISO_10646__                            201706L
+__DATE__                                      "Sep 16 2025"
+__TIME__                                      "02:00:56"

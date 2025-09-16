@@ -25,3 +25,15 @@ TEST_CASE("should type check unary expression fail", "[UnaryExpression][TypeChec
     typecheck_failure("val x: int = -false;", "Invalid operand type");
     typecheck_failure("val x: int = ?false;", "Not supported operator");
 }
+
+TEST_CASE("should type check binary expression of unsupported type failure", "[BinaryExpression][TypeCheck][Failure]")
+{
+
+    typecheck_failure(
+        R"(
+            fun something_unit(x: int) -> unit = native;
+            val x = something_unit(1);
+            val y = x + 1;
+        )",
+        "Unsupported type for binary expression: unit");
+}

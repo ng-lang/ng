@@ -43,8 +43,6 @@ concept Container = !std::same_as<std::decay_t<T>, std::string> && requires(T t)
     { t.begin() } -> std::input_iterator;
     { t.end() } -> std::input_iterator;
     { t.size() } -> std::convertible_to<std::size_t>;
-    typename T::iterator;
-    typename T::value_type;
 };
 
 /**

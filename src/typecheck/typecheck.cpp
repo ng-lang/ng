@@ -51,6 +51,10 @@ namespace NG::typecheck
             {
                 def->accept(this);
             }
+            for (auto stmt : module->statements)
+            {
+                stmt->accept(this);
+            }
             type_index.merge(locals);
         }
 
@@ -87,6 +91,13 @@ namespace NG::typecheck
                 locals.insert_or_assign(funDef->funName, funType);
             }
             result = funType;
+        }
+
+        void visit(SimpleStatement *simpleStatement) override
+        {
+            TypeChecker checker{locals};
+            simpleStatement->expression->accept(&checker);
+            result = checker.result;
         }
 
         void visit(ValDefStatement *valDefStatement) override
@@ -227,6 +238,7 @@ namespace NG::typecheck
                         result = leftType;
                         return;
                     }
+                    [[fallthrough]];
                 case Operators::PLUS:
                 case Operators::MINUS:
                 case Operators::TIMES:
@@ -264,6 +276,44 @@ namespace NG::typecheck
                 default:
                     throw TypeCheckingException("Unsupported operator for primitive types");
                 }
+            }
+            else if (leftType->tag() == typeinfo_tag::ARRAY)
+            {
+                ArrayType &arrayType = static_cast<ArrayType &>(*leftType);
+                switch (expression->optr->operatorType)
+                {
+                case Operators::LSHIFT: // push to array
+                    if (arrayType.elementType->match(*rightType))
+                    {
+                        result = leftType;
+                        return;
+                    }
+                    else
+                    {
+                        throw TypeCheckingException("Invalid element type for array push: " + rightType->repr());
+                    }
+                // // TBD: Array comparison
+                // case Operators::EQUAL:
+                // case Operators::NOT_EQUAL:
+                //     if (rightType->tag() == typeinfo_tag::ARRAY)
+                //     {
+                //         ArrayType &rightArrayType = static_cast<ArrayType &>(*rightType);
+                //         if (arrayType.elementType->match(*rightArrayType.elementType) ||
+                //             rightArrayType.elementType->match(*arrayType.elementType))
+                //         {
+                //             result = makecheck<PrimitiveType>(typeinfo_tag::BOOL);
+                //             return;
+                //         }
+                //     }
+                //     throw TypeCheckingException("Mismatch type on array comparison: " +
+                //                                 leftType->repr() + ", " + rightType->repr());
+                default:
+                    throw TypeCheckingException("Unsupported operator for array types");
+                }
+            }
+            else
+            {
+                throw TypeCheckingException("Unsupported type for binary expression: " + leftType->repr());
             }
         }
 
@@ -330,7 +380,6 @@ namespace NG::typecheck
                         return;
                     }
                     throw TypeCheckingException("Unknown element type for array");
-                    // todo: ArrayLiteral, IndexAccessor, IndexAssignment, opLshift
                 }
             }
             else
@@ -345,6 +394,88 @@ namespace NG::typecheck
                     throw TypeCheckingException("Unknown type: " + annotation->name);
                 }
             }
+        }
+
+        void visit(ArrayLiteral *arrayLit) override
+        {
+            if (arrayLit->elements.empty())
+            {
+                result = makecheck<ArrayType>(makecheck<Untyped>());
+                return;
+            }
+            TypeChecker checker{locals};
+            arrayLit->elements[0]->accept(&checker);
+            auto elemType = checker.result;
+            for (size_t i = 1; i < arrayLit->elements.size(); ++i)
+            {
+                arrayLit->elements[i]->accept(&checker);
+                auto nextType = checker.result;
+                if (!elemType->match(*nextType))
+                {
+                    if (nextType->match(*elemType))
+                    {
+                        elemType = nextType;
+                    }
+                    else
+                    {
+                        throw TypeCheckingException("Mismatched element type in array literal: " +
+                                                    elemType->repr() + ", " + nextType->repr());
+                    }
+                }
+            }
+            result = makecheck<ArrayType>(elemType);
+        }
+
+        void visit(IndexAccessorExpression *indexAccess) override
+        {
+            TypeChecker checker{locals};
+            indexAccess->primary->accept(&checker);
+            auto primaryType = checker.result;
+            if (!primaryType)
+            {
+                throw TypeCheckingException("Invalid index accessor expression: " + indexAccess->primary->repr());
+            }
+            if (primaryType->tag() != typeinfo_tag::ARRAY)
+            {
+                throw TypeCheckingException("Index accessor on non-array type: " + primaryType->repr());
+            }
+            indexAccess->accessor->accept(&checker);
+            auto indexType = checker.result;
+            if (!indexType || !isIntegralType(indexType->tag()))
+            {
+                throw TypeCheckingException("Invalid index type for array: " + indexAccess->accessor->repr());
+            }
+            ArrayType &arrayType = static_cast<ArrayType &>(*primaryType);
+            result = arrayType.elementType;
+        }
+
+        void visit(IndexAssignmentExpression *indexAssign) override
+        {
+            TypeChecker checker{locals};
+            indexAssign->primary->accept(&checker);
+            auto primaryType = checker.result;
+            if (!primaryType)
+            {
+                throw TypeCheckingException("Invalid index assignment expression: " + indexAssign->primary->repr());
+            }
+            if (primaryType->tag() != typeinfo_tag::ARRAY)
+            {
+                throw TypeCheckingException("Index assignment on non-array type: " + primaryType->repr());
+            }
+            indexAssign->accessor->accept(&checker);
+            auto indexType = checker.result;
+            if (!indexType || !isIntegralType(indexType->tag()))
+            {
+                throw TypeCheckingException("Invalid index type for array: " + indexAssign->accessor->repr());
+            }
+            indexAssign->value->accept(&checker);
+            auto valueType = checker.result;
+            ArrayType &arrayType = static_cast<ArrayType &>(*primaryType);
+            if (!arrayType.elementType->match(*valueType))
+            {
+                throw TypeCheckingException("Invalid value type for array assignment: " + valueType->repr());
+            }
+            result = arrayType.elementType;
         }
 
         void visit(IdExpression *id) override

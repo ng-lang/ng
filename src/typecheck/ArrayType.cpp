@@ -35,6 +35,11 @@ namespace NG::typecheck
             return false;
         }
         const ArrayType &arrayType = static_cast<const ArrayType &>(other);
+        // empty array?
+        if (arrayType.elementType->tag() == typeinfo_tag::UNTYPED || elementType->tag() == typeinfo_tag::UNTYPED)
+        {
+            return true;
+        }
         return elementType->match(*(arrayType.elementType));
     }
 

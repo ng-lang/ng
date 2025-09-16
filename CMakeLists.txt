@@ -79,6 +79,7 @@ set(NG_TEST_SRC
         test/typecheck/typecheck_primitive_test.cpp
         test/typecheck/typecheck_function_test.cpp
         test/typecheck/typecheck_expression_test.cpp
+        test/typecheck/typecheck_array_test.cpp
 )
 
 add_executable(feature_test test/feature_test.cpp)
