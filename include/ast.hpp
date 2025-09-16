@@ -58,6 +58,7 @@ namespace NG::ast
         FLOATING_POINT_VALUE = 0x306,
 
         STATEMENT = 0x400,
+        EMPTY_STATEMENT = 0x400,
         SIMPLE_STATEMENT = 0x401,
         COMPOUND_STATEMENT = 0x402,
         VAL_DEF_STATEMENT = 0x403,
@@ -139,6 +140,20 @@ namespace NG::ast
      */
     struct Statement : ASTNode
     {
+    };
+
+    struct EmptyStatement : Statement
+    {
+        void accept(AstVisitor *visitor) override;
+
+        auto astNodeType() const -> ASTNodeType override { return ASTNodeType::EMPTY_STATEMENT; }
+
+        auto operator==(const ASTNode &node) const -> bool override;
+
+        [[nodiscard]]
+        auto repr() const -> Str override;
+
+        ~EmptyStatement() override = default;
     };
 
     /**
@@ -371,9 +386,10 @@ namespace NG::ast
      */
     struct LoopBinding
     {
-        Str name;                  ///< The name of the binding.
-        LoopBindingType type;      ///< The type of the binding.
-        ASTRef<Expression> target; ///< The target of the binding.
+        Str name;                          ///< The name of the binding.
+        LoopBindingType type;              ///< The type of the binding.
+        ASTRef<Expression> target;         ///< The target of the binding.
+        ASTRef<TypeAnnotation> annotation; /// < The type annotation of the binding.
     };
 
     /**

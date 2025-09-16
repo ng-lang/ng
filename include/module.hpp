@@ -2,6 +2,7 @@
 
 #include <ast.hpp>
 #include <intp/runtime.hpp>
+#include <typecheck/typecheck.hpp>
 
 namespace NG::library::prelude
 {
@@ -23,6 +24,7 @@ namespace NG::module
     using NG::ast::ASTNode;
     using NG::ast::ASTRef;
     using NG::runtime::RuntimeRef;
+    using NG::typecheck::TypeIndex;
 
     /**
      * @brief Contains information about a module.
@@ -36,6 +38,7 @@ namespace NG::module
         Str moduleAbsolutePath;                          ///< The absolute path to the module.
         Str moduleLoadingLocation;                       ///< The location from which the module was loaded.
         RuntimeRef<NG::runtime::NGModule> runtimeModule; ///< The runtime representation of the module.
+        TypeIndex moduleTypeIndex;                       ///< The type index of the module.
     };
 
     /**

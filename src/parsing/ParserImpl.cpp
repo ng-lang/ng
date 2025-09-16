@@ -641,6 +641,12 @@ namespace NG::parsing
                 return loopStatement();
             case TokenType::KEYWORD_NEXT:
                 return nextStatement();
+            case TokenType::SEMICOLON:
+                if (auto result = accept(TokenType::SEMICOLON); !result)
+                {
+                    return std::unexpected(result.error());
+                }
+                return makeast<EmptyStatement>();
             default:
                 return simpleStatement();
             }
@@ -816,34 +822,39 @@ namespace NG::parsing
                 auto identifier = state->repr;
                 accept(TokenType::ID);
                 auto loopBindingType = LoopBindingType::LOOP_ASSIGN;
-                switch (state->type)
+                ASTRef<TypeAnnotation> loopBindingAnnotation = nullptr;
+                ParseResult<ASTRef<Expression>> bindingTarget{makeast<IdExpression>(identifier)};
+                if (state->type == TokenType::COLON)
                 {
-                case TokenType::OPERATOR:
+                    accept(TokenType::COLON);
+                    auto annotationResult = typeAnnotation();
+                    if (!annotationResult)
+                    {
+                        return std::unexpected(annotationResult.error());
+                    }
+                    loopBindingAnnotation = *annotationResult;
+                }
+                if (state->type == TokenType::OPERATOR)
+                {
                     if (state->operatorType == Operators::ASSIGN)
                     {
                         accept(TokenType::OPERATOR);
                         loopBindingType = LoopBindingType::LOOP_ASSIGN;
+                        bindingTarget = expression(); // NOLINT(*-unused-variable)
                     }
                     else
                     {
                         return std::unexpected(state.error("Unexpected loop binding"));
                     }
-                    break;
-                case TokenType::KEYWORD_IN:
-                    accept(TokenType::KEYWORD_IN);
-                    loopBindingType = LoopBindingType::LOOP_IN;
-                    break;
-                default:
-                    return std::unexpected(state.error("Unexpected loop binding"));
                 }
-                auto bindingTarget = expression();
-
                 if (bindingTarget)
                 {
                     loopStmt->bindings.emplace_back(LoopBinding{
                         .name = identifier,
                         .type = loopBindingType,
-                        .target = bindingTarget.value()});
+                        .target = bindingTarget.value(),
+                        .annotation = loopBindingAnnotation,
+                    });
                 }
                 else
                 {
@@ -937,6 +948,11 @@ namespace NG::parsing
             if (auto result = accept(type); !result)
             {
                 return std::unexpected(result.error());
+            }
+            if (expect(TokenType::SEMICOLON))
+            {
+                accept(TokenType::SEMICOLON);
+                return makeast<ReturnStatement>();
             }
             auto exprResult = expression();
             if (!exprResult)
@@ -1370,7 +1386,7 @@ namespace NG::parsing
                 }
                 return std::unexpected(state.error("Unexpected operator as unary operator"));
             }
-            return std::unexpected(state.error("Unexpected primary annotation"));
+            return std::unexpected(state.error("Unexpected primary annotation: " + state->repr, {state->type}));
         }
 
         auto unaryExpression() -> ParseResult<ASTRef<UnaryExpression>>

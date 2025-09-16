@@ -293,6 +293,21 @@ namespace NG::ast
         return "next " + strOfNodeList(this->expressions);
     }
 
+    void EmptyStatement::accept(AstVisitor *visitor)
+    {
+        visitor->visit(this);
+    }
+
+    auto EmptyStatement::operator==(const ASTNode &node) const -> bool
+    {
+        return astNodeType() == node.astNodeType();
+    }
+
+    auto EmptyStatement::repr() const -> Str
+    {
+        return ";";
+    }
+
     SimpleStatement::~SimpleStatement()
     {
         if (expression != nullptr)
