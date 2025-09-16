@@ -35,4 +35,5 @@ TEST_CASE("should type check primitives fail", "[Primitive][TypeCheck][Failure]"
     typecheck_failure("val x: bool = 2.0 != 1;", "Mismatch type on comparison operators");
     typecheck_failure("val x = false % 1;", "Invalid type for modulus");
     typecheck_failure("val x = 1 % false;", "Mismatch type on arithmetic operation");
+    typecheck_failure("val x: int = y;", "Unknown type for object: y");
 }

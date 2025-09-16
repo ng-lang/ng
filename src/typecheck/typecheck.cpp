@@ -35,8 +35,10 @@ namespace NG::typecheck
 
         CheckingRef<TypeInfo> result;
 
-        TypeChecker(Map<Str, CheckingRef<TypeInfo>> locals)
-            : locals(locals)
+        Vec<CheckingRef<TypeInfo>> contextRequirement;
+
+        TypeChecker(Map<Str, CheckingRef<TypeInfo>> locals, Vec<CheckingRef<TypeInfo>> contextRequirement = {})
+            : locals(locals), contextRequirement(contextRequirement)
         {
         }
 
@@ -71,8 +73,17 @@ namespace NG::typecheck
             {
                 param->accept(&checker);
                 paramTypes.push_back(checker.result);
+                auto localType = checker.result;
+                // for funbody type checking
+                if (checker.result->tag() == typeinfo_tag::PARAM_WITH_DEFAULT_VALUE)
+                {
+                    auto &paramWithDefault = static_cast<ParamWithDefaultValueType &>(*checker.result);
+                    localType = paramWithDefault.paramType;
+                }
+                checker.locals.insert_or_assign(param->paramName, localType);
             }
             CheckingRef<TypeInfo> returnType;
+            checker.contextRequirement = paramTypes;
             if (funDef->returnType)
             {
                 funDef->returnType->accept(&checker);
@@ -85,7 +96,19 @@ namespace NG::typecheck
             }
             // todo: check function definition body to ensure return type corrects
             auto funType = makecheck<FunctionType>(returnType, paramTypes);
-
+            if (funDef->body)
+            {
+                funDef->body->accept(&checker);
+                auto bodyReturnType = checker.result;
+                if (!bodyReturnType)
+                {
+                    bodyReturnType = makecheck<PrimitiveType>(typeinfo_tag::UNIT);
+                }
+                if (!returnType->match(*bodyReturnType))
+                {
+                    throw TypeCheckingException("Return Type Mismatch: " + bodyReturnType->repr() + " to " + returnType->repr());
+                }
+            }
             if (!funDef->funName.empty())
             {
                 locals.insert_or_assign(funDef->funName, funType);
@@ -97,6 +120,150 @@ namespace NG::typecheck
         {
             TypeChecker checker{locals};
             simpleStatement->expression->accept(&checker);
+        }
+
+        void visit(CompoundStatement *compoundStatement) override
+        {
+            TypeChecker checker{locals, contextRequirement};
+            CheckingRef<TypeInfo> returnType = nullptr;
+            for (auto stmt : compoundStatement->statements)
+            {
+                checker.result = nullptr;
+                stmt->accept(&checker);
+                if (checker.result)
+                {
+                    if (returnType)
+                    {
+                        if (!returnType->match(*checker.result))
+                        {
+                            if (checker.result->match(*returnType))
+                            {
+                                returnType = checker.result;
+                            }
+                            else
+                            {
+                                throw TypeCheckingException("Mismatched return types in compound statement: " +
+                                                            returnType->repr() + ", " + checker.result->repr());
+                            }
+                        }
+                    }
+                    else
+                    {
+                        returnType = checker.result;
+                    }
+                }
+            }
+            result = returnType;
+        }
+
+        void visit(ReturnStatement *returnStatement) override
+        {
+            if (returnStatement->expression)
+            {
+                TypeChecker checker{locals};
+                returnStatement->expression->accept(&checker);
+                result = checker.result;
+            }
+            else
+            {
+                result = makecheck<PrimitiveType>(typeinfo_tag::UNIT);
+            }
+        }
+
+        void visit(NextStatement *nextStatement) override
+        {
+            if (nextStatement->expressions.size() != contextRequirement.size())
+            {
+                throw TypeCheckingException("Next statement argument count mismatch: " +
+                                            std::to_string(nextStatement->expressions.size()) + " to " +
+                                            std::to_string(contextRequirement.size()));
+            }
+            TypeChecker checker{locals};
+            for (size_t i = 0; i < nextStatement->expressions.size(); ++i)
+            {
+                nextStatement->expressions[i]->accept(&checker);
+                auto exprType = checker.result;
+                auto reqType = contextRequirement[i];
+                if (!reqType->match(*exprType))
+                {
+                    throw TypeCheckingException("Next statement argument type mismatch: " +
+                                                exprType->repr() + " to " + reqType->repr());
+                }
+            }
+        }
+
+        void visit(IfStatement *ifStatement) override
+        {
+            TypeChecker checker{locals, contextRequirement};
+            ifStatement->testing->accept(&checker);
+            auto condType = checker.result;
+            if (!condType || condType->tag() != typeinfo_tag::BOOL)
+            {
+                throw TypeCheckingException("Condition expression must be boolean: " + ifStatement->testing->repr());
+            }
+            CheckingRef<TypeInfo> returnType = nullptr;
+            if (ifStatement->consequence)
+            {
+                ifStatement->consequence->accept(&checker);
+                returnType = checker.result;
+                result = returnType;
+            }
+            if (ifStatement->alternative)
+            {
+                ifStatement->alternative->accept(&checker);
+                auto consequenceType = checker.result;
+                if (returnType && consequenceType)
+                {
+                    if (returnType->match(*consequenceType))
+                    {
+                        result = returnType;
+                    }
+                    else if (consequenceType->match(*returnType))
+                    {
+                        result = consequenceType;
+                    }
+                    else
+                    {
+                        throw TypeCheckingException(
+                            "Mismatched return types in if-else branches: " +
+                            returnType->repr() + ", " + consequenceType->repr());
+                    }
+                }
+                else if (consequenceType)
+                {
+                    result = consequenceType;
+                }
+            }
+        }
+
+        void visit(LoopStatement *loopStatement) override
+        {
+            TypeChecker checker{locals};
+            Vec<CheckingRef<TypeInfo>> paramTypes;
+            for (auto binding : loopStatement->bindings)
+            {
+                binding.target->accept(&checker);
+                auto bindingType = checker.result;
+                if (binding.annotation)
+                {
+                    binding.annotation->accept(&checker);
+                    auto annoType = checker.result;
+                    if (!annoType->match(*bindingType))
+                    {
+                        throw TypeCheckingException(
+                            "Loop Binding Type Mismatch: " +
+                            bindingType->repr() +
+                            " to " +
+                            annoType->repr());
+                    }
+                    bindingType = annoType;
+                }
+                // add to local scope
+                checker.locals.insert_or_assign(binding.name, bindingType);
+                paramTypes.push_back(bindingType);
+            }
+            checker.contextRequirement = paramTypes;
+            loopStatement->loopBody->accept(&checker);
             result = checker.result;
         }
 
@@ -117,7 +284,7 @@ namespace NG::typecheck
                 }
                 else
                 {
-                    throw TypeCheckingException("Type Mismatch: " + valType->repr() + " to " + annoType->repr());
+                    throw TypeCheckingException("Value Define Type Mismatch: " + valType->repr() + " to " + annoType->repr());
                 }
             }
             else

@@ -84,6 +84,8 @@ TEST_CASE("parser should parse builtin integral and floating_point values", "[Pa
 
 TEST_CASE("Parser should parse loop statement", "[ParserTestLoop]")
 {
+    // FIXME: just removed loop x in [y] { ... } for now
+    // will add later for better design
     auto astResult = parse(R"(
         loop x = 1 {
             if (x < 10) {
@@ -91,9 +93,9 @@ TEST_CASE("Parser should parse loop statement", "[ParserTestLoop]")
             }
         }
 
-        loop a in [1, 2, 3], b = 2 {
+        loop b = 2 {
             if (b < 5) {
-                next a.iter(), b + 1;
+                next b + 1;
             }
         }
 

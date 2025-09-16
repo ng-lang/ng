@@ -8,3 +8,8 @@ languages:
 engines:
   cppcheck:
     languages: c++
+
+exclude_paths:
+  - "test/*"
+  - "vendored/*"
+  - "build/*"
