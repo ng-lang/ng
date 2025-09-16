@@ -55,6 +55,7 @@ TEST_CASE("should be able to check function with default value", "[Function][Typ
     auto typeIndex = type_check(ast);
     REQUIRE(typeIndex.contains("sum"));
     REQUIRE(typeIndex.contains("x"));
+    REQUIRE(typeIndex.contains("f"));
 
     REQUIRE(typeIndex["sum"]->repr() == "fun (i32, i32 = default) -> i32");
     REQUIRE(typeIndex["x"]->repr() == "i32");

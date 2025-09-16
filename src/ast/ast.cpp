@@ -234,6 +234,10 @@ namespace NG::ast
         for (auto binding : this->bindings)
         {
             destroyast(binding.target);
+            if (binding.annotation != nullptr)
+            {
+                destroyast(binding.annotation);
+            }
         }
     }
 
@@ -255,7 +259,9 @@ namespace NG::ast
                           {
                               return left.name == right.name &&
                                      left.type == right.type &&
-                                     ASTComparator(left.target, right.target);
+                                     ASTComparator(left.target, right.target) &&
+                                     ((left.annotation == nullptr && right.annotation == nullptr) ||
+                                      ASTComparator(left.annotation, right.annotation));
                           });
     }
 

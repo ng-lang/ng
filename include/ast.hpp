@@ -386,10 +386,10 @@ namespace NG::ast
      */
     struct LoopBinding
     {
-        Str name;                          ///< The name of the binding.
-        LoopBindingType type;              ///< The type of the binding.
-        ASTRef<Expression> target;         ///< The target of the binding.
-        ASTRef<TypeAnnotation> annotation; /// < The type annotation of the binding.
+        Str name;                                    ///< The name of the binding.
+        LoopBindingType type;                        ///< The type of the binding.
+        ASTRef<Expression> target = nullptr;         ///< The target of the binding.
+        ASTRef<TypeAnnotation> annotation = nullptr; /// < The type annotation of the binding.
     };
 
     /**

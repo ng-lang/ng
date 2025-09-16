@@ -59,7 +59,7 @@ TEST_CASE("should be able to check control and result types", "[Function][TypeCh
     destroyast(*astResult);
 }
 
-TEST_CASE("should be able to should fail when unexpected things hapens", "[Function][TypeCheck]")
+TEST_CASE("should fail when check control flow with incompatible type", "[Function][TypeCheck]")
 {
 
     typecheck_failure(

@@ -826,7 +826,10 @@ namespace NG::parsing
                 ParseResult<ASTRef<Expression>> bindingTarget{makeast<IdExpression>(identifier)};
                 if (state->type == TokenType::COLON)
                 {
-                    accept(TokenType::COLON);
+                    if (auto r = accept(TokenType::COLON); !r)
+                    {
+                        return std::unexpected(r.error());
+                    }
                     auto annotationResult = typeAnnotation();
                     if (!annotationResult)
                     {
@@ -951,7 +954,10 @@ namespace NG::parsing
             }
             if (expect(TokenType::SEMICOLON))
             {
-                accept(TokenType::SEMICOLON);
+                if (auto r = accept(TokenType::SEMICOLON); !r)
+                {
+                    return std::unexpected(r.error());
+                }
                 return makeast<ReturnStatement>();
             }
             auto exprResult = expression();
@@ -991,7 +997,7 @@ namespace NG::parsing
             }
             if (!dynamic_ast_cast<IdExpression>(*type) && !dynamic_ast_cast<IdAccessorExpression>(*type))
             {
-                std::unexpected("Unexpected expression " + (*type)->repr());
+                return std::unexpected(state.error("Unexpected expression " + (*type)->repr()));
             }
 
             return makeast<TypeCheckingExpression>(expr, *type);
@@ -1473,7 +1479,7 @@ namespace NG::parsing
                 return makeast<FloatingPointValue<float>>(std::stof(integer));
             case TokenType::NUMBER_F64:
                 accept(state->type); // NOLINT(*-unused-return-value)
-                return makeast<FloatingPointValue<double>>(static_cast<uint64_t>(std::stod(integer)));
+                return makeast<FloatingPointValue<double>>((std::stod(integer)));
             case TokenType::NUMBER_F128:
                 return std::unexpected(state.error("Float128 not supported"));
             //     accept(state->type); // NOLINT(*-unused-return-value)

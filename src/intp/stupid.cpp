@@ -413,10 +413,17 @@ namespace NG::intp
 
         void visit(ReturnStatement *returnStatement) override
         {
-            ExpressionVisitor vis{context};
-            returnStatement->expression->accept(&vis);
-
-            context->retVal = vis.object;
+            if (returnStatement->expression)
+            {
+                ExpressionVisitor vis{context};
+                returnStatement->expression->accept(&vis);
+                context->retVal = vis.object;
+            }
+            else
+            {
+                // todo: implement Unit type
+                // context->retVal = unitValue(); // or an equivalent Unit singleton/null per your design
+            }
         }
 
         void visit(IfStatement *ifStmt) override

@@ -128,6 +128,7 @@ namespace NG::typecheck
             CheckingRef<TypeInfo> returnType = nullptr;
             for (auto stmt : compoundStatement->statements)
             {
+                checker.result = nullptr;
                 stmt->accept(&checker);
                 if (checker.result)
                 {
