@@ -5,6 +5,10 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <list>
+#include <concepts>
+#include <type_traits>
+#include <iterator>
+#include <cstddef>
 
 /**
  * @brief Extracts the keys from an unordered_map.
@@ -15,7 +19,7 @@
  * @return A vector containing the keys of the map.
  */
 template <class K, class V>
-auto keys_of(std::unordered_map<K, V> map) -> std::vector<K>
+auto keys_of(const std::unordered_map<K, V> &map) -> std::vector<K>
 {
     std::vector<K> keys{};
     keys.reserve(map.size());
