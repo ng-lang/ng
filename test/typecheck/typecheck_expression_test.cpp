@@ -2,16 +2,16 @@
 
 TEST_CASE("should be able check unary expression", "[TypeCheck][UnaryExpression][ValueDefinition]")
 {
-    auto astResult = parse(R"(
+    auto ast = parse(R"(
             val x: int = 100;
             val y: int = -x;
             val z = -5.0;
             val result = !z;
         )");
 
-    REQUIRE(astResult.has_value());
+    REQUIRE(ast != nullptr);
 
-    auto index = type_check(*astResult);
+    auto index = type_check(ast);
 
     check_type_tag(*index["x"], typeinfo_tag::I32);
     check_type_tag(*index["y"], typeinfo_tag::I32);

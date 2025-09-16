@@ -20,14 +20,6 @@ namespace NG::parsing
     };
 
     /**
-     * @brief The result of a parsing operation.
-     *
-     * @tparam T The type of the result.
-     */
-    template <class T>
-    using ParseResult = std::expected<T, ParseError>;
-
-    /**
      * @brief Represents the state of the lexer.
      */
     struct LexState
@@ -214,7 +206,7 @@ namespace NG::parsing
          * @param filename The filename of the module being parsed.
          * @return The parsed AST.
          */
-        auto parse(const Str &filename = "[noname]") -> ParseResult<ast::ASTRef<ASTNode>>;
+        auto parse(const Str &filename = "[noname]") -> ast::ASTRef<ASTNode>;
     };
 
 } // namespace NG

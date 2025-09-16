@@ -6,7 +6,7 @@ using namespace NG::parsing;
 
 TEST_CASE("parser should parse builtin types", "[Parser][Type][Builtin][ValueDefinition]")
 {
-    auto astResult = parse(R"(
+    auto ast = parse(R"(
         val x: int = 1;
 
         val y: bool = false;
@@ -16,13 +16,13 @@ TEST_CASE("parser should parse builtin types", "[Parser][Type][Builtin][ValueDef
 
         val some_object: SomeObject = new SomeObject {};
     )");
-    REQUIRE(astResult.has_value());
-    destroyast(*astResult);
+    REQUIRE(ast != nullptr);
+    destroyast(ast);
 }
 
 TEST_CASE("parser should parse simple type definition", "[Parser][Type][Declaration]")
 {
-    auto astResult = parse(R"(
+    auto ast = parse(R"(
         type Simple {}
         type WithProperties {
             property name;
@@ -39,25 +39,25 @@ TEST_CASE("parser should parse simple type definition", "[Parser][Type][Declarat
             }
         }
     )");
-    REQUIRE(astResult.has_value());
-    destroyast(*astResult);
+    REQUIRE(ast != nullptr);
+    destroyast(ast);
 }
 
 TEST_CASE("parser should parse new object creation", "[Parser][Object]")
 {
-    auto astResult = parse(R"(
+    auto ast = parse(R"(
         val person = new Person {
             firstName: "Kimmy",
             lastName: "Leo"
         };
     )");
-    REQUIRE(astResult.has_value());
-    destroyast(*astResult);
+    REQUIRE(ast != nullptr);
+    destroyast(ast);
 }
 
 TEST_CASE("Parser should parse type checking", "[Parser][Type]")
 {
-    auto astResult = parse(R"(
+    auto ast = parse(R"(
         if (x is Type) {
             valid(x);
         }
@@ -67,6 +67,6 @@ TEST_CASE("Parser should parse type checking", "[Parser][Type]")
         }
     )");
 
-    REQUIRE(astResult.has_value());
-    destroyast(*astResult);
+    REQUIRE(ast != nullptr);
+    destroyast(ast);
 }

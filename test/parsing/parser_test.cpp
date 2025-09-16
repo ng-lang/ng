@@ -7,69 +7,69 @@ using namespace NG::parsing;
 
 TEST_CASE("parser should parse strings", "[ParserTest]")
 {
-    auto astResult = parse(R"(
+    auto ast = parse(R"(
         module hello;
         fun hi() {
             return "hello world";
         }
     )");
-    REQUIRE(astResult.has_value());
-    destroyast(*astResult);
+    REQUIRE(ast != nullptr);
+    destroyast(ast);
 }
 
 TEST_CASE("parser should parse value definitions", "[ParserTest]")
 {
-    auto astResult = parse(R"(
+    auto ast = parse(R"(
         val x = 1;
         val y = 2;
     )");
-    REQUIRE(astResult.has_value());
-    destroyast(*astResult);
+    REQUIRE(ast != nullptr);
+    destroyast(ast);
 }
 
 TEST_CASE("parser should parse true/false literals", "[ParserTest]")
 {
-    auto astResult = parse(R"(
+    auto ast = parse(R"(
         val x = true;
         val y = false;
     )");
-    REQUIRE(astResult.has_value());
-    destroyast(*astResult);
+    REQUIRE(ast != nullptr);
+    destroyast(ast);
 }
 
 TEST_CASE("parser should parse array literals", "[ParserTest]")
 {
-    auto astResult = parse(R"(
+    auto ast = parse(R"(
         val x = [1, 2, 3, 4, 5];
     )");
-    REQUIRE(astResult.has_value());
-    destroyast(*astResult);
+    REQUIRE(ast != nullptr);
+    destroyast(ast);
 }
 
 TEST_CASE("parser should parse index accessor expression", "[ParserTest]")
 {
-    auto astResult = parse(R"(
+    auto ast = parse(R"(
         x[1];
         y["abc"];
         z[x[1]];
         j.k()[l[1][2]].m();
     )");
-    REQUIRE(astResult.has_value());
-    destroyast(*astResult);
+    REQUIRE(ast != nullptr);
+    destroyast(ast);
 }
 
 TEST_CASE("parser should parse array index assign expression", "[ParserTest]")
 {
-    auto astResult = parse(R"(
+    auto ast = parse(R"(
         d.x[1] = 2;
     )");
-    REQUIRE(astResult.has_value());
-    destroyast(*astResult);
+    REQUIRE(ast != nullptr);
+    destroyast(ast);
 }
 
 TEST_CASE("parser should parse builtin integral and floating_point values", "[ParserTest]")
 {
-    auto astResult = parse(R"(
+    auto ast = parse(R"(
         val x: int = 1i32;
 
         val y: uint = 1u32;
@@ -78,15 +78,15 @@ TEST_CASE("parser should parse builtin integral and floating_point values", "[Pa
 
         val y: f64 = 2.6f64;
     )");
-    REQUIRE(astResult.has_value());
-    destroyast(*astResult);
+    REQUIRE(ast != nullptr);
+    destroyast(ast);
 }
 
 TEST_CASE("Parser should parse loop statement", "[ParserTestLoop]")
 {
     // FIXME: just removed loop x in [y] { ... } for now
     // will add later for better design
-    auto astResult = parse(R"(
+    auto ast = parse(R"(
         loop x = 1 {
             if (x < 10) {
                 next x + 1;
@@ -101,8 +101,8 @@ TEST_CASE("Parser should parse loop statement", "[ParserTestLoop]")
 
     )");
 
-    REQUIRE(astResult.has_value());
-    destroyast(*astResult);
+    REQUIRE(ast != nullptr);
+    destroyast(ast);
 }
 
 void match(const std::regex &regex, const Str &text, bool match)

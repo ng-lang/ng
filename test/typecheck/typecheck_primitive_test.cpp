@@ -2,16 +2,16 @@
 
 TEST_CASE("should be able check primitive definitions", "[TypeCheck][Primitive][ValueDefinition]")
 {
-    auto astResult = parse(R"(
+    auto ast = parse(R"(
             val x: int = 100;
             val y: long = 100 + 200;
             val greater: bool = 10 > 1;
             val z: short = 3i8 % 2i16;
         )");
 
-    REQUIRE(astResult.has_value());
+    REQUIRE(ast != nullptr);
 
-    auto index = type_check(*astResult);
+    auto index = type_check(ast);
 
     REQUIRE(index["x"]->tag() == typeinfo_tag::I32);
     check_type_tag(*index["x"], typeinfo_tag::I32);

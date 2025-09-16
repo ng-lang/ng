@@ -110,7 +110,7 @@ namespace NG::module
                     .moduleId = moduleId(module),
                     .moduleName = *(module.end() - 1),
                     .moduleSource = source,
-                    .moduleAst = *result,
+                    .moduleAst = result,
                     .moduleAbsolutePath = path,
                     .moduleLoadingLocation = "",
                 });

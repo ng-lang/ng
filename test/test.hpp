@@ -18,34 +18,32 @@ using namespace NG::parsing;
 using Catch::Matchers::ContainsSubstring;
 using Catch::Matchers::MessageMatches;
 
-inline ParseResult<ASTRef<ASTNode>> parse(const Str &source, const Str &moduleName = "[noname]", const Str &errMsg = "")
+inline ASTRef<ASTNode> parse(const Str &source, const Str &moduleName = "[noname]", const Str &errMsg = "")
 {
     auto &&tokens = Lexer(LexState{source}).lex();
     // debug_log(source, tokens);
-    auto astResult = Parser(ParseState(tokens)).parse(moduleName);
 
-    if (!astResult)
+    try
     {
-        ParseError error = astResult.error();
-        auto &&position = error.token.position;
-        Str location = std::format("Location: {} / {}", position.line, position.col);
-
+        auto ast = Parser(ParseState(tokens)).parse(moduleName);
+        return ast;
+    }
+    catch (const ParseException &ex)
+    {
         if (!errMsg.empty())
         {
-            REQUIRE_THAT(error.message, ContainsSubstring(errMsg));
+            REQUIRE_THAT(ex.what(), ContainsSubstring(errMsg));
         }
         else
         {
-            debug_log("Error parse result:",
-                      error.message,
-                      location);
+            debug_log("Error parse result:", ex.what());
         }
+        return {};
     }
-    // debug_log("Parsed ast", (*astResult)->repr());
-    return astResult;
+    return nullptr;
 }
 
-inline ParseResult<ASTRef<ASTNode>> parseInvalid(const Str &source, const Str &errMsg)
+inline ASTRef<ASTNode> parseInvalid(const Str &source, const Str &errMsg)
 {
     return parse(source, "[noname]", errMsg);
 }

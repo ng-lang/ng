@@ -27,7 +27,7 @@ using namespace NG::parsing;
 #include <unistd.h>
 #endif
 
-static inline auto parse(const Str &source, const Str &file = "[noname]") -> ParseResult<ASTRef<ASTNode>>
+static inline auto parse(const Str &source, const Str &file = "[noname]") -> ASTRef<ASTNode>
 {
     return Parser(ParseState(Lexer(LexState{source}).lex())).parse(file);
 }
@@ -116,20 +116,17 @@ auto repl() -> int
             continue;
         }
 
-        ParseState parse_state{tokens};
-        auto ast = Parser(parse_state).parse("[interpreter]");
-
-        if (!ast)
-        {
-            debug_log("Syntax error:", ast.error().token, ast.error().message);
-            continue;
-        }
-        tokens.clear();
-
         try
         {
-            (*ast)->accept(stupid);
-            histories.push_back(*ast);
+            ParseState parse_state{tokens};
+            auto ast = Parser(parse_state).parse("[interpreter]");
+            tokens.clear();
+            (ast)->accept(stupid);
+            histories.push_back(ast);
+        }
+        catch (const ParseException &ex)
+        {
+            debug_log("Syntax error:", ex.what());
         }
         catch (const NG::RuntimeException &ex)
         {
@@ -163,18 +160,24 @@ auto main(int argc, char *argv[]) -> int
     std::ifstream file{filename};
     std::string source{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
 
-    auto astResult = parse(source, filename);
-    if (!astResult)
+    try
     {
-        std::cout << "Error parsing file: " << astResult.error().message << '\n';
+        auto ast = parse(source, filename);
+
+        NG::intp::Interpreter *stupid = NG::intp::stupid();
+
+        ast->accept(stupid);
+
+        destroyast(ast);
+    }
+    catch (ParseException &ex)
+    {
+        std::cout << "Parse error: " << ex.what() << std::endl;
         return -1;
     }
-
-    auto &ast = *astResult;
-
-    NG::intp::Interpreter *stupid = NG::intp::stupid();
-
-    ast->accept(stupid);
-
-    destroyast(ast);
+    catch (NG::RuntimeException &ex)
+    {
+        std::cout << "Runtime error: " << ex.what() << std::endl;
+        return -1;
+    }
 }

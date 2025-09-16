@@ -10,11 +10,9 @@ static void interpret(const Str &source)
 {
     Interpreter *intp = NG::intp::stupid();
 
-    auto astResult = parse(source);
+    auto ast = parse(source);
 
-    REQUIRE(astResult.has_value());
-
-    auto &ast = *astResult;
+    REQUIRE(ast != nullptr);
 
     ast->accept(intp);
 
