@@ -66,13 +66,12 @@ TEST_CASE("parser should parse id accessors", "[Parser][Function][Accessor][Dot]
         {
             a.exec;
             b.gg;
-            c.fuck;
-            a.shit(b);
-            a.fuck(b.c);
+            c.foo;
+            a.bar(b);
             c.get(a, b);
             a.b.c;
-            a.b().c().defg(a.bc().fuck);
-
+            a.foo(b.c);
+            a.b().c().defg(a.bc().foo);
             a.b.c();
         }
     )");

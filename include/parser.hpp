@@ -4,7 +4,6 @@
 #include <ast.hpp>
 #include <token.hpp>
 #include <utility>
-#include <expected>
 
 namespace NG::parsing
 {
@@ -205,6 +204,7 @@ namespace NG::parsing
          *
          * @param filename The filename of the module being parsed.
          * @return The parsed AST.
+         * @throws ParseException on syntax or lexical errors.
          */
         auto parse(const Str &filename = "[noname]") -> ast::ASTRef<ASTNode>;
     };

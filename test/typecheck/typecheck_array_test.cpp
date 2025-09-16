@@ -56,6 +56,8 @@ TEST_CASE("should type check arrays", "[TypeCheck][Array]")
     check_type_tag(*index["empty"], typeinfo_tag::ARRAY);
     check_type_tag(*index["twoDimension"], typeinfo_tag::ARRAY);
     check_type_tag(*index["arr"], typeinfo_tag::ARRAY);
+
+    destroyast(ast);
 }
 
 TEST_CASE("should type check array fail", "[TypeCheck][Array][Failure]")

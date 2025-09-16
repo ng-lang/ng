@@ -78,12 +78,11 @@ namespace NG::module
 
     auto FileBasedExternalModuleLoader::load(const Vec<Str> &module) -> RuntimeRef<ModuleInfo>
     {
-        Str path = std::accumulate(module.begin(), module.end(), fs::path{}, [](const fs::path &path, const Str &segment) -> Str
+        Str path = std::accumulate(module.begin(), module.end(), fs::path{},
+                                   [](fs::path acc, const Str &segment)
                                    {
-            if (path == "") {
-                return segment;
-            }
-            return path / segment; });
+                                       return acc / segment;
+                                   });
 
         if (!path.ends_with(".ng"))
         {
@@ -97,7 +96,7 @@ namespace NG::module
             {
                 continue;
             }
-            if (isCached(module_path))
+            if (isCached(module_path.string()))
             {
                 return getCached(module_path);
             }
@@ -111,10 +110,10 @@ namespace NG::module
                     .moduleName = *(module.end() - 1),
                     .moduleSource = source,
                     .moduleAst = result,
-                    .moduleAbsolutePath = path,
+                    .moduleAbsolutePath = module_path.string(),
                     .moduleLoadingLocation = "",
                 });
-                putCached(module_path, moduleInfo);
+                putCached(module_path.string(), moduleInfo);
                 return moduleInfo;
             }
         }

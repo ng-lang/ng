@@ -18,6 +18,8 @@ TEST_CASE("should be able check primitive definitions", "[TypeCheck][Primitive][
     check_type_tag(*index["y"], typeinfo_tag::I64);
     check_type_tag(*index["greater"], typeinfo_tag::BOOL);
     check_type_tag(*index["z"], typeinfo_tag::I16);
+
+    destroyast(ast);
 }
 
 TEST_CASE("should type check primitives fail", "[Primitive][TypeCheck][Failure]")

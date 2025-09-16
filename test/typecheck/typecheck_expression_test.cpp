@@ -17,6 +17,8 @@ TEST_CASE("should be able check unary expression", "[TypeCheck][UnaryExpression]
     check_type_tag(*index["y"], typeinfo_tag::I32);
     check_type_tag(*index["z"], typeinfo_tag::F32);
     check_type_tag(*index["result"], typeinfo_tag::BOOL);
+
+    destroyast(ast);
 }
 
 TEST_CASE("should type check unary expression fail", "[UnaryExpression][TypeCheck][Failure]")

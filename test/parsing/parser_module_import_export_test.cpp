@@ -11,7 +11,7 @@ using Catch::Matchers::ContainsSubstring;
 TEST_CASE("parser should parse modules", "[Parser][Module]")
 {
     auto ast = parse(R"(
-        module shit;
+        module foo;
     )");
     REQUIRE(ast != nullptr);
     destroyast(ast);

@@ -30,7 +30,7 @@ TEST_CASE("interpreter should accept simple definitions", "[InterpreterTest]")
         val y = 2;
         val name = "ng";
         fun hello() {
-          return "fuck";
+          return "fizz";
         }
         val z = x + y;
 

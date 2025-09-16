@@ -14,7 +14,7 @@ TEST_CASE("parser should parse builtin types", "[Parser][Type][Builtin][ValueDef
 
         type SomeType {}
 
-        val some_object: SomeObject = new SomeObject {};
+        val some_object: SomeType = new SomeType {};
     )");
     REQUIRE(ast != nullptr);
     destroyast(ast);

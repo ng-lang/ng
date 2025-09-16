@@ -34,6 +34,7 @@ namespace NG::parsing
     {
         ParseState state;
 
+        [[noreturn]]
         static void unexpected(ParseState &state, std::list<TokenType> types = {})
         {
             throw ParseException(std::string{"Unexpected token "} + state->repr + " at " + std::to_string(state->position.line) + ":" + std::to_string(state->position.col));
