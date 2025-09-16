@@ -6,90 +6,86 @@ using namespace NG::parsing;
 
 TEST_CASE("parser should parse function", "[Parser][Function]")
 {
-    auto astResult = parse("fun id(n) { return n; }");
-    REQUIRE(astResult.has_value());
+    auto ast = parse("fun id(n) { return n; }");
+    REQUIRE(ast != nullptr);
 
-    destroyast(*astResult);
+    destroyast(ast);
 }
 
 TEST_CASE("parser should parse arrow return", "[Parser][Function][ArrowReturn]")
 {
-    auto astResult = parse("fun id (n) => n;");
-    REQUIRE(astResult.has_value());
-
-    auto value = *astResult;
-
-    destroyast(*astResult);
+    auto ast = parse("fun id (n) => n;");
+    REQUIRE(ast != nullptr);
+    destroyast(ast);
 }
 
 TEST_CASE("parser should parse if structure", "[Parser][Function][IfElse]")
 {
-    auto astResult = parse("fun id4(y) if (y) return y;");
-    REQUIRE(astResult.has_value());
-    destroyast(*astResult);
+    auto ast = parse("fun id4(y) if (y) return y;");
+    REQUIRE(ast != nullptr);
+    destroyast(ast);
 
-    astResult = parse("fun id5(z) { if (x) return y; else return z; }");
-    REQUIRE(astResult.has_value());
-    destroyast(*astResult);
+    ast = parse("fun id5(z) { if (x) return y; else return z; }");
+    REQUIRE(ast != nullptr);
+    destroyast(ast);
 
-    astResult = parse("fun id6(x) if (x) { if (y) return z; else return x1; } else return x2;");
-    REQUIRE(astResult.has_value());
-    destroyast(*astResult);
+    ast = parse("fun id6(x) if (x) { if (y) return z; else return x1; } else return x2;");
+    REQUIRE(ast != nullptr);
+    destroyast(ast);
 
-    astResult = parse("fun id7(x) if (x) { if (y) return z; else return x1; } else if (y) return z;");
-    REQUIRE(astResult.has_value());
-    destroyast(*astResult);
+    ast = parse("fun id7(x) if (x) { if (y) return z; else return x1; } else if (y) return z;");
+    REQUIRE(ast != nullptr);
+    destroyast(ast);
 }
 
 TEST_CASE("parser should parse return", "[Parser][Function][Return]")
 {
-    auto astResult = parse("fun one() { return 1; }");
-    REQUIRE(astResult.has_value());
-    destroyast(*astResult);
+    auto ast = parse("fun one() { return 1; }");
+    REQUIRE(ast != nullptr);
+    destroyast(ast);
 }
 
 TEST_CASE("parser should parse assignment", "[Parser][Assignment][ValueDefinition][Function]")
 {
-    auto astResult = parse("fun id(n) { val x = n; return x; }");
-    REQUIRE(astResult.has_value());
-    destroyast(*astResult);
+    auto ast = parse("fun id(n) { val x = n; return x; }");
+    REQUIRE(ast != nullptr);
+    destroyast(ast);
 }
 
 TEST_CASE("parser should parse function calls", "[Parser][Function][FunctionCall]")
 {
-    auto astResult = parse("fun id(a, b, c, e, f, g) { a(b); b(c); e(c)(b)(a); f(a, b, c); f(b(c), a(b), c); }");
-    REQUIRE(astResult.has_value());
-    destroyast(*astResult);
+    auto ast = parse("fun id(a, b, c, e, f, g) { a(b); b(c); e(c)(b)(a); f(a, b, c); f(b(c), a(b), c); }");
+    REQUIRE(ast != nullptr);
+    destroyast(ast);
 }
 
 TEST_CASE("parser should parse id accessors", "[Parser][Function][Accessor][Dot]")
 {
-    auto astResult = parse(R"(
+    auto ast = parse(R"(
         fun id(a, b, c)
         {
             a.exec;
             b.gg;
-            c.fuck;
-            a.shit(b);
-            a.fuck(b.c);
+            c.foo;
+            a.bar(b);
             c.get(a, b);
             a.b.c;
-            a.b().c().defg(a.bc().fuck);
-
+            a.foo(b.c);
+            a.b().c().defg(a.bc().foo);
             a.b.c();
         }
     )");
-    REQUIRE(astResult.has_value());
-    destroyast(*astResult);
+    REQUIRE(ast != nullptr);
+    destroyast(ast);
 }
 
 TEST_CASE("parser should parse operators", "[Parser][Operator][Function]")
 {
-    auto astResult = parse(R"(
+    auto ast = parse(R"(
         fun id() {
             return 1 + 2 * 3 / 4.times(5);
         }
     )");
-    REQUIRE(astResult.has_value());
-    destroyast(*astResult);
+    REQUIRE(ast != nullptr);
+    destroyast(ast);
 }

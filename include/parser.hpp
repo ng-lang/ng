@@ -4,7 +4,6 @@
 #include <ast.hpp>
 #include <token.hpp>
 #include <utility>
-#include <expected>
 
 namespace NG::parsing
 {
@@ -18,14 +17,6 @@ namespace NG::parsing
         Str message;                   ///< The error message.
         std::list<TokenType> expected; ///< The expected token types.
     };
-
-    /**
-     * @brief The result of a parsing operation.
-     *
-     * @tparam T The type of the result.
-     */
-    template <class T>
-    using ParseResult = std::expected<T, ParseError>;
 
     /**
      * @brief Represents the state of the lexer.
@@ -213,8 +204,9 @@ namespace NG::parsing
          *
          * @param filename The filename of the module being parsed.
          * @return The parsed AST.
+         * @throws ParseException on syntax or lexical errors.
          */
-        auto parse(const Str &filename = "[noname]") -> ParseResult<ast::ASTRef<ASTNode>>;
+        auto parse(const Str &filename = "[noname]") -> ast::ASTRef<ASTNode>;
     };
 
 } // namespace NG

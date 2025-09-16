@@ -34,7 +34,7 @@ TEST_CASE("should match array types", "[TypeCheck][Type][Array]")
 
 TEST_CASE("should type check arrays", "[TypeCheck][Array]")
 {
-    auto astResult = parse(R"(
+    auto ast = parse(R"(
             val arr: [int] = [1, 2, 3];
             val empty: [int] = [];
             val twoDimension: [[int]] = [[1, 2u8], [3u8, 4]];
@@ -46,9 +46,9 @@ TEST_CASE("should type check arrays", "[TypeCheck][Array]")
             arr << 100;
         )");
 
-    REQUIRE(astResult.has_value());
+    REQUIRE(ast != nullptr);
 
-    auto index = type_check(*astResult);
+    auto index = type_check(ast);
 
     check_type_tag(*index["x"], typeinfo_tag::I32);
     check_type_tag(*index["y"], typeinfo_tag::I32);
@@ -56,6 +56,8 @@ TEST_CASE("should type check arrays", "[TypeCheck][Array]")
     check_type_tag(*index["empty"], typeinfo_tag::ARRAY);
     check_type_tag(*index["twoDimension"], typeinfo_tag::ARRAY);
     check_type_tag(*index["arr"], typeinfo_tag::ARRAY);
+
+    destroyast(ast);
 }
 
 TEST_CASE("should type check array fail", "[TypeCheck][Array][Failure]")

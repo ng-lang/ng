@@ -6,9 +6,9 @@ type array<t, arity: Int>
 
 sig get :: array<t, n> -> Int -> Maybe<t>
 
-val shit: array<Int, 5> {1, 2, 3, 4, 5}
+val foo: array<Int, 5> {1, 2, 3, 4, 5}
 
-shit.get(3) |> print
+foo.get(3) |> print
 
 val list: Cons(1, Cons(2, Cons(3, Cons(4, Cons(5)))))
 
@@ -34,9 +34,9 @@ type ref<t> = ref t
 
 sig (~>) :: ref<t> -> t
 
-val shit2 = ref shit
+val foo2 = ref foo
 
-shit2.~>.get(3)
+foo2.~>.get(3)
 
 --- for parsers
 
@@ -50,7 +50,7 @@ sig length :: t => List<t> -> Int
 
 sig fact :: Int -> Int
 
-fun main = shit.get(3) |> print
+fun main = foo.get(3) |> print
 
 fun lucky a = if a >= 0 then 1 else 2
 

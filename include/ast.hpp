@@ -646,7 +646,7 @@ namespace NG::ast
 
         ASTRef<Expression> value = nullptr; ///< The value of the value.
 
-        std::optional<ASTRef<TypeAnnotation>> typeAnnotation; ///< The type annotation of the value.
+        ASTRef<TypeAnnotation> typeAnnotation; ///< The type annotation of the value.
 
         explicit ValDefStatement(Str _name) : name(std::move(_name)) {}
 

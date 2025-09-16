@@ -2,7 +2,7 @@
 
  - Derived from Ng
  - Explicit type, although sometimes it can be inferred
- - No macros, they are all **bullshit** (instead you can invent one)
+ - No macros, they are all **bullfoo** (instead you can invent one)
  - Templates made simple
  - ADT && HKT support
  - Unified function call syntax
@@ -21,11 +21,11 @@ type array<'t, arity: Int>
 
 get :: array<'t, n> -> Int -> Maybe 't
 
--- You can also emit the `array<Int, 5>` shit by some compiler magic
-val shit: array<Int, 5> {1, 2, 3, 4, 5}
+-- You can also emit the `array<Int, 5>` foo by some compiler magic
+val foo: array<Int, 5> {1, 2, 3, 4, 5}
 
 -- It's 4, seriously
-shit.get(3) |> print
+foo.get(3) |> print
 
 val list: Cons(1, Cons(2, Cons(3, Cons(4, Cons(5)))))
 
@@ -54,9 +54,9 @@ type ref<'t> = ref 't
 
 (~>) :: ref<'t> -> 't
 
-val shit2 = ref shit
+val foo2 = ref foo
 
--- :) shit2~>get(3) for short
-shit2.~>.get(3)
+-- :) foo2~>get(3) for short
+foo2.~>.get(3)
 
 ```

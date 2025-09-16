@@ -7,15 +7,15 @@ using namespace NG::typecheck;
 
 inline void typecheck_failure(const Str &source, const Str &expected_error = "")
 {
-    auto astResult = parse(source);
+    auto ast = parse(source);
 
-    REQUIRE(astResult.has_value());
+    REQUIRE(ast != nullptr);
 
     bool typecheckingExceptionFound = false;
 
     try
     {
-        auto typeIndex = type_check(*astResult);
+        auto typeIndex = type_check(ast);
     }
     catch (TypeCheckingException &ex)
     {
@@ -29,7 +29,7 @@ inline void typecheck_failure(const Str &source, const Str &expected_error = "")
             debug_log(ex.what());
         }
     }
-    destroyast(*astResult);
+    destroyast(ast);
     REQUIRE(typecheckingExceptionFound);
 }
 

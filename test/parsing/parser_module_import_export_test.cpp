@@ -10,54 +10,54 @@ using Catch::Matchers::ContainsSubstring;
 
 TEST_CASE("parser should parse modules", "[Parser][Module]")
 {
-    auto astResult = parse(R"(
-        module shit;
+    auto ast = parse(R"(
+        module foo;
     )");
-    REQUIRE(astResult.has_value());
-    destroyast(*astResult);
+    REQUIRE(ast != nullptr);
+    destroyast(ast);
 }
 
 TEST_CASE("parser should parse exports", "[Parser][Module][Export]")
 {
-    auto astResult = parse(R"(
+    auto ast = parse(R"(
         // export all
         module hello exports *;
     )");
-    REQUIRE(astResult.has_value());
-    destroyast(*astResult);
+    REQUIRE(ast != nullptr);
+    destroyast(ast);
 
-    astResult = parse(R"(
+    ast = parse(R"(
         // export symbol
         module hello exports (world);
     )");
-    REQUIRE(astResult.has_value());
-    destroyast(*astResult);
+    REQUIRE(ast != nullptr);
+    destroyast(ast);
 
-    astResult = parse(R"(
+    ast = parse(R"(
         // export multiple symbol
         module hello exports (a, b, c);
     )");
-    REQUIRE(astResult.has_value());
-    destroyast(*astResult);
+    REQUIRE(ast != nullptr);
+    destroyast(ast);
 
-    astResult = parse(R"(
+    ast = parse(R"(
         // export none
         module hello;
     )");
-    REQUIRE(astResult.has_value());
-    destroyast(*astResult);
+    REQUIRE(ast != nullptr);
+    destroyast(ast);
 
-    astResult = parse(R"(
+    ast = parse(R"(
         // export without a module name
         module exports *;
     )");
-    REQUIRE(astResult.has_value());
-    destroyast(*astResult);
+    REQUIRE(ast != nullptr);
+    destroyast(ast);
 }
 
 TEST_CASE("Should export single declaration", "[Parser][Export][Native]")
 {
-    auto astResult = parse(R"(
+    auto ast = parse(R"(
         export val x = 1;
 
         export fun get() -> int = native;
@@ -65,8 +65,8 @@ TEST_CASE("Should export single declaration", "[Parser][Export][Native]")
         export type Simple {}
     )");
 
-    REQUIRE(astResult.has_value());
-    destroyast(*astResult);
+    REQUIRE(ast != nullptr);
+    destroyast(ast);
 }
 
 TEST_CASE("Should not export statement", "[Parser][Export]")

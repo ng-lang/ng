@@ -274,7 +274,7 @@ namespace NG::typecheck
             auto valType = checker.result;
             if (valDefStatement->typeAnnotation)
             {
-                (*valDefStatement->typeAnnotation)->accept(&checker);
+                valDefStatement->typeAnnotation->accept(&checker);
                 auto annoType = checker.result;
 
                 if (annoType && annoType->match(*valType))

@@ -36,7 +36,7 @@
   # Output in build/reports/cov/
   ```
 - **Format C++ Code:** Use `clang-format` (see `CONTRIBUTING.md`).
-- **Test Patterns:** All tests use Catch2 (`test/`), e.g. `REQUIRE(astResult.has_value());`.
+- **Test Patterns:** All tests use Catch2 (`test/`), e.g. `REQUIRE(ast != nullptr);`.
 
 ## Project Conventions
 - **AI-generated code** must be marked as such (see `CONTRIBUTING.md`).

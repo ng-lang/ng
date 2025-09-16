@@ -2,7 +2,7 @@
 
 TEST_CASE("should be able to parse and check function types", "[Function][TypeCheck]")
 {
-    auto astResult = parse(R"(
+    auto ast = parse(R"(
             fun add(a: int, b: int) -> int => a + b;
 
             fun greater_than(a: int, b: int) -> bool => a > b;
@@ -13,9 +13,7 @@ TEST_CASE("should be able to parse and check function types", "[Function][TypeCh
             val g: bool = greater_than(s, 1);
         )");
 
-    REQUIRE(astResult.has_value());
-
-    auto ast = *astResult;
+    REQUIRE(ast != nullptr);
 
     auto typeIndex = type_check(ast);
     REQUIRE(typeIndex.contains("add"));
@@ -30,12 +28,12 @@ TEST_CASE("should be able to parse and check function types", "[Function][TypeCh
     REQUIRE(typeIndex["s"]->repr() == "i32");
     REQUIRE(typeIndex["g"]->repr() == "bool");
 
-    destroyast(*astResult);
+    destroyast(ast);
 }
 
 TEST_CASE("should be able to check function with default value", "[Function][TypeCheck]")
 {
-    auto astResult = parse(R"(
+    auto ast = parse(R"(
             fun sum(x: int, acc: int = 0) -> int {
                 if (x == 0) {
                     return acc;
@@ -48,9 +46,7 @@ TEST_CASE("should be able to check function with default value", "[Function][Typ
             fun f(x = 1) -> int = native;
         )");
 
-    REQUIRE(astResult.has_value());
-
-    auto ast = *astResult;
+    REQUIRE(ast != nullptr);
 
     auto typeIndex = type_check(ast);
     REQUIRE(typeIndex.contains("sum"));
@@ -60,12 +56,12 @@ TEST_CASE("should be able to check function with default value", "[Function][Typ
     REQUIRE(typeIndex["sum"]->repr() == "fun (i32, i32 = default) -> i32");
     REQUIRE(typeIndex["x"]->repr() == "i32");
     REQUIRE(typeIndex["f"]->repr() == "fun (i32 = default) -> i32");
-    destroyast(*astResult);
+    destroyast(ast);
 }
 
 TEST_CASE("should be able to check function with body", "[Function][TypeCheck]")
 {
-    auto astResult = parse(R"(
+    auto ast = parse(R"(
             fun id(x: int) -> int {
                 return x;
             }
@@ -117,9 +113,7 @@ TEST_CASE("should be able to check function with body", "[Function][TypeCheck]")
             }
         )");
 
-    REQUIRE(astResult.has_value());
-
-    auto ast = *astResult;
+    REQUIRE(ast != nullptr);
 
     auto typeIndex = type_check(ast);
     REQUIRE(typeIndex.contains("id"));
@@ -137,7 +131,7 @@ TEST_CASE("should be able to check function with body", "[Function][TypeCheck]")
     REQUIRE(typeIndex["sum_loop"]->repr() == "fun (i32) -> i32");
     REQUIRE(typeIndex["do_nothing"]->repr() == "fun () -> unit");
     REQUIRE(typeIndex["greater_than"]->repr() == "fun (i32, i32) -> bool");
-    destroyast(*astResult);
+    destroyast(ast);
 }
 
 TEST_CASE("should fail on function type-checking", "[Function][TypeCheck][Failure]")

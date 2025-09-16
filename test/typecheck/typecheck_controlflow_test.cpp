@@ -2,7 +2,7 @@
 
 TEST_CASE("should be able to check control and result types", "[Function][TypeCheck]")
 {
-    auto astResult = parse(R"(
+    auto ast = parse(R"(
         {
             val x = 1;
             val y = 2;
@@ -51,12 +51,10 @@ TEST_CASE("should be able to check control and result types", "[Function][TypeCh
         }
         )");
 
-    REQUIRE(astResult.has_value());
-
-    auto ast = *astResult;
+    REQUIRE(ast != nullptr);
 
     auto typeIndex = type_check(ast);
-    destroyast(*astResult);
+    destroyast(ast);
 }
 
 TEST_CASE("should fail when check control flow with incompatible type", "[Function][TypeCheck]")
