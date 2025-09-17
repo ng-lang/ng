@@ -111,6 +111,8 @@ namespace NG::parsing
         auto next() -> Token;
     };
 
+    auto is_operator(TokenType type) -> bool;
+
     using NG::ast::ASTNode;
 
     /**

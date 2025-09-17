@@ -42,39 +42,41 @@ namespace NG::intp
 
     ISummarizable::~ISummarizable() = default;
 
-    static auto evaluateExpr(Operators optr, const RuntimeRef<NGObject> &leftParam, const RuntimeRef<NGObject> &rightParam) -> RuntimeRef<NGObject>
+    static auto evaluateExpr(TokenType optr, const RuntimeRef<NGObject> &leftParam, const RuntimeRef<NGObject> &rightParam) -> RuntimeRef<NGObject>
     {
         switch (optr)
         {
-        case Operators::PLUS:
+        case TokenType::PLUS:
             return leftParam->opPlus(rightParam);
-        case Operators::MINUS:
+        case TokenType::MINUS:
             return leftParam->opMinus(rightParam);
-        case Operators::TIMES:
+        case TokenType::TIMES:
             return leftParam->opTimes(rightParam);
-        case Operators::DIVIDE:
+        case TokenType::DIVIDE:
             return leftParam->opDividedBy(rightParam);
-        case Operators::MODULUS:
+        case TokenType::MODULUS:
             return leftParam->opModulus(rightParam);
-        case Operators::EQUAL:
+        case TokenType::EQUAL:
             return NGObject::boolean(leftParam->opEquals(rightParam));
-        case Operators::NOT_EQUAL:
+        case TokenType::NOT_EQUAL:
             return NGObject::boolean(!leftParam->opEquals(rightParam));
-        case Operators::LE:
+        case TokenType::LE:
             return NGObject::boolean(leftParam->opLessEqual(rightParam));
-        case Operators::LT:
+        case TokenType::LT:
             return NGObject::boolean(leftParam->opLessThan(rightParam));
-        case Operators::GE:
+        case TokenType::GE:
             return NGObject::boolean(leftParam->opGreaterEqual(rightParam));
-        case Operators::GT:
+        case TokenType::GT:
             return NGObject::boolean(leftParam->opGreaterThan(rightParam));
-        case Operators::RSHIFT:
+        case TokenType::RSHIFT:
             return leftParam->opRShift(rightParam);
-        case Operators::LSHIFT:
+        case TokenType::LSHIFT:
             return leftParam->opLShift(rightParam);
-        //            case Operators::ASSIGN:
-        case Operators::ASSIGN:
+        //            case TokenType::ASSIGN:
+        case TokenType::BIND:
+            throw RuntimeException("Operator = is not suppported in expressions, perhaps you mean ':='?");
         default:
+            throw RuntimeException("Unsupported binary operator");
             break;
         }
         return nullptr;
@@ -200,9 +202,9 @@ namespace NG::intp
             unoExpr->operand->accept(&operandVisitor);
             auto result = operandVisitor.object;
 
-            switch (unoExpr->optr->operatorType)
+            switch (unoExpr->optr->type)
             {
-            case Operators::MINUS:
+            case TokenType::MINUS:
             {
                 auto numeric = dynamic_cast<NumeralBase *>(result.get());
                 if (numeric)
@@ -212,10 +214,10 @@ namespace NG::intp
                 }
                 throw RuntimeException("Cannot negate a non-number");
             }
-            case Operators::NOT:
+            case TokenType::NOT:
                 this->object = NGObject::boolean(!result->boolValue());
                 return;
-            case Operators::QUERY:
+            case TokenType::QUERY:
                 throw NotImplementedException("Operator QUERY (?) not implemented yet");
             default:
                 throw RuntimeException("Unsupported Operator");
@@ -229,7 +231,7 @@ namespace NG::intp
             binExpr->left->accept(&leftVisitor);
             binExpr->right->accept(&rightVisitor);
 
-            object = evaluateExpr(binExpr->optr->operatorType, leftVisitor.object, rightVisitor.object);
+            object = evaluateExpr(binExpr->optr->type, leftVisitor.object, rightVisitor.object);
         }
 
         void visit(IdExpression *idExpr) override

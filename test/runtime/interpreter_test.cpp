@@ -121,7 +121,7 @@ TEST_CASE("shoud be able to interpret array index", "[InterpreterTest]")
         assert(arr[3] == 4);
 
         assert(arr[4] == 5);
-        arr[4] = 6;
+        arr[4] := 6;
         assert(arr[4] == 6);
     )");
 }
@@ -204,7 +204,7 @@ TEST_CASE("basic loop (single variable)", "[InterpreterTest]")
 fun sum(n) {
   val s = 0;
   loop i = 0 {
-    s = s + i;
+    s := s + i;
     if (i < n) {
       next i + 1;
     }
@@ -260,7 +260,7 @@ val some_obj = new SomeType { a: 1 };
 
 assert(some_obj.a == 1);
 
-some_obj.a = 2;
+some_obj.a := 2;
 
 assert(some_obj.a == 2);
 )");

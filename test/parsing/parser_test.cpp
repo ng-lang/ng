@@ -61,10 +61,19 @@ TEST_CASE("parser should parse index accessor expression", "[ParserTest]")
 TEST_CASE("parser should parse array index assign expression", "[ParserTest]")
 {
     auto ast = parse(R"(
-        d.x[1] = 2;
+        d.x[1] := 2;
     )");
     REQUIRE(ast != nullptr);
     destroyast(ast);
+}
+
+TEST_CASE("parser should fail when assign using `=` symbol", "[ParserTest][Failure]")
+{
+    parseInvalid(
+        R"(
+        d.x[1] = 2;
+    )",
+        "Invalid use of binding operator `=` in expression");
 }
 
 TEST_CASE("parser should parse builtin integral and floating_point values", "[ParserTest]")

@@ -104,16 +104,16 @@ TEST_CASE("should lex numbers with negative sign", "[Lex][Numeral][Negative][Ope
     auto &&tokens = lexer.lex();
 
     REQUIRE(tokens.size() == 12);
-    REQUIRE(tokens[0].type == TokenType::OPERATOR);
+    REQUIRE(tokens[0].type == TokenType::MINUS);
     REQUIRE(tokens[1].type == TokenType::NUMBER);
-    REQUIRE(tokens[2].type == TokenType::OPERATOR);
+    REQUIRE(tokens[2].type == TokenType::MINUS);
     REQUIRE(tokens[3].type == TokenType::FLOATING_POINT);
-    REQUIRE(tokens[4].type == TokenType::OPERATOR);
+    REQUIRE(tokens[4].type == TokenType::MINUS);
     REQUIRE(tokens[5].type == TokenType::NUMBER_I8);
-    REQUIRE(tokens[6].type == TokenType::OPERATOR);
+    REQUIRE(tokens[6].type == TokenType::MINUS);
     REQUIRE(tokens[7].type == TokenType::NUMBER_F32);
-    REQUIRE(tokens[8].type == TokenType::OPERATOR);
+    REQUIRE(tokens[8].type == TokenType::MINUS);
     REQUIRE(tokens[9].type == TokenType::FLOATING_POINT);
-    REQUIRE(tokens[10].type == TokenType::OPERATOR);
+    REQUIRE(tokens[10].type == TokenType::MINUS);
     REQUIRE(tokens[11].type == TokenType::ID);
 }

@@ -20,7 +20,23 @@ namespace NG::parsing
 
     constexpr std::array<char, 6> brackets{'(', ')', '{', '}', '[', ']'};
 
-    constexpr std::array<char, 10> operators{'>', '<', '=', '-', '+', '*', '/', '%', '!', '?'};
+    constexpr std::array<char, 15> operators{
+        '>',
+        '<',
+        '=',
+        '-',
+        '+',
+        '*',
+        '/',
+        '%',
+        '!',
+        '?',
+        '&',
+        '|',
+        '^',
+        '~',
+        '$',
+    };
 
     constexpr std::array<int, 6> bitlengths{8, 16, 32, 64, 128};
 
@@ -30,25 +46,45 @@ namespace NG::parsing
         return std::find(container.begin(), container.end(), item) != container.end();
     }
 
-    static const Map<Str, Operators> operator_types = {
-        {"=", Operators::ASSIGN},
-        {"+", Operators::PLUS},
-        {"-", Operators::MINUS},
-        {"*", Operators::TIMES},
-        {"/", Operators::DIVIDE},
-        {"%", Operators::MODULUS},
-        {"==", Operators::EQUAL},
-        {"!=", Operators::NOT_EQUAL},
-        {">", Operators::GT},
-        {"<", Operators::LT},
-        {">=", Operators::GE},
-        {"<=", Operators::LE},
-        {"<<", Operators::LSHIFT},
-        {">>", Operators::RSHIFT},
-        {"!", Operators::NOT},
-        {"?", Operators::QUERY},
-        {"???", Operators::UNDEFINED},
+    static const Map<Str, TokenType> operator_types = {
+        {":=", TokenType::ASSIGN_EQUAL},
+
+        {"=", TokenType::BIND},
+        {"+", TokenType::PLUS},
+        {"-", TokenType::MINUS},
+        {"*", TokenType::TIMES},
+        {"/", TokenType::DIVIDE},
+        {"%", TokenType::MODULUS},
+        {"==", TokenType::EQUAL},
+        {"!=", TokenType::NOT_EQUAL},
+        {">", TokenType::GT},
+        {"<", TokenType::LT},
+        {">=", TokenType::GE},
+        {"<=", TokenType::LE},
+        {"<<", TokenType::LSHIFT},
+        {">>", TokenType::RSHIFT},
+
+        {"&", TokenType::AMPERSAND},
+        {"|", TokenType::PIPE},
+        {"^", TokenType::CARET},
+        {"~", TokenType::TILDE},
+
+        {"$", TokenType::DOLLAR},
+
+        {"&&", TokenType::AND},
+        {"||", TokenType::OR},
+
+        {"!", TokenType::NOT},
+        {"?", TokenType::QUERY},
+        {"???", TokenType::UNDEFINED},
     };
+
+    auto is_operator(TokenType token) -> bool
+    {
+        return std::any_of(operator_types.begin(), operator_types.end(),
+                           [token](const auto &pair)
+                           { return pair.second == token; });
+    }
 
     const static Map<Str, TokenType> tokenType = {
         {"type", TokenType::KEYWORD_TYPE},
@@ -126,6 +162,46 @@ namespace NG::parsing
         {"=>", TokenType::DUAL_ARROW},
         {"->", TokenType::SINGLE_ARROW},
         {"::", TokenType::SEPERATOR},
+        {":=", TokenType::ASSIGN_EQUAL},
+        {":", TokenType::COLON},
+        {";", TokenType::SEMICOLON},
+        {",", TokenType::COMMA},
+        {".", TokenType::DOT},
+
+        {":=", TokenType::ASSIGN_EQUAL},
+
+        {"=", TokenType::BIND},
+        {"+", TokenType::PLUS},
+        {"-", TokenType::MINUS},
+        {"*", TokenType::TIMES},
+        {"/", TokenType::DIVIDE},
+        {"%", TokenType::MODULUS},
+        {"==", TokenType::EQUAL},
+        {"!=", TokenType::NOT_EQUAL},
+        {">", TokenType::GT},
+        {"<", TokenType::LT},
+        {">=", TokenType::GE},
+        {"<=", TokenType::LE},
+        {"<<", TokenType::LSHIFT},
+        {">>", TokenType::RSHIFT},
+
+        {"&", TokenType::AMPERSAND},
+        {"|", TokenType::PIPE},
+        {"^", TokenType::CARET},
+        {"~", TokenType::TILDE},
+
+        {"@", TokenType::AT},
+        {"*", TokenType::ASERISK},
+        {"$", TokenType::DOLLAR},
+        {"`", TokenType::BACKTICK},
+        {"#", TokenType::HASHTAG},
+
+        {"&&", TokenType::AND},
+        {"||", TokenType::OR},
+
+        {"!", TokenType::NOT},
+        {"?", TokenType::QUERY},
+        {"???", TokenType::UNDEFINED},
 // include
 #include "reserved.inc"
 
@@ -268,6 +344,13 @@ namespace NG::parsing
                 if (state.lookAhead() == ':')
                 {
                     Token token{.type = TokenType::SEPERATOR, .repr = "::", .position = pos};
+                    tokens.push_back(token);
+                    state.next(2);
+                    return token;
+                }
+                if (state.lookAhead() == '=')
+                {
+                    Token token{.type = TokenType::ASSIGN_EQUAL, .repr = ":=", .position = pos};
                     tokens.push_back(token);
                     state.next(2);
                     return token;
@@ -652,12 +735,16 @@ namespace NG::parsing
             return token;
         }
 
-        Operators operatorType = Operators::UNKNOWN;
+        TokenType operatorType = TokenType::NONE;
         if (operator_types.contains(result))
         {
             operatorType = operator_types.at(result);
         }
-        Token token{.type = TokenType::OPERATOR, .repr = result, .position = pos, .operatorType = operatorType};
+        else
+        {
+            throw LexException("Unknown operator: " + result);
+        }
+        Token token{.type = operatorType, .repr = result, .position = pos};
         tokens.push_back(token);
         return token;
     }

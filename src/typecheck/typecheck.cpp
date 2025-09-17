@@ -351,9 +351,9 @@ namespace NG::typecheck
             TypeChecker checker{locals};
             unoExpr->operand->accept(&checker);
             auto operandType = checker.result;
-            switch (unoExpr->optr->operatorType)
+            switch (unoExpr->optr->type)
             {
-            case Operators::MINUS:
+            case TokenType::MINUS:
             {
                 if (isPrimitive(operandType->tag()))
                 {
@@ -367,12 +367,12 @@ namespace NG::typecheck
 
                 throw TypeCheckingException("Invalid operand type for negate operation.");
             }
-            case Operators::NOT:
+            case TokenType::NOT:
             {
                 result = makecheck<PrimitiveType>(typeinfo_tag::BOOL);
                 return;
             }
-            case Operators::QUERY:
+            case TokenType::QUERY:
             {
                 throw TypeCheckingException("Not supported operator QUERY (?).");
             }
@@ -391,25 +391,25 @@ namespace NG::typecheck
             if (isPrimitive(leftType->tag()))
             {
                 PrimitiveType &leftPrimitive = static_cast<PrimitiveType &>(*leftType);
-                switch (expression->optr->operatorType)
+                switch (expression->optr->type)
                 {
-                case Operators::MODULUS:
-                case Operators::LSHIFT:
-                case Operators::RSHIFT:
+                case TokenType::MODULUS:
+                case TokenType::LSHIFT:
+                case TokenType::RSHIFT:
                     if (!isIntegralType(leftPrimitive.tag()))
                     {
                         throw TypeCheckingException("Invalid type for modulus: " + leftPrimitive.repr());
                     }
-                    if (expression->optr->operatorType != Operators::MODULUS)
+                    if (expression->optr->type != TokenType::MODULUS)
                     {
                         result = leftType;
                         return;
                     }
                     [[fallthrough]];
-                case Operators::PLUS:
-                case Operators::MINUS:
-                case Operators::TIMES:
-                case Operators::DIVIDE:
+                case TokenType::PLUS:
+                case TokenType::MINUS:
+                case TokenType::TIMES:
+                case TokenType::DIVIDE:
                     if (leftPrimitive.match(*rightType))
                     {
                         result = leftType;
@@ -424,12 +424,12 @@ namespace NG::typecheck
                                                     leftPrimitive.repr() + ", " + rightType->repr());
                     }
                     return;
-                case Operators::EQUAL:
-                case Operators::NOT_EQUAL:
-                case Operators::GE:
-                case Operators::GT:
-                case Operators::LE:
-                case Operators::LT:
+                case TokenType::EQUAL:
+                case TokenType::NOT_EQUAL:
+                case TokenType::GE:
+                case TokenType::GT:
+                case TokenType::LE:
+                case TokenType::LT:
                     if (leftPrimitive.match(*rightType) || rightType->match(leftPrimitive))
                     {
                         result = makecheck<PrimitiveType>(typeinfo_tag::BOOL);
@@ -447,9 +447,9 @@ namespace NG::typecheck
             else if (leftType->tag() == typeinfo_tag::ARRAY)
             {
                 ArrayType &arrayType = static_cast<ArrayType &>(*leftType);
-                switch (expression->optr->operatorType)
+                switch (expression->optr->type)
                 {
-                case Operators::LSHIFT: // push to array
+                case TokenType::LSHIFT: // push to array
                     if (arrayType.elementType->match(*rightType))
                     {
                         result = leftType;
@@ -460,8 +460,8 @@ namespace NG::typecheck
                         throw TypeCheckingException("Invalid element type for array push: " + rightType->repr());
                     }
                 // // TBD: Array comparison
-                // case Operators::EQUAL:
-                // case Operators::NOT_EQUAL:
+                // case TokenType::EQUAL:
+                // case TokenType::NOT_EQUAL:
                 //     if (rightType->tag() == typeinfo_tag::ARRAY)
                 //     {
                 //         ArrayType &rightArrayType = static_cast<ArrayType &>(*rightType);
@@ -532,6 +532,7 @@ namespace NG::typecheck
             if (typecode > code(TypeAnnotationType::BUILTIN) && typecode < code(TypeAnnotationType::END_OF_BUILTIN))
             {
                 result = PrimitiveType::from(annotation->type);
+                return;
             }
             else if (annotation->type == TypeAnnotationType::ARRAY)
             {

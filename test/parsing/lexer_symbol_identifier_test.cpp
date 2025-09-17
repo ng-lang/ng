@@ -17,15 +17,18 @@ TEST_CASE("lexer should accept brackets", "[Lexer][Brackets]")
 
 TEST_CASE("lexer should accept operators", "[Lexer][Operator]")
 {
-    Lexer lexer{LexState{">= <*> <= 1 2 3 + * / *"}};
+    Lexer lexer{LexState{">= <= 1 2 3 + * / *"}};
     auto &&tokens = lexer.lex();
-    REQUIRE(tokens.size() == 10);
-    REQUIRE(tokens[0].type == TokenType::OPERATOR);
-    REQUIRE(tokens[0].operatorType == Operators::GE);
-    REQUIRE(tokens[1].repr == "<*>");
-    REQUIRE(tokens[1].operatorType == Operators::UNKNOWN);
-    REQUIRE(tokens[3].type == TokenType::NUMBER);
-    REQUIRE(tokens[4].repr == "2");
+    REQUIRE(tokens.size() == 9);
+    REQUIRE(tokens[0].type == TokenType::GE);
+    REQUIRE(tokens[2].type == TokenType::NUMBER);
+    REQUIRE(tokens[3].repr == "2");
+}
+
+TEST_CASE("lexer should fail while met unrecorgnized operator", "[Lexer][Operator]")
+{
+    Lexer lexer{LexState{"<*>"}};
+    REQUIRE_THROWS_MATCHES(lexer.lex(), LexException, MessageMatches(ContainsSubstring("Unknown operator: <*>")));
 }
 
 TEST_CASE("lexer should accept special symbols", "[Lexer][Symbol][Arrow][Sepeerator][Colon][Semicolon][Comma]")
