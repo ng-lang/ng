@@ -107,7 +107,7 @@ namespace NG::parsing
         {"loop", TokenType::KEYWORD_LOOP},
         {"collect", TokenType::KEYWORD_COLLECT},
         {"next", TokenType::KEYWORD_NEXT},
-        {"switch", TokenType::KWYWORD_SWITCH},
+        {"switch", TokenType::KEYWORD_SWITCH},
         {"case", TokenType::KEYWORD_CASE},
         {"otherwise", TokenType::KEYWORD_OTHERWISE},
         {"return", TokenType::KEYWORD_RETURN},
@@ -161,8 +161,7 @@ namespace NG::parsing
 
         {"=>", TokenType::DUAL_ARROW},
         {"->", TokenType::SINGLE_ARROW},
-        {"::", TokenType::SEPERATOR},
-        {":=", TokenType::ASSIGN_EQUAL},
+        {"::", TokenType::SEPARATOR},
         {":", TokenType::COLON},
         {";", TokenType::SEMICOLON},
         {",", TokenType::COMMA},
@@ -191,7 +190,6 @@ namespace NG::parsing
         {"~", TokenType::TILDE},
 
         {"@", TokenType::AT},
-        {"*", TokenType::ASERISK},
         {"$", TokenType::DOLLAR},
         {"`", TokenType::BACKTICK},
         {"#", TokenType::HASHTAG},
@@ -343,7 +341,7 @@ namespace NG::parsing
             {
                 if (state.lookAhead() == ':')
                 {
-                    Token token{.type = TokenType::SEPERATOR, .repr = "::", .position = pos};
+                    Token token{.type = TokenType::SEPARATOR, .repr = "::", .position = pos};
                     tokens.push_back(token);
                     state.next(2);
                     return token;

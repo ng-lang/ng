@@ -536,7 +536,7 @@ namespace NG::parsing
             }
             if (!expect(TokenType::BIND))
             {
-                unexpected("Unexpected token, expect assginment operator `=`.");
+                unexpected("Unexpected token " + state->repr + ", expect bind operator `=`.");
             }
             accept(TokenType::BIND);
             auto value = expression();

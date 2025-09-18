@@ -74,7 +74,7 @@ namespace NG::intp
             return leftParam->opLShift(rightParam);
         //            case TokenType::ASSIGN:
         case TokenType::BIND:
-            throw RuntimeException("Operator = is not suppported in expressions, perhaps you mean ':='?");
+            throw RuntimeException("Operator = is not supported in expressions, perhaps you mean ':='?");
         default:
             throw RuntimeException("Unsupported binary operator");
             break;
@@ -883,4 +883,4 @@ namespace NG::intp
         }); // NOLINT(cppcoreguidelines-owning-memory)
     }
 
-} // namespace NG::interpreter
+} // namespace NG::intp

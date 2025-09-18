@@ -38,7 +38,7 @@ namespace NG
         KEYWORD_LOOP,
         KEYWORD_COLLECT,
         KEYWORD_NEXT,
-        KWYWORD_SWITCH,
+        KEYWORD_SWITCH,
         KEYWORD_CASE,
         KEYWORD_OTHERWISE,
         KEYWORD_RETURN,
@@ -95,7 +95,7 @@ namespace NG
         DUAL_ARROW,   // =>
         SINGLE_ARROW, // ->
         ASSIGN_EQUAL, // :=
-        SEPERATOR,    // ::
+        SEPARATOR,    // ::
         COLON,        // :
         SEMICOLON,    // ;
         COMMA,        // ,
@@ -124,7 +124,6 @@ namespace NG
         TILDE,     // ~
 
         AT,       // @
-        ASERISK,  // *
         DOLLAR,   // $
         BACKTICK, // `
         HASHTAG,  // #
@@ -154,36 +153,6 @@ namespace NG
         NUMBER_F128,
         STRING,
         RESERVED,
-    };
-
-    /**
-     * @brief The type of an operator.
-     */
-    enum class Operators : uint8_t
-    {
-        NONE,
-        PLUS,    // +
-        MINUS,   // -
-        TIMES,   // *
-        DIVIDE,  // /
-        MODULUS, // %
-
-        BIND,      // =
-        EQUAL,     // ==
-        NOT_EQUAL, // !=
-        GE,        // >=
-        GT,        // >
-        LE,        // <=
-        LT,        // <
-
-        LSHIFT, // <<
-        RSHIFT, // >>
-
-        NOT,       // !
-        QUERY,     // ?
-        UNDEFINED, // ???
-
-        UNKNOWN
     };
 
     /**

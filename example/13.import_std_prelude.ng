@@ -1,6 +1,6 @@
 
-assert(not(false));
+assert(!false);
 
-if (not(false)) {
+if (!false) {
     print(not(true));
 }

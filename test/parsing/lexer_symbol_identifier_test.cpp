@@ -25,10 +25,20 @@ TEST_CASE("lexer should accept operators", "[Lexer][Operator]")
     REQUIRE(tokens[3].repr == "2");
 }
 
-TEST_CASE("lexer should fail while met unrecorgnized operator", "[Lexer][Operator]")
+TEST_CASE("lexer should fail when encountering unrecognized operator", "[Lexer][Operator]")
 {
     Lexer lexer{LexState{"<*>"}};
     REQUIRE_THROWS_MATCHES(lexer.lex(), LexException, MessageMatches(ContainsSubstring("Unknown operator: <*>")));
+}
+
+TEST_CASE("lexer should lex not-equal operator", "[Lexer][Operator]")
+{
+    Lexer lexer{LexState{"1!=2"}};
+    auto &&tokens = lexer.lex();
+    REQUIRE(tokens.size() == 3);
+    REQUIRE(tokens[0].type == TokenType::NUMBER);
+    REQUIRE(tokens[1].type == TokenType::NOT_EQUAL);
+    REQUIRE(tokens[2].type == TokenType::NUMBER);
 }
 
 TEST_CASE("lexer should accept special symbols", "[Lexer][Symbol][Arrow][Sepeerator][Colon][Semicolon][Comma]")
@@ -38,7 +48,7 @@ TEST_CASE("lexer should accept special symbols", "[Lexer][Symbol][Arrow][Sepeera
     REQUIRE(tokens.size() == 6);
     REQUIRE(tokens[0].type == TokenType::DUAL_ARROW);
     REQUIRE(tokens[1].type == TokenType::SINGLE_ARROW);
-    REQUIRE(tokens[2].type == TokenType::SEPERATOR);
+    REQUIRE(tokens[2].type == TokenType::SEPARATOR);
     REQUIRE(tokens[3].type == TokenType::COLON);
     REQUIRE(tokens[4].type == TokenType::SEMICOLON);
     REQUIRE(tokens[5].type == TokenType::COMMA);
