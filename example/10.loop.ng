@@ -1,7 +1,7 @@
 fun sum(n) {
   val s = 0;
   loop i = 0 {
-    s = s + i;
+    s := s + i;
     if (i < n) {
       next i + 1;
     }

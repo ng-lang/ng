@@ -19,13 +19,13 @@ namespace NG::parsing
 
     const std::regex IMPORT_DECL_PATTERN{"^[A-Za-z_][A-Za-z_\\-0-9\\.]+$"};
 
-    static const Set<Operators> unary_operators{
-        Operators::NOT,
-        Operators::MINUS,
-        Operators::QUERY,
+    static const Set<TokenType> unary_operators{
+        TokenType::NOT,
+        TokenType::MINUS,
+        TokenType::QUERY,
     };
 
-    [[nodiscard]] inline auto isUnaryOperator(Operators optr) -> bool
+    [[nodiscard]] inline auto isUnaryOperator(TokenType optr) -> bool
     {
         return unary_operators.contains(optr);
     }
@@ -35,9 +35,13 @@ namespace NG::parsing
         ParseState state;
 
         [[noreturn]]
-        static void unexpected(ParseState &state, std::list<TokenType> types = {})
+        void unexpected(Str message)
         {
-            throw ParseException(std::string{"Unexpected token "} + state->repr + " at " + std::to_string(state->position.line) + ":" + std::to_string(state->position.col));
+            if (message.empty())
+            {
+                message = std::string{"Unexpected token "} + state->repr;
+            }
+            throw ParseException(message + " at " + std::to_string(state->position.line) + ":" + std::to_string(state->position.col));
         }
 
     public:
@@ -115,7 +119,7 @@ namespace NG::parsing
                 {
                     if (moduleDeclared)
                     {
-                        throw ParseException("Redeclare a module");
+                        unexpected("Redeclare a module");
                     }
                     moduleDeclared = true;
                     moduleDecl(mod);
@@ -136,7 +140,7 @@ namespace NG::parsing
                 {
                     if (exported)
                     {
-                        throw ParseException("Invalid export: only definitions can be exported");
+                        unexpected("Invalid export: only definitions can be exported");
                     }
                     current_mod->statements.push_back(statement());
                 }
@@ -155,7 +159,7 @@ namespace NG::parsing
         {
             if (!expect(type))
             {
-                return unexpected(state, {type});
+                return unexpected("Unexpected token " + state->repr);
             }
             state.next();
         }
@@ -177,16 +181,16 @@ namespace NG::parsing
                     def->returnType = std::move(typeAnnotation());
                 }
 
-                if (expect(TokenType::OPERATOR) && state->operatorType == Operators::ASSIGN)
+                if (expect(TokenType::BIND))
                 {
-                    accept(TokenType::OPERATOR);
+                    accept(TokenType::BIND);
                     if (expect(TokenType::KEYWORD_NATIVE))
                     {
                         accept(TokenType::KEYWORD_NATIVE);
                         def->native = true;
                         if (def->returnType == nullptr)
                         {
-                            throw ParseException("Native function '" + def->funName + "' must declare a return type.");
+                            unexpected("Native function '" + def->funName + "' must declare a return type.");
                         }
                         accept(TokenType::SEMICOLON);
                         return def;
@@ -204,7 +208,7 @@ namespace NG::parsing
                 def->body = std::move(statement());
                 return def;
             }
-            throw ParseException("Expected function name");
+            unexpected("Expected function name");
         }
 
         /**
@@ -236,7 +240,7 @@ namespace NG::parsing
                 }
                 else
                 {
-                    throw ParseException("Invalid module path when import.");
+                    unexpected("Invalid module path when import.");
                 }
                 if (expect(TokenType::DOT))
                 {
@@ -273,18 +277,18 @@ namespace NG::parsing
                     }
                     accept(TokenType::COMMA);
                 }
-                if (imp->imports.empty() && expect(TokenType::OPERATOR) && state->operatorType == Operators::TIMES)
+                if (imp->imports.empty() && expect(TokenType::TIMES))
                 {
-                    accept(TokenType::OPERATOR);
+                    accept(TokenType::TIMES);
                     imp->imports.emplace_back("*");
                 }
                 accept(TokenType::RIGHT_PAREN);
             }
             else
             {
-                if (expect(TokenType::OPERATOR) && state->operatorType == Operators::TIMES)
+                if (expect(TokenType::TIMES))
                 {
-                    accept(TokenType::OPERATOR);
+                    accept(TokenType::TIMES);
                     imp->imports.emplace_back("*");
                 }
             }
@@ -354,15 +358,15 @@ namespace NG::parsing
                 }
                 else
                 {
-                    throw ParseException("Invalid module name for module: " + moduleName + ", expected: " + mod->name);
+                    unexpected("Invalid module name for module: " + moduleName + ", expected: " + mod->name);
                 }
             }
             if (expect(TokenType::KEYWORD_EXPORTS))
             {
                 accept(TokenType::KEYWORD_EXPORTS);
-                if (state->type == TokenType::OPERATOR && state->operatorType == Operators::TIMES)
+                if (state->type == TokenType::TIMES)
                 {
-                    accept(TokenType::OPERATOR);
+                    accept(TokenType::TIMES);
                     mod->exports.emplace_back("*");
                 }
                 else
@@ -425,9 +429,9 @@ namespace NG::parsing
                         param = makeast<Param>(name, anno);
                     }
                     params.push_back(param);
-                    if (expect(TokenType::OPERATOR) && state->operatorType == Operators::ASSIGN)
+                    if (expect(TokenType::BIND))
                     {
-                        accept(TokenType::OPERATOR);
+                        accept(TokenType::BIND);
                         param->value = expression();
                     }
 
@@ -514,7 +518,7 @@ namespace NG::parsing
                 anno->type = TypeAnnotationType::CUSTOMIZED;
                 return anno;
             }
-            throw ParseException("Unknown type annotation");
+            unexpected("Unknown type annotation");
         }
 
         auto valDefStatement() -> ASTRef<ValDefStatement>
@@ -530,11 +534,11 @@ namespace NG::parsing
                 accept(TokenType::COLON);
                 anno = typeAnnotation();
             }
-            if (state->operatorType != Operators::ASSIGN)
+            if (!expect(TokenType::BIND))
             {
-                throw ParseException("Unexpected token, expect assginment operator `=`.");
+                unexpected("Unexpected token " + state->repr + ", expect bind operator `=`.");
             }
-            accept(TokenType::OPERATOR);
+            accept(TokenType::BIND);
             auto value = expression();
             accept(TokenType::SEMICOLON);
             auto def = makeast<ValDefStatement>(name);
@@ -581,18 +585,11 @@ namespace NG::parsing
                     accept(TokenType::COLON);
                     loopBindingAnnotation = typeAnnotation();
                 }
-                if (state->type == TokenType::OPERATOR)
+                if (state->type == TokenType::BIND)
                 {
-                    if (state->operatorType == Operators::ASSIGN)
-                    {
-                        accept(TokenType::OPERATOR);
-                        loopBindingType = LoopBindingType::LOOP_ASSIGN;
-                        bindingTarget = expression(); // NOLINT(*-unused-variable)
-                    }
-                    else
-                    {
-                        throw ParseException("Unexpected loop binding " + state->repr + ", expect '='.");
-                    }
+                    accept(TokenType::BIND);
+                    loopBindingType = LoopBindingType::LOOP_ASSIGN;
+                    bindingTarget = expression(); // NOLINT(*-unused-variable)
                 }
                 if (bindingTarget)
                 {
@@ -605,7 +602,7 @@ namespace NG::parsing
                 }
                 else
                 {
-                    throw ParseException("Invalid loop binding target for " + identifier);
+                    unexpected("Invalid loop binding target for " + identifier);
                 }
                 if (expect(TokenType::COMMA))
                 {
@@ -686,7 +683,7 @@ namespace NG::parsing
             auto type = expression();
             if (!dynamic_ast_cast<IdExpression>(type) && !dynamic_ast_cast<IdAccessorExpression>(type))
             {
-                throw ParseException("Unexpected expression " + type->repr());
+                unexpected("Unexpected expression " + type->repr());
             }
 
             return makeast<TypeCheckingExpression>(expr, type);
@@ -696,7 +693,7 @@ namespace NG::parsing
         {
             auto expr = std::move(primaryExpression());
 
-            while (!expectExpressionTerminator() || expect(TokenType::OPERATOR))
+            while (!expectExpressionTerminator() || is_operator(state->type))
             {
                 if (expect(TokenType::LEFT_PAREN))
                 {
@@ -710,17 +707,15 @@ namespace NG::parsing
                 {
                     expr = std::move(typeCheckExpr(std::move(expr)));
                 }
-                else if (expect(TokenType::OPERATOR))
+                else if (expect(TokenType::ASSIGN_EQUAL))
                 {
-                    if (state->operatorType == Operators::ASSIGN)
-                    {
-                        expr = std::move(assignmentExpression(std::move(expr)));
-                    }
-                    else
-                    {
-                        expr = std::move(binaryExpression(std::move(expr)));
-                    }
+                    expr = std::move(assignmentExpression(std::move(expr)));
                 }
+                else if (is_operator(state->type))
+                {
+                    expr = std::move(binaryExpression(std::move(expr)));
+                }
+
                 else if (expect(TokenType::LEFT_SQUARE))
                 {
                     expr = std::move(indexAccessorExpression(std::move(expr)));
@@ -736,15 +731,15 @@ namespace NG::parsing
             auto idAccessor = dynamic_ast_cast<IdAccessorExpression>(ref);
             if (!idExpr && !idAccessor)
             {
-                throw ParseException("Unexpected expression, expect identifier to assign");
+                unexpected("Unexpected expression, expect identifier to assign");
             }
 
-            if (state->operatorType != Operators::ASSIGN)
+            if (!expect(TokenType::ASSIGN_EQUAL))
             {
-                throw ParseException("Only assignment operator can assign");
+                unexpected("Only assignment operator can assign");
             }
 
-            accept(TokenType::OPERATOR);
+            accept(TokenType::ASSIGN_EQUAL);
             auto assignmentExpr = makeast<AssignmentExpression>(ref);
             assignmentExpr->value = std::move(expression());
 
@@ -762,14 +757,18 @@ namespace NG::parsing
                    expect(TokenType::RIGHT_SQUARE) || // ]
                    expect(TokenType::SEMICOLON) ||    // ;
                    expect(TokenType::LEFT_CURLY) ||   // {
-                   expect(TokenType::OPERATOR) ||
+                   is_operator(state->type) ||
                    state.eof();
         }
 
         auto binaryExpression(ASTRef<Expression> expr) -> ASTRef<BinaryExpression>
         {
             auto &&token = state.current();
-            accept(TokenType::OPERATOR);
+            if (state->type == TokenType::BIND)
+            {
+                unexpected("Invalid use of binding operator `=` in expression.");
+            }
+            accept(state->type);
             auto binexpr = makeast<BinaryExpression>();
             binexpr->optr = std::make_shared<Token>(token);
             binexpr->left = std::move(expr);
@@ -809,7 +808,7 @@ namespace NG::parsing
             }
             else
             {
-                throw ParseException("Expect identifier after '.'");
+                unexpected("Expect identifier after '.'");
             }
 
             if (expect(TokenType::LEFT_PAREN))
@@ -841,14 +840,11 @@ namespace NG::parsing
             auto accessor = expression();
             accept(TokenType::RIGHT_SQUARE);
 
-            if (expect(TokenType::OPERATOR))
+            if (expect(TokenType::ASSIGN_EQUAL))
             {
-                if (state->operatorType == Operators::ASSIGN)
-                {
-                    accept(TokenType::OPERATOR);
-                    auto value = expression();
-                    return makeast<IndexAssignmentExpression>(std::move(primary), std::move(accessor), std::move(value));
-                }
+                accept(TokenType::ASSIGN_EQUAL);
+                auto value = expression();
+                return makeast<IndexAssignmentExpression>(std::move(primary), std::move(accessor), std::move(value));
             }
             return makeast<IndexAccessorExpression>(std::move(primary), std::move(accessor));
         }
@@ -927,39 +923,41 @@ namespace NG::parsing
             {
                 return newObjectExpression();
             }
-            if (expect(TokenType::OPERATOR))
+            if (is_operator(state->type))
             {
-                if (isUnaryOperator(state->operatorType))
+                if (isUnaryOperator(state->type))
                 {
                     return unaryExpression();
                 }
                 else
                 {
-                    throw ParseException("Unexpected operator as unary operator");
+                    unexpected("Unexpected operator as unary operator");
                 }
             }
-            throw ParseException("Unexpected primary expression: " + state->repr);
+            unexpected("Unexpected primary expression: " + state->repr);
         }
 
         auto unaryExpression() -> ASTRef<UnaryExpression>
         {
             auto optrToken = state.current();
 
-            switch (optrToken.operatorType)
+            switch (optrToken.type)
             {
-            case Operators::NOT:
-            case Operators::MINUS:
-            case Operators::QUERY:
+            case TokenType::NOT:
+                [[fallthrough]];
+            case TokenType::MINUS:
+                [[fallthrough]];
+            case TokenType::QUERY:
             {
 
-                accept(TokenType::OPERATOR);
+                accept(optrToken.type);
                 auto expr = makeast<UnaryExpression>();
                 expr->optr = std::make_shared<Token>(optrToken);
                 expr->operand = std::move(expression());
                 return expr;
             }
             default:
-                throw ParseException("Invalid unary operator.");
+                unexpected("Invalid unary operator.");
             }
         }
 
@@ -1009,7 +1007,7 @@ namespace NG::parsing
                 accept(state->type);
                 return makeast<FloatingPointValue<float>>(std::stof(integer));
             case TokenType::NUMBER_F16:
-                throw ParseException("Float16 not supported");
+                unexpected("Float16 not supported");
             //     accept(state->type);
             //     return makeast<FloatingPointValue<float16_t>>(static_cast<float16_t>(std::stof(integer)));
             case TokenType::NUMBER_F32:
@@ -1019,11 +1017,11 @@ namespace NG::parsing
                 accept(state->type);
                 return makeast<FloatingPointValue<double>>((std::stod(integer)));
             case TokenType::NUMBER_F128:
-                throw ParseException("Float128 not supported");
+                unexpected("Float128 not supported");
             //     accept(state->type);
             //     return makeast<FloatingPointValue<float128_t>>(static_cast<float128_t>(std::stold(integer)));
             default:
-                throw ParseException("Invalid number literal");
+                unexpected("Invalid number literal");
             }
         }
 

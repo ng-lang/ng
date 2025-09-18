@@ -15,7 +15,7 @@ namespace NG
     enum class TokenType : uint32_t
     {
         NONE,
-        KEYWORD,
+        KEYWORD = 0x0100,
         KEYWORD_TYPE,
         KEYWORD_FUN,
         KEYWORD_VAL,
@@ -24,7 +24,7 @@ namespace NG
 
         KEYWORD_PROPERTY,
 
-        KEYWORD_MODULE,
+        KEYWORD_MODULE = 0x0200,
         KEYWORD_EXPORT,
         KEYWORD_EXPORTS,
         KEYWORD_IMPORT,
@@ -32,13 +32,13 @@ namespace NG
         KEYWORD_NEW,
         KEYWORD_NATIVE,
 
-        KEYWORD_IF,
+        KEYWORD_IF = 0x0300,
         KEYWORD_THEN,
         KEYWORD_ELSE,
         KEYWORD_LOOP,
         KEYWORD_COLLECT,
         KEYWORD_NEXT,
-        KWYWORD_SWITCH,
+        KEYWORD_SWITCH,
         KEYWORD_CASE,
         KEYWORD_OTHERWISE,
         KEYWORD_RETURN,
@@ -47,12 +47,12 @@ namespace NG
         KEYWORD_IN,
         KEYWORD_IS,
 
-        KEYWORD_TRUE,
+        KEYWORD_TRUE = 0x0400,
         KEYWORD_FALSE,
         KEYWORD_UNIT,
 
         // types
-        KEYWORD_INT,
+        KEYWORD_INT = 0x0500,
         KEYWORD_BOOL,
         KEYWORD_STRING,
         KEYWORD_FLOAT,
@@ -85,7 +85,7 @@ namespace NG
         KEYWORD_F64,
         KEYWORD_F128,
 
-        LEFT_PAREN,
+        LEFT_PAREN = 0x0A00,
         RIGHT_PAREN,
         LEFT_SQUARE,
         RIGHT_SQUARE,
@@ -94,14 +94,48 @@ namespace NG
 
         DUAL_ARROW,   // =>
         SINGLE_ARROW, // ->
-        SEPERATOR,    // ::
+        ASSIGN_EQUAL, // :=
+        SEPARATOR,    // ::
         COLON,        // :
         SEMICOLON,    // ;
         COMMA,        // ,
         DOT,          // .
 
+        PLUS,    // +
+        MINUS,   // -
+        TIMES,   // *
+        DIVIDE,  // /
+        MODULUS, // %
+
+        BIND,      // =
+        EQUAL,     // ==
+        NOT_EQUAL, // !=
+        GE,        // >=
+        GT,        // >
+        LE,        // <=
+        LT,        // <
+
+        LSHIFT, // <<
+        RSHIFT, // >>
+
+        AMPERSAND, // &
+        PIPE,      // |
+        CARET,     // ^
+        TILDE,     // ~
+
+        AT,       // @
+        DOLLAR,   // $
+        BACKTICK, // `
+        HASHTAG,  // #
+
+        AND, // &&
+        OR,  // ||
+
+        NOT,       // !
+        QUERY,     // ?
+        UNDEFINED, // ???
+
         ID,
-        OPERATOR,
         NUMBER,
         INTEGRAL,
         FLOATING_POINT,
@@ -122,36 +156,6 @@ namespace NG
     };
 
     /**
-     * @brief The type of an operator.
-     */
-    enum class Operators : uint8_t
-    {
-        NONE,
-        PLUS,    // +
-        MINUS,   // -
-        TIMES,   // *
-        DIVIDE,  // /
-        MODULUS, // %
-
-        ASSIGN,    // =
-        EQUAL,     // ==
-        NOT_EQUAL, // !=
-        GE,        // >=
-        GT,        // >
-        LE,        // <=
-        LT,        // <
-
-        LSHIFT, // <<
-        RSHIFT, // >>
-
-        NOT,       // !
-        QUERY,     // ?
-        UNDEFINED, // ???
-
-        UNKNOWN
-    };
-
-    /**
      * @brief The position of a token in the source code.
      */
     struct TokenPosition
@@ -168,12 +172,10 @@ namespace NG
         TokenType type;         ///< The type of the token.
         Str repr;               ///< The representation of the token.
         TokenPosition position; ///< The position of the token.
-        Operators operatorType; ///< The type of the operator if the token is an operator.
 
         auto operator==(const Token &token) const -> bool
         {
             return type == token.type &&
-                   operatorType == token.operatorType &&
                    repr == token.repr;
         }
     };

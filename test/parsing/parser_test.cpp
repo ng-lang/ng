@@ -60,11 +60,21 @@ TEST_CASE("parser should parse index accessor expression", "[ParserTest]")
 
 TEST_CASE("parser should parse array index assign expression", "[ParserTest]")
 {
-    auto ast = parse(R"(
-        d.x[1] = 2;
-    )");
+    auto ast = parse("d.x[1] := 2;");
     REQUIRE(ast != nullptr);
     destroyast(ast);
+}
+
+TEST_CASE("parser should reject '=' in expression binding", "[ParserTest][Failure]")
+{
+    parseInvalid("a = a + 1;",
+                 "Invalid use of binding operator `=` in expression");
+
+    parseInvalid("d.x[1] = 2;",
+                 "Invalid use of binding operator `=` in expression");
+
+    parseInvalid("a.b = c;",
+                 "Invalid use of binding operator `=` in expression");
 }
 
 TEST_CASE("parser should parse builtin integral and floating_point values", "[ParserTest]")
@@ -124,4 +134,16 @@ TEST_CASE("Regex match", "[ParserTestRegexMatch]")
     match(pattern, "ab_123", true);
     match(pattern, "0a", false);
     match(pattern, "-a", false);
+}
+
+TEST_CASE("parser should fail when val definition not using binding operator `=`", "[ParserTest][Failure]")
+{
+    parseInvalid("val x + 1;",
+                 "Unexpected token +, expect bind operator `=`.");
+
+    parseInvalid("val y := 1;",
+                 "Unexpected token :=, expect bind operator `=`.");
+
+    parseInvalid("val y;",
+                 "Unexpected token");
 }

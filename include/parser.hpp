@@ -111,6 +111,9 @@ namespace NG::parsing
         auto next() -> Token;
     };
 
+    /// Returns true if `type` is an operator token usable in expressions.
+    auto is_operator(TokenType type) -> bool;
+
     using NG::ast::ASTNode;
 
     /**

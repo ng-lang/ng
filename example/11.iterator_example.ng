@@ -21,41 +21,41 @@ type List {
 
     fun append(value) {
         print("append", value, self);
-        self.size = self.size + 1;
+        self.size := self.size + 1;
         if (self.node is None) {
-            self.node = new Node {
+            self.node := new Node {
                 _next: new None {},
                 content: value
             };
         } else if (!self.node.hasNext()) {
-            self.node._next = new Node {
+            self.node._next := new Node {
                 _next: new None {},
                 content: value
             };
         } else {
-            loop current = self {
-                if (current.hasNext()) {
-                    current = current.getNext();
-
-                    if (!current.hasNext()) {
-                        current._next = new Node {
-                            _next: current._next,
-                            content: value
-                        };
-                    } else {
-                        next current;
-                    }
+            loop current = self.node {
+                if (current is None) { 
+                    return;
+                }
+                if (!current.hasNext()) {
+                    current._next := new Node {
+                        _next: current._next,
+                        content: value
+                    };
+                } else {
+                    next current.getNext();
                 }
             }
         }
     }
+
 
     fun hasNext() {
         return !(self.node is None);
     }
 
     fun getNext() {
-        return node;
+        return self.node;
     }
 
     fun toString() {
