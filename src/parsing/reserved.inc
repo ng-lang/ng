@@ -126,7 +126,6 @@ RESERVED(try),
 RESERVED(typedef),
 RESERVED(typeid),
 RESERVED(typename),
-RESERVED(typeof),
 RESERVED(union),
 
 RESERVED(unittest),

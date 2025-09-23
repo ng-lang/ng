@@ -26,6 +26,7 @@ inline ASTRef<ASTNode> parse(const Str &source, const Str &moduleName = "[noname
     try
     {
         auto ast = Parser(ParseState(tokens)).parse(moduleName);
+        // debug_log(ast->repr());
         return ast;
     }
     catch (const ParseException &ex)

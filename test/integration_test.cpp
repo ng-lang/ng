@@ -99,3 +99,7 @@ TEST_CASE("should run prelude as default import module", "[IntegrationLoop]")
 {
     runIntegrationTest("example/13.import_std_prelude.ng");
 }
+TEST_CASE("should run with tuple literal and accessor", "[IntegrationLoop]")
+{
+    runIntegrationTest("example/14.tuple.ng");
+}

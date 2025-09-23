@@ -293,3 +293,24 @@ TEST_CASE("unary operator usage", "[InterpreterTestChecking]")
             assert(0.0 > -1.0);
         )");
 }
+
+TEST_CASE("Tuples", "[InterpreterTestChecking]")
+{
+    interpret(R"(
+        val tup = (1, false, "hello");
+        assert(tup.0 == 1);
+        assert(tup.1 == false);
+        assert(tup.2 == "hello");
+
+        val (a, b, c) = tup;
+
+        val (d, ...e) = tup;
+
+        assert(a == d);
+
+        val [x, ...y] = [1, 2, 3, 4, 5];
+
+        assert(e.size == 2);
+        assert(y[0] == 2);
+        )");
+}

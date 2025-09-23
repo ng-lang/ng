@@ -98,6 +98,8 @@ namespace NG::intp
 
         RuntimeRef<NGObject> object = nullptr;
 
+        RuntimeRef<Vec<RuntimeRef<NGObject>>> collection = nullptr;
+
         RuntimeRef<NGContext> context = nullptr;
 
         explicit ExpressionVisitor(RuntimeRef<NGContext> context) : context(context) {}
@@ -169,6 +171,32 @@ namespace NG::intp
             object = makert<NGBoolean>(boolVal->value);
         }
 
+        void visit(TupleLiteral *tuple) override
+        {
+            Vec<RuntimeRef<NGObject>> objects;
+
+            ExpressionVisitor vis{context};
+
+            for (const auto &element : tuple->elements)
+            {
+                element->accept(&vis);
+                if (auto spread = dynamic_ast_cast<SpreadExpression>(element); spread)
+                {
+                    auto collection = vis.collection;
+                    for (auto &&item : *collection)
+                    {
+                        objects.push_back(item);
+                    }
+                }
+                else
+                {
+                    objects.push_back(vis.object);
+                }
+            }
+
+            object = makert<NGTuple>(objects);
+        }
+
         void visit(FunCallExpression *funCallExpr) override
         {
             FunctionPathVisitor fpVis{};
@@ -179,7 +207,18 @@ namespace NG::intp
             {
                 ExpressionVisitor vis{context};
                 param->accept(&vis);
-                invocationContext->params.push_back(vis.object);
+                if (auto spread = dynamic_ast_cast<SpreadExpression>(param))
+                {
+                    auto collection = vis.collection;
+                    for (auto &&item : *collection)
+                    {
+                        invocationContext->params.push_back(item);
+                    }
+                }
+                else
+                {
+                    invocationContext->params.push_back(vis.object);
+                }
             }
 
             RuntimeRef<NGObject> dummy = makert<NGObject>();
@@ -248,7 +287,18 @@ namespace NG::intp
             for (const auto &element : array->elements)
             {
                 element->accept(&vis);
-                objects.push_back(vis.object);
+                if (auto spread = dynamic_ast_cast<SpreadExpression>(element); spread)
+                {
+                    auto collection = vis.collection;
+                    for (auto &&item : *collection)
+                    {
+                        objects.push_back(item);
+                    }
+                }
+                else
+                {
+                    objects.push_back(vis.object);
+                }
             }
 
             object = makert<NGArray>(objects);
@@ -356,12 +406,19 @@ namespace NG::intp
             else if (auto idAcc = dynamic_ast_cast<IdAccessorExpression>(assignmentExpr->target); idAcc)
             {
                 idAcc->primaryExpression->accept(&vis);
-                auto obj = std::dynamic_pointer_cast<NGStructuralObject>(vis.object);
-                if (!obj)
+                if (auto obj = std::dynamic_pointer_cast<NGStructuralObject>(vis.object); obj)
                 {
-                    throw RuntimeException("Left-hand side of member assignment is not an object: " + idAcc->primaryExpression->repr());
+                    obj->properties[idAcc->accessor->repr()] = result;
+                    object = result;
+                    return;
                 }
-                obj->properties[idAcc->accessor->id] = result;
+                if (auto tup = std::dynamic_pointer_cast<NGTuple>(vis.object); tup)
+                {
+                    tup->opIndex(makert<NGIntegral<int>>(std::stoi(idAcc->accessor->repr())), result);
+                    object = result;
+                    return;
+                }
+                throw RuntimeException("Left-hand side of member assignment is not assignable: " + idAcc->primaryExpression->repr());
             }
             else
             {
@@ -385,7 +442,7 @@ namespace NG::intp
             else if (auto idAcccessor = dynamic_ast_cast<IdAccessorExpression>(typeCheckExpr->type); idAcccessor)
             {
                 idAcccessor->primaryExpression->accept(&vis);
-                auto name = idAcccessor->accessor->id;
+                auto name = idAcccessor->accessor->repr();
                 auto result = vis.object;
                 auto mod = std::dynamic_pointer_cast<NGModule>(result);
                 if (!mod)
@@ -404,6 +461,28 @@ namespace NG::intp
             {
                 throw RuntimeException("Invalid target expression for type checking: " + typeCheckExpr->type->repr());
             }
+        }
+        void visit(SpreadExpression *spreadExpression) override
+        {
+            ExpressionVisitor vis{context};
+
+            spreadExpression->expression->accept(&vis);
+            auto result = vis.object;
+
+            if (auto tup = std::dynamic_pointer_cast<NGTuple>(result); tup)
+            {
+                collection = tup->items;
+                object = result;
+                return;
+            }
+            if (auto arr = std::dynamic_pointer_cast<NGArray>(result); arr)
+            {
+                collection = arr->items;
+                object = result;
+                return;
+            }
+            throw new RuntimeException("Invalid spread expression, expect array or tuple, but got: " +
+                                       spreadExpression->expression->repr());
         }
     };
 
@@ -465,6 +544,63 @@ namespace NG::intp
             valDef->value->accept(&vis);
 
             context->define(valDef->name, vis.object);
+        }
+
+        void visit(ValueBindingStatement *valBind) override
+        {
+            ExpressionVisitor vis{context};
+            valBind->value->accept(&vis);
+            auto result = vis.object;
+
+            switch (valBind->type)
+            {
+            case BindingType::DIRECT:
+            {
+                if (valBind->bindings.size() != 1)
+                {
+                    throw RuntimeException("Invalid binding type: direct binding only allow exactly 1.");
+                }
+            }
+            break;
+            case BindingType::TUPLE_DESTRUCT:
+            {
+                auto items = std::dynamic_pointer_cast<NGTuple>(result)->items;
+                for (auto &&binding : valBind->bindings)
+                {
+                    if (!binding->spreadReceiver)
+                    {
+                        context->define(binding->name, items->at(binding->index));
+                    }
+                    else
+                    {
+                        Vec<RuntimeRef<NGObject>> values{items->begin() + binding->index, items->end()};
+                        context->define(binding->name, makert<NGTuple>(values));
+                    }
+                }
+            }
+            break;
+
+            case BindingType::ARRAY_DESTRUCT:
+            {
+                auto items = std::dynamic_pointer_cast<NGArray>(result)->items;
+                for (auto &&binding : valBind->bindings)
+                {
+                    if (!binding->spreadReceiver)
+                    {
+                        context->define(binding->name, items->at(binding->index));
+                    }
+                    else
+                    {
+                        Vec<RuntimeRef<NGObject>> values{items->begin() + binding->index, items->end()};
+                        context->define(binding->name, makert<NGArray>(values));
+                    }
+                }
+            }
+            break;
+            default:
+                throw RuntimeException("Invalid binding type: unsupported");
+                break;
+            }
         }
 
         void visit(SimpleStatement *simpleStmt) override
@@ -606,7 +742,7 @@ namespace NG::intp
             Set<Str> definedSymbols = {};
             for (auto &&defs : mod->definitions)
             {
-                definedSymbols.insert(defs->name());
+                definedSymbols.insert_range(defs->names());
                 defs->accept(this);
             }
 
@@ -817,9 +953,9 @@ namespace NG::intp
 
         void visit(ValDef *valDef) override
         {
-            ExpressionVisitor vis{context};
-            valDef->body->value->accept(&vis);
-            context->define(valDef->name(), vis.object);
+            StatementVisitor vis{context};
+
+            valDef->body->accept(&vis);
         }
 
         void visit(TypeDef *typeDef) override

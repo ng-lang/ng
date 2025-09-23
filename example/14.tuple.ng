@@ -1,0 +1,31 @@
+
+val x = (1, false, "hello");
+
+assert(x.0 == 1);
+assert(x.1 == false);
+assert(x.2 == "hello");
+
+val y = (0, ...x, 4);
+
+x.1 := true;
+
+assert(x[0] == 1);
+assert(x[1] == true);
+assert(x[2] == "hello");
+
+assert(!y[2]);
+
+val (a, b, c, ...d) = y;
+
+assert(a == 0);
+assert(b == 1);
+assert(!c);
+assert(d.size == 2);
+
+
+assert(x.size == 3);
+assert(y.size == 5);
+
+print(x);
+print(...y);
+print((a, b, c, ...d));

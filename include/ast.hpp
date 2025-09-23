@@ -24,7 +24,6 @@ namespace NG::ast
     {
         UNKNOWN = 0,
         COMPILE_UNIT = 0x01,
-        TYPE_ANNOTATION = 0x02,
         NODE = 0xDEADBEEF,
 
         DEFINITION = 0x100,
@@ -36,6 +35,7 @@ namespace NG::ast
         TYPE_DEFINITION = 0x111,
         PROPERTY_DEFINITION = 0x112,
         IMPORT_DECLARATION = 0x113,
+        BINDING = 0x114,
 
         EXPRESSION = 0x200,
         ID_EXPRESSION = 0x201,
@@ -48,6 +48,9 @@ namespace NG::ast
         NEW_OBJECT_EXPRESSION = 0x208,
         TYPE_CHECKING_EXPRESSION = 0x209,
         UNARY_EXPRESSION = 0x210,
+        TUPLE_DESTRUCTURING_EXPRESSION = 0x211,
+        TYPEOF_EXPRESSION = 0x212,
+        SPREAD_EXPRESSION = 0x213,
 
         LITERAL = 0x300,
         INTEGER_VALUE = 0x301,
@@ -56,6 +59,8 @@ namespace NG::ast
         ARRAY_LITERAL = 0x304,
         INTEGRAL_VALUE = 0x305,
         FLOATING_POINT_VALUE = 0x306,
+        UNIT_LITERAL = 0x307,
+        TUPLE_LITERAL = 0x308,
 
         STATEMENT = 0x400,
         EMPTY_STATEMENT = 0x400,
@@ -65,12 +70,16 @@ namespace NG::ast
         RETURN_STATEMENT = 0x404,
         IF_STATEMENT = 0x405,
         LOOP_STATEMENT = 0x406,
+        VALUE_BINDING_STATEMENT = 0x407,
 
         LOOP_DECLARATION = 0x501,
         NEXT_STATEMENT = 0x503,
         YIELD_STATEMENT = 0x504,
 
-        BOTTOM = 1030
+        TYPE_ANNOTATION = 0x600,
+        COMPOUND_TYPE_ANNOTATION = 0x601,
+
+        BOTTOM = 0xFF00,
     };
 
     /**
@@ -95,8 +104,6 @@ namespace NG::ast
          */
         [[nodiscard]]
         virtual auto astNodeType() const -> ASTNodeType = 0;
-
-        virtual auto operator==(const ASTNode &node) const -> bool = 0;
 
         /**
          * @brief Returns a string representation of the AST node.
@@ -124,8 +131,6 @@ namespace NG::ast
             return ASTNodeType::IMPORT_DECLARATION;
         }
 
-        auto operator==(const ASTNode &node) const -> bool override;
-
         void accept(AstVisitor *visitor) override;
 
         [[nodiscard]]
@@ -147,8 +152,6 @@ namespace NG::ast
         void accept(AstVisitor *visitor) override;
 
         auto astNodeType() const -> ASTNodeType override { return ASTNodeType::EMPTY_STATEMENT; }
-
-        auto operator==(const ASTNode &node) const -> bool override;
 
         [[nodiscard]]
         auto repr() const -> Str override;
@@ -172,7 +175,7 @@ namespace NG::ast
          *
          * @return The name of the definition.
          */
-        [[nodiscard]] virtual auto name() const -> Str = 0;
+        [[nodiscard]] virtual auto names() const -> Vec<Str> = 0;
     };
 
     /**
@@ -227,10 +230,10 @@ namespace NG::ast
         BUILTIN_F64,
         BUILTIN_F128,
         END_OF_BUILTIN = 0x7F,
-        COMPOSITE = 0x80,
+        PARAMETRIC = 0x80,
         ARRAY = 0x81,
         VECTOR = 0x82,
-        // TUPLE,
+        TUPLE = 0x83,
         // LIST,
         // DICT,
         CUSTOMIZED = 0xD1,
@@ -251,7 +254,6 @@ namespace NG::ast
         void accept(AstVisitor *visitor) override;
         auto astNodeType() const -> ASTNodeType override { return ASTNodeType::TYPE_ANNOTATION; }
 
-        auto operator==(const ASTNode &node) const -> bool override;
         [[nodiscard]]
         auto repr() const -> Str override;
         ~TypeAnnotation() override;
@@ -277,8 +279,6 @@ namespace NG::ast
 
         auto astNodeType() const -> ASTNodeType override { return ASTNodeType::PARAM; }
 
-        auto operator==(const ASTNode &node) const -> bool override;
-
         [[nodiscard]]
         auto repr() const -> Str override;
 
@@ -296,13 +296,11 @@ namespace NG::ast
         ASTRef<Statement> body = nullptr;            ///< The body of the function.
         bool native = false;                         ///< Whether the function is a native function.
 
-        [[nodiscard]] auto name() const -> Str override;
+        [[nodiscard]] auto names() const -> Vec<Str> override;
 
         void accept(AstVisitor *visitor) override;
 
         auto astNodeType() const -> ASTNodeType override { return ASTNodeType::FUN_DEFINITION; }
-
-        auto operator==(const ASTNode &node) const -> bool override;
 
         [[nodiscard]]
         auto repr() const -> Str override;
@@ -320,8 +318,6 @@ namespace NG::ast
         void accept(AstVisitor *visitor) override;
 
         auto astNodeType() const -> ASTNodeType override { return ASTNodeType::COMPOUND_STATEMENT; }
-
-        auto operator==(const ASTNode &node) const -> bool override;
 
         [[nodiscard]]
         auto repr() const -> Str override;
@@ -341,8 +337,6 @@ namespace NG::ast
 
         auto astNodeType() const -> ASTNodeType override { return ASTNodeType::RETURN_STATEMENT; }
 
-        auto operator==(const ASTNode &node) const -> bool override;
-
         [[nodiscard]]
         auto repr() const -> Str override;
 
@@ -361,8 +355,6 @@ namespace NG::ast
         void accept(AstVisitor *visitor) override;
 
         auto astNodeType() const -> ASTNodeType override { return ASTNodeType::IF_STATEMENT; }
-
-        auto operator==(const ASTNode &node) const -> bool override;
 
         [[nodiscard]]
         auto repr() const -> Str override;
@@ -404,8 +396,6 @@ namespace NG::ast
 
         auto astNodeType() const -> ASTNodeType override { return ASTNodeType::LOOP_STATEMENT; }
 
-        auto operator==(const ASTNode &node) const -> bool override;
-
         [[nodiscard]]
         auto repr() const -> Str override;
 
@@ -422,8 +412,6 @@ namespace NG::ast
         void accept(AstVisitor *visitor) override;
 
         auto astNodeType() const -> ASTNodeType override { return ASTNodeType::NEXT_STATEMENT; }
-
-        auto operator==(const ASTNode &node) const -> bool override;
 
         [[nodiscard]]
         auto repr() const -> Str override;
@@ -442,8 +430,6 @@ namespace NG::ast
         void accept(AstVisitor *visitor) override;
 
         auto astNodeType() const -> ASTNodeType override { return ASTNodeType::SIMPLE_STATEMENT; }
-
-        auto operator==(const ASTNode &node) const -> bool override;
 
         [[nodiscard]]
         auto repr() const -> Str override;
@@ -472,8 +458,6 @@ namespace NG::ast
 
         auto astNodeType() const -> ASTNodeType override { return ASTNodeType::MODULE; }
 
-        auto operator==(const ASTNode &node) const -> bool override;
-
         void accept(AstVisitor *visitor) override;
 
         [[nodiscard]]
@@ -492,8 +476,6 @@ namespace NG::ast
         Str path;                        ///< The path of the compile unit.
 
         auto astNodeType() const -> ASTNodeType override { return ASTNodeType::COMPILE_UNIT; }
-
-        auto operator==(const ASTNode &node) const -> bool override;
 
         void accept(AstVisitor *visitor) override;
 
@@ -515,8 +497,6 @@ namespace NG::ast
 
         auto astNodeType() const -> ASTNodeType override { return ASTNodeType::FUN_CALL_EXPRESSION; }
 
-        auto operator==(const ASTNode &node) const -> bool override;
-
         [[nodiscard]]
         auto repr() const -> Str override;
 
@@ -534,9 +514,6 @@ namespace NG::ast
 
         auto astNodeType() const -> ASTNodeType override { return ASTNodeType::ID_EXPRESSION; }
 
-        auto operator==(const ASTNode &node) const -> bool override;
-        auto operator==(const IdExpression &node) const -> bool;
-
         [[nodiscard]]
         auto repr() const -> Str override;
 
@@ -549,14 +526,12 @@ namespace NG::ast
     struct IdAccessorExpression : Expression
     {
         ASTRef<Expression> primaryExpression = nullptr; ///< The primary expression of the accessor.
-        ASTRef<IdExpression> accessor = nullptr;        ///< The accessor of the expression.
+        ASTRef<Expression> accessor = nullptr;          ///< The accessor of the expression.
         Vec<ASTRef<Expression>> arguments;              ///< The arguments of the accessor.
 
         void accept(AstVisitor *visitor) override;
 
         auto astNodeType() const -> ASTNodeType override { return ASTNodeType::ID_ACCESSOR_EXPRESSION; }
-
-        auto operator==(const ASTNode &node) const -> bool override;
 
         [[nodiscard]]
         auto repr() const -> Str override;
@@ -578,8 +553,6 @@ namespace NG::ast
         void accept(AstVisitor *visitor) override;
 
         auto astNodeType() const -> ASTNodeType override;
-
-        auto operator==(const ASTNode &node) const -> bool override;
 
         [[nodiscard]]
         auto repr() const -> Str override;
@@ -605,8 +578,6 @@ namespace NG::ast
 
         auto astNodeType() const -> ASTNodeType override;
 
-        auto operator==(const ASTNode &node) const -> bool override;
-
         [[nodiscard]]
         auto repr() const -> Str override;
 
@@ -628,8 +599,6 @@ namespace NG::ast
         void accept(AstVisitor *visitor) override;
 
         auto astNodeType() const -> ASTNodeType override;
-
-        auto operator==(const ASTNode &node) const -> bool override;
 
         [[nodiscard]]
         auto repr() const -> Str override;
@@ -654,12 +623,54 @@ namespace NG::ast
 
         auto astNodeType() const -> ASTNodeType override { return ASTNodeType::VAL_DEF_STATEMENT; }
 
-        auto operator==(const ASTNode &node) const -> bool override;
-
         [[nodiscard]]
         auto repr() const -> Str override;
 
         ~ValDefStatement() override;
+    };
+
+    struct Binding : ASTNode
+    {
+        Str name;                          ///< The name of the binding.
+        ASTRef<TypeAnnotation> annotation; ///< The type annotation of the binding.
+        ASTRef<Expression> value;          ///< The value of the binding, if any.
+        bool spreadReceiver = false;
+
+        std::size_t index = -1; ///< The index of the binding in the tuple destructuring.
+
+        void accept(AstVisitor *visitor) override;
+
+        auto astNodeType() const -> ASTNodeType override { return ASTNodeType::BINDING; }
+
+        [[nodiscard]]
+        auto repr() const -> Str override;
+
+        ~Binding() override;
+    };
+
+    enum class BindingType : uint8_t
+    {
+        UNKNOWN = 0x00,
+        DIRECT = 0x01,
+        TUPLE_DESTRUCT = 0x02,
+        ARRAY_DESTRUCT = 0x03,
+        OBJECT_DESTRUCT = 0x04,
+    };
+
+    struct ValueBindingStatement : Statement
+    {
+        Vec<ASTRef<Binding>> bindings;      ///< The bindings in the tuple destructuring.
+        ASTRef<Expression> value = nullptr; ///< The value to destructure.
+        BindingType type = BindingType::UNKNOWN;
+
+        void accept(AstVisitor *visitor) override;
+
+        auto astNodeType() const -> ASTNodeType override { return ASTNodeType::VALUE_BINDING_STATEMENT; }
+
+        [[nodiscard]]
+        auto repr() const -> Str override;
+
+        ~ValueBindingStatement() override;
     };
 
     /**
@@ -667,20 +678,15 @@ namespace NG::ast
      */
     struct ValDef : Definition
     {
-        ASTRef<ValDefStatement> body = nullptr; ///< The body of the value definition.
+        ASTRef<Statement> body = nullptr; ///< The body of the value definition.
 
-        [[nodiscard]] auto name() const -> Str override
-        {
-            return body->name;
-        }
+        [[nodiscard]] auto names() const -> Vec<Str> override;
 
-        explicit ValDef(ASTRef<ValDefStatement> defStmt) : body(std::move(defStmt)) {}
+        explicit ValDef(ASTRef<Statement> defStmt) : body(std::move(defStmt)) {}
 
         void accept(AstVisitor *visitor) override;
 
         auto astNodeType() const -> ASTNodeType override { return ASTNodeType::VAL_DEFINITION; }
-
-        auto operator==(const ASTNode &node) const -> bool override;
 
         [[nodiscard]]
         auto repr() const -> Str override;
@@ -702,8 +708,6 @@ namespace NG::ast
 
         auto astNodeType() const -> ASTNodeType override { return ASTNodeType::ASSIGNMENT_EXPRESSION; }
 
-        auto operator==(const ASTNode &node) const -> bool override;
-
         [[nodiscard]]
         auto repr() const -> Str override;
 
@@ -721,8 +725,6 @@ namespace NG::ast
         void accept(AstVisitor *visitor) override;
 
         auto astNodeType() const -> ASTNodeType override { return ASTNodeType::UNARY_EXPRESSION; }
-
-        auto operator==(const ASTNode &node) const -> bool override;
 
         [[nodiscard]]
         auto repr() const -> Str override;
@@ -742,8 +744,6 @@ namespace NG::ast
         void accept(AstVisitor *visitor) override;
 
         auto astNodeType() const -> ASTNodeType override { return ASTNodeType::BINARY_EXPRESSION; }
-
-        auto operator==(const ASTNode &node) const -> bool override;
 
         [[nodiscard]]
         auto repr() const -> Str override;
@@ -777,12 +777,6 @@ namespace NG::ast
         {
             return std::to_string(this->value);
         }
-
-        auto operator==(const ASTNode &node) const -> bool override
-        {
-            return this->astNodeType() == node.astNodeType() &&
-                   this->repr() == node.repr();
-        }
     };
 
     /**
@@ -810,12 +804,6 @@ namespace NG::ast
         {
             return std::to_string(this->value);
         }
-
-        auto operator==(const ASTNode &node) const -> bool override
-        {
-            return this->astNodeType() == node.astNodeType() &&
-                   this->repr() == node.repr();
-        }
     };
 
     // NOLINTEND(portability-template-virtual-member-function)
@@ -835,8 +823,6 @@ namespace NG::ast
 
         [[nodiscard]]
         auto repr() const -> Str override;
-
-        auto operator==(const ASTNode &node) const -> bool override;
     };
 
     /**
@@ -854,8 +840,6 @@ namespace NG::ast
 
         [[nodiscard]]
         auto repr() const -> Str override;
-
-        auto operator==(const ASTNode &node) const -> bool override;
     };
 
     /**
@@ -876,9 +860,66 @@ namespace NG::ast
         [[nodiscard]]
         auto repr() const -> Str override;
 
-        auto operator==(const ASTNode &node) const -> bool override;
-
         ~ArrayLiteral() override;
+    };
+
+    /**
+     * @brief A tuple literal.
+     */
+    struct TupleLiteral : Expression
+    {
+        Vec<ASTRef<Expression>> elements; ///< The elements of the tuple.
+
+        explicit TupleLiteral() = default;
+
+        explicit TupleLiteral(const Vec<ASTRef<Expression>> &exprs) : elements{exprs} {}
+
+        void accept(AstVisitor *visitor) override;
+
+        auto astNodeType() const -> ASTNodeType override { return ASTNodeType::TUPLE_LITERAL; }
+
+        [[nodiscard]]
+        auto repr() const -> Str override;
+
+        ~TupleLiteral() override;
+    };
+
+    /**
+     * @brief A typeof expression.
+     */
+    struct TypeOfExpression : Expression
+    {
+        ASTRef<Expression> expression; ///< The expression to get the type of.
+
+        explicit TypeOfExpression(ASTRef<Expression> expr) : expression(std::move(expr)) {}
+
+        void accept(AstVisitor *visitor) override;
+
+        auto astNodeType() const -> ASTNodeType override { return ASTNodeType::TYPEOF_EXPRESSION; }
+
+        [[nodiscard]]
+        auto repr() const -> Str override;
+
+        ~TypeOfExpression() override;
+    };
+
+    /**
+     * @brief A spread expression.
+     */
+    struct SpreadExpression : Expression
+    {
+        ASTRef<Expression> expression; ///< The expression to spread.
+
+        explicit SpreadExpression(ASTRef<Expression> expr) : expression(std::move(expr)) {}
+
+        void accept(AstVisitor *visitor) override;
+
+        auto astNodeType() const -> ASTNodeType override { return ASTNodeType::SPREAD_EXPRESSION; }
+
+        [[nodiscard]]
+        auto repr() const -> Str override;
+
+        ~SpreadExpression() override;
     };
 
     /**
@@ -892,9 +933,7 @@ namespace NG::ast
 
         auto astNodeType() const -> ASTNodeType override;
 
-        [[nodiscard]] auto name() const -> Str override;
-
-        auto operator==(const ASTNode &node) const -> bool override;
+        [[nodiscard]] auto names() const -> Vec<Str> override;
 
         void accept(AstVisitor *visitor) override;
 
@@ -913,11 +952,9 @@ namespace NG::ast
 
         auto astNodeType() const -> ASTNodeType override;
 
-        [[nodiscard]] auto name() const -> Str override;
+        [[nodiscard]] auto names() const -> Vec<Str> override;
 
         void accept(AstVisitor *visitor) override;
-
-        auto operator==(const ASTNode &node) const -> bool override;
 
         [[nodiscard]]
         auto repr() const -> Str override;
@@ -936,8 +973,6 @@ namespace NG::ast
         auto astNodeType() const -> ASTNodeType override;
 
         void accept(AstVisitor *visitor) override;
-
-        auto operator==(const ASTNode &node) const -> bool override;
 
         [[nodiscard]]
         auto repr() const -> Str override;

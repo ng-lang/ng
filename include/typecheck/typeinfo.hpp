@@ -215,4 +215,21 @@ namespace NG::typecheck
         auto match(const TypeInfo &other) const -> bool override;
     };
 
+    /**
+     * @brief A tuple type.
+     */
+    struct TupleType : TypeInfo
+    {
+        Vec<CheckingRef<TypeInfo>> elementTypes; ///< The element types of the tuple.
+
+        explicit TupleType(Vec<CheckingRef<TypeInfo>> elementTypes)
+            : elementTypes(std::move(elementTypes))
+        {
+        }
+
+        auto tag() const -> typeinfo_tag override;
+        auto repr() const -> Str override;
+        auto match(const TypeInfo &other) const -> bool override;
+    };
+
 }

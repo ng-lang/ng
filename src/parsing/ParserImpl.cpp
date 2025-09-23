@@ -90,7 +90,7 @@ namespace NG::parsing
                     auto fn = funDef();
                     if (exported)
                     {
-                        mod->exports.push_back(fn->funName);
+                        mod->exports.insert_range(mod->exports.end(), fn->names());
                     }
                     current_mod->definitions.push_back(std::move(fn));
                     break;
@@ -100,7 +100,7 @@ namespace NG::parsing
                     auto value = valDef();
                     if (exported)
                     {
-                        mod->exports.push_back(value->name());
+                        mod->exports.insert_range(mod->exports.end(), value->names());
                     }
                     current_mod->definitions.push_back(std::move(value));
                     break;
@@ -110,7 +110,7 @@ namespace NG::parsing
                     auto type = typeDef();
                     if (exported)
                     {
-                        mod->exports.push_back(type->name());
+                        mod->exports.insert_range(mod->exports.end(), type->names());
                     }
                     current_mod->definitions.push_back(std::move(type));
                     break;
@@ -511,6 +511,27 @@ namespace NG::parsing
                 accept(TokenType::RIGHT_SQUARE);
                 return array;
             }
+            if (maybeBuiltin == TokenType::LEFT_PAREN)
+            {
+                auto tuple = makeast<TypeAnnotation>("tuple");
+                accept(TokenType::LEFT_PAREN);
+                tuple->type = TypeAnnotationType::TUPLE;
+
+                // Parse tuple element types
+                while (!expect(TokenType::RIGHT_PAREN))
+                {
+                    auto elementType = typeAnnotation();
+                    tuple->arguments.push_back(elementType);
+
+                    if (!expect(TokenType::COMMA))
+                    {
+                        break;
+                    }
+                    accept(TokenType::COMMA);
+                }
+                accept(TokenType::RIGHT_PAREN);
+                return tuple;
+            }
             if (maybeBuiltin == TokenType::ID)
             {
                 ASTRef<TypeAnnotation> anno = makeast<TypeAnnotation>(state->repr);
@@ -521,30 +542,98 @@ namespace NG::parsing
             unexpected("Unknown type annotation");
         }
 
-        auto valDefStatement() -> ASTRef<ValDefStatement>
+        auto valDefStatement() -> ASTRef<Statement>
         {
 
             accept(TokenType::KEYWORD_VAL);
             auto name = state->repr;
             ASTRef<TypeAnnotation> anno{};
-            accept(TokenType::ID);
-            if (expect(TokenType::COLON))
+            if (expect(TokenType::LEFT_PAREN) || expect(TokenType::LEFT_SQUARE))
+            {
+                BindingType bindingType =
+                    state->type == TokenType::LEFT_PAREN ? BindingType::TUPLE_DESTRUCT : BindingType::ARRAY_DESTRUCT;
+                accept(state->type);
+                auto valBind = makeast<ValueBindingStatement>();
+                valBind->type = bindingType;
+                int index = 0;
+                while (!expect(TokenType::RIGHT_PAREN))
+                {
+                    auto binding = makeast<Binding>();
+                    if (expect(TokenType::SPREAD))
+                    {
+                        accept(TokenType::SPREAD);
+                        binding->spreadReceiver = true;
+                    }
+                    if (expect(TokenType::ID))
+                    {
+                        binding->name = state->repr;
+                        binding->index = index;
+                        accept(TokenType::ID);
+                    }
+                    else
+                    {
+                        unexpected("Expected identifier in value binding.");
+                    }
+                    if (expect(TokenType::COLON))
+                    {
+                        accept(TokenType::COLON);
+                        binding->annotation = typeAnnotation();
+                    }
+                    valBind->bindings.push_back(std::move(binding));
+                    if (expect(TokenType::COMMA))
+                    {
+                        index += 1;
+                        accept(TokenType::COMMA);
+                        continue;
+                    }
+                    else
+                    {
+                        break;
+                    }
+                }
+                if (bindingType == BindingType::TUPLE_DESTRUCT)
+                {
+                    accept(TokenType::RIGHT_PAREN);
+                }
+                else
+                {
+                    accept(TokenType::RIGHT_SQUARE);
+                }
+                if (!expect(TokenType::BIND))
+                {
+                    unexpected("Unexpected token " + state->repr + ", expect bind operator `=`.");
+                }
+                accept(TokenType::BIND);
+                auto value = expression();
+                valBind->value = value;
+                for (auto &binding : valBind->bindings)
+                {
+                    binding->value = value;
+                }
+                accept(TokenType::SEMICOLON);
+                return valBind;
+            }
+            else
+            {
+                accept(TokenType::ID);
+                if (expect(TokenType::COLON))
 
-            {
-                accept(TokenType::COLON);
-                anno = typeAnnotation();
+                {
+                    accept(TokenType::COLON);
+                    anno = typeAnnotation();
+                }
+                if (!expect(TokenType::BIND))
+                {
+                    unexpected("Unexpected token " + state->repr + ", expect bind operator `=`.");
+                }
+                accept(TokenType::BIND);
+                auto value = expression();
+                accept(TokenType::SEMICOLON);
+                auto def = makeast<ValDefStatement>(name);
+                def->value = std::move(value);
+                def->typeAnnotation = std::move(anno);
+                return def;
             }
-            if (!expect(TokenType::BIND))
-            {
-                unexpected("Unexpected token " + state->repr + ", expect bind operator `=`.");
-            }
-            accept(TokenType::BIND);
-            auto value = expression();
-            accept(TokenType::SEMICOLON);
-            auto def = makeast<ValDefStatement>(name);
-            def->value = std::move(value);
-            def->typeAnnotation = std::move(anno);
-            return def;
         }
 
         auto ifStatement() -> ASTRef<IfStatement>
@@ -806,6 +895,15 @@ namespace NG::parsing
             {
                 idacc->accessor = std::move(idExpression());
             }
+            else if (expect(TokenType::STRING))
+            {
+                idacc->accessor = makeast<IdExpression>(stringValue()->value);
+            }
+            else if (expect(TokenType::NUMBER))
+            {
+                idacc->accessor = makeast<IdExpression>(numberLiteral()->repr());
+                return idacc;
+            }
             else
             {
                 unexpected("Expect identifier after '.'");
@@ -884,7 +982,21 @@ namespace NG::parsing
                 auto expr = expression();
                 if (expect(TokenType::COMMA))
                 {
-                    // TODO: TupleLiteral!
+                    // Parse tuple literal
+                    Vec<ASTRef<Expression>> elements{};
+                    elements.push_back(std::move(expr));
+
+                    while (expect(TokenType::COMMA))
+                    {
+                        accept(TokenType::COMMA);
+                        if (expect(TokenType::RIGHT_PAREN))
+                        {
+                            break; // trailing comma
+                        }
+                        elements.push_back(std::move(expression()));
+                    }
+                    accept(TokenType::RIGHT_PAREN);
+                    return makeast<TupleLiteral>(std::move(elements));
                 }
                 accept(TokenType::RIGHT_PAREN);
 
@@ -922,6 +1034,12 @@ namespace NG::parsing
             if (expect(TokenType::KEYWORD_NEW))
             {
                 return newObjectExpression();
+            }
+            if (expect(TokenType::SPREAD))
+            {
+                accept(TokenType::SPREAD);
+                auto expr = expression();
+                return makeast<SpreadExpression>(std::move(expr));
             }
             if (is_operator(state->type))
             {

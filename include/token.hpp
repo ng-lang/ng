@@ -46,6 +46,7 @@ namespace NG
         KEYWORD_CONTINUE,
         KEYWORD_IN,
         KEYWORD_IS,
+        KEYWORD_TYPEOF,
 
         KEYWORD_TRUE = 0x0400,
         KEYWORD_FALSE,
@@ -134,6 +135,10 @@ namespace NG
         NOT,       // !
         QUERY,     // ?
         UNDEFINED, // ???
+
+        SPREAD,         // ...
+        RANGE,          // ..
+        RANGE_INCLUSIVE, // ..=
 
         ID,
         NUMBER,
