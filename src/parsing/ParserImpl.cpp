@@ -90,7 +90,10 @@ namespace NG::parsing
                     auto fn = funDef();
                     if (exported)
                     {
-                        mod->exports.insert_range(mod->exports.end(), fn->names());
+                        for (auto &&name : fn->names())
+                        {
+                            mod->exports.push_back(name);
+                        }
                     }
                     current_mod->definitions.push_back(std::move(fn));
                     break;
@@ -100,7 +103,10 @@ namespace NG::parsing
                     auto value = valDef();
                     if (exported)
                     {
-                        mod->exports.insert_range(mod->exports.end(), value->names());
+                        for (auto &&name : value->names())
+                        {
+                            mod->exports.push_back(name);
+                        }
                     }
                     current_mod->definitions.push_back(std::move(value));
                     break;
@@ -110,7 +116,10 @@ namespace NG::parsing
                     auto type = typeDef();
                     if (exported)
                     {
-                        mod->exports.insert_range(mod->exports.end(), type->names());
+                        for (auto &&name : type->names())
+                        {
+                            mod->exports.push_back(name);
+                        }
                     }
                     current_mod->definitions.push_back(std::move(type));
                     break;
@@ -551,37 +560,56 @@ namespace NG::parsing
             if (expect(TokenType::LEFT_PAREN) || expect(TokenType::LEFT_SQUARE))
             {
                 BindingType bindingType =
-                    state->type == TokenType::LEFT_PAREN ? BindingType::TUPLE_DESTRUCT : BindingType::ARRAY_DESTRUCT;
+                    state->type == TokenType::LEFT_PAREN ? BindingType::TUPLE_UNPACK : BindingType::ARRAY_UNPACK;
                 accept(state->type);
                 auto valBind = makeast<ValueBindingStatement>();
                 valBind->type = bindingType;
                 int index = 0;
+                bool spreaded = false;
                 while (!expect(TokenType::RIGHT_PAREN))
                 {
                     auto binding = makeast<Binding>();
                     if (expect(TokenType::SPREAD))
                     {
-                        accept(TokenType::SPREAD);
-                        binding->spreadReceiver = true;
+                        if (!spreaded)
+                        {
+                            accept(TokenType::SPREAD);
+                            binding->spreadReceiver = true;
+                            spreaded = true;
+                        }
+                        else [[unlikely]]
+                        {
+                            unexpected("Invalid unpack operator, only 1 allowed");
+                        }
                     }
                     if (expect(TokenType::ID))
                     {
                         binding->name = state->repr;
                         binding->index = index;
                         accept(TokenType::ID);
+
+                        if (expect(TokenType::COLON))
+                        {
+                            accept(TokenType::COLON);
+                            binding->annotation = typeAnnotation();
+                        }
+                    }
+                    else if (spreaded)
+                    {
+                        binding->name = "";
+                        binding->index = index;
                     }
                     else
                     {
-                        unexpected("Expected identifier in value binding.");
-                    }
-                    if (expect(TokenType::COLON))
-                    {
-                        accept(TokenType::COLON);
-                        binding->annotation = typeAnnotation();
+                        unexpected("Expected identifier or unpacking in value binding.");
                     }
                     valBind->bindings.push_back(std::move(binding));
                     if (expect(TokenType::COMMA))
                     {
+                        if (spreaded)
+                        {
+                            unexpected("Unpacking binding must be last one");
+                        }
                         index += 1;
                         accept(TokenType::COMMA);
                         continue;
@@ -591,7 +619,7 @@ namespace NG::parsing
                         break;
                     }
                 }
-                if (bindingType == BindingType::TUPLE_DESTRUCT)
+                if (bindingType == BindingType::TUPLE_UNPACK)
                 {
                     accept(TokenType::RIGHT_PAREN);
                 }
@@ -769,12 +797,7 @@ namespace NG::parsing
         auto typeCheckExpr(ASTRef<Expression> expr) -> ASTRef<TypeCheckingExpression>
         {
             accept(TokenType::KEYWORD_IS);
-            auto type = expression();
-            if (!dynamic_ast_cast<IdExpression>(type) && !dynamic_ast_cast<IdAccessorExpression>(type))
-            {
-                unexpected("Unexpected expression " + type->repr());
-            }
-
+            auto type = typeAnnotation();
             return makeast<TypeCheckingExpression>(expr, type);
         }
 
@@ -1034,6 +1057,11 @@ namespace NG::parsing
             if (expect(TokenType::KEYWORD_NEW))
             {
                 return newObjectExpression();
+            }
+            if (expect(TokenType::KEYWORD_UNIT))
+            {
+                accept(TokenType::KEYWORD_UNIT);
+                return makeast<UnitLiteral>();
             }
             if (expect(TokenType::SPREAD))
             {

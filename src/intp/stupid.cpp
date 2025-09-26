@@ -432,12 +432,19 @@ namespace NG::intp
             typeCheckExpr->value->accept(&vis);
             RuntimeRef<NGObject> value = vis.object;
 
-            if (auto idExpr = dynamic_ast_cast<IdExpression>(typeCheckExpr->type); idExpr)
+            if (auto anno = dynamic_ast_cast<TypeAnnotation>(typeCheckExpr->type); anno)
             {
-                auto name = idExpr->id;
+                auto name = anno->name;
                 auto targetType = context->get_type(name);
-
-                this->object = makert<NGBoolean>(*(value->type()) == *(targetType));
+                if (targetType)
+                {
+                    this->object = makert<NGBoolean>(*(value->type()) == *(targetType));
+                }
+                else
+                {
+                    // todo: simply fix this, and will migrate to typechecker later.
+                    this->object = makert<NGBoolean>((value->type()->name == anno->name));
+                }
             }
             else if (auto idAcccessor = dynamic_ast_cast<IdAccessorExpression>(typeCheckExpr->type); idAcccessor)
             {
@@ -483,6 +490,11 @@ namespace NG::intp
             }
             throw new RuntimeException("Invalid spread expression, expect array or tuple, but got: " +
                                        spreadExpression->expression->repr());
+        }
+
+        void visit(UnitLiteral *unit) override
+        {
+            object = makert<NGUnit>();
         }
     };
 
@@ -562,7 +574,7 @@ namespace NG::intp
                 }
             }
             break;
-            case BindingType::TUPLE_DESTRUCT:
+            case BindingType::TUPLE_UNPACK:
             {
                 auto items = std::dynamic_pointer_cast<NGTuple>(result)->items;
                 for (auto &&binding : valBind->bindings)
@@ -571,7 +583,7 @@ namespace NG::intp
                     {
                         context->define(binding->name, items->at(binding->index));
                     }
-                    else
+                    else if (!binding->name.empty()) // empty spread receiver just ignores everything
                     {
                         Vec<RuntimeRef<NGObject>> values{items->begin() + binding->index, items->end()};
                         context->define(binding->name, makert<NGTuple>(values));
@@ -580,7 +592,7 @@ namespace NG::intp
             }
             break;
 
-            case BindingType::ARRAY_DESTRUCT:
+            case BindingType::ARRAY_UNPACK:
             {
                 auto items = std::dynamic_pointer_cast<NGArray>(result)->items;
                 for (auto &&binding : valBind->bindings)
@@ -742,7 +754,10 @@ namespace NG::intp
             Set<Str> definedSymbols = {};
             for (auto &&defs : mod->definitions)
             {
-                definedSymbols.insert_range(defs->names());
+                for (auto &&name : defs->names())
+                {
+                    definedSymbols.insert(name);
+                }
                 defs->accept(this);
             }
 

@@ -4,7 +4,7 @@
 using namespace NG;
 using namespace NG::parsing;
 
-TEST_CASE("lexer should accept tuple and range ralated tokens", "[Lexer][Token][Tuple][Range]")
+TEST_CASE("lexer should accept tuple and range related tokens", "[Lexer][Token][Tuple][Range]")
 {
     Lexer lexer{LexState{"a..b 1..=10 ...tup a.. ..b ^3..^1 (int, bool, float)"}};
 
@@ -34,5 +34,5 @@ TEST_CASE("lexer should accept tuple and range ralated tokens", "[Lexer][Token][
     REQUIRE(tokens[20].type == TokenType::KEYWORD_BOOL);
     REQUIRE(tokens[21].type == TokenType::COMMA);
     REQUIRE(tokens[22].type == TokenType::KEYWORD_FLOAT);
-    REQUIRE(tokens[23].type == TokenType::RIGHT_PAREN);   
+    REQUIRE(tokens[23].type == TokenType::RIGHT_PAREN);
 }

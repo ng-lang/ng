@@ -306,11 +306,19 @@ TEST_CASE("Tuples", "[InterpreterTestChecking]")
 
         val (d, ...e) = tup;
 
+        val f = unit;
+
+        assert(f is unit);
+
         assert(a == d);
 
         val [x, ...y] = [1, 2, 3, 4, 5];
 
         assert(e.size == 2);
         assert(y[0] == 2);
+
+        val [z, ...] = y;
+
+        assert(z == 2);
         )");
 }

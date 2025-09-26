@@ -10,7 +10,6 @@ TEST_CASE("parser should parse tuple and range values", "[Parser][Type][Literal]
         val x = (1, false, "hello");
     )");
     REQUIRE(ast != nullptr);
-    debug_log("Parse result:", ast->repr());
     destroyast(ast);
 }
 
@@ -30,15 +29,26 @@ TEST_CASE("parser should parse value like accessors", "[Parser][Type][Tuple][Acc
 TEST_CASE("parser should parse spread operator and multiple bindings", "[Parser][Type][Tuple][Accessor]")
 {
     auto ast = parse(R"(
-        val tup = (1, 2, 3, 4, 5);
+        val tup: (i16, i32, i64, u8, i8) = (1, 2, 3, 4, 5);
 
-        val (a, b, ...rest) = tup;
+        val (a: i16, b: i32, ...rest: (i64, u8, i8)) = tup;
 
         val new_tup = (0, ...tup, 6);
         
         val [a, b, ...c] = [1, 2, 3, 4, 5];
+
+        val x = unit;
+        val z: ((int, int, int), (int, int, int)) = (c, c);
+
+        val (a, b, ...) = z;
+
     )");
     REQUIRE(ast != nullptr);
     debug_log("Parse result:", ast->repr());
     destroyast(ast);
+}
+
+TEST_CASE("parser should fail when parse invalid spread operator and multiple bindings", "[Parser][Type][Tuple][Accessor]")
+{
+    parseInvalid("val (x, ..., ) = (1, 2, 3);", "Unpacking binding must be last one");
 }

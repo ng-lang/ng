@@ -60,6 +60,24 @@ TEST_CASE("should type check arrays", "[TypeCheck][Array]")
     destroyast(ast);
 }
 
+TEST_CASE("should type check array with spread and unpacking", "[TypeCheck][Array]")
+{
+    auto ast = parse(R"(
+            val arr: [int] = [1, 2, 3];
+            val [a, b, ...rest] = arr;
+            val arr2: [int] = [0, ...arr, 4, 5];
+            val arr3: [int] = [...arr, 6, 7, 8];
+            val [d, e, ...f: [int]] = arr2;
+            val [g, h: int, ...] = arr3;
+        )");
+
+    REQUIRE(ast != nullptr);
+
+    auto index = type_check(ast);
+
+    destroyast(ast);
+}
+
 TEST_CASE("should type check array fail", "[TypeCheck][Array][Failure]")
 {
     typecheck_failure("val arr: [int] = [1, 2.0, 3];", "Mismatched element type in array literal");
@@ -79,4 +97,7 @@ TEST_CASE("should type check array fail", "[TypeCheck][Array][Failure]")
     typecheck_failure("val arr: [int] = [1, 2, 3]; arr << \"hello\";", "Invalid element type for array push");
     typecheck_failure("val arr: [int] = [1, 2, 3]; arr + \"hello\";", "Unsupported operator for array types");
     typecheck_failure("val arr = 1; arr[0] := 1;", "Index assignment on non-array type");
+    typecheck_failure("val [a, b: bool, ...] = [1, 2, 3];", "Value Binding Type Mismatch: i32 to bool");
+    typecheck_failure("val [a, b, ...c: [bool]] = [1, 2, 3];", "Value Binding Type Mismatch: [i32] to [bool]");
+    typecheck_failure("val [a, b, ...c: [bool]] = 1;", "Value Binding Type Mismatch: i32 to array");
 }

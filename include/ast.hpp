@@ -48,7 +48,7 @@ namespace NG::ast
         NEW_OBJECT_EXPRESSION = 0x208,
         TYPE_CHECKING_EXPRESSION = 0x209,
         UNARY_EXPRESSION = 0x210,
-        TUPLE_DESTRUCTURING_EXPRESSION = 0x211,
+        TUPLE_UNPACKING_EXPRESSION = 0x211,
         TYPEOF_EXPRESSION = 0x212,
         SPREAD_EXPRESSION = 0x213,
 
@@ -239,7 +239,6 @@ namespace NG::ast
         CUSTOMIZED = 0xD1,
     };
 
-    struct TypeAnnotation;
     /**
      * @brief A type annotation.
      */
@@ -370,7 +369,7 @@ namespace NG::ast
         LOOP_ASSIGN = 0, ///< An assignment binding.
         LOOP_IN = 1,     ///< An in binding.
         // not supported now
-        LOOP_DESTRUCT = 2, ///< A destructuring binding.
+        LOOP_UNPACK = 2, ///< A unpack binding.
     };
 
     /**
@@ -589,12 +588,12 @@ namespace NG::ast
      */
     struct TypeCheckingExpression : Expression
     {
-        ASTRef<Expression> value = nullptr; ///< The value to check.
-        ASTRef<Expression> type = nullptr;  ///< The type to check against.
+        ASTRef<Expression> value = nullptr;    ///< The value to check.
+        ASTRef<TypeAnnotation> type = nullptr; ///< The type to check against.
 
         TypeCheckingExpression(
             ASTRef<Expression> value,
-            ASTRef<Expression> type) : value{value}, type{type} {}
+            ASTRef<TypeAnnotation> type) : value{value}, type{type} {}
 
         void accept(AstVisitor *visitor) override;
 
@@ -631,12 +630,11 @@ namespace NG::ast
 
     struct Binding : ASTNode
     {
-        Str name;                          ///< The name of the binding.
-        ASTRef<TypeAnnotation> annotation; ///< The type annotation of the binding.
-        ASTRef<Expression> value;          ///< The value of the binding, if any.
-        bool spreadReceiver = false;
-
-        std::size_t index = -1; ///< The index of the binding in the tuple destructuring.
+        Str name;                                    ///< The name of the binding.
+        ASTRef<TypeAnnotation> annotation = nullptr; ///< The type annotation of the binding.
+        ASTRef<Expression> value = nullptr;          ///< The value of the binding, if any.
+        bool spreadReceiver = false;                 ///< The indicator of whether its a spread receiver.
+        int index = -1;                              ///< The index of the binding in the tuple unpack.
 
         void accept(AstVisitor *visitor) override;
 
@@ -652,16 +650,16 @@ namespace NG::ast
     {
         UNKNOWN = 0x00,
         DIRECT = 0x01,
-        TUPLE_DESTRUCT = 0x02,
-        ARRAY_DESTRUCT = 0x03,
-        OBJECT_DESTRUCT = 0x04,
+        TUPLE_UNPACK = 0x02,
+        ARRAY_UNPACK = 0x03,
+        OBJECT_UNPACK = 0x04,
     };
 
     struct ValueBindingStatement : Statement
     {
-        Vec<ASTRef<Binding>> bindings;      ///< The bindings in the tuple destructuring.
-        ASTRef<Expression> value = nullptr; ///< The value to destructure.
-        BindingType type = BindingType::UNKNOWN;
+        Vec<ASTRef<Binding>> bindings;           ///< The bindings in value definition.
+        ASTRef<Expression> value = nullptr;      ///< The value to unpack.
+        BindingType type = BindingType::UNKNOWN; ///< The binding type
 
         void accept(AstVisitor *visitor) override;
 
@@ -882,6 +880,25 @@ namespace NG::ast
         auto repr() const -> Str override;
 
         ~TupleLiteral() override;
+    };
+
+    /**
+     * @brief A unit literal.
+     */
+    struct UnitLiteral : Expression
+    {
+        explicit UnitLiteral() = default;
+        void accept(AstVisitor *visitor) override;
+
+        auto astNodeType() const -> ASTNodeType override { return ASTNodeType::UNIT_LITERAL; }
+
+        [[nodiscard]]
+        auto repr() const -> Str override
+        {
+            return "unit";
+        }
+
+        ~UnitLiteral() override = default;
     };
 
     /**

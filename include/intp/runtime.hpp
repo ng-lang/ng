@@ -706,11 +706,18 @@ namespace NG::runtime
         [[nodiscard]] auto show() const -> Str override;
     };
 
+    struct NGUnit : NGObject
+    {
+        [[nodiscard]] auto type() const -> RuntimeRef<NGType> override;
+        [[nodiscard]] auto show() const -> Str override;
+    };
+
     /**
      * @brief Registers a native library.
      *
      * @param moduleId The ID of the module.
      * @param handlers The handlers for the native functions.
      */
-    void register_native_library(Str moduleId, Map<Str, NGInvocable> handlers);
+    void
+    register_native_library(Str moduleId, Map<Str, NGInvocable> handlers);
 }

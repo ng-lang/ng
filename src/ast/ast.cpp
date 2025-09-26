@@ -408,6 +408,11 @@ namespace NG::ast
         }
     }
 
+    void UnitLiteral::accept(AstVisitor *visitor)
+    {
+        visitor->visit(this);
+    }
+
     void FunctionDef::accept(AstVisitor *visitor)
     {
         visitor->visit(this);

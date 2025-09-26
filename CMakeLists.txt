@@ -48,6 +48,7 @@ set(NG_LIB_SRC
         src/runtime/NGStructuralObject.cpp
         src/runtime/NGModule.cpp
         src/runtime/NGTuple.cpp
+        src/runtime/NGUnit.cpp
         src/sysdep/process.cpp
         src/stdlib/prelude.cpp
         src/stdlib/imgui.cpp
@@ -58,6 +59,7 @@ set(NG_LIB_SRC
         src/typecheck/PrimitiveType.cpp
         src/typecheck/FunctionType.cpp
         src/typecheck/ArrayType.cpp
+        src/typecheck/TupleType.cpp
         )
 
 set(NG_TEST_SRC
@@ -84,6 +86,7 @@ set(NG_TEST_SRC
         test/typecheck/typecheck_expression_test.cpp
         test/typecheck/typecheck_array_test.cpp
         test/typecheck/typecheck_controlflow_test.cpp
+        test/typecheck/typecheck_tuple_test.cpp
 )
 
 add_executable(feature_test test/feature_test.cpp)

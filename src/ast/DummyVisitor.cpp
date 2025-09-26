@@ -65,6 +65,8 @@ namespace NG::ast
 
     void DummyVisitor::visit(TupleLiteral *tuple) {}
 
+    void DummyVisitor::visit(UnitLiteral *unit) {}
+
     void DummyVisitor::visit(TypeOfExpression *typeofExpr) {}
 
     void DummyVisitor::visit(SpreadExpression *spreadExpr) {}

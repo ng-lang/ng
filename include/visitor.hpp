@@ -226,6 +226,13 @@ namespace NG::ast
         virtual void visit(TupleLiteral *tuple) = 0;
 
         /**
+         * @brief Visits a unit literal.
+         *
+         * @param unit The unit literal to visit.
+         */
+        virtual void visit(UnitLiteral *unit) = 0;
+
+        /**
          * @brief Visits a typeof expression.
          *
          * @param typeofExpr The typeof expression to visit.
@@ -374,6 +381,8 @@ namespace NG::ast
         void visit(ArrayLiteral *array) override;
 
         void visit(TupleLiteral *tuple) override;
+
+        void visit(UnitLiteral *unit) override;
 
         void visit(TypeOfExpression *typeofExpr) override;
         void visit(SpreadExpression *spreadExpr) override;

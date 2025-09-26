@@ -3,6 +3,7 @@
 
 #include <common.hpp>
 #include <memory>
+#include <utility>
 #include <ast.hpp>
 
 namespace NG::typecheck
@@ -231,5 +232,4 @@ namespace NG::typecheck
         auto repr() const -> Str override;
         auto match(const TypeInfo &other) const -> bool override;
     };
-
 }
