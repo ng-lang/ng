@@ -623,6 +623,30 @@ namespace NG::runtime
     };
 
     /**
+     * @brief Represents an tuple in the runtime.
+     */
+    struct NGTuple : NGObject
+    {
+        RuntimeRef<Vec<RuntimeRef<NGObject>>> items; ///< The items in the tuple.
+
+        explicit NGTuple(const Vec<RuntimeRef<NGObject>> &vec = {}) : items{makert<Vec<RuntimeRef<NGObject>>>(vec)} {}
+
+        [[nodiscard]] auto opIndex(RuntimeRef<NGObject> index) const -> RuntimeRef<NGObject> override;
+
+        auto opIndex(RuntimeRef<NGObject> index, RuntimeRef<NGObject> newValue) -> RuntimeRef<NGObject> override;
+
+        [[nodiscard]] auto show() const -> Str override;
+
+        [[nodiscard]] auto boolValue() const -> bool override;
+
+        [[nodiscard]] auto opEquals(RuntimeRef<NGObject> other) const -> bool override;
+
+        [[nodiscard]] auto type() const -> RuntimeRef<NGType> override;
+
+        auto respond(const Str &member, NGCtx context, NGInvCtx invocationContext) -> RuntimeRef<NGObject> override;
+    };
+
+    /**
      * @brief Represents a boolean in the runtime.
      */
     struct NGBoolean final : NGObject
@@ -682,11 +706,18 @@ namespace NG::runtime
         [[nodiscard]] auto show() const -> Str override;
     };
 
+    struct NGUnit : NGObject
+    {
+        [[nodiscard]] auto type() const -> RuntimeRef<NGType> override;
+        [[nodiscard]] auto show() const -> Str override;
+    };
+
     /**
      * @brief Registers a native library.
      *
      * @param moduleId The ID of the module.
      * @param handlers The handlers for the native functions.
      */
-    void register_native_library(Str moduleId, Map<Str, NGInvocable> handlers);
+    void
+    register_native_library(Str moduleId, Map<Str, NGInvocable> handlers);
 }

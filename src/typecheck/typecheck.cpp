@@ -35,6 +35,8 @@ namespace NG::typecheck
 
         CheckingRef<TypeInfo> result;
 
+        Vec<CheckingRef<TypeInfo>> spreadResult{};
+
         Vec<CheckingRef<TypeInfo>> contextRequirement;
 
         TypeChecker(Map<Str, CheckingRef<TypeInfo>> locals, Vec<CheckingRef<TypeInfo>> contextRequirement = {})
@@ -291,6 +293,197 @@ namespace NG::typecheck
             {
                 locals.insert_or_assign(valDefStatement->name,
                                         valType);
+            }
+        }
+
+        void visit(ValueBindingStatement *valBind) override
+        {
+            switch (valBind->type)
+            {
+            // TODO: migrate ValDefStatement to ValueBindingStatement
+            // case BindingType::DIRECT:
+            // {
+            //     if (valBind->bindings.size() != 1) [[unlikely]]
+            //     {
+            //         throw TypeCheckingException("Direct binding allows only 1 value");
+            //     }
+            //     else
+            //     {
+            //         TypeChecker checker{locals};
+            //         valBind->value->accept(&checker);
+            //         auto valType = checker.result;
+            //         auto binding = valBind->bindings[0];
+            //         if (binding->annotation)
+            //         {
+            //             binding->annotation->accept(&checker);
+            //             auto annoType = checker.result;
+            //             if (annoType->match(*valType))
+            //             {
+            //                 result = annoType;
+            //                 locals.insert_or_assign(binding->name, annoType);
+            //             }
+            //             else
+            //             {
+            //                 throw TypeCheckingException("Value Binding Type Mismatch: " +
+            //                                             valType->repr() + " to " +
+            //                                             annoType->repr());
+            //             }
+            //         }
+            //         else
+            //         {
+            //             result = valType;
+            //             locals.insert_or_assign(binding->name, valType);
+            //         }
+            //     }
+            // }
+            // break;
+            case BindingType::TUPLE_UNPACK:
+            {
+                TypeChecker checker{locals};
+                valBind->value->accept(&checker);
+                auto valType = checker.result;
+                if (auto tupleType = std::dynamic_pointer_cast<TupleType>(valType); tupleType)
+                {
+                    if (valBind->bindings.size() > tupleType->elementTypes.size())
+                    {
+                        throw TypeCheckingException("Too many bindings in tuple unpack: " +
+                                                    std::to_string(valBind->bindings.size()) + " to " +
+                                                    std::to_string(tupleType->elementTypes.size()));
+                    }
+                    for (size_t i = 0; i < valBind->bindings.size(); ++i)
+                    {
+                        auto binding = valBind->bindings[i];
+                        if (binding->spreadReceiver)
+                        {
+                            if (i != valBind->bindings.size() - 1) [[unlikely]]
+                            {
+                                throw TypeCheckingException("Spread receiver must be the last binding in tuple unpack.");
+                            }
+                            auto restTypes = Vec<CheckingRef<TypeInfo>>{};
+                            for (size_t j = i; j < tupleType->elementTypes.size(); ++j)
+                            {
+                                restTypes.push_back(tupleType->elementTypes[j]);
+                            }
+                            auto restTupleType = makecheck<TupleType>(restTypes);
+                            if (binding->annotation)
+                            {
+                                binding->annotation->accept(&checker);
+                                auto annoType = checker.result;
+                                if (annoType->match(*restTupleType))
+                                {
+                                    locals.insert_or_assign(binding->name, annoType);
+                                }
+                                else
+                                {
+                                    throw TypeCheckingException("Value Binding Type Mismatch: " +
+                                                                restTupleType->repr() + " to " +
+                                                                annoType->repr());
+                                }
+                            }
+                            else if (!binding->name.empty())
+                            {
+                                locals.insert_or_assign(binding->name, restTupleType);
+                            }
+                            break;
+                        }
+                        if (binding->annotation)
+                        {
+                            binding->annotation->accept(&checker);
+                            auto annoType = checker.result;
+                            if (annoType->match(*tupleType->elementTypes[i]))
+                            {
+                                locals.insert_or_assign(binding->name, annoType);
+                            }
+                            else
+                            {
+                                throw TypeCheckingException("Value Binding Type Mismatch: " +
+                                                            tupleType->elementTypes[i]->repr() + " to " +
+                                                            annoType->repr());
+                            }
+                        }
+                        else
+                        {
+                            locals.insert_or_assign(binding->name, (tupleType->elementTypes[i]));
+                        }
+                    }
+                }
+                else
+                {
+                    throw TypeCheckingException("Value Binding Type Mismatch: " +
+                                                valType->repr() + " to tuple");
+                }
+            }
+            break;
+            case BindingType::ARRAY_UNPACK:
+            {
+                TypeChecker checker{locals};
+                valBind->value->accept(&checker);
+                auto valType = checker.result;
+                if (auto arrayType = std::dynamic_pointer_cast<ArrayType>(valType); arrayType)
+                {
+                    for (size_t i = 0; i < valBind->bindings.size(); ++i)
+                    {
+                        auto binding = valBind->bindings[i];
+                        if (binding->spreadReceiver)
+                        {
+                            if (i != valBind->bindings.size() - 1) [[unlikely]]
+                            {
+                                throw TypeCheckingException("Spread receiver must be the last binding in array unpack.");
+                            }
+                            auto restArrayType = makecheck<ArrayType>(arrayType->elementType);
+                            if (binding->annotation)
+                            {
+                                binding->annotation->accept(&checker);
+                                auto annoType = checker.result;
+                                if (annoType->match(*restArrayType))
+                                {
+                                    locals.insert_or_assign(binding->name, annoType);
+                                }
+                                else
+                                {
+                                    throw TypeCheckingException("Value Binding Type Mismatch: " +
+                                                                restArrayType->repr() + " to " +
+                                                                annoType->repr());
+                                }
+                            }
+                            else if (!binding->name.empty())
+                            {
+                                locals.insert_or_assign(binding->name, restArrayType);
+                            }
+
+                            break;
+                        }
+                        if (binding->annotation)
+                        {
+                            binding->annotation->accept(&checker);
+                            auto annoType = checker.result;
+                            if (annoType->match(*arrayType->elementType))
+                            {
+                                locals.insert_or_assign(binding->name, annoType);
+                            }
+                            else
+                            {
+                                throw TypeCheckingException("Value Binding Type Mismatch: " +
+                                                            arrayType->elementType->repr() + " to " +
+                                                            annoType->repr());
+                            }
+                        }
+                        else
+                        {
+                            locals.insert_or_assign(binding->name, arrayType->elementType);
+                        }
+                    }
+                }
+                else
+                {
+                    throw TypeCheckingException("Value Binding Type Mismatch: " +
+                                                valType->repr() + " to array");
+                }
+            }
+            break;
+            default:
+                throw TypeCheckingException("Unexpected binding type");
+                break;
             }
         }
 
@@ -554,6 +747,20 @@ namespace NG::typecheck
                     throw TypeCheckingException("Array type expects exactly 1 type argument");
                 }
             }
+            else if (annotation->type == TypeAnnotationType::TUPLE)
+            {
+                Vec<CheckingRef<TypeInfo>> types{};
+                TypeChecker checker{locals};
+
+                for (auto &&anno : annotation->arguments)
+                {
+                    anno->accept(&checker);
+                    auto &&type = checker.result;
+                    types.push_back(type);
+                }
+                result = makecheck<TupleType>(types);
+                return;
+            }
             else
             {
                 auto it = locals.find(annotation->name);
@@ -596,6 +803,64 @@ namespace NG::typecheck
                 }
             }
             result = makecheck<ArrayType>(elemType);
+        }
+
+        void visit(TupleLiteral *tuple) override
+        {
+            if (tuple->elements.empty()) [[unlikely]]
+            {
+                result = makecheck<TupleType>(Vec<CheckingRef<TypeInfo>>{});
+                return;
+            }
+            TypeChecker checker{locals};
+            Vec<CheckingRef<TypeInfo>> types{};
+            for (size_t i = 0; i < tuple->elements.size(); ++i)
+            {
+                checker.spreadResult.clear();
+                tuple->elements[i]->accept(&checker);
+                if (!checker.spreadResult.empty())
+                {
+                    for (auto &&type : checker.spreadResult)
+                    {
+                        types.push_back(type);
+                    }
+                }
+                else
+                {
+                    types.push_back(std::move(checker.result));
+                }
+            }
+            result = makecheck<TupleType>(types);
+        }
+
+        void visit(UnitLiteral *unitLiteral) override
+        {
+            result = makecheck<PrimitiveType>(typeinfo_tag::UNIT);
+        }
+
+        void visit(SpreadExpression *spread) override
+        {
+            TypeChecker checker{locals};
+            spread->expression->accept(&checker);
+            auto type = checker.result;
+            spreadResult.clear();
+            if (auto tup = std::dynamic_pointer_cast<TupleType>(type); tup)
+            {
+                result = tup;
+                for (auto &&elemType : tup->elementTypes)
+                {
+                    spreadResult.push_back(elemType);
+                }
+            }
+            else if (auto arr = std::dynamic_pointer_cast<ArrayType>(type); arr)
+            {
+                // Array spread does not expand compile-time arity.
+                result = arr->elementType;
+            }
+            else
+            {
+                throw TypeCheckingException("Invalid spread expression on type, expect tuple or array, got " + type->repr());
+            }
         }
 
         void visit(IndexAccessorExpression *indexAccess) override

@@ -219,6 +219,44 @@ namespace NG::ast
         virtual void visit(ArrayLiteral *array) = 0;
 
         /**
+         * @brief Visits a tuple literal.
+         *
+         * @param tuple The tuple literal to visit.
+         */
+        virtual void visit(TupleLiteral *tuple) = 0;
+
+        /**
+         * @brief Visits a unit literal.
+         *
+         * @param unit The unit literal to visit.
+         */
+        virtual void visit(UnitLiteral *unit) = 0;
+
+        /**
+         * @brief Visits a typeof expression.
+         *
+         * @param typeofExpr The typeof expression to visit.
+         */
+        virtual void visit(TypeOfExpression *typeofExpr) = 0;
+
+        /**
+         * @brief Visits a spread expression.
+         *
+         * @param spreadExpr The spread expression to visit.
+         */
+        virtual void visit(SpreadExpression *spreadExpr) = 0;
+
+        /**
+         * @brief Visits a value binding statement.
+         */
+        virtual void visit(ValueBindingStatement *valBind) = 0;
+
+        /**
+         * @brief Visits a binding.
+         */
+        virtual void visit(Binding *binding) = 0;
+
+        /**
          * @brief Visits a type definition.
          *
          * @param typeDef The type definition to visit.
@@ -341,6 +379,15 @@ namespace NG::ast
         void visit(BooleanValue *boolVal) override;
 
         void visit(ArrayLiteral *array) override;
+
+        void visit(TupleLiteral *tuple) override;
+
+        void visit(UnitLiteral *unit) override;
+
+        void visit(TypeOfExpression *typeofExpr) override;
+        void visit(SpreadExpression *spreadExpr) override;
+        void visit(ValueBindingStatement *valBind) override;
+        void visit(Binding *binding) override;
 
         void visit(TypeDef *typeDef) override;
 

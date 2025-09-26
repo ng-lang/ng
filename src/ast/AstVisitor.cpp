@@ -62,6 +62,18 @@ namespace NG::ast
 
     void AstVisitor::visit(ArrayLiteral *array) {}
 
+    void AstVisitor::visit(TupleLiteral *tuple) {}
+
+    void AstVisitor::visit(UnitLiteral *unit) {}
+
+    void AstVisitor::visit(TypeOfExpression *typeofExpr) {}
+
+    void AstVisitor::visit(SpreadExpression *spreadExpr) {}
+
+    void AstVisitor::visit(ValueBindingStatement *valBind) {}
+
+    void AstVisitor::visit(Binding *binding) {}
+
     void AstVisitor::visit(IndexAccessorExpression *index) {}
 
     void AstVisitor::visit(IndexAssignmentExpression *index) {}

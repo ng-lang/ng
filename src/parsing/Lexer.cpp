@@ -115,6 +115,7 @@ namespace NG::parsing
         {"continue", TokenType::KEYWORD_CONTINUE},
         {"in", TokenType::KEYWORD_IN},
         {"is", TokenType::KEYWORD_IS},
+        {"typeof", TokenType::KEYWORD_TYPEOF},
 
         {"true", TokenType::KEYWORD_TRUE},
         {"false", TokenType::KEYWORD_FALSE},
@@ -200,6 +201,10 @@ namespace NG::parsing
         {"!", TokenType::NOT},
         {"?", TokenType::QUERY},
         {"???", TokenType::UNDEFINED},
+
+        {"...", TokenType::SPREAD},
+        {"..", TokenType::RANGE},
+        {"..=", TokenType::RANGE_INCLUSIVE},
 // include
 #include "reserved.inc"
 
@@ -377,6 +382,31 @@ namespace NG::parsing
             }
             else if (current == '.')
             {
+                if (state.lookAhead() == '.')
+                {
+                    state.next();
+                    if (state.lookAhead() == '.')
+                    {
+                        Token token{.type = TokenType::SPREAD, .repr = "...", .position = pos};
+                        tokens.push_back(token);
+                        state.next(2);
+                        return token;
+                    }
+                    else if (state.lookAhead() == '=')
+                    {
+                        Token token{.type = TokenType::RANGE_INCLUSIVE, .repr = "..=", .position = pos};
+                        tokens.push_back(token);
+                        state.next(2);
+                        return token;
+                    }
+                    else
+                    {
+                        Token token{.type = TokenType::RANGE, .repr = "..", .position = pos};
+                        tokens.push_back(token);
+                        state.next();
+                        return token;
+                    }
+                }
                 Token token{.type = TokenType::DOT, .repr = ".", .position = pos};
                 tokens.push_back(token);
                 state.next();
