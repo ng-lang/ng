@@ -515,7 +515,7 @@ namespace NG::intp
             else
             {
                 // todo: implement Unit type
-                // context->retVal = unitValue(); // or an equivalent Unit singleton/null per your design
+                context->retVal = makert<NGUnit>(); // or an equivalent Unit singleton/null per your design
             }
         }
 
