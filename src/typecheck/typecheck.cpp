@@ -809,13 +809,14 @@ namespace NG::typecheck
         {
             if (tuple->elements.empty()) [[unlikely]]
             {
-                result = makecheck<ArrayType>(makecheck<Untyped>());
+                result = makecheck<TupleType>(Vec<CheckingRef<TypeInfo>>{});
                 return;
             }
             TypeChecker checker{locals};
             Vec<CheckingRef<TypeInfo>> types{};
             for (size_t i = 0; i < tuple->elements.size(); ++i)
             {
+                checker.spreadResult.clear();
                 tuple->elements[i]->accept(&checker);
                 if (!checker.spreadResult.empty())
                 {
@@ -842,9 +843,9 @@ namespace NG::typecheck
             TypeChecker checker{locals};
             spread->expression->accept(&checker);
             auto type = checker.result;
+            spreadResult.clear();
             if (auto tup = std::dynamic_pointer_cast<TupleType>(type); tup)
             {
-                spreadResult.clear();
                 result = tup;
                 for (auto &&elemType : tup->elementTypes)
                 {
@@ -853,6 +854,7 @@ namespace NG::typecheck
             }
             else if (auto arr = std::dynamic_pointer_cast<ArrayType>(type); arr)
             {
+                // Array spread does not expand compile-time arity.
                 result = arr->elementType;
             }
             else

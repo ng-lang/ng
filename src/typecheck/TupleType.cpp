@@ -1,4 +1,4 @@
-#include <typecheck/typecheck.hpp>
+#include <typecheck/typeinfo.hpp>
 
 namespace NG::typecheck
 {

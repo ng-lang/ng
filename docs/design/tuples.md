@@ -1,6 +1,6 @@
 # On Design of Tuples
 
-Latest update see https://github.com/ng-lang/ng/discussions/21
+Latest update see <https://github.com/ng-lang/ng/discussions/21>
 
 
 Tuple is just series values with different type grouped together.
@@ -54,11 +54,11 @@ private string[] words = [
 ];              // 10 (or words.Length) ^0
 ```
 
-In C# usualy a Range is only used to access collections (using index operator `[]`). Not for other things like Python `range` function or Ruby's Range.
+In C# usually a Range is only used to access collections (using index operator `[]`). Not for other things like Python `range` function or Ruby's Range.
 
 In Ruby, a range can be either a generative collection. And it's even more flexible than Python's `range`. Any type that implements `#succ` method and `<=>` operator (`Comparable`), can use range operator. (Python `range` only supports integer).
 
-But there's another shortage for Ruby's Range comparing to Python. In python you can create an descending order range by specifying the third argument (`step`) in `range` as negative value, e.g. `range(10, 0, -1)` generates a range that counting down from `10` to `0` (exclusively). In Ruby you can create such object but not everying works as expected.
+But there's another shortage for Ruby's Range comparing to Python. In python you can create an descending order range by specifying the third argument (`step`) in `range` as negative value, e.g. `range(10, 0, -1)` generates a range that counting down from `10` to `0` (exclusively). In Ruby you can create such object but not everything works as expected.
 
 Compare following two code blocks:
 
@@ -94,9 +94,9 @@ end
 (1..10).reverse_each.to_a # => [10, 9, .., 1]
 ```
 
-In Rust, Range operator are pertty similar to Ruby, but use different syntax where `..` for end-exclusive, and `..=` for end inclusive.
+In Rust, Range operator are pretty similar to Ruby, but use different syntax where `..` for end-exclusive, and `..=` for end inclusive.
 
-There's no such operator in C++ or JavaScript, but they support `...` unpacking. C++ also has an fold expression that utilize `...` syntax to simplify map / reduce actions on packs (which I think that can be expanded to ranges instead). C# also have a way to unpack range, but they use `..` syntax instead.
+There's no such operator in C++ or JavaScript, but they support `...` unpacking. C++ also has a fold expression that utilize `...` syntax to simplify map / reduce actions on packs (which I think that can be expanded to ranges instead). C# also have a way to unpack range, but they use `..` syntax instead.
 
 ## Fold
 
@@ -150,7 +150,7 @@ val z = sum(x..., 0);   // same as => val z = foldr(sum, 0, x);
 
 There's another feature that might involve `...` syntax. In C, there's variadic function (for example `printf`), which use `...` for their variable length function parameters.
 
-Here we'll introduce a variadic syntax for native function declarations just now. More about varaidic functions will covered in other drafts.
+Here we'll introduce a variadic syntax for native function declarations just now. More about variadic functions will covered in other drafts.
 
 - `fun print(...) -> unit = native;` any length tuple of any types, `typeof(...)` => a tuple.
 
@@ -203,6 +203,6 @@ To allow tuple type level operations, we may also need following operators on ty
   - [ ] Fold without init `<fn>(<collection>..., _)`, Here `_` used as a place holder that `fn` will take first element in `<collection>` as `<init>`.
   - [ ] Map result can be placed into fold, `<fn_a>(<fn_b>(<collection>)..., <init>)` or
   - [ ] Map result can construct a new collection `[<fn>(<collection>)...]`. or
-  - [ ] Map result can be applyed with new map. `[<fn_a>(<fn_b>(<collection>)...)...]`
+  - [ ] Map result can be applied with new map. `[<fn_a>(<fn_b>(<collection>)...)...]`
 - [ ] Pipeline syntax on collections
   - [ ] Example `<collection> |> <map_fn>(...) |> <filter_fn>(?...) |> fold_fn(..., <init>)`

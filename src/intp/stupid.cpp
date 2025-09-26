@@ -488,8 +488,8 @@ namespace NG::intp
                 object = result;
                 return;
             }
-            throw new RuntimeException("Invalid spread expression, expect array or tuple, but got: " +
-                                       spreadExpression->expression->repr());
+            throw RuntimeException("Invalid spread expression, expect array or tuple, but got: " +
+                                   spreadExpression->expression->repr());
         }
 
         void visit(UnitLiteral *unit) override
@@ -576,7 +576,12 @@ namespace NG::intp
             break;
             case BindingType::TUPLE_UNPACK:
             {
-                auto items = std::dynamic_pointer_cast<NGTuple>(result)->items;
+                auto tuple = std::dynamic_pointer_cast<NGTuple>(result);
+                if (!tuple)
+                {
+                    throw RuntimeException("Tuple unpacking requires a tuple value");
+                }
+                auto items = tuple->items;
                 for (auto &&binding : valBind->bindings)
                 {
                     if (!binding->spreadReceiver)
@@ -594,7 +599,12 @@ namespace NG::intp
 
             case BindingType::ARRAY_UNPACK:
             {
-                auto items = std::dynamic_pointer_cast<NGArray>(result)->items;
+                auto array = std::dynamic_pointer_cast<NGArray>(result);
+                if (!array)
+                {
+                    throw RuntimeException("Array unpacking requires an array value");
+                }
+                auto items = array->items;
                 for (auto &&binding : valBind->bindings)
                 {
                     if (!binding->spreadReceiver)

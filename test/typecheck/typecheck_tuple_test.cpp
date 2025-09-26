@@ -7,7 +7,7 @@
 
 using namespace NG::typecheck;
 
-TEST_CASE("should type tuples and unit", "[TypeCheck][Array]")
+TEST_CASE("should type tuples and unit", "[TypeCheck][Tuple]")
 {
     auto ast = parse(R"(
             val x: unit = unit;
@@ -31,7 +31,8 @@ TEST_CASE("should type tuples and unit", "[TypeCheck][Array]")
     check_type_tag(*index["c"], typeinfo_tag::I32);
     check_type_tag(*index["d"], typeinfo_tag::UNIT);
     check_type_tag(*index["f"], typeinfo_tag::TUPLE);
-
+    check_type_tag(*index["i"], typeinfo_tag::STRING);
+    check_type_tag(*index["j"], typeinfo_tag::TUPLE);
     destroyast(ast);
 }
 

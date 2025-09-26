@@ -398,7 +398,9 @@ namespace NG::parsing
                         tokens.push_back(token);
                         state.next(2);
                         return token;
-                    }else {
+                    }
+                    else
+                    {
                         Token token{.type = TokenType::RANGE, .repr = "..", .position = pos};
                         tokens.push_back(token);
                         state.next();

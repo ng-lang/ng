@@ -1,6 +1,5 @@
 
 #include <intp/runtime.hpp>
-#include <intp/runtime_numerals.hpp>
 namespace NG::runtime
 {
 
@@ -11,10 +10,10 @@ namespace NG::runtime
 
     auto NGUnit::type() const -> RuntimeRef<NGType>
     {
-        static RuntimeRef<NGType> tupleType = makert<NGType>(NGType{
+        static RuntimeRef<NGType> unitType = makert<NGType>(NGType{
             .name = "unit",
             .memberFunctions = {}});
-        return tupleType;
+        return unitType;
     }
 
 }

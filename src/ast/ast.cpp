@@ -295,7 +295,10 @@ namespace NG::ast
             Vec<Str> names;
             for (const auto &binding : valBindStmt->bindings)
             {
-                names.push_back(binding->name);
+                if (!binding->name.empty())
+                {
+                    names.push_back(binding->name);
+                }
             }
             return names;
         }
@@ -689,16 +692,11 @@ namespace NG::ast
         {
             destroyast(annotation);
         }
-        if (value != nullptr)
-        {
-            destroyast(value);
-        }
     }
 
     auto Binding::repr() const -> Str
     {
-        return name + (annotation ? (": " + annotation->repr()) : "") +
-               (value ? (" = " + value->repr()) : "");
+        return (spreadReceiver ? "..." + name : name) + (annotation ? (": " + annotation->repr()) : "");
     }
 
     auto Binding::accept(AstVisitor *visitor) -> void
@@ -713,7 +711,28 @@ namespace NG::ast
 
     auto ValueBindingStatement::repr() const -> Str
     {
-        return "val " + strOfNodeList(this->bindings, ", ") + ";";
+        const char open =
+            (this->type == BindingType::TUPLE_UNPACK ? '(' : this->type == BindingType::ARRAY_UNPACK ? '['
+                                                                                                     : '\0');
+        const char close =
+            (this->type == BindingType::TUPLE_UNPACK ? ')' : this->type == BindingType::ARRAY_UNPACK ? ']'
+                                                                                                     : '\0');
+        Str out = "val ";
+        if (open != '\0')
+        {
+            out += open;
+        }
+        out += strOfNodeList(this->bindings, ", ");
+        if (close != '\0')
+        {
+            out += close;
+        }
+        if (this->value != nullptr)
+        {
+            out += " = " + this->value->repr();
+        }
+        out += ";";
+        return out;
     }
 
     ValueBindingStatement::~ValueBindingStatement()

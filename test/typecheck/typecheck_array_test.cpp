@@ -74,7 +74,23 @@ TEST_CASE("should type check array with spread and unpacking", "[TypeCheck][Arra
     REQUIRE(ast != nullptr);
 
     auto index = type_check(ast);
+    // element and rest checks
+    check_type_tag(*index["a"], typeinfo_tag::I32);
+    check_type_tag(*index["b"], typeinfo_tag::I32);
+    check_type_tag(*index["rest"], typeinfo_tag::ARRAY);
 
+    // arrays constructed via spread
+    check_type_tag(*index["arr2"], typeinfo_tag::ARRAY);
+    check_type_tag(*index["arr3"], typeinfo_tag::ARRAY);
+
+    // unpack with explicit rest type
+    check_type_tag(*index["d"], typeinfo_tag::I32);
+    check_type_tag(*index["e"], typeinfo_tag::I32);
+    check_type_tag(*index["f"], typeinfo_tag::ARRAY);
+
+    // unpack with explicit typed second element
+    check_type_tag(*index["g"], typeinfo_tag::I32);
+    check_type_tag(*index["h"], typeinfo_tag::I32);
     destroyast(ast);
 }
 

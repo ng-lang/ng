@@ -632,9 +632,8 @@ namespace NG::ast
     {
         Str name;                                    ///< The name of the binding.
         ASTRef<TypeAnnotation> annotation = nullptr; ///< The type annotation of the binding.
-        ASTRef<Expression> value = nullptr;          ///< The value of the binding, if any.
         bool spreadReceiver = false;                 ///< The indicator of whether its a spread receiver.
-        int index = -1;                              ///< The index of the binding in the tuple unpack.
+        size_t index = 0;                            ///< The index of the binding in the tuple unpack.
 
         void accept(AstVisitor *visitor) override;
 

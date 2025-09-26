@@ -12,6 +12,10 @@ namespace NG::runtime
             throw IllegalTypeException("Not a valid index");
         }
         auto indexVal = NGIntegral<int32_t>::valueOf(ngInt.get());
+        if (indexVal < 0 || static_cast<size_t>(indexVal) >= items->size())
+        {
+            throw RuntimeException("Index out of bounds: " + std::to_string(indexVal));
+        }
 
         return (*this->items)[indexVal];
     };
@@ -24,6 +28,10 @@ namespace NG::runtime
             throw IllegalTypeException("Not a valid index");
         }
         auto indexVal = NGIntegral<uint32_t>::valueOf(ngInt.get());
+        if (indexVal < 0 || static_cast<size_t>(indexVal) >= items->size())
+        {
+            throw RuntimeException("Index out of bounds: " + std::to_string(indexVal));
+        }
 
         return (*items)[indexVal] = newValue;
     };

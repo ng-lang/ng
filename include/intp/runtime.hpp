@@ -623,11 +623,11 @@ namespace NG::runtime
     };
 
     /**
-     * @brief Represents an array in the runtime.
+     * @brief Represents an tuple in the runtime.
      */
     struct NGTuple : NGObject
     {
-        RuntimeRef<Vec<RuntimeRef<NGObject>>> items; ///< The items in the array.
+        RuntimeRef<Vec<RuntimeRef<NGObject>>> items; ///< The items in the tuple.
 
         explicit NGTuple(const Vec<RuntimeRef<NGObject>> &vec = {}) : items{makert<Vec<RuntimeRef<NGObject>>>(vec)} {}
 

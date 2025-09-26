@@ -561,26 +561,25 @@ namespace NG::parsing
             {
                 BindingType bindingType =
                     state->type == TokenType::LEFT_PAREN ? BindingType::TUPLE_UNPACK : BindingType::ARRAY_UNPACK;
+                const auto closing = bindingType == BindingType::TUPLE_UNPACK
+                                         ? TokenType::RIGHT_PAREN
+                                         : TokenType::RIGHT_SQUARE;
+
                 accept(state->type);
                 auto valBind = makeast<ValueBindingStatement>();
                 valBind->type = bindingType;
                 int index = 0;
-                bool spreaded = false;
-                while (!expect(TokenType::RIGHT_PAREN))
+                while (!expect(closing))
                 {
                     auto binding = makeast<Binding>();
                     if (expect(TokenType::SPREAD))
                     {
-                        if (!spreaded)
-                        {
-                            accept(TokenType::SPREAD);
-                            binding->spreadReceiver = true;
-                            spreaded = true;
-                        }
-                        else [[unlikely]]
+                        if (valBind->bindings.size() > 0 && valBind->bindings.back()->spreadReceiver) [[unlikely]]
                         {
                             unexpected("Invalid unpack operator, only 1 allowed");
                         }
+                        accept(TokenType::SPREAD);
+                        binding->spreadReceiver = true;
                     }
                     if (expect(TokenType::ID))
                     {
@@ -594,7 +593,7 @@ namespace NG::parsing
                             binding->annotation = typeAnnotation();
                         }
                     }
-                    else if (spreaded)
+                    else if (binding->spreadReceiver)
                     {
                         binding->name = "";
                         binding->index = index;
@@ -606,7 +605,7 @@ namespace NG::parsing
                     valBind->bindings.push_back(std::move(binding));
                     if (expect(TokenType::COMMA))
                     {
-                        if (spreaded)
+                        if (valBind->bindings.back()->spreadReceiver)
                         {
                             unexpected("Unpacking binding must be last one");
                         }
@@ -634,10 +633,6 @@ namespace NG::parsing
                 accept(TokenType::BIND);
                 auto value = expression();
                 valBind->value = value;
-                for (auto &binding : valBind->bindings)
-                {
-                    binding->value = value;
-                }
                 accept(TokenType::SEMICOLON);
                 return valBind;
             }
