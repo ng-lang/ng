@@ -566,14 +566,20 @@ namespace NG::intp
 
             switch (valBind->type)
             {
-            case BindingType::DIRECT:
-            {
-                if (valBind->bindings.size() != 1)
-                {
-                    throw RuntimeException("Invalid binding type: direct binding only allow exactly 1.");
-                }
-            }
-            break;
+            // case BindingType::DIRECT:
+            // {
+            //     if (valBind->bindings.size() != 1)
+            //     {
+            //         throw RuntimeException("Invalid binding type: direct binding only allow exactly 1.");
+            //     }
+            //     auto binding = valBind->bindings[0];
+            //     if (binding->name.empty())
+            //     {
+            //         throw RuntimeException("Direct binding requires a name");
+            //     }
+            //     context->define(binding->name, result);
+            // }
+            // break;
             case BindingType::TUPLE_UNPACK:
             {
                 auto tuple = std::dynamic_pointer_cast<NGTuple>(result);
@@ -611,7 +617,7 @@ namespace NG::intp
                     {
                         context->define(binding->name, items->at(binding->index));
                     }
-                    else
+                    else if (!binding->name.empty()) // empty spread receiver just ignores everything
                     {
                         Vec<RuntimeRef<NGObject>> values{items->begin() + binding->index, items->end()};
                         context->define(binding->name, makert<NGArray>(values));
