@@ -1,15 +1,15 @@
 #pragma once
 
-#include <vector>
+#include <algorithm>
+#include <concepts>
+#include <cstddef>
+#include <iterator>
+#include <list>
 #include <string>
+#include <type_traits>
 #include <unordered_map>
 #include <unordered_set>
-#include <list>
-#include <concepts>
-#include <type_traits>
-#include <iterator>
-#include <cstddef>
-#include <algorithm>
+#include <vector>
 
 /**
  * @brief Extracts the keys from an unordered_map.
@@ -24,9 +24,7 @@ auto keys_of(const std::unordered_map<K, V> &map) -> std::vector<K>
 {
     std::vector<K> keys{};
     keys.reserve(map.size());
-    std::transform(map.begin(), map.end(), std::back_inserter(keys),
-                   [](const auto &pair)
-                   { return pair.first; });
+    std::transform(map.begin(), map.end(), std::back_inserter(keys), [](const auto &pair) { return pair.first; });
     return keys;
 }
 

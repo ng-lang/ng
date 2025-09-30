@@ -136,8 +136,8 @@ namespace NG
         QUERY,     // ?
         UNDEFINED, // ???
 
-        SPREAD,         // ...
-        RANGE,          // ..
+        SPREAD,          // ...
+        RANGE,           // ..
         RANGE_INCLUSIVE, // ..=
 
         ID,
@@ -178,11 +178,7 @@ namespace NG
         Str repr;               ///< The representation of the token.
         TokenPosition position; ///< The position of the token.
 
-        auto operator==(const Token &token) const -> bool
-        {
-            return type == token.type &&
-                   repr == token.repr;
-        }
+        auto operator==(const Token &token) const -> bool { return type == token.type && repr == token.repr; }
     };
 
     /**

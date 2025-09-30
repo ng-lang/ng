@@ -1,12 +1,12 @@
 #pragma once
 
-#include <iostream>
 #include <config.h>
-#include <fwd.hpp>
 #include <algorithm>
-#include <iterator>
 #include <concepts>
 #include <cstddef>
+#include <fwd.hpp>
+#include <iostream>
+#include <iterator>
 
 /**
  * @brief Prints a non-container value for debugging.

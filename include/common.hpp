@@ -1,9 +1,9 @@
 #pragma once
 
-#include <stdexcept>
-#include <type_traits>
 #include <concepts>
 #include <cstdint>
+#include <stdexcept>
+#include <type_traits>
 
 #include "config.h"
 #include <fwd.hpp>
@@ -39,13 +39,9 @@ namespace NG
      */
     struct LexException : std::logic_error
     {
-        explicit LexException() : logic_error("Error: lex exception found")
-        {
-        }
+        explicit LexException() : logic_error("Error: lex exception found") {}
 
-        explicit LexException(const std::string &msg) : logic_error(msg)
-        {
-        }
+        explicit LexException(const std::string &msg) : logic_error(msg) {}
     };
 
     /**
@@ -53,9 +49,7 @@ namespace NG
      */
     struct EOFException : std::out_of_range
     {
-        explicit EOFException() : out_of_range("Error: end of file")
-        {
-        }
+        explicit EOFException() : out_of_range("Error: end of file") {}
     };
 
     /**
@@ -63,12 +57,8 @@ namespace NG
      */
     struct NotImplementedException : std::runtime_error
     {
-        explicit NotImplementedException() : runtime_error("Error: not implemented")
-        {
-        }
-        explicit NotImplementedException(const std::string &reason) : runtime_error(reason)
-        {
-        }
+        explicit NotImplementedException() : runtime_error("Error: not implemented") {}
+        explicit NotImplementedException(const std::string &reason) : runtime_error(reason) {}
     };
 
     /**
@@ -76,9 +66,7 @@ namespace NG
      */
     struct ParseException : std::logic_error
     {
-        explicit ParseException(const std::string &message) : logic_error(message)
-        {
-        }
+        explicit ParseException(const std::string &message) : logic_error(message) {}
     };
 
     /**
@@ -86,9 +74,7 @@ namespace NG
      */
     struct IllegalTypeException : std::runtime_error
     {
-        explicit IllegalTypeException(const std::string &message) : runtime_error(message)
-        {
-        }
+        explicit IllegalTypeException(const std::string &message) : runtime_error(message) {}
     };
 
     /**
@@ -96,9 +82,7 @@ namespace NG
      */
     struct AssertionException : std::logic_error
     {
-        explicit AssertionException() : logic_error("Assertion Failed")
-        {
-        }
+        explicit AssertionException() : logic_error("Assertion Failed") {}
     };
 
     /**
@@ -106,9 +90,7 @@ namespace NG
      */
     struct RuntimeException : std::runtime_error
     {
-        explicit RuntimeException(const std::string &message) : runtime_error(message)
-        {
-        }
+        explicit RuntimeException(const std::string &message) : runtime_error(message) {}
     };
 
     /**
@@ -116,9 +98,7 @@ namespace NG
      */
     struct TypeCheckingException : std::logic_error
     {
-        explicit TypeCheckingException(const std::string &message) : logic_error(message)
-        {
-        }
+        explicit TypeCheckingException(const std::string &message) : logic_error(message) {}
     };
 
     /**
@@ -153,4 +133,4 @@ namespace NG
         return static_cast<T>(code);
     }
 
-} // namespace NG;
+} // namespace NG

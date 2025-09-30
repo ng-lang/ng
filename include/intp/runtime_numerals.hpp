@@ -1,7 +1,7 @@
 #pragma once
 
-#include <intp/runtime.hpp>
 #include <cmath>
+#include <intp/runtime.hpp>
 #include <limits>
 
 namespace NG::runtime
@@ -160,30 +160,15 @@ namespace NG::runtime
             value = valueOf(other);
         }
 
-        [[nodiscard]] auto show() const -> Str override
-        {
-            return std::to_string(value);
-        }
+        [[nodiscard]] auto show() const -> Str override { return std::to_string(value); }
 
-        [[nodiscard]] auto bytesize() const -> size_t override
-        {
-            return sizeof(T);
-        }
+        [[nodiscard]] auto bytesize() const -> size_t override { return sizeof(T); }
 
-        [[nodiscard]] auto signedness() const -> bool override
-        {
-            return std::is_signed_v<T>;
-        }
+        [[nodiscard]] auto signedness() const -> bool override { return std::is_signed_v<T>; }
 
-        [[nodiscard]] auto floating_point() const -> bool override
-        {
-            return false;
-        }
+        [[nodiscard]] auto floating_point() const -> bool override { return false; }
 
-        [[nodiscard]] auto boolValue() const -> bool override
-        {
-            return value != 0;
-        }
+        [[nodiscard]] auto boolValue() const -> bool override { return value != 0; }
 
         [[nodiscard]] auto opPlus(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject> override;
 
@@ -212,10 +197,7 @@ namespace NG::runtime
          *
          * @return The value as a `size_t`.
          */
-        [[nodiscard]] auto asSize() const -> size_t
-        {
-            return static_cast<size_t>(value);
-        }
+        [[nodiscard]] auto asSize() const -> size_t { return static_cast<size_t>(value); }
     };
 
     template <std::integral T>
@@ -440,30 +422,15 @@ namespace NG::runtime
             value = valueOf(other);
         }
 
-        [[nodiscard]] auto show() const -> Str override
-        {
-            return std::to_string(value);
-        }
+        [[nodiscard]] auto show() const -> Str override { return std::to_string(value); }
 
-        [[nodiscard]] auto bytesize() const -> size_t override
-        {
-            return sizeof(T);
-        }
+        [[nodiscard]] auto bytesize() const -> size_t override { return sizeof(T); }
 
-        [[nodiscard]] auto signedness() const -> bool override
-        {
-            return true;
-        }
+        [[nodiscard]] auto signedness() const -> bool override { return true; }
 
-        [[nodiscard]] auto floating_point() const -> bool override
-        {
-            return true;
-        }
+        [[nodiscard]] auto floating_point() const -> bool override { return true; }
 
-        [[nodiscard]] auto boolValue() const -> bool override
-        {
-            return value != 0;
-        }
+        [[nodiscard]] auto boolValue() const -> bool override { return value != 0; }
 
         [[nodiscard]] auto opPlus(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject> override;
 
@@ -492,10 +459,7 @@ namespace NG::runtime
          *
          * @return The value as a `size_t`.
          */
-        [[nodiscard]] auto asSize() const -> size_t
-        {
-            return static_cast<size_t>(value);
-        }
+        [[nodiscard]] auto asSize() const -> size_t { return static_cast<size_t>(value); }
     };
 
     template <std::floating_point T>
@@ -626,4 +590,4 @@ namespace NG::runtime
 
 #pragma endregion
 
-}
+} // namespace NG::runtime

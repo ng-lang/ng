@@ -52,3 +52,6 @@ control.js
 LeaksReport.txt
 
 reports/
+
+# Clangd
+.cache/

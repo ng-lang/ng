@@ -1,7 +1,7 @@
 #pragma once
 
-#include <memory>
 #include <common.hpp>
+#include <memory>
 
 namespace NG::ast
 {
@@ -54,4 +54,4 @@ namespace NG::ast
     {
         return std::dynamic_pointer_cast<T>(ast);
     }
-}
+} // namespace NG::ast

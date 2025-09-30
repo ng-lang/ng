@@ -1,7 +1,7 @@
 #pragma once
 
-#include <fwd.hpp>
 #include <ast.hpp>
+#include <fwd.hpp>
 #include <token.hpp>
 #include <utility>
 
@@ -88,13 +88,10 @@ namespace NG::parsing
         LexState state;      ///< The state of the lexer.
         Vec<Token> tokens{}; ///< The tokens that have been lexed.
 
-    public:
+      public:
         explicit Lexer(LexState state) : state(std::move(state)) {}
 
-        auto operator->() -> LexState *
-        {
-            return &state;
-        }
+        auto operator->() -> LexState * { return &state; }
 
         /**
          * @brief Lexes the source code.
@@ -134,10 +131,7 @@ namespace NG::parsing
          */
         [[nodiscard]] auto current() const -> const Token &;
 
-        auto operator->() -> const Token *
-        {
-            return &current();
-        }
+        auto operator->() -> const Token * { return &current(); }
 
         /**
          * @brief Returns whether the end of the tokens has been reached.
@@ -199,7 +193,7 @@ namespace NG::parsing
         ParseState state;    ///< The state of the parser.
         Str module_filename; ///< The filename of the module being parsed.
 
-    public:
+      public:
         explicit Parser(ParseState state) : state(std::move(state)) {}
 
         /**
@@ -212,4 +206,4 @@ namespace NG::parsing
         auto parse(const Str &filename = "[noname]") -> ast::ASTRef<ASTNode>;
     };
 
-} // namespace NG
+} // namespace NG::parsing

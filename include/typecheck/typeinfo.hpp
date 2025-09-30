@@ -1,10 +1,10 @@
 
 #pragma once
 
+#include <ast.hpp>
 #include <common.hpp>
 #include <memory>
 #include <utility>
-#include <ast.hpp>
 
 namespace NG::typecheck
 {
@@ -120,9 +120,7 @@ namespace NG::typecheck
 
         typeinfo_tag type; ///< The tag of the primitive type.
 
-        explicit PrimitiveType(typeinfo_tag tag) noexcept : type(tag)
-        {
-        }
+        explicit PrimitiveType(typeinfo_tag tag) noexcept : type(tag) {}
         /**
          * @brief Creates a `PrimitiveType` from a `TypeAnnotationType`.
          *
@@ -181,10 +179,7 @@ namespace NG::typecheck
     {
         CheckingRef<TypeInfo> paramType; ///< The type of the parameter.
 
-        ParamWithDefaultValueType(CheckingRef<TypeInfo> paramType)
-            : paramType(paramType)
-        {
-        }
+        ParamWithDefaultValueType(CheckingRef<TypeInfo> paramType) : paramType(paramType) {}
 
         auto tag() const -> typeinfo_tag override;
 
@@ -199,10 +194,7 @@ namespace NG::typecheck
     {
         CheckingRef<TypeInfo> elementType; ///< The element type of the array.
 
-        ArrayType(CheckingRef<TypeInfo> elementType)
-            : elementType(elementType)
-        {
-        }
+        ArrayType(CheckingRef<TypeInfo> elementType) : elementType(elementType) {}
         /**
          * @brief Applies the function with the given types.
          *
@@ -223,13 +215,10 @@ namespace NG::typecheck
     {
         Vec<CheckingRef<TypeInfo>> elementTypes; ///< The element types of the tuple.
 
-        explicit TupleType(Vec<CheckingRef<TypeInfo>> elementTypes)
-            : elementTypes(std::move(elementTypes))
-        {
-        }
+        explicit TupleType(Vec<CheckingRef<TypeInfo>> elementTypes) : elementTypes(std::move(elementTypes)) {}
 
         auto tag() const -> typeinfo_tag override;
         auto repr() const -> Str override;
         auto match(const TypeInfo &other) const -> bool override;
     };
-}
+} // namespace NG::typecheck

@@ -4,16 +4,16 @@
 namespace NG::runtime
 {
 
-    auto ObjectBase::show() const -> Str
-    {
-        return {};
-    }
+  auto ObjectBase::show() const -> Str
+  {
+    return {};
+  }
 
-    auto ObjectBase::boolValue() const -> bool
-    {
-        return false;
-    }
+  auto ObjectBase::boolValue() const -> bool
+  {
+    return false;
+  }
 
-    ObjectBase::~ObjectBase() = default;
+  ObjectBase::~ObjectBase() = default;
 
-}
+} // namespace NG::runtime

@@ -2,9 +2,9 @@
 
 #include <algorithm>
 #include <ast.hpp>
+#include <debug.hpp>
 #include <functional>
 #include <memory>
-#include <debug.hpp>
 #include <utility>
 
 namespace NG::runtime
@@ -229,7 +229,7 @@ namespace NG::runtime
         Vec<Str> imported;                      ///< The imported symbols.
         Set<Str> locals;                        ///< The local variables.
 
-    private:
+      private:
         NGContext *parent = nullptr; ///< The parent context.
     };
 
@@ -437,10 +437,7 @@ namespace NG::runtime
          */
         static auto objectType() -> RuntimeRef<NGType>;
 
-        [[nodiscard]] auto boolValue() const -> bool override
-        {
-            return true;
-        }
+        [[nodiscard]] auto boolValue() const -> bool override { return true; }
 
         [[nodiscard]] auto show() const -> Str override;
 
@@ -477,10 +474,7 @@ namespace NG::runtime
          * @param other The other object.
          * @return The result of the comparison.
          */
-        virtual auto compareTo(const NGObject *other) const -> Orders
-        {
-            return Orders::UNORDERED;
-        };
+        virtual auto compareTo(const NGObject *other) const -> Orders { return Orders::UNORDERED; };
 
         [[nodiscard]] auto opGreaterThan(RuntimeRef<NGObject> other) const -> bool override;
 
@@ -525,10 +519,7 @@ namespace NG::runtime
     struct ThreeWayComparable : public virtual NGObject
     {
 
-        auto compareTo(const NGObject *other) const -> Orders override
-        {
-            return T::comparator(this, other);
-        }
+        auto compareTo(const NGObject *other) const -> Orders override { return T::comparator(this, other); }
 
         [[nodiscard]] auto opEquals(RuntimeRef<NGObject> other) const -> bool override
         {
@@ -590,10 +581,7 @@ namespace NG::runtime
          *
          * @return The size of the module.
          */
-        [[nodiscard]] auto size() const -> size_t
-        {
-            return objects.size() + functions.size() + types.size();
-        }
+        [[nodiscard]] auto size() const -> size_t { return objects.size() + functions.size() + types.size(); }
 
         auto respond(const Str &member, NGCtx context, NGInvCtx invocationContext) -> RuntimeRef<NGObject> override;
 
@@ -718,6 +706,5 @@ namespace NG::runtime
      * @param moduleId The ID of the module.
      * @param handlers The handlers for the native functions.
      */
-    void
-    register_native_library(Str moduleId, Map<Str, NGInvocable> handlers);
-}
+    void register_native_library(Str moduleId, Map<Str, NGInvocable> handlers);
+} // namespace NG::runtime

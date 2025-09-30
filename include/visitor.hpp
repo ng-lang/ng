@@ -11,7 +11,7 @@ namespace NG::ast
     // NOLINTNEXTLINE(cppcoreguidelines-special-member-functions)
     struct AstVisitor : NonCopyable
     {
-    public:
+      public:
         /**
          * @brief Visits an AST node.
          *
@@ -313,7 +313,7 @@ namespace NG::ast
     // NOLINTNEXTLINE(cppcoreguidelines-special-member-functions)
     class DummyVisitor : public virtual AstVisitor
     {
-    public:
+      public:
         void visit(ASTNode *astNode) override;
 
         void visit(Module *mod) override;

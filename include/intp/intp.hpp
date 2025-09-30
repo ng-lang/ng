@@ -2,8 +2,8 @@
 #pragma once
 
 #include <fwd.hpp>
-#include <visitor.hpp>
 #include <intp/runtime.hpp>
+#include <visitor.hpp>
 
 namespace NG::intp
 {
@@ -44,4 +44,4 @@ namespace NG::intp
      * @return A pointer to the new interpreter instance.
      */
     auto stupid() -> Interpreter *;
-}
+} // namespace NG::intp

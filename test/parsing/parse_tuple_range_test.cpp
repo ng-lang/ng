@@ -48,7 +48,8 @@ TEST_CASE("parser should parse spread operator and multiple bindings", "[Parser]
     destroyast(ast);
 }
 
-TEST_CASE("parser should fail when parse invalid spread operator and multiple bindings", "[Parser][Type][Tuple][Accessor]")
+TEST_CASE("parser should fail when parse invalid spread operator and multiple bindings",
+          "[Parser][Type][Tuple][Accessor]")
 {
     parseInvalid("val (x, ..., ) = (1, 2, 3);", "Unpacking binding must be last one");
 }
