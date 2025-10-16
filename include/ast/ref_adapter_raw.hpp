@@ -1,7 +1,7 @@
 #pragma once
 
-#include <utility>
 #include <common.hpp>
+#include <utility>
 
 namespace NG::ast
 {
@@ -55,4 +55,4 @@ namespace NG::ast
     {
         return dynamic_cast<ASTRef<T>>(ast);
     }
-}
+} // namespace NG::ast

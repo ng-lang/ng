@@ -1,3 +1,8 @@
+if [ -d build ]; then
+    echo "To Build folder"
+    cd build/
+fi
+
 ./ng_test
 
 mkdir -p reports/cov

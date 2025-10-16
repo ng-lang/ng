@@ -1,8 +1,8 @@
 #pragma once
 
 #include <memory>
-#include <utility>
 #include <optional>
+#include <utility>
 
 #include <common.hpp>
 
@@ -126,10 +126,7 @@ namespace NG::ast
         Str alias;           ///< The alias for the module.
         Vec<Str> imports;    ///< The symbols to import.
 
-        auto astNodeType() const -> ASTNodeType override
-        {
-            return ASTNodeType::IMPORT_DECLARATION;
-        }
+        auto astNodeType() const -> ASTNodeType override { return ASTNodeType::IMPORT_DECLARATION; }
 
         void accept(AstVisitor *visitor) override;
 
@@ -272,7 +269,9 @@ namespace NG::ast
         Param(const Str &name, ASTRef<TypeAnnotation> type) : Param(name, type, ParamType::Annotated) {}
 
         Param(Str name, ASTRef<TypeAnnotation> _annotatedType, ParamType type)
-            : paramName(std::move(name)), annotatedType(std::move(_annotatedType)), type(type) {}
+            : paramName(std::move(name)), annotatedType(std::move(_annotatedType)), type(type)
+        {
+        }
 
         void accept(AstVisitor *visitor) override;
 
@@ -451,9 +450,7 @@ namespace NG::ast
 
         Vec<ASTRef<ImportDecl>> imports; ///< The imported modules.
 
-        explicit Module(Str _name = "default") : name(std::move(_name))
-        {
-        }
+        explicit Module(Str _name = "default") : name(std::move(_name)) {}
 
         auto astNodeType() const -> ASTNodeType override { return ASTNodeType::MODULE; }
 
@@ -546,8 +543,10 @@ namespace NG::ast
         ASTRef<Expression> primary = nullptr;  ///< The primary expression of the accessor.
         ASTRef<Expression> accessor = nullptr; ///< The accessor of the expression.
 
-        IndexAccessorExpression(ASTRef<Expression> primary, ASTRef<Expression> accessor) : primary{std::move(primary)},
-                                                                                           accessor{std::move(accessor)} {}
+        IndexAccessorExpression(ASTRef<Expression> primary, ASTRef<Expression> accessor)
+            : primary{std::move(primary)}, accessor{std::move(accessor)}
+        {
+        }
 
         void accept(AstVisitor *visitor) override;
 
@@ -568,10 +567,10 @@ namespace NG::ast
         ASTRef<Expression> accessor = nullptr; ///< The accessor of the assignment.
         ASTRef<Expression> value = nullptr;    ///< The value of the assignment.
 
-        IndexAssignmentExpression(
-            ASTRef<Expression> primary,
-            ASTRef<Expression> accessor,
-            ASTRef<Expression> value) : primary{std::move(primary)}, accessor{std::move(accessor)}, value{std::move(value)} {}
+        IndexAssignmentExpression(ASTRef<Expression> primary, ASTRef<Expression> accessor, ASTRef<Expression> value)
+            : primary{std::move(primary)}, accessor{std::move(accessor)}, value{std::move(value)}
+        {
+        }
 
         void accept(AstVisitor *visitor) override;
 
@@ -591,9 +590,7 @@ namespace NG::ast
         ASTRef<Expression> value = nullptr;    ///< The value to check.
         ASTRef<TypeAnnotation> type = nullptr; ///< The type to check against.
 
-        TypeCheckingExpression(
-            ASTRef<Expression> value,
-            ASTRef<TypeAnnotation> type) : value{value}, type{type} {}
+        TypeCheckingExpression(ASTRef<Expression> value, ASTRef<TypeAnnotation> type) : value{value}, type{type} {}
 
         void accept(AstVisitor *visitor) override;
 
@@ -764,10 +761,7 @@ namespace NG::ast
 
         void accept(AstVisitor *visitor) override;
 
-        auto astNodeType() const -> ASTNodeType override
-        {
-            return ASTNodeType::INTEGRAL_VALUE;
-        }
+        auto astNodeType() const -> ASTNodeType override { return ASTNodeType::INTEGRAL_VALUE; }
 
         [[nodiscard]]
         auto repr() const -> Str override
@@ -791,10 +785,7 @@ namespace NG::ast
 
         void accept(AstVisitor *visitor) override;
 
-        auto astNodeType() const -> ASTNodeType override
-        {
-            return ASTNodeType::FLOATING_POINT_VALUE;
-        }
+        auto astNodeType() const -> ASTNodeType override { return ASTNodeType::FLOATING_POINT_VALUE; }
 
         [[nodiscard]]
         auto repr() const -> Str override

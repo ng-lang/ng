@@ -5,86 +5,86 @@
 namespace NG::parsing
 {
 
-    LexState::LexState(const Str &_source) : source(_source), size(_source.size()), index(0), line(1), col(1) {}
+  LexState::LexState(const Str &_source) : source(_source), size(_source.size()), index(0), line(1), col(1) {}
 
-    auto LexState::current() const -> char
+  auto LexState::current() const -> char
+  {
+    if (!eof())
     {
-        if (!eof())
-        {
-            return source.at(index);
-        }
-        return '\0';
+      return source.at(index);
     }
+    return '\0';
+  }
 
-    auto LexState::eof() const -> bool
+  auto LexState::eof() const -> bool
+  {
+    return index >= size;
+  }
+
+  void LexState::extend(const Str &source)
+  {
+    this->source += source;
+    this->size += source.size();
+  }
+
+  auto LexState::lookAhead() const -> char
+  {
+    if (index + 1 >= size)
     {
-        return index >= size;
+      return '\0';
     }
+    return source.at(index + 1);
+  }
 
-    void LexState::extend(const Str &source)
+  void LexState::next(int n)
+  {
+    if (!eof())
     {
-        this->source += source;
-        this->size += source.size();
+      index += n;
+      col += n;
     }
+  }
 
-    auto LexState::lookAhead() const -> char
+  static void resetLineAndCol(LexState &state, size_t index)
+  {
+    if (index > state.size)
     {
-        if (index + 1 >= size)
-        {
-            return '\0';
-        }
-        return source.at(index + 1);
+      return;
     }
-
-    void LexState::next(int n)
+    state.line = 1;
+    state.col = 0;
+    for (size_t i = 0; i <= index; i++)
     {
-        if (!eof())
-        {
-            index += n;
-            col += n;
-        }
-    }
-
-    static void resetLineAndCol(LexState &state, size_t index)
-    {
-        if (index > state.size)
-        {
-            return;
-        }
-        state.line = 1;
+      state.col++;
+      if (state.source[i] == '\n')
+      {
+        state.line++;
         state.col = 0;
-        for (size_t i = 0; i <= index; i++)
-        {
-            state.col++;
-            if (state.source[i] == '\n')
-            {
-                state.line++;
-                state.col = 0;
-            }
-        }
+      }
     }
+  }
 
-    void LexState::revert(size_t n)
+  void LexState::revert(size_t n)
+  {
+    if (n > index)
     {
-        if (n > index)
-        {
-            return;
-        }
-        if (index - n > col)
-        {
-            resetLineAndCol(*this, n);
-        }
-        else
-        {
-            col -= (index - n);
-        }
-        index = n;
+      return;
     }
-
-    void LexState::nextLine()
+    if (index - n > col)
     {
-        line++;
-        col = 0;
+      resetLineAndCol(*this, n);
     }
+    else
+    {
+      col -= (index - n);
+    }
+    index = n;
+  }
 
-}
+  void LexState::nextLine()
+  {
+    line++;
+    col = 0;
+  }
+
+} // namespace NG::parsing

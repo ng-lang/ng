@@ -2,7 +2,7 @@
 
 TEST_CASE("should be able to check control and result types", "[Function][TypeCheck]")
 {
-    auto ast = parse(R"(
+  auto ast = parse(R"(
         {
             val x = 1;
             val y = 2;
@@ -51,50 +51,50 @@ TEST_CASE("should be able to check control and result types", "[Function][TypeCh
         }
         )");
 
-    REQUIRE(ast != nullptr);
+  REQUIRE(ast != nullptr);
 
-    auto typeIndex = type_check(ast);
-    destroyast(ast);
+  auto typeIndex = type_check(ast);
+  destroyast(ast);
 }
 
 TEST_CASE("should fail when check control flow with incompatible type", "[Function][TypeCheck]")
 {
 
-    typecheck_failure(
-        R"(
+  typecheck_failure(
+      R"(
             if (1) {}
     )",
-        "Condition expression must be boolean");
+      "Condition expression must be boolean");
 
-    typecheck_failure(
-        R"(
+  typecheck_failure(
+      R"(
             if (true) { return 1; } else { return 2.0;}
     )",
-        "Mismatched return types in if-else branches");
+      "Mismatched return types in if-else branches");
 
-    typecheck_failure(
-        R"(
+  typecheck_failure(
+      R"(
             val x = 1;
             loop x {
                 next;
             }
     )",
-        "Next statement argument count mismatch");
+      "Next statement argument count mismatch");
 
-    typecheck_failure(
-        R"(
+  typecheck_failure(
+      R"(
             val x = 1;
             loop x {
                 next false;
             }
     )",
-        "Next statement argument type mismatch");
+      "Next statement argument type mismatch");
 
-    typecheck_failure(
-        R"(
+  typecheck_failure(
+      R"(
             loop n: int = false {
                 next n + 1;
             }
     )",
-        "Loop Binding Type Mismatch");
+      "Loop Binding Type Mismatch");
 }

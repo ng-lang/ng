@@ -1,0 +1,60 @@
+# AI-generated: .clang-format for NG C++23 codebase
+
+BasedOnStyle: Microsoft
+Language: Cpp
+Standard: c++20
+
+# Indentation
+IndentWidth: 2
+TabWidth: 2
+UseTab: Never
+
+# Braces
+BreakBeforeBraces: Allman
+AllowShortIfStatementsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortBlocksOnASingleLine: false
+
+# Spaces
+SpaceBeforeParens: ControlStatements
+SpaceAfterCStyleCast: true
+SpacesInParentheses: false
+SpacesInSquareBrackets: false
+SpacesInAngles: false
+SpaceInEmptyParentheses: false
+
+# Includes
+IncludeBlocks: Preserve
+SortIncludes: true
+IncludeCategories:
+  - Regex: '^<.*\.h>'
+    Priority: 1
+    SortPriority: 0
+  - Regex: '^".*\.hpp"'
+    Priority: 2
+    SortPriority: 1
+  - Regex: ".*"
+    Priority: 3
+    SortPriority: 2
+
+# Alignment
+AlignConsecutiveAssignments: false
+AlignConsecutiveDeclarations: false
+AlignTrailingComments: true
+AlignAfterOpenBracket: Align
+AlignOperands: true
+
+BracedInitializerIndentWidth: 2
+
+# Misc
+ColumnLimit: 120
+DerivePointerAlignment: false
+PointerAlignment: Right
+Cpp11BracedListStyle: true
+SortUsingDeclarations: true
+ReflowComments: true
+FixNamespaceComments: true
+NamespaceIndentation: All
+
+BreakTemplateDeclarations: Yes
+IndentRequiresClause: true

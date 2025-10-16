@@ -10,14 +10,14 @@ namespace NG::library::prelude
      * @brief Registers the prelude library.
      */
     void do_register();
-}
+} // namespace NG::library::prelude
 namespace NG::library::imgui
 {
     /**
      * @brief Registers the imgui library.
      */
     void do_register();
-}
+} // namespace NG::library::imgui
 
 namespace NG::module
 {
@@ -49,9 +49,11 @@ namespace NG::module
         Map<Str, RuntimeRef<ModuleInfo>> modules; ///< The modules in the registry.
         Vec<Str> basePaths;                       ///< The base paths for module resolution.
 
-    public:
+      public:
         ModuleRegistry(Map<Str, RuntimeRef<ModuleInfo>> modules, Vec<Str> basePaths)
-            : modules(modules), basePaths(basePaths) {}
+            : modules(modules), basePaths(basePaths)
+        {
+        }
 
         /**
          * @brief Adds a module to the registry.
@@ -94,9 +96,7 @@ namespace NG::module
 
         Vec<Str> basePaths; ///< The base paths for module resolution.
 
-        FileBasedExternalModuleLoader(Vec<Str> basePaths) : basePaths(std::move(basePaths))
-        {
-        }
+        FileBasedExternalModuleLoader(Vec<Str> basePaths) : basePaths(std::move(basePaths)) {}
 
         auto load(const Vec<Str> &module) -> RuntimeRef<ModuleInfo> override;
 
@@ -115,4 +115,4 @@ namespace NG::module
      * @return The global module registry.
      */
     ModuleRegistry &get_module_registry() noexcept;
-}
+} // namespace NG::module

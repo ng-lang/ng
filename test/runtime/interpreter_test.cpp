@@ -8,24 +8,24 @@ using namespace NG::ast;
 
 static void interpret(const Str &source)
 {
-    Interpreter *intp = NG::intp::stupid();
+  Interpreter *intp = NG::intp::stupid();
 
-    auto ast = parse(source);
+  auto ast = parse(source);
 
-    REQUIRE(ast != nullptr);
+  REQUIRE(ast != nullptr);
 
-    ast->accept(intp);
+  ast->accept(intp);
 
-    // intp->summary();
+  // intp->summary();
 
-    delete intp;
-    destroyast(ast);
+  delete intp;
+  destroyast(ast);
 }
 
 TEST_CASE("interpreter should accept simple definitions", "[InterpreterTest]")
 {
 
-    interpret(R"(
+  interpret(R"(
         val x = 1;
         val y = 2;
         val name = "ng";
@@ -49,7 +49,7 @@ TEST_CASE("interpreter should accept simple definitions", "[InterpreterTest]")
 TEST_CASE("interpreter should run statements", "[InterpreterTest]")
 {
 
-    interpret(R"(
+  interpret(R"(
         fun max(a, b) {
             if (a > b) {
                 return a;
@@ -69,7 +69,7 @@ TEST_CASE("interpreter should run statements", "[InterpreterTest]")
 TEST_CASE("interpreter should run recursion", "[InterpreterTest]")
 {
 
-    interpret(R"(
+  interpret(R"(
         fun fact(x) {
             if (x > 0) {
                 return x * fact(x-1);
@@ -86,7 +86,7 @@ TEST_CASE("interpreter should run recursion", "[InterpreterTest]")
 TEST_CASE("interpreter should run complex recursion", "[InterpreterTest]")
 {
 
-    interpret(R"(
+  interpret(R"(
         fun gcd(a, b) {
             val c = a % b;
             if (c == 0) {
@@ -104,7 +104,7 @@ TEST_CASE("interpreter should run complex recursion", "[InterpreterTest]")
 TEST_CASE("shoud be able to interpret array literal", "[InterpreterTest]")
 {
 
-    interpret(R"(
+  interpret(R"(
         val arr = [1, 2, 3, 4, 5];
 
         assert(arr[4] == 5);
@@ -114,7 +114,7 @@ TEST_CASE("shoud be able to interpret array literal", "[InterpreterTest]")
 TEST_CASE("shoud be able to interpret array index", "[InterpreterTest]")
 {
 
-    interpret(R"(
+  interpret(R"(
         val arr = [1, 2, 3, 4, 5];
 
 
@@ -128,7 +128,7 @@ TEST_CASE("shoud be able to interpret array index", "[InterpreterTest]")
 
 TEST_CASE("should be able interpret string member function", "[InterpreterTest]")
 {
-    interpret(R"(
+  interpret(R"(
         val x = "123";
 
         val y = x.size();
@@ -141,7 +141,7 @@ TEST_CASE("should be able interpret string member function", "[InterpreterTest]"
 
 TEST_CASE("should be able interpret simple type definition", "[InterpreterTest]")
 {
-    interpret(R"(
+  interpret(R"(
 type Person {
     property firstName;
     property lastName;
@@ -171,7 +171,7 @@ assert(person.firstName == "Kimmy");
 
 TEST_CASE("should be able interpret integral values", "[InterpreterTest]")
 {
-    interpret(R"(
+  interpret(R"(
 val x = 1i8;
 
 val y = 2u16;
@@ -185,7 +185,7 @@ assert(z == 3);
 
 TEST_CASE("should be able interpret integral & floating values", "[InterpreterTest]")
 {
-    interpret(R"(
+  interpret(R"(
 val x = 1f32;
 
 val y = 2f64;
@@ -200,7 +200,7 @@ assert(z == 6.0);
 
 TEST_CASE("basic loop (single variable)", "[InterpreterTest]")
 {
-    interpret(R"(
+  interpret(R"(
 fun sum(n) {
   val s = 0;
   loop i = 0 {
@@ -220,7 +220,7 @@ assert(result == 55);
 
 TEST_CASE("basic tail recursion (with default parameters)", "[InterpreterTest]")
 {
-    interpret(R"(
+  interpret(R"(
 
 fun sum(i, n = 0) {
   if (i == 0) {
@@ -237,7 +237,7 @@ assert(result == 55);
 
 TEST_CASE("type checking", "[InterpreterTestChecking]")
 {
-    interpret(R"(
+  interpret(R"(
 type SomeType {}
 
 type OtherType {}
@@ -251,7 +251,7 @@ assert(not(some_obj is OtherType));
 
 TEST_CASE("object property update", "[InterpreterTestChecking]")
 {
-    interpret(R"(
+  interpret(R"(
 type SomeType {
   property a;
 }
@@ -268,22 +268,22 @@ assert(some_obj.a == 2);
 
 TEST_CASE("invalid unary operator usage", "[InterpreterTestChecking]")
 {
-    // operator query not implemented
-    REQUIRE_THROWS_MATCHES(interpret("val x = ?5;"), NotImplementedException,
-                           MessageMatches(ContainsSubstring("not implemented yet")));
+  // operator query not implemented
+  REQUIRE_THROWS_MATCHES(interpret("val x = ?5;"), NotImplementedException,
+                         MessageMatches(ContainsSubstring("not implemented yet")));
 
-    // cannot negate non-number
-    REQUIRE_THROWS_MATCHES(interpret("val x = -false;"), RuntimeException,
-                           MessageMatches(ContainsSubstring("Cannot negate a non-number")));
+  // cannot negate non-number
+  REQUIRE_THROWS_MATCHES(interpret("val x = -false;"), RuntimeException,
+                         MessageMatches(ContainsSubstring("Cannot negate a non-number")));
 
-    // cannot negate unsigned number
-    REQUIRE_THROWS_MATCHES(interpret("val x = -1u8;"), RuntimeException,
-                           MessageMatches(ContainsSubstring("Cannot negate unsigned integers")));
+  // cannot negate unsigned number
+  REQUIRE_THROWS_MATCHES(interpret("val x = -1u8;"), RuntimeException,
+                         MessageMatches(ContainsSubstring("Cannot negate unsigned integers")));
 }
 
 TEST_CASE("unary operator usage", "[InterpreterTestChecking]")
 {
-    interpret(R"(
+  interpret(R"(
             val x = 1;
             val y = -1;
             assert(x == -y);
@@ -296,7 +296,7 @@ TEST_CASE("unary operator usage", "[InterpreterTestChecking]")
 
 TEST_CASE("Tuples", "[InterpreterTestChecking]")
 {
-    interpret(R"(
+  interpret(R"(
         val tup = (1, false, "hello");
         assert(tup.0 == 1);
         assert(tup.1 == false);

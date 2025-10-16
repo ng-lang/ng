@@ -1,7 +1,7 @@
 #pragma once
 
-#include <common.hpp>
 #include <ast.hpp>
+#include <common.hpp>
 #include <visitor.hpp>
 
 #include <typecheck/typeinfo.hpp>
@@ -23,4 +23,4 @@ namespace NG::typecheck
      * @return A map from names to type information.
      */
     TypeIndex type_check(ASTRef<ASTNode> ast);
-}
+} // namespace NG::typecheck
