@@ -268,3 +268,251 @@ TEST_CASE("ORGASM interpreter should handle not equal comparison", "[orgasm][int
   
   REQUIRE(shared_module->constants.size() == 2);
 }
+
+TEST_CASE("ORGASM interpreter should handle float operations", "[orgasm][interpreter]") {
+  std::string source = R"(
+.module test
+.const f32 5.5
+.const f32 2.5
+.import print, core
+.start
+00:    load_const.f32 const.0
+01:    load_const.f32 const.1
+02:    add.f32
+03:    push_param
+04:    call import.0
+05:    return
+.endmodule
+)";
+
+  Parser parser(source);
+  auto module = parser.parse_module();
+  auto shared_module = std::shared_ptr<Module>(std::move(module));
+  
+  Interpreter interp(shared_module);
+  
+  float result = 0.0f;
+  interp.register_import("print", [&](const std::vector<Value> &args) -> Value {
+    if (!args.empty() && args[0].type == PrimitiveType::F32) {
+      result = std::get<float>(args[0].data);
+    }
+    return Value();
+  });
+  
+  interp.execute();
+  REQUIRE(result == 8.0f);
+}
+
+TEST_CASE("ORGASM interpreter should handle i64 operations", "[orgasm][interpreter]") {
+  std::string source = R"(
+.module test
+.const i64 1000000000000
+.const i64 2000000000000
+.start
+00:    load_const.i64 const.0
+01:    load_const.i64 const.1
+02:    add.i64
+03:    return
+.endmodule
+)";
+
+  Parser parser(source);
+  auto module = parser.parse_module();
+  auto shared_module = std::shared_ptr<Module>(std::move(module));
+  
+  Interpreter interp(shared_module);
+  interp.execute();
+  
+  REQUIRE(shared_module->constants.size() == 2);
+}
+
+TEST_CASE("ORGASM interpreter should handle f64 operations", "[orgasm][interpreter]") {
+  std::string source = R"(
+.module test
+.const f64 3.14159
+.const f64 2.71828
+.start
+00:    load_const.f64 const.0
+01:    load_const.f64 const.1
+02:    multiply.f64
+03:    return
+.endmodule
+)";
+
+  Parser parser(source);
+  auto module = parser.parse_module();
+  auto shared_module = std::shared_ptr<Module>(std::move(module));
+  
+  Interpreter interp(shared_module);
+  interp.execute();
+  
+  REQUIRE(shared_module->constants.size() == 2);
+}
+
+TEST_CASE("ORGASM interpreter should handle boolean equality", "[orgasm][interpreter]") {
+  std::string source = R"(
+.module test
+.const bool true
+.const bool true
+.start
+00:    load_const.bool const.0
+01:    load_const.bool const.1
+02:    eq.bool
+03:    return
+.endmodule
+)";
+
+  Parser parser(source);
+  auto module = parser.parse_module();
+  auto shared_module = std::shared_ptr<Module>(std::move(module));
+  
+  Interpreter interp(shared_module);
+  interp.execute();
+  
+  REQUIRE(shared_module->constants.size() == 2);
+}
+
+TEST_CASE("ORGASM interpreter should handle tuple with bool", "[orgasm][interpreter]") {
+  std::string source = R"(
+.module test
+.const i32 16
+.const bool true
+.val addr 0
+.start
+00:    load_const.i32 const.0
+01:    tuple_create
+02:    store_value.addr val.0
+03:    load_value.addr val.0
+04:    load_const.bool const.1
+05:    tuple_set.bool 0
+06:    load_value.addr val.0
+07:    tuple_get.bool 0
+08:    return
+.endmodule
+)";
+
+  Parser parser(source);
+  auto module = parser.parse_module();
+  auto shared_module = std::shared_ptr<Module>(std::move(module));
+  
+  Interpreter interp(shared_module);
+  interp.execute();
+  
+  REQUIRE(shared_module->variables.size() == 1);
+}
+
+TEST_CASE("ORGASM interpreter should handle tuple with f32", "[orgasm][interpreter]") {
+  std::string source = R"(
+.module test
+.const i32 16
+.const f32 3.14
+.val addr 0
+.start
+00:    load_const.i32 const.0
+01:    tuple_create
+02:    store_value.addr val.0
+03:    load_value.addr val.0
+04:    load_const.f32 const.1
+05:    tuple_set.f32 0
+06:    load_value.addr val.0
+07:    tuple_get.f32 0
+08:    return
+.endmodule
+)";
+
+  Parser parser(source);
+  auto module = parser.parse_module();
+  auto shared_module = std::shared_ptr<Module>(std::move(module));
+  
+  Interpreter interp(shared_module);
+  interp.execute();
+  
+  REQUIRE(shared_module->variables.size() == 1);
+}
+
+TEST_CASE("ORGASM interpreter should handle tuple with f64", "[orgasm][interpreter]") {
+  std::string source = R"(
+.module test
+.const i32 16
+.const f64 2.71828
+.val addr 0
+.start
+00:    load_const.i32 const.0
+01:    tuple_create
+02:    store_value.addr val.0
+03:    load_value.addr val.0
+04:    load_const.f64 const.1
+05:    tuple_set.f64 0
+06:    load_value.addr val.0
+07:    tuple_get.f64 0
+08:    return
+.endmodule
+)";
+
+  Parser parser(source);
+  auto module = parser.parse_module();
+  auto shared_module = std::shared_ptr<Module>(std::move(module));
+  
+  Interpreter interp(shared_module);
+  interp.execute();
+  
+  REQUIRE(shared_module->variables.size() == 1);
+}
+
+TEST_CASE("ORGASM interpreter should handle tuple with i64", "[orgasm][interpreter]") {
+  std::string source = R"(
+.module test
+.const i32 16
+.const i64 9876543210
+.val addr 0
+.start
+00:    load_const.i32 const.0
+01:    tuple_create
+02:    store_value.addr val.0
+03:    load_value.addr val.0
+04:    load_const.i64 const.1
+05:    tuple_set.i64 0
+06:    load_value.addr val.0
+07:    tuple_get.i64 0
+08:    return
+.endmodule
+)";
+
+  Parser parser(source);
+  auto module = parser.parse_module();
+  auto shared_module = std::shared_ptr<Module>(std::move(module));
+  
+  Interpreter interp(shared_module);
+  interp.execute();
+  
+  REQUIRE(shared_module->variables.size() == 1);
+}
+
+TEST_CASE("ORGASM interpreter should handle tuple with addr", "[orgasm][interpreter]") {
+  std::string source = R"(
+.module test
+.const i32 16
+.val addr 0
+.val addr 0
+.start
+00:    load_const.i32 const.0
+01:    tuple_create
+02:    store_value.addr val.0
+03:    load_value.addr val.0
+04:    load_value.addr val.1
+05:    tuple_set.addr 0
+06:    load_value.addr val.0
+07:    tuple_get.addr 0
+08:    return
+.endmodule
+)";
+
+  Parser parser(source);
+  auto module = parser.parse_module();
+  auto shared_module = std::shared_ptr<Module>(std::move(module));
+  
+  Interpreter interp(shared_module);
+  interp.execute();
+  
+  REQUIRE(shared_module->variables.size() == 2);
+}

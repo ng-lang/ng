@@ -100,3 +100,50 @@ TEST_CASE("ORGASM parser should parse boolean constants", "[orgasm][parser]") {
   REQUIRE(module->constants[0].type == PrimitiveType::BOOL);
   REQUIRE(module->constants[1].type == PrimitiveType::BOOL);
 }
+
+TEST_CASE("ORGASM parser should parse i64 constants", "[orgasm][parser]") {
+  std::string source = ".module test\n.const i64 9876543210\n.endmodule";
+  Parser parser(source);
+
+  auto module = parser.parse_module();
+  REQUIRE(module->constants.size() == 1);
+  REQUIRE(module->constants[0].type == PrimitiveType::I64);
+}
+
+TEST_CASE("ORGASM parser should parse u32 constants", "[orgasm][parser]") {
+  std::string source = ".module test\n.const u32 4294967295\n.endmodule";
+  Parser parser(source);
+
+  auto module = parser.parse_module();
+  REQUIRE(module->constants.size() == 1);
+  REQUIRE(module->constants[0].type == PrimitiveType::U32);
+}
+
+TEST_CASE("ORGASM parser should parse u64 constants", "[orgasm][parser]") {
+  std::string source = ".module test\n.const u64 18446744073709551615\n.endmodule";
+  Parser parser(source);
+
+  auto module = parser.parse_module();
+  REQUIRE(module->constants.size() == 1);
+  REQUIRE(module->constants[0].type == PrimitiveType::U64);
+}
+
+TEST_CASE("ORGASM parser should parse multiple string literals", "[orgasm][parser]") {
+  std::string source = ".module test\n.str [first string]\n.str [second string]\n.endmodule";
+  Parser parser(source);
+
+  auto module = parser.parse_module();
+  REQUIRE(module->strings.size() == 2);
+  REQUIRE(module->strings[0].value == "first string");
+  REQUIRE(module->strings[1].value == "second string");
+}
+
+TEST_CASE("ORGASM parser should parse float arrays", "[orgasm][parser]") {
+  std::string source = ".module test\n.array f32 [1.1, 2.2, 3.3]\n.endmodule";
+  Parser parser(source);
+
+  auto module = parser.parse_module();
+  REQUIRE(module->arrays.size() == 1);
+  REQUIRE(module->arrays[0].element_type == PrimitiveType::F32);
+  REQUIRE(module->arrays[0].elements.size() == 3);
+}
