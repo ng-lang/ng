@@ -172,9 +172,15 @@ std::unique_ptr<Module> Parser::parse_module() {
       Instruction instr = parse_instruction();
       instr.address = addr;
       
-      if (context == ParseContext::FUNCTION && !module->functions.empty()) {
+      if (context == ParseContext::FUNCTION) {
+        if (module->functions.empty()) {
+          error("Instruction encountered before function declaration");
+        }
         module->functions.back().instructions.push_back(instr);
-      } else if (context == ParseContext::START && module->start_block) {
+      } else if (context == ParseContext::START) {
+        if (!module->start_block) {
+          error("Instruction encountered before start block declaration");
+        }
         module->start_block->instructions.push_back(instr);
       }
       continue;
@@ -380,6 +386,11 @@ void Parser::parse_function_params(Module &module) {
   }
   
   Function &func = module.functions.back();
+  
+  // Check if function already has parameters
+  if (!func.params.empty()) {
+    error("Function already has parameters defined");
+  }
 
   while (!match(TokenType::RBRACKET) && !match(TokenType::EOF_TOKEN)) {
     expect(TokenType::IDENTIFIER, "Expected parameter name");
