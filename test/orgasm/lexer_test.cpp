@@ -118,3 +118,56 @@ TEST_CASE("ORGASM lexer should skip comments", "[orgasm][lexer]") {
   tok = lexer.next_token();
   REQUIRE(tok.type == TokenType::MODULE);
 }
+
+TEST_CASE("ORGASM lexer should tokenize negative numbers", "[orgasm][lexer]") {
+  std::string source = "-42 -3.14";
+  Lexer lexer(source);
+
+  Token tok = lexer.next_token();
+  REQUIRE(tok.type == TokenType::NUMBER);
+  REQUIRE(tok.value == "-42");
+
+  tok = lexer.next_token();
+  REQUIRE(tok.type == TokenType::FLOAT_NUMBER);
+  REQUIRE(tok.value == "-3.14");
+}
+
+TEST_CASE("ORGASM lexer should tokenize type suffixes", "[orgasm][lexer]") {
+  std::string source = "load_const.i32 add.f64";
+  Lexer lexer(source);
+
+  Token tok = lexer.next_token();
+  REQUIRE(tok.type == TokenType::IDENTIFIER);
+  REQUIRE(tok.value == "load_const.i32");
+
+  tok = lexer.next_token();
+  REQUIRE(tok.type == TokenType::IDENTIFIER);
+  REQUIRE(tok.value == "add.f64");
+}
+
+TEST_CASE("ORGASM lexer should tokenize all punctuation", "[orgasm][lexer]") {
+  std::string source = "()[],:.;+-";
+  Lexer lexer(source);
+
+  REQUIRE(lexer.next_token().type == TokenType::LPAREN);
+  REQUIRE(lexer.next_token().type == TokenType::RPAREN);
+  REQUIRE(lexer.next_token().type == TokenType::LBRACKET);
+  REQUIRE(lexer.next_token().type == TokenType::RBRACKET);
+  REQUIRE(lexer.next_token().type == TokenType::COMMA);
+  REQUIRE(lexer.next_token().type == TokenType::COLON);
+  REQUIRE(lexer.next_token().type == TokenType::DOT);
+  REQUIRE(lexer.next_token().type == TokenType::SEMICOLON);
+  REQUIRE(lexer.next_token().type == TokenType::PLUS);
+  REQUIRE(lexer.next_token().type == TokenType::MINUS);
+}
+
+TEST_CASE("ORGASM lexer should handle EOF", "[orgasm][lexer]") {
+  std::string source = ".module";
+  Lexer lexer(source);
+
+  lexer.next_token(); // .
+  lexer.next_token(); // module
+
+  Token tok = lexer.next_token();
+  REQUIRE(tok.type == TokenType::EOF_TOKEN);
+}

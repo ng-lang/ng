@@ -61,3 +61,42 @@ TEST_CASE("ORGASM parser should parse variables", "[orgasm][parser]") {
   REQUIRE(module->variables[0].type == PrimitiveType::I32);
   REQUIRE(module->variables[1].type == PrimitiveType::ADDR);
 }
+
+TEST_CASE("ORGASM parser should parse arrays", "[orgasm][parser]") {
+  std::string source = ".module test\n.array i32 [1, 2, 3]\n.endmodule";
+  Parser parser(source);
+
+  auto module = parser.parse_module();
+  REQUIRE(module->arrays.size() == 1);
+  REQUIRE(module->arrays[0].element_type == PrimitiveType::I32);
+  REQUIRE(module->arrays[0].elements.size() == 3);
+}
+
+TEST_CASE("ORGASM parser should parse exports", "[orgasm][parser]") {
+  std::string source = ".module test\n.export main\n.endmodule";
+  Parser parser(source);
+
+  auto module = parser.parse_module();
+  REQUIRE(module->exports.size() == 1);
+  REQUIRE(module->exports[0].symbol_name == "main");
+}
+
+TEST_CASE("ORGASM parser should parse float constants", "[orgasm][parser]") {
+  std::string source = ".module test\n.const f32 3.14\n.const f64 2.71\n.endmodule";
+  Parser parser(source);
+
+  auto module = parser.parse_module();
+  REQUIRE(module->constants.size() == 2);
+  REQUIRE(module->constants[0].type == PrimitiveType::F32);
+  REQUIRE(module->constants[1].type == PrimitiveType::F64);
+}
+
+TEST_CASE("ORGASM parser should parse boolean constants", "[orgasm][parser]") {
+  std::string source = ".module test\n.const bool true\n.const bool false\n.endmodule";
+  Parser parser(source);
+
+  auto module = parser.parse_module();
+  REQUIRE(module->constants.size() == 2);
+  REQUIRE(module->constants[0].type == PrimitiveType::BOOL);
+  REQUIRE(module->constants[1].type == PrimitiveType::BOOL);
+}

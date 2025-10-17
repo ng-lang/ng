@@ -275,10 +275,36 @@ void Interpreter::execute_instruction(
     if (!tuple_mem) {
       throw std::runtime_error("Failed to allocate tuple memory");
     }
-    memset(tuple_mem, 0, size);
+    // Use explicit_bzero or memset_s for secure memory initialization
+    // to prevent compiler optimization from removing the initialization
+#if defined(__GLIBC__) && __GLIBC__ >= 2 && __GLIBC_MINOR__ >= 25
+    explicit_bzero(tuple_mem, size);
+#elif defined(_WIN32)
+    SecureZeroMemory(tuple_mem, size);
+#else
+    // Fallback: use volatile pointer to prevent optimization
+    volatile unsigned char *ptr = static_cast<volatile unsigned char *>(tuple_mem);
+    for (size_t i = 0; i < static_cast<size_t>(size); i++) {
+      ptr[i] = 0;
+    }
+#endif
 
     Value tuple_addr(tuple_mem);
     push(tuple_addr);
+    break;
+  }
+  
+  case OpCode::TUPLE_DESTROY: {
+    // Get tuple address from stack
+    Value tuple_addr = pop();
+    void *addr = std::get<void *>(tuple_addr.data);
+    
+    if (addr != nullptr) {
+      // Note: Size information is not available here.
+      // In a production implementation, we would need to track tuple sizes
+      // or store size metadata with the tuple.
+      free(addr);
+    }
     break;
   }
 
