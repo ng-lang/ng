@@ -109,6 +109,8 @@ void NGCompiler::visit(FunctionDef *funDef) {
 }
 
 void NGCompiler::visit(ValDef *valDef) {
+    // ValDef is a wrapper around ValDefStatement or ValueBindingStatement
+    // The actual compilation is handled by visiting the body
     if (valDef->body) {
         valDef->body->accept(this);
     }
@@ -143,10 +145,14 @@ void NGCompiler::visit(ValueBindingStatement *valBind) {
         valBind->value->accept(this);
     }
     
-    // Handle bindings
+    // TODO: Implement proper tuple/array unpacking
+    // Handle bindings - for now just add symbols without unpacking logic
     for (auto& binding : valBind->bindings) {
         addSymbol(binding->name);
-        // This is simplified - full implementation would handle tuple unpacking
+        // Full implementation would:
+        // 1. Check binding type (TUPLE_UNPACK, ARRAY_UNPACK, etc.)
+        // 2. Extract each value from the tuple/array
+        // 3. Store to individual variables
     }
 }
 
@@ -245,8 +251,10 @@ void NGCompiler::visit(LoopStatement *loopStatement) {
 }
 
 void NGCompiler::visit(NextStatement *nextStatement) {
-    // Next statement - simplified implementation
-    // In a full implementation, this would break out of the loop
+    // Next statement - break out of the current loop
+    // In a full implementation, this would need to track loop labels
+    // For now, we just add a comment indicating this is a simplified implementation
+    // TODO: Implement proper loop break with label tracking
 }
 
 void NGCompiler::visit(AssignmentExpression *assignmentExpr) {
@@ -403,24 +411,39 @@ void NGCompiler::visit(IdExpression *idExpr) {
 }
 
 void NGCompiler::visit(IdAccessorExpression *idAccExpr) {
-    // Simplified implementation
+    // TODO: Implement field/property access
+    // This requires:
+    // 1. Loading the primary expression (object)
+    // 2. Loading the field offset or calling a getter method
+    // 3. Using LOAD_SYMBOL or similar instruction
+    // For now, only load the primary expression
     if (idAccExpr->primaryExpression) {
         idAccExpr->primaryExpression->accept(this);
     }
 }
 
 void NGCompiler::visit(IndexAccessorExpression *index) {
-    // Simplified implementation
+    // TODO: Implement array/collection indexing
+    // This requires emitting appropriate indexing instructions after loading
+    // both the array and the index
+    // For now, just load both values onto the stack
     if (index->primary) {
         index->primary->accept(this);
     }
     if (index->accessor) {
         index->accessor->accept(this);
     }
+    // TODO: Add indexing instruction here
 }
 
 void NGCompiler::visit(IndexAssignmentExpression *index) {
-    // Simplified implementation
+    // TODO: Implement array/collection index assignment
+    // This requires:
+    // 1. Loading the array
+    // 2. Loading the index  
+    // 3. Loading the value
+    // 4. Emitting an assignment instruction
+    // For now, only compile the value expression
     if (index->value) {
         index->value->accept(this);
     }
@@ -488,13 +511,21 @@ void NGCompiler::visit(BooleanValue *boolVal) {
 }
 
 void NGCompiler::visit(ArrayLiteral *array) {
-    // Simplified implementation
-    // In a full implementation, this would create an array and populate it
+    // TODO: Implement array literal compilation
+    // This requires:
+    // 1. Allocating array memory with LOAD_ARRAY
+    // 2. Populating elements
+    // 3. Pushing array address onto stack
+    // For now, arrays are not supported in the initial implementation
 }
 
 void NGCompiler::visit(TupleLiteral *tuple) {
-    // Simplified implementation
-    // In a full implementation, this would create a tuple and populate it
+    // TODO: Implement tuple literal compilation
+    // This requires:
+    // 1. Calculating tuple size and layout
+    // 2. Creating tuple with TUPLE_CREATE
+    // 3. Setting each element with TUPLE_SET
+    // For now, tuples are not supported in the initial implementation
 }
 
 void NGCompiler::visit(UnitLiteral *unit) {
@@ -642,8 +673,11 @@ int NGCompiler::getFunctionIndex(const std::string& name) {
         return it->second;
     }
     
-    // Function not yet defined, will be resolved later
-    return -1;
+    // Function not yet defined
+    // In a two-pass compiler, this would be resolved in the second pass
+    // For now, return 0 as a placeholder (assuming function is defined later)
+    // TODO: Implement forward declaration support or two-pass compilation
+    return 0;
 }
 
 std::string NGCompiler::generateLabel(const std::string& prefix) {
