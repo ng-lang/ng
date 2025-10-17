@@ -152,16 +152,21 @@ std::unique_ptr<Module> Parser::parse_module() {
   auto module = std::make_unique<Module>(module_name);
 
   // Parse module contents
-  while (!match(TokenType::DOT) ||
-         (lexer_.peek_token().type != TokenType::ENDMODULE &&
-          lexer_.peek_token().type != TokenType::EOF_TOKEN)) {
+  while (true) {
     if (match(TokenType::EOF_TOKEN)) {
-      error("Unexpected end of file in module");
+      break; // Allow EOF to end module
     }
 
     if (!match(TokenType::DOT)) {
       advance();
       continue;
+    }
+
+    // Check if next token is endmodule
+    if (lexer_.peek_token().type == TokenType::ENDMODULE) {
+      advance(); // consume '.'
+      advance(); // consume 'endmodule'
+      break;
     }
 
     advance(); // consume '.'
@@ -184,18 +189,9 @@ std::unique_ptr<Module> Parser::parse_module() {
       parse_function(*module);
     } else if (match(TokenType::START)) {
       parse_start(*module);
-    } else if (match(TokenType::ENDMODULE)) {
-      break;
     } else {
       error("Unexpected directive: " + current_token_.value);
     }
-  }
-
-  if (match(TokenType::DOT)) {
-    advance();
-  }
-  if (match(TokenType::ENDMODULE)) {
-    advance();
   }
 
   return module;
@@ -429,27 +425,178 @@ std::vector<Instruction> Parser::parse_instruction_block() {
 }
 
 Instruction Parser::parse_instruction() {
-  // This is a simplified instruction parser
-  // In a full implementation, we would parse all instruction types
-
   expect(TokenType::IDENTIFIER, "Expected instruction");
   std::string instr_name = current_token_.value;
   advance();
 
-  // Parse instruction based on name
-  // For now, return a placeholder
-  Instruction instr(0, OpCode::IGNORE);
+  // Parse instruction name and type suffix
+  std::string base_instr;
+  PrimitiveType instr_type = PrimitiveType::UNIT;
+  
+  // Check if instruction has type suffix (e.g., load_const.i32)
+  size_t dot_pos = instr_name.find('.');
+  if (dot_pos != std::string::npos) {
+    base_instr = instr_name.substr(0, dot_pos);
+    std::string type_str = instr_name.substr(dot_pos + 1);
+    instr_type = parse_type(type_str);
+  } else {
+    base_instr = instr_name;
+  }
 
-  // Parse operands (simplified)
-  while (!match(TokenType::NUMBER) && !match(TokenType::DOT) &&
-         !match(TokenType::EOF_TOKEN) && !match(TokenType::COMMENT)) {
-    if (match(TokenType::IDENTIFIER) || match(TokenType::NUMBER) ||
-        match(TokenType::STRING_LITERAL)) {
-      // Simplified operand parsing
+  // Map instruction name to opcode
+  static const std::unordered_map<std::string, OpCode> opcode_map = {
+      // Data/Stack Operations
+      {"cast", OpCode::CAST},
+      {"load_param", OpCode::LOAD_PARAM},
+      {"load_const", OpCode::LOAD_CONST},
+      {"load_value", OpCode::LOAD_VALUE},
+      {"store_value", OpCode::STORE_VALUE},
+      {"load_str", OpCode::LOAD_STR},
+      {"load_array", OpCode::LOAD_ARRAY},
+      {"push_param", OpCode::PUSH_PARAM},
+      {"push_self", OpCode::PUSH_SELF},
+      {"load_symbol", OpCode::LOAD_SYMBOL},
+      {"invoke_method", OpCode::INVOKE_METHOD},
+      {"call", OpCode::CALL},
+      {"ignore", OpCode::IGNORE},
+
+      // Arithmetic/Logic
+      {"add", OpCode::ADD},
+      {"subtract", OpCode::SUBTRACT},
+      {"multiply", OpCode::MULTIPLY},
+      {"divide", OpCode::DIVIDE},
+      {"gt", OpCode::GT},
+      {"lt", OpCode::LT},
+      {"eq", OpCode::EQ},
+      {"ne", OpCode::NE},
+
+      // Control Flow
+      {"br", OpCode::BR},
+      {"goto", OpCode::GOTO},
+      {"return", OpCode::RETURN},
+
+      // Tuple Operations
+      {"tuple_create", OpCode::TUPLE_CREATE},
+      {"tuple_get", OpCode::TUPLE_GET},
+      {"tuple_set", OpCode::TUPLE_SET},
+  };
+
+  auto it = opcode_map.find(base_instr);
+  if (it == opcode_map.end()) {
+    error("Unknown instruction: " + base_instr);
+  }
+
+  Instruction instr(0, it->second, instr_type);
+
+  // Parse operands based on instruction type
+  switch (it->second) {
+  case OpCode::LOAD_CONST:
+  case OpCode::LOAD_VALUE:
+  case OpCode::STORE_VALUE:
+  case OpCode::LOAD_PARAM:
+  case OpCode::LOAD_ARRAY:
+  case OpCode::LOAD_STR:
+  case OpCode::LOAD_SYMBOL: {
+    // Expect operand like "const.0", "val.1", "param.0", etc.
+    if (match(TokenType::IDENTIFIER)) {
+      std::string operand_str = current_token_.value;
       advance();
-    } else {
-      break;
+      
+      // Parse operand format: "prefix.index"
+      size_t dot = operand_str.find('.');
+      if (dot != std::string::npos) {
+        std::string prefix = operand_str.substr(0, dot);
+        int index = std::stoi(operand_str.substr(dot + 1));
+        
+        if (prefix == "const") {
+          instr.operands.push_back(ConstOperand{index});
+        } else if (prefix == "val") {
+          instr.operands.push_back(ValueOperand{index});
+        } else if (prefix == "param") {
+          instr.operands.push_back(ParamOperand{index});
+        } else if (prefix == "array") {
+          instr.operands.push_back(ArrayOperand{index});
+        } else if (prefix == "str") {
+          instr.operands.push_back(StringOperand{index});
+        } else if (prefix == "symbol") {
+          instr.operands.push_back(SymbolOperand{index});
+        }
+      }
     }
+    break;
+  }
+
+  case OpCode::CALL: {
+    // Expect "fun.0" or "import.0"
+    if (match(TokenType::IDENTIFIER)) {
+      std::string operand_str = current_token_.value;
+      advance();
+      
+      size_t dot = operand_str.find('.');
+      if (dot != std::string::npos) {
+        std::string prefix = operand_str.substr(0, dot);
+        int index = std::stoi(operand_str.substr(dot + 1));
+        
+        if (prefix == "fun") {
+          instr.operands.push_back(FunctionOperand{index});
+        } else if (prefix == "import") {
+          instr.operands.push_back(ImportOperand{index});
+          instr.opcode = OpCode::CALL_IMPORT;
+        }
+      }
+    }
+    break;
+  }
+
+  case OpCode::GOTO: {
+    // Expect address number
+    if (match(TokenType::NUMBER)) {
+      int addr = std::stoi(current_token_.value);
+      instr.operands.push_back(AddressOperand{addr});
+      advance();
+    }
+    break;
+  }
+
+  case OpCode::BR: {
+    // Expect two label names or addresses
+    if (match(TokenType::IDENTIFIER)) {
+      std::string label1 = current_token_.value;
+      instr.operands.push_back(LabelOperand{label1});
+      advance();
+      
+      if (match(TokenType::COMMA)) {
+        advance();
+        
+        if (match(TokenType::IDENTIFIER)) {
+          std::string label2 = current_token_.value;
+          instr.operands.push_back(LabelOperand{label2});
+          advance();
+        }
+      }
+    }
+    break;
+  }
+
+  case OpCode::TUPLE_CREATE: {
+    // No operands for tuple_create, size is on stack
+    break;
+  }
+
+  case OpCode::TUPLE_GET:
+  case OpCode::TUPLE_SET: {
+    // Expect offset number
+    if (match(TokenType::NUMBER)) {
+      int offset = std::stoi(current_token_.value);
+      instr.operands.push_back(OffsetOperand{offset});
+      advance();
+    }
+    break;
+  }
+
+  default:
+    // Instructions with no operands or simple operands
+    break;
   }
 
   return instr;
