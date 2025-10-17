@@ -31,6 +31,8 @@ private:
   void parse_array(Module &module);
   void parse_val(Module &module);
   void parse_function(Module &module);
+  void parse_function_params(Module &module);
+  void parse_endfun(Module &module);
   void parse_start(Module &module);
 
   std::vector<Instruction> parse_instruction_block();

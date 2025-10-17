@@ -93,6 +93,7 @@ set(NG_TEST_SRC
         test/orgasm/lexer_test.cpp
         test/orgasm/parser_test.cpp
         test/orgasm/interpreter_test.cpp
+        test/orgasm/integration_test.cpp
 )
 
 add_executable(feature_test test/feature_test.cpp)

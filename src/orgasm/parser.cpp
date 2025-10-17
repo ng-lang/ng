@@ -151,10 +151,33 @@ std::unique_ptr<Module> Parser::parse_module() {
 
   auto module = std::make_unique<Module>(module_name);
 
+  enum class ParseContext { MODULE, FUNCTION, START };
+  ParseContext context = ParseContext::MODULE;
+
   // Parse module contents
   while (true) {
     if (match(TokenType::EOF_TOKEN)) {
       break; // Allow EOF to end module
+    }
+
+    // Check for instruction (number followed by colon)
+    if (match(TokenType::NUMBER) && (context == ParseContext::FUNCTION || context == ParseContext::START)) {
+      int addr = std::stoi(current_token_.value);
+      advance();
+      
+      if (match(TokenType::COLON)) {
+        advance();
+      }
+      
+      Instruction instr = parse_instruction();
+      instr.address = addr;
+      
+      if (context == ParseContext::FUNCTION && !module->functions.empty()) {
+        module->functions.back().instructions.push_back(instr);
+      } else if (context == ParseContext::START && module->start_block) {
+        module->start_block->instructions.push_back(instr);
+      }
+      continue;
     }
 
     if (!match(TokenType::DOT)) {
@@ -187,8 +210,15 @@ std::unique_ptr<Module> Parser::parse_module() {
       parse_val(*module);
     } else if (match(TokenType::FUN)) {
       parse_function(*module);
+      context = ParseContext::FUNCTION;
+    } else if (match(TokenType::PARAM)) {
+      parse_function_params(*module);
+    } else if (match(TokenType::ENDFUN)) {
+      parse_endfun(*module);
+      context = ParseContext::MODULE;
     } else if (match(TokenType::START)) {
       parse_start(*module);
+      context = ParseContext::START;
     } else {
       error("Unexpected directive: " + current_token_.value);
     }
@@ -335,64 +365,58 @@ void Parser::parse_function(Module &module) {
   func.name = current_token_.value;
   advance();
 
-  // Parse parameters
-  if (match(TokenType::DOT)) {
-    advance();
-    consume(TokenType::PARAM, "Expected 'param'");
-    consume(TokenType::LBRACKET, "Expected '['");
-
-    while (!match(TokenType::RBRACKET) && !match(TokenType::EOF_TOKEN)) {
-      expect(TokenType::IDENTIFIER, "Expected parameter name");
-      std::string param_name = current_token_.value;
-      advance();
-
-      consume(TokenType::COLON, "Expected ':'");
-
-      expect(TokenType::IDENTIFIER, "Expected parameter type");
-      PrimitiveType param_type = parse_type(current_token_.value);
-      advance();
-
-      func.params.push_back({param_name, param_type});
-
-      if (match(TokenType::COMMA)) {
-        advance();
-      }
-    }
-
-    consume(TokenType::RBRACKET, "Expected ']'");
-  }
-
-  // Parse instructions
-  func.instructions = parse_instruction_block();
-
-  // Parse endfun
-  if (match(TokenType::DOT)) {
-    advance();
-  }
-  if (match(TokenType::ENDFUN)) {
-    advance();
-    // Optional function name
-    if (match(TokenType::IDENTIFIER)) {
-      advance();
-    }
-  }
-
+  // Create function with empty instructions initially
+  // Parameters and instructions will be added later
   module.functions.push_back(std::move(func));
+}
+
+void Parser::parse_function_params(Module &module) {
+  consume(TokenType::PARAM, "Expected 'param'");
+  consume(TokenType::LBRACKET, "Expected '['");
+  
+  // Get the last function added (the one we're adding params to)
+  if (module.functions.empty()) {
+    error("No function to add parameters to");
+  }
+  
+  Function &func = module.functions.back();
+
+  while (!match(TokenType::RBRACKET) && !match(TokenType::EOF_TOKEN)) {
+    expect(TokenType::IDENTIFIER, "Expected parameter name");
+    std::string param_name = current_token_.value;
+    advance();
+
+    consume(TokenType::COLON, "Expected ':'");
+
+    expect(TokenType::IDENTIFIER, "Expected parameter type");
+    PrimitiveType param_type = parse_type(current_token_.value);
+    advance();
+
+    func.params.push_back({param_name, param_type});
+
+    if (match(TokenType::COMMA)) {
+      advance();
+    }
+  }
+
+  consume(TokenType::RBRACKET, "Expected ']'");
+}
+
+void Parser::parse_endfun(Module &module) {
+  consume(TokenType::ENDFUN, "Expected 'endfun'");
+  
+  // Optional function name
+  if (match(TokenType::IDENTIFIER)) {
+    advance();
+  }
 }
 
 void Parser::parse_start(Module &module) {
   consume(TokenType::START, "Expected 'start'");
 
   module.start_block = std::make_unique<StartBlock>();
-  module.start_block->instructions = parse_instruction_block();
-
-  // Parse optional .end
-  if (match(TokenType::DOT)) {
-    advance();
-    if (match(TokenType::END)) {
-      advance();
-    }
-  }
+  
+  // Note: instructions will be added in the main parse loop
 }
 
 std::vector<Instruction> Parser::parse_instruction_block() {
