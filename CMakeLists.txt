@@ -60,6 +60,9 @@ set(NG_LIB_SRC
         src/typecheck/FunctionType.cpp
         src/typecheck/ArrayType.cpp
         src/typecheck/TupleType.cpp
+        src/orgasm/lexer.cpp
+        src/orgasm/parser.cpp
+        src/orgasm/interpreter.cpp
         )
 
 set(NG_TEST_SRC
@@ -87,6 +90,10 @@ set(NG_TEST_SRC
         test/typecheck/typecheck_array_test.cpp
         test/typecheck/typecheck_controlflow_test.cpp
         test/typecheck/typecheck_tuple_test.cpp
+        test/orgasm/lexer_test.cpp
+        test/orgasm/parser_test.cpp
+        test/orgasm/interpreter_test.cpp
+        test/orgasm/integration_test.cpp
 )
 
 add_executable(feature_test test/feature_test.cpp)
@@ -103,7 +110,7 @@ target_link_libraries(ngi PRIVATE ng)
 if (APPLE)
 target_compile_options(ng PRIVATE -fprofile-instr-generate -fcoverage-mapping -fcoverage-mcdc)
 target_link_options(ngi PRIVATE -fprofile-instr-generate -fcoverage-mapping -coverage)
-elseif (DEFINED ENV{RUNNING_ON_GITHUB})
+elseif (DEFINED ENV{RUNNING_ON_GITHUB} AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 target_compile_options(ng PRIVATE -fprofile-instr-generate -fcoverage-mapping -fcoverage-mcdc)
 target_link_options(ngi PRIVATE -fprofile-instr-generate -fcoverage-mapping)
 endif()
@@ -118,7 +125,7 @@ target_link_libraries(ng_test PRIVATE ng Catch2::Catch2WithMain)
 if (APPLE)
 target_compile_options(ng_test PRIVATE -fprofile-instr-generate -fcoverage-mapping -fcoverage-mcdc)
 target_link_options(ng_test PRIVATE  -fprofile-instr-generate -fcoverage-mapping -coverage)
-elseif (DEFINED ENV{RUNNING_ON_GITHUB})
+elseif (DEFINED ENV{RUNNING_ON_GITHUB} AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 target_compile_options(ng_test PRIVATE -fprofile-instr-generate -fcoverage-mapping -fcoverage-mcdc)
 target_link_options(ng_test PRIVATE  -fprofile-instr-generate -fcoverage-mapping)
 endif()
