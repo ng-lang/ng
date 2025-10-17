@@ -60,6 +60,8 @@ set(NG_LIB_SRC
         src/typecheck/FunctionType.cpp
         src/typecheck/ArrayType.cpp
         src/typecheck/TupleType.cpp
+        src/orgasm/lexer.cpp
+        src/orgasm/parser.cpp
         )
 
 set(NG_TEST_SRC
@@ -87,6 +89,8 @@ set(NG_TEST_SRC
         test/typecheck/typecheck_array_test.cpp
         test/typecheck/typecheck_controlflow_test.cpp
         test/typecheck/typecheck_tuple_test.cpp
+        test/orgasm/lexer_test.cpp
+        test/orgasm/parser_test.cpp
 )
 
 add_executable(feature_test test/feature_test.cpp)
