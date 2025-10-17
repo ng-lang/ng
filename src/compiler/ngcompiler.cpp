@@ -35,26 +35,37 @@ void NGCompiler::visit(NG::ast::Module *mod) {
         importDecl->accept(this);
     }
     
+    // Create start block if we have any module-level code
+    bool needsStartBlock = !mod->statements.empty();
+    
+    // Check if any definitions are value definitions (which need start block)
+    for (auto& def : mod->definitions) {
+        if (def->astNodeType() == ASTNodeType::VAL_DEFINITION) {
+            needsStartBlock = true;
+            break;
+        }
+    }
+    
+    if (needsStartBlock) {
+        module_->start_block = std::make_unique<ng::orgasm::StartBlock>();
+        currentFunction_ = nullptr; // Indicate we're in start block
+    }
+    
     // Process definitions
     for (auto& def : mod->definitions) {
         def->accept(this);
     }
     
-    // Process module-level statements in start block
-    if (!mod->statements.empty()) {
-        module_->start_block = std::make_unique<ng::orgasm::StartBlock>();
-        currentFunction_ = nullptr; // Indicate we're in start block
-        
-        for (auto& stmt : mod->statements) {
-            stmt->accept(this);
-        }
-        
-        // Add return at the end of start block
+    // Process module-level statements
+    for (auto& stmt : mod->statements) {
+        stmt->accept(this);
+    }
+    
+    // Add return at the end of start block if it exists
+    if (module_->start_block) {
         int addr = getCurrentAddress();
         ng::orgasm::Instruction returnInstr(addr, OpCode::RETURN);
-        if (currentFunction_ == nullptr) {
-            module_->start_block->instructions.push_back(returnInstr);
-        }
+        module_->start_block->instructions.push_back(returnInstr);
     }
     
     // Set symbols list
@@ -165,8 +176,8 @@ void NGCompiler::visit(CompoundStatement *compoundStmt) {
 void NGCompiler::visit(SimpleStatement *simpleStmt) {
     if (simpleStmt->expression) {
         simpleStmt->expression->accept(this);
-        // If the expression produces a value, we might want to pop it
-        emitInstruction(OpCode::IGNORE);
+        // The expression value will be left on the stack
+        // In ORGASM, we don't need an explicit IGNORE instruction
     }
 }
 
@@ -373,15 +384,26 @@ void NGCompiler::visit(FunCallExpression *funCallExpr) {
         auto* idExpr = static_cast<IdExpression*>(funCallExpr->primaryExpression.get());
         std::string funcName = idExpr->id;
         
-        // Check if it's an import
+        // Determine call type (let interpreter handle return value)
+        ng::orgasm::PrimitiveType callType = ng::orgasm::PrimitiveType::I32; // Default assumption
+        
+        // Check if it's already registered as an import
         auto importIt = importIndexMap_.find(funcName);
         if (importIt != importIndexMap_.end()) {
-            emitInstruction(OpCode::CALL_IMPORT, ng::orgasm::PrimitiveType::UNIT, {ng::orgasm::ImportOperand{importIt->second}});
-        } else {
-            // It's a regular function
-            int funcIdx = getFunctionIndex(funcName);
-            emitInstruction(OpCode::CALL, ng::orgasm::PrimitiveType::UNIT, {ng::orgasm::FunctionOperand{funcIdx}});
+            emitInstruction(OpCode::CALL_IMPORT, callType, {ng::orgasm::ImportOperand{importIt->second}});
+            return;
         }
+        
+        // Check if it's a defined function
+        auto funcIt = functionIndexMap_.find(funcName);
+        if (funcIt != functionIndexMap_.end()) {
+            emitInstruction(OpCode::CALL, callType, {ng::orgasm::FunctionOperand{funcIt->second}});
+            return;
+        }
+        
+        // If not found, assume it's an external import from "core" module
+        int importIdx = addImport(funcName, "core");
+        emitInstruction(OpCode::CALL_IMPORT, callType, {ng::orgasm::ImportOperand{importIdx}});
     }
 }
 
@@ -645,7 +667,39 @@ int NGCompiler::addVariable(const std::string& name, ng::orgasm::PrimitiveType t
     int idx = static_cast<int>(module_->variables.size());
     ng::orgasm::VarDef varDef;
     varDef.type = type;
-    varDef.initial_value = ng::orgasm::Value(); // Default initialization
+    
+    // Initialize with appropriate default value based on type
+    switch (type) {
+        case ng::orgasm::PrimitiveType::I8:
+        case ng::orgasm::PrimitiveType::I16:
+        case ng::orgasm::PrimitiveType::I32:
+            varDef.initial_value = ng::orgasm::Value(static_cast<int32_t>(0));
+            break;
+        case ng::orgasm::PrimitiveType::I64:
+            varDef.initial_value = ng::orgasm::Value(static_cast<int64_t>(0));
+            break;
+        case ng::orgasm::PrimitiveType::U8:
+        case ng::orgasm::PrimitiveType::U16:
+        case ng::orgasm::PrimitiveType::U32:
+            varDef.initial_value = ng::orgasm::Value(static_cast<uint32_t>(0));
+            break;
+        case ng::orgasm::PrimitiveType::U64:
+            varDef.initial_value = ng::orgasm::Value(static_cast<uint64_t>(0));
+            break;
+        case ng::orgasm::PrimitiveType::F32:
+            varDef.initial_value = ng::orgasm::Value(static_cast<float>(0.0));
+            break;
+        case ng::orgasm::PrimitiveType::F64:
+            varDef.initial_value = ng::orgasm::Value(static_cast<double>(0.0));
+            break;
+        case ng::orgasm::PrimitiveType::BOOL:
+            varDef.initial_value = ng::orgasm::Value(false);
+            break;
+        default:
+            varDef.initial_value = ng::orgasm::Value(); // Unit
+            break;
+    }
+    
     module_->variables.push_back(varDef);
     variableIndexMap_[name] = idx;
     return idx;
