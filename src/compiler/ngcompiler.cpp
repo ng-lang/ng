@@ -30,6 +30,11 @@ void NGCompiler::visit(CompileUnit *compileUnit) {
 }
 
 void NGCompiler::visit(NG::ast::Module *mod) {
+    // Set module name if available
+    if (!mod->name.empty()) {
+        module_->name = mod->name;
+    }
+    
     // Process imports
     for (auto& importDecl : mod->imports) {
         importDecl->accept(this);
