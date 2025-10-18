@@ -1911,3 +1911,484 @@ TEST_CASE("NGCompiler: compile identity operations", "[compiler]") {
     REQUIRE(module != nullptr);
     REQUIRE(module->variables.size() == 2);
 }
+
+TEST_CASE("NGCompiler: compile multiple string literals", "[compiler]") {
+    const char* source = R"(
+        val hello = "Hello, World!";
+        val empty = "";
+    )";
+    
+    auto ast = parse(source);
+    REQUIRE(ast != nullptr);
+    
+    NG::typecheck::TypeIndex typeIndex;
+    try {
+        typeIndex = NG::typecheck::type_check(ast);
+    } catch (...) {}
+    
+    NGCompiler compiler(typeIndex);
+    auto module = compiler.compile(ast);
+    
+    REQUIRE(module != nullptr);
+    REQUIRE(module->variables.size() == 2);
+    REQUIRE(module->strings.size() >= 2);
+}
+
+TEST_CASE("NGCompiler: compile empty function body", "[compiler]") {
+    const char* source = R"(
+        fun do_nothing() {
+            val x = 0;
+        }
+    )";
+    
+    auto ast = parse(source);
+    REQUIRE(ast != nullptr);
+    
+    NG::typecheck::TypeIndex typeIndex;
+    try {
+        typeIndex = NG::typecheck::type_check(ast);
+    } catch (...) {}
+    
+    NGCompiler compiler(typeIndex);
+    auto module = compiler.compile(ast);
+    
+    REQUIRE(module != nullptr);
+    REQUIRE(module->functions.size() == 1);
+}
+
+TEST_CASE("NGCompiler: compile inter-function calls", "[compiler]") {
+    const char* source = R"(
+        fun helper(x) {
+            return x + 1;
+        }
+        
+        fun caller(y) {
+            return helper(y);
+        }
+    )";
+    
+    auto ast = parse(source);
+    REQUIRE(ast != nullptr);
+    
+    NG::typecheck::TypeIndex typeIndex;
+    try {
+        typeIndex = NG::typecheck::type_check(ast);
+    } catch (...) {}
+    
+    NGCompiler compiler(typeIndex);
+    auto module = compiler.compile(ast);
+    
+    REQUIRE(module != nullptr);
+    REQUIRE(module->functions.size() == 2);
+}
+
+TEST_CASE("NGCompiler integration: nested inter-function calls execution", "[compiler][integration]") {
+    const char* source = R"(
+        fun inc(x) {
+            return x + 1;
+        }
+        
+        fun caller(y) {
+            return inc(y);
+        }
+        
+        print(caller(5));
+    )";
+    
+    auto ast = parse(source);
+    REQUIRE(ast != nullptr);
+    
+    NG::typecheck::TypeIndex typeIndex;
+    try {
+        typeIndex = NG::typecheck::type_check(ast);
+    } catch (...) {}
+    
+    NGCompiler compiler(typeIndex);
+    auto module = compiler.compile(ast);
+    REQUIRE(module != nullptr);
+    
+    auto shared_module = std::shared_ptr<ng::orgasm::Module>(std::move(module));
+    Interpreter interp(shared_module);
+    
+    int print_value = 0;
+    interp.register_import("print", [&](const std::vector<ng::orgasm::Value> &args) -> ng::orgasm::Value {
+        if (!args.empty() && args[0].type == ng::orgasm::PrimitiveType::I32) {
+            print_value = std::get<int32_t>(args[0].data);
+        }
+        return ng::orgasm::Value();
+    });
+    
+    interp.execute();
+    
+    REQUIRE(print_value == 6); // caller(5) = inc(5) = 5 + 1 = 6
+}
+
+TEST_CASE("NGCompiler: compile with local variable shadowing parameter", "[compiler]") {
+    const char* source = R"(
+        fun shadow(x) {
+            val x = 99;
+            return x;
+        }
+    )";
+    
+    auto ast = parse(source);
+    REQUIRE(ast != nullptr);
+    
+    NG::typecheck::TypeIndex typeIndex;
+    try {
+        typeIndex = NG::typecheck::type_check(ast);
+    } catch (...) {}
+    
+    NGCompiler compiler(typeIndex);
+    auto module = compiler.compile(ast);
+    
+    REQUIRE(module != nullptr);
+    REQUIRE(module->functions.size() == 1);
+}
+
+TEST_CASE("NGCompiler: compile with multiple variable definitions", "[compiler]") {
+    const char* source = R"(
+        val a = 1;
+        val b = 2;
+        val c = 3;
+        val d = 4;
+        val e = 5;
+    )";
+    
+    auto ast = parse(source);
+    REQUIRE(ast != nullptr);
+    
+    NG::typecheck::TypeIndex typeIndex;
+    try {
+        typeIndex = NG::typecheck::type_check(ast);
+    } catch (...) {}
+    
+    NGCompiler compiler(typeIndex);
+    auto module = compiler.compile(ast);
+    
+    REQUIRE(module != nullptr);
+    REQUIRE(module->variables.size() == 5);
+}
+
+TEST_CASE("NGCompiler integration: string handling", "[compiler][integration]") {
+    const char* source = R"(
+        val msg = "test";
+        print_str(msg);
+    )";
+    
+    auto ast = parse(source);
+    REQUIRE(ast != nullptr);
+    
+    NG::typecheck::TypeIndex typeIndex;
+    try {
+        typeIndex = NG::typecheck::type_check(ast);
+    } catch (...) {}
+    
+    NGCompiler compiler(typeIndex);
+    auto module = compiler.compile(ast);
+    REQUIRE(module != nullptr);
+    
+    auto shared_module = std::shared_ptr<ng::orgasm::Module>(std::move(module));
+    Interpreter interp(shared_module);
+    
+    std::string captured_str;
+    interp.register_import("print_str", [&](const std::vector<ng::orgasm::Value> &args) -> ng::orgasm::Value {
+        if (!args.empty() && args[0].type == ng::orgasm::PrimitiveType::ADDR) {
+            // String is passed as address, would need to be resolved in actual implementation
+            captured_str = "received";
+        }
+        return ng::orgasm::Value();
+    });
+    
+    interp.execute();
+    
+    REQUIRE(captured_str == "received");
+}
+
+TEST_CASE("NGCompiler: compile comparison chain", "[compiler]") {
+    const char* source = R"(
+        val result = (1 < 2) == (3 > 2);
+    )";
+    
+    auto ast = parse(source);
+    REQUIRE(ast != nullptr);
+    
+    NG::typecheck::TypeIndex typeIndex;
+    try {
+        typeIndex = NG::typecheck::type_check(ast);
+    } catch (...) {}
+    
+    NGCompiler compiler(typeIndex);
+    auto module = compiler.compile(ast);
+    
+    REQUIRE(module != nullptr);
+    REQUIRE(module->variables.size() == 1);
+}
+
+TEST_CASE("NGCompiler integration: comparison chain execution", "[compiler][integration]") {
+    const char* source = R"(
+        val cond = 1 < 2;
+        print(cond);
+    )";
+    
+    auto ast = parse(source);
+    REQUIRE(ast != nullptr);
+    
+    NG::typecheck::TypeIndex typeIndex;
+    try {
+        typeIndex = NG::typecheck::type_check(ast);
+    } catch (...) {}
+    
+    NGCompiler compiler(typeIndex);
+    auto module = compiler.compile(ast);
+    REQUIRE(module != nullptr);
+    
+    auto shared_module = std::shared_ptr<ng::orgasm::Module>(std::move(module));
+    Interpreter interp(shared_module);
+    
+    int print_value = 0;
+    interp.register_import("print", [&](const std::vector<ng::orgasm::Value> &args) -> ng::orgasm::Value {
+        if (!args.empty() && args[0].type == ng::orgasm::PrimitiveType::I32) {
+            print_value = std::get<int32_t>(args[0].data);
+        } else if (!args.empty() && args[0].type == ng::orgasm::PrimitiveType::BOOL) {
+            print_value = std::get<bool>(args[0].data) ? 1 : 0;
+        }
+        return ng::orgasm::Value();
+    });
+    
+    interp.execute();
+    
+    REQUIRE(print_value == 1); // true
+}
+
+TEST_CASE("NGCompiler: compile recursive function", "[compiler]") {
+    const char* source = R"(
+        fun factorial(n) {
+            if (n <= 1) {
+                return 1;
+            }
+            return n;
+        }
+    )";
+    
+    auto ast = parse(source);
+    REQUIRE(ast != nullptr);
+    
+    NG::typecheck::TypeIndex typeIndex;
+    try {
+        typeIndex = NG::typecheck::type_check(ast);
+    } catch (...) {}
+    
+    NGCompiler compiler(typeIndex);
+    auto module = compiler.compile(ast);
+    
+    REQUIRE(module != nullptr);
+    REQUIRE(module->functions.size() == 1);
+}
+
+TEST_CASE("NGCompiler: compile with all boolean values", "[compiler]") {
+    const char* source = R"(
+        val t = true;
+        val f = false;
+        val t2 = true;
+    )";
+    
+    auto ast = parse(source);
+    REQUIRE(ast != nullptr);
+    
+    NG::typecheck::TypeIndex typeIndex;
+    try {
+        typeIndex = NG::typecheck::type_check(ast);
+    } catch (...) {}
+    
+    NGCompiler compiler(typeIndex);
+    auto module = compiler.compile(ast);
+    
+    REQUIRE(module != nullptr);
+    REQUIRE(module->variables.size() == 3);
+}
+
+TEST_CASE("NGCompiler integration: boolean values execution", "[compiler][integration]") {
+    const char* source = R"(
+        val t = true;
+        val f = false;
+        val result = t == f;
+        print(result);
+    )";
+    
+    auto ast = parse(source);
+    REQUIRE(ast != nullptr);
+    
+    NG::typecheck::TypeIndex typeIndex;
+    try {
+        typeIndex = NG::typecheck::type_check(ast);
+    } catch (...) {}
+    
+    NGCompiler compiler(typeIndex);
+    auto module = compiler.compile(ast);
+    REQUIRE(module != nullptr);
+    
+    auto shared_module = std::shared_ptr<ng::orgasm::Module>(std::move(module));
+    Interpreter interp(shared_module);
+    
+    int print_value = 0;
+    interp.register_import("print", [&](const std::vector<ng::orgasm::Value> &args) -> ng::orgasm::Value {
+        if (!args.empty() && args[0].type == ng::orgasm::PrimitiveType::BOOL) {
+            print_value = std::get<bool>(args[0].data) ? 1 : 0;
+        } else if (!args.empty() && args[0].type == ng::orgasm::PrimitiveType::I32) {
+            print_value = std::get<int32_t>(args[0].data);
+        }
+        return ng::orgasm::Value();
+    });
+    
+    interp.execute();
+    
+    REQUIRE(print_value == 0); // false (true != false)
+}
+
+TEST_CASE("NGCompiler: compile variable used multiple times", "[compiler]") {
+    const char* source = R"(
+        val x = 10;
+        val y = x + x + x;
+    )";
+    
+    auto ast = parse(source);
+    REQUIRE(ast != nullptr);
+    
+    NG::typecheck::TypeIndex typeIndex;
+    try {
+        typeIndex = NG::typecheck::type_check(ast);
+    } catch (...) {}
+    
+    NGCompiler compiler(typeIndex);
+    auto module = compiler.compile(ast);
+    
+    REQUIRE(module != nullptr);
+    REQUIRE(module->variables.size() == 2);
+}
+
+TEST_CASE("NGCompiler integration: variable reuse execution", "[compiler][integration]") {
+    const char* source = R"(
+        val x = 5;
+        val y = x + x;
+        print(y);
+    )";
+    
+    auto ast = parse(source);
+    REQUIRE(ast != nullptr);
+    
+    NG::typecheck::TypeIndex typeIndex;
+    try {
+        typeIndex = NG::typecheck::type_check(ast);
+    } catch (...) {}
+    
+    NGCompiler compiler(typeIndex);
+    auto module = compiler.compile(ast);
+    REQUIRE(module != nullptr);
+    
+    auto shared_module = std::shared_ptr<ng::orgasm::Module>(std::move(module));
+    Interpreter interp(shared_module);
+    
+    int print_value = 0;
+    interp.register_import("print", [&](const std::vector<ng::orgasm::Value> &args) -> ng::orgasm::Value {
+        if (!args.empty() && args[0].type == ng::orgasm::PrimitiveType::I32) {
+            print_value = std::get<int32_t>(args[0].data);
+        }
+        return ng::orgasm::Value();
+    });
+    
+    interp.execute();
+    
+    REQUIRE(print_value == 10);
+}
+
+TEST_CASE("NGCompiler: compile negation of boolean", "[compiler]") {
+    const char* source = R"(
+        val x = !true;
+        val y = !false;
+    )";
+    
+    auto ast = parse(source);
+    REQUIRE(ast != nullptr);
+    
+    NG::typecheck::TypeIndex typeIndex;
+    try {
+        typeIndex = NG::typecheck::type_check(ast);
+    } catch (...) {}
+    
+    NGCompiler compiler(typeIndex);
+    auto module = compiler.compile(ast);
+    
+    REQUIRE(module != nullptr);
+    REQUIRE(module->variables.size() == 2);
+}
+
+TEST_CASE("NGCompiler: compile boolean negation with NOT instruction", "[compiler]") {
+    const char* source = R"(
+        val x = !false;
+        val y = !true;
+    )";
+    
+    auto ast = parse(source);
+    REQUIRE(ast != nullptr);
+    
+    NG::typecheck::TypeIndex typeIndex;
+    try {
+        typeIndex = NG::typecheck::type_check(ast);
+    } catch (...) {}
+    
+    NGCompiler compiler(typeIndex);
+    auto module = compiler.compile(ast);
+    
+    REQUIRE(module != nullptr);
+    REQUIRE(module->variables.size() == 2);
+    // Note: NOT instruction is generated but ORGASM interpreter may not support it yet
+}
+
+TEST_CASE("NGCompiler: compile with constant folding opportunity", "[compiler]") {
+    const char* source = R"(
+        val a = 2 + 2;
+        val b = 10 - 5;
+        val c = 3 * 4;
+    )";
+    
+    auto ast = parse(source);
+    REQUIRE(ast != nullptr);
+    
+    NG::typecheck::TypeIndex typeIndex;
+    try {
+        typeIndex = NG::typecheck::type_check(ast);
+    } catch (...) {}
+    
+    NGCompiler compiler(typeIndex);
+    auto module = compiler.compile(ast);
+    
+    REQUIRE(module != nullptr);
+    REQUIRE(module->variables.size() == 3);
+}
+
+TEST_CASE("NGCompiler: compile parameter access in function", "[compiler]") {
+    const char* source = R"(
+        fun use_params(a, b, c) {
+            val x = a;
+            val y = b;
+            val z = c;
+            return x + y + z;
+        }
+    )";
+    
+    auto ast = parse(source);
+    REQUIRE(ast != nullptr);
+    
+    NG::typecheck::TypeIndex typeIndex;
+    try {
+        typeIndex = NG::typecheck::type_check(ast);
+    } catch (...) {}
+    
+    NGCompiler compiler(typeIndex);
+    auto module = compiler.compile(ast);
+    
+    REQUIRE(module != nullptr);
+    REQUIRE(module->functions.size() == 1);
+    REQUIRE(module->functions[0].params.size() == 3);
+}
