@@ -63,6 +63,7 @@ set(NG_LIB_SRC
         src/orgasm/lexer.cpp
         src/orgasm/parser.cpp
         src/orgasm/interpreter.cpp
+        src/compiler/ngcompiler.cpp
         )
 
 set(NG_TEST_SRC
@@ -94,6 +95,7 @@ set(NG_TEST_SRC
         test/orgasm/parser_test.cpp
         test/orgasm/interpreter_test.cpp
         test/orgasm/integration_test.cpp
+        test/compiler/ngcompiler_test.cpp
 )
 
 add_executable(feature_test test/feature_test.cpp)
