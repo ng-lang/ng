@@ -1,0 +1,43 @@
+// Union Type Annotations
+// =======================
+// NG supports union types using the `|` syntax.
+// A union type allows a value to be one of several types.
+
+// Simple union type: i32 or string
+val x: i32 | string = 1
+val y: i32 | string = "hello"
+
+// Multiple union members
+val z: bool | i32 | f32 = true
+val w: bool | i32 | f32 = 42
+
+// Union types in function parameters
+fun describe(value: i32 | string) -> unit
+  = print("got a value")
+
+// Union types in return types
+fun safe_parse(input: string) -> i32 | string
+  = if input == "ok" then 1 else "error"
+
+// Type checking ensures only matching types are assigned
+val parsed: i32 | string = safe_parse("test")
+
+describe(x)
+describe(y)
+</path>
+<task_progress>
+- [x] v0.5.0 Phase 1-6 complete (generics, varargs, docs)
+- [x] A1: Union type annotations (i32 | string syntax)
+  - [x] Add UNION to TypeAnnotationType enum
+  - [x] Parse | syntax in parser
+  - [x] Handle UNION in type checker visitor
+  - [x] Build and test
+  - [x] Add tests
+  - [x] Add example
+- [ ] A2: switch/case exhaustiveness check
+- [ ] A3: otherwise/default branch
+- [ ] A4: Tagged union value property access
+- [ ] C1-C3: Standard library basics
+</task_progress>
+</write_to_file>
+</tool_call>

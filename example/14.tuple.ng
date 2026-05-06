@@ -1,24 +1,32 @@
 
 val x = (1, false, "hello");
 
+print("Checking x init");
 assert(x.0 == 1);
 assert(x.1 == false);
 assert(x.2 == "hello");
 
 val y = (0, ...x, 4);
 
+print("Assigning x.1");
 x.1 := true;
 
+print("Checking x after assignment");
+print("x[1] is", x[1]);
 assert(x[0] == 1);
 assert(x[1] == true);
 assert(x[2] == "hello");
 
+print("Checking y[2]");
+print("y[2] is", y[2]);
 assert(!y[2]);
 
 val (a, b, c, ...d) = y;
 
+print("Checking unpacked values");
 assert(a == 0);
 assert(b == 1);
+print("c is", c);
 assert(!c);
 assert(d.size == 2);
 

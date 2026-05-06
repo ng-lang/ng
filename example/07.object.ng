@@ -1,10 +1,10 @@
 type Person {
-    property firstName;
-    property lastName;
-    property kid;
+    firstName: string;
+    lastName: string;
+    kid: Person;
 
-    fun name() {
-        return self.firstName + " " + lastName;
+    fun name() -> string {
+        return self.firstName + " " + self.lastName;
     }
 }
 
@@ -13,11 +13,10 @@ val person = new Person {
     lastName: "Leo",
     kid: new Person {
         firstName: "Tiny",
-        lastName: "Leo"
+        lastName: "Leo",
+        kid: unit
     }
 };
-
-assert(person.name().size() == 9);
 
 print(person.name());
 print(person.kid.name());

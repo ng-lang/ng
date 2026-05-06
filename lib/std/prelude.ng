@@ -5,6 +5,41 @@ fun not(value: bool) -> bool {
     return value == false;
 }
 
-fun print(value) -> unit = native;
+fun print<T...>(value: T...) -> unit = native;
 
-fun assert(assertion) -> unit = native;
+fun assert<T...>(assertion: T...) -> unit = native;
+
+fun len<T>(xs: T array) -> u32 = native;
+
+// C1: Basic I/O
+fun readLine() -> string = native;
+
+fun readFile(path: string) -> string = native;
+
+fun writeFile(path: string, content: string) -> unit = native;
+
+// C2: String operations
+fun split(s: string, delimiter: string) -> string array = native;
+
+fun join(items: string array, separator: string) -> string = native;
+
+fun trim(s: string) -> string = native;
+
+fun contains(haystack: string, needle: string) -> bool = native;
+
+fun replace(s: string, old: string, replacement: string) -> string = native;
+
+fun startsWith(s: string, prefix: string) -> bool = native;
+
+fun endsWith(s: string, suffix: string) -> bool = native;
+
+fun toUpper(s: string) -> string = native;
+
+fun toLower(s: string) -> string = native;
+
+// C3: Collection operations
+fun reverse(xs: i32 array) -> i32 array = native;
+
+fun range(start: i32, end: i32) -> i32 array = native;
+
+fun slice(xs: i32 array, start: i32, end: i32) -> i32 array = native;

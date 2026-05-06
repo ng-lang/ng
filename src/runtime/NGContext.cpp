@@ -99,7 +99,7 @@ namespace NG::runtime
   }
   auto NGContext::has_type(Str name, bool global) -> bool
   {
-    return objects.contains(name) || (global && parent != nullptr && parent->has_type(name, global));
+    return types.contains(name) || (global && parent != nullptr && parent->has_type(name, global));
   }
 
   auto NGContext::get_function(Str name) -> NGInvocable

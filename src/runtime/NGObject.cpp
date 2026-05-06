@@ -34,27 +34,27 @@ namespace NG::runtime
 
   auto NGObject::opPlus(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject>
   {
-    throw NotImplementedException();
+    throw NotImplementedException("Plus not implemented for " + type()->name);
   }
 
   auto NGObject::opMinus(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject>
   {
-    throw NotImplementedException();
+    throw NotImplementedException("Minus not implemented for " + type()->name);
   }
 
   auto NGObject::opTimes(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject>
   {
-    throw NotImplementedException();
+    throw NotImplementedException("Times not implemented for " + type()->name);
   }
 
   auto NGObject::opDividedBy(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject>
   {
-    throw NotImplementedException();
+    throw NotImplementedException("Divide not implemented for " + type()->name);
   }
 
   auto NGObject::opModulus(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject>
   {
-    throw NotImplementedException();
+    throw NotImplementedException("Modulus not implemented for " + type()->name);
   }
 
   auto NGObject::opGreaterThan(RuntimeRef<NGObject> other) const -> bool

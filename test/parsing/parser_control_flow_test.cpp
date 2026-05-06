@@ -49,3 +49,83 @@ TEST_CASE("parser should loop with mixied binding types", "[Parser][Loop][Next][
   REQUIRE(ast != nullptr);
   destroyast(ast);
 }
+
+TEST_CASE("parser should parse const if statement", "[Parser][ConstIf][ControlFlow]")
+{
+  auto ast = parse(R"(
+        val a = 1;
+        const if (true) {
+            val b = 2;
+        }
+    )");
+  REQUIRE(ast != nullptr);
+  auto compileUnit = dynamic_cast<CompileUnit *>(ast.get());
+  REQUIRE(compileUnit != nullptr);
+  auto mod = compileUnit->module.get();
+  REQUIRE(mod != nullptr);
+  // val a = 1 is parsed as a definition, const if as a statement
+  REQUIRE(mod->definitions.size() == 1);
+  REQUIRE(mod->statements.size() == 1);
+  auto ifStmt = dynamic_cast<IfStatement *>(mod->statements[0].get());
+  REQUIRE(ifStmt != nullptr);
+  REQUIRE(ifStmt->isConst == true);
+  REQUIRE(ifStmt->consequence != nullptr);
+  REQUIRE(ifStmt->alternative == nullptr);
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse const if with else", "[Parser][ConstIf][ControlFlow]")
+{
+  auto ast = parse(R"(
+        const if (false) {
+            val a = 1;
+        } else {
+            val b = 2;
+        }
+    )");
+  REQUIRE(ast != nullptr);
+  auto compileUnit = dynamic_cast<CompileUnit *>(ast.get());
+  auto mod = compileUnit->module.get();
+  REQUIRE(mod->statements.size() == 1);
+  auto ifStmt = dynamic_cast<IfStatement *>(mod->statements[0].get());
+  REQUIRE(ifStmt != nullptr);
+  REQUIRE(ifStmt->isConst == true);
+  REQUIRE(ifStmt->consequence != nullptr);
+  REQUIRE(ifStmt->alternative != nullptr);
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse regular if without const", "[Parser][ConstIf][ControlFlow]")
+{
+  auto ast = parse(R"(
+        if (true) {
+            val a = 1;
+        }
+    )");
+  REQUIRE(ast != nullptr);
+  auto compileUnit = dynamic_cast<CompileUnit *>(ast.get());
+  auto mod = compileUnit->module.get();
+  REQUIRE(mod->statements.size() == 1);
+  auto ifStmt = dynamic_cast<IfStatement *>(mod->statements[0].get());
+  REQUIRE(ifStmt != nullptr);
+  REQUIRE(ifStmt->isConst == false);
+  destroyast(ast);
+}
+
+TEST_CASE("const if repr should include const prefix", "[Parser][ConstIf][ControlFlow]")
+{
+  auto ast = parse(R"(
+        const if (true) {
+            val x = 1;
+        }
+    )");
+  REQUIRE(ast != nullptr);
+  auto compileUnit = dynamic_cast<CompileUnit *>(ast.get());
+  auto mod = compileUnit->module.get();
+  auto ifStmt = dynamic_cast<IfStatement *>(mod->statements[0].get());
+  REQUIRE(ifStmt != nullptr);
+  REQUIRE(ifStmt->isConst == true);
+  auto repr = ifStmt->repr();
+  REQUIRE(repr.starts_with("const if"));
+  destroyast(ast);
+}
