@@ -88,6 +88,13 @@ namespace NG::ast
   void DummyVisitor::visit(NewObjectExpression *newObj) {}
 
   void DummyVisitor::visit(ImportDecl *importDecl) {}
+  void DummyVisitor::visit(TypeAliasDef *typeAliasDef) {}
+  void DummyVisitor::visit(NewTypeDef *newTypeDef) {}
+  void DummyVisitor::visit(CastExpression *castExpr) {}
+  void DummyVisitor::visit(TaggedUnionDef *taggedUnionDef) {}
+  void DummyVisitor::visit(TaggedValueExpression *taggedVal) {}
+  void DummyVisitor::visit(SwitchStatement *switchStmt) {}
+  void DummyVisitor::visit(GenericParam *genericParam) {}
 
   void DummyVisitor::visit(CompileUnit *compileUnit) {}
 

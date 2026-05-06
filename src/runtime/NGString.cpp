@@ -64,12 +64,7 @@ namespace NG::runtime
 
   auto NGString::opPlus(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject>
   {
-    if (auto str = std::dynamic_pointer_cast<NGString>(other); str != nullptr)
-    {
-      return makert<NGString>(value + str->value);
-    }
-
-    throw IllegalTypeException("Not a string");
+    return makert<NGString>(value + other->show());
   }
 
 } // namespace NG::runtime

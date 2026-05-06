@@ -19,6 +19,11 @@ namespace NG::library::imgui
     void do_register();
 } // namespace NG::library::imgui
 
+namespace NG::orgasm
+{
+    struct BytecodeModule;
+}
+
 namespace NG::module
 {
     using NG::ast::ASTNode;
@@ -39,6 +44,7 @@ namespace NG::module
         Str moduleLoadingLocation;                       ///< The location from which the module was loaded.
         RuntimeRef<NG::runtime::NGModule> runtimeModule; ///< The runtime representation of the module.
         TypeIndex moduleTypeIndex{};                     ///< The type index of the module.
+        std::shared_ptr<NG::orgasm::BytecodeModule> bytecodeModule; ///< The bytecode representation.
     };
 
     /**

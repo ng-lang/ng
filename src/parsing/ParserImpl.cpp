@@ -34,6 +34,20 @@ namespace NG::parsing
   {
     ParseState state;
 
+        template <class T, class... Args>
+        auto createNode(Args &&...args) -> ASTRef<T>
+        {
+          auto node = makeast<T>(std::forward<Args>(args)...);
+          if (!state.eof())      {
+        node->pos = state->position;
+      }
+      else if (!state.tokens.empty())
+      {
+        node->pos = state.tokens.back().position;
+      }
+      return node;
+    }
+
     [[noreturn]]
     void unexpected(Str message)
     {
@@ -41,8 +55,7 @@ namespace NG::parsing
       {
         message = std::string{"Unexpected token "} + state->repr;
       }
-      throw ParseException(message + " at " + std::to_string(state->position.line) + ":" +
-                           std::to_string(state->position.col));
+      throw ParseException(message, state->position);
     }
 
   public:
@@ -52,7 +65,7 @@ namespace NG::parsing
     {
       // file as default module
 
-      auto compileUnit = makeast<CompileUnit>();
+      auto compileUnit = createNode<CompileUnit>();
 
       compileUnit->fileName = fileName;
       fs::path filePath{fileName};
@@ -68,7 +81,7 @@ namespace NG::parsing
         moudleName = fileWithoutPath.substr(0, fileWithoutPath.size() - 3);
       }
 
-      auto mod = makeast<Module>();
+      auto mod = createNode<Module>();
       mod->name = moudleName;
       ASTRef<Module> current_mod = mod;
       compileUnit->module = mod;
@@ -161,6 +174,13 @@ namespace NG::parsing
   private:
     auto expect(TokenType type) -> bool { return !state.eof() && state->type == type; }
 
+    auto peekTokenType(int offset) -> TokenType
+    {
+      size_t target = state.index + offset;
+      if (target >= state.size) return TokenType::NONE;
+      return state.tokens[target].type;
+    }
+
     void accept(TokenType type)
     {
       if (!expect(type))
@@ -170,14 +190,122 @@ namespace NG::parsing
       state.next();
     }
 
+    /**
+     * Accept a GT token, but also handle RIGHT_SHIFT (>>) by splitting it
+     * into two GT tokens. This handles nested generics like Option<Option<int>>.
+     */
+    void acceptGT()
+    {
+      if (expect(TokenType::GT))
+      {
+        state.next();
+      }
+      else if (!state.eof() && state->type == TokenType::RSHIFT)
+      {
+        // Split >> into two > tokens: replace current >> with >, insert second > after it
+        state.tokens[state.index].type = TokenType::GT;
+        state.tokens[state.index].repr = ">";
+        Token secondGT;
+        secondGT.type = TokenType::GT;
+        secondGT.repr = ">";
+        secondGT.position = state.tokens[state.index].position;
+        state.tokens.insert(state.tokens.begin() + state.index + 1, secondGT);
+        state.size = state.tokens.size();
+        state.next(); // consume the first >
+      }
+      else
+      {
+        unexpected("Unexpected token " + state->repr + ", expected '>'");
+      }
+    }
+
+    /**
+     * Parse generic type parameters: <T, U, T..., T: Comparable>
+     */
+    auto genericParams() -> Vec<ASTRef<GenericParam>>
+    {
+      Vec<ASTRef<GenericParam>> params;
+      accept(TokenType::LT);
+      while (!expect(TokenType::GT) && !state.eof())
+      {
+        if (!expect(TokenType::ID))
+        {
+          unexpected("Expected generic type parameter name");
+        }
+        auto param = createNode<GenericParam>(state->repr);
+        accept(TokenType::ID);
+
+        // Check for parameter pack: T...
+        if (expect(TokenType::SPREAD))
+        {
+          accept(TokenType::SPREAD);
+          param->isPack = true;
+        }
+
+        // Check for type bound: T: Comparable
+        if (expect(TokenType::COLON))
+        {
+          accept(TokenType::COLON);
+          param->bound = typeAnnotation();
+        }
+
+        params.push_back(std::move(param));
+
+        if (expect(TokenType::COMMA))
+        {
+          accept(TokenType::COMMA);
+        }
+      }
+      acceptGT();
+      return params;
+    }
+
+    /**
+     * Parse generic type arguments: <int, string, bool>
+     */
+    auto genericArgs() -> Vec<std::shared_ptr<TypeAnnotation>>
+    {
+      Vec<std::shared_ptr<TypeAnnotation>> args;
+      accept(TokenType::LT);
+      while (!expect(TokenType::GT) && !state.eof() && !expect(TokenType::RSHIFT))
+      {
+        auto arg = typeAnnotation();
+        // Convert ASTRef to shared_ptr for genericArgs field
+        args.push_back(std::shared_ptr<TypeAnnotation>(std::move(arg)));
+
+        if (expect(TokenType::COMMA))
+        {
+          accept(TokenType::COMMA);
+        }
+      }
+      acceptGT();
+      return args;
+    }
+
     auto funDef() -> ASTRef<FunctionDef>
     {
       accept(TokenType::KEYWORD_FUN);
+
+      // Parse generic parameters: fun<T, U> name(...) or fun<T...> name(...)
+      Vec<ASTRef<GenericParam>> pendingGenericParams;
+      if (expect(TokenType::LT))
+      {
+        pendingGenericParams = std::move(genericParams());
+      }
+
       if (expect(TokenType::ID))
       {
-        auto def = makeast<FunctionDef>();
+        auto def = createNode<FunctionDef>();
         def->funName = state->repr;
         accept(TokenType::ID);
+
+        def->genericParams = std::move(pendingGenericParams);
+
+        // Also support generic params after function name: fun name<T, U>(...)
+        if (def->genericParams.empty() && expect(TokenType::LT))
+        {
+          def->genericParams = std::move(genericParams());
+        }
 
         def->params = std::move(funParams());
 
@@ -204,7 +332,7 @@ namespace NG::parsing
           else
           {
             auto expressionBody = expression();
-            auto body = makeast<ReturnStatement>();
+            auto body = createNode<ReturnStatement>();
             body->expression = expressionBody;
             def->body = body;
             accept(TokenType::SEMICOLON);
@@ -230,7 +358,7 @@ namespace NG::parsing
     auto importDecl() -> ASTRef<ImportDecl> // NOLINT(readability-function-cognitive-complexity)
     {
       accept(TokenType::KEYWORD_IMPORT);
-      auto imp = makeast<ImportDecl>();
+      auto imp = createNode<ImportDecl>();
 
       Vec<Str> modulePath{};
 
@@ -307,26 +435,131 @@ namespace NG::parsing
       return imp;
     }
 
-    auto valDef() -> ASTRef<ValDef> { return makeast<ValDef>(valDefStatement()); }
+    auto valDef() -> ASTRef<ValDef> { return createNode<ValDef>(valDefStatement()); }
 
     auto propertyDef() -> ASTRef<PropertyDef>
     {
       accept(TokenType::KEYWORD_PROPERTY);
 
       auto name = idExpression();
+      ASTRef<TypeAnnotation> type = nullptr;
+
+      if (expect(TokenType::COLON))
+      {
+        accept(TokenType::COLON);
+        type = typeAnnotation();
+      }
 
       accept(TokenType::SEMICOLON);
-      return makeast<PropertyDef>((name)->repr());
+      return createNode<PropertyDef>((name)->repr(), std::move(type));
     }
 
-    auto typeDef() -> ASTRef<TypeDef>
+    auto typeDef() -> ASTRef<Definition>
     {
-      ASTRef<TypeDef> typeDef = makeast<TypeDef>();
-
       accept(TokenType::KEYWORD_TYPE);
 
       auto typeName = idExpression();
-      typeDef->typeName = typeName->repr();
+      auto nameStr = typeName->repr();
+
+      // Parse generic parameters on type name: type Option<T> { ... }
+      // We store them temporarily and apply them to whichever kind of type definition follows
+      Vec<ASTRef<GenericParam>> typeGenericParams;
+      if (expect(TokenType::LT))
+      {
+        typeGenericParams = std::move(genericParams());
+      }
+
+      // Check for type alias or tagged union syntax: type A = B; or type A = V1(T) | V2(T);
+      if (expect(TokenType::BIND))
+      {
+        accept(TokenType::BIND);
+
+        // Check if this is a tagged union or type alias.
+        // Heuristic: if next token after ID is `(` or `|`, it's a tagged union.
+        // If it's `;` or `=` or `,`, it's a type alias.
+        if (expect(TokenType::ID) &&
+            ((peekTokenType(1) == TokenType::LEFT_PAREN) || (peekTokenType(1) == TokenType::PIPE)))
+        {
+          auto taggedUnion = createNode<TaggedUnionDef>();
+          taggedUnion->typeName = nameStr;
+          taggedUnion->genericParams = std::move(typeGenericParams);
+
+          // Parse first variant
+          VariantDef variant;
+          variant.variantName = state->repr;
+          accept(TokenType::ID);
+          if (expect(TokenType::LEFT_PAREN))
+          {
+            accept(TokenType::LEFT_PAREN);
+            while (!expect(TokenType::RIGHT_PAREN))
+            {
+              // Skip optional field name: "name: type" or just "type"
+              if (expect(TokenType::ID) && peekTokenType(1) == TokenType::COLON)
+              {
+                variant.payloadNames.push_back(state->repr); // store field name
+                accept(TokenType::ID);   // skip field name
+                accept(TokenType::COLON); // skip colon
+              }
+              variant.payloadTypes.push_back(typeAnnotation());
+              if (expect(TokenType::COMMA)) accept(TokenType::COMMA);
+            }
+            accept(TokenType::RIGHT_PAREN);
+          }
+          taggedUnion->variants.push_back(std::move(variant));
+
+          // Parse additional variants separated by PIPE
+          while (expect(TokenType::PIPE))
+          {
+            accept(TokenType::PIPE);
+            VariantDef v;
+            v.variantName = state->repr;
+            accept(TokenType::ID);
+            if (expect(TokenType::LEFT_PAREN))
+            {
+              accept(TokenType::LEFT_PAREN);
+              while (!expect(TokenType::RIGHT_PAREN))
+              {
+                if (expect(TokenType::ID) && peekTokenType(1) == TokenType::COLON)
+                {
+                  v.payloadNames.push_back(state->repr); // store field name
+                  accept(TokenType::ID);
+                  accept(TokenType::COLON);
+                }
+                v.payloadTypes.push_back(typeAnnotation());
+                if (expect(TokenType::COMMA)) accept(TokenType::COMMA);
+              }
+              accept(TokenType::RIGHT_PAREN);
+            }
+            taggedUnion->variants.push_back(std::move(v));
+          }
+
+          accept(TokenType::SEMICOLON);
+          return taggedUnion;
+        }
+
+        // Otherwise it's a type alias
+        auto aliasDef = createNode<TypeAliasDef>(nameStr);
+        aliasDef->genericParams = std::move(typeGenericParams);
+        aliasDef->underlyingType = std::move(typeAnnotation());
+        accept(TokenType::SEMICOLON);
+        return aliasDef;
+      }
+
+      // Check for newtype syntax: type A wraps B;
+      if (expect(TokenType::KEYWORD_WRAPS))
+      {
+        accept(TokenType::KEYWORD_WRAPS);
+        auto ntDef = createNode<NewTypeDef>(nameStr);
+        ntDef->genericParams = std::move(typeGenericParams);
+        ntDef->wrappedType = std::move(typeAnnotation());
+        accept(TokenType::SEMICOLON);
+        return ntDef;
+      }
+
+      // Regular type definition: type X { ... }
+      auto typeDef = createNode<TypeDef>();
+      typeDef->typeName = nameStr;
+      typeDef->genericParams = std::move(typeGenericParams);
 
       accept(TokenType::LEFT_CURLY);
 
@@ -339,6 +572,23 @@ namespace NG::parsing
         else if (expect(TokenType::KEYWORD_FUN))
         {
           typeDef->memberFunctions.push_back(funDef());
+        }
+        else if (expect(TokenType::ID))
+        {
+          // Shorthand property: name: type;
+          auto name = idExpression();
+          ASTRef<TypeAnnotation> type = nullptr;
+          if (expect(TokenType::COLON))
+          {
+            accept(TokenType::COLON);
+            type = typeAnnotation();
+          }
+          accept(TokenType::SEMICOLON);
+          typeDef->properties.push_back(createNode<PropertyDef>((name)->repr(), std::move(type)));
+        }
+        else
+        {
+          unexpected("Expected property or function definition in type body");
         }
       }
       accept(TokenType::RIGHT_CURLY);
@@ -422,14 +672,26 @@ namespace NG::parsing
         while (expect(TokenType::ID))
         {
           const Str &name = state->repr;
-          ASTRef<Param> param = makeast<Param>(name);
+          ASTRef<Param> param = createNode<Param>(name);
           accept(TokenType::ID);
           if (expect(TokenType::COLON))
           {
             accept(TokenType::COLON);
             auto anno = typeAnnotation();
 
-            param = makeast<Param>(name, anno);
+            // Handle variadic parameter syntax: args: T...
+            if (expect(TokenType::SPREAD))
+            {
+              accept(TokenType::SPREAD);
+              // Create a new type annotation with "..." suffix to signal variadic to the type checker
+              auto variadicAnno = createNode<TypeAnnotation>(anno->repr() + "...");
+              variadicAnno->type = anno->type;
+              variadicAnno->arguments = std::move(anno->arguments);
+              variadicAnno->genericArgs = std::move(anno->genericArgs);
+              anno = std::move(variadicAnno);
+            }
+
+            param = createNode<Param>(name, anno);
           }
           params.push_back(param);
           if (expect(TokenType::BIND))
@@ -461,16 +723,24 @@ namespace NG::parsing
       case TokenType::DUAL_ARROW:
         return arrowReturn();
       case TokenType::KEYWORD_IF:
-        return ifStatement();
+        return ifStatement(false);
+      case TokenType::KEYWORD_CONST:
+        if (peekTokenType(1) == TokenType::KEYWORD_IF)
+        {
+          return ifStatement(true);
+        }
+        return simpleStatement();
       case TokenType::KEYWORD_VAL:
         return valDefStatement();
       case TokenType::KEYWORD_LOOP:
         return loopStatement();
+      case TokenType::KEYWORD_SWITCH:
+        return switchStatement();
       case TokenType::KEYWORD_NEXT:
         return nextStatement();
       case TokenType::SEMICOLON:
         accept(TokenType::SEMICOLON);
-        return makeast<EmptyStatement>();
+        return createNode<EmptyStatement>();
       default:
         return simpleStatement();
       }
@@ -480,17 +750,51 @@ namespace NG::parsing
     {
       auto expr = expression();
       accept(TokenType::SEMICOLON);
-      auto stmt = makeast<SimpleStatement>();
+      auto stmt = createNode<SimpleStatement>();
       stmt->expression = std::move(expr);
       return stmt;
     }
 
     auto typeAnnotation() -> ASTRef<TypeAnnotation>
     {
+      ASTRef<TypeAnnotation> result = typeAnnotationBase();
+      // Apply suffix generic syntax for all type bases:
+      // `i32 array` => array<i32>, `bool Optional` => Optional<bool>
+      // `(string, i32) Map` => Map<string, i32>
+      // Left-associative: `i32 array Optional` => Optional<array<i32>>
+      result = parseSuffixGeneric(std::move(result));
+
+      // Parse union type annotations: `i32 | string | bool`
+      // Right-associative: `i32 | string | bool` => Union(i32, string, bool)
+      if (expect(TokenType::PIPE))
+      {
+        auto unionNode = createNode<TypeAnnotation>("union");
+        unionNode->type = TypeAnnotationType::UNION;
+        unionNode->arguments.push_back(result);
+
+        while (expect(TokenType::PIPE))
+        {
+          accept(TokenType::PIPE);
+          auto member = typeAnnotationBase();
+          member = parseSuffixGeneric(std::move(member));
+          unionNode->arguments.push_back(member);
+        }
+        result = std::move(unionNode);
+      }
+
+      return result;
+    }
+
+    /**
+     * Core type annotation parsing without suffix generic application.
+     * typeAnnotation() wraps this with suffix generic support.
+     */
+    auto typeAnnotationBase() -> ASTRef<TypeAnnotation>
+    {
       TokenType maybeBuiltin = state->type;
       if (code(TokenType::KEYWORD_INT) <= code(maybeBuiltin) && code(TokenType::KEYWORD_F128) >= code(maybeBuiltin))
       {
-        ASTRef<TypeAnnotation> anno = makeast<TypeAnnotation>(state->repr);
+        ASTRef<TypeAnnotation> anno = createNode<TypeAnnotation>(state->repr);
         size_t builtin_type_code =
             code(maybeBuiltin) - code(TokenType::KEYWORD_INT) + code(TypeAnnotationType::BUILTIN_INT);
         anno->type = from_code<TypeAnnotationType>(builtin_type_code);
@@ -499,14 +803,14 @@ namespace NG::parsing
       }
       if (maybeBuiltin == TokenType::KEYWORD_UNIT)
       {
-        ASTRef<TypeAnnotation> anno = makeast<TypeAnnotation>(state->repr);
+        ASTRef<TypeAnnotation> anno = createNode<TypeAnnotation>(state->repr);
         anno->type = TypeAnnotationType::BUILTIN_UNIT;
         accept(maybeBuiltin);
         return anno;
       }
       if (maybeBuiltin == TokenType::LEFT_SQUARE)
       {
-        auto array = makeast<TypeAnnotation>("array");
+        auto array = createNode<TypeAnnotation>("array");
         accept(TokenType::LEFT_SQUARE);
         array->type = TypeAnnotationType::ARRAY;
         auto argumentRst = typeAnnotation();
@@ -516,7 +820,7 @@ namespace NG::parsing
       }
       if (maybeBuiltin == TokenType::LEFT_PAREN)
       {
-        auto tuple = makeast<TypeAnnotation>("tuple");
+        auto tuple = createNode<TypeAnnotation>("tuple");
         accept(TokenType::LEFT_PAREN);
         tuple->type = TypeAnnotationType::TUPLE;
 
@@ -537,12 +841,82 @@ namespace NG::parsing
       }
       if (maybeBuiltin == TokenType::ID)
       {
-        ASTRef<TypeAnnotation> anno = makeast<TypeAnnotation>(state->repr);
+        ASTRef<TypeAnnotation> anno = createNode<TypeAnnotation>(state->repr);
         accept(TokenType::ID);
         anno->type = TypeAnnotationType::CUSTOMIZED;
+
+        // Check for generic type arguments: TypeName<T, U>
+        // In a type annotation context, `<` is unambiguous (not a comparison).
+        if (expect(TokenType::LT) && !state.eof())
+        {
+          // Look ahead to see if this is a type argument list (not comparison).
+          // Type arg lists: ID < type | ID , type , ... >
+          // We try to parse it: if we see a valid type after `<`, it's generic args.
+          // Save current state in case we need to backtrack.
+          auto savedState = state;
+          state.next(); // consume `<`
+          bool isGenericArgs = false;
+          if (!expect(TokenType::GT))
+          {
+            // Try to see if next token could start a type annotation
+            TokenType next = state->type;
+            if (next == TokenType::ID ||
+                (code(TokenType::KEYWORD_INT) <= code(next) && code(TokenType::KEYWORD_F128) >= code(next)) ||
+                next == TokenType::KEYWORD_UNIT || next == TokenType::LEFT_SQUARE ||
+                next == TokenType::LEFT_PAREN)
+            {
+              isGenericArgs = true;
+            }
+          }
+          else
+          {
+            // Empty generic args like `Foo<>` - treat as generic
+            isGenericArgs = true;
+          }
+          // Restore state
+          state = savedState;
+
+          if (isGenericArgs)
+          {
+            anno->genericArgs = std::move(genericArgs());
+          }
+        }
         return anno;
       }
       unexpected("Unknown type annotation");
+    }
+
+    // Parse suffix generic type application: `T TypeName` => TypeName<T>
+    // Left-associative: `T A B` => B<A<T>>
+    // Multi-param: `(T1, T2) Map` => Map<T1, T2>  (tuple elements spread as generic args)
+    auto parseSuffixGeneric(ASTRef<TypeAnnotation> base) -> ASTRef<TypeAnnotation>
+    {
+      while (expect(TokenType::ID))
+      {
+        auto suffixName = state->repr;
+        accept(TokenType::ID);
+
+        auto wrapper = createNode<TypeAnnotation>(suffixName);
+        wrapper->type = TypeAnnotationType::CUSTOMIZED;
+
+        if (base->type == TypeAnnotationType::TUPLE)
+        {
+          // Multi-param suffix: `(T1, T2) Map` => Map<T1, T2>
+          // Spread tuple elements as individual generic args
+          for (auto &elem : base->arguments)
+          {
+            // arguments are shared_ptr<ASTNode> but hold TypeAnnotation nodes
+            wrapper->genericArgs.push_back(std::static_pointer_cast<TypeAnnotation>(elem));
+          }
+        }
+        else
+        {
+          // Single-param suffix: `i32 array` => array<i32>
+          wrapper->genericArgs.push_back(std::shared_ptr<TypeAnnotation>(std::move(base)));
+        }
+        base = std::move(wrapper);
+      }
+      return base;
     }
 
     auto valDefStatement() -> ASTRef<Statement>
@@ -559,12 +933,12 @@ namespace NG::parsing
             bindingType == BindingType::TUPLE_UNPACK ? TokenType::RIGHT_PAREN : TokenType::RIGHT_SQUARE;
 
         accept(state->type);
-        auto valBind = makeast<ValueBindingStatement>();
+        auto valBind = createNode<ValueBindingStatement>();
         valBind->type = bindingType;
         int index = 0;
         while (!expect(closing))
         {
-          auto binding = makeast<Binding>();
+          auto binding = createNode<Binding>();
           if (expect(TokenType::SPREAD))
           {
             if (valBind->bindings.size() > 0 && valBind->bindings.back()->spreadReceiver) [[unlikely]]
@@ -645,17 +1019,22 @@ namespace NG::parsing
         accept(TokenType::BIND);
         auto value = expression();
         accept(TokenType::SEMICOLON);
-        auto def = makeast<ValDefStatement>(name);
+        auto def = createNode<ValDefStatement>(name);
         def->value = std::move(value);
         def->typeAnnotation = std::move(anno);
         return def;
       }
     }
 
-    auto ifStatement() -> ASTRef<IfStatement>
+    auto ifStatement(bool isConst) -> ASTRef<IfStatement>
     {
 
-      auto ifstmt = makeast<IfStatement>();
+      auto ifstmt = createNode<IfStatement>();
+      ifstmt->isConst = isConst;
+      if (isConst)
+      {
+        accept(TokenType::KEYWORD_CONST); // consume 'const'
+      }
       accept(TokenType::KEYWORD_IF);
       accept(TokenType::LEFT_PAREN);
 
@@ -677,14 +1056,14 @@ namespace NG::parsing
     auto loopStatement() -> ASTRef<LoopStatement>
     {
       accept(TokenType::KEYWORD_LOOP);
-      auto loopStmt = makeast<LoopStatement>();
+      auto loopStmt = createNode<LoopStatement>();
       while (expect(TokenType::ID))
       {
         auto identifier = state->repr;
         accept(TokenType::ID);
         auto loopBindingType = LoopBindingType::LOOP_ASSIGN;
         ASTRef<TypeAnnotation> loopBindingAnnotation = nullptr;
-        ASTRef<Expression> bindingTarget{makeast<IdExpression>(identifier)};
+        ASTRef<Expression> bindingTarget{createNode<IdExpression>(identifier)};
         if (state->type == TokenType::COLON)
         {
           accept(TokenType::COLON);
@@ -726,7 +1105,7 @@ namespace NG::parsing
     auto nextStatement() -> ASTRef<NextStatement>
     {
       accept(TokenType::KEYWORD_NEXT);
-      auto nextStmt = makeast<NextStatement>();
+      auto nextStmt = createNode<NextStatement>();
 
       while (!expect(TokenType::SEMICOLON))
       {
@@ -745,10 +1124,60 @@ namespace NG::parsing
       return nextStmt;
     }
 
+    auto switchStatement() -> ASTRef<SwitchStatement>
+    {
+      accept(TokenType::KEYWORD_SWITCH);
+      accept(TokenType::LEFT_PAREN);
+      auto scrutinee = expression();
+      accept(TokenType::RIGHT_PAREN);
+      accept(TokenType::LEFT_CURLY);
+
+      auto switchStmt = createNode<SwitchStatement>();
+      switchStmt->scrutinee = std::move(scrutinee);
+
+      while (expect(TokenType::KEYWORD_CASE) || expect(TokenType::KEYWORD_OTHERWISE))
+      {
+        if (expect(TokenType::KEYWORD_OTHERWISE))
+        {
+          accept(TokenType::KEYWORD_OTHERWISE);
+          CaseClause clause;
+          clause.isOtherwise = true;
+          clause.body = compoundStatement();
+          switchStmt->cases.push_back(std::move(clause));
+          // otherwise must be last
+          break;
+        }
+        accept(TokenType::KEYWORD_CASE);
+        CaseClause clause;
+        if (expect(TokenType::ID))
+        {
+          clause.variantName = state->repr;
+          accept(TokenType::ID);
+        }
+        // Parse optional bindings: case Ok(value) or case Ok(value, index)
+        if (expect(TokenType::LEFT_PAREN))
+        {
+          accept(TokenType::LEFT_PAREN);
+          while (!expect(TokenType::RIGHT_PAREN))
+          {
+            clause.bindings.push_back(state->repr);
+            accept(TokenType::ID);
+            if (expect(TokenType::COMMA)) accept(TokenType::COMMA);
+          }
+          accept(TokenType::RIGHT_PAREN);
+        }
+        clause.body = compoundStatement();
+        switchStmt->cases.push_back(std::move(clause));
+      }
+
+      accept(TokenType::RIGHT_CURLY);
+      return switchStmt;
+    }
+
     auto compoundStatement() -> ASTRef<CompoundStatement>
     {
       accept(TokenType::LEFT_CURLY);
-      auto stmt = makeast<CompoundStatement>();
+      auto stmt = createNode<CompoundStatement>();
       while (!expect(TokenType::RIGHT_CURLY))
       {
         stmt->statements.push_back(std::move(statement()));
@@ -764,9 +1193,9 @@ namespace NG::parsing
       if (expect(TokenType::SEMICOLON))
       {
         accept(TokenType::SEMICOLON);
-        return makeast<ReturnStatement>();
+        return createNode<ReturnStatement>();
       }
-      auto ret = makeast<ReturnStatement>();
+      auto ret = createNode<ReturnStatement>();
       ret->expression = std::move(expression());
       accept(TokenType::SEMICOLON);
       return ret;
@@ -780,7 +1209,7 @@ namespace NG::parsing
     {
       accept(TokenType::KEYWORD_IS);
       auto type = typeAnnotation();
-      return makeast<TypeCheckingExpression>(expr, type);
+      return createNode<TypeCheckingExpression>(expr, type);
     }
 
     auto expression() -> ASTRef<Expression>
@@ -834,7 +1263,7 @@ namespace NG::parsing
       }
 
       accept(TokenType::ASSIGN_EQUAL);
-      auto assignmentExpr = makeast<AssignmentExpression>(ref);
+      auto assignmentExpr = createNode<AssignmentExpression>(ref);
       assignmentExpr->value = std::move(expression());
 
       return assignmentExpr;
@@ -862,7 +1291,7 @@ namespace NG::parsing
         unexpected("Invalid use of binding operator `=` in expression.");
       }
       accept(state->type);
-      auto binexpr = makeast<BinaryExpression>();
+      auto binexpr = createNode<BinaryExpression>();
       binexpr->optr = std::make_shared<Token>(token);
       binexpr->left = std::move(expr);
       binexpr->right = std::move(expression());
@@ -883,7 +1312,7 @@ namespace NG::parsing
         accept(TokenType::COMMA);
       }
       accept(TokenType::RIGHT_PAREN);
-      auto funcall = makeast<FunCallExpression>();
+      auto funcall = createNode<FunCallExpression>();
       funcall->primaryExpression = std::move(primaryExpression);
       funcall->arguments = std::move(args);
       return funcall;
@@ -892,7 +1321,7 @@ namespace NG::parsing
     auto idAccessorExpression(ASTRef<Expression> expr) -> ASTRef<IdAccessorExpression>
     {
       accept(TokenType::DOT);
-      auto idacc = makeast<IdAccessorExpression>();
+      auto idacc = createNode<IdAccessorExpression>();
       idacc->primaryExpression = std::move(expr);
 
       if (expect(TokenType::ID))
@@ -901,11 +1330,11 @@ namespace NG::parsing
       }
       else if (expect(TokenType::STRING))
       {
-        idacc->accessor = makeast<IdExpression>(stringValue()->value);
+        idacc->accessor = createNode<IdExpression>(stringValue()->value);
       }
       else if (expect(TokenType::NUMBER))
       {
-        idacc->accessor = makeast<IdExpression>(numberLiteral()->repr());
+        idacc->accessor = createNode<IdExpression>(numberLiteral()->repr());
         return idacc;
       }
       else
@@ -946,14 +1375,14 @@ namespace NG::parsing
       {
         accept(TokenType::ASSIGN_EQUAL);
         auto value = expression();
-        return makeast<IndexAssignmentExpression>(std::move(primary), std::move(accessor), std::move(value));
+        return createNode<IndexAssignmentExpression>(std::move(primary), std::move(accessor), std::move(value));
       }
-      return makeast<IndexAccessorExpression>(std::move(primary), std::move(accessor));
+      return createNode<IndexAccessorExpression>(std::move(primary), std::move(accessor));
     }
 
     auto newObjectExpression() -> ASTRef<NewObjectExpression>
     {
-      ASTRef<NewObjectExpression> newObj = makeast<NewObjectExpression>();
+      ASTRef<NewObjectExpression> newObj = createNode<NewObjectExpression>();
 
       accept(TokenType::KEYWORD_NEW);
 
@@ -1000,7 +1429,7 @@ namespace NG::parsing
             elements.push_back(std::move(expression()));
           }
           accept(TokenType::RIGHT_PAREN);
-          return makeast<TupleLiteral>(std::move(elements));
+          return createNode<TupleLiteral>(std::move(elements));
         }
         accept(TokenType::RIGHT_PAREN);
 
@@ -1023,12 +1452,12 @@ namespace NG::parsing
       {
         accept(TokenType::KEYWORD_TRUE);
 
-        return makeast<BooleanValue>(true);
+        return createNode<BooleanValue>(true);
       }
       if (expect(TokenType::KEYWORD_FALSE))
       {
         accept(TokenType::KEYWORD_FALSE);
-        return makeast<BooleanValue>(false);
+        return createNode<BooleanValue>(false);
       }
       if (expect(TokenType::LEFT_SQUARE))
       {
@@ -1041,13 +1470,24 @@ namespace NG::parsing
       if (expect(TokenType::KEYWORD_UNIT))
       {
         accept(TokenType::KEYWORD_UNIT);
-        return makeast<UnitLiteral>();
+        return createNode<UnitLiteral>();
+      }
+      if (expect(TokenType::KEYWORD_CAST))
+      {
+        accept(TokenType::KEYWORD_CAST);
+        accept(TokenType::LT);
+        auto targetType = typeAnnotation();
+        accept(TokenType::GT);
+        accept(TokenType::LEFT_PAREN);
+        auto expr = expression();
+        accept(TokenType::RIGHT_PAREN);
+        return createNode<CastExpression>(std::move(expr), std::move(targetType));
       }
       if (expect(TokenType::SPREAD))
       {
         accept(TokenType::SPREAD);
         auto expr = expression();
-        return makeast<SpreadExpression>(std::move(expr));
+        return createNode<SpreadExpression>(std::move(expr));
       }
       if (is_operator(state->type))
       {
@@ -1077,7 +1517,7 @@ namespace NG::parsing
       {
 
         accept(optrToken.type);
-        auto expr = makeast<UnaryExpression>();
+        auto expr = createNode<UnaryExpression>();
         expr->optr = std::make_shared<Token>(optrToken);
         expr->operand = std::move(expression());
         return expr;
@@ -1091,7 +1531,7 @@ namespace NG::parsing
     {
       const auto &str = state->repr;
       accept(TokenType::STRING);
-      return makeast<StringValue>(str);
+      return createNode<StringValue>(str);
     }
 
     auto numberLiteral() -> ASTRef<Expression>
@@ -1101,51 +1541,58 @@ namespace NG::parsing
       {
       case TokenType::NUMBER:
         accept(state->type);
-        return makeast<IntegralValue<int32_t>>(std::stoi(integer));
+        return createNode<IntegralValue<int32_t>>(std::stoi(integer));
       case TokenType::INTEGRAL:
         accept(state->type);
-        return makeast<IntegralValue<int32_t>>(static_cast<int32_t>(std::stoi(integer)));
+        return createNode<IntegralValue<int32_t>>(static_cast<int32_t>(std::stoi(integer)));
       case TokenType::NUMBER_I8:
         accept(state->type);
-        return makeast<IntegralValue<int8_t>>(static_cast<int8_t>(std::stoi(integer)));
+        return createNode<IntegralValue<int8_t>>(static_cast<int8_t>(std::stoi(integer)));
       case TokenType::NUMBER_U8:
         accept(state->type);
-        return makeast<IntegralValue<uint8_t>>(static_cast<uint8_t>(std::stoi(integer)));
+        return createNode<IntegralValue<uint8_t>>(static_cast<uint8_t>(std::stoi(integer)));
       case TokenType::NUMBER_I16:
         accept(state->type);
-        return makeast<IntegralValue<int16_t>>(static_cast<int16_t>(std::stoi(integer)));
+        return createNode<IntegralValue<int16_t>>(static_cast<int16_t>(std::stoi(integer)));
       case TokenType::NUMBER_U16:
         accept(state->type);
-        return makeast<IntegralValue<uint16_t>>(static_cast<uint16_t>(std::stoi(integer)));
+        return createNode<IntegralValue<uint16_t>>(static_cast<uint16_t>(std::stoi(integer)));
       case TokenType::NUMBER_I32:
         accept(state->type);
-        return makeast<IntegralValue<int32_t>>(static_cast<int32_t>(std::stoi(integer)));
+        return createNode<IntegralValue<int32_t>>(static_cast<int32_t>(std::stoi(integer)));
       case TokenType::NUMBER_U32:
         accept(state->type);
-        return makeast<IntegralValue<uint32_t>>(static_cast<uint32_t>(std::stoul(integer)));
+        return createNode<IntegralValue<uint32_t>>(static_cast<uint32_t>(std::stoul(integer)));
       case TokenType::NUMBER_I64:
         accept(state->type);
-        return makeast<IntegralValue<int64_t>>(static_cast<int64_t>(std::stoll(integer)));
+        return createNode<IntegralValue<int64_t>>(static_cast<int64_t>(std::stoll(integer)));
       case TokenType::NUMBER_U64:
         accept(state->type);
-        return makeast<IntegralValue<uint64_t>>(static_cast<uint64_t>(std::stoull(integer)));
+        return createNode<IntegralValue<uint64_t>>(static_cast<uint64_t>(std::stoull(integer)));
+      case TokenType::NUMBER_I128:
+        accept(state->type);
+        // todo: support i128 parsing properly
+        return createNode<IntegralValue<int64_t>>(static_cast<int64_t>(std::stoll(integer)));
+      case TokenType::NUMBER_U128:
+        accept(state->type);
+        // todo: support u128 parsing properly
+        return createNode<IntegralValue<uint64_t>>(static_cast<uint64_t>(std::stoull(integer)));
       case TokenType::FLOATING_POINT:
         accept(state->type);
-        return makeast<FloatingPointValue<float>>(std::stof(integer));
+        return createNode<FloatingPointValue<float>>(std::stof(integer));
       case TokenType::NUMBER_F16:
         unexpected("Float16 not supported");
-      //     accept(state->type);
-      //     return makeast<FloatingPointValue<float16_t>>(static_cast<float16_t>(std::stof(integer)));
       case TokenType::NUMBER_F32:
         accept(state->type);
-        return makeast<FloatingPointValue<float>>(std::stof(integer));
+        return createNode<FloatingPointValue<float>>(std::stof(integer));
       case TokenType::NUMBER_F64:
         accept(state->type);
-        return makeast<FloatingPointValue<double>>((std::stod(integer)));
+        return createNode<FloatingPointValue<double>>(std::stod(integer));
       case TokenType::NUMBER_F128:
-        unexpected("Float128 not supported");
-      //     accept(state->type);
-      //     return makeast<FloatingPointValue<float128_t>>(static_cast<float128_t>(std::stold(integer)));
+        accept(state->type);
+        return createNode<FloatingPointValue<double>>(std::stod(integer));
+      case TokenType::NUMBER_F256:
+        unexpected("Float256 not supported");
       default:
         unexpected("Invalid number literal");
       }
@@ -1155,7 +1602,7 @@ namespace NG::parsing
     {
       auto identifier = state->repr;
       accept(TokenType::ID);
-      return makeast<IdExpression>(identifier);
+      return createNode<IdExpression>(identifier);
     }
 
     auto arrayLiteral() -> ASTRef<Expression>
@@ -1175,7 +1622,7 @@ namespace NG::parsing
       }
       accept(TokenType::RIGHT_SQUARE);
 
-      return makeast<ArrayLiteral>(std::move(elements));
+      return createNode<ArrayLiteral>(std::move(elements));
     }
   };
 

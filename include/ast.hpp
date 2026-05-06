@@ -36,6 +36,10 @@ namespace NG::ast
         PROPERTY_DEFINITION = 0x112,
         IMPORT_DECLARATION = 0x113,
         BINDING = 0x114,
+        TYPE_ALIAS_DEFINITION = 0x115,
+        NEW_TYPE_DEFINITION = 0x116,
+
+        CAST_EXPRESSION = 0x214,
 
         EXPRESSION = 0x200,
         ID_EXPRESSION = 0x201,
@@ -79,6 +83,13 @@ namespace NG::ast
         TYPE_ANNOTATION = 0x600,
         COMPOUND_TYPE_ANNOTATION = 0x601,
 
+        TAGGED_UNION_DEFINITION = 0x117,
+        TAGGED_VALUE_EXPRESSION = 0x215,
+        SWITCH_STATEMENT = 0x408,
+
+        GENERIC_PARAM = 0x118,
+        PACK_EXPRESSION = 0x216,
+
         BOTTOM = 0xFF00,
     };
 
@@ -88,6 +99,8 @@ namespace NG::ast
     // NOLINTBEGIN(cppcoreguidelines-special-member-functions)
     struct ASTNode : NonCopyable
     {
+        TokenPosition pos;
+
         ASTNode() = default;
 
         /**
@@ -231,6 +244,7 @@ namespace NG::ast
         ARRAY = 0x81,
         VECTOR = 0x82,
         TUPLE = 0x83,
+        UNION = 0x84,
         // LIST,
         // DICT,
         CUSTOMIZED = 0xD1,
@@ -243,7 +257,9 @@ namespace NG::ast
     {
         const Str name;            ///< The name of the type.
         TypeAnnotationType type{}; ///< The type of the annotation.
-        Vec<ASTRef<ASTNode>> arguments;
+        Vec<ASTRef<ASTNode>> arguments;             ///< Array/tuple type arguments.
+        Vec<std::shared_ptr<TypeAnnotation>> genericArgs;    ///< Generic type arguments (e.g. <int, string>).
+        // Note: uses shared_ptr directly instead of ASTRef to avoid circular concept dependency
 
         explicit TypeAnnotation(Str _name) : name(std::move(_name)) {}
 
@@ -253,6 +269,26 @@ namespace NG::ast
         [[nodiscard]]
         auto repr() const -> Str override;
         ~TypeAnnotation() override;
+    };
+
+    /**
+     * @brief A generic type parameter (e.g. T, T..., T: Comparable).
+     */
+    struct GenericParam : ASTNode
+    {
+        Str name;                              ///< The name of the type parameter (e.g. "T").
+        bool isPack = false;                   ///< Whether this is a parameter pack (T...).
+        ASTRef<TypeAnnotation> bound = nullptr; ///< Optional type bound (T: Comparable).
+
+        explicit GenericParam(Str _name) : name(std::move(_name)) {}
+
+        void accept(AstVisitor *visitor) override;
+        auto astNodeType() const -> ASTNodeType override { return ASTNodeType::GENERIC_PARAM; }
+
+        [[nodiscard]]
+        auto repr() const -> Str override;
+
+        ~GenericParam() override = default;
     };
     /**
      * @brief A parameter.
@@ -289,6 +325,7 @@ namespace NG::ast
     struct FunctionDef : Definition
     {
         Str funName;                                 ///< The name of the function.
+        Vec<ASTRef<GenericParam>> genericParams;     ///< The generic type parameters (e.g. <T, U>).
         Vec<ASTRef<Param>> params;                   ///< The parameters of the function.
         ASTRef<TypeAnnotation> returnType = nullptr; ///< The return type of the function.
         ASTRef<Statement> body = nullptr;            ///< The body of the function.
@@ -346,6 +383,7 @@ namespace NG::ast
      */
     struct IfStatement : Statement
     {
+        bool isConst = false;                    ///< Whether this is a `const if` (compile-time evaluated).
         ASTRef<Expression> testing = nullptr;    ///< The condition of the if statement.
         ASTRef<Statement> consequence = nullptr; ///< The consequence of the if statement.
         ASTRef<Statement> alternative = nullptr; ///< The alternative of the if statement.
@@ -935,8 +973,10 @@ namespace NG::ast
     struct PropertyDef : Definition
     {
         Str propertyName; ///< The name of the property.
+        ASTRef<TypeAnnotation> typeAnnotation = nullptr;
 
         explicit PropertyDef(Str name) : propertyName{std::move(name)} {}
+        PropertyDef(Str name, ASTRef<TypeAnnotation> type) : propertyName{std::move(name)}, typeAnnotation{std::move(type)} {}
 
         auto astNodeType() const -> ASTNodeType override;
 
@@ -954,6 +994,7 @@ namespace NG::ast
     struct TypeDef : Definition
     {
         Str typeName;                             ///< The name of the type.
+        Vec<ASTRef<GenericParam>> genericParams;  ///< The generic type parameters (e.g. <T>).
         Vec<ASTRef<FunctionDef>> memberFunctions; ///< The member functions of the type.
         Vec<ASTRef<PropertyDef>> properties;      ///< The properties of the type.
 
@@ -967,6 +1008,73 @@ namespace NG::ast
         auto repr() const -> Str override;
 
         ~TypeDef() override;
+    };
+
+    /**
+     * @brief A type alias definition (typealias Meters = f64;).
+     */
+    struct TypeAliasDef : Definition
+    {
+        Str aliasName;                          ///< The name of the alias.
+        Vec<ASTRef<GenericParam>> genericParams;///< The generic type parameters (e.g. <T>).
+        ASTRef<TypeAnnotation> underlyingType;  ///< The underlying type.
+
+        explicit TypeAliasDef(Str name) : aliasName(std::move(name)) {}
+
+        auto astNodeType() const -> ASTNodeType override { return ASTNodeType::TYPE_ALIAS_DEFINITION; }
+
+        [[nodiscard]] auto names() const -> Vec<Str> override { return Vec<Str>{aliasName}; }
+
+        void accept(AstVisitor *visitor) override;
+
+        [[nodiscard]]
+        auto repr() const -> Str override;
+
+        ~TypeAliasDef() override;
+    };
+
+    /**
+     * @brief A newtype definition (type UserId wraps i64;).
+     */
+    struct NewTypeDef : Definition
+    {
+        Str typeName;                           ///< The name of the newtype.
+        Vec<ASTRef<GenericParam>> genericParams;///< The generic type parameters (e.g. <T>).
+        ASTRef<TypeAnnotation> wrappedType;     ///< The wrapped type.
+
+        explicit NewTypeDef(Str name) : typeName(std::move(name)) {}
+
+        auto astNodeType() const -> ASTNodeType override { return ASTNodeType::NEW_TYPE_DEFINITION; }
+
+        [[nodiscard]] auto names() const -> Vec<Str> override { return Vec<Str>{typeName}; }
+
+        void accept(AstVisitor *visitor) override;
+
+        [[nodiscard]]
+        auto repr() const -> Str override;
+
+        ~NewTypeDef() override;
+    };
+
+    /**
+     * @brief A cast expression (cast<Type>(expr)).
+     */
+    struct CastExpression : Expression
+    {
+        ASTRef<Expression> expression;          ///< The expression to cast.
+        ASTRef<TypeAnnotation> targetType;      ///< The target type.
+
+        CastExpression(ASTRef<Expression> expr, ASTRef<TypeAnnotation> type)
+            : expression(std::move(expr)), targetType(std::move(type)) {}
+
+        auto astNodeType() const -> ASTNodeType override { return ASTNodeType::CAST_EXPRESSION; }
+
+        void accept(AstVisitor *visitor) override;
+
+        [[nodiscard]]
+        auto repr() const -> Str override;
+
+        ~CastExpression() override;
     };
 
     /**
@@ -985,6 +1093,83 @@ namespace NG::ast
         auto repr() const -> Str override;
 
         ~NewObjectExpression() override;
+    };
+
+    /**
+     * @brief A variant in a tagged union definition.
+     */
+    struct VariantDef
+    {
+        Str variantName;                         ///< The name of the variant (e.g. Ok, Err).
+        Vec<ASTRef<TypeAnnotation>> payloadTypes; ///< The types of the payload fields.
+        Vec<Str> payloadNames;                   ///< The names of the payload fields (if specified).
+    };
+
+    /**
+     * @brief A tagged union definition (type Result = Ok(i32) | Err(string)).
+     */
+    struct TaggedUnionDef : Definition
+    {
+        Str typeName;                          ///< The name of the tagged union.
+        Vec<ASTRef<GenericParam>> genericParams;///< The generic type parameters (e.g. <T>).
+        Vec<VariantDef> variants;              ///< The variants.
+
+        auto names() const -> Vec<Str> override { return Vec<Str>{typeName}; }
+        auto astNodeType() const -> ASTNodeType override { return ASTNodeType::TAGGED_UNION_DEFINITION; }
+
+        void accept(AstVisitor *visitor) override;
+
+        [[nodiscard]]
+        auto repr() const -> Str override;
+
+        ~TaggedUnionDef() override = default;
+    };
+
+    /**
+     * @brief A tagged value expression (Ok(42), Err("not found")).
+     */
+    struct TaggedValueExpression : Expression
+    {
+        Str variantName;                    ///< The variant name.
+        Vec<ASTRef<Expression>> payload;    ///< The payload values.
+
+        auto astNodeType() const -> ASTNodeType override { return ASTNodeType::TAGGED_VALUE_EXPRESSION; }
+
+        void accept(AstVisitor *visitor) override;
+
+        [[nodiscard]]
+        auto repr() const -> Str override;
+
+        ~TaggedValueExpression() override;
+    };
+
+    /**
+     * @brief A case clause in a switch statement.
+     */
+    struct CaseClause
+    {
+        Str variantName;                       ///< The variant to match.
+        Vec<Str> bindings;                     ///< Variable names for payload destructuring.
+        ASTRef<CompoundStatement> body;        ///< The case body.
+        bool isOtherwise = false;              ///< Whether this is the `otherwise` (default) branch.
+    };
+
+    /**
+     * @brief A switch statement for pattern matching on tagged unions.
+     */
+    struct SwitchStatement : Statement
+    {
+        ASTRef<Expression> scrutinee;   ///< The expression to match.
+        Vec<CaseClause> cases;          ///< The case clauses.
+
+        auto astNodeType() const -> ASTNodeType override { return ASTNodeType::SWITCH_STATEMENT; }
+
+        void accept(AstVisitor *visitor) override;
+
+        [[nodiscard]]
+        auto repr() const -> Str override;
+
+        ~SwitchStatement() override;
     };
     // NOLINTEND(cppcoreguidelines-special-member-functions)
 } // namespace NG::ast

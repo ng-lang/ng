@@ -1,0 +1,52 @@
+// Const If Example
+// Demonstrates compile-time conditional branching in NG.
+//
+// `const if` evaluates its condition at compile time and eliminates
+// the inactive branch entirely. This is useful for compile-time
+// configuration and dead code elimination.
+
+// --- Basic const if ---
+// When the condition is a compile-time constant (true/false),
+// only the active branch is compiled and executed.
+
+const if (true) {
+    val x = 42;
+    assert(x == 42);
+} else {
+    val x = 0;  // This branch is never compiled
+}
+
+const if (false) {
+    val x = 999;  // This branch is never compiled
+} else {
+    val x = 7;
+    assert(x == 7);
+}
+
+// --- Const if without else ---
+// The else branch is optional.
+
+const if (true) {
+    print("This runs at compile time!");
+}
+
+// --- Negation ---
+const if (!false) {
+    val msg = "negation works";
+    assert(msg == "negation works");
+}
+
+// --- Const if in a function ---
+// Branch elimination applies inside function bodies too.
+
+fun get_value() -> i32 {
+    const if (true) {
+        return 100;
+    } else {
+        return 0;
+    }
+}
+
+assert(get_value() == 100);
+
+print("const_if example completed successfully!");

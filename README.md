@@ -66,13 +66,13 @@ After building the project, you can use the `ngi` interpreter to run NG scripts.
 
 ### Core Language Features
 - [ ] Robust error handling (e.g., `try/catch` or a `Result` type)
-- [ ] Pattern matching
+- [x] Pattern matching (tagged union switch/case)
 - [ ] Closures/Lambdas
-- [ ] Generics
-- [ ] Enums
+- [x] Generics (v0.5.0 — type parameters, parameter packs, monomorphization)
+- [x] Enums (tagged unions: `type Result = Ok(value) | Err(msg)`)
 - [ ] Compile to Native
-- [ ] Naive Type Checking
-- [ ] Bytecode Based Runtime - ORGASM (Organized Assembly)
+- [x] Type Checking (bidirectional type inference)
+- [x] Bytecode Based Runtime - ORGASM (Organized Assembly)
 
 ### Standard Library
 - [ ] Comprehensive file I/O module

@@ -683,7 +683,8 @@ namespace NG::runtime
     struct NGStructuralObject : NGObject
     {
         RuntimeRef<NGType> customizedType;         ///< The customized type of the object.
-        Map<Str, RuntimeRef<NGObject>> properties; ///< The properties of the object.
+        Map<Str, RuntimeRef<NGObject>> properties; ///< The properties of the object (string-keyed).
+        Vec<RuntimeRef<NGObject>> fields;          ///< The fields of the object (index-based, O(1) access).
 
         Map<Str, NGInvocable> selfMemberFunctions; ///< The member functions of the object.
 
@@ -698,6 +699,52 @@ namespace NG::runtime
     {
         [[nodiscard]] auto type() const -> RuntimeRef<NGType> override;
         [[nodiscard]] auto show() const -> Str override;
+    };
+
+    /**
+     * @brief Represents a newtype wrapper in the runtime.
+     *
+     * A newtype wraps a value with a distinct nominal type identity.
+     * The wrapped value can only be accessed via explicit cast (unwrap).
+     */
+    struct NGNewType : NGObject
+    {
+        RuntimeRef<NGType> newType;     ///< The nominal type of this newtype.
+        RuntimeRef<NGObject> wrapped;   ///< The wrapped value.
+
+        NGNewType(RuntimeRef<NGType> type, RuntimeRef<NGObject> value)
+            : newType(std::move(type)), wrapped(std::move(value)) {}
+
+        [[nodiscard]] auto type() const -> RuntimeRef<NGType> override { return newType; }
+        [[nodiscard]] auto show() const -> Str override { return wrapped->show(); }
+        [[nodiscard]] auto boolValue() const -> bool override { return wrapped->boolValue(); }
+
+        auto respond(const Str &member, NGCtx context, NGInvCtx invocationContext) -> RuntimeRef<NGObject> override
+        {
+            return wrapped->respond(member, context, invocationContext);
+        }
+    };
+
+    /**
+     * @brief A tagged value in a tagged union (e.g. Ok(42), Err("not found")).
+     */
+    struct NGTaggedValue : NGObject
+    {
+        Str unionName;                       ///< The name of the tagged union type.
+        Str variantName;                     ///< The name of this variant.
+        int32_t variantIndex;                ///< The index of this variant.
+        Vec<RuntimeRef<NGObject>> payload;   ///< The payload values.
+        Vec<Str> payloadNames;               ///< Named fields for the payload (e.g. {"value"} for Ok(value: i32)).
+
+        NGTaggedValue(Str unionName, Str variantName, int32_t variantIndex,
+                      Vec<RuntimeRef<NGObject>> payload, Vec<Str> payloadNames = {})
+            : unionName(std::move(unionName)), variantName(std::move(variantName)),
+              variantIndex(variantIndex), payload(std::move(payload)), payloadNames(std::move(payloadNames)) {}
+
+        [[nodiscard]] auto type() const -> RuntimeRef<NGType> override;
+        [[nodiscard]] auto show() const -> Str override;
+        [[nodiscard]] auto boolValue() const -> bool override { return true; }
+        auto respond(const Str &member, NGCtx context, NGInvCtx invocationContext) -> RuntimeRef<NGObject> override;
     };
 
     /**

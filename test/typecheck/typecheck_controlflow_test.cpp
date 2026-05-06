@@ -97,4 +97,134 @@ TEST_CASE("should fail when check control flow with incompatible type", "[Functi
             }
     )",
       "Loop Binding Type Mismatch");
+
+}
+
+TEST_CASE("const if with boolean literal true", "[const_if][TypeCheck]")
+{
+  auto ast = parse(R"(
+        const if (true) {
+            val x: i32 = 1;
+        } else {
+            val y: f64 = 2.0;
+        }
+        )");
+
+  REQUIRE(ast != nullptr);
+  auto typeIndex = type_check(ast);
+  destroyast(ast);
+}
+
+TEST_CASE("const if with boolean literal false", "[const_if][TypeCheck]")
+{
+  auto ast = parse(R"(
+        const if (false) {
+            val x: i32 = 1;
+        } else {
+            val y: f64 = 2.0;
+        }
+        )");
+
+  REQUIRE(ast != nullptr);
+  auto typeIndex = type_check(ast);
+  destroyast(ast);
+}
+
+TEST_CASE("const if with negation", "[const_if][TypeCheck]")
+{
+  auto ast = parse(R"(
+        const if (!false) {
+            val x: i32 = 1;
+        }
+        )");
+
+  REQUIRE(ast != nullptr);
+  auto typeIndex = type_check(ast);
+  destroyast(ast);
+}
+
+TEST_CASE("const if with binary AND", "[const_if][TypeCheck]")
+{
+  auto ast = parse(R"(
+        const if (true && false) {
+            val x: i32 = 1;
+        } else {
+            val y: i32 = 2;
+        }
+        )");
+
+  REQUIRE(ast != nullptr);
+  auto typeIndex = type_check(ast);
+  destroyast(ast);
+}
+
+TEST_CASE("const if with binary OR", "[const_if][TypeCheck]")
+{
+  auto ast = parse(R"(
+        const if (false || true) {
+            val x: i32 = 1;
+        } else {
+            val y: f64 = 2.0;
+        }
+        )");
+
+  REQUIRE(ast != nullptr);
+  auto typeIndex = type_check(ast);
+  destroyast(ast);
+}
+
+TEST_CASE("const if eliminates dead branch with incompatible types", "[const_if][TypeCheck]")
+{
+  auto ast = parse(R"(
+        const if (true) {
+            return 42;
+        } else {
+            return 3.14;
+        }
+        )");
+
+  REQUIRE(ast != nullptr);
+  auto typeIndex = type_check(ast);
+  destroyast(ast);
+}
+
+TEST_CASE("const if false eliminates then branch", "[const_if][TypeCheck]")
+{
+  auto ast = parse(R"(
+        const if (false) {
+            return 42;
+        } else {
+            return 3;
+        }
+        )");
+
+  REQUIRE(ast != nullptr);
+  auto typeIndex = type_check(ast);
+  destroyast(ast);
+}
+
+TEST_CASE("const if without else branch", "[const_if][TypeCheck]")
+{
+  auto ast = parse(R"(
+        const if (false) {
+            val x: i32 = 1;
+        }
+        )");
+
+  REQUIRE(ast != nullptr);
+  auto typeIndex = type_check(ast);
+  destroyast(ast);
+}
+
+TEST_CASE("const if false with dead code inside", "[const_if][TypeCheck]")
+{
+  auto ast = parse(R"(
+        const if (false) {
+            val x = 1 + 2;
+        }
+        )");
+
+  REQUIRE(ast != nullptr);
+  auto typeIndex = type_check(ast);
+  destroyast(ast);
 }

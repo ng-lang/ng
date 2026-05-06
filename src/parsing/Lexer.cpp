@@ -24,7 +24,7 @@ namespace NG::parsing
     '>', '<', '=', '-', '+', '*', '/', '%', '!', '?', '&', '|', '^', '~', '$',
   };
 
-  constexpr std::array<int, 6> bitlengths{8, 16, 32, 64, 128};
+  constexpr std::array<int, 6> bitlengths{8, 16, 32, 64, 128, 256};
 
   template <class Container, class T>
   inline auto is(const Container &container, T item) -> bool
@@ -86,6 +86,7 @@ namespace NG::parsing
     {"new", TokenType::KEYWORD_NEW},
     {"native", TokenType::KEYWORD_NATIVE},
 
+    {"const", TokenType::KEYWORD_CONST},
     {"if", TokenType::KEYWORD_IF},
     {"then", TokenType::KEYWORD_THEN},
     {"else", TokenType::KEYWORD_ELSE},
@@ -101,6 +102,8 @@ namespace NG::parsing
     {"in", TokenType::KEYWORD_IN},
     {"is", TokenType::KEYWORD_IS},
     {"typeof", TokenType::KEYWORD_TYPEOF},
+    {"wraps", TokenType::KEYWORD_WRAPS},
+    {"cast", TokenType::KEYWORD_CAST},
 
     {"true", TokenType::KEYWORD_TRUE},
     {"false", TokenType::KEYWORD_FALSE},
@@ -455,7 +458,6 @@ namespace NG::parsing
     DUALWORD = 32,
     QUADWORD = 64,
     OCTOWORD = 128,
-    HEXOWORD = 256,
   };
 
   enum class Floats : uint16_t
@@ -484,11 +486,24 @@ namespace NG::parsing
     case Words::QUADWORD:
       result = TokenType::NUMBER_I64;
       break;
+    case Words::OCTOWORD:
+      result = TokenType::NUMBER_I128;
+      break;
     default:
       throw LexException("Invalid bits");
     };
     if (tolower(sign) == 'u')
     {
+      if (result == TokenType::NUMBER_I8)
+        return TokenType::NUMBER_U8;
+      if (result == TokenType::NUMBER_I16)
+        return TokenType::NUMBER_U16;
+      if (result == TokenType::NUMBER_I32)
+        return TokenType::NUMBER_U32;
+      if (result == TokenType::NUMBER_I64)
+        return TokenType::NUMBER_U64;
+      if (result == TokenType::NUMBER_I128)
+        return TokenType::NUMBER_U128;
       return from_code<TokenType>(code(result) - 1);
     }
     if (tolower(sign) == 'i')
@@ -514,6 +529,9 @@ namespace NG::parsing
       break;
     case Floats::QUADRUPLE:
       result = TokenType::NUMBER_F128;
+      break;
+    case Floats::OCTUPLE:
+      result = TokenType::NUMBER_F256;
       break;
     default:
       throw LexException("Invalid bits");
@@ -766,6 +784,20 @@ namespace NG::parsing
                                 current = state.current();
                               }
                             });
+
+    // Handle special cases for generic syntax support:
+    // `<>` (empty generic params) → emit `<` as LT, put back `>` for next token
+    // `>>>` (triple nested closing generics) → emit `>>` as RSHIFT, put back `>`
+    if (result == "<>")
+    {
+      state.revert(state.index - 1); // put back '>'
+      result = "<";
+    }
+    else if (result == ">>>")
+    {
+      state.revert(state.index - 1); // put back '>'
+      result = ">>";
+    }
 
     if (tokenType.contains(result))
     {

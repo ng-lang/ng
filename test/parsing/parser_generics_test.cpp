@@ -1,0 +1,1125 @@
+#include "../test.hpp"
+
+using namespace NG;
+using namespace NG::ast;
+using namespace NG::parsing;
+
+// ============================================================================
+// Generic Function Definitions
+// ============================================================================
+
+TEST_CASE("parser should parse generic function with single type param", "[Parser][Generics]")
+{
+  auto ast = parse("fun<T> identity(x: T) -> T { return x; }");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto mod = compileUnit->module;
+  REQUIRE(mod != nullptr);
+  REQUIRE(mod->definitions.size() == 1);
+
+  auto funDef = dynamic_ast_cast<FunctionDef>(mod->definitions[0]);
+  REQUIRE(funDef != nullptr);
+  REQUIRE(funDef->funName == "identity");
+  REQUIRE(funDef->genericParams.size() == 1);
+  REQUIRE(funDef->genericParams[0]->name == "T");
+  REQUIRE(funDef->genericParams[0]->isPack == false);
+  REQUIRE(funDef->genericParams[0]->bound == nullptr);
+
+  // Check function params use the generic type
+  REQUIRE(funDef->params.size() == 1);
+  REQUIRE(funDef->params[0]->paramName == "x");
+  REQUIRE(funDef->params[0]->annotatedType != nullptr);
+  REQUIRE(funDef->params[0]->annotatedType->name == "T");
+
+  // Check return type
+  REQUIRE(funDef->returnType != nullptr);
+  REQUIRE(funDef->returnType->name == "T");
+
+  destroyast(ast);
+}
+
+// ============================================================================
+// Suffix Generic Syntax: `T TypeName` => TypeName<T>
+// ============================================================================
+
+TEST_CASE("parser should parse suffix generic syntax: bool array", "[Parser][Generics][Suffix]")
+{
+  auto ast = parse("val x: bool array = [];");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto mod = compileUnit->module;
+  REQUIRE(mod != nullptr);
+  REQUIRE(mod->definitions.size() == 1);
+
+  auto valDef = dynamic_ast_cast<ValDef>(mod->definitions[0]);
+  REQUIRE(valDef != nullptr);
+  auto valStmt = dynamic_ast_cast<ValDefStatement>(valDef->body);
+  REQUIRE(valStmt != nullptr);
+  REQUIRE(valStmt->typeAnnotation != nullptr);
+  // `bool array` desugars to `array<bool>`
+  REQUIRE(valStmt->typeAnnotation->name == "array");
+  REQUIRE(valStmt->typeAnnotation->type == TypeAnnotationType::CUSTOMIZED);
+  REQUIRE(valStmt->typeAnnotation->genericArgs.size() == 1);
+  REQUIRE(valStmt->typeAnnotation->genericArgs[0]->name == "bool");
+  REQUIRE(valStmt->typeAnnotation->genericArgs[0]->type == TypeAnnotationType::BUILTIN_BOOL);
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse suffix generic with numeric type: i32 array", "[Parser][Generics][Suffix]")
+{
+  auto ast = parse("val xs: i32 array = [];");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto valDef = dynamic_ast_cast<ValDef>(compileUnit->module->definitions[0]);
+  REQUIRE(valDef != nullptr);
+  auto valStmt = dynamic_ast_cast<ValDefStatement>(valDef->body);
+  REQUIRE(valStmt != nullptr);
+  REQUIRE(valStmt->typeAnnotation != nullptr);
+  // `i32 array` desugars to `array<i32>`
+  REQUIRE(valStmt->typeAnnotation->name == "array");
+  REQUIRE(valStmt->typeAnnotation->genericArgs.size() == 1);
+  REQUIRE(valStmt->typeAnnotation->genericArgs[0]->name == "i32");
+  REQUIRE(valStmt->typeAnnotation->genericArgs[0]->type == TypeAnnotationType::BUILTIN_I32);
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse suffix generic with left-associative nesting: i32 array Optional", "[Parser][Generics][Suffix]")
+{
+  // `i32 array Optional` desugars to `Optional<array<i32>>`
+  auto ast = parse("val x: i32 array Optional = unit;");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto valDef = dynamic_ast_cast<ValDef>(compileUnit->module->definitions[0]);
+  REQUIRE(valDef != nullptr);
+  auto valStmt = dynamic_ast_cast<ValDefStatement>(valDef->body);
+  REQUIRE(valStmt != nullptr);
+  REQUIRE(valStmt->typeAnnotation != nullptr);
+
+  // Outer: Optional<...>
+  REQUIRE(valStmt->typeAnnotation->name == "Optional");
+  REQUIRE(valStmt->typeAnnotation->type == TypeAnnotationType::CUSTOMIZED);
+  REQUIRE(valStmt->typeAnnotation->genericArgs.size() == 1);
+
+  // Inner: array<i32>
+  auto inner = valStmt->typeAnnotation->genericArgs[0];
+  REQUIRE(inner->name == "array");
+  REQUIRE(inner->type == TypeAnnotationType::CUSTOMIZED);
+  REQUIRE(inner->genericArgs.size() == 1);
+  REQUIRE(inner->genericArgs[0]->name == "i32");
+  REQUIRE(inner->genericArgs[0]->type == TypeAnnotationType::BUILTIN_I32);
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse multi-param suffix generic: (string, i32) Map", "[Parser][Generics][Suffix]")
+{
+  // `(string, i32) Map` desugars to `Map<string, i32>`
+  auto ast = parse("val m: (string, i32) Map = unit;");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto valDef = dynamic_ast_cast<ValDef>(compileUnit->module->definitions[0]);
+  REQUIRE(valDef != nullptr);
+  auto valStmt = dynamic_ast_cast<ValDefStatement>(valDef->body);
+  REQUIRE(valStmt != nullptr);
+  REQUIRE(valStmt->typeAnnotation != nullptr);
+
+  // Should be Map<string, i32>
+  REQUIRE(valStmt->typeAnnotation->name == "Map");
+  REQUIRE(valStmt->typeAnnotation->type == TypeAnnotationType::CUSTOMIZED);
+  REQUIRE(valStmt->typeAnnotation->genericArgs.size() == 2);
+  REQUIRE(valStmt->typeAnnotation->genericArgs[0]->name == "string");
+  REQUIRE(valStmt->typeAnnotation->genericArgs[0]->type == TypeAnnotationType::BUILTIN_STRING);
+  REQUIRE(valStmt->typeAnnotation->genericArgs[1]->name == "i32");
+  REQUIRE(valStmt->typeAnnotation->genericArgs[1]->type == TypeAnnotationType::BUILTIN_I32);
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse multi-param suffix with left-associative nesting: (string, i32) Map Optional", "[Parser][Generics][Suffix]")
+{
+  // `(string, i32) Map Optional` desugars to `Optional<Map<string, i32>>`
+  auto ast = parse("val m: (string, i32) Map Optional = unit;");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto valDef = dynamic_ast_cast<ValDef>(compileUnit->module->definitions[0]);
+  REQUIRE(valDef != nullptr);
+  auto valStmt = dynamic_ast_cast<ValDefStatement>(valDef->body);
+  REQUIRE(valStmt != nullptr);
+  REQUIRE(valStmt->typeAnnotation != nullptr);
+
+  // Outer: Optional<...>
+  REQUIRE(valStmt->typeAnnotation->name == "Optional");
+  REQUIRE(valStmt->typeAnnotation->type == TypeAnnotationType::CUSTOMIZED);
+  REQUIRE(valStmt->typeAnnotation->genericArgs.size() == 1);
+
+  // Inner: Map<string, i32>
+  auto inner = valStmt->typeAnnotation->genericArgs[0];
+  REQUIRE(inner->name == "Map");
+  REQUIRE(inner->type == TypeAnnotationType::CUSTOMIZED);
+  REQUIRE(inner->genericArgs.size() == 2);
+  REQUIRE(inner->genericArgs[0]->name == "string");
+  REQUIRE(inner->genericArgs[1]->name == "i32");
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse suffix generic in function signature", "[Parser][Generics][Suffix]")
+{
+  // Suffix generic in parameter and return type positions
+  auto ast = parse("fun process(xs: i32 array) -> bool array { return []; }");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto funDef = dynamic_ast_cast<FunctionDef>(compileUnit->module->definitions[0]);
+  REQUIRE(funDef != nullptr);
+  REQUIRE(funDef->funName == "process");
+
+  // Param: `i32 array` => array<i32>
+  REQUIRE(funDef->params.size() == 1);
+  REQUIRE(funDef->params[0]->annotatedType != nullptr);
+  REQUIRE(funDef->params[0]->annotatedType->name == "array");
+  REQUIRE(funDef->params[0]->annotatedType->genericArgs.size() == 1);
+  REQUIRE(funDef->params[0]->annotatedType->genericArgs[0]->name == "i32");
+
+  // Return: `bool array` => array<bool>
+  REQUIRE(funDef->returnType != nullptr);
+  REQUIRE(funDef->returnType->name == "array");
+  REQUIRE(funDef->returnType->genericArgs.size() == 1);
+  REQUIRE(funDef->returnType->genericArgs[0]->name == "bool");
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse generic function with multiple type params", "[Parser][Generics]")
+{
+  auto ast = parse("fun<T, U> pair(a: T, b: U) -> T { return a; }");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto funDef = dynamic_ast_cast<FunctionDef>(compileUnit->module->definitions[0]);
+  REQUIRE(funDef != nullptr);
+  REQUIRE(funDef->genericParams.size() == 2);
+  REQUIRE(funDef->genericParams[0]->name == "T");
+  REQUIRE(funDef->genericParams[0]->isPack == false);
+  REQUIRE(funDef->genericParams[1]->name == "U");
+  REQUIRE(funDef->genericParams[1]->isPack == false);
+
+  // Check both params use different generic types
+  REQUIRE(funDef->params.size() == 2);
+  REQUIRE(funDef->params[0]->annotatedType->name == "T");
+  REQUIRE(funDef->params[1]->annotatedType->name == "U");
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse generic function with three type params", "[Parser][Generics]")
+{
+  auto ast = parse("fun<A, B, C> triple(a: A, b: B, c: C) -> A { return a; }");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto funDef = dynamic_ast_cast<FunctionDef>(compileUnit->module->definitions[0]);
+  REQUIRE(funDef != nullptr);
+  REQUIRE(funDef->genericParams.size() == 3);
+  REQUIRE(funDef->genericParams[0]->name == "A");
+  REQUIRE(funDef->genericParams[1]->name == "B");
+  REQUIRE(funDef->genericParams[2]->name == "C");
+
+  REQUIRE(funDef->params.size() == 3);
+  REQUIRE(funDef->params[0]->annotatedType->name == "A");
+  REQUIRE(funDef->params[1]->annotatedType->name == "B");
+  REQUIRE(funDef->params[2]->annotatedType->name == "C");
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse generic function with pack parameter", "[Parser][Generics][Pack]")
+{
+  auto ast = parse("fun<T...> make_tuple(args: T) -> T { return args; }");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto funDef = dynamic_ast_cast<FunctionDef>(compileUnit->module->definitions[0]);
+  REQUIRE(funDef != nullptr);
+  REQUIRE(funDef->genericParams.size() == 1);
+  REQUIRE(funDef->genericParams[0]->name == "T");
+  REQUIRE(funDef->genericParams[0]->isPack == true);
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse generic function with type bound", "[Parser][Generics]")
+{
+  auto ast = parse("fun<T: Comparable> do_sort(items: T) -> T { return items; }");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto funDef = dynamic_ast_cast<FunctionDef>(compileUnit->module->definitions[0]);
+  REQUIRE(funDef != nullptr);
+  REQUIRE(funDef->genericParams.size() == 1);
+  REQUIRE(funDef->genericParams[0]->name == "T");
+  REQUIRE(funDef->genericParams[0]->bound != nullptr);
+  REQUIRE(funDef->genericParams[0]->bound->name == "Comparable");
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse generic function with name-before-angle-bracket syntax", "[Parser][Generics]")
+{
+  // Also support: fun name<T>(...) after the function name
+  auto ast = parse("fun identity<T>(x: T) -> T { return x; }");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto funDef = dynamic_ast_cast<FunctionDef>(compileUnit->module->definitions[0]);
+  REQUIRE(funDef != nullptr);
+  REQUIRE(funDef->funName == "identity");
+  REQUIRE(funDef->genericParams.size() == 1);
+  REQUIRE(funDef->genericParams[0]->name == "T");
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse generic function with name-before-angle-bracket and multiple params", "[Parser][Generics]")
+{
+  auto ast = parse("fun convert<A, B>(v: A) -> B { return v; }");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto funDef = dynamic_ast_cast<FunctionDef>(compileUnit->module->definitions[0]);
+  REQUIRE(funDef != nullptr);
+  REQUIRE(funDef->funName == "convert");
+  REQUIRE(funDef->genericParams.size() == 2);
+  REQUIRE(funDef->genericParams[0]->name == "A");
+  REQUIRE(funDef->genericParams[1]->name == "B");
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse generic function with expression body", "[Parser][Generics]")
+{
+  auto ast = parse("fun<T> identity(x: T) -> T = x;");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto funDef = dynamic_ast_cast<FunctionDef>(compileUnit->module->definitions[0]);
+  REQUIRE(funDef != nullptr);
+  REQUIRE(funDef->funName == "identity");
+  REQUIRE(funDef->genericParams.size() == 1);
+  REQUIRE(funDef->genericParams[0]->name == "T");
+  REQUIRE(funDef->body != nullptr);
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse generic function without params (no generics)", "[Parser][Generics]")
+{
+  auto ast = parse("fun simple(x: int) -> int { return x; }");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto funDef = dynamic_ast_cast<FunctionDef>(compileUnit->module->definitions[0]);
+  REQUIRE(funDef != nullptr);
+  REQUIRE(funDef->genericParams.size() == 0);
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse generic function with no generic-typed parameters", "[Parser][Generics]")
+{
+  // Function has generic params but uses them only in return type
+  auto ast = parse("fun<T> mk_default() -> T { return unit; }");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto funDef = dynamic_ast_cast<FunctionDef>(compileUnit->module->definitions[0]);
+  REQUIRE(funDef != nullptr);
+  REQUIRE(funDef->genericParams.size() == 1);
+  REQUIRE(funDef->genericParams[0]->name == "T");
+  REQUIRE(funDef->params.size() == 0);
+  REQUIRE(funDef->returnType != nullptr);
+  REQUIRE(funDef->returnType->name == "T");
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse exported generic function", "[Parser][Generics]")
+{
+  auto ast = parse("export fun<T> identity(x: T) -> T { return x; }");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto mod = compileUnit->module;
+  REQUIRE(mod != nullptr);
+  REQUIRE(mod->exports.size() == 1);
+  REQUIRE(mod->exports[0] == "identity");
+
+  auto funDef = dynamic_ast_cast<FunctionDef>(mod->definitions[0]);
+  REQUIRE(funDef != nullptr);
+  REQUIRE(funDef->genericParams.size() == 1);
+  REQUIRE(funDef->genericParams[0]->name == "T");
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse generic function with mixed bound and pack params", "[Parser][Generics][Pack]")
+{
+  auto ast = parse("fun<T: Hashable, U...> process(key: T, vals: U) -> T { return key; }");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto funDef = dynamic_ast_cast<FunctionDef>(compileUnit->module->definitions[0]);
+  REQUIRE(funDef != nullptr);
+  REQUIRE(funDef->genericParams.size() == 2);
+  REQUIRE(funDef->genericParams[0]->name == "T");
+  REQUIRE(funDef->genericParams[0]->isPack == false);
+  REQUIRE(funDef->genericParams[0]->bound != nullptr);
+  REQUIRE(funDef->genericParams[0]->bound->name == "Hashable");
+  REQUIRE(funDef->genericParams[1]->name == "U");
+  REQUIRE(funDef->genericParams[1]->isPack == true);
+  REQUIRE(funDef->genericParams[1]->bound == nullptr);
+
+  destroyast(ast);
+}
+
+// ============================================================================
+// Generic Type Definitions (TypeDef)
+// ============================================================================
+
+TEST_CASE("parser should parse generic TypeDef with single param", "[Parser][Generics][TypeDef]")
+{
+  auto ast = parse("type Wrapper<T> { property value: T; }");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto typeDef = dynamic_ast_cast<TypeDef>(compileUnit->module->definitions[0]);
+  REQUIRE(typeDef != nullptr);
+  REQUIRE(typeDef->typeName == "Wrapper");
+  REQUIRE(typeDef->genericParams.size() == 1);
+  REQUIRE(typeDef->genericParams[0]->name == "T");
+  REQUIRE(typeDef->properties.size() == 1);
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse generic TypeDef with multiple params", "[Parser][Generics][TypeDef]")
+{
+  auto ast = parse("type Pair<A, B> { property first: A; property second: B; }");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto typeDef = dynamic_ast_cast<TypeDef>(compileUnit->module->definitions[0]);
+  REQUIRE(typeDef != nullptr);
+  REQUIRE(typeDef->typeName == "Pair");
+  REQUIRE(typeDef->genericParams.size() == 2);
+  REQUIRE(typeDef->genericParams[0]->name == "A");
+  REQUIRE(typeDef->genericParams[1]->name == "B");
+  REQUIRE(typeDef->properties.size() == 2);
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse generic TypeDef with member functions", "[Parser][Generics][TypeDef]")
+{
+  auto ast = parse("type Container<T> { property value: T; fun get(self) -> T { return self.value; } }");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto typeDef = dynamic_ast_cast<TypeDef>(compileUnit->module->definitions[0]);
+  REQUIRE(typeDef != nullptr);
+  REQUIRE(typeDef->typeName == "Container");
+  REQUIRE(typeDef->genericParams.size() == 1);
+  REQUIRE(typeDef->genericParams[0]->name == "T");
+  REQUIRE(typeDef->properties.size() == 1);
+  REQUIRE(typeDef->memberFunctions.size() == 1);
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse non-generic TypeDef (no regression)", "[Parser][Generics][TypeDef]")
+{
+  auto ast = parse("type Point { property x: i32; property y: i32; }");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto typeDef = dynamic_ast_cast<TypeDef>(compileUnit->module->definitions[0]);
+  REQUIRE(typeDef != nullptr);
+  REQUIRE(typeDef->typeName == "Point");
+  REQUIRE(typeDef->genericParams.size() == 0);
+
+  destroyast(ast);
+}
+
+// ============================================================================
+// Type Alias with Generics
+// ============================================================================
+
+TEST_CASE("parser should parse type alias with generic params", "[Parser][Generics][TypeAlias]")
+{
+  auto ast = parse("type Pair<A, B> = (A, B);");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto aliasDef = dynamic_ast_cast<TypeAliasDef>(compileUnit->module->definitions[0]);
+  REQUIRE(aliasDef != nullptr);
+  REQUIRE(aliasDef->aliasName == "Pair");
+  REQUIRE(aliasDef->genericParams.size() == 2);
+  REQUIRE(aliasDef->genericParams[0]->name == "A");
+  REQUIRE(aliasDef->genericParams[1]->name == "B");
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse type alias with single generic param", "[Parser][Generics][TypeAlias]")
+{
+  auto ast = parse("type Ref<T> = T;");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto aliasDef = dynamic_ast_cast<TypeAliasDef>(compileUnit->module->definitions[0]);
+  REQUIRE(aliasDef != nullptr);
+  REQUIRE(aliasDef->aliasName == "Ref");
+  REQUIRE(aliasDef->genericParams.size() == 1);
+  REQUIRE(aliasDef->genericParams[0]->name == "T");
+  REQUIRE(aliasDef->underlyingType != nullptr);
+  REQUIRE(aliasDef->underlyingType->name == "T");
+
+  destroyast(ast);
+}
+
+// ============================================================================
+// NewType with Generics
+// ============================================================================
+
+TEST_CASE("parser should parse newtype with generic param", "[Parser][Generics][NewType]")
+{
+  auto ast = parse("type UserId<T> wraps T;");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto ntDef = dynamic_ast_cast<NewTypeDef>(compileUnit->module->definitions[0]);
+  REQUIRE(ntDef != nullptr);
+  REQUIRE(ntDef->typeName == "UserId");
+  REQUIRE(ntDef->genericParams.size() == 1);
+  REQUIRE(ntDef->genericParams[0]->name == "T");
+  REQUIRE(ntDef->wrappedType != nullptr);
+  REQUIRE(ntDef->wrappedType->name == "T");
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse newtype with multiple generic params", "[Parser][Generics][NewType]")
+{
+  auto ast = parse("type Tagged<T, U> wraps (T, U);");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto ntDef = dynamic_ast_cast<NewTypeDef>(compileUnit->module->definitions[0]);
+  REQUIRE(ntDef != nullptr);
+  REQUIRE(ntDef->typeName == "Tagged");
+  REQUIRE(ntDef->genericParams.size() == 2);
+  REQUIRE(ntDef->genericParams[0]->name == "T");
+  REQUIRE(ntDef->genericParams[1]->name == "U");
+
+  destroyast(ast);
+}
+
+// ============================================================================
+// Tagged Union with Generics
+// ============================================================================
+
+TEST_CASE("parser should parse tagged union with generic params", "[Parser][Generics][TaggedUnion]")
+{
+  auto ast = parse("type Result<T, E> = Ok(T) | Err(E);");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto tuDef = dynamic_ast_cast<TaggedUnionDef>(compileUnit->module->definitions[0]);
+  REQUIRE(tuDef != nullptr);
+  REQUIRE(tuDef->typeName == "Result");
+  REQUIRE(tuDef->genericParams.size() == 2);
+  REQUIRE(tuDef->genericParams[0]->name == "T");
+  REQUIRE(tuDef->genericParams[1]->name == "E");
+  REQUIRE(tuDef->variants.size() == 2);
+  REQUIRE(tuDef->variants[0].variantName == "Ok");
+  REQUIRE(tuDef->variants[1].variantName == "Err");
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse tagged union with single generic param", "[Parser][Generics][TaggedUnion]")
+{
+  auto ast = parse("type Option<T> = Some(T) | None;");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto tuDef = dynamic_ast_cast<TaggedUnionDef>(compileUnit->module->definitions[0]);
+  REQUIRE(tuDef != nullptr);
+  REQUIRE(tuDef->typeName == "Option");
+  REQUIRE(tuDef->genericParams.size() == 1);
+  REQUIRE(tuDef->genericParams[0]->name == "T");
+  REQUIRE(tuDef->variants.size() == 2);
+  REQUIRE(tuDef->variants[0].variantName == "Some");
+  REQUIRE(tuDef->variants[0].payloadTypes.size() == 1);
+  REQUIRE(tuDef->variants[1].variantName == "None");
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse tagged union with generic and multiple payloads", "[Parser][Generics][TaggedUnion]")
+{
+  auto ast = parse("type Either<L, R> = Left(L, string) | Right(R);");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto tuDef = dynamic_ast_cast<TaggedUnionDef>(compileUnit->module->definitions[0]);
+  REQUIRE(tuDef != nullptr);
+  REQUIRE(tuDef->typeName == "Either");
+  REQUIRE(tuDef->genericParams.size() == 2);
+  REQUIRE(tuDef->genericParams[0]->name == "L");
+  REQUIRE(tuDef->genericParams[1]->name == "R");
+  REQUIRE(tuDef->variants.size() == 2);
+  REQUIRE(tuDef->variants[0].variantName == "Left");
+  REQUIRE(tuDef->variants[0].payloadTypes.size() == 2);
+  REQUIRE(tuDef->variants[1].variantName == "Right");
+  REQUIRE(tuDef->variants[1].payloadTypes.size() == 1);
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse non-generic tagged union (no regression)", "[Parser][Generics][TaggedUnion]")
+{
+  auto ast = parse("type Color = Red | Green | Blue;");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto tuDef = dynamic_ast_cast<TaggedUnionDef>(compileUnit->module->definitions[0]);
+  REQUIRE(tuDef != nullptr);
+  REQUIRE(tuDef->typeName == "Color");
+  REQUIRE(tuDef->genericParams.size() == 0);
+  REQUIRE(tuDef->variants.size() == 3);
+
+  destroyast(ast);
+}
+
+// ============================================================================
+// Type Annotations with Generic Args
+// ============================================================================
+
+TEST_CASE("parser should parse type annotation with generic args", "[Parser][Generics][TypeAnnotation]")
+{
+  auto ast = parse("fun myfn(x: Option<int>) -> int { return x; }");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto funDef = dynamic_ast_cast<FunctionDef>(compileUnit->module->definitions[0]);
+  REQUIRE(funDef != nullptr);
+  REQUIRE(funDef->params.size() == 1);
+  REQUIRE(funDef->params[0]->annotatedType != nullptr);
+  REQUIRE(funDef->params[0]->annotatedType->name == "Option");
+  REQUIRE(funDef->params[0]->annotatedType->type == TypeAnnotationType::CUSTOMIZED);
+  REQUIRE(funDef->params[0]->annotatedType->genericArgs.size() == 1);
+  REQUIRE(funDef->params[0]->annotatedType->genericArgs[0]->name == "int");
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse type annotation with multiple generic args", "[Parser][Generics][TypeAnnotation]")
+{
+  auto ast = parse("fun myfn(x: Map<string, int>) -> unit { return unit; }");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto funDef = dynamic_ast_cast<FunctionDef>(compileUnit->module->definitions[0]);
+  REQUIRE(funDef != nullptr);
+  REQUIRE(funDef->params.size() == 1);
+  REQUIRE(funDef->params[0]->annotatedType != nullptr);
+  REQUIRE(funDef->params[0]->annotatedType->name == "Map");
+  REQUIRE(funDef->params[0]->annotatedType->genericArgs.size() == 2);
+  REQUIRE(funDef->params[0]->annotatedType->genericArgs[0]->name == "string");
+  REQUIRE(funDef->params[0]->annotatedType->genericArgs[1]->name == "int");
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse nested generic type annotations", "[Parser][Generics][TypeAnnotation]")
+{
+  auto ast = parse("fun myfn(x: Option<Option<int>>) -> int { return x; }");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto funDef = dynamic_ast_cast<FunctionDef>(compileUnit->module->definitions[0]);
+  REQUIRE(funDef != nullptr);
+  REQUIRE(funDef->params[0]->annotatedType != nullptr);
+  REQUIRE(funDef->params[0]->annotatedType->name == "Option");
+  REQUIRE(funDef->params[0]->annotatedType->genericArgs.size() == 1);
+  auto inner = funDef->params[0]->annotatedType->genericArgs[0];
+  REQUIRE(inner->name == "Option");
+  REQUIRE(inner->genericArgs.size() == 1);
+  REQUIRE(inner->genericArgs[0]->name == "int");
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse triple nested generic type annotations", "[Parser][Generics][TypeAnnotation]")
+{
+  auto ast = parse("fun myfn(x: Option<Option<Option<int>>>) -> int { return x; }");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto funDef = dynamic_ast_cast<FunctionDef>(compileUnit->module->definitions[0]);
+  REQUIRE(funDef != nullptr);
+  auto outer = funDef->params[0]->annotatedType;
+  REQUIRE(outer->name == "Option");
+  REQUIRE(outer->genericArgs.size() == 1);
+
+  auto middle = outer->genericArgs[0];
+  REQUIRE(middle->name == "Option");
+  REQUIRE(middle->genericArgs.size() == 1);
+
+  auto inner = middle->genericArgs[0];
+  REQUIRE(inner->name == "Option");
+  REQUIRE(inner->genericArgs.size() == 1);
+  REQUIRE(inner->genericArgs[0]->name == "int");
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse generic type annotation in return type", "[Parser][Generics][TypeAnnotation]")
+{
+  auto ast = parse("fun myfn() -> Option<int> { return unit; }");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto funDef = dynamic_ast_cast<FunctionDef>(compileUnit->module->definitions[0]);
+  REQUIRE(funDef != nullptr);
+  REQUIRE(funDef->returnType != nullptr);
+  REQUIRE(funDef->returnType->name == "Option");
+  REQUIRE(funDef->returnType->genericArgs.size() == 1);
+  REQUIRE(funDef->returnType->genericArgs[0]->name == "int");
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse generic type annotation in val definition", "[Parser][Generics][TypeAnnotation]")
+{
+  auto ast = parse("val items: array<int> = [1, 2, 3];");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto valDef = dynamic_ast_cast<ValDef>(compileUnit->module->definitions[0]);
+  REQUIRE(valDef != nullptr);
+  auto valStmt = dynamic_ast_cast<ValDefStatement>(valDef->body);
+  REQUIRE(valStmt != nullptr);
+  REQUIRE(valStmt->typeAnnotation != nullptr);
+  REQUIRE(valStmt->typeAnnotation->name == "array");
+  // `array<int>` where `array` is an identifier is parsed as CUSTOMIZED with genericArgs
+  // (as opposed to `[int]` which is ARRAY with arguments)
+  REQUIRE(valStmt->typeAnnotation->type == TypeAnnotationType::CUSTOMIZED);
+  REQUIRE(valStmt->typeAnnotation->genericArgs.size() == 1);
+  REQUIRE(valStmt->typeAnnotation->genericArgs[0]->name == "int");
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse generic args with builtin type arguments", "[Parser][Generics][TypeAnnotation]")
+{
+  auto ast = parse("fun myfn(x: Option<i32>, y: Option<string>) -> unit { return unit; }");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto funDef = dynamic_ast_cast<FunctionDef>(compileUnit->module->definitions[0]);
+  REQUIRE(funDef != nullptr);
+  REQUIRE(funDef->params.size() == 2);
+
+  REQUIRE(funDef->params[0]->annotatedType->name == "Option");
+  REQUIRE(funDef->params[0]->annotatedType->genericArgs.size() == 1);
+  REQUIRE(funDef->params[0]->annotatedType->genericArgs[0]->name == "i32");
+  REQUIRE(funDef->params[0]->annotatedType->genericArgs[0]->type == TypeAnnotationType::BUILTIN_I32);
+
+  REQUIRE(funDef->params[1]->annotatedType->name == "Option");
+  REQUIRE(funDef->params[1]->annotatedType->genericArgs.size() == 1);
+  REQUIRE(funDef->params[1]->annotatedType->genericArgs[0]->name == "string");
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse generic type annotation without generic args (no regression)", "[Parser][Generics][TypeAnnotation]")
+{
+  auto ast = parse("fun myfn(x: MyType) -> MyType { return x; }");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto funDef = dynamic_ast_cast<FunctionDef>(compileUnit->module->definitions[0]);
+  REQUIRE(funDef != nullptr);
+  REQUIRE(funDef->params[0]->annotatedType != nullptr);
+  REQUIRE(funDef->params[0]->annotatedType->name == "MyType");
+  REQUIRE(funDef->params[0]->annotatedType->type == TypeAnnotationType::CUSTOMIZED);
+  REQUIRE(funDef->params[0]->annotatedType->genericArgs.size() == 0);
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse generic arg with unit type", "[Parser][Generics][TypeAnnotation]")
+{
+  auto ast = parse("fun myfn(x: Result<unit, string>) -> unit { return unit; }");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto funDef = dynamic_ast_cast<FunctionDef>(compileUnit->module->definitions[0]);
+  REQUIRE(funDef != nullptr);
+  REQUIRE(funDef->params[0]->annotatedType->name == "Result");
+  REQUIRE(funDef->params[0]->annotatedType->genericArgs.size() == 2);
+  REQUIRE(funDef->params[0]->annotatedType->genericArgs[0]->name == "unit");
+  REQUIRE(funDef->params[0]->annotatedType->genericArgs[0]->type == TypeAnnotationType::BUILTIN_UNIT);
+  REQUIRE(funDef->params[0]->annotatedType->genericArgs[1]->name == "string");
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse generic arg with bool type", "[Parser][Generics][TypeAnnotation]")
+{
+  auto ast = parse("fun myfn(x: Option<bool>) -> unit { return unit; }");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto funDef = dynamic_ast_cast<FunctionDef>(compileUnit->module->definitions[0]);
+  REQUIRE(funDef != nullptr);
+  REQUIRE(funDef->params[0]->annotatedType->genericArgs[0]->name == "bool");
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse generic arg with array type inside", "[Parser][Generics][TypeAnnotation]")
+{
+  auto ast = parse("fun myfn(x: Option<[int]>) -> unit { return unit; }");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto funDef = dynamic_ast_cast<FunctionDef>(compileUnit->module->definitions[0]);
+  REQUIRE(funDef != nullptr);
+  auto optType = funDef->params[0]->annotatedType;
+  REQUIRE(optType->name == "Option");
+  REQUIRE(optType->genericArgs.size() == 1);
+  REQUIRE(optType->genericArgs[0]->type == TypeAnnotationType::ARRAY);
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse generic arg with tuple type inside", "[Parser][Generics][TypeAnnotation]")
+{
+  auto ast = parse("fun myfn(x: Option<(int, string)>) -> unit { return unit; }");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto funDef = dynamic_ast_cast<FunctionDef>(compileUnit->module->definitions[0]);
+  REQUIRE(funDef != nullptr);
+  auto optType = funDef->params[0]->annotatedType;
+  REQUIRE(optType->name == "Option");
+  REQUIRE(optType->genericArgs.size() == 1);
+  REQUIRE(optType->genericArgs[0]->type == TypeAnnotationType::TUPLE);
+  REQUIRE(optType->genericArgs[0]->arguments.size() == 2);
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse nested generics with different type names", "[Parser][Generics][TypeAnnotation]")
+{
+  auto ast = parse("fun myfn(x: Result<Option<int>, string>) -> unit { return unit; }");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto funDef = dynamic_ast_cast<FunctionDef>(compileUnit->module->definitions[0]);
+  REQUIRE(funDef != nullptr);
+  auto resultType = funDef->params[0]->annotatedType;
+  REQUIRE(resultType->name == "Result");
+  REQUIRE(resultType->genericArgs.size() == 2);
+
+  auto firstArg = resultType->genericArgs[0];
+  REQUIRE(firstArg->name == "Option");
+  REQUIRE(firstArg->genericArgs.size() == 1);
+  REQUIRE(firstArg->genericArgs[0]->name == "int");
+
+  auto secondArg = resultType->genericArgs[1];
+  REQUIRE(secondArg->name == "string");
+  REQUIRE(secondArg->genericArgs.size() == 0);
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse deeply nested mixed generics", "[Parser][Generics][TypeAnnotation]")
+{
+  auto ast = parse("fun myfn(x: Map<string, Option<array<i32>>>) -> unit { return unit; }");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto funDef = dynamic_ast_cast<FunctionDef>(compileUnit->module->definitions[0]);
+  REQUIRE(funDef != nullptr);
+  auto mapType = funDef->params[0]->annotatedType;
+  REQUIRE(mapType->name == "Map");
+  REQUIRE(mapType->genericArgs.size() == 2);
+
+  REQUIRE(mapType->genericArgs[0]->name == "string");
+
+  auto optType = mapType->genericArgs[1];
+  REQUIRE(optType->name == "Option");
+  REQUIRE(optType->genericArgs.size() == 1);
+
+  auto arrType = optType->genericArgs[0];
+  REQUIRE(arrType->name == "array");
+  // `array<i32>` uses generic ID syntax, not bracket syntax `[i32]`
+  // so it's CUSTOMIZED with genericArgs, not ARRAY
+  REQUIRE(arrType->type == TypeAnnotationType::CUSTOMIZED);
+  REQUIRE(arrType->genericArgs.size() == 1);
+  REQUIRE(arrType->genericArgs[0]->name == "i32");
+  REQUIRE(arrType->genericArgs[0]->type == TypeAnnotationType::BUILTIN_I32);
+
+  destroyast(ast);
+}
+
+// ============================================================================
+// Error Cases — Invalid Generic Syntax
+// ============================================================================
+
+TEST_CASE("parser should reject generic params without name", "[Parser][Generics][Error]")
+{
+  parseInvalid("fun<> identity(x: int) -> int { return x; }", "");
+  // This should either parse as empty generic or error — depends on design
+  // The key is it should not crash
+}
+
+TEST_CASE("parser should reject unclosed generic params", "[Parser][Generics][Error]")
+{
+  parseInvalid("fun<T identity(x: T) -> T { return x; }", "");
+  // Should produce parse error due to unclosed '<'
+}
+
+TEST_CASE("parser should reject unclosed generic args in type annotation", "[Parser][Generics][Error]")
+{
+  parseInvalid("fun myfn(x: Option<int) -> int { return x; }", "");
+  // Should produce parse error due to unclosed '<' in type annotation
+}
+
+// ============================================================================
+// Multiple Definitions with Generics
+// ============================================================================
+
+TEST_CASE("parser should parse multiple generic definitions in sequence", "[Parser][Generics]")
+{
+  auto ast = parse("fun<T> identity(x: T) -> T { return x; }\nfun<U, V> pair(a: U, b: V) -> U { return a; }");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto mod = compileUnit->module;
+  REQUIRE(mod != nullptr);
+  REQUIRE(mod->definitions.size() == 2);
+
+  auto fun1 = dynamic_ast_cast<FunctionDef>(mod->definitions[0]);
+  REQUIRE(fun1 != nullptr);
+  REQUIRE(fun1->funName == "identity");
+  REQUIRE(fun1->genericParams.size() == 1);
+  REQUIRE(fun1->genericParams[0]->name == "T");
+
+  auto fun2 = dynamic_ast_cast<FunctionDef>(mod->definitions[1]);
+  REQUIRE(fun2 != nullptr);
+  REQUIRE(fun2->funName == "pair");
+  REQUIRE(fun2->genericParams.size() == 2);
+  REQUIRE(fun2->genericParams[0]->name == "U");
+  REQUIRE(fun2->genericParams[1]->name == "V");
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse generic and non-generic definitions mixed", "[Parser][Generics]")
+{
+  auto ast = parse(
+    "fun simple(x: i32) -> i32 { return x; }\n"
+    "fun<T> identity(x: T) -> T { return x; }\n"
+    "val z: i32 = 42;\n"
+    "type Box<T> { property value: T; }"
+  );
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto mod = compileUnit->module;
+  REQUIRE(mod != nullptr);
+  REQUIRE(mod->definitions.size() == 4);
+
+  auto fun1 = dynamic_ast_cast<FunctionDef>(mod->definitions[0]);
+  REQUIRE(fun1 != nullptr);
+  REQUIRE(fun1->genericParams.size() == 0);
+
+  auto fun2 = dynamic_ast_cast<FunctionDef>(mod->definitions[1]);
+  REQUIRE(fun2 != nullptr);
+  REQUIRE(fun2->genericParams.size() == 1);
+
+  auto valDef = dynamic_ast_cast<ValDef>(mod->definitions[2]);
+  REQUIRE(valDef != nullptr);
+
+  auto typeDef = dynamic_ast_cast<TypeDef>(mod->definitions[3]);
+  REQUIRE(typeDef != nullptr);
+  REQUIRE(typeDef->genericParams.size() == 1);
+
+  destroyast(ast);
+}
+
+// ============================================================================
+// Edge Cases
+// ============================================================================
+
+TEST_CASE("parser should parse generic type arg with same name as outer type", "[Parser][Generics][TypeAnnotation]")
+{
+  // Unusual but valid: Option<Option>
+  auto ast = parse("fun myfn(x: Option<Option>) -> unit { return unit; }");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto funDef = dynamic_ast_cast<FunctionDef>(compileUnit->module->definitions[0]);
+  REQUIRE(funDef != nullptr);
+  REQUIRE(funDef->params[0]->annotatedType->name == "Option");
+  REQUIRE(funDef->params[0]->annotatedType->genericArgs.size() == 1);
+  REQUIRE(funDef->params[0]->annotatedType->genericArgs[0]->name == "Option");
+  REQUIRE(funDef->params[0]->annotatedType->genericArgs[0]->genericArgs.size() == 0);
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse generic params with underscores in names", "[Parser][Generics]")
+{
+  auto ast = parse("fun<T_val, U_val> process(a: T_val, b: U_val) -> T_val { return a; }");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto funDef = dynamic_ast_cast<FunctionDef>(compileUnit->module->definitions[0]);
+  REQUIRE(funDef != nullptr);
+  REQUIRE(funDef->genericParams.size() == 2);
+  REQUIRE(funDef->genericParams[0]->name == "T_val");
+  REQUIRE(funDef->genericParams[1]->name == "U_val");
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse generic function with all builtin return type", "[Parser][Generics][TypeAnnotation]")
+{
+  auto ast = parse("fun<T> len(items: T) -> i32 { return 0; }");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto funDef = dynamic_ast_cast<FunctionDef>(compileUnit->module->definitions[0]);
+  REQUIRE(funDef != nullptr);
+  REQUIRE(funDef->genericParams.size() == 1);
+  REQUIRE(funDef->params[0]->annotatedType->name == "T");
+  REQUIRE(funDef->returnType != nullptr);
+  REQUIRE(funDef->returnType->type == TypeAnnotationType::BUILTIN_I32);
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse generic function with generic param used in multiple places", "[Parser][Generics]")
+{
+  auto ast = parse("fun<T> dup(x: T, y: T) -> (T, T) { return (x, y); }");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto funDef = dynamic_ast_cast<FunctionDef>(compileUnit->module->definitions[0]);
+  REQUIRE(funDef != nullptr);
+  REQUIRE(funDef->genericParams.size() == 1);
+  REQUIRE(funDef->params.size() == 2);
+  REQUIRE(funDef->params[0]->annotatedType->name == "T");
+  REQUIRE(funDef->params[1]->annotatedType->name == "T");
+  REQUIRE(funDef->returnType != nullptr);
+  REQUIRE(funDef->returnType->type == TypeAnnotationType::TUPLE);
+  REQUIRE(funDef->returnType->arguments.size() == 2);
+  auto tupleArg0 = dynamic_ast_cast<TypeAnnotation>(funDef->returnType->arguments[0]);
+  auto tupleArg1 = dynamic_ast_cast<TypeAnnotation>(funDef->returnType->arguments[1]);
+  REQUIRE(tupleArg0 != nullptr);
+  REQUIRE(tupleArg1 != nullptr);
+  REQUIRE(tupleArg0->name == "T");
+  REQUIRE(tupleArg1->name == "T");
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse generic type in new expression context", "[Parser][Generics][TypeAnnotation]")
+{
+  // Ensure generic types can appear in new object expressions type position
+  auto ast = parse("type Box<T> { property value: T; }\nfun make_box<T>(v: T) -> Box<T> { return new Box { value: v }; }");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto mod = compileUnit->module;
+  REQUIRE(mod->definitions.size() == 2);
+
+  auto typeDef = dynamic_ast_cast<TypeDef>(mod->definitions[0]);
+  REQUIRE(typeDef != nullptr);
+  REQUIRE(typeDef->genericParams.size() == 1);
+
+  auto funDef = dynamic_ast_cast<FunctionDef>(mod->definitions[1]);
+  REQUIRE(funDef != nullptr);
+  REQUIRE(funDef->genericParams.size() == 1);
+  REQUIRE(funDef->returnType != nullptr);
+  REQUIRE(funDef->returnType->name == "Box");
+  REQUIRE(funDef->returnType->genericArgs.size() == 1);
+  REQUIRE(funDef->returnType->genericArgs[0]->name == "T");
+
+  destroyast(ast);
+}

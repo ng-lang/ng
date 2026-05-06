@@ -1,0 +1,47 @@
+module;
+
+// Standard library basics demonstration
+// Requires: import std.prelude;
+
+// --- I/O ---
+// Read a file (if it exists)
+// let text: string = readFile("some_file.txt");
+// write a file
+// writeFile("output.txt", "Hello from NG!");
+// Read a line from stdin
+// let input: string = readLine();
+
+// --- String operations ---
+val greeting: string = "  Hello, World!  ";
+print(trim(greeting)); // "Hello, World!"
+
+val csv: string = "apple,banana,cherry";
+val fruits: string array = split(csv, ",");
+print(fruits); // ["apple", "banana", "cherry"]
+
+print(join(fruits, " | ")); // "apple | banana | cherry"
+
+print(contains("Hello, World!", "World")); // true
+print(contains("Hello, World!", "xyz"));   // false
+
+print(replace("foo bar foo", "foo", "baz")); // "baz bar baz"
+
+print(startsWith("Hello", "He"));  // true
+print(endsWith("Hello", "llo"));   // true
+
+print(toUpper("hello")); // "HELLO"
+print(toLower("WORLD")); // "world"
+
+// --- Collection operations ---
+val nums: i32 array = [1, 2, 3, 4, 5];
+print(reverse(nums)); // [5, 4, 3, 2, 1]
+
+val r: i32 array = range(0, 5);
+print(r); // [0, 1, 2, 3, 4]
+
+val sliced: i32 array = slice([10, 20, 30, 40, 50], 1, 4);
+print(sliced); // [20, 30, 40]
+
+// contains also checks string substrings
+print(contains("programming", "gram")); // true
+print(contains("programming", "xyz"));   // false

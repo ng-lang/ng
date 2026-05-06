@@ -322,3 +322,143 @@ TEST_CASE("Tuples", "[InterpreterTestChecking]")
         assert(z == 2);
         )");
 }
+
+TEST_CASE("Tagged unions", "[InterpreterTestChecking]")
+{
+  interpret(R"(
+        type Result = Ok(value: i32) | Err(msg: string);
+
+        val success = Ok(42);
+        val failure = Err("not found");
+
+        switch (success) {
+            case Ok(value) {
+                assert(value == 42);
+            }
+            case Err(msg) {
+                assert(false);
+            }
+        }
+
+        switch (failure) {
+            case Ok(value) {
+                assert(false);
+            }
+            case Err(msg) {
+                assert(msg == "not found");
+            }
+        }
+        )");
+}
+
+TEST_CASE("generic function call (interpreter)", "[InterpreterTest]")
+{
+  interpret(R"(
+        fun identity<T>(x: T) -> T {
+            return x;
+        }
+
+        val result = identity(42);
+        assert(result == 42);
+        )");
+}
+
+TEST_CASE("generic function with multiple type params (interpreter)", "[InterpreterTest]")
+{
+  interpret(R"(
+        fun pair<A, B>(a: A, b: B) -> (A, B) {
+            return (a, b);
+        }
+
+        val p = pair(1, "hello");
+        assert(true); // just make sure it runs without error
+        )");
+}
+
+TEST_CASE("generic function with pack parameter (interpreter)", "[InterpreterTest]")
+{
+  interpret(R"(
+        fun first<T...>(args: T...) -> i32 {
+            return 42;
+        }
+
+        val result = first(1, "two", 3.0);
+        assert(result == 42);
+        )");
+}
+
+TEST_CASE("interpreter const if true branch", "[const_if][InterpreterTest]")
+{
+  interpret(R"(
+        const if (true) {
+            val x = 1;
+            val y = 2;
+            val z = x + y;
+            assert(z == 3);
+        } else {
+            val z = 100;
+            assert(z == 100);
+        }
+        )");
+}
+
+TEST_CASE("interpreter const if false branch", "[const_if][InterpreterTest]")
+{
+  interpret(R"(
+        const if (false) {
+            val z = 100;
+            assert(z == 100);
+        } else {
+            val x = 1;
+            val y = 2;
+            val z = x + y;
+            assert(z == 3);
+        }
+        )");
+}
+
+TEST_CASE("interpreter const if with negation", "[const_if][InterpreterTest]")
+{
+  interpret(R"(
+        const if (!false) {
+            val x = 42;
+            assert(x == 42);
+        } else {
+            val x = 0;
+            assert(x == 0);
+        }
+        )");
+}
+
+TEST_CASE("interpreter const if with equality", "[const_if][InterpreterTest]")
+{
+  interpret(R"(
+        const if (1 == 2) {
+            val x = 1;
+        } else {
+            val x = 2;
+            assert(x == 2);
+        }
+
+        const if (1 == 1) {
+            val x = 3;
+            assert(x == 3);
+        } else {
+            val x = 4;
+        }
+        )");
+}
+
+TEST_CASE("interpreter const if without else", "[const_if][InterpreterTest]")
+{
+  interpret(R"(
+        const if (true) {
+            val x = 7;
+            assert(x == 7);
+        }
+
+        const if (false) {
+            val x = 999;
+        }
+        )");
+}
