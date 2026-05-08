@@ -1,4 +1,5 @@
 #include "../test.hpp"
+#include <filesystem>
 #include <module.hpp>
 #include <orgasm/compiler.hpp>
 #include <orgasm/vm.hpp>
@@ -343,4 +344,74 @@ TEST_CASE("compiler should clear variant state between compile calls", "[OrgasmT
 
   destroyast(firstAst);
   destroyast(secondAst);
+}
+
+TEST_CASE("compiler and vm should call native prelude helpers", "[OrgasmTest][Prelude]")
+{
+  auto ast = parse(R"(
+        fun main() {
+            val content = trim("  hello,world  ");
+            val parts = split(content, ",");
+            val reversed = reverse(parts);
+            val nums = range(1, 4);
+            val mid = slice(nums, 1, 3);
+
+            assert(len(parts) == 2);
+            assert(parts[0] == "hello");
+            assert(parts[1] == "world");
+            assert(join(reversed, "-") == "world-hello");
+            assert(contains(content, "lo,wo"));
+            assert(replace(content, "world", "ng") == "hello,ng");
+            assert(startsWith(content, "hello"));
+            assert(endsWith(content, "world"));
+            assert(toUpper("Ng") == "NG");
+            assert(toLower("Ng") == "ng");
+            assert(len(nums) == 3);
+            assert(mid[0] == 2);
+            assert(mid[1] == 3);
+            return 42;
+        }
+    )");
+  REQUIRE(ast != nullptr);
+
+  Compiler compiler{{}, NG::library::prelude::native_function_names()};
+  auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+
+  VM vm;
+  NG::library::prelude::register_vm_natives(vm);
+  auto result = vm.run(bytecode);
+
+  auto numeric = std::dynamic_pointer_cast<NumeralBase>(result);
+  REQUIRE(numeric != nullptr);
+  REQUIRE(NGIntegral<int32_t>::valueOf(numeric.get()) == 42);
+
+  destroyast(ast);
+}
+
+TEST_CASE("compiler and vm should call native prelude file helpers", "[OrgasmTest][Prelude]")
+{
+  const auto path = std::filesystem::path("ng-prelude-vm-test.txt").string();
+  std::filesystem::remove(path);
+
+  auto ast = parse(Str{R"(
+        fun main() {
+            writeFile(")"} + path + R"(", "hello from vm");
+            return readFile(")" + path + R"(");
+        }
+    )");
+  REQUIRE(ast != nullptr);
+
+  Compiler compiler{{}, NG::library::prelude::native_function_names()};
+  auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+
+  VM vm;
+  NG::library::prelude::register_vm_natives(vm);
+  auto result = vm.run(bytecode);
+
+  auto str = std::dynamic_pointer_cast<NGString>(result);
+  REQUIRE(str != nullptr);
+  REQUIRE(str->value == "hello from vm");
+
+  std::filesystem::remove(path);
+  destroyast(ast);
 }
