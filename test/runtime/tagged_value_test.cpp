@@ -22,8 +22,10 @@ TEST_CASE("NGTaggedValue exposes payload members and metadata", "[RuntimeTest][T
 
   auto typeA = tagged.type();
   auto typeB = tagged.type();
-  REQUIRE(typeA == typeB);
+  REQUIRE(typeA != nullptr);
+  REQUIRE(typeB != nullptr);
   REQUIRE(typeA->name == "Result");
+  REQUIRE(*typeA == *typeB);
 
   auto value = std::dynamic_pointer_cast<NumeralBase>(tagged.respond("value", ctx, inv));
   REQUIRE(value != nullptr);

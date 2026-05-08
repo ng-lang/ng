@@ -56,7 +56,6 @@ namespace NG::orgasm
       private:
         struct Frame
         {
-            const Function *fun;
             size_t ip;
             Vec<RuntimeRef<NGObject>> locals;
             Vec<RuntimeRef<NGObject>> args;

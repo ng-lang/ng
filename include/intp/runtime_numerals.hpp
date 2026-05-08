@@ -201,8 +201,7 @@ namespace NG::runtime
 
         [[nodiscard]] auto type() const -> RuntimeRef<NGType> override
         {
-            static RuntimeRef<NGType> intType = makert<NGType>(NGType{.name = "Int"});
-            return intType;
+            return makert<NGType>(NGType{.name = "Int"});
         }
     };
 

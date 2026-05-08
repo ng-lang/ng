@@ -70,7 +70,6 @@ namespace NG::orgasm
     auto VM::execute(const Function &fun, const Vec<RuntimeRef<NGObject>> &args) -> RuntimeRef<NGObject>
     {
         Frame frame;
-        frame.fun = &fun;
         frame.ip = 0;
         frame.args = args;
         frame.locals.resize(std::max(static_cast<int32_t>(fun.num_locals), fun.num_params), makert<NGUnit>());

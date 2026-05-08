@@ -7,16 +7,7 @@ namespace NG::runtime
 
   auto NGTaggedValue::type() const -> RuntimeRef<NGType>
   {
-    // Return a type representing this tagged union
-    static Map<Str, RuntimeRef<NGType>> cache;
-    auto it = cache.find(unionName);
-    if (it != cache.end())
-    {
-      return it->second;
-    }
-    auto t = makert<NGType>(NGType{.name = unionName});
-    cache[unionName] = t;
-    return t;
+    return makert<NGType>(NGType{.name = unionName});
   }
 
   auto NGTaggedValue::show() const -> Str
