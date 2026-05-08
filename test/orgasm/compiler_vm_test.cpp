@@ -415,3 +415,90 @@ TEST_CASE("compiler and vm should call native prelude file helpers", "[OrgasmTes
   std::filesystem::remove(path);
   destroyast(ast);
 }
+
+TEST_CASE("compiler and vm should handle spread unpack property updates and member calls", "[OrgasmTest]")
+{
+  auto ast = parse(R"(
+        type Box {
+            value: i32;
+
+            fun bump(delta: i32) -> i32 {
+                self.value := self.value + delta;
+                return self.value;
+            }
+        }
+
+        fun main() {
+            val tuple = (10, 20, 30);
+            val (head, ...rest) = tuple;
+            val arr = [1, rest[0], rest[1], 40];
+            arr[0] := 5;
+
+            val box = new Box { value: arr[0] };
+            box.value := box.value + head;
+
+            if (box is Box) {
+                return box.bump(arr[1]);
+            }
+            return 0;
+        }
+    )");
+  REQUIRE(ast != nullptr);
+
+  Compiler compiler;
+  auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+
+  VM vm;
+  auto result = vm.run(bytecode);
+
+  auto numeric = std::dynamic_pointer_cast<NumeralBase>(result);
+  REQUIRE(numeric != nullptr);
+  REQUIRE(NGIntegral<int32_t>::valueOf(numeric.get()) == 35);
+
+  destroyast(ast);
+}
+
+TEST_CASE("compiler and vm should handle descending range and clamped slice", "[OrgasmTest][Prelude]")
+{
+  auto ast = parse(R"(
+        fun main() {
+            val down = range(3, 0);
+            val window = slice(down, -5, 99);
+            return window[0] + window[1] + window[2];
+        }
+    )");
+  REQUIRE(ast != nullptr);
+
+  Compiler compiler{{}, NG::library::prelude::native_function_names()};
+  auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+
+  VM vm;
+  NG::library::prelude::register_vm_natives(vm);
+  auto result = vm.run(bytecode);
+
+  auto numeric = std::dynamic_pointer_cast<NumeralBase>(result);
+  REQUIRE(numeric != nullptr);
+  REQUIRE(NGIntegral<int32_t>::valueOf(numeric.get()) == 6);
+
+  destroyast(ast);
+}
+
+TEST_CASE("compiler and vm should surface native prelude argument errors", "[OrgasmTest][Prelude]")
+{
+  auto ast = parse(R"(
+        fun main() {
+            return reverse(42);
+        }
+    )");
+  REQUIRE(ast != nullptr);
+
+  Compiler compiler{{}, NG::library::prelude::native_function_names()};
+  auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+
+  VM vm;
+  NG::library::prelude::register_vm_natives(vm);
+
+  REQUIRE_THROWS_AS(vm.run(bytecode), RuntimeException);
+
+  destroyast(ast);
+}
