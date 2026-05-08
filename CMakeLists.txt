@@ -49,6 +49,7 @@ set(NG_LIB_SRC
         src/runtime/NGModule.cpp
         src/runtime/NGTuple.cpp
         src/runtime/NGUnit.cpp
+        src/runtime/NGTaggedValue.cpp
         src/sysdep/process.cpp
         src/stdlib/prelude.cpp
         src/stdlib/imgui.cpp
@@ -60,10 +61,10 @@ set(NG_LIB_SRC
         src/typecheck/FunctionType.cpp
         src/typecheck/ArrayType.cpp
         src/typecheck/TupleType.cpp
-        src/orgasm/lexer.cpp
-        src/orgasm/parser.cpp
-        src/orgasm/interpreter.cpp
-        src/compiler/ngcompiler.cpp
+        src/typecheck/GenericType.cpp
+        src/orgasm/Compiler.cpp
+        src/orgasm/VM.cpp
+        src/orgasm/module.cpp
         )
 
 set(NG_TEST_SRC
@@ -80,22 +81,30 @@ set(NG_TEST_SRC
         test/parsing/parser_unary_expression_test.cpp
         test/parsing/parse_composite_type_test.cpp
         test/parsing/parse_tuple_range_test.cpp
+        test/parsing/parser_generics_test.cpp
         test/integration_test.cpp
         test/runtime/interpreter_test.cpp
+        test/runtime/nominal_test.cpp
         test/runtime/runtime_numeral_test.cpp
+        test/runtime/tagged_value_test.cpp
         test/typecheck/typeinfo_primitive_test.cpp
         test/typecheck/typeinfo_function_test.cpp
+        test/typecheck/typeinfo_generic_test.cpp
         test/typecheck/typecheck_primitive_test.cpp
         test/typecheck/typecheck_function_test.cpp
         test/typecheck/typecheck_expression_test.cpp
         test/typecheck/typecheck_array_test.cpp
+        test/typecheck/typecheck_generic_test.cpp
+        test/typecheck/typecheck_parameter_pack_test.cpp
         test/typecheck/typecheck_controlflow_test.cpp
         test/typecheck/typecheck_tuple_test.cpp
-        test/orgasm/lexer_test.cpp
-        test/orgasm/parser_test.cpp
-        test/orgasm/interpreter_test.cpp
-        test/orgasm/integration_test.cpp
-        test/compiler/ngcompiler_test.cpp
+        test/typecheck/typecheck_union_test.cpp
+        test/typecheck/nominal_test.cpp
+        test/orgasm/compiler_vm_test.cpp
+        test/orgasm/examples_test.cpp
+        test/orgasm/module_test.cpp
+        test/orgasm/native_bridge_test.cpp
+        test/orgasm/nominal_test.cpp
 )
 
 add_executable(feature_test test/feature_test.cpp)

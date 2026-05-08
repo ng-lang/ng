@@ -2,15 +2,21 @@
 
 #include "ast.hpp"
 #include "intp/intp.hpp"
+#include "module.hpp"
+#include "orgasm/compiler.hpp"
+#include "orgasm/vm.hpp"
 #include "parser.hpp"
 #include "token.hpp"
+#include "typecheck/typecheck.hpp"
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <functional>
 #include <iostream>
+#include <memory>
 #include <streambuf>
 
 using namespace NG;
@@ -140,21 +146,33 @@ auto repl() -> int
 }
 auto main(int argc, char *argv[]) -> int
 {
+  bool use_stupid = false;
+  const char *filename_ptr = nullptr;
 
-  if (argc < 2)
+  for (int i = 1; i < argc; ++i)
+  {
+    if (std::strcmp(argv[i], "--stupid") == 0)
+    {
+      use_stupid = true;
+    }
+    else if (filename_ptr == nullptr)
+    {
+      filename_ptr = argv[i];
+    }
+  }
+
+  if (filename_ptr == nullptr)
   {
     return repl();
   }
 
-  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-  if (!std::filesystem::exists(argv[1]))
+  if (!std::filesystem::exists(filename_ptr))
   {
-    std::cout << "file " << argv[1] << " not found";
+    std::cout << "file " << filename_ptr << " not found";
     return -1;
   }
 
-  std::string filename{argv[1]};
-  // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+  std::string filename{filename_ptr};
 
   std::ifstream file{filename};
   std::string source{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
@@ -163,20 +181,61 @@ auto main(int argc, char *argv[]) -> int
   {
     auto ast = parse(source, filename);
 
-    NG::intp::Interpreter *stupid = NG::intp::stupid();
+    using namespace NG::typecheck;
+    TypeIndex prelude_types = build_prelude_type_index();
 
-    ast->accept(stupid);
+    NG::typecheck::type_check(ast, prelude_types);
+
+    if (use_stupid)
+    {
+      auto stupid = std::unique_ptr<NG::intp::Interpreter>(NG::intp::stupid());
+      ast->accept(stupid.get());
+    }
+    else
+    {
+      // Derive module search paths from the input file's directory
+      Vec<Str> modulePaths;
+      namespace fs = std::filesystem;
+      fs::path inputPath{filename};
+      auto parentDir = inputPath.parent_path();
+      if (!parentDir.empty())
+      {
+        modulePaths.push_back(parentDir.string());
+      }
+      // Also add standard lib paths
+      modulePaths.push_back("lib");
+      modulePaths.push_back("../lib");
+
+      NG::orgasm::Compiler compiler{modulePaths, NG::library::prelude::native_function_names()};
+      auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+      NG::orgasm::VM vm;
+
+      // Register native functions from the prelude
+      NG::library::prelude::register_vm_natives(vm);
+
+      vm.run(bytecode);
+    }
 
     destroyast(ast);
   }
   catch (ParseException &ex)
   {
-    std::cout << "Parse error: " << ex.what() << std::endl;
+    std::cout << "Parse error: " << ex.what() << " at " << ex.pos.line << ":" << ex.pos.col << std::endl;
+    return -1;
+  }
+  catch (TypeCheckingException &ex)
+  {
+    std::cout << "Type check error: " << ex.what() << " at " << ex.pos.line << ":" << ex.pos.col << std::endl;
     return -1;
   }
   catch (NG::RuntimeException &ex)
   {
-    std::cout << "Runtime error: " << ex.what() << std::endl;
+    std::cout << "Runtime error: " << ex.what() << " at " << ex.pos.line << ":" << ex.pos.col << std::endl;
+    return -1;
+  }
+  catch (const std::exception &ex)
+  {
+    std::cout << "Error: " << ex.what() << std::endl;
     return -1;
   }
 }

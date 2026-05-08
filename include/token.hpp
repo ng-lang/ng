@@ -32,7 +32,8 @@ namespace NG
         KEYWORD_NEW,
         KEYWORD_NATIVE,
 
-        KEYWORD_IF = 0x0300,
+        KEYWORD_CONST = 0x0300,
+        KEYWORD_IF,
         KEYWORD_THEN,
         KEYWORD_ELSE,
         KEYWORD_LOOP,
@@ -47,6 +48,8 @@ namespace NG
         KEYWORD_IN,
         KEYWORD_IS,
         KEYWORD_TYPEOF,
+        KEYWORD_WRAPS,
+        KEYWORD_CAST,
 
         KEYWORD_TRUE = 0x0400,
         KEYWORD_FALSE,
@@ -152,21 +155,15 @@ namespace NG
         NUMBER_I32,
         NUMBER_U64,
         NUMBER_I64,
+        NUMBER_U128,
+        NUMBER_I128,
         NUMBER_F16,
         NUMBER_F32,
         NUMBER_F64,
         NUMBER_F128,
+        NUMBER_F256,
         STRING,
         RESERVED,
-    };
-
-    /**
-     * @brief The position of a token in the source code.
-     */
-    struct TokenPosition
-    {
-        size_t line; ///< The line number.
-        size_t col;  ///< The column number.
     };
 
     /**

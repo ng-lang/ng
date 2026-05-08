@@ -1,0 +1,38 @@
+type Result = Ok(value: i32) | Err(msg: string);
+
+val success = Ok(42);
+val failure = Err("something went wrong");
+
+switch (success) {
+    case Ok(value) {
+        print(value);
+    }
+    case Err(msg) {
+        print(msg);
+    }
+}
+
+switch (failure) {
+    case Ok(value) {
+        print(value);
+    }
+    case Err(msg) {
+        print(msg);
+    }
+}
+
+// Property access on tagged union values
+print(success.tag);    // "Ok"
+print(success.index);  // 0
+print(failure.tag);    // "Err"
+print(failure.index);  // 1
+
+// Exhaustiveness: otherwise branch
+switch (success) {
+    case Ok(value) {
+        print(value);
+    }
+    otherwise {
+        print("unreachable");
+    }
+}

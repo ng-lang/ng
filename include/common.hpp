@@ -35,6 +35,15 @@ namespace NG
     };
 
     /**
+     * @brief The position of a token in the source code.
+     */
+    struct TokenPosition
+    {
+        size_t line = 0; ///< The line number.
+        size_t col = 0;  ///< The column number.
+    };
+
+    /**
      * @brief Exception thrown during lexical analysis.
      */
     struct LexException : std::logic_error
@@ -66,7 +75,8 @@ namespace NG
      */
     struct ParseException : std::logic_error
     {
-        explicit ParseException(const std::string &message) : logic_error(message) {}
+        TokenPosition pos;
+        explicit ParseException(const std::string &message, TokenPosition pos = {}) : logic_error(message), pos(pos) {}
     };
 
     /**
@@ -90,7 +100,10 @@ namespace NG
      */
     struct RuntimeException : std::runtime_error
     {
-        explicit RuntimeException(const std::string &message) : runtime_error(message) {}
+        TokenPosition pos;
+        explicit RuntimeException(const std::string &message, TokenPosition pos = {}) : runtime_error(message), pos(pos)
+        {
+        }
     };
 
     /**
@@ -98,7 +111,11 @@ namespace NG
      */
     struct TypeCheckingException : std::logic_error
     {
-        explicit TypeCheckingException(const std::string &message) : logic_error(message) {}
+        TokenPosition pos;
+        explicit TypeCheckingException(const std::string &message, TokenPosition pos = {})
+            : logic_error(message), pos(pos)
+        {
+        }
     };
 
     /**

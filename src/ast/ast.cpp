@@ -7,6 +7,29 @@
 
 namespace NG::ast
 {
+  namespace
+  {
+    auto genericParamsRepr(const Vec<ASTRef<GenericParam>> &params) -> Str
+    {
+      if (params.empty())
+      {
+        return "";
+      }
+
+      Str result = "<";
+      for (size_t i = 0; i < params.size(); ++i)
+      {
+        if (i > 0)
+        {
+          result += ", ";
+        }
+        result += params[i]->repr();
+      }
+      result += ">";
+      return result;
+    }
+  } // namespace
+
 
   template <class T>
   static auto strOfNodeList(const Vec<ASTRef<T>> &nodes, const Str &separator = ", ") -> Str
@@ -74,10 +97,41 @@ namespace NG::ast
 
   auto TypeAnnotation::repr() const -> Str
   {
-    return this->name;
+    if (genericArgs.empty())
+    {
+      return this->name;
+    }
+    Str result = this->name + "<";
+    for (size_t i = 0; i < genericArgs.size(); ++i)
+    {
+      if (i > 0) result += ", ";
+      result += genericArgs[i]->repr();
+    }
+    result += ">";
+    return result;
   }
 
-  TypeAnnotation::~TypeAnnotation() = default;
+  TypeAnnotation::~TypeAnnotation()
+  {
+    for (const auto &arg : genericArgs)
+    {
+      destroyast(arg);
+    }
+  }
+
+  void GenericParam::accept(AstVisitor *visitor)
+  {
+    visitor->visit(this);
+  }
+
+  auto GenericParam::repr() const -> Str
+  {
+    Str result = name;
+    if (isPack) result += "...";
+    if (bound) result += ": " + bound->repr();
+    return result;
+  }
+
 
   void Param::accept(AstVisitor *visitor)
   {
@@ -148,7 +202,8 @@ namespace NG::ast
 
   auto IfStatement::repr() const -> Str
   {
-    return "if (" + this->testing->repr() + ") {\n" + this->consequence->repr() + "}" +
+    return (this->isConst ? "const " : "") +
+           std::string{"if ("} + this->testing->repr() + ") {\n" + this->consequence->repr() + "}" +
            (this->alternative == nullptr ? "" : (" else {\n" + this->alternative->repr() + "}"));
   }
 
@@ -556,7 +611,7 @@ namespace NG::ast
     const Str &propertiesRepr = strOfNodeList(properties, "\n");
     const Str &membersRepr = strOfNodeList(memberFunctions, "\n");
 
-    return "type " + typeName + "{" + propertiesRepr + membersRepr + "}";
+    return "type " + typeName + genericParamsRepr(genericParams) + "{" + propertiesRepr + membersRepr + "}";
   }
 
   TypeDef::~TypeDef()
@@ -570,6 +625,135 @@ namespace NG::ast
     {
       destroyast(item);
     }
+  }
+
+  void TypeAliasDef::accept(AstVisitor *visitor)
+  {
+    visitor->visit(this);
+  }
+
+  auto TypeAliasDef::repr() const -> Str
+  {
+    return "type " + aliasName + genericParamsRepr(genericParams) + " = " + (underlyingType ? underlyingType->repr() : "?") + ";";
+  }
+
+  TypeAliasDef::~TypeAliasDef()
+  {
+    destroyast(underlyingType);
+  }
+
+  void NewTypeDef::accept(AstVisitor *visitor)
+  {
+    visitor->visit(this);
+  }
+
+  auto NewTypeDef::repr() const -> Str
+  {
+    return "type " + typeName + genericParamsRepr(genericParams) + " wraps " + (wrappedType ? wrappedType->repr() : "?") + ";";
+  }
+
+  NewTypeDef::~NewTypeDef()
+  {
+    destroyast(wrappedType);
+  }
+
+  void CastExpression::accept(AstVisitor *visitor)
+  {
+    visitor->visit(this);
+  }
+
+  auto CastExpression::repr() const -> Str
+  {
+    return "cast<" + (targetType ? targetType->repr() : "?") + ">(" + (expression ? expression->repr() : "?") + ")";
+  }
+
+  CastExpression::~CastExpression()
+  {
+    destroyast(expression);
+    destroyast(targetType);
+  }
+
+  void TaggedUnionDef::accept(AstVisitor *visitor)
+  {
+    visitor->visit(this);
+  }
+
+  auto TaggedUnionDef::repr() const -> Str
+  {
+    Str out = "type " + typeName + genericParamsRepr(genericParams) + " = ";
+    for (size_t i = 0; i < variants.size(); ++i) {
+      if (i > 0) out += " | ";
+      out += variants[i].variantName;
+      out += "(";
+      for (size_t j = 0; j < variants[i].payloadTypes.size(); ++j) {
+        if (j > 0) out += ", ";
+        out += variants[i].payloadTypes[j]->repr();
+      }
+      out += ")";
+    }
+    return out;
+  }
+
+  TaggedUnionDef::~TaggedUnionDef()
+  {
+    for (auto &gp : genericParams)
+    {
+      destroyast(gp);
+    }
+    for (auto &variant : variants)
+    {
+      for (auto &payloadType : variant.payloadTypes)
+      {
+        destroyast(payloadType);
+      }
+    }
+  }
+
+  void TaggedValueExpression::accept(AstVisitor *visitor)
+  {
+    visitor->visit(this);
+  }
+
+  auto TaggedValueExpression::repr() const -> Str
+  {
+    Str out = variantName + "(";
+    for (size_t i = 0; i < payload.size(); ++i) {
+      if (i > 0) out += ", ";
+      out += payload[i]->repr();
+    }
+    out += ")";
+    return out;
+  }
+
+  TaggedValueExpression::~TaggedValueExpression()
+  {
+    for (auto &expr : payload) destroyast(expr);
+  }
+
+  void SwitchStatement::accept(AstVisitor *visitor)
+  {
+    visitor->visit(this);
+  }
+
+  auto SwitchStatement::repr() const -> Str
+  {
+    Str out = "switch (" + scrutinee->repr() + ") { ";
+    for (const auto &c : cases) {
+      out += "case " + c.variantName + "(";
+      for (size_t i = 0; i < c.bindings.size(); ++i) {
+        if (i > 0) out += ", ";
+        out += c.bindings[i];
+      }
+      out += ") " + c.body->repr() + " ";
+    }
+    out += "}";
+    return out;
+  }
+
+  SwitchStatement::~SwitchStatement()
+  {
+    destroyast(scrutinee);
+    for (auto &c : cases) destroyast(c.body);
   }
 
   auto PropertyDef::astNodeType() const -> ASTNodeType
@@ -616,11 +800,13 @@ namespace NG::ast
       props += (property.first + ": " + property.second->repr());
     }
 
-    return "new " + typeName + " { " + props + " }";
+    const Str target = targetType ? targetType->repr() : typeName;
+    return "new " + target + " { " + props + " }";
   }
 
   NewObjectExpression::~NewObjectExpression()
   {
+    destroyast(targetType);
     for (auto &[_, value] : properties) // NOLINT(readability-identifier-length)
     {
       destroyast(value);

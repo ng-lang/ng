@@ -4,12 +4,28 @@
 #include <intp/runtime.hpp>
 #include <typecheck/typecheck.hpp>
 
+namespace NG::orgasm
+{
+    struct BytecodeModule;
+    class VM;
+}
+
 namespace NG::library::prelude
 {
     /**
      * @brief Registers the prelude library.
      */
     void do_register();
+
+    /**
+     * @brief Registers native prelude functions with the ORGASM VM.
+     */
+    void register_vm_natives(NG::orgasm::VM &vm);
+
+    /**
+     * @brief Returns the names of all native prelude functions.
+     */
+    Vec<Str> native_function_names();
 } // namespace NG::library::prelude
 namespace NG::library::imgui
 {
@@ -39,6 +55,7 @@ namespace NG::module
         Str moduleLoadingLocation;                       ///< The location from which the module was loaded.
         RuntimeRef<NG::runtime::NGModule> runtimeModule; ///< The runtime representation of the module.
         TypeIndex moduleTypeIndex{};                     ///< The type index of the module.
+        std::shared_ptr<NG::orgasm::BytecodeModule> bytecodeModule; ///< The bytecode representation.
     };
 
     /**
@@ -68,6 +85,11 @@ namespace NG::module
          * @return The module info.
          */
         RuntimeRef<ModuleInfo> queryModuleById(Str moduleId) const;
+
+        /**
+         * @brief Clears all registered modules.
+         */
+        void clear();
     };
 
     /**
@@ -115,4 +137,9 @@ namespace NG::module
      * @return The global module registry.
      */
     ModuleRegistry &get_module_registry() noexcept;
+
+    /**
+     * @brief Clears the file-based module loader cache.
+     */
+    void clear_module_loader_cache() noexcept;
 } // namespace NG::module

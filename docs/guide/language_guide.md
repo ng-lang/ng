@@ -261,7 +261,65 @@ import my_module (*);
 my_fun();
 ```
 
-## 8. Standard Library
+## 8. Generic Functions
+
+NG supports generic functions with type parameters, allowing you to write reusable code that works with multiple types.
+
+### Type Parameters
+
+Generic functions are declared by placing type parameters in angle brackets `<...>` after the function name:
+
+```ng
+fun identity<T>(x: T) -> T {
+    return x;
+}
+
+identity(42);       // T is inferred as i32
+identity("hello");  // T is inferred as string
+identity(true);     // T is inferred as bool
+```
+
+Type parameters can be inferred from argument types, so explicit type arguments at the call site are not required.
+
+### Multiple Type Parameters
+
+Functions can have multiple type parameters:
+
+```ng
+fun pair<A, B>(a: A, b: B) -> (A, B) {
+    return (a, b);
+}
+
+val p = pair(1, "world"); // A is i32, B is string
+```
+
+### Parameter Packs
+
+Parameter packs allow functions to accept a variable number of arguments. A parameter pack is declared using the `...` suffix on a type parameter:
+
+```ng
+fun count<T...>(args: T...) -> i32 {
+    return 42;
+}
+
+count(1, "two", 3.0, true); // Works with any number of any type
+```
+
+Type constraints can be applied to parameter packs:
+
+```ng
+fun sum<T: i32 | f64...>(args: T...) -> T {
+    // sum is only valid for numeric types
+}
+```
+
+The built-in `print` and `assert` functions are implemented using parameter packs, so they accept any number of arguments:
+
+```ng
+print(1, "hello", 3.14, true);  // "1, hello, 3.140000, true"
+```
+
+## 9. Standard Library
 
 NG has a small standard library that provides basic functionalities.
 
@@ -269,11 +327,36 @@ NG has a small standard library that provides basic functionalities.
 
 The `std.prelude` module is implicitly imported into every module. It provides the following functions:
 
-*   `print(value)`: Prints a value to the console.
-*   `assert(condition)`: Asserts that a condition is true.
+*   `print<T...>(args: T...)`: Prints one or more values to the console.
+*   `assert<T...>(assertion: T...)`: Asserts that a condition is true.
 *   `not(value: bool)`: Returns the logical negation of a boolean value.
+*   `len<T>(xs: string | T array) -> u32`: Returns the length of a string or array.
 
-## 9. Computer Science Concepts
+#### I/O
+
+*   `readLine() -> string`: Reads a line from standard input.
+*   `readFile(path: string) -> string`: Reads the entire contents of a file.
+*   `writeFile(path: string, content: string) -> unit`: Writes a string to a file (overwrites).
+
+#### String Operations
+
+*   `split(s: string, delimiter: string) -> string array`: Splits a string by a delimiter.
+*   `join(items: string array, separator: string) -> string`: Joins an array of strings with a separator.
+*   `trim(s: string) -> string`: Removes leading and trailing whitespace.
+*   `contains(haystack: string, needle: string) -> bool`: Checks if a string contains a substring.
+*   `replace(s: string, old: string, replacement: string) -> string`: Replaces all occurrences of a substring.
+*   `startsWith(s: string, prefix: string) -> bool`: Checks if a string starts with a prefix.
+*   `endsWith(s: string, suffix: string) -> bool`: Checks if a string ends with a suffix.
+*   `toUpper(s: string) -> string`: Converts a string to uppercase.
+*   `toLower(s: string) -> string`: Converts a string to lowercase.
+
+#### Collection Operations
+
+*   `reverse<T>(xs: T array) -> T array`: Reverses an array.
+*   `range(start: i32, end: i32) -> i32 array`: Generates a range of integers from start to end (exclusive).
+*   `slice<T>(xs: T array, start: i32, end: i32) -> T array`: Returns a sub-array from start to end (exclusive).
+
+## 10. Computer Science Concepts
 
 ### Static Typing
 
@@ -283,11 +366,11 @@ NG is a statically-typed language. This means that the type of every variable is
 
 NG uses automatic memory management, which means you don't have to manually allocate and deallocate memory. The compiler takes care of this for you.
 
-## 10. Contributing
+## 11. Contributing
 
 We welcome contributions from the community! If you are interested in contributing to the NG programming language, please read our [Contribution Guide](https://github.com/ng-lang/ng/blob/main/CONTRIBUTING.md) to get started.
 
-## 11. Community
+## 12. Community
 
 Join the NG community to ask questions, share your ideas, and collaborate with other developers.
 

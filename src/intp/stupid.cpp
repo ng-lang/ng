@@ -81,6 +81,32 @@ namespace NG::intp
     return nullptr;
   }
 
+  static auto stripGenericTypeSuffix(const Str &typeName) -> Str
+  {
+    auto genericStart = typeName.find('<');
+    if (genericStart == Str::npos)
+    {
+      return typeName;
+    }
+    return typeName.substr(0, genericStart);
+  }
+
+  static auto resolveRuntimeType(const RuntimeRef<NGContext> &context, const Str &typeName) -> RuntimeRef<NGType>
+  {
+    if (auto exact = context->get_type(typeName))
+    {
+      return exact;
+    }
+
+    auto baseName = stripGenericTypeSuffix(typeName);
+    if (baseName != typeName)
+    {
+      return context->get_type(baseName);
+    }
+
+    return nullptr;
+  }
+
   struct FunctionPathVisitor : public DummyVisitor
   {
 
@@ -213,7 +239,7 @@ namespace NG::intp
 
       if (!context->has_function(fpVis.path, true))
       {
-        throw RuntimeException("No such function: " + fpVis.path);
+        throw RuntimeException("No such function: " + fpVis.path, funCallExpr->pos);
       }
 
       context->get_function(fpVis.path)(dummy, context, invocationContext);
@@ -345,8 +371,8 @@ namespace NG::intp
 
     void visit(NewObjectExpression *newObj) override
     {
-      Str &typeName = newObj->typeName;
-      auto ngType = context->get_type(typeName);
+      Str typeName = newObj->targetType ? newObj->targetType->repr() : newObj->typeName;
+      auto ngType = resolveRuntimeType(context, typeName);
 
       auto structural = makert<NGStructuralObject>();
 
@@ -419,11 +445,16 @@ namespace NG::intp
 
       if (auto anno = dynamic_ast_cast<TypeAnnotation>(typeCheckExpr->type); anno)
       {
-        auto name = anno->name;
-        auto targetType = context->get_type(name);
+        auto name = anno->repr();
+        auto targetType = resolveRuntimeType(context, name);
         if (targetType)
         {
-          this->object = makert<NGBoolean>(*(value->type()) == *(targetType));
+          bool matches = *(value->type()) == *(targetType);
+          if (!matches)
+          {
+            matches = stripGenericTypeSuffix(value->type()->name) == stripGenericTypeSuffix(name);
+          }
+          this->object = makert<NGBoolean>(matches);
         }
         else
         {
@@ -454,6 +485,11 @@ namespace NG::intp
         throw RuntimeException("Invalid target expression for type checking: " + typeCheckExpr->type->repr());
       }
     }
+
+    void visit(TypeOfExpression * /*typeOfExpr*/) override
+    {
+      throw RuntimeException("typeof(expr) is only supported in compile-time type queries");
+    }
     void visit(SpreadExpression *spreadExpression) override
     {
       ExpressionVisitor vis{context};
@@ -478,6 +514,51 @@ namespace NG::intp
     }
 
     void visit(UnitLiteral *unit) override { object = makert<NGUnit>(); }
+
+    void visit(CastExpression *castExpr) override
+    {
+      ExpressionVisitor exprVis{context};
+      castExpr->expression->accept(&exprVis);
+      RuntimeRef<NGObject> value = exprVis.object;
+
+      // Resolve target type name
+      Str targetTypeName;
+      if (auto anno = dynamic_ast_cast<TypeAnnotation>(castExpr->targetType))
+      {
+        targetTypeName = anno->repr();
+      }
+      else
+      {
+        throw RuntimeException("Invalid cast target type: " + castExpr->targetType->repr());
+      }
+
+      // Check if target is a newtype
+      if (auto targetType = resolveRuntimeType(context, targetTypeName))
+      {
+        // If the value is already an NGNewType with the same type, unwrap it
+        if (auto newTypeVal = std::dynamic_pointer_cast<NGNewType>(value); newTypeVal)
+        {
+          if (newTypeVal->newType->name == targetTypeName)
+          {
+            // Same newtype — no-op
+            object = value;
+            return;
+          }
+          // Unwrap then potentially rewrap
+          value = newTypeVal->wrapped;
+        }
+
+        // Wrap into newtype
+        auto newType = makert<NGType>();
+        newType->name = targetTypeName;
+        object = makert<NGNewType>(newType, value);
+      }
+      else
+      {
+        // For primitive casts or unknown types, just pass through
+        object = value;
+      }
+    }
   };
 
   struct StatementVisitor : public DummyVisitor
@@ -503,10 +584,22 @@ namespace NG::intp
 
     void visit(IfStatement *ifStmt) override
     {
+      StatementVisitor stmtVis{context};
+      if (ifStmt->evaluatedCondition.has_value())
+      {
+        if (ifStmt->evaluatedCondition.value())
+        {
+          ifStmt->consequence->accept(&stmtVis);
+        }
+        else if (ifStmt->alternative != nullptr)
+        {
+          ifStmt->alternative->accept(&stmtVis);
+        }
+        return;
+      }
+
       ExpressionVisitor vis{context};
       ifStmt->testing->accept(&vis);
-
-      StatementVisitor stmtVis{context};
       if (vis.object->boolValue())
       {
         ifStmt->consequence->accept(&stmtVis);
@@ -619,6 +712,62 @@ namespace NG::intp
       simpleStmt->expression->accept(&vis);
     }
 
+    void visit(SwitchStatement *switchStmt) override
+    {
+      ExpressionVisitor vis{context};
+      switchStmt->scrutinee->accept(&vis);
+      auto scrutinee = vis.object;
+
+      auto *tagged = dynamic_cast<NGTaggedValue *>(scrutinee.get());
+      if (!tagged)
+      {
+        throw RuntimeException("Switch scrutinee is not a tagged value");
+      }
+
+      const CaseClause *otherwise = nullptr;
+      for (auto &c : switchStmt->cases)
+      {
+        if (c.isOtherwise)
+        {
+          otherwise = &c;
+          continue;
+        }
+        if (c.variantName == tagged->variantName)
+        {
+          auto caseContext = context->fork();
+          // Bind payload variables
+          for (size_t j = 0; j < c.bindings.size() && j < tagged->payload.size(); ++j)
+          {
+            if (!c.bindings[j].empty())
+            {
+              caseContext->define(c.bindings[j], tagged->payload[j]);
+            }
+          }
+          StatementVisitor caseVis{caseContext};
+          c.body->accept(&caseVis);
+          if (caseContext->retVal != nullptr)
+          {
+            context->retVal = caseContext->retVal;
+          }
+          return;
+        }
+      }
+
+      if (otherwise != nullptr)
+      {
+        auto caseContext = context->fork();
+        StatementVisitor caseVis{caseContext};
+        otherwise->body->accept(&caseVis);
+        if (caseContext->retVal != nullptr)
+        {
+          context->retVal = caseContext->retVal;
+        }
+        return;
+      }
+
+      throw RuntimeException("No matching case for variant: " + tagged->variantName);
+    }
+
     void visit(LoopStatement *loopStatement) override
     {
       auto context = this->context->fork();
@@ -670,7 +819,15 @@ namespace NG::intp
         for (auto &&expr : nextStatement->expressions)
         {
           expr->accept(&vis);
-          slotValues.push_back(vis.object);
+          if (auto spread = dynamic_ast_cast<SpreadExpression>(expr); spread)
+          {
+            auto collection = vis.collection;
+            slotValues.insert(slotValues.end(), collection->begin(), collection->end());
+          }
+          else
+          {
+            slotValues.push_back(vis.object);
+          }
         }
         throw NextIteration{slotValues};
       }
@@ -908,10 +1065,31 @@ namespace NG::intp
       auto functionInvoker =
           [this, funDef](const NGSelf &dummy, const NGCtx &ngContext, const NGInvCtx &invocationContext)
       {
+        // Determine if there's a pack parameter and at which position
+        int packIndex = -1;
+        for (size_t g = 0; g < funDef->genericParams.size(); ++g)
+        {
+          if (funDef->genericParams[g]->isPack)
+          {
+            packIndex = static_cast<int>(g);
+            break;
+          }
+        }
         RuntimeRef<NGContext> newContext = ngContext->fork();
         for (size_t i = 0; i < funDef->params.size(); ++i)
         {
-          if (invocationContext->params.size() > i)
+          if (static_cast<int>(i) == packIndex)
+          {
+            // Pack remaining args into a tuple
+            Vec<RuntimeRef<NGObject>> packItems;
+            for (size_t j = i; j < invocationContext->params.size(); ++j)
+            {
+              packItems.push_back(invocationContext->params[j]);
+            }
+            newContext->define(funDef->params[i]->paramName, makert<NGTuple>(packItems));
+            break; // pack parameter is always the last one
+          }
+          else if (invocationContext->params.size() > i)
           {
             newContext->define(funDef->params[i]->paramName, invocationContext->params[i]);
           }
@@ -940,9 +1118,35 @@ namespace NG::intp
           catch (NextIteration nextIter)
           {
             tailRecur = true;
-            for (size_t i = 0; i < nextIter.slotValues.size(); i++)
+            if (packIndex >= 0)
             {
-              newContext->set(funDef->params[i]->paramName, nextIter.slotValues[i]);
+              // For pack parameters: the next values need to be rebound correctly.
+              // Non-pack params take individual values from the front;
+              // the pack parameter gets the remaining values packed into a tuple.
+              for (size_t i = 0; i < funDef->params.size(); ++i)
+              {
+                if (static_cast<int>(i) == packIndex)
+                {
+                  // Collect all remaining slot values for the pack
+                  Vec<RuntimeRef<NGObject>> packItems;
+                  for (size_t j = i; j < nextIter.slotValues.size(); ++j)
+                  {
+                    packItems.push_back(nextIter.slotValues[j]);
+                  }
+                  newContext->set(funDef->params[i]->paramName, makert<NGTuple>(packItems));
+                }
+                else if (i < nextIter.slotValues.size())
+                {
+                  newContext->set(funDef->params[i]->paramName, nextIter.slotValues[i]);
+                }
+              }
+            }
+            else
+            {
+              for (size_t i = 0; i < nextIter.slotValues.size(); i++)
+              {
+                newContext->set(funDef->params[i]->paramName, nextIter.slotValues[i]);
+              }
             }
           }
         }
@@ -1004,6 +1208,47 @@ namespace NG::intp
       }
 
       context->define_type(type->name, type);
+    }
+
+    void visit(TypeAliasDef *typeAliasDef) override
+    {
+      // Type alias is transparent — just register the underlying type under the alias name
+      // The type checker resolves aliases; at runtime we store the underlying type directly
+      auto underlyingType = makert<NGType>();
+      underlyingType->name = typeAliasDef->aliasName;
+      context->define_type(typeAliasDef->aliasName, underlyingType);
+    }
+
+    void visit(NewTypeDef *newTypeDef) override
+    {
+      // Create a new nominal type for the newtype
+      auto newType = makert<NGType>();
+      newType->name = newTypeDef->typeName;
+      context->define_type(newTypeDef->typeName, newType);
+    }
+
+    void visit(TaggedUnionDef *taggedUnion) override
+    {
+      auto type = makert<NGType>();
+      type->name = taggedUnion->typeName;
+      context->define_type(taggedUnion->typeName, type);
+
+      // Register each variant as a constructor function
+      for (int32_t i = 0; i < static_cast<int32_t>(taggedUnion->variants.size()); ++i)
+      {
+        const auto &variant = taggedUnion->variants[i];
+        Str unionName = taggedUnion->typeName;
+        Str variantName = variant.variantName;
+        int32_t variantIndex = i;
+        Vec<Str> payloadNames = variant.payloadNames;
+
+        context->define_function(variantName,
+          [unionName, variantName, variantIndex, payloadNames](const NGSelf &self, const NGCtx &ctx, const NGInvCtx &invCtx)
+          {
+            Vec<RuntimeRef<NGObject>> payload = invCtx->params;
+            ctx->retVal = makert<NGTaggedValue>(unionName, variantName, variantIndex, std::move(payload), payloadNames);
+          });
+      }
     }
 
     void summary() override { context->summary(); }

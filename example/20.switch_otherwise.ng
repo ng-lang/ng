@@ -1,0 +1,38 @@
+type Result = Ok(value: i32) | Err(msg: string);
+
+val success = Ok(42);
+val failure = Err("something went wrong");
+
+// Exhaustive switch: all variants covered
+switch (success) {
+    case Ok(value) {
+        print("Success: ", value);
+    }
+    case Err(msg) {
+        print("Error: ", msg);
+    }
+}
+
+// Switch with otherwise: catches any unmatched variant
+switch (failure) {
+    case Ok(value) {
+        print("Got value: ", value);
+    }
+    otherwise {
+        print("Not OK!");
+    }
+}
+
+// otherwise with a more complex example
+type Shape = Circle(radius: f32) | Rectangle(width: f32, height: f32) | Triangle(base: f32, height: f32);
+
+val s = Circle(5.0);
+
+switch (s) {
+    case Circle(r) {
+        print("Circle with radius: ", r);
+    }
+    otherwise {
+        print("Not a circle");
+    }
+}

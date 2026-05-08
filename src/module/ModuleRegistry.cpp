@@ -13,6 +13,11 @@ namespace NG::module
     return {};
   }
 
+  void ModuleRegistry::clear()
+  {
+    modules.clear();
+  }
+
   ModuleRegistry &get_module_registry() noexcept
   {
     static ModuleRegistry registry({}, {});

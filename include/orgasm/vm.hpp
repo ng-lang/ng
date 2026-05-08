@@ -1,0 +1,75 @@
+#pragma once
+
+#include <orgasm/module.hpp>
+#include <orgasm/native_bridge.hpp>
+#include <intp/runtime.hpp>
+#include <functional>
+
+namespace NG::orgasm
+{
+    using namespace NG::runtime;
+
+    using NativeFunction = std::function<RuntimeRef<NGObject>(const Vec<RuntimeRef<NGObject>> &)>;
+
+    /**
+     * @brief A simple virtual machine for executing ORGASM bytecode.
+     */
+    class VM
+    {
+      public:
+        explicit VM(Vec<Str> modulePaths = {}) : modulePaths(std::move(modulePaths)) {}
+
+        /**
+         * @brief Executes the entry point of a bytecode module.
+         *
+         * @param module The bytecode module to execute.
+         * @return The return value of the entry point.
+         */
+        auto run(const BytecodeModule &module) -> RuntimeRef<NGObject>;
+
+        /**
+         * @brief Registers a native function with auto-marshaling.
+         *
+         * Accepts regular C++ functions/lambdas. Types are automatically
+         * converted between NG runtime and C++ types.
+         *
+         * Supported C++ types: int8_t..int64_t, uint8_t..uint64_t,
+         * float, double, bool, std::string, RuntimeRef<NGObject>
+         *
+         * @param name The name of the native function (used by NATIVE_CALL opcode).
+         * @param func A C++ function or lambda with supported parameter/return types.
+         */
+        template <typename Func>
+        void register_native(const Str &name, Func func)
+        {
+            native_functions[name] = wrap_native(std::move(func));
+        }
+
+        /**
+         * @brief Registers a raw native function (no auto-marshaling).
+         *
+         * @param name The name of the native function.
+         * @param func The raw native function.
+         */
+        void register_native_raw(const Str &name, NativeFunction func);
+
+      private:
+        struct Frame
+        {
+            size_t ip;
+            Vec<RuntimeRef<NGObject>> locals;
+            Vec<RuntimeRef<NGObject>> args;
+        };
+
+        Vec<RuntimeRef<NGObject>> stack;
+        const BytecodeModule *current_module = nullptr;
+        Vec<RuntimeRef<NGObject>> globals;
+        RuntimeRef<NGContext> root_context;
+        Map<Str, RuntimeRef<NGType>> root_types;
+        Vec<Frame> call_stack;
+        Vec<Str> modulePaths;
+        Map<Str, NativeFunction> native_functions;
+
+        auto execute(const Function &fun, const Vec<RuntimeRef<NGObject>> &args) -> RuntimeRef<NGObject>;
+    };
+} // namespace NG::orgasm

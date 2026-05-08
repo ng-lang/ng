@@ -284,6 +284,14 @@ namespace NG::ast
          */
         virtual void visit(ImportDecl *importDecl) = 0;
 
+        virtual void visit(TypeAliasDef *typeAliasDef) = 0;
+        virtual void visit(NewTypeDef *newTypeDef) = 0;
+        virtual void visit(CastExpression *castExpr) = 0;
+        virtual void visit(TaggedUnionDef *taggedUnionDef) = 0;
+        virtual void visit(TaggedValueExpression *taggedVal) = 0;
+        virtual void visit(SwitchStatement *switchStmt) = 0;
+        virtual void visit(GenericParam *genericParam) = 0;
+
         /**
          * @brief Visits a compile unit.
          *
@@ -396,6 +404,13 @@ namespace NG::ast
         void visit(NewObjectExpression *newObj) override;
 
         void visit(ImportDecl *importDecl) override;
+        void visit(TypeAliasDef *typeAliasDef) override;
+        void visit(NewTypeDef *newTypeDef) override;
+        void visit(CastExpression *castExpr) override;
+        void visit(TaggedUnionDef *taggedUnionDef) override;
+        void visit(TaggedValueExpression *taggedVal) override;
+        void visit(SwitchStatement *switchStmt) override;
+        void visit(GenericParam *genericParam) override;
 
         void visit(CompileUnit *compileUnit) override;
 

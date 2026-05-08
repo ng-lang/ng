@@ -1,0 +1,70 @@
+// Generics Example
+// Demonstrates generic functions, type parameters, and parameter packs in NG.
+//
+// NOTE: Generic functions require the interpreter backend (--stupid flag).
+// Run with: ./build/ngi --stupid example/15.generics.ng
+
+// --- Basic Generic Function ---
+// A generic function uses type parameters in angle brackets after the function name.
+fun identity<T>(x: T) -> T {
+    return x;
+}
+
+val n = identity(42);           // T is inferred as i32
+val s = identity("hello");     // T is inferred as string
+val b = identity(true);        // T is inferred as bool
+
+assert(n == 42);
+assert(s == "hello");
+assert(b == true);
+
+// --- Multiple Type Parameters ---
+fun pair<A, B>(a: A, b: B) -> (A, B) {
+    return (a, b);
+}
+
+val p = pair(1, "world");
+assert(p.0 == 1);
+assert(p.1 == "world");
+
+// --- Generic Functions with Type Annotations ---
+// You can constrain type parameters with type annotations.
+fun swap<T>(a: T, b: T) -> (T, T) {
+    return (b, a);
+}
+
+val swapped = swap(10, 20);
+assert(swapped.0 == 20);
+assert(swapped.1 == 10);
+
+// --- Parameter Packs ---
+// Parameter packs allow functions to accept a variable number of arguments.
+// The pack parameter receives a tuple, so you can use .size to get the pack length.
+fun count<T...>(args: T...) -> u32 {
+    return args.size;
+}
+
+val c = count(1, "two", 3.0, true);
+assert(c == 4);
+
+fun printEach<T...>(args: T...) {
+    if (args.size > 0) {
+        val (head, ...tail) = args;
+        print(head);
+        next ...tail;
+    }
+}
+
+printEach(1, "two", 3.0, true);
+
+// --- Variadic print and assert ---
+// The built-in print function uses parameter packs:
+print("generics example completed successfully!");
+
+// --- Using len from prelude ---
+// The built-in len() function returns the number of elements in an array:
+val arr = [10, 20, 30, 40, 50];
+assert(len(arr) == 5);
+assert(len([1, 2]) == 2);
+assert(len([]) == 0);
+print("len() tests passed!");

@@ -1,5 +1,6 @@
 #include "../test.hpp"
 #include <intp/intp.hpp>
+#include <typecheck/typecheck.hpp>
 
 using namespace NG;
 using namespace NG::parsing;
@@ -266,6 +267,30 @@ assert(some_obj.a == 2);
 )");
 }
 
+TEST_CASE("interpreter should support prelude string and file helpers", "[InterpreterTest][Prelude]")
+{
+  interpret(R"(
+        val content = "hello,world";
+        val parts = split(content, ",");
+        val reversed = reverse(parts);
+
+        assert(content == "hello,world");
+        assert(len(parts) == 2);
+        assert(parts[0] == "hello");
+        assert(parts[1] == "world");
+        assert(join(parts, "-") == "hello-world");
+        assert(trim("  hi  ") == "hi");
+        assert(contains(content, "lo,wo"));
+        assert(replace(content, "world", "ng") == "hello,ng");
+        assert(startsWith(content, "hello"));
+        assert(endsWith(content, "world"));
+        assert(toUpper("Ng") == "NG");
+        assert(toLower("Ng") == "ng");
+        assert(reversed[0] == "world");
+        assert(reversed[1] == "hello");
+    )");
+}
+
 TEST_CASE("invalid unary operator usage", "[InterpreterTestChecking]")
 {
   // operator query not implemented
@@ -321,4 +346,169 @@ TEST_CASE("Tuples", "[InterpreterTestChecking]")
 
         assert(z == 2);
         )");
+}
+
+TEST_CASE("Tagged unions", "[InterpreterTestChecking]")
+{
+  interpret(R"(
+        type Result = Ok(value: i32) | Err(msg: string);
+
+        val success = Ok(42);
+        val failure = Err("not found");
+
+        switch (success) {
+            case Ok(value) {
+                assert(value == 42);
+            }
+            case Err(msg) {
+                assert(false);
+            }
+        }
+
+        switch (failure) {
+            case Ok(value) {
+                assert(false);
+            }
+            case Err(msg) {
+                assert(msg == "not found");
+            }
+        }
+        )");
+}
+
+TEST_CASE("generic function call (interpreter)", "[InterpreterTest]")
+{
+  interpret(R"(
+        fun identity<T>(x: T) -> T {
+            return x;
+        }
+
+        val result = identity(42);
+        assert(result == 42);
+        )");
+}
+
+TEST_CASE("generic function with multiple type params (interpreter)", "[InterpreterTest]")
+{
+  interpret(R"(
+        fun pair<A, B>(a: A, b: B) -> (A, B) {
+            return (a, b);
+        }
+
+        val p = pair(1, "hello");
+        assert(true); // just make sure it runs without error
+        )");
+}
+
+TEST_CASE("generic function with pack parameter (interpreter)", "[InterpreterTest]")
+{
+  interpret(R"(
+        fun first<T...>(args: T...) -> i32 {
+            return 42;
+        }
+
+        val result = first(1, "two", 3.0);
+        assert(result == 42);
+        )");
+}
+
+TEST_CASE("interpreter const if true branch", "[const_if][InterpreterTest]")
+{
+  interpret(R"(
+        const if (true) {
+            val x = 1;
+            val y = 2;
+            val z = x + y;
+            assert(z == 3);
+        } else {
+            val z = 100;
+            assert(z == 100);
+        }
+        )");
+}
+
+TEST_CASE("interpreter const if false branch", "[const_if][InterpreterTest]")
+{
+  interpret(R"(
+        const if (false) {
+            val z = 100;
+            assert(z == 100);
+        } else {
+            val x = 1;
+            val y = 2;
+            val z = x + y;
+            assert(z == 3);
+        }
+        )");
+}
+
+TEST_CASE("interpreter const if with negation", "[const_if][InterpreterTest]")
+{
+  interpret(R"(
+        const if (!false) {
+            val x = 42;
+            assert(x == 42);
+        } else {
+            val x = 0;
+            assert(x == 0);
+        }
+        )");
+}
+
+TEST_CASE("interpreter const if with equality", "[const_if][InterpreterTest]")
+{
+  interpret(R"(
+        const if (1 == 2) {
+            val x = 1;
+        } else {
+            val x = 2;
+            assert(x == 2);
+        }
+
+        const if (1 == 1) {
+            val x = 3;
+            assert(x == 3);
+        } else {
+            val x = 4;
+        }
+        )");
+}
+
+TEST_CASE("interpreter const if without else", "[const_if][InterpreterTest]")
+{
+  interpret(R"(
+        const if (true) {
+            val x = 7;
+            assert(x == 7);
+        }
+
+        const if (false) {
+            val x = 999;
+        }
+        )");
+}
+
+TEST_CASE("interpreter const if should use typeof query result", "[const_if][InterpreterTest]")
+{
+  auto ast = parse(R"(
+        type Box<T> {
+          property value: T;
+        }
+
+        val box: Box<i32> = new Box<i32> { value: 42 };
+
+        const if (typeof(box.value).name == "i32") {
+            assert(box.value == 42);
+        } else {
+            assert(false);
+        }
+        )");
+  REQUIRE(ast != nullptr);
+  auto prelude_types = NG::typecheck::build_prelude_type_index();
+  NG::typecheck::type_check(ast, prelude_types);
+
+  Interpreter *intp = NG::intp::stupid();
+  ast->accept(intp);
+  delete intp;
+  destroyast(ast);
 }

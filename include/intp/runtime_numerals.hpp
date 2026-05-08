@@ -198,6 +198,11 @@ namespace NG::runtime
          * @return The value as a `size_t`.
          */
         [[nodiscard]] auto asSize() const -> size_t { return static_cast<size_t>(value); }
+
+        [[nodiscard]] auto type() const -> RuntimeRef<NGType> override
+        {
+            return makert<NGType>(NGType{.name = "Int"});
+        }
     };
 
     template <std::integral T>
@@ -224,10 +229,14 @@ namespace NG::runtime
     template <std::integral T>
     auto NGIntegral<T>::opPlus(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject>
     {
+        if (auto str = std::dynamic_pointer_cast<NGString>(other); str != nullptr)
+        {
+            return makert<NGString>(show() + str->value);
+        }
         auto result = std::dynamic_pointer_cast<NumeralBase>(other);
         if (!result)
         {
-            throw RuntimeException("Not a number");
+            return NGObject::opPlus(other);
         }
         if (result->bytesize() > bytesize())
         {

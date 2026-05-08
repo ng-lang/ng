@@ -1,0 +1,17 @@
+// Union Type Annotations
+// =======================
+// NG supports union types using the `|` syntax.
+// A union type allows a value to be one of several types.
+
+// Simple union type: i32 or string
+val x: i32 | string = 1;
+val y: i32 | string = "hello";
+
+// Multiple union members
+val z: bool | i32 | f32 = true;
+val w: bool | i32 | f32 = 42;
+
+print(x);
+print(y);
+print(z);
+print(w);

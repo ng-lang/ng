@@ -74,3 +74,20 @@ TEST_CASE("lexer should accept new keyword", "[Lexer][Keyword][New]")
   REQUIRE(tokens.size() == 1);
   REQUIRE(tokens[0].type == TokenType::KEYWORD_NEW);
 }
+
+TEST_CASE("lexer should accept extended compile-time and nominal keywords", "[Lexer][Keyword][TypeQuery][Nominal]")
+{
+  Lexer lexer{LexState{R"(const switch case otherwise typeof wraps cast native)"}};
+
+  auto &&tokens = lexer.lex();
+
+  REQUIRE(tokens.size() == 8);
+  REQUIRE(tokens[0].type == TokenType::KEYWORD_CONST);
+  REQUIRE(tokens[1].type == TokenType::KEYWORD_SWITCH);
+  REQUIRE(tokens[2].type == TokenType::KEYWORD_CASE);
+  REQUIRE(tokens[3].type == TokenType::KEYWORD_OTHERWISE);
+  REQUIRE(tokens[4].type == TokenType::KEYWORD_TYPEOF);
+  REQUIRE(tokens[5].type == TokenType::KEYWORD_WRAPS);
+  REQUIRE(tokens[6].type == TokenType::KEYWORD_CAST);
+  REQUIRE(tokens[7].type == TokenType::KEYWORD_NATIVE);
+}

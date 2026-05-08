@@ -44,7 +44,8 @@ TEST_CASE("parser should parse spread operator and multiple bindings", "[Parser]
 
     )");
     REQUIRE(ast != nullptr);
-    debug_log("Parse result:", ast->repr());
+    REQUIRE(ast->repr().find("...tup") != Str::npos);
+    REQUIRE(ast->repr().find("...rest") != Str::npos);
     destroyast(ast);
 }
 

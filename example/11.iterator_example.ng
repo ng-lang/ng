@@ -3,10 +3,10 @@ type None {
 }
 
 type Node {
-    property _next;
-    property content;
+    _next;
+    content: i32;
 
-    fun hasNext() {
+    fun hasNext() -> bool {
         return not(self._next is None);
     }
 
@@ -16,8 +16,8 @@ type Node {
 }
 
 type List {
-    property node;
-    property size;
+    node;
+    size: i32;
 
     fun append(value) {
         print("append", value, self);
