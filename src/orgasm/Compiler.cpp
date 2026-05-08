@@ -1,4 +1,5 @@
 #include <orgasm/compiler.hpp>
+#include <array>
 #include <module.hpp>
 #include <cstring>
 #include <token.hpp>
@@ -995,28 +996,32 @@ namespace NG::orgasm
     }
     void Compiler::emit_i32(int32_t val) {
         if (current_function) {
-            uint8_t bytes[4]; std::memcpy(bytes, &val, 4);
+            std::array<uint8_t, sizeof(val)> bytes{};
+            std::memcpy(bytes.data(), &val, sizeof(val));
             for (int i = 0; i < 4; ++i) current_function->code.push_back(bytes[i]);
             last_emit_was_return = false;
         }
     }
     void Compiler::emit_i64(int64_t val) {
         if (current_function) {
-            uint8_t bytes[8]; std::memcpy(bytes, &val, 8);
+            std::array<uint8_t, sizeof(val)> bytes{};
+            std::memcpy(bytes.data(), &val, sizeof(val));
             for (int i = 0; i < 8; ++i) current_function->code.push_back(bytes[i]);
             last_emit_was_return = false;
         }
     }
     void Compiler::emit_f32(float val) {
         if (current_function) {
-            uint8_t bytes[4]; std::memcpy(bytes, &val, 4);
+            std::array<uint8_t, sizeof(val)> bytes{};
+            std::memcpy(bytes.data(), &val, sizeof(val));
             for (int i = 0; i < 4; ++i) current_function->code.push_back(bytes[i]);
             last_emit_was_return = false;
         }
     }
     void Compiler::emit_f64(double val) {
         if (current_function) {
-            uint8_t bytes[8]; std::memcpy(bytes, &val, 8);
+            std::array<uint8_t, sizeof(val)> bytes{};
+            std::memcpy(bytes.data(), &val, sizeof(val));
             for (int i = 0; i < 8; ++i) current_function->code.push_back(bytes[i]);
             last_emit_was_return = false;
         }

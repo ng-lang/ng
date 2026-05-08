@@ -141,8 +141,8 @@ namespace NG::typecheck
     // This propagates automatically when locals are copied to child checkers.
     static constexpr const char *WILDCARD_IMPORT_KEY = "$$wildcard_import$$";
 
-    TypeChecker(Map<Str, CheckingRef<TypeInfo>> locals, Vec<CheckingRef<TypeInfo>> contextRequirement = {},
-                CheckingRef<TypeInfo> expectedType = nullptr)
+    explicit TypeChecker(Map<Str, CheckingRef<TypeInfo>> locals, Vec<CheckingRef<TypeInfo>> contextRequirement = {},
+                         CheckingRef<TypeInfo> expectedType = nullptr)
         : locals(locals), contextRequirement(contextRequirement), expectedType(expectedType)
     {
     }
@@ -1926,7 +1926,7 @@ namespace NG::typecheck
           // Look up named payload field
           for (size_t i = 0; i < variantType->payloadNames.size(); ++i)
           {
-            if (variantType->payloadNames[i] == memberName && i < variantType->payloadTypes.size())
+            if (i < variantType->payloadTypes.size() && variantType->payloadNames[i] == memberName)
             {
               memberType = variantType->payloadTypes[i];
               break;
