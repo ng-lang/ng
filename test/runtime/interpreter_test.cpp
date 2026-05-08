@@ -267,6 +267,30 @@ assert(some_obj.a == 2);
 )");
 }
 
+TEST_CASE("interpreter should support prelude string and file helpers", "[InterpreterTest][Prelude]")
+{
+  interpret(R"(
+        val content = "hello,world";
+        val parts = split(content, ",");
+        val reversed = reverse(parts);
+
+        assert(content == "hello,world");
+        assert(len(parts) == 2);
+        assert(parts[0] == "hello");
+        assert(parts[1] == "world");
+        assert(join(parts, "-") == "hello-world");
+        assert(trim("  hi  ") == "hi");
+        assert(contains(content, "lo,wo"));
+        assert(replace(content, "world", "ng") == "hello,ng");
+        assert(startsWith(content, "hello"));
+        assert(endsWith(content, "world"));
+        assert(toUpper("Ng") == "NG");
+        assert(toLower("Ng") == "ng");
+        assert(reversed[0] == "world");
+        assert(reversed[1] == "hello");
+    )");
+}
+
 TEST_CASE("invalid unary operator usage", "[InterpreterTestChecking]")
 {
   // operator query not implemented
