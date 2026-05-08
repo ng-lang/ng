@@ -9,7 +9,7 @@ fun print<T...>(value: T...) -> unit = native;
 
 fun assert<T...>(assertion: T...) -> unit = native;
 
-fun len<T>(xs: T array) -> u32 = native;
+fun len<T>(xs: string | T array) -> u32 = native;
 
 // C1: Basic I/O
 fun readLine() -> string = native;
@@ -38,8 +38,8 @@ fun toUpper(s: string) -> string = native;
 fun toLower(s: string) -> string = native;
 
 // C3: Collection operations
-fun reverse(xs: i32 array) -> i32 array = native;
+fun reverse<T>(xs: T array) -> T array = native;
 
 fun range(start: i32, end: i32) -> i32 array = native;
 
-fun slice(xs: i32 array, start: i32, end: i32) -> i32 array = native;
+fun slice<T>(xs: T array, start: i32, end: i32) -> T array = native;

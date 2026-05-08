@@ -121,6 +121,7 @@ namespace NG::orgasm
 
         // Second pass: compile top-level code into __start__ (at index 0)
         current_function = &module.functions[0];
+        last_emit_was_return = false;
         locals.clear();
         loop_stack.clear();
 
@@ -175,6 +176,7 @@ namespace NG::orgasm
             if (auto funDef = dynamic_ast_cast<FunctionDef>(def))
             {
                 current_function = &module.functions[funIndex++];
+                last_emit_was_return = false;
                 locals.clear();
                 loop_stack.clear();
                 
@@ -192,7 +194,7 @@ namespace NG::orgasm
                 loop_stack.pop_back();
                 current_function->num_locals = static_cast<int32_t>(locals.size());
 
-                if (current_function->code.empty() || static_cast<OpCode>(current_function->code.back()) != OpCode::RETURN)
+                if (!last_emit_was_return)
                 {
                     emit(OpCode::PUSH_UNIT);
                     emit(OpCode::RETURN);
@@ -203,6 +205,7 @@ namespace NG::orgasm
                 for (auto &&memFn : typeDef->memberFunctions)
                 {
                     current_function = &module.functions[funIndex++];
+                    last_emit_was_return = false;
                     locals.clear();
                     loop_stack.clear();
                     current_type_name = typeDef->typeName;
@@ -224,7 +227,7 @@ namespace NG::orgasm
                     loop_stack.pop_back();
                     current_function->num_locals = static_cast<int32_t>(locals.size());
 
-                    if (current_function->code.empty() || static_cast<OpCode>(current_function->code.back()) != OpCode::RETURN)
+                    if (!last_emit_was_return)
                     {
                         emit(OpCode::PUSH_UNIT);
                         emit(OpCode::RETURN);
@@ -948,42 +951,58 @@ namespace NG::orgasm
         return -1;
     }
 
-    void Compiler::emit(OpCode op) { if (current_function) current_function->code.push_back(static_cast<uint8_t>(op)); }
-    void Compiler::emit_u8(uint8_t val) { if (current_function) current_function->code.push_back(val); }
+    void Compiler::emit(OpCode op) {
+        if (current_function) {
+            current_function->code.push_back(static_cast<uint8_t>(op));
+            last_emit_was_return = (op == OpCode::RETURN);
+        }
+    }
+    void Compiler::emit_u8(uint8_t val) {
+        if (current_function) {
+            current_function->code.push_back(val);
+            last_emit_was_return = false;
+        }
+    }
     void Compiler::emit_u16(uint16_t val) {
         if (current_function) {
             current_function->code.push_back(static_cast<uint8_t>(val & 0xFF));
             current_function->code.push_back(static_cast<uint8_t>((val >> 8) & 0xFF));
+            last_emit_was_return = false;
         }
     }
     void Compiler::emit_i32(int32_t val) {
         if (current_function) {
             uint8_t bytes[4]; std::memcpy(bytes, &val, 4);
             for (int i = 0; i < 4; ++i) current_function->code.push_back(bytes[i]);
+            last_emit_was_return = false;
         }
     }
     void Compiler::emit_i64(int64_t val) {
         if (current_function) {
             uint8_t bytes[8]; std::memcpy(bytes, &val, 8);
             for (int i = 0; i < 8; ++i) current_function->code.push_back(bytes[i]);
+            last_emit_was_return = false;
         }
     }
     void Compiler::emit_f32(float val) {
         if (current_function) {
             uint8_t bytes[4]; std::memcpy(bytes, &val, 4);
             for (int i = 0; i < 4; ++i) current_function->code.push_back(bytes[i]);
+            last_emit_was_return = false;
         }
     }
     void Compiler::emit_f64(double val) {
         if (current_function) {
             uint8_t bytes[8]; std::memcpy(bytes, &val, 8);
             for (int i = 0; i < 8; ++i) current_function->code.push_back(bytes[i]);
+            last_emit_was_return = false;
         }
     }
     void Compiler::patch_i32(size_t offset, int32_t val) {
         if (current_function) {
             uint8_t bytes[4]; std::memcpy(bytes, &val, 4);
             for (int i = 0; i < 4; ++i) current_function->code[offset + i] = bytes[i];
+            last_emit_was_return = false;
         }
     }
 

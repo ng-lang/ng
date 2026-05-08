@@ -68,6 +68,15 @@ namespace NG::orgasm
         for (size_t i = 0; i < args.size(); ++i) frame.locals[i] = args[i];
         
         call_stack.push_back(std::move(frame));
+        struct FrameGuard {
+            Vec<Frame> &frames;
+            bool released = false;
+
+            ~FrameGuard()
+            {
+                if (!released && !frames.empty()) frames.pop_back();
+            }
+        } guard{call_stack};
         size_t frame_idx = call_stack.size() - 1;
         
         auto pop = [this]() -> RuntimeRef<NGObject>
@@ -196,7 +205,12 @@ namespace NG::orgasm
                     break;
                 }
                 case OpCode::NEG_I32: { auto val = pop(); auto numeric = std::dynamic_pointer_cast<NumeralBase>(val); if (numeric) stack.push_back(numeric->opNegate()); else throw RuntimeException("Not a number"); break; }
-                case OpCode::RETURN: { auto res = stack.empty() ? makert<NGUnit>() : pop(); call_stack.pop_back(); return res; }
+                case OpCode::RETURN: {
+                    auto res = stack.empty() ? makert<NGUnit>() : pop();
+                    guard.released = true;
+                    call_stack.pop_back();
+                    return res;
+                }
                 case OpCode::LOAD_LOCAL: { stack.push_back(call_stack[frame_idx].locals[read_u16()]); break; }
                 case OpCode::LOAD_PARAM: { stack.push_back(call_stack[frame_idx].locals[read_u16()]); break; }
                 case OpCode::STORE_LOCAL: { uint16_t idx = read_u16(); auto &locals = call_stack[frame_idx].locals; if (idx >= locals.size()) locals.resize(idx + 1, makert<NGUnit>()); locals[idx] = stack.back(); break; }
@@ -611,13 +625,16 @@ namespace NG::orgasm
                     break;
                 }
 
-                default: std::cerr << "Unknown opcode: " << static_cast<int>(op) << " at ip=" << ip-1 << std::endl; return makert<NGUnit>();
+                default:
+                    throw RuntimeException("Unknown opcode: " + std::to_string(static_cast<int>(op)) + " at ip=" +
+                                           std::to_string(ip - 1));
                 }
             } catch (const std::exception& ex) {
                 std::cerr << "Error at ip=" << ip-1 << " op=" << static_cast<int>(op) << " in " << fun.name << ": " << ex.what() << std::endl;
                 throw;
             }
         }
+        guard.released = true;
         call_stack.pop_back();
         return makert<NGUnit>();
     }

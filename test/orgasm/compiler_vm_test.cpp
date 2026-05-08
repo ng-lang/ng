@@ -190,3 +190,35 @@ TEST_CASE("compiler and vm should handle tagged unions", "[OrgasmTest]")
 
   destroyast(ast);
 }
+
+TEST_CASE("compiler and vm should handle switch otherwise for tagged unions", "[OrgasmTest]")
+{
+  auto ast = parse(R"(
+        type Result = Ok(value: i32) | Err(msg: string);
+
+        fun main() {
+            val failure = Err("boom");
+            switch (failure) {
+                case Ok(value) {
+                    return value;
+                }
+                otherwise {
+                    return 7;
+                }
+            }
+        }
+    )");
+  REQUIRE(ast != nullptr);
+
+  Compiler compiler;
+  auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+
+  VM vm;
+  auto result = vm.run(bytecode);
+
+  auto numeric = std::dynamic_pointer_cast<NumeralBase>(result);
+  REQUIRE(numeric != nullptr);
+  REQUIRE(NGIntegral<int32_t>::valueOf(numeric.get()) == 7);
+
+  destroyast(ast);
+}

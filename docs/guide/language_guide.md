@@ -330,7 +330,7 @@ The `std.prelude` module is implicitly imported into every module. It provides t
 *   `print<T...>(args: T...)`: Prints one or more values to the console.
 *   `assert<T...>(assertion: T...)`: Asserts that a condition is true.
 *   `not(value: bool)`: Returns the logical negation of a boolean value.
-*   `len<T>(xs: T array) -> u32`: Returns the length of an array, string, or tuple.
+*   `len<T>(xs: string | T array) -> u32`: Returns the length of a string or array.
 
 #### I/O
 
@@ -352,9 +352,9 @@ The `std.prelude` module is implicitly imported into every module. It provides t
 
 #### Collection Operations
 
-*   `reverse(xs: i32 array) -> i32 array`: Reverses an array (or string).
+*   `reverse<T>(xs: T array) -> T array`: Reverses an array.
 *   `range(start: i32, end: i32) -> i32 array`: Generates a range of integers from start to end (exclusive).
-*   `slice(xs: i32 array, start: i32, end: i32) -> i32 array`: Returns a sub-array (or substring) from start to end (exclusive).
+*   `slice<T>(xs: T array, start: i32, end: i32) -> T array`: Returns a sub-array from start to end (exclusive).
 
 ## 10. Computer Science Concepts
 

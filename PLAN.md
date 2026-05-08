@@ -157,11 +157,10 @@ print(1, "hello", true);      // T... = (i32, string, bool)
 
 #### A. 语言特性完善
 
-**A1. 结构化联合类型注解（Union Type Annotations）**
-- 状态：`UnionType` 已定义但类型注解解析未实现
-- 需要：解析 `val x: i32 | string = 42;` 语法
-- 修改：`ParserImpl.cpp`（`typeAnnotation()` 扩展 `|` 支持）
-- 修改：`typecheck.cpp`（类型注解 → `UnionType` 转换）
+**A1. 结构化联合类型注解（Union Type Annotations）** — ✅ 完成
+- `ParserImpl.cpp:typeAnnotation()` 已支持 `val x: i32 | string = 42;`
+- `typecheck.cpp` 已将联合类型注解转换为 `UnionType`
+- 测试：`test/typecheck/typecheck_union_test.cpp`
 
 **A2. switch/case 穷尽性检查** — ✅ 完成
 - `typecheck.cpp:visit(SwitchStatement*)` 检查所有变体被覆盖或有 `otherwise` 分支
@@ -310,8 +309,8 @@ print(1, "hello", true);      // T... = (i32, string, bool)
 1. **ValDefStatement → ValueBindingStatement 迁移** — `typecheck.cpp:493` 有 TODO
 2. **解释器 QUERY 运算符** — `stupid.cpp:247` 抛出 NotImplementedException
 3. **ORGASM Compiler 空 visitor** — 6 个空实现需要补全或移除
-4. **VM 错误处理** — 未知 opcode 静默返回 UNIT
-5. **测试覆盖** — 缺少 ORGASM 后端的标签联合专项测试
+4. ~~**VM 错误处理**~~ — ✅ 已修复：未知 opcode 改为抛出运行时错误，异常路径会正确回收调用栈帧
+5. ~~**测试覆盖**~~ — ✅ 已补充：增加 ORGASM 标签联合 `otherwise` 路径和模块合并类型索引重映射测试
 6. ~~**main.cpp prelude_types 硬编码**~~ — ✅ 已修复：`build_prelude_type_index()` 自动从 prelude 模块导出类型
 
 ---

@@ -1,8 +1,10 @@
 #include <intp/runtime.hpp>
 #include <intp/runtime_numerals.hpp>
 #include <orgasm/vm.hpp>
-#include <fstream>
 #include <algorithm>
+#include <cctype>
+#include <fstream>
+#include <iostream>
 
 namespace NG::library::prelude
 {
@@ -50,19 +52,15 @@ namespace NG::library::prelude
        {
          context->retVal = makert<NGIntegral<uint32_t>>(static_cast<uint32_t>(arr->items->size()));
        }
-       else if (auto str = std::dynamic_pointer_cast<NGString>(param))
-       {
-         context->retVal = makert<NGIntegral<uint32_t>>(static_cast<uint32_t>(str->value.size()));
-       }
-       else if (auto tup = std::dynamic_pointer_cast<NGTuple>(param))
-       {
-         context->retVal = makert<NGIntegral<uint32_t>>(static_cast<uint32_t>(tup->items->size()));
-       }
-       else
-       {
-         throw RuntimeException("len() requires an array, string, or tuple argument");
-       }
-     }},
+        else if (auto str = std::dynamic_pointer_cast<NGString>(param))
+        {
+          context->retVal = makert<NGIntegral<uint32_t>>(static_cast<uint32_t>(str->value.size()));
+        }
+        else
+        {
+          throw RuntimeException("len() requires an array or string argument");
+        }
+      }},
 
     // C1: Basic I/O
     {"readLine",
@@ -205,34 +203,20 @@ namespace NG::library::prelude
        {
          throw RuntimeException("contains() requires two arguments");
        }
-       if (auto strObj = std::dynamic_pointer_cast<NGString>(invCtx->params[0]))
-       {
-         auto subObj = std::dynamic_pointer_cast<NGString>(invCtx->params[1]);
-         if (!subObj)
-         {
+        if (auto strObj = std::dynamic_pointer_cast<NGString>(invCtx->params[0]))
+        {
+          auto subObj = std::dynamic_pointer_cast<NGString>(invCtx->params[1]);
+          if (!subObj)
+          {
            throw RuntimeException("contains() on string requires a string substring");
-         }
-         context->retVal = makert<NGBoolean>(strObj->value.find(subObj->value) != Str::npos);
-       }
-       else if (auto arrObj = std::dynamic_pointer_cast<NGArray>(invCtx->params[0]))
-       {
-         auto &needle = invCtx->params[1];
-         bool found = false;
-         for (auto &item : *arrObj->items)
-         {
-           if (item->show() == needle->show())
-           {
-             found = true;
-             break;
-           }
-         }
-         context->retVal = makert<NGBoolean>(found);
-       }
-       else
-       {
-         throw RuntimeException("contains() requires a string or array as first argument");
-       }
-     }},
+          }
+          context->retVal = makert<NGBoolean>(strObj->value.find(subObj->value) != Str::npos);
+        }
+        else
+        {
+          throw RuntimeException("contains() requires a string as first argument");
+        }
+      }},
     {"replace",
      [](const NGSelf &self, const NGCtx &context, const NGInvCtx &invCtx)
      {
@@ -295,32 +279,36 @@ namespace NG::library::prelude
        if (invCtx->params.empty())
        {
          throw RuntimeException("toUpper() requires a string argument");
-       }
-       auto strObj = std::dynamic_pointer_cast<NGString>(invCtx->params[0]);
-       if (!strObj)
-       {
-         throw RuntimeException("toUpper() requires a string argument");
-       }
-       Str result = strObj->value;
-       std::transform(result.begin(), result.end(), result.begin(), ::toupper);
-       context->retVal = makert<NGString>(result);
-     }},
+        }
+        auto strObj = std::dynamic_pointer_cast<NGString>(invCtx->params[0]);
+        if (!strObj)
+        {
+          throw RuntimeException("toUpper() requires a string argument");
+        }
+        Str result = strObj->value;
+        std::transform(result.begin(), result.end(), result.begin(), [](unsigned char ch) {
+          return static_cast<char>(std::toupper(ch));
+        });
+        context->retVal = makert<NGString>(result);
+      }},
     {"toLower",
      [](const NGSelf &self, const NGCtx &context, const NGInvCtx &invCtx)
      {
        if (invCtx->params.empty())
        {
          throw RuntimeException("toLower() requires a string argument");
-       }
-       auto strObj = std::dynamic_pointer_cast<NGString>(invCtx->params[0]);
-       if (!strObj)
-       {
-         throw RuntimeException("toLower() requires a string argument");
-       }
-       Str result = strObj->value;
-       std::transform(result.begin(), result.end(), result.begin(), ::tolower);
-       context->retVal = makert<NGString>(result);
-     }},
+        }
+        auto strObj = std::dynamic_pointer_cast<NGString>(invCtx->params[0]);
+        if (!strObj)
+        {
+          throw RuntimeException("toLower() requires a string argument");
+        }
+        Str result = strObj->value;
+        std::transform(result.begin(), result.end(), result.begin(), [](unsigned char ch) {
+          return static_cast<char>(std::tolower(ch));
+        });
+        context->retVal = makert<NGString>(result);
+      }},
 
     // C3: Collection operations
     {"reverse",
@@ -331,26 +319,20 @@ namespace NG::library::prelude
          throw RuntimeException("reverse() requires an argument");
        }
        if (auto arrObj = std::dynamic_pointer_cast<NGArray>(invCtx->params[0]))
-       {
-         auto items = makert<Vec<RuntimeRef<NGObject>>>();
-         auto &src = *arrObj->items;
-         for (auto it = src.rbegin(); it != src.rend(); ++it)
-         {
-           items->push_back(*it);
-         }
-         context->retVal = makert<NGArray>(*items);
-       }
-       else if (auto strObj = std::dynamic_pointer_cast<NGString>(invCtx->params[0]))
-       {
-         Str result = strObj->value;
-         std::reverse(result.begin(), result.end());
-         context->retVal = makert<NGString>(result);
-       }
-       else
-       {
-         throw RuntimeException("reverse() requires an array or string argument");
-       }
-     }},
+        {
+          auto items = makert<Vec<RuntimeRef<NGObject>>>();
+          auto &src = *arrObj->items;
+          for (auto it = src.rbegin(); it != src.rend(); ++it)
+          {
+            items->push_back(*it);
+          }
+          context->retVal = makert<NGArray>(*items);
+        }
+        else
+        {
+          throw RuntimeException("reverse() requires an array argument");
+        }
+      }},
     {"range",
      [](const NGSelf &self, const NGCtx &context, const NGInvCtx &invCtx)
      {
@@ -386,36 +368,22 @@ namespace NG::library::prelude
          throw RuntimeException("slice() requires integer start and end indices");
        }
        if (auto arrObj = std::dynamic_pointer_cast<NGArray>(invCtx->params[0]))
-       {
-         auto &src = *arrObj->items;
-         auto items = makert<Vec<RuntimeRef<NGObject>>>();
-         int32_t s = std::max(0, startNum->value);
-         int32_t e = std::min(static_cast<int32_t>(src.size()), endNum->value);
+        {
+          auto &src = *arrObj->items;
+          auto items = makert<Vec<RuntimeRef<NGObject>>>();
+          int32_t s = std::max(0, startNum->value);
+          int32_t e = std::min(static_cast<int32_t>(src.size()), endNum->value);
          for (int32_t i = s; i < e; ++i)
          {
            items->push_back(src[i]);
-         }
-         context->retVal = makert<NGArray>(*items);
-       }
-       else if (auto strObj = std::dynamic_pointer_cast<NGString>(invCtx->params[0]))
-       {
-         auto &s = strObj->value;
-         int32_t start = std::max(0, startNum->value);
-         int32_t end = std::min(static_cast<int32_t>(s.size()), endNum->value);
-         if (start >= end)
-         {
-           context->retVal = makert<NGString>("");
-         }
-         else
-         {
-           context->retVal = makert<NGString>(s.substr(start, end - start));
-         }
-       }
-       else
-       {
-         throw RuntimeException("slice() requires an array or string as first argument");
-       }
-     }},
+          }
+          context->retVal = makert<NGArray>(*items);
+        }
+        else
+        {
+          throw RuntimeException("slice() requires an array as first argument");
+        }
+      }},
   };
 
   void do_register()

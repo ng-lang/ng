@@ -8,6 +8,7 @@ namespace NG::orgasm
         int32_t constOffset = static_cast<int32_t>(constants.size());
         int32_t strOffset = static_cast<int32_t>(strings.size());
         int32_t funOffset = static_cast<int32_t>(functions.size());
+        int32_t typeOffset = static_cast<int32_t>(types.size());
 
         // Copy constants and strings
         constants.insert(constants.end(), other.constants.begin(), other.constants.end());
@@ -54,6 +55,14 @@ namespace NG::orgasm
                     uint16_t idx = static_cast<uint16_t>(code[opStart + offset]) |
                                    (static_cast<uint16_t>(code[opStart + offset + 1]) << 8);
                     idx += static_cast<uint16_t>(constOffset);
+                    code[opStart + offset] = static_cast<uint8_t>(idx & 0xFF);
+                    code[opStart + offset + 1] = static_cast<uint8_t>((idx >> 8) & 0xFF);
+                };
+
+                auto remap_u16_type = [&](int32_t offset) {
+                    uint16_t idx = static_cast<uint16_t>(code[opStart + offset]) |
+                                   (static_cast<uint16_t>(code[opStart + offset + 1]) << 8);
+                    idx += static_cast<uint16_t>(typeOffset);
                     code[opStart + offset] = static_cast<uint8_t>(idx & 0xFF);
                     code[opStart + offset + 1] = static_cast<uint8_t>((idx >> 8) & 0xFF);
                 };
@@ -106,6 +115,10 @@ namespace NG::orgasm
                 case OpCode::CALL:
                     remap_u16_fun(1);
                     i += 4; // funIndex + numArgs
+                    break;
+                case OpCode::CONSTRUCT_TAGGED:
+                    remap_u16_type(1);
+                    i += 6; // typeIndex + variantIndex + payloadCount
                     break;
 
                 // Instructions with local/global index operand

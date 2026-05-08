@@ -168,6 +168,7 @@ TEST_CASE("len() should work with array literal", "[TypeCheck][Prelude][len]")
     val arr = [1, 2, 3, 4, 5];
     val n = len(arr);
     val m = len(["a", "b"]);
+    val s = len("hello");
   )");
 
   REQUIRE(ast != nullptr);
@@ -179,6 +180,9 @@ TEST_CASE("len() should work with array literal", "[TypeCheck][Prelude][len]")
 
   REQUIRE(index.contains("m"));
   check_type_tag(*index["m"], typeinfo_tag::U32);
+
+  REQUIRE(index.contains("s"));
+  check_type_tag(*index["s"], typeinfo_tag::U32);
 
   destroyast(ast);
 }

@@ -91,6 +91,7 @@ namespace NG::orgasm
         Vec<Str> modulePaths;
         Set<Str> nativeFnNames;
         Str current_type_name;  // Current type being compiled (for member functions)
+        bool last_emit_was_return = false;
 
         // Tagged union tracking: variant name -> (union type name, variant index)
         struct VariantInfo {

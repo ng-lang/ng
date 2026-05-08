@@ -677,9 +677,14 @@ namespace NG::intp
         throw RuntimeException("Switch scrutinee is not a tagged value");
       }
 
-      // Find the matching case by variant name
+      const CaseClause *otherwise = nullptr;
       for (auto &c : switchStmt->cases)
       {
+        if (c.isOtherwise)
+        {
+          otherwise = &c;
+          continue;
+        }
         if (c.variantName == tagged->variantName)
         {
           auto caseContext = context->fork();
@@ -699,6 +704,18 @@ namespace NG::intp
           }
           return;
         }
+      }
+
+      if (otherwise != nullptr)
+      {
+        auto caseContext = context->fork();
+        StatementVisitor caseVis{caseContext};
+        otherwise->body->accept(&caseVis);
+        if (caseContext->retVal != nullptr)
+        {
+          context->retVal = caseContext->retVal;
+        }
+        return;
       }
 
       throw RuntimeException("No matching case for variant: " + tagged->variantName);

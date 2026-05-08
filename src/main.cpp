@@ -16,6 +16,7 @@
 #include <fstream>
 #include <functional>
 #include <iostream>
+#include <memory>
 #include <streambuf>
 
 using namespace NG;
@@ -187,8 +188,8 @@ auto main(int argc, char *argv[]) -> int
 
     if (use_stupid)
     {
-      NG::intp::Interpreter *stupid = NG::intp::stupid();
-      ast->accept(stupid);
+      auto stupid = std::unique_ptr<NG::intp::Interpreter>(NG::intp::stupid());
+      ast->accept(stupid.get());
     }
     else
     {
