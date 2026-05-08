@@ -4,7 +4,6 @@
 #include <orgasm/compiler.hpp>
 #include <orgasm/vm.hpp>
 #include <module.hpp>
-#include <vector>
 
 using namespace NG;
 using namespace NG::orgasm;
@@ -43,30 +42,20 @@ static inline void runOrgasmExample(const std::string &filename)
     destroyast(ast);
 }
 
-TEST_CASE("Orgasm should run supported numbered examples", "[OrgasmExample]")
-{
-    const std::vector<std::string> examples = {
-        "example/01.id.ng",
-        "example/02.many_defs.ng",
-        "example/03.funcall_and_idexpr.ng",
-        "example/04.str.ng",
-        "example/05.valdef.ng",
-        "example/06.array.ng",
-        "example/07.object.ng",
-        "example/08.imports.ng",
-        "example/09.scope.ng",
-        "example/10.loop.ng",
-        "example/11.iterator_example.ng",
-        "example/13.import_std_prelude.ng",
-        "example/14.tuple.ng",
-        "example/16.tagged_union.ng",
-        "example/17.const_if.ng",
-        "example/19.union_type.ng",
-        "example/20.switch_otherwise.ng",
-    };
-
-    for (const auto &example : examples)
-    {
-        runOrgasmExample(example);
-    }
-}
+TEST_CASE("Orgasm example 01.id.ng", "[OrgasmExample]") { runOrgasmExample("example/01.id.ng"); }
+TEST_CASE("Orgasm example 02.many_defs.ng", "[OrgasmExample]") { runOrgasmExample("example/02.many_defs.ng"); }
+TEST_CASE("Orgasm example 03.funcall_and_idexpr.ng", "[OrgasmExample]") { runOrgasmExample("example/03.funcall_and_idexpr.ng"); }
+TEST_CASE("Orgasm example 04.str.ng", "[OrgasmExample]") { runOrgasmExample("example/04.str.ng"); }
+TEST_CASE("Orgasm example 05.valdef.ng", "[OrgasmExample]") { runOrgasmExample("example/05.valdef.ng"); }
+TEST_CASE("Orgasm example 06.array.ng", "[OrgasmExample]") { runOrgasmExample("example/06.array.ng"); }
+TEST_CASE("Orgasm example 07.object.ng", "[OrgasmExample]") { runOrgasmExample("example/07.object.ng"); }
+TEST_CASE("Orgasm example 08.imports.ng", "[OrgasmExample]") { runOrgasmExample("example/08.imports.ng"); }
+TEST_CASE("Orgasm example 09.scope.ng", "[OrgasmExample]") { runOrgasmExample("example/09.scope.ng"); }
+TEST_CASE("Orgasm example 10.loop.ng", "[OrgasmExample]") { runOrgasmExample("example/10.loop.ng"); }
+TEST_CASE("Orgasm example 11.iterator_example.ng", "[OrgasmExample]") { runOrgasmExample("example/11.iterator_example.ng"); }
+TEST_CASE("Orgasm example 13.import_std_prelude.ng", "[OrgasmExample]") { runOrgasmExample("example/13.import_std_prelude.ng"); }
+TEST_CASE("Orgasm example 14.tuple.ng", "[OrgasmExample]") { runOrgasmExample("example/14.tuple.ng"); }
+TEST_CASE("Orgasm example 16.tagged_union.ng", "[OrgasmExample]") { runOrgasmExample("example/16.tagged_union.ng"); }
+TEST_CASE("Orgasm example 17.const_if.ng", "[OrgasmExample]") { runOrgasmExample("example/17.const_if.ng"); }
+TEST_CASE("Orgasm example 19.union_type.ng", "[OrgasmExample]") { runOrgasmExample("example/19.union_type.ng"); }
+TEST_CASE("Orgasm example 20.switch_otherwise.ng", "[OrgasmExample]") { runOrgasmExample("example/20.switch_otherwise.ng"); }
