@@ -81,6 +81,7 @@ set(NG_TEST_SRC
         test/parsing/parser_unary_expression_test.cpp
         test/parsing/parse_composite_type_test.cpp
         test/parsing/parse_tuple_range_test.cpp
+        test/parsing/parser_ref_move_test.cpp
         test/parsing/parser_generics_test.cpp
         test/integration_test.cpp
         test/runtime/interpreter_test.cpp

@@ -508,6 +508,11 @@ namespace NG::ast
 
   auto UnaryExpression::repr() const -> Str
   {
+    if (optr != nullptr &&
+        (optr->type == TokenType::KEYWORD_REF || optr->type == TokenType::KEYWORD_MOVE))
+    {
+      return this->optr->repr + " " + operand->repr();
+    }
     return this->optr->repr + operand->repr();
   }
 
