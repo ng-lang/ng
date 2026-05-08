@@ -85,6 +85,11 @@ namespace NG::module
          * @return The module info.
          */
         RuntimeRef<ModuleInfo> queryModuleById(Str moduleId) const;
+
+        /**
+         * @brief Clears all registered modules.
+         */
+        void clear();
     };
 
     /**
@@ -132,4 +137,9 @@ namespace NG::module
      * @return The global module registry.
      */
     ModuleRegistry &get_module_registry() noexcept;
+
+    /**
+     * @brief Clears the file-based module loader cache.
+     */
+    void clear_module_loader_cache() noexcept;
 } // namespace NG::module

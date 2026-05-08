@@ -76,6 +76,11 @@ namespace NG::module
     global_module_info_cache[modulePath] = moduleInfo;
   }
 
+  void clear_module_loader_cache() noexcept
+  {
+    global_module_info_cache.clear();
+  }
+
   auto FileBasedExternalModuleLoader::load(const Vec<Str> &module) -> RuntimeRef<ModuleInfo>
   {
     Str path = std::accumulate(module.begin(), module.end(), fs::path{},

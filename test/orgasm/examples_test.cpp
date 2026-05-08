@@ -22,6 +22,10 @@ static inline void runOrgasmExample(const std::string &filename)
     }
     
     debug_log("Running Orgasm " + target);
+
+    NG::module::clear_module_loader_cache();
+    NG::module::get_module_registry().clear();
+
     std::ifstream file(target);
     std::string source{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
     auto ast = parse(source, target);
