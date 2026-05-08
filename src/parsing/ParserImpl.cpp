@@ -1386,8 +1386,9 @@ namespace NG::parsing
 
       accept(TokenType::KEYWORD_NEW);
 
-      auto typeName = idExpression();
-      newObj->typeName = typeName->repr();
+      auto targetType = typeAnnotation();
+      newObj->typeName = targetType->name;
+      newObj->targetType = targetType;
 
       accept(TokenType::LEFT_CURLY);
 
@@ -1482,6 +1483,14 @@ namespace NG::parsing
         auto expr = expression();
         accept(TokenType::RIGHT_PAREN);
         return createNode<CastExpression>(std::move(expr), std::move(targetType));
+      }
+      if (expect(TokenType::KEYWORD_TYPEOF))
+      {
+        accept(TokenType::KEYWORD_TYPEOF);
+        accept(TokenType::LEFT_PAREN);
+        auto expr = expression();
+        accept(TokenType::RIGHT_PAREN);
+        return createNode<TypeOfExpression>(std::move(expr));
       }
       if (expect(TokenType::SPREAD))
       {

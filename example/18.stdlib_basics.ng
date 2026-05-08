@@ -1,7 +1,3 @@
-module;
-
-import std.prelude;
-
 // Standard library basics demonstration
 
 // --- I/O ---

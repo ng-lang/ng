@@ -62,3 +62,29 @@ TEST_CASE("interpreter: multiple type aliases", "[InterpreterTest][Nominal]")
         assert(speed > 10.0);
     )");
 }
+
+TEST_CASE("interpreter: generic object instances should behave nominally", "[InterpreterTest][Nominal][Generic]")
+{
+  interpret(R"(
+        type Box<T> {
+          property value;
+
+          fun get() {
+            return self.value;
+          }
+        }
+
+        val box = new Box<i32> { value: 42 };
+        assert(box.get() == 42);
+        assert(box is Box<i32>);
+    )");
+}
+
+TEST_CASE("interpreter: generic newtype cast should preserve nominal checks", "[InterpreterTest][Nominal][Generic]")
+{
+  interpret(R"(
+        type Wrapper<T> wraps T;
+        val x = cast<Wrapper<i32>>(42);
+        assert(x is Wrapper<i32>);
+    )");
+}

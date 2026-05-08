@@ -186,3 +186,116 @@ TEST_CASE("len() should work with array literal", "[TypeCheck][Prelude][len]")
 
   destroyast(ast);
 }
+
+TEST_CASE("generic object type declaration should instantiate from annotation", "[TypeCheck][Generic]")
+{
+  auto ast = parse(R"(
+    type Box<T> {
+      property value: T;
+    }
+
+    val box: Box<i32> = new Box<i32> { value: 42 };
+    val n = box.value;
+  )");
+
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast);
+
+  REQUIRE(index.contains("box"));
+  REQUIRE(index["box"]->repr() == "Box<i32>");
+  REQUIRE(index.contains("n"));
+  check_type_tag(*index["n"], typeinfo_tag::I32);
+
+  destroyast(ast);
+}
+
+TEST_CASE("generic type alias and newtype declarations should instantiate", "[TypeCheck][Generic]")
+{
+  auto ast = parse(R"(
+    type Pair<T> = (T, T);
+    type Id<T> wraps T;
+
+    val pair: Pair<string> = ("a", "b");
+    val raw = cast<Id<i32>>(42);
+  )");
+
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast);
+
+  REQUIRE(index.contains("pair"));
+  REQUIRE(index["pair"]->repr() == "Pair<string>");
+  REQUIRE(index.contains("raw"));
+  REQUIRE(index["raw"]->repr() == "Id<i32>");
+
+  destroyast(ast);
+}
+
+TEST_CASE("generic tagged union constructors should infer instantiated type", "[TypeCheck][Generic]")
+{
+  auto ast = parse(R"(
+    type Result<T> = Ok(value: T) | Err(msg: string);
+    val success = Ok(42);
+  )");
+
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast);
+
+  REQUIRE(index.contains("success"));
+  REQUIRE(index["success"]->tag() == typeinfo_tag::VARIANT);
+  auto *variant = dynamic_cast<VariantType *>(&*index["success"]);
+  REQUIRE(variant != nullptr);
+  REQUIRE(variant->unionName.find("Result<i32>") != Str::npos);
+
+  destroyast(ast);
+}
+
+TEST_CASE("generic type annotation should require explicit type arguments", "[TypeCheck][Generic][Failure]")
+{
+  typecheck_failure(R"(
+    type Box<T> {
+      property value: T;
+    }
+
+    val box: Box = unit;
+  )", "requires type arguments");
+}
+
+TEST_CASE("non generic type should reject generic arguments", "[TypeCheck][Generic][Failure]")
+{
+  typecheck_failure(R"(
+    type Plain {
+      property value: i32;
+    }
+
+    val box: Plain<i32> = unit;
+  )", "is not generic");
+}
+
+TEST_CASE("generic instantiated types should compose in function signatures", "[TypeCheck][Generic]")
+{
+  auto ast = parse(R"(
+    type Box<T> {
+      property value: T;
+    }
+
+    fun unwrap(box: Box<i32>) -> i32 {
+      return box.value;
+    }
+  )");
+
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast);
+
+  REQUIRE(index.contains("unwrap"));
+  auto *funType = dynamic_cast<FunctionType *>(&*index["unwrap"]);
+  REQUIRE(funType != nullptr);
+  REQUIRE(funType->parametersType.size() == 1);
+  REQUIRE(funType->parametersType[0]->repr() == "Box<i32>");
+  check_type_tag(*funType->returnType, typeinfo_tag::I32);
+
+  destroyast(ast);
+}

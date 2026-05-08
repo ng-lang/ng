@@ -2,6 +2,7 @@
 #include <orgasm/compiler.hpp>
 #include <orgasm/vm.hpp>
 #include <intp/runtime_numerals.hpp>
+#include <typecheck/typecheck.hpp>
 
 using namespace NG;
 using namespace NG::ast;
@@ -15,6 +16,8 @@ TEST_CASE("compiler and vm should handle basic arithmetic", "[OrgasmTest]")
         }
     )");
   REQUIRE(ast != nullptr);
+
+  NG::typecheck::type_check(ast);
 
   Compiler compiler;
   auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
@@ -42,6 +45,8 @@ TEST_CASE("compiler and vm should handle const if true branch", "[const_if][Orga
     )");
   REQUIRE(ast != nullptr);
 
+  NG::typecheck::type_check(ast);
+
   Compiler compiler;
   auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
 
@@ -68,6 +73,8 @@ TEST_CASE("compiler and vm should handle const if false branch", "[const_if][Org
     )");
   REQUIRE(ast != nullptr);
 
+  NG::typecheck::type_check(ast);
+
   Compiler compiler;
   auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
 
@@ -93,6 +100,7 @@ TEST_CASE("compiler and vm should handle const if with negation", "[const_if][Or
         }
     )");
   REQUIRE(ast != nullptr);
+  NG::typecheck::type_check(ast);
 
   Compiler compiler;
   auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
@@ -219,6 +227,34 @@ TEST_CASE("compiler and vm should handle switch otherwise for tagged unions", "[
   auto numeric = std::dynamic_pointer_cast<NumeralBase>(result);
   REQUIRE(numeric != nullptr);
   REQUIRE(NGIntegral<int32_t>::valueOf(numeric.get()) == 7);
+
+  destroyast(ast);
+}
+
+TEST_CASE("compiler and vm should fold const if from typeof query", "[const_if][OrgasmTest]")
+{
+  auto ast = parse(R"(
+        fun main() {
+            val value = 42;
+            const if (typeof(value).name == "i32") {
+                return value;
+            } else {
+                return 0;
+            }
+        }
+    )");
+  REQUIRE(ast != nullptr);
+  NG::typecheck::type_check(ast);
+
+  Compiler compiler;
+  auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+
+  VM vm;
+  auto result = vm.run(bytecode);
+
+  auto numeric = std::dynamic_pointer_cast<NumeralBase>(result);
+  REQUIRE(numeric != nullptr);
+  REQUIRE(NGIntegral<int32_t>::valueOf(numeric.get()) == 42);
 
   destroyast(ast);
 }

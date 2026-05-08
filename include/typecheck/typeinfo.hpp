@@ -62,6 +62,7 @@ namespace NG::typecheck
         GENERIC_PARAM = 0xC1,
         GENERIC_DEF = 0xC2,
         VARARGS = 0xC3,
+        GENERIC_TYPE_DEF = 0xC4,
     };
 
     /**
@@ -373,6 +374,58 @@ namespace NG::typecheck
               funcDef(std::move(funcDef)), capturedLocals(std::move(capturedLocals)) {}
 
         auto tag() const -> typeinfo_tag override { return GENERIC_DEF; }
+        auto repr() const -> Str override;
+        auto match(const TypeInfo &other) const -> bool override;
+    };
+
+    enum class GenericTypeKind : uint8_t
+    {
+        TYPE_DEF,
+        TYPE_ALIAS,
+        NEW_TYPE,
+        TAGGED_UNION,
+    };
+
+    struct GenericTypeDef : TypeInfo
+    {
+        using TypeEnv = Map<Str, CheckingRef<TypeInfo>>;
+
+        Str name;
+        GenericTypeKind kind;
+        Vec<Str> typeParamNames;
+        Vec<bool> typeParamIsPack;
+        NG::ast::ASTRef<NG::ast::TypeDef> typeDef = nullptr;
+        NG::ast::ASTRef<NG::ast::TypeAliasDef> typeAliasDef = nullptr;
+        NG::ast::ASTRef<NG::ast::NewTypeDef> newTypeDef = nullptr;
+        NG::ast::ASTRef<NG::ast::TaggedUnionDef> taggedUnionDef = nullptr;
+        TypeEnv capturedLocals;
+        Map<Str, CheckingRef<TypeInfo>> instances;
+
+        GenericTypeDef(Str name, Vec<Str> typeParamNames, Vec<bool> typeParamIsPack,
+                       NG::ast::ASTRef<NG::ast::TypeDef> typeDef, TypeEnv capturedLocals)
+            : name(std::move(name)), kind(GenericTypeKind::TYPE_DEF), typeParamNames(std::move(typeParamNames)),
+              typeParamIsPack(std::move(typeParamIsPack)), typeDef(std::move(typeDef)),
+              capturedLocals(std::move(capturedLocals)) {}
+
+        GenericTypeDef(Str name, Vec<Str> typeParamNames, Vec<bool> typeParamIsPack,
+                       NG::ast::ASTRef<NG::ast::TypeAliasDef> typeAliasDef, TypeEnv capturedLocals)
+            : name(std::move(name)), kind(GenericTypeKind::TYPE_ALIAS), typeParamNames(std::move(typeParamNames)),
+              typeParamIsPack(std::move(typeParamIsPack)), typeAliasDef(std::move(typeAliasDef)),
+              capturedLocals(std::move(capturedLocals)) {}
+
+        GenericTypeDef(Str name, Vec<Str> typeParamNames, Vec<bool> typeParamIsPack,
+                       NG::ast::ASTRef<NG::ast::NewTypeDef> newTypeDef, TypeEnv capturedLocals)
+            : name(std::move(name)), kind(GenericTypeKind::NEW_TYPE), typeParamNames(std::move(typeParamNames)),
+              typeParamIsPack(std::move(typeParamIsPack)), newTypeDef(std::move(newTypeDef)),
+              capturedLocals(std::move(capturedLocals)) {}
+
+        GenericTypeDef(Str name, Vec<Str> typeParamNames, Vec<bool> typeParamIsPack,
+                       NG::ast::ASTRef<NG::ast::TaggedUnionDef> taggedUnionDef, TypeEnv capturedLocals)
+            : name(std::move(name)), kind(GenericTypeKind::TAGGED_UNION), typeParamNames(std::move(typeParamNames)),
+              typeParamIsPack(std::move(typeParamIsPack)), taggedUnionDef(std::move(taggedUnionDef)),
+              capturedLocals(std::move(capturedLocals)) {}
+
+        auto tag() const -> typeinfo_tag override { return GENERIC_TYPE_DEF; }
         auto repr() const -> Str override;
         auto match(const TypeInfo &other) const -> bool override;
     };

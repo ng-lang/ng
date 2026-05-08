@@ -7,6 +7,29 @@
 
 namespace NG::ast
 {
+  namespace
+  {
+    auto genericParamsRepr(const Vec<ASTRef<GenericParam>> &params) -> Str
+    {
+      if (params.empty())
+      {
+        return "";
+      }
+
+      Str result = "<";
+      for (size_t i = 0; i < params.size(); ++i)
+      {
+        if (i > 0)
+        {
+          result += ", ";
+        }
+        result += params[i]->repr();
+      }
+      result += ">";
+      return result;
+    }
+  } // namespace
+
 
   template <class T>
   static auto strOfNodeList(const Vec<ASTRef<T>> &nodes, const Str &separator = ", ") -> Str
@@ -588,7 +611,7 @@ namespace NG::ast
     const Str &propertiesRepr = strOfNodeList(properties, "\n");
     const Str &membersRepr = strOfNodeList(memberFunctions, "\n");
 
-    return "type " + typeName + "{" + propertiesRepr + membersRepr + "}";
+    return "type " + typeName + genericParamsRepr(genericParams) + "{" + propertiesRepr + membersRepr + "}";
   }
 
   TypeDef::~TypeDef()
@@ -611,7 +634,7 @@ namespace NG::ast
 
   auto TypeAliasDef::repr() const -> Str
   {
-    return "type " + aliasName + " = " + (underlyingType ? underlyingType->repr() : "?") + ";";
+    return "type " + aliasName + genericParamsRepr(genericParams) + " = " + (underlyingType ? underlyingType->repr() : "?") + ";";
   }
 
   TypeAliasDef::~TypeAliasDef()
@@ -626,7 +649,7 @@ namespace NG::ast
 
   auto NewTypeDef::repr() const -> Str
   {
-    return "type " + typeName + " wraps " + (wrappedType ? wrappedType->repr() : "?") + ";";
+    return "type " + typeName + genericParamsRepr(genericParams) + " wraps " + (wrappedType ? wrappedType->repr() : "?") + ";";
   }
 
   NewTypeDef::~NewTypeDef()
@@ -657,7 +680,7 @@ namespace NG::ast
 
   auto TaggedUnionDef::repr() const -> Str
   {
-    Str out = "type " + typeName + " = ";
+    Str out = "type " + typeName + genericParamsRepr(genericParams) + " = ";
     for (size_t i = 0; i < variants.size(); ++i) {
       if (i > 0) out += " | ";
       out += variants[i].variantName;
@@ -762,11 +785,13 @@ namespace NG::ast
       props += (property.first + ": " + property.second->repr());
     }
 
-    return "new " + typeName + " { " + props + " }";
+    const Str target = targetType ? targetType->repr() : typeName;
+    return "new " + target + " { " + props + " }";
   }
 
   NewObjectExpression::~NewObjectExpression()
   {
+    destroyast(targetType);
     for (auto &[_, value] : properties) // NOLINT(readability-identifier-length)
     {
       destroyast(value);

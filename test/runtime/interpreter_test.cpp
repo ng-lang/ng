@@ -1,5 +1,6 @@
 #include "../test.hpp"
 #include <intp/intp.hpp>
+#include <typecheck/typecheck.hpp>
 
 using namespace NG;
 using namespace NG::parsing;
@@ -461,4 +462,29 @@ TEST_CASE("interpreter const if without else", "[const_if][InterpreterTest]")
             val x = 999;
         }
         )");
+}
+
+TEST_CASE("interpreter const if should use typeof query result", "[const_if][InterpreterTest]")
+{
+  auto ast = parse(R"(
+        type Box<T> {
+          property value: T;
+        }
+
+        val box: Box<i32> = new Box<i32> { value: 42 };
+
+        const if (typeof(box.value).name == "i32") {
+            assert(box.value == 42);
+        } else {
+            assert(false);
+        }
+        )");
+  REQUIRE(ast != nullptr);
+  auto prelude_types = NG::typecheck::build_prelude_type_index();
+  NG::typecheck::type_check(ast, prelude_types);
+
+  Interpreter *intp = NG::intp::stupid();
+  ast->accept(intp);
+  delete intp;
+  destroyast(ast);
 }

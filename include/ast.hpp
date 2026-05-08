@@ -384,6 +384,7 @@ namespace NG::ast
     struct IfStatement : Statement
     {
         bool isConst = false;                    ///< Whether this is a `const if` (compile-time evaluated).
+        std::optional<bool> evaluatedCondition; ///< Resolved condition chosen by the type checker for `const if`.
         ASTRef<Expression> testing = nullptr;    ///< The condition of the if statement.
         ASTRef<Statement> consequence = nullptr; ///< The consequence of the if statement.
         ASTRef<Statement> alternative = nullptr; ///< The alternative of the if statement.
@@ -1083,6 +1084,7 @@ namespace NG::ast
     struct NewObjectExpression : Expression
     {
         Str typeName;                            ///< The name of the type.
+        ASTRef<TypeAnnotation> targetType = nullptr; ///< The instantiated target type annotation, if present.
         Map<Str, ASTRef<Expression>> properties; ///< The properties of the new object.
 
         auto astNodeType() const -> ASTNodeType override;

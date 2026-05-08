@@ -45,6 +45,27 @@ namespace NG::typecheck
         return name == otherGeneric.name && typeParamNames == otherGeneric.typeParamNames;
     }
 
+    auto GenericTypeDef::repr() const -> Str
+    {
+        Str result = name + "<";
+        for (size_t i = 0; i < typeParamNames.size(); ++i)
+        {
+            if (i > 0)
+                result += ", ";
+            result += typeParamNames[i];
+        }
+        result += ">";
+        return result;
+    }
+
+    auto GenericTypeDef::match(const TypeInfo &other) const -> bool
+    {
+        if (other.tag() != GENERIC_TYPE_DEF)
+            return false;
+        auto &otherGeneric = static_cast<const GenericTypeDef &>(other);
+        return name == otherGeneric.name && typeParamNames == otherGeneric.typeParamNames && kind == otherGeneric.kind;
+    }
+
     // --- VarargsType ---
 
     auto VarargsType::repr() const -> Str

@@ -81,6 +81,32 @@ namespace NG::intp
     return nullptr;
   }
 
+  static auto stripGenericTypeSuffix(const Str &typeName) -> Str
+  {
+    auto genericStart = typeName.find('<');
+    if (genericStart == Str::npos)
+    {
+      return typeName;
+    }
+    return typeName.substr(0, genericStart);
+  }
+
+  static auto resolveRuntimeType(const RuntimeRef<NGContext> &context, const Str &typeName) -> RuntimeRef<NGType>
+  {
+    if (auto exact = context->get_type(typeName))
+    {
+      return exact;
+    }
+
+    auto baseName = stripGenericTypeSuffix(typeName);
+    if (baseName != typeName)
+    {
+      return context->get_type(baseName);
+    }
+
+    return nullptr;
+  }
+
   struct FunctionPathVisitor : public DummyVisitor
   {
 
@@ -345,8 +371,8 @@ namespace NG::intp
 
     void visit(NewObjectExpression *newObj) override
     {
-      Str &typeName = newObj->typeName;
-      auto ngType = context->get_type(typeName);
+      Str typeName = newObj->targetType ? newObj->targetType->repr() : newObj->typeName;
+      auto ngType = resolveRuntimeType(context, typeName);
 
       auto structural = makert<NGStructuralObject>();
 
@@ -419,11 +445,16 @@ namespace NG::intp
 
       if (auto anno = dynamic_ast_cast<TypeAnnotation>(typeCheckExpr->type); anno)
       {
-        auto name = anno->name;
-        auto targetType = context->get_type(name);
+        auto name = anno->repr();
+        auto targetType = resolveRuntimeType(context, name);
         if (targetType)
         {
-          this->object = makert<NGBoolean>(*(value->type()) == *(targetType));
+          bool matches = *(value->type()) == *(targetType);
+          if (!matches)
+          {
+            matches = stripGenericTypeSuffix(value->type()->name) == stripGenericTypeSuffix(name);
+          }
+          this->object = makert<NGBoolean>(matches);
         }
         else
         {
@@ -453,6 +484,11 @@ namespace NG::intp
       {
         throw RuntimeException("Invalid target expression for type checking: " + typeCheckExpr->type->repr());
       }
+    }
+
+    void visit(TypeOfExpression * /*typeOfExpr*/) override
+    {
+      throw RuntimeException("typeof(expr) is only supported in compile-time type queries");
     }
     void visit(SpreadExpression *spreadExpression) override
     {
@@ -489,7 +525,7 @@ namespace NG::intp
       Str targetTypeName;
       if (auto anno = dynamic_ast_cast<TypeAnnotation>(castExpr->targetType))
       {
-        targetTypeName = anno->name;
+        targetTypeName = anno->repr();
       }
       else
       {
@@ -497,9 +533,8 @@ namespace NG::intp
       }
 
       // Check if target is a newtype
-      if (context->has_type(targetTypeName, true))
+      if (auto targetType = resolveRuntimeType(context, targetTypeName))
       {
-        auto targetType = context->get_type(targetTypeName);
         // If the value is already an NGNewType with the same type, unwrap it
         if (auto newTypeVal = std::dynamic_pointer_cast<NGNewType>(value); newTypeVal)
         {
@@ -549,10 +584,22 @@ namespace NG::intp
 
     void visit(IfStatement *ifStmt) override
     {
+      StatementVisitor stmtVis{context};
+      if (ifStmt->evaluatedCondition.has_value())
+      {
+        if (ifStmt->evaluatedCondition.value())
+        {
+          ifStmt->consequence->accept(&stmtVis);
+        }
+        else if (ifStmt->alternative != nullptr)
+        {
+          ifStmt->alternative->accept(&stmtVis);
+        }
+        return;
+      }
+
       ExpressionVisitor vis{context};
       ifStmt->testing->accept(&vis);
-
-      StatementVisitor stmtVis{context};
       if (vis.object->boolValue())
       {
         ifStmt->consequence->accept(&stmtVis);

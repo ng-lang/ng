@@ -2,6 +2,7 @@
 #include <module.hpp>
 #include <cstring>
 #include <token.hpp>
+#include <typecheck/typecheck.hpp>
 
 namespace NG::orgasm
 {
@@ -11,6 +12,8 @@ namespace NG::orgasm
 
     auto Compiler::compile(ASTRef<CompileUnit> compileUnit) -> BytecodeModule
     {
+        auto preludeTypes = NG::typecheck::build_prelude_type_index();
+        NG::typecheck::type_check(compileUnit, preludeTypes);
         module = BytecodeModule{};
         module.name = compileUnit->fileName;
         
@@ -250,7 +253,7 @@ namespace NG::orgasm
         Str targetTypeName;
         if (auto anno = dynamic_ast_cast<ast::TypeAnnotation>(castExpr->targetType))
         {
-            targetTypeName = anno->name;
+            targetTypeName = anno->repr();
         }
         else
         {
@@ -527,13 +530,16 @@ namespace NG::orgasm
         emit_i32(static_cast<int32_t>(info.startIp));
     }
 
-    void Compiler::visit(ast::TypeOfExpression *typeofExpr) {}
+    void Compiler::visit(ast::TypeOfExpression * /*typeofExpr*/)
+    {
+        throw NotImplementedException("typeof(expr) is only supported in compile-time type queries");
+    }
 
     void Compiler::visit(ast::TypeCheckingExpression *typeCheck)
     {
         typeCheck->value->accept(this);
         uint16_t index = static_cast<uint16_t>(module.strings.size());
-        module.strings.push_back(typeCheck->type->name);
+        module.strings.push_back(typeCheck->type->repr());
         emit(OpCode::INSTANCE_OF);
         emit_u16(index);
     }
@@ -595,7 +601,9 @@ namespace NG::orgasm
         if (ifStmt->isConst)
         {
             // Compile-time branch elimination: only compile the active branch
-            bool condValue = evaluate_const_bool(ifStmt->testing);
+            bool condValue = ifStmt->evaluatedCondition.has_value()
+                                 ? ifStmt->evaluatedCondition.value()
+                                 : evaluate_const_bool(ifStmt->testing);
             if (condValue)
             {
                 ifStmt->consequence->accept(this);
@@ -797,10 +805,11 @@ namespace NG::orgasm
 
     void Compiler::visit(ast::NewObjectExpression *newObj)
     {
+        Str typeName = newObj->targetType ? newObj->targetType->repr() : newObj->typeName;
         // Find the type definition to get property order
         int32_t typeIdx = -1;
         for (size_t i = 0; i < module.types.size(); ++i) {
-            if (module.types[i].name == newObj->typeName) { typeIdx = static_cast<int32_t>(i); break; }
+            if (module.types[i].name == typeName) { typeIdx = static_cast<int32_t>(i); break; }
         }
 
         uint16_t numFields = 0;
@@ -822,7 +831,7 @@ namespace NG::orgasm
         }
 
         uint16_t typeStrIdx = static_cast<uint16_t>(module.strings.size());
-        module.strings.push_back(newObj->typeName);
+        module.strings.push_back(typeName);
         emit(OpCode::NEW_OBJECT);
         emit_u16(typeStrIdx);
         emit_u16(numFields);

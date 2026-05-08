@@ -1101,7 +1101,7 @@ TEST_CASE("parser should parse generic function with generic param used in multi
 TEST_CASE("parser should parse generic type in new expression context", "[Parser][Generics][TypeAnnotation]")
 {
   // Ensure generic types can appear in new object expressions type position
-  auto ast = parse("type Box<T> { property value: T; }\nfun make_box<T>(v: T) -> Box<T> { return new Box { value: v }; }");
+  auto ast = parse("type Box<T> { property value: T; }\nfun make_box<T>(v: T) -> Box<T> { return new Box<T> { value: v }; }");
   REQUIRE(ast != nullptr);
 
   auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
@@ -1120,6 +1120,39 @@ TEST_CASE("parser should parse generic type in new expression context", "[Parser
   REQUIRE(funDef->returnType->name == "Box");
   REQUIRE(funDef->returnType->genericArgs.size() == 1);
   REQUIRE(funDef->returnType->genericArgs[0]->name == "T");
+
+  auto body = dynamic_ast_cast<CompoundStatement>(funDef->body);
+  REQUIRE(body != nullptr);
+  REQUIRE(body->statements.size() == 1);
+  auto returnStmt = dynamic_ast_cast<ReturnStatement>(body->statements[0]);
+  REQUIRE(returnStmt != nullptr);
+  auto newExpr = dynamic_ast_cast<NewObjectExpression>(returnStmt->expression);
+  REQUIRE(newExpr != nullptr);
+  REQUIRE(newExpr->targetType != nullptr);
+  REQUIRE(newExpr->targetType->name == "Box");
+  REQUIRE(newExpr->targetType->genericArgs.size() == 1);
+  REQUIRE(newExpr->targetType->genericArgs[0]->name == "T");
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse typeof expression with property access", "[Parser][Generics][TypeQuery]")
+{
+  auto ast = parse("val kind = typeof(1).kind;");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  REQUIRE(compileUnit->module->definitions.size() == 1);
+
+  auto valDef = dynamic_ast_cast<ValDef>(compileUnit->module->definitions[0]);
+  REQUIRE(valDef != nullptr);
+  auto valStmt = dynamic_ast_cast<ValDefStatement>(valDef->body);
+  REQUIRE(valStmt != nullptr);
+  auto accessor = dynamic_ast_cast<IdAccessorExpression>(valStmt->value);
+  REQUIRE(accessor != nullptr);
+  REQUIRE(dynamic_ast_cast<TypeOfExpression>(accessor->primaryExpression) != nullptr);
+  REQUIRE(accessor->accessor->repr() == "kind");
 
   destroyast(ast);
 }
