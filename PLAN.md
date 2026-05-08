@@ -165,7 +165,7 @@ print(1, "hello", true);      // T... = (i32, string, bool)
 **A2. switch/case 穷尽性检查** — ✅ 完成
 - `typecheck.cpp:visit(SwitchStatement*)` 检查所有变体被覆盖或有 `otherwise` 分支
 - 5 个新测试（exhaustive、otherwise、non-exhaustive failure、unknown variant failure、multi-variant otherwise）
-- 示例：`example/17.switch_otherwise.ng`
+- 示例：`example/20.switch_otherwise.ng`
 
 **A3. otherwise/default 分支** — ✅ 完成
 - `otherwise { ... }` 语法在 `ParserImpl.cpp:switchStatement()` 中实现
@@ -288,9 +288,9 @@ print(1, "hello", true);      // T... = (i32, string, bool)
 6. **Phase 6** — 文档与示例 ✅
 
 ### 中期（v0.6.0）
-7. **A1** — 结构化联合类型注解（`i32 | string`）
-8. **A2** — switch/case 穷尽性检查
-9. **A3** — otherwise/default 分支
+7. **A1** — 结构化联合类型注解（`i32 | string`） ✅
+8. **A2** — switch/case 穷尽性检查 ✅
+9. **A3** — otherwise/default 分支 ✅
 10. **A4** — 标签联合值属性访问
 11. **C1-C3** — 标准库基础扩展
 

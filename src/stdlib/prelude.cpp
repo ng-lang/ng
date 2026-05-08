@@ -110,7 +110,12 @@ namespace NG::library::prelude
          throw RuntimeException("writeFile() failed to open: " + pathStr->value);
        }
        file << contentStr->value;
-     }},
+       if (!file.good())
+       {
+         throw RuntimeException("writeFile() failed to write: " + pathStr->value);
+       }
+       context->retVal = makert<NGUnit>();
+      }},
 
     // C2: String operations
     {"split",

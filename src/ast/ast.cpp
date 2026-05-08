@@ -694,6 +694,21 @@ namespace NG::ast
     return out;
   }
 
+  TaggedUnionDef::~TaggedUnionDef()
+  {
+    for (auto &gp : genericParams)
+    {
+      destroyast(gp);
+    }
+    for (auto &variant : variants)
+    {
+      for (auto &payloadType : variant.payloadTypes)
+      {
+        destroyast(payloadType);
+      }
+    }
+  }
+
   void TaggedValueExpression::accept(AstVisitor *visitor)
   {
     visitor->visit(this);

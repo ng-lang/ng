@@ -1,4 +1,5 @@
 #include "../test.hpp"
+#include <module.hpp>
 #include <orgasm/compiler.hpp>
 #include <orgasm/vm.hpp>
 #include <intp/runtime_numerals.hpp>
@@ -257,4 +258,89 @@ TEST_CASE("compiler and vm should fold const if from typeof query", "[const_if][
   REQUIRE(NGIntegral<int32_t>::valueOf(numeric.get()) == 42);
 
   destroyast(ast);
+}
+
+TEST_CASE("compiler and vm should pass arguments to imported functions", "[OrgasmTest]")
+{
+  auto &registry = NG::module::get_module_registry();
+  registry.clear();
+  NG::module::clear_module_loader_cache();
+
+  auto importedAst = parse(R"(
+        fun add(a: i32, b: i32) {
+            return a + b;
+        }
+    )");
+  REQUIRE(importedAst != nullptr);
+
+  Compiler importedCompiler;
+  auto importedBytecode = importedCompiler.compile(dynamic_ast_cast<CompileUnit>(importedAst));
+
+  auto moduleInfo = std::make_shared<NG::module::ModuleInfo>();
+  moduleInfo->moduleId = "ext";
+  moduleInfo->moduleName = "ext";
+  moduleInfo->moduleAst = dynamic_ast_cast<CompileUnit>(importedAst);
+  moduleInfo->bytecodeModule = std::make_shared<BytecodeModule>(std::move(importedBytecode));
+  registry.addModuleInfo(moduleInfo);
+
+  auto ast = parse(R"(
+        import ext (add);
+
+        fun main() {
+            return add(20, 22);
+        }
+    )");
+  REQUIRE(ast != nullptr);
+
+  Compiler compiler;
+  auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+
+  VM vm;
+  auto result = vm.run(bytecode);
+
+  auto numeric = std::dynamic_pointer_cast<NumeralBase>(result);
+  REQUIRE(numeric != nullptr);
+  REQUIRE(NGIntegral<int32_t>::valueOf(numeric.get()) == 42);
+
+  registry.clear();
+  NG::module::clear_module_loader_cache();
+  destroyast(ast);
+  destroyast(importedAst);
+}
+
+TEST_CASE("compiler should clear variant state between compile calls", "[OrgasmTest]")
+{
+  Compiler compiler;
+
+  auto firstAst = parse(R"(
+        type Result = Ok(value: i32);
+
+        fun main() {
+            return 0;
+        }
+    )");
+  REQUIRE(firstAst != nullptr);
+  REQUIRE_NOTHROW(compiler.compile(dynamic_ast_cast<CompileUnit>(firstAst)));
+
+  auto secondAst = parse(R"(
+        fun Ok(x: i32) -> i32 {
+            return x + 1;
+        }
+
+        fun main() {
+            return Ok(41);
+        }
+    )");
+  REQUIRE(secondAst != nullptr);
+
+  auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(secondAst));
+  VM vm;
+  auto result = vm.run(bytecode);
+
+  auto numeric = std::dynamic_pointer_cast<NumeralBase>(result);
+  REQUIRE(numeric != nullptr);
+  REQUIRE(NGIntegral<int32_t>::valueOf(numeric.get()) == 42);
+
+  destroyast(firstAst);
+  destroyast(secondAst);
 }

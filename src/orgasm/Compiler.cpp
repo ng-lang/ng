@@ -14,6 +14,15 @@ namespace NG::orgasm
     {
         auto preludeTypes = NG::typecheck::build_prelude_type_index();
         NG::typecheck::type_check(compileUnit, preludeTypes);
+        current_function = nullptr;
+        last_emit_was_return = false;
+        locals.clear();
+        globals.clear();
+        imported_symbols.clear();
+        functionDefs.clear();
+        loop_stack.clear();
+        current_type_name.clear();
+        variant_map.clear();
         module = BytecodeModule{};
         module.name = compileUnit->fileName;
         
@@ -274,6 +283,9 @@ namespace NG::orgasm
         if (!moduleInfo) {
             NG::module::FileBasedExternalModuleLoader loader{modulePaths};
             moduleInfo = loader.load(importDecl->modulePath);
+            if (!moduleInfo) {
+                throw RuntimeException("Failed to load module " + importDecl->module);
+            }
             if (!moduleInfo->bytecodeModule) {
                 Compiler inner(modulePaths);
                 auto cu = dynamic_ast_cast<CompileUnit>(moduleInfo->moduleAst);
@@ -413,6 +425,7 @@ namespace NG::orgasm
             
             if (imported_symbols.contains(idExpr->id)) {
                 auto &imp = imported_symbols[idExpr->id];
+                for (auto &&arg : funCallExpr->arguments) arg->accept(this);
                 emit(OpCode::CALL_IMPORT);
                 emit_u16(static_cast<uint16_t>(imp.importIndex));
                 emit_u16(static_cast<uint16_t>(funCallExpr->arguments.size()));
@@ -430,6 +443,7 @@ namespace NG::orgasm
             }
 
             if (locals.contains("self")) {
+                for (auto &&arg : funCallExpr->arguments) arg->accept(this);
                 emit(OpCode::LOAD_LOCAL);
                 emit_u16(static_cast<uint16_t>(locals["self"]));
                 uint16_t nameIdx = static_cast<uint16_t>(module.strings.size());

@@ -36,8 +36,7 @@ static inline void runIntegrationTest(const std::string &filename)
 
 TEST_CASE("should run with max loop stack", "[IntegrationLoop]")
 {
-  // todo: fix possible stack overflow.
-  // runIntegrationTest("example/12.loop_max_stack.ng");
+  SKIP("example/12.loop_max_stack.ng still needs a real stack-growth fix before this can be asserted.");
 }
 
 TEST_CASE("should run numbered examples", "[Integration]")

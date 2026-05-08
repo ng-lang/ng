@@ -1124,7 +1124,7 @@ namespace NG::ast
         [[nodiscard]]
         auto repr() const -> Str override;
 
-        ~TaggedUnionDef() override = default;
+        ~TaggedUnionDef() override;
     };
 
     /**
