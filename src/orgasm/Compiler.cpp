@@ -1,5 +1,6 @@
 #include <orgasm/compiler.hpp>
 #include <array>
+#include <limits>
 #include <module.hpp>
 #include <cstring>
 #include <token.hpp>
@@ -10,6 +11,11 @@ namespace NG::orgasm
     using namespace NG::ast;
     using NG::module::get_module_registry;
     using NG::module::FileBasedExternalModuleLoader;
+
+    namespace
+    {
+        constexpr uint16_t SWITCH_DEFAULT_TAG = std::numeric_limits<uint16_t>::max();
+    }
 
     auto Compiler::compile(ASTRef<CompileUnit> compileUnit) -> BytecodeModule
     {
@@ -676,7 +682,17 @@ namespace NG::orgasm
         // Emit placeholder jump table entries (tag u16 + addr i32 = 6 bytes each)
         size_t jumpTableStart = current_function->code.size();
         for (size_t i = 0; i < switchStmt->cases.size(); ++i) {
-            emit_u16(static_cast<uint16_t>(i));
+            auto &c = switchStmt->cases[i];
+            uint16_t tag = SWITCH_DEFAULT_TAG;
+            if (!c.isOtherwise)
+            {
+                if (!variant_map.contains(c.variantName))
+                {
+                    throw NotImplementedException("Unknown variant in switch: " + c.variantName);
+                }
+                tag = static_cast<uint16_t>(variant_map.at(c.variantName).variantIndex);
+            }
+            emit_u16(tag);
             emit_i32(0);
         }
 

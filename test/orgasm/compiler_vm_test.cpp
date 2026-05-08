@@ -233,6 +233,70 @@ TEST_CASE("compiler and vm should handle switch otherwise for tagged unions", "[
   destroyast(ast);
 }
 
+TEST_CASE("compiler and vm should dispatch switch cases by declared variant tag", "[OrgasmTest]")
+{
+  auto ast = parse(R"(
+        type Result = Err(msg: string) | Ok(value: i32);
+
+        fun main() {
+            val success = Ok(42);
+            switch (success) {
+                case Ok(value) {
+                    return value;
+                }
+                case Err(msg) {
+                    return 0;
+                }
+            }
+        }
+    )");
+  REQUIRE(ast != nullptr);
+
+  Compiler compiler;
+  auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+
+  VM vm;
+  auto result = vm.run(bytecode);
+
+  auto numeric = std::dynamic_pointer_cast<NumeralBase>(result);
+  REQUIRE(numeric != nullptr);
+  REQUIRE(NGIntegral<int32_t>::valueOf(numeric.get()) == 42);
+
+  destroyast(ast);
+}
+
+TEST_CASE("compiler and vm should treat otherwise as switch default", "[OrgasmTest]")
+{
+  auto ast = parse(R"(
+        type Result = Pending | Ok(value: i32) | Err(msg: string);
+
+        fun main() {
+            val failure = Err("boom");
+            switch (failure) {
+                case Ok(value) {
+                    return value;
+                }
+                otherwise {
+                    return 7;
+                }
+            }
+        }
+    )");
+  REQUIRE(ast != nullptr);
+
+  Compiler compiler;
+  auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+
+  VM vm;
+  auto result = vm.run(bytecode);
+
+  auto numeric = std::dynamic_pointer_cast<NumeralBase>(result);
+  REQUIRE(numeric != nullptr);
+  REQUIRE(NGIntegral<int32_t>::valueOf(numeric.get()) == 7);
+
+  destroyast(ast);
+}
+
 TEST_CASE("compiler and vm should fold const if from typeof query", "[const_if][OrgasmTest]")
 {
   auto ast = parse(R"(

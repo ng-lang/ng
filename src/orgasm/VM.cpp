@@ -3,10 +3,16 @@
 #include <iostream>
 #include <intp/runtime_numerals.hpp>
 #include <cstring>
+#include <limits>
 #include <module.hpp>
 
 namespace NG::orgasm
 {
+    namespace
+    {
+        constexpr uint16_t SWITCH_DEFAULT_TAG = std::numeric_limits<uint16_t>::max();
+    }
+
     void VM::register_native_raw(const Str &name, NativeFunction func)
     {
         native_functions[name] = std::move(func);
@@ -268,11 +274,19 @@ namespace NG::orgasm
                         for (int i = 0; i < numArgs; ++i) callArgs.insert(callArgs.begin(), pop());
                         
                         auto *saved_module = current_module;
+                        struct ModuleGuard
+                        {
+                            const BytecodeModule *&current;
+                            const BytecodeModule *saved;
+
+                            ~ModuleGuard()
+                            {
+                                current = saved;
+                            }
+                        } module_guard{current_module, saved_module};
                         current_module = &otherModule;
                         
                         stack.push_back(execute(otherModule.functions[funIdx], callArgs));
-                        
-                        current_module = saved_module;
                     } else {
                         // Try native function fallback
                         Vec<RuntimeRef<NGObject>> callArgs;
@@ -613,16 +627,25 @@ namespace NG::orgasm
                     int32_t tagVal = tagged->variantIndex;
                     // Read jump table and find matching case
                     bool found = false;
+                    int32_t defaultAddr = -1;
                     for (uint16_t i = 0; i < numCases; ++i) {
                         uint16_t tag = read_u16();
                         int32_t addr;
                         std::memcpy(&addr, &code[ip], 4);
                         ip += 4;
+                        if (tag == SWITCH_DEFAULT_TAG) {
+                            defaultAddr = addr;
+                            continue;
+                        }
                         if (static_cast<int32_t>(tag) == tagVal) {
                             ip = static_cast<size_t>(addr);
                             found = true;
                             break;
                         }
+                    }
+                    if (!found && defaultAddr >= 0) {
+                        ip = static_cast<size_t>(defaultAddr);
+                        found = true;
                     }
                     if (!found) throw IllegalTypeException("SWITCH_TAG: no matching case for tag " + std::to_string(tagVal));
                     break;
