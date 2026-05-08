@@ -136,15 +136,6 @@ namespace NG::orgasm
         };
     }
 
-    template <typename Func>
-    auto wrap_native(Func func) -> std::function<RuntimeRef<NGObject>(const Vec<RuntimeRef<NGObject>> &)>
-    {
-        return [f = std::move(func)](const Vec<RuntimeRef<NGObject>> &args) -> RuntimeRef<NGObject> {
-            using Traits = decltype(&Func::operator());
-            return wrap_native_impl(f, args, Traits{});
-        };
-    }
-
     // Helper for lambda/functor wrapping
     template <typename Func, typename Ret, typename... Args>
     auto wrap_native_call(Func &f, const Vec<RuntimeRef<NGObject>> &args, Ret (Func::*)(Args...) const) -> RuntimeRef<NGObject>
@@ -182,6 +173,15 @@ namespace NG::orgasm
     auto wrap_native_impl(Func &f, const Vec<RuntimeRef<NGObject>> &args, Ret (Class::*)(Args...)) -> RuntimeRef<NGObject>
     {
         return wrap_native_call(f, args, &Func::operator());
+    }
+
+    template <typename Func>
+    auto wrap_native(Func func) -> std::function<RuntimeRef<NGObject>(const Vec<RuntimeRef<NGObject>> &)>
+    {
+        return [f = std::move(func)](const Vec<RuntimeRef<NGObject>> &args) mutable -> RuntimeRef<NGObject> {
+            using Traits = decltype(&Func::operator());
+            return wrap_native_impl(f, args, Traits{});
+        };
     }
 
 } // namespace NG::orgasm

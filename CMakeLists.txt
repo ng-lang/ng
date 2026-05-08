@@ -86,8 +86,10 @@ set(NG_TEST_SRC
         test/runtime/interpreter_test.cpp
         test/runtime/nominal_test.cpp
         test/runtime/runtime_numeral_test.cpp
+        test/runtime/tagged_value_test.cpp
         test/typecheck/typeinfo_primitive_test.cpp
         test/typecheck/typeinfo_function_test.cpp
+        test/typecheck/typeinfo_generic_test.cpp
         test/typecheck/typecheck_primitive_test.cpp
         test/typecheck/typecheck_function_test.cpp
         test/typecheck/typecheck_expression_test.cpp
@@ -100,6 +102,8 @@ set(NG_TEST_SRC
         test/typecheck/nominal_test.cpp
         test/orgasm/compiler_vm_test.cpp
         test/orgasm/examples_test.cpp
+        test/orgasm/module_test.cpp
+        test/orgasm/native_bridge_test.cpp
         test/orgasm/nominal_test.cpp
 )
 
