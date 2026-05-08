@@ -537,6 +537,7 @@ TEST_CASE("parser should parse newtype with generic param", "[Parser][Generics][
   REQUIRE(ntDef->genericParams[0]->name == "T");
   REQUIRE(ntDef->wrappedType != nullptr);
   REQUIRE(ntDef->wrappedType->name == "T");
+  REQUIRE(ntDef->repr() == "type UserId<T> wraps T;");
 
   destroyast(ast);
 }
@@ -620,6 +621,7 @@ TEST_CASE("parser should parse tagged union with generic and multiple payloads",
   REQUIRE(tuDef->variants[0].payloadTypes.size() == 2);
   REQUIRE(tuDef->variants[1].variantName == "Right");
   REQUIRE(tuDef->variants[1].payloadTypes.size() == 1);
+  REQUIRE(tuDef->repr() == "type Either<L, R> = Left(L, string) | Right(R)");
 
   destroyast(ast);
 }
@@ -1151,7 +1153,9 @@ TEST_CASE("parser should parse typeof expression with property access", "[Parser
   REQUIRE(valStmt != nullptr);
   auto accessor = dynamic_ast_cast<IdAccessorExpression>(valStmt->value);
   REQUIRE(accessor != nullptr);
-  REQUIRE(dynamic_ast_cast<TypeOfExpression>(accessor->primaryExpression) != nullptr);
+  auto typeofExpr = dynamic_ast_cast<TypeOfExpression>(accessor->primaryExpression);
+  REQUIRE(typeofExpr != nullptr);
+  REQUIRE(typeofExpr->repr() == "typeof(1)");
   REQUIRE(accessor->accessor->repr() == "kind");
 
   destroyast(ast);
