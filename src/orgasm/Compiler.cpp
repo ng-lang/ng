@@ -1,4 +1,5 @@
 #include <orgasm/compiler.hpp>
+#include <bit>
 #include <array>
 #include <limits>
 #include <module.hpp>
@@ -15,6 +16,15 @@ namespace NG::orgasm
     namespace
     {
         constexpr uint16_t SWITCH_DEFAULT_TAG = std::numeric_limits<uint16_t>::max();
+
+        template <typename UInt>
+        void append_le_bytes(Vec<uint8_t> &code, UInt value)
+        {
+            for (size_t i = 0; i < sizeof(UInt); ++i)
+            {
+                code.push_back(static_cast<uint8_t>((value >> (i * 8U)) & static_cast<UInt>(0xFFU)));
+            }
+        }
     }
 
     auto Compiler::compile(ASTRef<CompileUnit> compileUnit) -> BytecodeModule
@@ -1012,40 +1022,35 @@ namespace NG::orgasm
     }
     void Compiler::emit_i32(int32_t val) {
         if (current_function) {
-            std::array<uint8_t, sizeof(val)> bytes{};
-            std::memcpy(bytes.data(), &val, sizeof(val));
-            for (int i = 0; i < 4; ++i) current_function->code.push_back(bytes[i]);
+            append_le_bytes(current_function->code, std::bit_cast<uint32_t>(val));
             last_emit_was_return = false;
         }
     }
     void Compiler::emit_i64(int64_t val) {
         if (current_function) {
-            std::array<uint8_t, sizeof(val)> bytes{};
-            std::memcpy(bytes.data(), &val, sizeof(val));
-            for (int i = 0; i < 8; ++i) current_function->code.push_back(bytes[i]);
+            append_le_bytes(current_function->code, std::bit_cast<uint64_t>(val));
             last_emit_was_return = false;
         }
     }
     void Compiler::emit_f32(float val) {
         if (current_function) {
-            std::array<uint8_t, sizeof(val)> bytes{};
-            std::memcpy(bytes.data(), &val, sizeof(val));
-            for (int i = 0; i < 4; ++i) current_function->code.push_back(bytes[i]);
+            append_le_bytes(current_function->code, std::bit_cast<uint32_t>(val));
             last_emit_was_return = false;
         }
     }
     void Compiler::emit_f64(double val) {
         if (current_function) {
-            std::array<uint8_t, sizeof(val)> bytes{};
-            std::memcpy(bytes.data(), &val, sizeof(val));
-            for (int i = 0; i < 8; ++i) current_function->code.push_back(bytes[i]);
+            append_le_bytes(current_function->code, std::bit_cast<uint64_t>(val));
             last_emit_was_return = false;
         }
     }
     void Compiler::patch_i32(size_t offset, int32_t val) {
         if (current_function) {
-            uint8_t bytes[4]; std::memcpy(bytes, &val, 4);
-            for (int i = 0; i < 4; ++i) current_function->code[offset + i] = bytes[i];
+            auto raw = std::bit_cast<uint32_t>(val);
+            for (size_t i = 0; i < sizeof(raw); ++i)
+            {
+                current_function->code[offset + i] = static_cast<uint8_t>((raw >> (i * 8U)) & 0xFFU);
+            }
             last_emit_was_return = false;
         }
     }

@@ -1,5 +1,6 @@
 #include <orgasm/vm.hpp>
 #include <algorithm>
+#include <bit>
 #include <iostream>
 #include <intp/runtime_numerals.hpp>
 #include <cstring>
@@ -11,6 +12,17 @@ namespace NG::orgasm
     namespace
     {
         constexpr uint16_t SWITCH_DEFAULT_TAG = std::numeric_limits<uint16_t>::max();
+
+        template <typename UInt>
+        auto read_le_bytes(const Vec<uint8_t> &code, size_t &ip) -> UInt
+        {
+            UInt value = 0;
+            for (size_t i = 0; i < sizeof(UInt); ++i)
+            {
+                value |= static_cast<UInt>(code[ip++]) << (i * 8U);
+            }
+            return value;
+        }
     }
 
     void VM::register_native_raw(const Str &name, NativeFunction func)
@@ -103,9 +115,7 @@ namespace NG::orgasm
 
             auto read_u16 = [&code, &ip]() -> uint16_t
             {
-                uint16_t lo = code[ip++];
-                uint16_t hi = code[ip++];
-                return lo | (hi << 8);
+                return read_le_bytes<uint16_t>(code, ip);
             };
 
             try {
@@ -121,22 +131,19 @@ namespace NG::orgasm
                                 }
                                 case OpCode::PUSH_I16:
                                 {
-                                    int16_t val; std::memcpy(&val, &code[ip], 2);
-                                    ip += 2;
+                                    int16_t val = std::bit_cast<int16_t>(read_le_bytes<uint16_t>(code, ip));
                                     stack.push_back(makert<NGIntegral<int16_t>>(val));
                                     break;
                                 }
                                 case OpCode::PUSH_I32:
                                 {
-                                    int32_t val; std::memcpy(&val, &code[ip], 4);
-                                    ip += 4;
+                                    int32_t val = std::bit_cast<int32_t>(read_le_bytes<uint32_t>(code, ip));
                                     stack.push_back(makert<NGIntegral<int32_t>>(val));
                                     break;
                                 }
                                 case OpCode::PUSH_I64:
                                 {
-                                    int64_t val; std::memcpy(&val, &code[ip], 8);
-                                    ip += 8;
+                                    int64_t val = std::bit_cast<int64_t>(read_le_bytes<uint64_t>(code, ip));
                                     stack.push_back(makert<NGIntegral<int64_t>>(val));
                                     break;
                                 }
@@ -148,36 +155,31 @@ namespace NG::orgasm
                                 }
                                 case OpCode::PUSH_U16:
                                 {
-                                    uint16_t val; std::memcpy(&val, &code[ip], 2);
-                                    ip += 2;
+                                    uint16_t val = read_le_bytes<uint16_t>(code, ip);
                                     stack.push_back(makert<NGIntegral<uint16_t>>(val));
                                     break;
                                 }
                                 case OpCode::PUSH_U32:
                                 {
-                                    uint32_t val; std::memcpy(&val, &code[ip], 4);
-                                    ip += 4;
+                                    uint32_t val = read_le_bytes<uint32_t>(code, ip);
                                     stack.push_back(makert<NGIntegral<uint32_t>>(val));
                                     break;
                                 }
                                 case OpCode::PUSH_U64:
                                 {
-                                    uint64_t val; std::memcpy(&val, &code[ip], 8);
-                                    ip += 8;
+                                    uint64_t val = read_le_bytes<uint64_t>(code, ip);
                                     stack.push_back(makert<NGIntegral<uint64_t>>(val));
                                     break;
                                 }
                                 case OpCode::PUSH_F32:
                                 {
-                                    float val; std::memcpy(&val, &code[ip], 4);
-                                    ip += 4;
+                                    float val = std::bit_cast<float>(read_le_bytes<uint32_t>(code, ip));
                                     stack.push_back(makert<NGFloatingPoint<float>>(val));
                                     break;
                                 }
                                 case OpCode::PUSH_F64:
                                 {
-                                    double val; std::memcpy(&val, &code[ip], 8);
-                                    ip += 8;
+                                    double val = std::bit_cast<double>(read_le_bytes<uint64_t>(code, ip));
                                     stack.push_back(makert<NGFloatingPoint<double>>(val));
                                     break;
                                 }
@@ -576,8 +578,8 @@ namespace NG::orgasm
                     stack.push_back(makert<NGUnit>()); 
                     break; 
                 }
-                case OpCode::JUMP: { int32_t target; std::memcpy(&target, &code[ip], 4); ip = target; break; }
-                case OpCode::JUMP_IF_FALSE: { int32_t target; std::memcpy(&target, &code[ip], 4); ip += 4; if (!pop()->boolValue()) ip = target; break; }
+                case OpCode::JUMP: { int32_t target = std::bit_cast<int32_t>(read_le_bytes<uint32_t>(code, ip)); ip = static_cast<size_t>(target); break; }
+                case OpCode::JUMP_IF_FALSE: { int32_t target = std::bit_cast<int32_t>(read_le_bytes<uint32_t>(code, ip)); if (!pop()->boolValue()) ip = static_cast<size_t>(target); break; }
 
                 case OpCode::CONSTRUCT_TAGGED: {
                     uint16_t typeIdx = read_u16();
@@ -629,9 +631,7 @@ namespace NG::orgasm
                     int32_t defaultAddr = -1;
                     for (uint16_t i = 0; i < numCases; ++i) {
                         uint16_t tag = read_u16();
-                        int32_t addr;
-                        std::memcpy(&addr, &code[ip], 4);
-                        ip += 4;
+                        int32_t addr = std::bit_cast<int32_t>(read_le_bytes<uint32_t>(code, ip));
                         if (tag == SWITCH_DEFAULT_TAG) {
                             defaultAddr = addr;
                             continue;
