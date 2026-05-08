@@ -1,4 +1,5 @@
 #include <orgasm/vm.hpp>
+#include <algorithm>
 #include <iostream>
 #include <intp/runtime_numerals.hpp>
 #include <cstring>
@@ -46,9 +47,11 @@ namespace NG::orgasm
         if (!module.functions.empty())
         {
             const Function* target = &module.functions[0];
-            for (const auto &fun : module.functions)
+            if (auto it = std::find_if(module.functions.begin(), module.functions.end(),
+                                       [](const Function &fun) { return fun.name == "main"; });
+                it != module.functions.end())
             {
-                if (fun.name == "main") { target = &fun; break; }
+                target = &(*it);
             }
             if (target->name != "__start__" && module.functions[0].name == "__start__") {
                 execute(module.functions[0], {});
@@ -332,7 +335,7 @@ namespace NG::orgasm
                     if (structural->customizedType) {
                         auto &props = structural->customizedType->properties;
                         for (size_t i = 0; i < props.size(); ++i) {
-                            if (props[i] == propName && i < structural->fields.size()) {
+                            if (i < structural->fields.size() && props[i] == propName) {
                                 stack.push_back(structural->fields[i]);
                                 goto next_instruction;
                             }

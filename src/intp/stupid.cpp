@@ -822,10 +822,7 @@ namespace NG::intp
           if (auto spread = dynamic_ast_cast<SpreadExpression>(expr); spread)
           {
             auto collection = vis.collection;
-            for (auto &&item : *collection)
-            {
-              slotValues.push_back(item);
-            }
+            slotValues.insert(slotValues.end(), collection->begin(), collection->end());
           }
           else
           {
@@ -1239,7 +1236,7 @@ namespace NG::intp
       // Register each variant as a constructor function
       for (int32_t i = 0; i < static_cast<int32_t>(taggedUnion->variants.size()); ++i)
       {
-        auto &variant = taggedUnion->variants[i];
+        const auto &variant = taggedUnion->variants[i];
         Str unionName = taggedUnion->typeName;
         Str variantName = variant.variantName;
         int32_t variantIndex = i;
@@ -1248,11 +1245,7 @@ namespace NG::intp
         context->define_function(variantName,
           [unionName, variantName, variantIndex, payloadNames](const NGSelf &self, const NGCtx &ctx, const NGInvCtx &invCtx)
           {
-            Vec<RuntimeRef<NGObject>> payload;
-            for (auto &arg : invCtx->params)
-            {
-              payload.push_back(arg);
-            }
+            Vec<RuntimeRef<NGObject>> payload = invCtx->params;
             ctx->retVal = makert<NGTaggedValue>(unionName, variantName, variantIndex, std::move(payload), payloadNames);
           });
       }
