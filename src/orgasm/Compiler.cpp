@@ -414,6 +414,7 @@ namespace NG::orgasm
             }
 
             if (nativeFnNames.contains(idExpr->id)) {
+                for (auto &&arg : funCallExpr->arguments) arg->accept(this);
                 uint16_t nameIdx = static_cast<uint16_t>(module.strings.size());
                 module.strings.push_back(idExpr->id);
                 emit(OpCode::NATIVE_CALL);
@@ -895,6 +896,11 @@ namespace NG::orgasm
             emit(OpCode::NEW_TUPLE);
             emit_u16(static_cast<uint16_t>(tupleLit->elements.size()));
         }
+    }
+
+    void Compiler::visit(ast::UnitLiteral *unitLit)
+    {
+        emit(OpCode::PUSH_UNIT);
     }
 
     void Compiler::visit(ast::IdExpression *idExpr)

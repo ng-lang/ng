@@ -1,7 +1,8 @@
 module;
 
+import std.prelude;
+
 // Standard library basics demonstration
-// Requires: import std.prelude;
 
 // --- I/O ---
 // Read a file (if it exists)

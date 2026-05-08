@@ -4,12 +4,28 @@
 #include <intp/runtime.hpp>
 #include <typecheck/typecheck.hpp>
 
+namespace NG::orgasm
+{
+    struct BytecodeModule;
+    class VM;
+}
+
 namespace NG::library::prelude
 {
     /**
      * @brief Registers the prelude library.
      */
     void do_register();
+
+    /**
+     * @brief Registers native prelude functions with the ORGASM VM.
+     */
+    void register_vm_natives(NG::orgasm::VM &vm);
+
+    /**
+     * @brief Returns the names of all native prelude functions.
+     */
+    Vec<Str> native_function_names();
 } // namespace NG::library::prelude
 namespace NG::library::imgui
 {
@@ -18,11 +34,6 @@ namespace NG::library::imgui
      */
     void do_register();
 } // namespace NG::library::imgui
-
-namespace NG::orgasm
-{
-    struct BytecodeModule;
-}
 
 namespace NG::module
 {

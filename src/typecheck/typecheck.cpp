@@ -43,7 +43,19 @@ namespace NG::typecheck
   // Match types with alias transparency: unwrap aliases on both sides before matching
   inline bool typeMatch(const TypeInfo &a, const TypeInfo &b)
   {
-    return unwrapAlias(a).match(unwrapAlias(b));
+    const auto &ua = unwrapAlias(a);
+    const auto &ub = unwrapAlias(b);
+
+    // Allow unit literal to match any custom (struct) type — acts like null
+    auto isUnit = [](const TypeInfo &t) {
+      if (auto p = dynamic_cast<const PrimitiveType *>(&t))
+        return p->tag() == typeinfo_tag::UNIT;
+      return false;
+    };
+    if (isUnit(ua) && dynamic_cast<const CustomizedType *>(&ub)) return true;
+    if (isUnit(ub) && dynamic_cast<const CustomizedType *>(&ua)) return true;
+
+    return ua.match(ub);
   }
 
   struct TypeChecker : DummyVisitor
@@ -60,11 +72,17 @@ namespace NG::typecheck
 
     CheckingRef<TypeInfo> expectedType; // For bidirectional type inference
 
+    // Sentinel key stored in locals to indicate wildcard imports are active.
+    // This propagates automatically when locals are copied to child checkers.
+    static constexpr const char *WILDCARD_IMPORT_KEY = "$$wildcard_import$$";
+
     TypeChecker(Map<Str, CheckingRef<TypeInfo>> locals, Vec<CheckingRef<TypeInfo>> contextRequirement = {},
                 CheckingRef<TypeInfo> expectedType = nullptr)
         : locals(locals), contextRequirement(contextRequirement), expectedType(expectedType)
     {
     }
+
+    bool hasWildcardImportFlag() const { return locals.contains(WILDCARD_IMPORT_KEY); }
 
     void visit(CompileUnit *compileUnit) override { compileUnit->module->accept(this); }
 
@@ -174,6 +192,11 @@ namespace NG::typecheck
         }
       }
 
+      // Process import declarations first
+      for (auto imp : module->imports)
+      {
+        imp->accept(this);
+      }
       for (auto def : module->definitions)
       {
         def->accept(this);
@@ -1522,6 +1545,11 @@ namespace NG::typecheck
       {
         result = it->second;
       }
+      else if (hasWildcardImportFlag())
+      {
+        // Wildcard import: resolve to Untyped since we can't enumerate exports at type-check time
+        result = makecheck<Untyped>();
+      }
       else
       {
         throw TypeCheckingException("Unknown type for object: " + id->id);
@@ -1605,7 +1633,12 @@ namespace NG::typecheck
       // If importing specific symbols, mark them as Untyped too
       for (auto &&imp : importDecl->imports)
       {
-        if (imp != "*")
+        if (imp == "*")
+        {
+          // Wildcard import: store sentinel in locals so it propagates to child checkers
+          locals[WILDCARD_IMPORT_KEY] = makecheck<Untyped>();
+        }
+        else
         {
           locals.insert_or_assign(imp, makecheck<Untyped>());
         }

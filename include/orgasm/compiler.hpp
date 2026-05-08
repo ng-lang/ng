@@ -52,6 +52,7 @@ namespace NG::orgasm
         void visit(ast::AssignmentExpression *assignExpr) override;
         void visit(ast::UnaryExpression *unaryExpr) override;
         void visit(ast::IfStatement *ifStmt) override;
+        void visit(ast::UnitLiteral *unitLit) override;
         
         void visit(ast::IntegralValue<int8_t> *intVal) override;
         void visit(ast::IntegralValue<uint8_t> *intVal) override;

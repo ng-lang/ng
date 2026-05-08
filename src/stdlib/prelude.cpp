@@ -1,5 +1,6 @@
 #include <intp/runtime.hpp>
 #include <intp/runtime_numerals.hpp>
+#include <orgasm/vm.hpp>
 #include <fstream>
 #include <algorithm>
 
@@ -421,5 +422,32 @@ namespace NG::library::prelude
   {
     register_native_library("std.prelude", handlers);
   };
+
+  void register_vm_natives(NG::orgasm::VM &vm)
+  {
+    for (auto &[name, handler] : handlers)
+    {
+      vm.register_native_raw(name, [handler](const Vec<RuntimeRef<NGObject>> &args) -> RuntimeRef<NGObject>
+      {
+        auto context = makert<NGContext>();
+        auto invCtx = makert<NGInvocationContext>();
+        invCtx->params = args;
+        RuntimeRef<NGObject> self = makert<NGUnit>();
+        handler(self, context, invCtx);
+        return context->retVal ? context->retVal : makert<NGUnit>();
+      });
+    }
+  };
+
+  Vec<Str> native_function_names()
+  {
+    Vec<Str> names;
+    names.reserve(handlers.size());
+    for (auto &[name, _] : handlers)
+    {
+      names.push_back(name);
+    }
+    return names;
+  }
 
 } // namespace NG::library::prelude

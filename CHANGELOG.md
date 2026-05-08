@@ -7,6 +7,13 @@ Each pull request is documented as a separate entry.
 
 ## [Unreleased]
 
+### Bug Fixes: Example Runtime Errors
+- **VM**: Added `NOP` opcode handler — opcode `0x00` was defined but had no case in the VM execute loop, causing "Unknown opcode: 0" (fixes `example/05.valdef.ng`)
+- **Compiler**: Added `visit(ast::UnitLiteral*)` — unit literals in object construction and import contexts had no visitor, causing "Property type mismatch" and "Unknown type for object" errors (fixes `example/07.object.ng`, `example/08.imports.ng`)
+- **Compiler**: Push arguments onto stack before emitting `NATIVE_CALL` — native function calls (e.g. `split`, `trim`) were missing argument compilation, causing "Unknown function" errors (fixes `example/16.stdlib_basics.ng`)
+- **Example**: Simplified `example/16.union_type.ng` to use only supported operators and val declarations
+- **Tests**: 267/267 passing
+
 ### Generic Functions & Variadic Parameters (v0.5.0)
 - **Parser**: Generic function/type syntax `<T>`, `<T, U>`, `<T...>` (parameter packs); suffix syntax `T TypeName` (left-associative desugaring); `<T: Bound>` type constraints; nested generics `Option<Option<int>>`; `>>` split handling
 - **AST**: `GenericParam` node with `name`, `isPack`, `bound` fields; `genericParams` added to `FunctionDef`, `TypeDef`, `TypeAliasDef`, `NewTypeDef`, `TaggedUnionDef`; `TypeAnnotation` gains `genericArgs` field

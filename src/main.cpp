@@ -2,6 +2,7 @@
 
 #include "ast.hpp"
 #include "intp/intp.hpp"
+#include "module.hpp"
 #include "orgasm/compiler.hpp"
 #include "orgasm/vm.hpp"
 #include "parser.hpp"
@@ -191,9 +192,26 @@ auto main(int argc, char *argv[]) -> int
     }
     else
     {
-      NG::orgasm::Compiler compiler;
+      // Derive module search paths from the input file's directory
+      Vec<Str> modulePaths;
+      namespace fs = std::filesystem;
+      fs::path inputPath{filename};
+      auto parentDir = inputPath.parent_path();
+      if (!parentDir.empty())
+      {
+        modulePaths.push_back(parentDir.string());
+      }
+      // Also add standard lib paths
+      modulePaths.push_back("lib");
+      modulePaths.push_back("../lib");
+
+      NG::orgasm::Compiler compiler{modulePaths, NG::library::prelude::native_function_names()};
       auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
       NG::orgasm::VM vm;
+
+      // Register native functions from the prelude
+      NG::library::prelude::register_vm_natives(vm);
+
       vm.run(bytecode);
     }
 

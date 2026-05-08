@@ -94,6 +94,8 @@ namespace NG::orgasm
             try {
                 switch (op)
                 {
+                                case OpCode::NOP:
+                                    break;
                                 case OpCode::PUSH_I8:
                                 {
                                     int8_t val = static_cast<int8_t>(code[ip++]);
@@ -255,7 +257,14 @@ namespace NG::orgasm
                         
                         current_module = saved_module;
                     } else {
-                        throw RuntimeException("Module " + imp.moduleName + " is not a bytecode module");
+                        // Try native function fallback
+                        Vec<RuntimeRef<NGObject>> callArgs;
+                        for (int i = 0; i < numArgs; ++i) callArgs.insert(callArgs.begin(), pop());
+                        if (native_functions.contains(imp.symbolName)) {
+                            stack.push_back(native_functions[imp.symbolName](callArgs));
+                        } else {
+                            throw RuntimeException("Module " + imp.moduleName + " is not a bytecode module and no native function found for " + imp.symbolName);
+                        }
                     }
                     break;
                 }
@@ -289,7 +298,8 @@ namespace NG::orgasm
                 } else {
                     throw RuntimeException("Cannot set property on non-object");
                 }
-                stack.push_back(val);
+                // Push the target (object) back so subsequent property sets work
+                stack.push_back(target);
                 break;
             }
                 case OpCode::GET_PROPERTY_STR:

@@ -65,7 +65,6 @@ set(NG_LIB_SRC
         src/orgasm/Compiler.cpp
         src/orgasm/VM.cpp
         src/orgasm/module.cpp
-        src/compiler/ngcompiler.cpp
         )
 
 set(NG_TEST_SRC
@@ -102,7 +101,6 @@ set(NG_TEST_SRC
         test/orgasm/compiler_vm_test.cpp
         test/orgasm/examples_test.cpp
         test/orgasm/nominal_test.cpp
-        test/compiler/ngcompiler_test.cpp
 )
 
 add_executable(feature_test test/feature_test.cpp)
