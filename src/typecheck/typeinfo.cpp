@@ -169,4 +169,24 @@ namespace NG::typecheck
     }
     return false;
   }
+
+  auto ReferenceType::tag() const -> typeinfo_tag
+  {
+    return typeinfo_tag::REFERENCE;
+  }
+
+  auto ReferenceType::repr() const -> Str
+  {
+    return "ref<" + (referencedType ? referencedType->repr() : Str{"?"}) + ">";
+  }
+
+  auto ReferenceType::match(const TypeInfo &other) const -> bool
+  {
+    if (other.tag() == typeinfo_tag::UNTYPED) return true;
+    if (auto otherRef = dynamic_cast<const ReferenceType *>(&other))
+    {
+      return referencedType->match(*otherRef->referencedType);
+    }
+    return false;
+  }
 } // namespace NG::typecheck

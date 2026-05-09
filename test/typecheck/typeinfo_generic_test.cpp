@@ -59,6 +59,9 @@ TEST_CASE("core typeinfo variants preserve transparent and opaque matching", "[T
   CustomizedType user{"User"};
   TypeAliasType alias{"Meters", makecheck<PrimitiveType>(typeinfo_tag::I32)};
   NewTypeType newtype{"UserId", makecheck<PrimitiveType>(typeinfo_tag::I32)};
+  ReferenceType refI32{makecheck<PrimitiveType>(typeinfo_tag::I32)};
+  ReferenceType sameRefI32{makecheck<PrimitiveType>(typeinfo_tag::I32)};
+  ReferenceType refBool{makecheck<PrimitiveType>(typeinfo_tag::BOOL)};
   PrimitiveType i32{typeinfo_tag::I32};
   CustomizedType sameUser{"User"};
   CustomizedType otherUser{"Account"};
@@ -76,6 +79,10 @@ TEST_CASE("core typeinfo variants preserve transparent and opaque matching", "[T
   REQUIRE(newtype.repr() == "UserId");
   REQUIRE(newtype.match(newtype));
   REQUIRE(!newtype.match(i32));
+
+  REQUIRE(refI32.repr() == "ref<i32>");
+  REQUIRE(refI32.match(sameRefI32));
+  REQUIRE(!refI32.match(refBool));
 }
 
 TEST_CASE("tagged union, variant, and structural union matching stays nominal", "[TypeCheck][GenericTypeInfo]")

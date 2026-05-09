@@ -235,6 +235,20 @@ namespace NG::typecheck
     };
 
     /**
+     * @brief A reference type.
+     */
+    struct ReferenceType : TypeInfo
+    {
+        CheckingRef<TypeInfo> referencedType;
+
+        explicit ReferenceType(CheckingRef<TypeInfo> referencedType) : referencedType(std::move(referencedType)) {}
+
+        auto tag() const -> typeinfo_tag override;
+        auto repr() const -> Str override;
+        auto match(const TypeInfo &other) const -> bool override;
+    };
+
+    /**
      * @brief A customized type (user-defined object).
      */
     struct CustomizedType : TypeInfo

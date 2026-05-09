@@ -95,6 +95,7 @@ set(NG_TEST_SRC
         test/typecheck/typecheck_function_test.cpp
         test/typecheck/typecheck_expression_test.cpp
         test/typecheck/typecheck_array_test.cpp
+        test/typecheck/typecheck_ref_move_test.cpp
         test/typecheck/typecheck_generic_test.cpp
         test/typecheck/typecheck_parameter_pack_test.cpp
         test/typecheck/typecheck_controlflow_test.cpp

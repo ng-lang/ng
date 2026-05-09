@@ -71,6 +71,26 @@ namespace NG::typecheck
     return type;
   }
 
+  static auto isReferenceableExpression(const Expression *expr) -> bool
+  {
+    return dynamic_cast<const IdExpression *>(expr) != nullptr ||
+           dynamic_cast<const IdAccessorExpression *>(expr) != nullptr ||
+           dynamic_cast<const IndexAccessorExpression *>(expr) != nullptr ||
+           (dynamic_cast<const UnaryExpression *>(expr) != nullptr &&
+            dynamic_cast<const UnaryExpression *>(expr)->optr != nullptr &&
+            dynamic_cast<const UnaryExpression *>(expr)->optr->type == TokenType::TIMES);
+  }
+
+  static auto isMovableExpression(const Expression *expr) -> bool
+  {
+    if (dynamic_cast<const IdExpression *>(expr) != nullptr)
+    {
+      return true;
+    }
+    auto unaryExpr = dynamic_cast<const UnaryExpression *>(expr);
+    return unaryExpr != nullptr && unaryExpr->optr != nullptr && unaryExpr->optr->type == TokenType::TIMES;
+  }
+
   static auto formatTypeInstanceName(const Str &baseName, const Vec<CheckingRef<TypeInfo>> &args) -> Str
   {
     Str result = baseName + "<";
@@ -1399,6 +1419,35 @@ namespace NG::typecheck
       {
         throw TypeCheckingException("Not supported operator QUERY (?).");
       }
+      case TokenType::KEYWORD_REF:
+      case TokenType::AMPERSAND:
+      {
+        if (!isReferenceableExpression(unoExpr->operand.get()))
+        {
+          throw TypeCheckingException("Reference operator requires an lvalue.");
+        }
+        result = makecheck<ReferenceType>(operandType);
+        return;
+      }
+      case TokenType::TIMES:
+      {
+        auto refType = std::dynamic_pointer_cast<ReferenceType>(unwrap(operandType));
+        if (!refType)
+        {
+          throw TypeCheckingException("Cannot dereference non-reference type: " + operandType->repr());
+        }
+        result = refType->referencedType;
+        return;
+      }
+      case TokenType::KEYWORD_MOVE:
+      {
+        if (!isMovableExpression(unoExpr->operand.get()))
+        {
+          throw TypeCheckingException("Move operator requires a movable place.");
+        }
+        result = operandType;
+        return;
+      }
       default:
         throw TypeCheckingException("Unsupported unary operator.");
       }
@@ -1627,6 +1676,24 @@ namespace NG::typecheck
       }
       else
       {
+        if (annotation->name == "ref")
+        {
+          if (annotation->genericArgs.size() != 1)
+          {
+            throw TypeCheckingException("Reference type expects exactly 1 type argument");
+          }
+
+          TypeChecker checker{locals};
+          annotation->genericArgs[0]->accept(&checker);
+          auto innerType = checker.result;
+          if (!innerType)
+          {
+            throw TypeCheckingException("Unknown referenced type for ref");
+          }
+          result = makecheck<ReferenceType>(innerType);
+          return;
+        }
+
         // Handle suffix generic "array" syntax: T array => ArrayType<T>
         // This can come from bracket syntax [T] (arguments) or suffix syntax T array (genericArgs)
         if (annotation->name == "array")
@@ -1711,6 +1778,26 @@ namespace NG::typecheck
           throw TypeCheckingException("Unknown type: " + annotation->name);
         }
       }
+    }
+
+    void visit(AssignmentExpression *assignmentExpr) override
+    {
+      TypeChecker checker{locals};
+      assignmentExpr->target->accept(&checker);
+      auto targetType = checker.result;
+      assignmentExpr->value->accept(&checker);
+      auto valueType = checker.result;
+
+      if (!targetType || !valueType)
+      {
+        throw TypeCheckingException("Invalid assignment expression: " + assignmentExpr->repr(), assignmentExpr->pos);
+      }
+      if (!typeMatch(*targetType, *valueType))
+      {
+        throw TypeCheckingException("Invalid assignment type: " + valueType->repr() + " to " + targetType->repr(),
+                                    assignmentExpr->pos);
+      }
+      result = targetType;
     }
 
     void visit(ArrayLiteral *arrayLit) override
