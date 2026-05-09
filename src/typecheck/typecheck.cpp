@@ -2074,7 +2074,8 @@ namespace NG::typecheck
           throw TypeCheckingException("Unknown property '" + name + "' for type " + customType->name, expr->pos);
         }
         expr->accept(&checker);
-        if (!typeMatch(*customType->properties[name], *checker.result))
+        if (checker.result->tag() != typeinfo_tag::UNTYPED &&
+            !typeMatch(*customType->properties[name], *checker.result))
         {
           throw TypeCheckingException("Property type mismatch for '" + name + "': " + checker.result->repr() +
                                           " to " + customType->properties[name]->repr(),
