@@ -380,6 +380,7 @@ namespace NG::typecheck
         Vec<bool> typeParamIsPack;                  ///< Which type params are packs (parallel to typeParamNames)
         NG::ast::ASTRef<NG::ast::FunctionDef> funcDef; ///< The original AST node (for generic functions)
         TypeEnv capturedLocals;                     ///< Local type environment at definition site
+        Map<Str, CheckingRef<TypeInfo>> instances; ///< Monomorphized return types keyed by instantiated name.
 
         GenericDefType(Str name, Vec<Str> typeParamNames, Vec<bool> typeParamIsPack,
                        NG::ast::ASTRef<NG::ast::FunctionDef> funcDef, TypeEnv capturedLocals)

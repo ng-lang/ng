@@ -74,7 +74,7 @@ TEST_CASE("interpreter: generic object instances should behave nominally", "[Int
           }
         }
 
-        val box = new Box<i32> { value: 42 };
+        val box: ref<Box<i32>> = new Box<i32> { value: 42 };
         assert(box.get() == 42);
         assert(box is Box<i32>);
     )");

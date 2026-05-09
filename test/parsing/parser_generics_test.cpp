@@ -1103,7 +1103,7 @@ TEST_CASE("parser should parse generic function with generic param used in multi
 TEST_CASE("parser should parse generic type in new expression context", "[Parser][Generics][TypeAnnotation]")
 {
   // Ensure generic types can appear in new object expressions type position
-  auto ast = parse("type Box<T> { property value: T; }\nfun make_box<T>(v: T) -> Box<T> { return new Box<T> { value: v }; }");
+  auto ast = parse("type Box<T> { property value: T; }\nfun make_box<T>(v: T) -> ref<Box<T>> { return new Box<T> { value: v }; }");
   REQUIRE(ast != nullptr);
 
   auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
@@ -1119,9 +1119,13 @@ TEST_CASE("parser should parse generic type in new expression context", "[Parser
   REQUIRE(funDef != nullptr);
   REQUIRE(funDef->genericParams.size() == 1);
   REQUIRE(funDef->returnType != nullptr);
-  REQUIRE(funDef->returnType->name == "Box");
+  REQUIRE(funDef->returnType->name == "ref");
   REQUIRE(funDef->returnType->genericArgs.size() == 1);
-  REQUIRE(funDef->returnType->genericArgs[0]->name == "T");
+  auto innerReturnType = dynamic_ast_cast<TypeAnnotation>(funDef->returnType->genericArgs[0]);
+  REQUIRE(innerReturnType != nullptr);
+  REQUIRE(innerReturnType->name == "Box");
+  REQUIRE(innerReturnType->genericArgs.size() == 1);
+  REQUIRE(innerReturnType->genericArgs[0]->name == "T");
 
   auto body = dynamic_ast_cast<CompoundStatement>(funDef->body);
   REQUIRE(body != nullptr);

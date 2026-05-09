@@ -237,6 +237,8 @@ val person = new Person {
 print(person.name()); // "John Doe"
 ```
 
+`new` allocates on the managed heap and returns `ref<T>`, so heap-allocated objects alias by reference unless you explicitly copy out their fields.
+
 ## 7. Modules and Code Organization
 
 ### Modules

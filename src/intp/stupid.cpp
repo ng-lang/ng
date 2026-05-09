@@ -107,6 +107,23 @@ namespace NG::intp
     return nullptr;
   }
 
+  static auto resolveRuntimeVariantType(const RuntimeRef<NGContext> &context, const Str &variantName) -> RuntimeRef<NGType>
+  {
+    return context->get_variant_type(variantName);
+  }
+
+  static void defineValue(const RuntimeRef<NGContext> &context, const Str &name, const RuntimeRef<NGObject> &value,
+                          bool moved = false)
+  {
+    context->define(name, materialize_value(value, moved));
+  }
+
+  static void assignValue(const RuntimeRef<NGContext> &context, const Str &name, const RuntimeRef<NGObject> &value,
+                          bool moved = false)
+  {
+    context->set(name, materialize_value(value, moved));
+  }
+
   struct FunctionPathVisitor : public DummyVisitor
   {
 
@@ -124,37 +141,148 @@ namespace NG::intp
 
     RuntimeRef<NGContext> context = nullptr;
 
+    bool moved = false;
+
     explicit ExpressionVisitor(RuntimeRef<NGContext> context) : context(context) {}
+
+    [[nodiscard]] auto makeReference(Expression *expr) -> RuntimeRef<NGReference>
+    {
+      if (auto *idExpr = dynamic_cast<IdExpression *>(expr))
+      {
+        auto name = idExpr->id;
+        return makert<NGReference>([ctx = context, name]() {
+                                     auto value = ctx->get(name);
+                                     ensure_usable_value(value);
+                                     return value;
+                                   },
+                                   [ctx = context, name](const RuntimeRef<NGObject> &value) { ctx->set(name, value); }, name);
+      }
+      if (auto *unaryExpr = dynamic_cast<UnaryExpression *>(expr);
+          unaryExpr && unaryExpr->optr && unaryExpr->optr->type == TokenType::TIMES)
+      {
+        ExpressionVisitor refVisitor{context};
+        unaryExpr->operand->accept(&refVisitor);
+        auto reference = std::dynamic_pointer_cast<NGReference>(refVisitor.object);
+        if (!reference)
+        {
+          throw RuntimeException("Cannot take reference of non-reference dereference");
+        }
+        return reference;
+      }
+      if (auto *idAcc = dynamic_cast<IdAccessorExpression *>(expr))
+      {
+        ExpressionVisitor mainVisitor{context};
+        idAcc->primaryExpression->accept(&mainVisitor);
+        auto main = auto_deref_value(mainVisitor.object);
+        ensure_usable_value(main);
+        auto memberName = idAcc->accessor->repr();
+        if (auto structural = std::dynamic_pointer_cast<NGStructuralObject>(main))
+        {
+          return makert<NGReference>(
+              [structural, memberName]() {
+                auto value = structural->properties.at(memberName);
+                ensure_usable_value(value);
+                return value;
+              },
+              [structural, memberName](const RuntimeRef<NGObject> &value) { structural->properties[memberName] = value; },
+              memberName);
+        }
+        if (auto tuple = std::dynamic_pointer_cast<NGTuple>(main))
+        {
+          auto index = static_cast<size_t>(std::stoi(memberName));
+          return makert<NGReference>(
+              [tuple, index]() {
+                auto value = tuple->items->at(index);
+                ensure_usable_value(value);
+                return value;
+              },
+              [tuple, index](const RuntimeRef<NGObject> &value) { tuple->items->at(index) = value; }, memberName);
+        }
+        throw RuntimeException("Unsupported reference target: " + idAcc->repr());
+      }
+      if (auto *indexExpr = dynamic_cast<IndexAccessorExpression *>(expr))
+      {
+        ExpressionVisitor mainVisitor{context};
+        indexExpr->primary->accept(&mainVisitor);
+        auto primary = auto_deref_value(mainVisitor.object);
+        ensure_usable_value(primary);
+
+        ExpressionVisitor indexVisitor{context};
+        indexExpr->accessor->accept(&indexVisitor);
+        auto indexObject = materialize_value(indexVisitor.object, indexVisitor.moved);
+
+        auto numeral = std::dynamic_pointer_cast<NumeralBase>(indexObject);
+        if (!numeral)
+        {
+          throw RuntimeException("Index reference requires numeral index");
+        }
+        auto index = NGIntegral<size_t>(numeral.get()).value;
+
+        if (auto array = std::dynamic_pointer_cast<NGArray>(primary))
+        {
+          return makert<NGReference>(
+              [array, index]() {
+                auto value = array->items->at(index);
+                ensure_usable_value(value);
+                return value;
+              },
+              [array, index](const RuntimeRef<NGObject> &value) { array->items->at(index) = value; }, indexExpr->repr());
+        }
+        if (auto tuple = std::dynamic_pointer_cast<NGTuple>(primary))
+        {
+          return makert<NGReference>(
+              [tuple, index]() {
+                auto value = tuple->items->at(index);
+                ensure_usable_value(value);
+                return value;
+              },
+              [tuple, index](const RuntimeRef<NGObject> &value) { tuple->items->at(index) = value; }, indexExpr->repr());
+        }
+        throw RuntimeException("Unsupported indexed reference target: " + indexExpr->repr());
+      }
+      throw RuntimeException("Unsupported reference target: " + expr->repr());
+    }
 
 #pragma region Visit numeral literals
 
-    void visit(IntegralValue<int8_t> *intVal) override { object = makert<NGIntegral<int8_t>>(intVal->value); }
+    void visit(IntegralValue<int8_t> *intVal) override
+    {
+      moved = false;
+      object = makert<NGIntegral<int8_t>>(intVal->value);
+    }
     void visit(IntegralValue<uint8_t> *intVal) override
     {
+      moved = false;
       object = std::make_shared<NGIntegral<uint8_t>>(intVal->value);
     }
     void visit(IntegralValue<int16_t> *intVal) override
     {
+      moved = false;
       object = std::make_shared<NGIntegral<int16_t>>(intVal->value);
     }
     void visit(IntegralValue<uint16_t> *intVal) override
     {
+      moved = false;
       object = std::make_shared<NGIntegral<uint16_t>>(intVal->value);
     }
     void visit(IntegralValue<int32_t> *intVal) override
     {
+      moved = false;
       object = std::make_shared<NGIntegral<int32_t>>(intVal->value);
     }
     void visit(IntegralValue<uint32_t> *intVal) override
     {
+      moved = false;
       object = std::make_shared<NGIntegral<uint32_t>>(intVal->value);
     }
     void visit(IntegralValue<int64_t> *intVal) override
     {
+      moved = false;
       object = std::make_shared<NGIntegral<int64_t>>(intVal->value);
     }
     void visit(IntegralValue<uint64_t> *intVal) override
     {
+      moved = false;
       object = std::make_shared<NGIntegral<uint64_t>>(intVal->value);
     }
 
@@ -165,11 +293,13 @@ namespace NG::intp
 
     void visit(FloatingPointValue<float /*float32_t*/> *floatVal) override
     {
+      moved = false;
       object = std::make_shared<NGFloatingPoint<float /* float32_t */>>(floatVal->value);
     }
 
     void visit(FloatingPointValue<double /*float64_t*/> *floatVal) override
     {
+      moved = false;
       object = std::make_shared<NGFloatingPoint<double /* float64_t */>>(floatVal->value);
     }
 
@@ -180,9 +310,17 @@ namespace NG::intp
 
 #pragma endregion
 
-    void visit(StringValue *strVal) override { object = makert<NGString>(strVal->value); }
+    void visit(StringValue *strVal) override
+    {
+      moved = false;
+      object = makert<NGString>(strVal->value);
+    }
 
-    void visit(BooleanValue *boolVal) override { object = makert<NGBoolean>(boolVal->value); }
+    void visit(BooleanValue *boolVal) override
+    {
+      moved = false;
+      object = makert<NGBoolean>(boolVal->value);
+    }
 
     void visit(TupleLiteral *tuple) override
     {
@@ -203,10 +341,11 @@ namespace NG::intp
         }
         else
         {
-          objects.push_back(vis.object);
+          objects.push_back(materialize_value(vis.object, vis.moved));
         }
       }
 
+      moved = false;
       object = makert<NGTuple>(objects);
     }
 
@@ -230,7 +369,7 @@ namespace NG::intp
         }
         else
         {
-          invocationContext->params.push_back(vis.object);
+          invocationContext->params.push_back(materialize_value(vis.object, vis.moved));
         }
       }
 
@@ -244,31 +383,88 @@ namespace NG::intp
 
       context->get_function(fpVis.path)(dummy, context, invocationContext);
 
+      moved = false;
       this->object = context->retVal;
       context->retVal = nullptr;
     }
 
     void visit(UnaryExpression *unoExpr) override
     {
-      ExpressionVisitor operandVisitor{context};
-      unoExpr->operand->accept(&operandVisitor);
-      auto result = operandVisitor.object;
-
       switch (unoExpr->optr->type)
       {
       case TokenType::MINUS:
       {
+        ExpressionVisitor operandVisitor{context};
+        unoExpr->operand->accept(&operandVisitor);
+        auto result = operandVisitor.object;
         auto numeric = dynamic_cast<NumeralBase *>(result.get());
         if (numeric)
         {
+          moved = false;
           this->object = numeric->opNegate();
           return;
         }
         throw RuntimeException("Cannot negate a non-number");
       }
       case TokenType::NOT:
-        this->object = NGObject::boolean(!result->boolValue());
+      {
+        ExpressionVisitor operandVisitor{context};
+        unoExpr->operand->accept(&operandVisitor);
+        moved = false;
+        this->object = NGObject::boolean(!operandVisitor.object->boolValue());
         return;
+      }
+      case TokenType::KEYWORD_REF:
+      case TokenType::AMPERSAND:
+        moved = false;
+        object = makeReference(unoExpr->operand.get());
+        return;
+      case TokenType::TIMES:
+      {
+        ExpressionVisitor operandVisitor{context};
+        unoExpr->operand->accept(&operandVisitor);
+        auto reference = std::dynamic_pointer_cast<NGReference>(operandVisitor.object);
+        if (!reference)
+        {
+          throw RuntimeException("Cannot dereference non-reference value");
+        }
+        moved = false;
+        object = reference->read();
+        return;
+      }
+      case TokenType::KEYWORD_MOVE:
+      {
+        if (auto idExpr = dynamic_ast_cast<IdExpression>(unoExpr->operand))
+        {
+          auto value = context->get(idExpr->id);
+          ensure_usable_value(value);
+          context->set(idExpr->id, moved_object());
+          moved = true;
+          object = value;
+          return;
+        }
+        if (auto deref = dynamic_ast_cast<UnaryExpression>(unoExpr->operand);
+            deref && deref->optr && deref->optr->type == TokenType::TIMES)
+        {
+          ExpressionVisitor operandVisitor{context};
+          deref->operand->accept(&operandVisitor);
+          auto reference = std::dynamic_pointer_cast<NGReference>(operandVisitor.object);
+          if (!reference)
+          {
+            throw RuntimeException("Cannot move from non-reference dereference");
+          }
+          auto value = reference->read();
+          reference->write(moved_object());
+          moved = true;
+          object = value;
+          return;
+        }
+        ExpressionVisitor operandVisitor{context};
+        unoExpr->operand->accept(&operandVisitor);
+        moved = operandVisitor.moved;
+        object = operandVisitor.object;
+        return;
+      }
       case TokenType::QUERY:
         throw NotImplementedException("Operator QUERY (?) not implemented yet");
       default:
@@ -283,10 +479,16 @@ namespace NG::intp
       binExpr->left->accept(&leftVisitor);
       binExpr->right->accept(&rightVisitor);
 
+      moved = false;
       object = evaluateExpr(binExpr->optr->type, leftVisitor.object, rightVisitor.object);
     }
 
-    void visit(IdExpression *idExpr) override { object = context->get(idExpr->id); }
+    void visit(IdExpression *idExpr) override
+    {
+      moved = false;
+      object = context->get(idExpr->id);
+      ensure_usable_value(object);
+    }
 
     void visit(ArrayLiteral *array) override
     {
@@ -307,10 +509,11 @@ namespace NG::intp
         }
         else
         {
-          objects.push_back(vis.object);
+          objects.push_back(materialize_value(vis.object, vis.moved));
         }
       }
 
+      moved = false;
       object = makert<NGArray>(objects);
     }
 
@@ -321,11 +524,14 @@ namespace NG::intp
       index->primary->accept(&vis);
 
       RuntimeRef<NGObject> primaryObject = vis.object;
+      primaryObject = auto_deref_value(primaryObject);
+      ensure_usable_value(primaryObject);
 
       index->accessor->accept(&vis);
 
       RuntimeRef<NGObject> accessorObject = vis.object;
 
+      moved = false;
       object = primaryObject->opIndex(accessorObject);
     }
 
@@ -336,6 +542,8 @@ namespace NG::intp
       index->primary->accept(&vis);
 
       RuntimeRef<NGObject> primaryObject = vis.object;
+      primaryObject = auto_deref_value(primaryObject);
+      ensure_usable_value(primaryObject);
 
       index->accessor->accept(&vis);
 
@@ -343,8 +551,9 @@ namespace NG::intp
 
       index->value->accept(&vis);
 
-      RuntimeRef<NGObject> valueObject = vis.object;
+      RuntimeRef<NGObject> valueObject = materialize_value(vis.object, vis.moved);
 
+      moved = false;
       object = primaryObject->opIndex(accessorObject, valueObject);
     }
 
@@ -356,50 +565,82 @@ namespace NG::intp
 
       idAccExpr->primaryExpression->accept(&vis);
 
-      RuntimeRef<NGObject> main = vis.object;
+      RuntimeRef<NGObject> main = auto_deref_value(vis.object);
+      ensure_usable_value(main);
 
       auto invCtx = makert<NGInvocationContext>();
       invCtx->target = main;
       for (const auto &argument : idAccExpr->arguments)
       {
         argument->accept(&vis);
-        invCtx->params.push_back(vis.object);
+        invCtx->params.push_back(materialize_value(vis.object, vis.moved));
       }
 
+      moved = false;
       object = main->respond(repr, context, invCtx);
     }
 
     void visit(NewObjectExpression *newObj) override
     {
       Str typeName = newObj->targetType ? newObj->targetType->repr() : newObj->typeName;
-      auto ngType = resolveRuntimeType(context, typeName);
-
-      auto structural = makert<NGStructuralObject>();
-
-      structural->customizedType = ngType;
-
-      RuntimeRef<NGContext> newContext = context->fork();
-      ExpressionVisitor visitor{newContext};
-
-      for (auto &&[name, expr] : newObj->properties)
+      if (auto ngType = resolveRuntimeType(context, typeName))
       {
-        expr->accept(&visitor);
-        RuntimeRef<NGObject> result = visitor.object;
+        auto structural = makert<NGStructuralObject>();
 
-        visitor.context->define(name, result);
+        structural->customizedType = ngType;
 
-        structural->properties[name] = result;
-      }
+        RuntimeRef<NGContext> newContext = context->fork();
+        ExpressionVisitor visitor{newContext};
 
-      for (const auto &property : ngType->properties)
-      {
-        if (!structural->properties.contains(property))
+        for (auto &&[name, expr] : newObj->properties)
         {
-          structural->properties[property] = makert<NGObject>();
+          expr->accept(&visitor);
+          RuntimeRef<NGObject> result = materialize_value(visitor.object, visitor.moved);
+
+          defineValue(visitor.context, name, result, true);
+
+          structural->properties[name] = result;
         }
+
+        for (const auto &property : ngType->properties)
+        {
+          if (!structural->properties.contains(property))
+          {
+            structural->properties[property] = makert<NGObject>();
+          }
+        }
+
+        moved = false;
+        object = allocate_heap_object(structural, "heap:" + typeName);
+        return;
       }
 
-      object = structural;
+      auto variantType = resolveRuntimeVariantType(context, typeName);
+      if (!variantType)
+      {
+        throw RuntimeException("Unknown type for object: " + typeName);
+      }
+
+      Vec<RuntimeRef<NGObject>> payload;
+      payload.reserve(variantType->properties.size());
+
+      for (const auto &property : variantType->properties)
+      {
+        auto it = newObj->properties.find(property);
+        if (it == newObj->properties.end())
+        {
+          throw RuntimeException("Missing payload property '" + property + "' for variant " + typeName);
+        }
+        ExpressionVisitor visitor{context};
+        it->second->accept(&visitor);
+        payload.push_back(materialize_value(visitor.object, visitor.moved));
+      }
+
+      moved = false;
+      object = allocate_heap_object(
+          makert<NGTaggedValue>(variantType->name, variantType->variantName, variantType->variantIndex, std::move(payload),
+                                variantType->properties),
+          "heap:" + typeName);
     }
 
     void visit(AssignmentExpression *assignmentExpr) override
@@ -407,22 +648,36 @@ namespace NG::intp
       ExpressionVisitor vis{context};
 
       assignmentExpr->value->accept(&vis);
-      auto result = vis.object;
+      auto result = materialize_value(vis.object, vis.moved);
       if (auto idexpr = dynamic_ast_cast<IdExpression>(assignmentExpr->target); idexpr)
       {
-        context->set(idexpr->id, result);
+        assignValue(context, idexpr->id, result, true);
+        object = result;
+      }
+      else if (auto deref = dynamic_ast_cast<UnaryExpression>(assignmentExpr->target);
+               deref && deref->optr && deref->optr->type == TokenType::TIMES)
+      {
+        ExpressionVisitor targetVisitor{context};
+        deref->operand->accept(&targetVisitor);
+        auto reference = std::dynamic_pointer_cast<NGReference>(targetVisitor.object);
+        if (!reference)
+        {
+          throw RuntimeException("Left-hand side of dereference assignment is not a reference");
+        }
+        reference->write(result);
         object = result;
       }
       else if (auto idAcc = dynamic_ast_cast<IdAccessorExpression>(assignmentExpr->target); idAcc)
       {
         idAcc->primaryExpression->accept(&vis);
-        if (auto obj = std::dynamic_pointer_cast<NGStructuralObject>(vis.object); obj)
+        auto target = auto_deref_value(vis.object);
+        if (auto obj = std::dynamic_pointer_cast<NGStructuralObject>(target); obj)
         {
           obj->properties[idAcc->accessor->repr()] = result;
           object = result;
           return;
         }
-        if (auto tup = std::dynamic_pointer_cast<NGTuple>(vis.object); tup)
+        if (auto tup = std::dynamic_pointer_cast<NGTuple>(target); tup)
         {
           tup->opIndex(makert<NGIntegral<int>>(std::stoi(idAcc->accessor->repr())), result);
           object = result;
@@ -435,13 +690,15 @@ namespace NG::intp
       {
         throw RuntimeException("Invalid assignment: " + assignmentExpr->repr());
       }
+      moved = false;
     }
 
     void visit(TypeCheckingExpression *typeCheckExpr) override
     {
+      moved = false;
       ExpressionVisitor vis{context};
       typeCheckExpr->value->accept(&vis);
-      RuntimeRef<NGObject> value = vis.object;
+      RuntimeRef<NGObject> value = auto_deref_value(vis.object);
 
       if (auto anno = dynamic_ast_cast<TypeAnnotation>(typeCheckExpr->type); anno)
       {
@@ -492,6 +749,7 @@ namespace NG::intp
     }
     void visit(SpreadExpression *spreadExpression) override
     {
+      moved = false;
       ExpressionVisitor vis{context};
 
       spreadExpression->expression->accept(&vis);
@@ -513,10 +771,15 @@ namespace NG::intp
                              spreadExpression->expression->repr());
     }
 
-    void visit(UnitLiteral *unit) override { object = makert<NGUnit>(); }
+    void visit(UnitLiteral *unit) override
+    {
+      moved = false;
+      object = makert<NGUnit>();
+    }
 
     void visit(CastExpression *castExpr) override
     {
+      moved = false;
       ExpressionVisitor exprVis{context};
       castExpr->expression->accept(&exprVis);
       RuntimeRef<NGObject> value = exprVis.object;
@@ -573,7 +836,7 @@ namespace NG::intp
       {
         ExpressionVisitor vis{context};
         returnStatement->expression->accept(&vis);
-        context->retVal = vis.object;
+        context->retVal = materialize_value(vis.object, vis.moved);
       }
       else
       {
@@ -630,7 +893,7 @@ namespace NG::intp
       ExpressionVisitor vis{context};
       valDef->value->accept(&vis);
 
-      context->define(valDef->name, vis.object);
+      defineValue(context, valDef->name, vis.object, vis.moved);
     }
 
     void visit(ValueBindingStatement *valBind) override
@@ -667,12 +930,12 @@ namespace NG::intp
         {
           if (!binding->spreadReceiver)
           {
-            context->define(binding->name, items->at(binding->index));
+            defineValue(context, binding->name, items->at(binding->index));
           }
           else if (!binding->name.empty()) // empty spread receiver just ignores everything
           {
             Vec<RuntimeRef<NGObject>> values{items->begin() + binding->index, items->end()};
-            context->define(binding->name, makert<NGTuple>(values));
+            defineValue(context, binding->name, makert<NGTuple>(values), true);
           }
         }
       }
@@ -690,12 +953,12 @@ namespace NG::intp
         {
           if (!binding->spreadReceiver)
           {
-            context->define(binding->name, items->at(binding->index));
+            defineValue(context, binding->name, items->at(binding->index));
           }
           else if (!binding->name.empty()) // empty spread receiver just ignores everything
           {
             Vec<RuntimeRef<NGObject>> values{items->begin() + binding->index, items->end()};
-            context->define(binding->name, makert<NGArray>(values));
+            defineValue(context, binding->name, makert<NGArray>(values), true);
           }
         }
       }
@@ -778,7 +1041,7 @@ namespace NG::intp
         switch (binding.type)
         {
         case LoopBindingType::LOOP_ASSIGN:
-          context->define(binding.name, vis.object);
+          defineValue(context, binding.name, vis.object, vis.moved);
           break;
         default:
           throw RuntimeException("Unsupported loop binding");
@@ -803,7 +1066,7 @@ namespace NG::intp
           int i = 0;
           for (auto &&object : iter.slotValues)
           {
-            context->set(loopStatement->bindings[i].name, object);
+            assignValue(context, loopStatement->bindings[i].name, object, true);
             i++;
           }
         }
@@ -818,16 +1081,16 @@ namespace NG::intp
         Vec<RuntimeRef<NGObject>> slotValues{};
         for (auto &&expr : nextStatement->expressions)
         {
-          expr->accept(&vis);
-          if (auto spread = dynamic_ast_cast<SpreadExpression>(expr); spread)
-          {
-            auto collection = vis.collection;
-            slotValues.insert(slotValues.end(), collection->begin(), collection->end());
-          }
-          else
-          {
-            slotValues.push_back(vis.object);
-          }
+            expr->accept(&vis);
+            if (auto spread = dynamic_ast_cast<SpreadExpression>(expr); spread)
+            {
+              auto collection = vis.collection;
+              slotValues.insert(slotValues.end(), collection->begin(), collection->end());
+            }
+            else
+            {
+              slotValues.push_back(materialize_value(vis.object, vis.moved));
+            }
         }
         throw NextIteration{slotValues};
       }
@@ -842,12 +1105,14 @@ namespace NG::intp
                   DummyVisitor // NOLINT(cppcoreguidelines-special-member-functions)
   {
     RuntimeRef<NGContext> context;
+    size_t gcRootProviderId = 0;
 
     Vec<Str> modulePaths;
 
     explicit Stupid(Vec<Str> modulePaths, bool loadingPrelude = false)
         : context(makert<NGContext>()), modulePaths(modulePaths)
     {
+      gcRootProviderId = register_gc_root_provider([ctx = context]() { return enumerate_context_roots(ctx); });
       if (!loadingPrelude)
       {
         loadPrelude();
@@ -1086,19 +1351,18 @@ namespace NG::intp
             {
               packItems.push_back(invocationContext->params[j]);
             }
-            newContext->define(funDef->params[i]->paramName, makert<NGTuple>(packItems));
+            defineValue(newContext, funDef->params[i]->paramName, makert<NGTuple>(packItems), true);
             break; // pack parameter is always the last one
           }
           else if (invocationContext->params.size() > i)
           {
-            newContext->define(funDef->params[i]->paramName, invocationContext->params[i]);
+            defineValue(newContext, funDef->params[i]->paramName, invocationContext->params[i], true);
           }
           else if (funDef->params[i]->value != nullptr)
           {
             ExpressionVisitor vis{ngContext};
             funDef->params[i]->value->accept(&vis);
-            auto value = vis.object;
-            newContext->define(funDef->params[i]->paramName, value);
+            defineValue(newContext, funDef->params[i]->paramName, vis.object, vis.moved);
           }
           else
           {
@@ -1133,11 +1397,11 @@ namespace NG::intp
                   {
                     packItems.push_back(nextIter.slotValues[j]);
                   }
-                  newContext->set(funDef->params[i]->paramName, makert<NGTuple>(packItems));
+                  assignValue(newContext, funDef->params[i]->paramName, makert<NGTuple>(packItems), true);
                 }
                 else if (i < nextIter.slotValues.size())
                 {
-                  newContext->set(funDef->params[i]->paramName, nextIter.slotValues[i]);
+                  assignValue(newContext, funDef->params[i]->paramName, nextIter.slotValues[i], true);
                 }
               }
             }
@@ -1145,7 +1409,7 @@ namespace NG::intp
             {
               for (size_t i = 0; i < nextIter.slotValues.size(); i++)
               {
-                newContext->set(funDef->params[i]->paramName, nextIter.slotValues[i]);
+                assignValue(newContext, funDef->params[i]->paramName, nextIter.slotValues[i], true);
               }
             }
           }
@@ -1188,7 +1452,7 @@ namespace NG::intp
           RuntimeRef<NGContext> newContext = ngContext->fork();
           for (size_t i = 0; i < memFn->params.size(); ++i)
           {
-            newContext->define(memFn->params[i]->paramName, invocationContext->params[i]);
+            defineValue(newContext, memFn->params[i]->paramName, invocationContext->params[i], true);
           }
 
           newContext->define("self", dummy);
@@ -1242,6 +1506,13 @@ namespace NG::intp
         int32_t variantIndex = i;
         Vec<Str> payloadNames = variant.payloadNames;
 
+        auto variantType = makert<NGType>();
+        variantType->name = unionName;
+        variantType->properties = payloadNames;
+        variantType->variantName = variantName;
+        variantType->variantIndex = variantIndex;
+        context->define_variant_type(variantName, variantType);
+
         context->define_function(variantName,
           [unionName, variantName, variantIndex, payloadNames](const NGSelf &self, const NGCtx &ctx, const NGInvCtx &invCtx)
           {
@@ -1253,7 +1524,10 @@ namespace NG::intp
 
     void summary() override { context->summary(); }
 
-    ~Stupid() override = default;
+    ~Stupid() override
+    {
+      unregister_gc_root_provider(gcRootProviderId);
+    }
   };
 
   auto stupid() -> Interpreter *

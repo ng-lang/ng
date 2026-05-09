@@ -11,6 +11,7 @@ namespace NG::runtime
   {
     auto ctx = makert<NGContext>();
     ctx->parent = this;
+    children.emplace_back(ctx);
 
     return ctx;
   }
@@ -75,6 +76,11 @@ namespace NG::runtime
     types[name] = type;
   }
 
+  void NGContext::define_variant_type(Str name, RuntimeRef<NGType> type)
+  {
+    variantTypes[name] = type;
+  }
+
   void NGContext::define_module(Str name, RuntimeRef<NGModule> module)
   {
     if (locals.contains(name))
@@ -136,6 +142,19 @@ namespace NG::runtime
     if (parent != nullptr)
     {
       return parent->get_type(name);
+    }
+    return nullptr;
+  }
+
+  auto NGContext::get_variant_type(Str name) -> RuntimeRef<NGType>
+  {
+    if (variantTypes.contains(name))
+    {
+      return variantTypes.at(name);
+    }
+    if (parent != nullptr)
+    {
+      return parent->get_variant_type(name);
     }
     return nullptr;
   }

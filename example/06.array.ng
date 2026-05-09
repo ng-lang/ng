@@ -12,7 +12,7 @@ arr[4] := 6;
 
 assert(arr[4] == 6);
 
-arr << 7;
+arr := arr << 7;
 
 assert(arr[5] == 7);
 

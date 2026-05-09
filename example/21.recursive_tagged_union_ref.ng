@@ -1,0 +1,20 @@
+type Node<T> = Cell(content: T, _next: ref<Node<T>>) | Empty;
+
+val empty: Node<i32> = Empty();
+val third = Cell(3, ref empty);
+val second = Cell(2, ref third);
+val first = Cell(1, ref second);
+
+fun printList<T>(head: ref<Node<T>>) {
+    switch(*head) {
+        case Empty {
+            return;
+        }
+        case Cell(first, rest) {
+            print(first);
+            printList(rest);
+        }
+    }
+}
+
+printList(ref first);

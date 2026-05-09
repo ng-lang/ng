@@ -50,6 +50,8 @@ set(NG_LIB_SRC
         src/runtime/NGTuple.cpp
         src/runtime/NGUnit.cpp
         src/runtime/NGTaggedValue.cpp
+        src/runtime/NGReference.cpp
+        src/runtime/managed_heap.cpp
         src/sysdep/process.cpp
         src/stdlib/prelude.cpp
         src/stdlib/imgui.cpp

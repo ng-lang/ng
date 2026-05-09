@@ -169,6 +169,133 @@ TEST_CASE("compiler and vm should handle function parameters", "[OrgasmTest]")
   destroyast(ast);
 }
 
+TEST_CASE("compiler and vm should copy array bindings by default", "[OrgasmTest][RefMove]")
+{
+  auto ast = parse(R"(
+        fun main() {
+            val arr = [1];
+            val copy = arr;
+            copy[0] := 2;
+            if (arr[0] == 1) {
+                return copy[0];
+            }
+            return 0;
+        }
+    )");
+  REQUIRE(ast != nullptr);
+
+  Compiler compiler;
+  auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+
+  VM vm;
+  auto result = vm.run(bytecode);
+
+  auto numeric = std::dynamic_pointer_cast<NumeralBase>(result);
+  REQUIRE(numeric != nullptr);
+  REQUIRE(NGIntegral<int32_t>::valueOf(numeric.get()) == 2);
+
+  destroyast(ast);
+}
+
+TEST_CASE("compiler and vm should alias heap object bindings from new", "[OrgasmTest][RefMove]")
+{
+  auto ast = parse(R"(
+        type Box {
+            value: i32;
+        }
+
+        fun main() {
+            val box = new Box { value: 1 };
+            val copy = box;
+            copy.value := 2;
+            if (box.value == 2) {
+                return copy.value;
+            }
+            return 0;
+        }
+    )");
+  REQUIRE(ast != nullptr);
+
+  Compiler compiler;
+  auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+
+  VM vm;
+  auto result = vm.run(bytecode);
+
+  auto numeric = std::dynamic_pointer_cast<NumeralBase>(result);
+  REQUIRE(numeric != nullptr);
+  REQUIRE(NGIntegral<int32_t>::valueOf(numeric.get()) == 2);
+
+  destroyast(ast);
+}
+
+TEST_CASE("compiler and vm should support ref swap with move dereference", "[OrgasmTest][RefMove]")
+{
+  auto ast = parse(R"(
+        fun swap(a: i32 ref, b: i32 ref) {
+            val tmp = move *a;
+            *a := move *b;
+            *b := move tmp;
+        }
+
+        fun main() {
+            val x = 1;
+            val y = 2;
+            swap(ref x, ref y);
+            if (x == 2) {
+                return y;
+            }
+            return 0;
+        }
+    )");
+  REQUIRE(ast != nullptr);
+
+  Compiler compiler;
+  auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+
+  VM vm;
+  auto result = vm.run(bytecode);
+
+  auto numeric = std::dynamic_pointer_cast<NumeralBase>(result);
+  REQUIRE(numeric != nullptr);
+  REQUIRE(NGIntegral<int32_t>::valueOf(numeric.get()) == 1);
+
+  destroyast(ast);
+}
+
+TEST_CASE("managed heap should sweep unreachable vm cycles", "[OrgasmTest][RefMove][GC]")
+{
+  NG::runtime::collect_managed_heap();
+  REQUIRE(NG::runtime::managed_heap_size() == 0);
+
+  auto ast = parse(R"(
+        type Node {
+            property link;
+        }
+
+        fun main() {
+            val node = new Node {};
+            node.link := node;
+            return unit;
+        }
+    )");
+  REQUIRE(ast != nullptr);
+
+  {
+    Compiler compiler;
+    auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+    VM vm;
+    auto result = vm.run(bytecode);
+    REQUIRE(result != nullptr);
+    REQUIRE(NG::runtime::managed_heap_size() == 1);
+  }
+
+  destroyast(ast);
+
+  NG::runtime::collect_managed_heap();
+  REQUIRE(NG::runtime::managed_heap_size() == 0);
+}
+
 TEST_CASE("compiler and vm should handle tagged unions", "[OrgasmTest]")
 {
   auto ast = parse(R"(
@@ -229,6 +356,87 @@ TEST_CASE("compiler and vm should handle switch otherwise for tagged unions", "[
   auto numeric = std::dynamic_pointer_cast<NumeralBase>(result);
   REQUIRE(numeric != nullptr);
   REQUIRE(NGIntegral<int32_t>::valueOf(numeric.get()) == 7);
+
+  destroyast(ast);
+}
+
+TEST_CASE("compiler and vm should handle recursive tagged union refs", "[OrgasmTest]")
+{
+  auto ast = parse(R"(
+        type Node = Cell(content: i32, _next: ref<Node>) | Empty;
+
+        fun main() {
+            val tail = Empty();
+            val head = Cell(1, ref tail);
+
+            switch (head) {
+                case Cell(content, nextRef) {
+                    switch (*nextRef) {
+                        case Empty {
+                            return content;
+                        }
+                        case Cell(other, rest) {
+                            return 0;
+                        }
+                    }
+                }
+                case Empty {
+                    return 0;
+                }
+            }
+        }
+    )");
+  REQUIRE(ast != nullptr);
+
+  Compiler compiler;
+  auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+
+  VM vm;
+  auto result = vm.run(bytecode);
+
+  auto numeric = std::dynamic_pointer_cast<NumeralBase>(result);
+  REQUIRE(numeric != nullptr);
+  REQUIRE(NGIntegral<int32_t>::valueOf(numeric.get()) == 1);
+
+  destroyast(ast);
+}
+
+TEST_CASE("compiler and vm should allocate tagged union variants on heap", "[OrgasmTest]")
+{
+  auto ast = parse(R"(
+        type Node = Cell(content: i32, _next: ref<Node>) | Empty;
+
+        fun main() {
+            val head: ref<Node> = new Cell { content: 1, _next: new Empty {} };
+
+            switch (*head) {
+                case Empty {
+                    return 0;
+                }
+                case Cell(content, nextRef) {
+                    switch (*nextRef) {
+                        case Empty {
+                            return content;
+                        }
+                        case Cell(other, rest) {
+                            return 0;
+                        }
+                    }
+                }
+            }
+        }
+    )");
+  REQUIRE(ast != nullptr);
+
+  Compiler compiler;
+  auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+
+  VM vm;
+  auto result = vm.run(bytecode);
+
+  auto numeric = std::dynamic_pointer_cast<NumeralBase>(result);
+  REQUIRE(numeric != nullptr);
+  REQUIRE(NGIntegral<int32_t>::valueOf(numeric.get()) == 1);
 
   destroyast(ast);
 }

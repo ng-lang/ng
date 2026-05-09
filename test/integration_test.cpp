@@ -61,6 +61,7 @@ TEST_CASE("should run numbered examples", "[Integration]")
       "example/18.stdlib_basics.ng",
       "example/19.union_type.ng",
       "example/20.switch_otherwise.ng",
+      "example/21.recursive_tagged_union_ref.ng",
   };
 
   for (const auto &example : examples)

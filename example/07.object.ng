@@ -1,7 +1,7 @@
 type Person {
     firstName: string;
     lastName: string;
-    kid: Person;
+    kid;
 
     fun name() -> string {
         return self.firstName + " " + self.lastName;

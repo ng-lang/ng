@@ -75,6 +75,10 @@ namespace NG::runtime
 
         Vec<Str> properties; ///< The properties of the type.
 
+        Str variantName; ///< Tagged union variant name when this type describes a variant constructor.
+
+        int32_t variantIndex = -1; ///< Tagged union variant index when this type describes a variant constructor.
+
         Map<Str, NGInvocable> memberFunctions; ///< The member functions of the type.
 
         auto operator==(const NGType &other) const -> bool
@@ -153,6 +157,7 @@ namespace NG::runtime
          * @param type The type.
          */
         void define_type(Str name, RuntimeRef<NGType> type);
+        void define_variant_type(Str name, RuntimeRef<NGType> type);
         /**
          * @brief Defines a new module in the context.
          *
@@ -208,6 +213,7 @@ namespace NG::runtime
          * @return A `RuntimeRef` to the type.
          */
         auto get_type(Str name) -> RuntimeRef<NGType>;
+        auto get_variant_type(Str name) -> RuntimeRef<NGType>;
         /**
          * @brief Gets a module from the context.
          *
@@ -224,10 +230,12 @@ namespace NG::runtime
         Map<Str, RuntimeRef<NGObject>> objects; ///< The objects in the context.
         Map<Str, NGInvocable> functions;        ///< The functions in the context.
         Map<Str, RuntimeRef<NGType>> types;     ///< The types in the context.
+        Map<Str, RuntimeRef<NGType>> variantTypes; ///< Tagged union variant metadata.
         Map<Str, RuntimeRef<NGModule>> modules; ///< The modules in the context.
         Vec<Str> exports;                       ///< The exported symbols.
         Vec<Str> imported;                      ///< The imported symbols.
         Set<Str> locals;                        ///< The local variables.
+        Vec<std::weak_ptr<NGContext>> children; ///< Active child contexts.
 
       private:
         NGContext *parent = nullptr; ///< The parent context.
@@ -701,6 +709,37 @@ namespace NG::runtime
         [[nodiscard]] auto show() const -> Str override;
     };
 
+    struct NGMovedObject final : NGObject
+    {
+        [[nodiscard]] static auto movedType() -> RuntimeRef<NGType>;
+        [[nodiscard]] auto type() const -> RuntimeRef<NGType> override;
+        [[nodiscard]] auto show() const -> Str override;
+        [[nodiscard]] auto boolValue() const -> bool override;
+    };
+
+    struct NGReference final : NGObject
+    {
+        using Getter = std::function<RuntimeRef<NGObject>()>;
+        using Setter = std::function<void(RuntimeRef<NGObject>)>;
+        using MarkHook = std::function<void()>;
+
+        Getter getter;
+        Setter setter;
+        MarkHook markHook;
+        Str debugName;
+
+        NGReference(Getter getter, Setter setter, Str debugName, MarkHook markHook = nullptr);
+
+        [[nodiscard]] static auto referenceType() -> RuntimeRef<NGType>;
+        [[nodiscard]] auto type() const -> RuntimeRef<NGType> override;
+        [[nodiscard]] auto show() const -> Str override;
+        [[nodiscard]] auto boolValue() const -> bool override;
+
+        [[nodiscard]] auto read() const -> RuntimeRef<NGObject>;
+        void write(const RuntimeRef<NGObject> &value) const;
+        void mark_referenced_heap() const;
+    };
+
     /**
      * @brief Represents a newtype wrapper in the runtime.
      *
@@ -754,4 +793,19 @@ namespace NG::runtime
      * @param handlers The handlers for the native functions.
      */
     void register_native_library(Str moduleId, Map<Str, NGInvocable> handlers);
+
+    using GCRootProvider = std::function<Vec<RuntimeRef<NGObject>>()>;
+
+    [[nodiscard]] auto moved_object() -> RuntimeRef<NGObject>;
+    [[nodiscard]] auto is_moved_object(const RuntimeRef<NGObject> &value) -> bool;
+    void ensure_usable_value(const RuntimeRef<NGObject> &value);
+    [[nodiscard]] auto auto_deref_value(const RuntimeRef<NGObject> &value) -> RuntimeRef<NGObject>;
+    [[nodiscard]] auto clone_value(const RuntimeRef<NGObject> &value) -> RuntimeRef<NGObject>;
+    [[nodiscard]] auto materialize_value(const RuntimeRef<NGObject> &value, bool moved) -> RuntimeRef<NGObject>;
+    [[nodiscard]] auto allocate_heap_object(const RuntimeRef<NGObject> &value, const Str &debugName) -> RuntimeRef<NGReference>;
+    [[nodiscard]] auto enumerate_context_roots(const RuntimeRef<NGContext> &context) -> Vec<RuntimeRef<NGObject>>;
+    [[nodiscard]] auto register_gc_root_provider(GCRootProvider provider) -> size_t;
+    void unregister_gc_root_provider(size_t providerId);
+    void collect_managed_heap();
+    [[nodiscard]] auto managed_heap_size() -> size_t;
 } // namespace NG::runtime

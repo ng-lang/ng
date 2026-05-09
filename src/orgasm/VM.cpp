@@ -34,6 +34,22 @@ namespace NG::orgasm
     {
         current_module = &module;
         root_context = makert<NGContext>();
+        auto gcRootProviderId = register_gc_root_provider([this]() {
+            auto roots = enumerate_context_roots(root_context);
+            roots.insert(roots.end(), globals.begin(), globals.end());
+            roots.insert(roots.end(), stack.begin(), stack.end());
+            for (const auto &frame : call_stack)
+            {
+                roots.insert(roots.end(), frame.locals.begin(), frame.locals.end());
+                roots.insert(roots.end(), frame.args.begin(), frame.args.end());
+            }
+            return roots;
+        });
+        struct RootProviderGuard
+        {
+            size_t id;
+            ~RootProviderGuard() { unregister_gc_root_provider(id); }
+        } rootProviderGuard{gcRootProviderId};
         // Size globals dynamically based on module needs
         size_t maxGlobal = 0;
         for (const auto &fun : module.functions) {
@@ -105,6 +121,16 @@ namespace NG::orgasm
             auto val = stack.back();
             stack.pop_back();
             return val;
+        };
+
+        auto copy_out = [](const RuntimeRef<NGObject> &value) -> RuntimeRef<NGObject>
+        {
+            ensure_usable_value(value);
+            return clone_value(value);
+        };
+        auto access_target = [](const RuntimeRef<NGObject> &value) -> RuntimeRef<NGObject>
+        {
+            return auto_deref_value(value);
         };
 
         const auto &code = fun.code;
@@ -208,7 +234,7 @@ namespace NG::orgasm
                 {
                     uint16_t typeNameIdx = read_u16();
                     Str typeName = current_module->strings[typeNameIdx];
-                    auto val = pop();
+                    auto val = access_target(pop());
                     bool result = false;
                     if (val->type() && val->type()->name == typeName) result = true;
                     stack.push_back(NGObject::boolean(result));
@@ -221,20 +247,223 @@ namespace NG::orgasm
                     call_stack.pop_back();
                     return res;
                 }
-                case OpCode::LOAD_LOCAL: { stack.push_back(call_stack[frame_idx].locals[read_u16()]); break; }
-                case OpCode::LOAD_PARAM: { stack.push_back(call_stack[frame_idx].locals[read_u16()]); break; }
+                case OpCode::LOAD_LOCAL: { stack.push_back(copy_out(call_stack[frame_idx].locals[read_u16()])); break; }
+                case OpCode::LOAD_PARAM: { stack.push_back(copy_out(call_stack[frame_idx].locals[read_u16()])); break; }
                 case OpCode::STORE_LOCAL: { uint16_t idx = read_u16(); auto &locals = call_stack[frame_idx].locals; if (idx >= locals.size()) locals.resize(idx + 1, makert<NGUnit>()); locals[idx] = stack.back(); break; }
-                case OpCode::LOAD_GLOBAL: { stack.push_back(globals[read_u16()]); break; }
+                case OpCode::LOAD_GLOBAL: { stack.push_back(copy_out(globals[read_u16()])); break; }
                 case OpCode::STORE_GLOBAL: { uint16_t idx = read_u16(); if (idx >= globals.size()) globals.resize(idx + 1, makert<NGUnit>()); globals[idx] = stack.back(); break; }
-                            case OpCode::GET_TUPLE_ITEM:
-                            {
-                                auto idxObj = pop();
-                                auto tupleObj = pop();
-                                auto tuple = std::dynamic_pointer_cast<NGTuple>(tupleObj);
-                                auto idx = NGIntegral<int32_t>::valueOf(std::dynamic_pointer_cast<NumeralBase>(idxObj).get());
-                                stack.push_back((*tuple->items)[idx]);
-                                break;
-                            }
+                case OpCode::MAKE_LOCAL_REF:
+                {
+                    uint16_t idx = read_u16();
+                    stack.push_back(makert<NGReference>(
+                        [this, frame_idx, idx]() -> RuntimeRef<NGObject> { return call_stack.at(frame_idx).locals.at(idx); },
+                        [this, frame_idx, idx](RuntimeRef<NGObject> value) { call_stack.at(frame_idx).locals.at(idx) = std::move(value); },
+                        "local:" + std::to_string(idx)));
+                    break;
+                }
+                case OpCode::MAKE_GLOBAL_REF:
+                {
+                    uint16_t idx = read_u16();
+                    stack.push_back(makert<NGReference>(
+                        [this, idx]() -> RuntimeRef<NGObject> { return globals.at(idx); },
+                        [this, idx](RuntimeRef<NGObject> value) { globals.at(idx) = std::move(value); },
+                        "global:" + std::to_string(idx)));
+                    break;
+                }
+                case OpCode::MAKE_PROPERTY_REF:
+                {
+                    uint16_t fieldIdx = read_u16();
+                    auto target = pop();
+                    if (auto baseRef = std::dynamic_pointer_cast<NGReference>(target))
+                    {
+                        stack.push_back(makert<NGReference>(
+                            [baseRef, fieldIdx]() -> RuntimeRef<NGObject> {
+                                auto structural = std::dynamic_pointer_cast<NGStructuralObject>(auto_deref_value(baseRef->read()));
+                                if (!structural) throw RuntimeException("Cannot reference property on non-object");
+                                if (fieldIdx >= structural->fields.size()) structural->fields.resize(fieldIdx + 1, makert<NGUnit>());
+                                return structural->fields.at(fieldIdx);
+                            },
+                            [baseRef, fieldIdx](RuntimeRef<NGObject> value) {
+                                auto structural = std::dynamic_pointer_cast<NGStructuralObject>(auto_deref_value(baseRef->read()));
+                                if (!structural) throw RuntimeException("Cannot reference property on non-object");
+                                if (fieldIdx >= structural->fields.size()) structural->fields.resize(fieldIdx + 1, makert<NGUnit>());
+                                structural->fields.at(fieldIdx) = value;
+                                if (structural->customizedType && fieldIdx < structural->customizedType->properties.size())
+                                {
+                                    structural->properties[structural->customizedType->properties[fieldIdx]] = value;
+                                }
+                                baseRef->write(structural);
+                            },
+                            "field:" + std::to_string(fieldIdx)));
+                    }
+                    else
+                    {
+                        auto structural = std::dynamic_pointer_cast<NGStructuralObject>(target);
+                        if (!structural) throw RuntimeException("Cannot reference property on non-object");
+                        if (fieldIdx >= structural->fields.size()) structural->fields.resize(fieldIdx + 1, makert<NGUnit>());
+                        stack.push_back(makert<NGReference>(
+                            [structural, fieldIdx]() -> RuntimeRef<NGObject> { return structural->fields.at(fieldIdx); },
+                            [structural, fieldIdx](RuntimeRef<NGObject> value) {
+                                structural->fields.at(fieldIdx) = value;
+                                if (structural->customizedType && fieldIdx < structural->customizedType->properties.size())
+                                {
+                                    structural->properties[structural->customizedType->properties[fieldIdx]] = value;
+                                }
+                            },
+                            "field:" + std::to_string(fieldIdx)));
+                    }
+                    break;
+                }
+                case OpCode::MAKE_PROPERTY_STR_REF:
+                {
+                    uint16_t nameIdx = read_u16();
+                    Str propName = current_module->strings[nameIdx];
+                    auto target = pop();
+                    auto makePropertyRef = [&propName](const std::shared_ptr<NGStructuralObject> &structural,
+                                                       const std::function<void(RuntimeRef<NGObject>)> &commit) {
+                        return makert<NGReference>(
+                            [structural, propName]() -> RuntimeRef<NGObject> {
+                                if (structural->properties.contains(propName)) return structural->properties.at(propName);
+                                if (structural->customizedType)
+                                {
+                                    auto &props = structural->customizedType->properties;
+                                    for (size_t i = 0; i < props.size(); ++i)
+                                    {
+                                        if (props[i] == propName && i < structural->fields.size()) return structural->fields[i];
+                                    }
+                                }
+                                return makert<NGUnit>();
+                            },
+                            [structural, propName, commit](RuntimeRef<NGObject> value) {
+                                structural->properties[propName] = value;
+                                if (structural->customizedType)
+                                {
+                                    auto &props = structural->customizedType->properties;
+                                    for (size_t i = 0; i < props.size(); ++i)
+                                    {
+                                        if (props[i] == propName)
+                                        {
+                                            if (i >= structural->fields.size()) structural->fields.resize(i + 1, makert<NGUnit>());
+                                            structural->fields[i] = value;
+                                            break;
+                                        }
+                                    }
+                                }
+                                commit(structural);
+                            },
+                            "property:" + propName);
+                    };
+                    if (auto baseRef = std::dynamic_pointer_cast<NGReference>(target))
+                    {
+                        auto structural = std::dynamic_pointer_cast<NGStructuralObject>(auto_deref_value(baseRef->read()));
+                        if (!structural) throw RuntimeException("Cannot reference property on non-object");
+                        stack.push_back(makePropertyRef(structural, [baseRef](RuntimeRef<NGObject> value) { baseRef->write(value); }));
+                    }
+                    else
+                    {
+                        auto structural = std::dynamic_pointer_cast<NGStructuralObject>(target);
+                        if (!structural) throw RuntimeException("Cannot reference property on non-object");
+                        stack.push_back(makePropertyRef(structural, [](RuntimeRef<NGObject>) {}));
+                    }
+                    break;
+                }
+                case OpCode::MAKE_INDEX_REF:
+                {
+                    auto index = pop();
+                    auto target = pop();
+                    auto makeIndexRef = [&index](const RuntimeRef<NGObject> &container,
+                                                 const std::function<void(RuntimeRef<NGObject>)> &commit) {
+                        return makert<NGReference>(
+                            [container, index]() -> RuntimeRef<NGObject> {
+                                auto idx = NGIntegral<int32_t>::valueOf(std::dynamic_pointer_cast<NumeralBase>(index).get());
+                                if (auto tuple = std::dynamic_pointer_cast<NGTuple>(container)) return tuple->items->at(idx);
+                                if (auto array = std::dynamic_pointer_cast<NGArray>(container)) return array->items->at(idx);
+                                throw RuntimeException("Cannot reference index on non-indexable value");
+                            },
+                            [container, index, commit](RuntimeRef<NGObject> value) {
+                                auto idx = NGIntegral<int32_t>::valueOf(std::dynamic_pointer_cast<NumeralBase>(index).get());
+                                if (auto tuple = std::dynamic_pointer_cast<NGTuple>(container))
+                                {
+                                    tuple->items->at(idx) = value;
+                                    commit(tuple);
+                                    return;
+                                }
+                                if (auto array = std::dynamic_pointer_cast<NGArray>(container))
+                                {
+                                    array->items->at(idx) = value;
+                                    commit(array);
+                                    return;
+                                }
+                                throw RuntimeException("Cannot reference index on non-indexable value");
+                            },
+                            "index");
+                    };
+                    if (auto baseRef = std::dynamic_pointer_cast<NGReference>(target))
+                    {
+                        auto container = auto_deref_value(baseRef->read());
+                        stack.push_back(makeIndexRef(container, [baseRef](RuntimeRef<NGObject> value) { baseRef->write(value); }));
+                    }
+                    else
+                    {
+                        stack.push_back(makeIndexRef(target, [](RuntimeRef<NGObject>) {}));
+                    }
+                    break;
+                }
+                case OpCode::LOAD_REF:
+                {
+                    auto reference = std::dynamic_pointer_cast<NGReference>(pop());
+                    if (!reference) throw RuntimeException("Cannot dereference non-reference value");
+                    stack.push_back(copy_out(reference->read()));
+                    break;
+                }
+                case OpCode::STORE_REF:
+                {
+                    auto value = pop();
+                    auto reference = std::dynamic_pointer_cast<NGReference>(pop());
+                    if (!reference) throw RuntimeException("Cannot assign through non-reference value");
+                    reference->write(value);
+                    stack.push_back(value);
+                    break;
+                }
+                case OpCode::MOVE_LOCAL:
+                {
+                    uint16_t idx = read_u16();
+                    auto &slot = call_stack[frame_idx].locals[idx];
+                    ensure_usable_value(slot);
+                    auto moved = slot;
+                    slot = moved_object();
+                    stack.push_back(moved);
+                    break;
+                }
+                case OpCode::MOVE_GLOBAL:
+                {
+                    uint16_t idx = read_u16();
+                    auto &slot = globals[idx];
+                    ensure_usable_value(slot);
+                    auto moved = slot;
+                    slot = moved_object();
+                    stack.push_back(moved);
+                    break;
+                }
+                case OpCode::MOVE_REF:
+                {
+                    auto reference = std::dynamic_pointer_cast<NGReference>(pop());
+                    if (!reference) throw RuntimeException("Cannot move from non-reference value");
+                    auto moved = reference->read();
+                    ensure_usable_value(moved);
+                    reference->write(moved_object());
+                    stack.push_back(moved);
+                    break;
+                }
+                case OpCode::GET_TUPLE_ITEM:
+                {
+                    auto idxObj = pop();
+                    auto tupleObj = access_target(pop());
+                    auto tuple = std::dynamic_pointer_cast<NGTuple>(tupleObj);
+                    auto idx = NGIntegral<int32_t>::valueOf(std::dynamic_pointer_cast<NumeralBase>(idxObj).get());
+                    stack.push_back(copy_out((*tuple->items)[idx]));
+                    break;
+                }
                             case OpCode::POP: pop(); break;
                             case OpCode::DUP: stack.push_back(stack.back()); break;
                             case OpCode::PUSH_UNIT: stack.push_back(makert<NGUnit>()); break;                case OpCode::CALL:
@@ -303,13 +532,13 @@ namespace NG::orgasm
                 case OpCode::GET_PROPERTY:
             {
                 uint16_t fieldIdx = read_u16();
-                auto target = pop();
-                if (auto structural = std::dynamic_pointer_cast<NGStructuralObject>(target)) {
-                    if (fieldIdx < structural->fields.size()) {
-                        stack.push_back(structural->fields[fieldIdx]);
-                    } else {
-                        throw RuntimeException("Field index out of bounds: " + std::to_string(fieldIdx));
-                    }
+                        auto target = access_target(pop());
+                        if (auto structural = std::dynamic_pointer_cast<NGStructuralObject>(target)) {
+                            if (fieldIdx < structural->fields.size()) {
+                                stack.push_back(copy_out(structural->fields[fieldIdx]));
+                            } else {
+                                throw RuntimeException("Field index out of bounds: " + std::to_string(fieldIdx));
+                            }
                 } else {
                     throw RuntimeException("Cannot get property from non-object");
                 }
@@ -319,7 +548,7 @@ namespace NG::orgasm
             {
                 uint16_t fieldIdx = read_u16();
                 auto val = pop();
-                auto target = pop();
+                auto target = access_target(pop());
                 if (auto structural = std::dynamic_pointer_cast<NGStructuralObject>(target)) {
                     if (fieldIdx >= structural->fields.size()) structural->fields.resize(fieldIdx + 1, makert<NGUnit>());
                     structural->fields[fieldIdx] = val;
@@ -338,7 +567,7 @@ namespace NG::orgasm
             {
                 uint16_t nameIdx = read_u16();
                 Str propName = current_module->strings[nameIdx];
-                auto target = pop();
+                auto target = access_target(pop());
                 if (auto tup = std::dynamic_pointer_cast<NGTuple>(target)) {
                     if (propName == "size") {
                         stack.push_back(makert<NGIntegral<int32_t>>(static_cast<int32_t>(tup->items->size())));
@@ -351,13 +580,13 @@ namespace NG::orgasm
                         auto &props = structural->customizedType->properties;
                         for (size_t i = 0; i < props.size(); ++i) {
                             if (i < structural->fields.size() && props[i] == propName) {
-                                stack.push_back(structural->fields[i]);
+                                stack.push_back(copy_out(structural->fields[i]));
                                 goto next_instruction;
                             }
                         }
                     }
                     if (structural->properties.contains(propName)) {
-                        stack.push_back(structural->properties[propName]);
+                        stack.push_back(copy_out(structural->properties[propName]));
                     } else {
                         throw RuntimeException("Property not found: " + propName);
                     }
@@ -372,7 +601,7 @@ namespace NG::orgasm
                 uint16_t nameIdx = read_u16();
                 Str propName = current_module->strings[nameIdx];
                 auto val = pop();
-                auto target = pop();
+                auto target = access_target(pop());
                 if (auto structural = std::dynamic_pointer_cast<NGStructuralObject>(target)) {
                     structural->properties[propName] = val;
                     // Also update fields if we can find the index
@@ -408,41 +637,63 @@ namespace NG::orgasm
                 }
                 case OpCode::GET_INDEX:
                 {
-                    auto idx = pop(); auto obj = pop();
-                    stack.push_back(obj->opIndex(idx));
+                    auto idx = pop(); auto obj = access_target(pop());
+                    stack.push_back(copy_out(obj->opIndex(idx)));
                     break;
                 }
                 case OpCode::SET_INDEX:
                 {
-                    auto val = pop(); auto idx = pop(); auto obj = pop();
+                    auto val = pop(); auto idx = pop(); auto obj = access_target(pop());
                     stack.push_back(obj->opIndex(idx, val));
                     break;
                 }
-                                case OpCode::NEW_OBJECT:
+                case OpCode::NEW_OBJECT:
                                 {
                                     uint16_t typeStrIdx = read_u16();
                                     Str typeName = current_module->strings[typeStrIdx];
                                     uint16_t numFields = read_u16();
 
-                                    auto obj = makert<NGStructuralObject>();
-                                    obj->fields.resize(numFields, makert<NGUnit>());
-
-                                    // Pop values from stack (in reverse order)
+                                    Vec<RuntimeRef<NGObject>> fields(static_cast<size_t>(numFields), makert<NGUnit>());
                                     for (int i = numFields - 1; i >= 0; --i)
                                     {
-                                        obj->fields[i] = pop();
+                                        fields[static_cast<size_t>(i)] = pop();
                                     }
 
-                                    // Set type
                                     if (root_types.contains(typeName)) {
+                                        auto obj = makert<NGStructuralObject>();
+                                        obj->fields = fields;
                                         obj->customizedType = root_types[typeName];
-                                        // Populate properties map from fields for compatibility
                                         auto &typeProps = root_types[typeName]->properties;
-                                        for (size_t i = 0; i < typeProps.size() && i < numFields; ++i) {
+                                        for (size_t i = 0; i < typeProps.size() && i < fields.size(); ++i) {
                                             obj->properties[typeProps[i]] = obj->fields[i];
                                         }
+                                        stack.push_back(allocate_heap_object(obj, "heap:" + typeName));
+                                        break;
                                     }
-                                    stack.push_back(obj);
+
+                                    bool foundVariant = false;
+                                    for (const auto &type : current_module->types) {
+                                        for (size_t variantIndex = 0; variantIndex < type.variants.size(); ++variantIndex) {
+                                            const auto &variant = type.variants[variantIndex];
+                                            if (variant.name != typeName) {
+                                                continue;
+                                            }
+
+                                            stack.push_back(allocate_heap_object(
+                                                makert<NGTaggedValue>(type.name, variant.name, static_cast<int32_t>(variantIndex),
+                                                                      fields, variant.payloadFields),
+                                                "heap:" + typeName));
+                                            foundVariant = true;
+                                            break;
+                                        }
+                                        if (foundVariant) {
+                                            break;
+                                        }
+                                    }
+
+                                    if (!foundVariant) {
+                                        throw RuntimeException("Unknown type for new object: " + typeName);
+                                    }
                                     break;
                                 }
                 case OpCode::INVOKE_MEMBER:
@@ -452,7 +703,7 @@ namespace NG::orgasm
                     Str memberName = current_module->strings[nameIdx];
                     Vec<RuntimeRef<NGObject>> callArgs;
                     for (int i = 0; i < numArgs; ++i) callArgs.insert(callArgs.begin(), pop());
-                    auto target = pop();
+                    auto target = access_target(pop());
                     
                     Str typeName = target->type() ? target->type()->name : "Object";
                     Str fullFunName = typeName + "." + memberName;
@@ -511,7 +762,7 @@ namespace NG::orgasm
                     
                     Vec<RuntimeRef<NGObject>> rest;
                     if (idx < tuple->items->size()) {
-                        rest.insert(rest.end(), tuple->items->begin() + idx, tuple->items->end());
+                        for (auto it = tuple->items->begin() + idx; it != tuple->items->end(); ++it) rest.push_back(clone_value(*it));
                     }
                     stack.push_back(makert<NGTuple>(rest));
                     break;

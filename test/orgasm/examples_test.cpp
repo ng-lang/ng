@@ -63,3 +63,4 @@ TEST_CASE("Orgasm example 16.tagged_union.ng", "[OrgasmExample]") { runOrgasmExa
 TEST_CASE("Orgasm example 17.const_if.ng", "[OrgasmExample]") { runOrgasmExample("example/17.const_if.ng"); }
 TEST_CASE("Orgasm example 19.union_type.ng", "[OrgasmExample]") { runOrgasmExample("example/19.union_type.ng"); }
 TEST_CASE("Orgasm example 20.switch_otherwise.ng", "[OrgasmExample]") { runOrgasmExample("example/20.switch_otherwise.ng"); }
+TEST_CASE("Orgasm example 21.recursive_tagged_union_ref.ng", "[OrgasmExample]") { runOrgasmExample("example/21.recursive_tagged_union_ref.ng"); }

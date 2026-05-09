@@ -319,6 +319,127 @@ TEST_CASE("unary operator usage", "[InterpreterTestChecking]")
         )");
 }
 
+TEST_CASE("interpreter should copy array bindings by default", "[InterpreterTest][RefMove]")
+{
+  interpret(R"(
+        val original = [1, 2, 3];
+        val copy = original;
+        copy[0] := 9;
+        assert(original[0] == 1);
+        assert(copy[0] == 9);
+    )");
+}
+
+TEST_CASE("interpreter should alias heap object bindings from new", "[InterpreterTest][RefMove]")
+{
+  interpret(R"(
+        type Box {
+          property value;
+        }
+
+        val original = new Box { value: 1 };
+        val copy = original;
+        copy.value := 9;
+        assert(original.value == 9);
+        assert(copy.value == 9);
+    )");
+}
+
+TEST_CASE("interpreter should support ref swap with move dereference", "[InterpreterTest][RefMove]")
+{
+  interpret(R"(
+        fun swap(a, b) {
+          val tmp = move *a;
+          *a := move *b;
+          *b := move tmp;
+        }
+
+        val x = 1;
+        val y = 2;
+        swap(ref x, ref y);
+        assert(x == 2);
+        assert(y == 1);
+    )");
+}
+
+TEST_CASE("interpreter should reject use after move at runtime", "[InterpreterTest][RefMove]")
+{
+  REQUIRE_THROWS_MATCHES(interpret(R"(
+        val x = 1;
+        val y = move x;
+        val z = x;
+    )"),
+                         RuntimeException, MessageMatches(ContainsSubstring("Use after move")));
+}
+
+TEST_CASE("interpreter should copy function arguments by default", "[InterpreterTest][RefMove]")
+{
+  interpret(R"(
+        fun mutate(arr) {
+          arr[0] := 9;
+        }
+
+        val source = [1, 2, 3];
+        mutate(source);
+        assert(source[0] == 1);
+    )");
+}
+
+TEST_CASE("interpreter should copy return values by default", "[InterpreterTest][RefMove]")
+{
+  interpret(R"(
+        fun identity(value) {
+          return value;
+        }
+
+        val source = [1, 2, 3];
+        val copy = identity(source);
+        copy[0] := 9;
+        assert(source[0] == 1);
+        assert(copy[0] == 9);
+    )");
+}
+
+TEST_CASE("interpreter should support references to object properties", "[InterpreterTest][RefMove]")
+{
+  interpret(R"(
+        type Box {
+          property value;
+        }
+
+        val box = new Box { value: 1 };
+        val ptr = ref box.value;
+        *ptr := 7;
+        assert(box.value == 7);
+    )");
+}
+
+TEST_CASE("managed heap should sweep unreachable interpreter cycles", "[InterpreterTest][RefMove][GC]")
+{
+  NG::runtime::collect_managed_heap();
+  REQUIRE(NG::runtime::managed_heap_size() == 0);
+
+  auto ast = parse(R"(
+        type Node {
+          property link;
+        }
+
+        val node = new Node {};
+        node.link := node;
+    )");
+  REQUIRE(ast != nullptr);
+
+  Interpreter *intp = NG::intp::stupid();
+  ast->accept(intp);
+  REQUIRE(NG::runtime::managed_heap_size() == 1);
+
+  delete intp;
+  destroyast(ast);
+
+  NG::runtime::collect_managed_heap();
+  REQUIRE(NG::runtime::managed_heap_size() == 0);
+}
+
 TEST_CASE("Tuples", "[InterpreterTestChecking]")
 {
   interpret(R"(
@@ -373,6 +494,95 @@ TEST_CASE("Tagged unions", "[InterpreterTestChecking]")
                 assert(msg == "not found");
             }
         }
+        )");
+}
+
+TEST_CASE("Recursive tagged union refs", "[InterpreterTestChecking]")
+{
+  interpret(R"(
+        type Node = Cell(content: i32, _next: ref<Node>) | Empty;
+
+        val tail = Empty();
+        val head = Cell(1, ref tail);
+
+        switch (head) {
+            case Cell(content, nextRef) {
+                assert(content == 1);
+
+                switch (*nextRef) {
+                    case Empty {
+                        assert(true);
+                    }
+                    case Cell(other, rest) {
+                        assert(false);
+                    }
+                }
+            }
+            case Empty {
+                assert(false);
+            }
+        }
+        )");
+}
+
+TEST_CASE("new should allocate tagged union variants on heap", "[InterpreterTestChecking]")
+{
+  interpret(R"(
+        type Node = Cell(content: i32, _next: ref<Node>) | Empty;
+
+        val empty: ref<Node> = new Empty {};
+        val head: ref<Node> = new Cell { content: 1, _next: new Empty {} };
+
+        switch (*empty) {
+            case Empty {
+                assert(true);
+            }
+            case Cell(content, nextRef) {
+                assert(false);
+            }
+        }
+
+        switch (*head) {
+            case Empty {
+                assert(false);
+            }
+            case Cell(content, nextRef) {
+                assert(content == 1);
+                switch (*nextRef) {
+                    case Empty {
+                        assert(true);
+                    }
+                    case Cell(other, rest) {
+                        assert(false);
+                    }
+                }
+            }
+        }
+        )");
+}
+
+TEST_CASE("interpreter should handle recursive generic ref traversal", "[InterpreterTestChecking]")
+{
+  interpret(R"(
+        type Node<T> = Cell(content: T, _next: ref<Node<T>>) | Empty;
+
+        val empty: Node<i32> = Empty();
+        val third = Cell(3, ref empty);
+        val second = Cell(2, ref third);
+        val first = Cell(1, ref second);
+
+        fun printList<T>(head: ref<Node<T>>) {
+            switch(*head) {
+                case Empty {
+                    return;
+                }
+                case Cell(value, rest) {
+                    printList(rest);
+                }
+            }
+        }
+
+        printList(ref first);
         )");
 }
 
@@ -495,7 +705,7 @@ TEST_CASE("interpreter const if should use typeof query result", "[const_if][Int
           property value: T;
         }
 
-        val box: Box<i32> = new Box<i32> { value: 42 };
+        val box: ref<Box<i32>> = new Box<i32> { value: 42 };
 
         const if (typeof(box.value).name == "i32") {
             assert(box.value == 42);
