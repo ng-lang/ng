@@ -12,7 +12,7 @@ namespace NG::runtime
     return tuple.payload_items().size();
   }
 
-  inline auto tuple_read_element(const NGTuple &tuple, size_t index) -> RuntimeRef<NGObject>
+  inline auto tuple_element_slot(const NGTuple &tuple, size_t index) -> RuntimeRef<StorageCell>
   {
     if (index >= tuple_length(tuple))
     {
@@ -20,26 +20,25 @@ namespace NG::runtime
     }
     if (auto slot = tuple.element_slot(index))
     {
-      return slot->boxedValue;
+      return slot;
     }
-    return tuple.payload_items().at(index);
+    auto values = tuple.payload_items();
+    auto mutableTuple = const_cast<NGTuple *>(&tuple);
+    mutableTuple->replace_payload_items(values);
+    return mutableTuple->element_slot(index);
+  }
+
+  inline auto tuple_read_element(const NGTuple &tuple, size_t index) -> RuntimeRef<NGObject>
+  {
+    auto slot = tuple_element_slot(tuple, index);
+    return slot ? slot->boxedValue : nullptr;
   }
 
   inline void tuple_write_element(NGTuple &tuple, size_t index, const RuntimeRef<NGObject> &value)
   {
-    if (index >= tuple_length(tuple))
-    {
-      throw RuntimeException("Index out of bounds: " + std::to_string(index));
-    }
-    if (auto slot = tuple.element_slot(index))
-    {
-      runtime_sync_storage_cell(slot, value);
-      (void) tuple.payload_items();
-      return;
-    }
-    auto values = tuple.payload_items();
-    values.at(index) = value;
-    tuple.replace_payload_items(values);
+    auto slot = tuple_element_slot(tuple, index);
+    runtime_sync_storage_cell(slot, value);
+    (void) tuple.payload_items();
   }
 
   inline auto tuple_read_member(const NGTuple &tuple, const Str &member) -> RuntimeRef<NGObject>

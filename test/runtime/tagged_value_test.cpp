@@ -1,6 +1,7 @@
 #include "../test.hpp"
 #include <intp/runtime.hpp>
 #include <intp/runtime_numerals.hpp>
+#include <runtime/tagged_layout_access.hpp>
 #include <runtime/value_access.hpp>
 
 using namespace NG::runtime;
@@ -49,6 +50,7 @@ TEST_CASE("NGTaggedValue exposes payload members and metadata", "[RuntimeTest][T
 
   auto valueSlot = tagged.payload_slot(0);
   REQUIRE(valueSlot != nullptr);
+  REQUIRE(tagged_member_slot(tagged, "value") == valueSlot);
   REQUIRE(std::static_pointer_cast<StorageCell>(tagged.payload_store().get(tagged.payload_cell()).opaqueRefs[0]) == valueSlot);
   runtime_sync_storage_cell(valueSlot, makert<NGIntegral<int32_t>>(99));
 

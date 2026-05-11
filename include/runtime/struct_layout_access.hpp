@@ -25,27 +25,27 @@ namespace NG::runtime
     return std::nullopt;
   }
 
-  inline auto structural_read_member(const RuntimeRef<NGStructuralObject> &structural, const Str &member)
-      -> RuntimeRef<NGObject>
+  inline auto structural_member_slot(const RuntimeRef<NGStructuralObject> &structural, const Str &member)
+      -> RuntimeRef<StorageCell>
   {
+    if (!structural)
+    {
+      return nullptr;
+    }
     if (auto index = structural_field_index(structural, member))
     {
-      if (auto slot = structural->field_slot(*index))
-      {
-        return slot->boxedValue;
-      }
-      return makert<NGUnit>();
+      return structural->field_slot(*index);
     }
-    if (auto slot = structural->property_slot(member))
-    {
-      return slot->boxedValue;
-    }
-    return nullptr;
+    return structural->property_slot(member);
   }
 
-  inline void structural_write_member(const RuntimeRef<NGStructuralObject> &structural, const Str &member,
-                                      const RuntimeRef<NGObject> &value)
+  inline auto structural_member_slot_or_create(const RuntimeRef<NGStructuralObject> &structural, const Str &member)
+      -> RuntimeRef<StorageCell>
   {
+    if (!structural)
+    {
+      return nullptr;
+    }
     if (auto index = structural_field_index(structural, member))
     {
       auto slot = structural->field_slot(*index);
@@ -56,17 +56,26 @@ namespace NG::runtime
         {
           values.resize(*index + 1, makert<NGUnit>());
         }
-        values[*index] = value;
         structural->replace_payload_fields(values);
+        slot = structural->field_slot(*index);
       }
-      else
-      {
-        runtime_sync_storage_cell(slot, value);
-        (void) structural->payload_fields();
-      }
-      return;
+      return slot;
     }
-    auto slot = structural->property_slot_or_create(member);
+    return structural->property_slot_or_create(member);
+  }
+
+  inline auto structural_read_member(const RuntimeRef<NGStructuralObject> &structural, const Str &member)
+      -> RuntimeRef<NGObject>
+  {
+    auto slot = structural_member_slot(structural, member);
+    return slot ? slot->boxedValue : nullptr;
+  }
+
+  inline void structural_write_member(const RuntimeRef<NGStructuralObject> &structural, const Str &member,
+                                      const RuntimeRef<NGObject> &value)
+  {
+    auto slot = structural_member_slot_or_create(structural, member);
     runtime_sync_storage_cell(slot, value);
+    (void) structural->payload_fields();
   }
 } // namespace NG::runtime

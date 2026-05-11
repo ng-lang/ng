@@ -27,36 +27,44 @@ namespace NG::runtime
     }
   }
 
-  inline auto tagged_read_member(const NGTaggedValue &tagged, const Str &member) -> RuntimeRef<NGObject>
+  inline auto tagged_member_slot(NGTaggedValue &tagged, const Str &member) -> RuntimeRef<StorageCell>
   {
     if (auto index = tagged_payload_index(tagged, member))
     {
       if (auto slot = tagged.payload_slot(*index))
       {
-        return slot->boxedValue;
+        return slot;
       }
+      auto values = tagged.payload_items();
+      values.resize(*index + 1, makert<NGUnit>());
+      tagged.replace_payload_items(values);
+      return tagged.payload_slot(*index);
     }
     return nullptr;
+  }
+
+  inline auto tagged_member_slot(const NGTaggedValue &tagged, const Str &member) -> RuntimeRef<StorageCell>
+  {
+    if (auto index = tagged_payload_index(tagged, member))
+    {
+      return tagged.payload_slot(*index);
+    }
+    return nullptr;
+  }
+
+  inline auto tagged_read_member(const NGTaggedValue &tagged, const Str &member) -> RuntimeRef<NGObject>
+  {
+    auto slot = tagged_member_slot(tagged, member);
+    return slot ? slot->boxedValue : nullptr;
   }
 
   inline void tagged_write_member(NGTaggedValue &tagged, const Str &member,
                                   const RuntimeRef<NGObject> &value)
   {
-    if (auto index = tagged_payload_index(tagged, member))
+    if (auto slot = tagged_member_slot(tagged, member))
     {
-      auto slot = tagged.payload_slot(*index);
-      if (!slot)
-      {
-        auto values = tagged.payload_items();
-        values.resize(*index + 1, makert<NGUnit>());
-        values[*index] = value;
-        tagged.replace_payload_items(values);
-      }
-      else
-      {
-        runtime_sync_storage_cell(slot, value);
-        (void) tagged.payload_items();
-      }
+      runtime_sync_storage_cell(slot, value);
+      (void) tagged.payload_items();
     }
   }
 } // namespace NG::runtime

@@ -332,6 +332,7 @@ TEST_CASE("struct layout access reads and writes typed fields", "[RuntimeTest][L
 
   auto leftSlot = object->field_slot(0);
   REQUIRE(leftSlot != nullptr);
+  REQUIRE(structural_member_slot(object, "left") == leftSlot);
   REQUIRE(std::static_pointer_cast<StorageCell>(object->payload_store().get(object->payload_cell()).opaqueRefs[0]) == leftSlot);
   runtime_sync_storage_cell(leftSlot, makert<NGIntegral<int32_t>>(11));
 
@@ -348,6 +349,7 @@ TEST_CASE("struct layout access keeps dynamic properties in slots", "[RuntimeTes
   structural_write_member(object, "dyn", makert<NGIntegral<int32_t>>(7));
   auto slot = object->property_slot("dyn");
   REQUIRE(slot != nullptr);
+  REQUIRE(structural_member_slot(object, "dyn") == slot);
   REQUIRE(slot->boxedValue != nullptr);
   REQUIRE(NGIntegral<int32_t>::valueOf(std::dynamic_pointer_cast<NumeralBase>(slot->boxedValue).get()) == 7);
 
@@ -367,6 +369,7 @@ TEST_CASE("array layout access reads and writes indexed elements", "[RuntimeTest
   auto value = std::dynamic_pointer_cast<NumeralBase>(array_read_element(array, 1));
   REQUIRE(value != nullptr);
   REQUIRE(NGIntegral<int32_t>::valueOf(value.get()) == 5);
+  REQUIRE(array_element_slot(array, 1) != nullptr);
 
   array_write_element(array, 0, makert<NGIntegral<int32_t>>(9));
   auto updated = std::dynamic_pointer_cast<NumeralBase>(array_read_element(array, 0));
@@ -375,6 +378,7 @@ TEST_CASE("array layout access reads and writes indexed elements", "[RuntimeTest
 
   auto firstSlot = array.element_slot(0);
   REQUIRE(firstSlot != nullptr);
+  REQUIRE(array_element_slot(array, 0) == firstSlot);
   REQUIRE(std::static_pointer_cast<StorageCell>(array.header_store().get(array.payload_cell()).opaqueRefs[0]) == firstSlot);
   runtime_sync_storage_cell(firstSlot, makert<NGIntegral<int32_t>>(12));
 
@@ -394,6 +398,7 @@ TEST_CASE("tuple layout access reads members and indexed elements", "[RuntimeTes
   auto first = std::dynamic_pointer_cast<NumeralBase>(tuple_read_element(tuple, 0));
   REQUIRE(first != nullptr);
   REQUIRE(NGIntegral<int32_t>::valueOf(first.get()) == 7);
+  REQUIRE(tuple_element_slot(tuple, 0) != nullptr);
 
   auto size = std::dynamic_pointer_cast<NumeralBase>(tuple_read_member(tuple, "size"));
   REQUIRE(size != nullptr);
@@ -407,6 +412,7 @@ TEST_CASE("tuple layout access reads members and indexed elements", "[RuntimeTes
 
   auto firstSlot = tuple.element_slot(0);
   REQUIRE(firstSlot != nullptr);
+  REQUIRE(tuple_element_slot(tuple, 0) == firstSlot);
   REQUIRE(std::static_pointer_cast<StorageCell>(tuple.payload_store().get(tuple.payload_cell()).opaqueRefs[0]) == firstSlot);
   runtime_sync_storage_cell(firstSlot, makert<NGIntegral<int32_t>>(12));
 
