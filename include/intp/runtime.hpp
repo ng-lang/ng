@@ -66,8 +66,6 @@ namespace NG::runtime
 
     [[nodiscard]] auto make_runtime_env(const RuntimeRef<NGContext> &context = nullptr) -> NGEnv;
     [[nodiscard]] auto fork_runtime_env(const NGEnv &env) -> NGEnv;
-    [[nodiscard]] auto runtime_env_with_self(const NGEnv &env, const NGSelf &self) -> NGEnv;
-    [[nodiscard]] auto runtime_env_context(const NGEnv &env) -> RuntimeRef<NGContext>;
     void runtime_env_set_state(const NGEnv &env, Str name, std::shared_ptr<void> value);
     [[nodiscard]] auto runtime_env_get_state(const NGEnv &env, const Str &name) -> std::shared_ptr<void>;
 
@@ -178,8 +176,6 @@ namespace NG::runtime
     {
         RuntimeRef<RuntimeSymbolTable> symbols;
         Map<Str, std::shared_ptr<void>> runtimeState;
-        RuntimeRef<StorageCell> selfSlot;
-        RuntimeRef<NGContext> executionContext;
     };
 
     /**

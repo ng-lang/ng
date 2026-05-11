@@ -235,7 +235,7 @@ namespace NG::runtime
     {
       return nullptr;
     }
-    auto result = type->memberFunctions.at(member)(self, runtime_env_with_self(env, self), args);
+    auto result = type->memberFunctions.at(member)(self, env, args);
     return result ? result : makert<NGUnit>();
   }
 

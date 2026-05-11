@@ -83,7 +83,7 @@ namespace NG::runtime
             }
             if (structural->selfMemberFunctions.contains(member))
             {
-              auto result = structural->selfMemberFunctions[member](self, runtime_env_with_self(env, self), args);
+              auto result = structural->selfMemberFunctions[member](self, env, args);
               return result ? result : makert<NGUnit>();
             }
             return structural_read_member(structural, member);

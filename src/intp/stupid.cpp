@@ -293,6 +293,16 @@ namespace NG::intp
     return buffer_runtime::make_tagged_union_layout(taggedUnion->typeName, variants, registry);
   }
 
+  static auto make_symbol_context(const NGEnv &env) -> RuntimeRef<NGContext>
+  {
+    auto context = makert<NGContext>();
+    if (env && env->symbols)
+    {
+      context->adopt_symbol_table(env->symbols);
+    }
+    return context;
+  }
+
   static auto make_named_boxed_storage_cell(Str name, const RuntimeRef<NGObject> &value,
                                             StorageClass storageClass = StorageClass::FRAME) -> RuntimeRef<StorageCell>
   {
@@ -1878,8 +1888,7 @@ namespace NG::intp
             break;
           }
         }
-        auto baseContext = runtime_env_context(env);
-        RuntimeRef<NGContext> newContext = baseContext ? baseContext->fork() : makert<NGContext>();
+        auto newContext = make_symbol_context(env);
         auto scopeIds = make_scope_chain();
         CallFrame callFrame{};
         callFrame.functionName = funDef->funName;
@@ -2026,8 +2035,8 @@ namespace NG::intp
             [memFn, frames = activeFrames](const NGSelf &dummy, const NGEnv &env,
                                            const NGArgs &args) -> RuntimeRef<NGObject>
         {
-          auto baseContext = runtime_env_context(env);
-          RuntimeRef<NGContext> newContext = baseContext ? baseContext->fork() : makert<NGContext>();
+          auto newContext = make_symbol_context(env);
+          newContext->define("self", dummy);
           auto scopeIds = make_scope_chain();
           CallFrame callFrame{};
           callFrame.functionName = memFn->funName;

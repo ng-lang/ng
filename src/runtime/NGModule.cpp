@@ -54,7 +54,7 @@ namespace NG::runtime
               }
               if (module->functions.contains(member))
               {
-                auto result = module->functions[member](self, runtime_env_with_self(env, self), args);
+                auto result = module->functions[member](self, env, args);
                 return result ? result : makert<NGUnit>();
               }
               if (module->objects.contains(member))
