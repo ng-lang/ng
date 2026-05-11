@@ -10,7 +10,6 @@ namespace NG::runtime
       size_t nextProviderId = 1;
       Vec<RuntimeRef<StorageCell>> cells;
       Map<size_t, GCRootProvider> rootProviders;
-      Set<NGContext *> trackedContexts;
     };
 
     auto heap_state() -> ManagedHeapState &
@@ -120,16 +119,6 @@ namespace NG::runtime
 
   } // namespace
 
-  void register_context_for_gc(NGContext *context)
-  {
-    heap_state().trackedContexts.insert(context);
-  }
-
-  void unregister_context_for_gc(NGContext *context)
-  {
-    heap_state().trackedContexts.erase(context);
-  }
-
   auto auto_deref_value(const RuntimeRef<NGObject> &value) -> RuntimeRef<NGObject>
   {
     ensure_usable_value(value);
@@ -150,46 +139,22 @@ namespace NG::runtime
     return makert<NGReference>(cell, debugName, [cell]() { cell->marked = true; });
   }
 
-  auto enumerate_context_roots(const RuntimeRef<NGContext> &context) -> Vec<RuntimeRef<NGObject>>
+  auto enumerate_symbol_roots(const NGSymbols &symbols) -> Vec<RuntimeRef<NGObject>>
   {
     Vec<RuntimeRef<NGObject>> roots;
-    if (!context)
+    if (!symbols)
     {
       return roots;
     }
-    Set<const RuntimeSymbolTable *> seenSymbols;
-    auto rootSymbols = context->symbol_table();
-    for (auto *tracked : heap_state().trackedContexts)
-    {
-      if (!tracked)
-      {
-        continue;
-      }
-      auto trackedSymbols = tracked->symbol_table();
-      if (tracked != context.get() && trackedSymbols.get() != rootSymbols.get())
-      {
-        continue;
-      }
 
-      for (const auto &[name, slot] : tracked->objectSlots)
+    for (const auto &[name, slot] : symbols->objectSlots)
+    {
+      if (slot && slot->boxedValue)
       {
-        if (slot && slot->boxedValue)
-        {
-          roots.push_back(slot->boxedValue);
-        }
-      }
-      if (seenSymbols.insert(trackedSymbols.get()).second)
-      {
-        for (const auto &[name, slot] : trackedSymbols->objectSlots)
-        {
-          if (slot && slot->boxedValue)
-          {
-            roots.push_back(slot->boxedValue);
-          }
-        }
-        for (const auto &[name, module] : trackedSymbols->modules) roots.push_back(module);
+        roots.push_back(slot->boxedValue);
       }
     }
+    for (const auto &[name, module] : symbols->modules) roots.push_back(module);
     return roots;
   }
 

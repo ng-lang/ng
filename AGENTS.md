@@ -11,7 +11,7 @@
 **Key directories and file patterns:**
 - `src/ast/` — AST nodes and visitors (`ast.cpp`, `AstVisitor.cpp`)
 - `src/parsing/` — Lexer, parser, reserved tokens (`Lexer.cpp`, `ParserImpl.cpp`, `reserved.inc`)
-- `src/runtime/` — NG value types and runtime (`NGArray.cpp`, `NGContext.cpp`, `NGString.cpp`, `NGTuple.cpp`)
+- `src/runtime/` — NG value types and runtime (`NGArray.cpp`, `runtime_env.cpp`, `NGString.cpp`, `NGTuple.cpp`)
 - `src/typecheck/` — Type info and checker (`PrimitiveType.cpp`, `FunctionType.cpp`, `typecheck.cpp`)
 - `src/module/` — Module loading/registry; `src/stdlib/` — built-ins (e.g., `prelude.cpp`, `imgui.cpp`)
 - `src/orgasm/` — ORGASM Level-2 assembly parser and interpreter (`lexer.cpp`, `parser.cpp`, `interpreter.cpp`)

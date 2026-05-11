@@ -64,9 +64,9 @@ namespace NG::orgasm
     auto VM::run(const BytecodeModule &module) -> RuntimeRef<NGObject>
     {
         current_module = &module;
-        root_context = makert<NGContext>();
+        root_symbols = makert<RuntimeSymbolTable>();
         auto gcRootProviderId = register_gc_root_provider([this]() {
-            auto roots = enumerate_context_roots(root_context);
+            auto roots = enumerate_symbol_roots(root_symbols);
             append_slot_roots(roots, globals);
             roots.insert(roots.end(), stack.begin(), stack.end());
             for (const auto &frame : call_stack)
@@ -100,11 +100,11 @@ namespace NG::orgasm
         }
         
         // Register built-ins
-        root_context->define_function("not", [](const NGSelf &self, const NGEnv &ctx,
-                                                const NGArgs &args) -> RuntimeRef<NGObject> {
+        root_symbols->functions["not"] = [](const NGSelf &, const NGEnv &,
+                                            const NGArgs &args) -> RuntimeRef<NGObject> {
             if (args.empty()) throw RuntimeException("not expects 1 arg");
             return NGObject::boolean(!runtime_value_bool(args[0]));
-        });
+        };
 
         for (const auto &type : module.types) {
             auto ngType = makert<NGType>();
@@ -696,7 +696,7 @@ namespace NG::orgasm
                         callArgs.insert(callArgs.begin(), target);
                         stack.push_back(execute(current_module->functions[funIdx], callArgs));
                     } else {
-                        stack.push_back(runtime_value_respond(target, memberName, make_runtime_env(root_context), callArgs));
+                        stack.push_back(runtime_value_respond(target, memberName, make_runtime_env(root_symbols), callArgs));
                     }
                     break;
                 }

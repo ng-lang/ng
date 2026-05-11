@@ -335,13 +335,12 @@ namespace NG::library::imgui
 
   void register_vm_natives(NG::orgasm::VM &vm)
   {
-    auto moduleContext = makert<NGContext>();
-    auto runtimeModule = makert<NGModule>(moduleContext);
+    auto runtimeModule = makert<NGModule>();
     bind_native_library_handlers(runtimeModule, handlers);
     for (auto &[name, handler] : runtimeModule->native_functions)
     {
       vm.register_native_raw(name, [handler](const Vec<RuntimeRef<NGObject>> &args) -> RuntimeRef<NGObject> {
-        return handler(makert<NGUnit>(), make_runtime_env(makert<NGContext>()), args);
+        return handler(makert<NGUnit>(), make_runtime_env(), args);
       });
     }
   }

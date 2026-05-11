@@ -13,54 +13,42 @@ using namespace NG::runtime;
 using namespace NG::runtime::native;
 using namespace NG::runtime::ops;
 
-TEST_CASE("NGContext shares global symbols across forked frames", "[RuntimeTest][Context]")
+TEST_CASE("runtime symbol tables back module globals and env dispatch", "[RuntimeTest][Runtime]")
 {
-  auto root = makert<NGContext>();
+  auto root = makert<RuntimeSymbolTable>();
   auto sampleType = makert<NGType>();
   sampleType->name = "Sample";
 
-  root->define("answer", makert<NGIntegral<int32_t>>(42));
-  root->define_function("unit", [](const NGSelf &, const NGEnv &, const NGArgs &) -> RuntimeRef<NGObject> {
+  auto answerSlot = make_boxed_storage_cell(makert<NGIntegral<int32_t>>(42), StorageClass::GLOBAL);
+  answerSlot->name = "answer";
+  root->objectSlots["answer"] = answerSlot;
+  root->functions["unit"] = [](const NGSelf &, const NGEnv &, const NGArgs &) -> RuntimeRef<NGObject> {
     return makert<NGUnit>();
-  });
-  root->define_type("Sample", sampleType);
+  };
+  root->types["Sample"] = sampleType;
 
-  auto child = root->fork();
-  REQUIRE(child->symbol_table() == root->symbol_table());
-
-  auto global = std::dynamic_pointer_cast<NumeralBase>(child->get("answer"));
+  auto env = make_runtime_env(root);
+  auto global = std::dynamic_pointer_cast<NumeralBase>(root->objectSlots.at("answer")->boxedValue);
   REQUIRE(global != nullptr);
   REQUIRE(NGIntegral<int32_t>::valueOf(global.get()) == 42);
-   auto globalSlot = root->get_slot("answer");
-   REQUIRE(globalSlot != nullptr);
-   REQUIRE(globalSlot->storageClass == StorageClass::GLOBAL);
-   REQUIRE(child->get_slot("answer") == globalSlot);
-  REQUIRE(child->has_function("unit"));
-  REQUIRE(child->get_type("Sample") == sampleType);
-
-  child->define("answer", makert<NGIntegral<int32_t>>(7));
-  auto shadowed = std::dynamic_pointer_cast<NumeralBase>(child->get("answer"));
-  auto original = std::dynamic_pointer_cast<NumeralBase>(root->get("answer"));
-  REQUIRE(shadowed != nullptr);
-  REQUIRE(original != nullptr);
-  REQUIRE(NGIntegral<int32_t>::valueOf(shadowed.get()) == 7);
-  REQUIRE(NGIntegral<int32_t>::valueOf(original.get()) == 42);
-  auto shadowedSlot = child->get_slot("answer");
-  REQUIRE(shadowedSlot != nullptr);
-  REQUIRE(shadowedSlot != globalSlot);
-  REQUIRE(shadowedSlot->storageClass == StorageClass::TEMPORARY);
+  REQUIRE(answerSlot->storageClass == StorageClass::GLOBAL);
+  REQUIRE(root->functions.contains("unit"));
+  REQUIRE(root->types.at("Sample") == sampleType);
+  REQUIRE(runtime_value_respond(makert<NGModule>(root), "answer", env, {}) != nullptr);
 }
 
-TEST_CASE("context root enumeration tracks forked contexts independently", "[RuntimeTest][Context]")
+TEST_CASE("symbol root enumeration tracks global slots and modules", "[RuntimeTest][GC]")
 {
-  auto root = makert<NGContext>();
-  auto child = root->fork();
+  auto root = makert<RuntimeSymbolTable>();
   auto leaf = makert<NGString>("leaf");
+  auto leafSlot = make_boxed_storage_cell(leaf, StorageClass::GLOBAL);
+  leafSlot->name = "leaf";
+  root->objectSlots["leaf"] = leafSlot;
+  root->modules["sample"] = makert<NGModule>();
 
-  child->define("leaf", leaf);
-
-  auto roots = enumerate_context_roots(root);
+  auto roots = enumerate_symbol_roots(root);
   REQUIRE(std::find(roots.begin(), roots.end(), leaf) != roots.end());
+  REQUIRE(std::find(roots.begin(), roots.end(), root->modules.at("sample")) != roots.end());
 }
 
 TEST_CASE("value_ops handles direct equality and collection mutation", "[RuntimeTest][ValueOps]")
@@ -118,8 +106,7 @@ TEST_CASE("native marshaling supports boolean packs and sum types", "[RuntimeTes
 
 TEST_CASE("native marshaling can read slot-backed native arg views", "[RuntimeTest][Native]")
 {
-  auto context = makert<NGContext>();
-  auto env = make_runtime_env(context);
+  auto env = make_runtime_env();
   NGArgs args{makert<NGIntegral<int32_t>>(1), makert<NGString>("hello")};
 
   auto slots = bind_native_arg_slots(env, args);
@@ -168,8 +155,7 @@ TEST_CASE("runtime value respond prefers type-handle member dispatch", "[Runtime
   };
 
   auto nominal = makert<NGNewType>(nominalType, makert<NGIntegral<int32_t>>(3));
-  auto context = makert<NGContext>();
-  auto env = make_runtime_env(context);
+  auto env = make_runtime_env();
 
   auto objectResult = std::dynamic_pointer_cast<NGString>(runtime_value_respond(nominal, "kind", env, {}));
   REQUIRE(objectResult != nullptr);
@@ -201,8 +187,7 @@ TEST_CASE("runtime show and bool can use nominal type handlers", "[RuntimeTest][
 
 TEST_CASE("runtime value respond uses type-descriptor handlers for aggregate and module members", "[RuntimeTest][Runtime]")
 {
-  auto context = makert<NGContext>();
-  auto env = make_runtime_env(context);
+  auto env = make_runtime_env();
 
   auto tuple = makert<NGTuple>(Vec<RuntimeRef<NGObject>>{makert<NGIntegral<int32_t>>(7), makert<NGString>("two")});
   auto tupleSize = std::dynamic_pointer_cast<NumeralBase>(runtime_value_respond(tuple, "size", env, {}));
@@ -227,7 +212,7 @@ TEST_CASE("runtime value respond uses type-descriptor handlers for aggregate and
   REQUIRE(left != nullptr);
   REQUIRE(NGIntegral<int32_t>::valueOf(left.get()) == 1);
 
-  auto module = makert<NGModule>(context);
+  auto module = makert<NGModule>();
   module->objects["hello"] = makert<NGString>("world");
   auto hello = std::dynamic_pointer_cast<NGString>(runtime_value_respond(module, "hello", env, {}));
   REQUIRE(hello != nullptr);
@@ -261,7 +246,7 @@ TEST_CASE("direct NGObject protocol calls fall through to type-descriptor handle
 
 TEST_CASE("native library binding injects owning module context and state", "[RuntimeTest][Native]")
 {
-  auto root = makert<NGContext>();
+  auto root = makert<RuntimeSymbolTable>();
   auto module = makert<NGModule>(root);
 
   bind_native_library_handlers(

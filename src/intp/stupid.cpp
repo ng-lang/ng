@@ -122,74 +122,117 @@ namespace NG::intp
     return typeName.substr(0, genericStart);
   }
 
-  static auto resolveRuntimeType(const RuntimeRef<NGContext> &context, const Str &typeName) -> RuntimeRef<NGType>
+  static auto lookup_global_slot(const NGSymbols &symbols, const Str &name) -> RuntimeRef<StorageCell>
   {
-    if (auto exact = context->get_type(typeName))
+    if (symbols && symbols->objectSlots.contains(name))
     {
-      return exact;
+      return symbols->objectSlots.at(name);
+    }
+    return nullptr;
+  }
+
+  static void define_global_binding(const NGSymbols &symbols, const Str &name, const RuntimeRef<NGObject> &value)
+  {
+    if (!symbols || symbols->objectSlots.contains(name))
+    {
+      throw RuntimeException("Redefine " + name);
+    }
+    auto slot = make_boxed_storage_cell(value, StorageClass::GLOBAL);
+    slot->name = name;
+    symbols->objectSlots[name] = slot;
+  }
+
+  static void define_global_function(const NGSymbols &symbols, const Str &name, NGCallable value)
+  {
+    if (!symbols || symbols->functions.contains(name))
+    {
+      throw RuntimeException("Redefine " + name);
+    }
+    symbols->functions[name] = std::move(value);
+  }
+
+  static void define_global_type(const NGSymbols &symbols, const Str &name, const RuntimeRef<NGType> &type)
+  {
+    if (!symbols || symbols->types.contains(name))
+    {
+      throw RuntimeException("Redefine " + name);
+    }
+    symbols->types[name] = type;
+  }
+
+  static void define_global_variant_type(const NGSymbols &symbols, const Str &name, const RuntimeRef<NGType> &type)
+  {
+    if (!symbols)
+    {
+      throw RuntimeException("Redefine " + name);
+    }
+    symbols->variantTypes[name] = type;
+  }
+
+  static void define_global_module(const NGSymbols &symbols, const Str &name, const RuntimeRef<NGModule> &module)
+  {
+    if (!symbols || symbols->modules.contains(name))
+    {
+      throw RuntimeException("Redefine " + name);
+    }
+    symbols->modules[name] = module;
+  }
+
+  static auto resolveRuntimeType(const NGSymbols &symbols, const Str &typeName) -> RuntimeRef<NGType>
+  {
+    if (symbols && symbols->types.contains(typeName))
+    {
+      return symbols->types.at(typeName);
     }
 
     auto baseName = stripGenericTypeSuffix(typeName);
-    if (baseName != typeName)
+    if (baseName != typeName && symbols && symbols->types.contains(baseName))
     {
-      return context->get_type(baseName);
+      return symbols->types.at(baseName);
     }
 
     return nullptr;
   }
 
-  static auto resolveRuntimeVariantType(const RuntimeRef<NGContext> &context, const Str &variantName) -> RuntimeRef<NGType>
+  static auto resolveRuntimeVariantType(const NGSymbols &symbols, const Str &variantName) -> RuntimeRef<NGType>
   {
-    return context->get_variant_type(variantName);
-  }
-
-  static auto lookup_global_binding(const RuntimeRef<NGContext> &context, const Str &name) -> RuntimeRef<NGObject>
-  {
-    if (!context)
+    if (symbols && symbols->variantTypes.contains(variantName))
     {
-      return nullptr;
-    }
-    auto globals = context->symbol_table();
-    if (globals && globals->objectSlots.contains(name))
-    {
-      return globals->objectSlots.at(name)->boxedValue;
+      return symbols->variantTypes.at(variantName);
     }
     return nullptr;
   }
 
-  static void publish_global_binding(const RuntimeRef<NGContext> &context, const Str &name, const RuntimeRef<NGObject> &value)
+  static auto lookup_global_binding(const NGSymbols &symbols, const Str &name) -> RuntimeRef<NGObject>
   {
-    if (!context)
+    if (auto slot = lookup_global_slot(symbols, name))
     {
-      throw RuntimeException("Invalid assignment to " + name);
+      return slot->boxedValue;
     }
-    auto globals = context->symbol_table();
-    if (!globals)
-    {
-      throw RuntimeException("Invalid assignment to " + name);
-    }
-    if (globals->objectSlots.contains(name))
-    {
-      runtime_sync_storage_cell(globals->objectSlots[name], value);
-    }
-    else
-    {
-      auto slot = make_boxed_storage_cell(value, StorageClass::GLOBAL);
-      slot->name = name;
-      globals->objectSlots[name] = slot;
-    }
+    return nullptr;
   }
 
-  static void assign_global_binding(const RuntimeRef<NGContext> &context, const Str &name, const RuntimeRef<NGObject> &value)
+  static void publish_global_binding(const NGSymbols &symbols, const Str &name, const RuntimeRef<NGObject> &value)
   {
-    if (!context)
+    if (!symbols)
     {
       throw RuntimeException("Invalid assignment to " + name);
     }
-    auto globals = context->symbol_table();
-    if (globals && globals->objectSlots.contains(name))
+    if (symbols->objectSlots.contains(name))
     {
-      runtime_sync_storage_cell(globals->objectSlots[name], value);
+      runtime_sync_storage_cell(symbols->objectSlots[name], value);
+      return;
+    }
+    auto slot = make_boxed_storage_cell(value, StorageClass::GLOBAL);
+    slot->name = name;
+    symbols->objectSlots[name] = slot;
+  }
+
+  static void assign_global_binding(const NGSymbols &symbols, const Str &name, const RuntimeRef<NGObject> &value)
+  {
+    if (symbols && symbols->objectSlots.contains(name))
+    {
+      runtime_sync_storage_cell(symbols->objectSlots[name], value);
       return;
     }
     throw RuntimeException("Invalid assignment to " + name);
@@ -206,10 +249,10 @@ namespace NG::intp
            layout.name == "unit";
   }
 
-  static auto concrete_layout_for_type_name(const RuntimeRef<NGContext> &context, const Str &typeName)
+  static auto concrete_layout_for_type_name(const NGSymbols &symbols, const Str &typeName)
       -> std::optional<TypeLayout>
   {
-    auto runtimeType = resolveRuntimeType(context, typeName);
+    auto runtimeType = resolveRuntimeType(symbols, typeName);
     if (!runtimeType)
     {
       return std::nullopt;
@@ -232,17 +275,17 @@ namespace NG::intp
     return layout;
   }
 
-  static auto concrete_layout_for_annotation(const RuntimeRef<NGContext> &context, TypeAnnotation *annotation)
+  static auto concrete_layout_for_annotation(const NGSymbols &symbols, TypeAnnotation *annotation)
       -> std::optional<TypeLayout>
   {
     if (!annotation)
     {
       return std::nullopt;
     }
-    return concrete_layout_for_type_name(context, annotation->repr());
+    return concrete_layout_for_type_name(symbols, annotation->repr());
   }
 
-  static auto build_inline_type_layout(const RuntimeRef<NGContext> &context, const Str &typeName,
+  static auto build_inline_type_layout(const NGSymbols &symbols, const Str &typeName,
                                        const Vec<ASTRef<PropertyDef>> &properties) -> std::optional<TypeLayout>
   {
     LayoutRegistry registry;
@@ -251,7 +294,7 @@ namespace NG::intp
 
     for (const auto &property : properties)
     {
-      auto fieldLayout = concrete_layout_for_annotation(context, property->typeAnnotation.get());
+      auto fieldLayout = concrete_layout_for_annotation(symbols, property->typeAnnotation.get());
       if (!fieldLayout)
       {
         return std::nullopt;
@@ -263,7 +306,7 @@ namespace NG::intp
     return buffer_runtime::make_inline_layout(typeName, fieldSpecs, registry);
   }
 
-  static auto build_tagged_union_type_layout(const RuntimeRef<NGContext> &context, const TaggedUnionDef *taggedUnion)
+  static auto build_tagged_union_type_layout(const NGSymbols &symbols, const TaggedUnionDef *taggedUnion)
       -> std::optional<TypeLayout>
   {
     LayoutRegistry registry;
@@ -276,7 +319,7 @@ namespace NG::intp
       spec.fields.reserve(variant.payloadTypes.size());
       for (size_t i = 0; i < variant.payloadTypes.size(); ++i)
       {
-        auto fieldLayout = concrete_layout_for_annotation(context, variant.payloadTypes[i].get());
+        auto fieldLayout = concrete_layout_for_annotation(symbols, variant.payloadTypes[i].get());
         if (!fieldLayout)
         {
           return std::nullopt;
@@ -293,14 +336,9 @@ namespace NG::intp
     return buffer_runtime::make_tagged_union_layout(taggedUnion->typeName, variants, registry);
   }
 
-  static auto make_symbol_context(const NGEnv &env) -> RuntimeRef<NGContext>
+  static auto runtime_symbols_from_env(const NGEnv &env) -> NGSymbols
   {
-    auto context = makert<NGContext>();
-    if (env && env->symbols)
-    {
-      context->adopt_symbol_table(env->symbols);
-    }
-    return context;
+    return env && env->symbols ? env->symbols : makert<RuntimeSymbolTable>();
   }
 
   static auto make_named_boxed_storage_cell(Str name, const RuntimeRef<NGObject> &value,
@@ -443,14 +481,15 @@ namespace NG::intp
     runtime_sync_storage_cell(cell, value);
   }
 
-  static void sync_binding_slot(const RuntimeRef<NGContext> &context, const RuntimeRef<Vec<CallFrame>> &frames,
-                                const RuntimeRef<Vec<uint64_t>> &scopeIds, const RuntimeRef<StorageCell> &cell,
+  static void sync_binding_slot(const NGSymbols &symbols, const RuntimeRef<Vec<CallFrame>> &frames,
+                                const RuntimeRef<Vec<uint64_t>> &scopeIds, bool publishGlobals,
+                                const RuntimeRef<StorageCell> &cell,
                                 const RuntimeRef<NGObject> &value)
   {
     sync_storage_cell(cell, value);
-    if (context && cell && is_module_frame(frames) && cell->ownerScopeId == root_scope_id(scopeIds))
+    if (publishGlobals && cell && is_module_frame(frames) && cell->ownerScopeId == root_scope_id(scopeIds))
     {
-      publish_global_binding(context, cell->name, value);
+      publish_global_binding(symbols, cell->name, value);
     }
   }
 
@@ -480,15 +519,10 @@ namespace NG::intp
     return roots;
   }
 
-  static void materialize_root_frame_bindings(const RuntimeRef<NGContext> &context, const CallFrame &frame,
+  static void materialize_root_frame_bindings(const NGSymbols &symbols, const CallFrame &frame,
                                               uint64_t rootScopeId)
   {
-    if (!context)
-    {
-      return;
-    }
-    auto globals = context->symbol_table();
-    if (!globals)
+    if (!symbols)
     {
       return;
     }
@@ -496,18 +530,18 @@ namespace NG::intp
     {
       if (slot && slot->ownerScopeId == rootScopeId)
       {
-        publish_global_binding(context, slot->name, slot->boxedValue);
+        publish_global_binding(symbols, slot->name, slot->boxedValue);
       }
     }
   }
 
-  static void define_scope_binding(const RuntimeRef<NGContext> &context, const RuntimeRef<Vec<CallFrame>> &frames,
-                                   const RuntimeRef<Vec<uint64_t>> &scopeIds, const Str &name,
+  static void define_scope_binding(const NGSymbols &symbols, const RuntimeRef<Vec<CallFrame>> &frames,
+                                   const RuntimeRef<Vec<uint64_t>> &scopeIds, bool publishGlobals, const Str &name,
                                    const RuntimeRef<NGObject> &value)
   {
     if (!frames || frames->empty())
     {
-      context->define(name, value);
+      define_global_binding(symbols, name, value);
       return;
     }
     if (find_current_scope_binding_slot(frames, scopeIds, name))
@@ -517,10 +551,9 @@ namespace NG::intp
     auto slot = make_named_boxed_storage_cell(name, value);
     slot->ownerScopeId = current_scope_id(scopeIds);
     frames->back().locals.push_back(slot);
-    if (is_module_frame(frames) && context->parent_context() == nullptr &&
-        current_scope_id(scopeIds) == root_scope_id(scopeIds))
+    if (publishGlobals && is_module_frame(frames) && current_scope_id(scopeIds) == root_scope_id(scopeIds))
     {
-      publish_global_binding(context, name, value);
+      publish_global_binding(symbols, name, value);
     }
   }
 
@@ -539,15 +572,17 @@ namespace NG::intp
 
     RuntimeRef<Vec<RuntimeRef<NGObject>>> collection = nullptr;
 
-    RuntimeRef<NGContext> context = nullptr;
+    NGSymbols symbols = nullptr;
     RuntimeRef<Vec<CallFrame>> activeFrames = nullptr;
     RuntimeRef<Vec<uint64_t>> activeScopes = nullptr;
+    bool publishGlobals = false;
 
     bool moved = false;
 
-    explicit ExpressionVisitor(RuntimeRef<NGContext> context, RuntimeRef<Vec<CallFrame>> activeFrames = nullptr,
-                               RuntimeRef<Vec<uint64_t>> activeScopes = nullptr)
-        : context(std::move(context)), activeFrames(std::move(activeFrames)), activeScopes(std::move(activeScopes))
+    explicit ExpressionVisitor(NGSymbols symbols, RuntimeRef<Vec<CallFrame>> activeFrames = nullptr,
+                               RuntimeRef<Vec<uint64_t>> activeScopes = nullptr, bool publishGlobals = false)
+        : symbols(std::move(symbols)), activeFrames(std::move(activeFrames)), activeScopes(std::move(activeScopes)),
+          publishGlobals(publishGlobals)
     {
     }
 
@@ -555,7 +590,7 @@ namespace NG::intp
     {
       if (!activeFrames || activeFrames->empty())
       {
-        return context->get(name);
+        return lookup_global_binding(symbols, name);
       }
       if (auto slot = find_frame_binding_slot(activeFrames, activeScopes, name))
       {
@@ -568,19 +603,19 @@ namespace NG::intp
           return value;
         }
       }
-      return lookup_global_binding(context, name);
+      return lookup_global_binding(symbols, name);
     }
 
     void write_binding(const Str &name, const RuntimeRef<NGObject> &value) const
     {
       if (!activeFrames || activeFrames->empty())
       {
-        context->set(name, value);
+        assign_global_binding(symbols, name, value);
         return;
       }
       if (auto slot = find_frame_binding_slot(activeFrames, activeScopes, name))
       {
-        sync_binding_slot(context, activeFrames, activeScopes, slot, value);
+        sync_binding_slot(symbols, activeFrames, activeScopes, publishGlobals, slot, value);
         return;
       }
         if (auto receiver = std::dynamic_pointer_cast<NGStructuralObject>(find_frame_receiver(activeFrames, activeScopes)))
@@ -591,7 +626,7 @@ namespace NG::intp
             return;
         }
       }
-      assign_global_binding(context, name, value);
+      assign_global_binding(symbols, name, value);
     }
 
     [[nodiscard]] auto makeReference(Expression *expr) -> RuntimeRef<NGReference>
@@ -600,6 +635,10 @@ namespace NG::intp
       {
         auto name = idExpr->id;
         if (auto slot = find_frame_binding_slot(activeFrames, activeScopes, name))
+        {
+          return makert<NGReference>(slot, name);
+        }
+        if (auto slot = lookup_global_slot(symbols, name))
         {
           return makert<NGReference>(slot, name);
         }
@@ -618,16 +657,12 @@ namespace NG::intp
             return makert<NGReference>(receiver->property_slot_or_create(name), name);
           }
         }
-        if (auto slot = context ? context->get_slot(name) : nullptr)
-        {
-          return makert<NGReference>(slot, name);
-        }
         throw RuntimeException("Identifier reference target is not slot-backed: " + name);
       }
       if (auto *unaryExpr = dynamic_cast<UnaryExpression *>(expr);
           unaryExpr && unaryExpr->optr && unaryExpr->optr->type == TokenType::TIMES)
       {
-        ExpressionVisitor refVisitor{context, activeFrames, activeScopes};
+        ExpressionVisitor refVisitor{symbols, activeFrames, activeScopes, publishGlobals};
         unaryExpr->operand->accept(&refVisitor);
         auto reference = std::dynamic_pointer_cast<NGReference>(refVisitor.object);
         if (!reference)
@@ -638,7 +673,7 @@ namespace NG::intp
       }
       if (auto *idAcc = dynamic_cast<IdAccessorExpression *>(expr))
       {
-        ExpressionVisitor mainVisitor{context, activeFrames, activeScopes};
+        ExpressionVisitor mainVisitor{symbols, activeFrames, activeScopes, publishGlobals};
         idAcc->primaryExpression->accept(&mainVisitor);
         auto main = auto_deref_value(mainVisitor.object);
         ensure_usable_value(main);
@@ -680,12 +715,12 @@ namespace NG::intp
       }
       if (auto *indexExpr = dynamic_cast<IndexAccessorExpression *>(expr))
       {
-        ExpressionVisitor mainVisitor{context, activeFrames, activeScopes};
+        ExpressionVisitor mainVisitor{symbols, activeFrames, activeScopes, publishGlobals};
         indexExpr->primary->accept(&mainVisitor);
         auto primary = auto_deref_value(mainVisitor.object);
         ensure_usable_value(primary);
 
-        ExpressionVisitor indexVisitor{context, activeFrames, activeScopes};
+        ExpressionVisitor indexVisitor{symbols, activeFrames, activeScopes, publishGlobals};
         indexExpr->accessor->accept(&indexVisitor);
         auto indexObject = materialize_value(indexVisitor.object, indexVisitor.moved);
 
@@ -800,7 +835,7 @@ namespace NG::intp
     {
       Vec<RuntimeRef<NGObject>> objects;
 
-      ExpressionVisitor vis{context, activeFrames, activeScopes};
+      ExpressionVisitor vis{symbols, activeFrames, activeScopes, publishGlobals};
 
       for (const auto &element : tuple->elements)
       {
@@ -831,7 +866,7 @@ namespace NG::intp
 
       for (auto &param : funCallExpr->arguments)
       {
-        ExpressionVisitor vis{context, activeFrames, activeScopes};
+        ExpressionVisitor vis{symbols, activeFrames, activeScopes, publishGlobals};
         param->accept(&vis);
         if (auto spread = dynamic_ast_cast<SpreadExpression>(param))
         {
@@ -849,13 +884,13 @@ namespace NG::intp
 
       RuntimeRef<NGObject> dummy = makert<NGObject>();
 
-      if (!context->has_function(fpVis.path, true))
+      if (!symbols || !symbols->functions.contains(fpVis.path))
       {
         throw RuntimeException("No such function: " + fpVis.path, funCallExpr->pos);
       }
 
       moved = false;
-      this->object = context->get_function(fpVis.path)(dummy, make_runtime_env(context), callArgs);
+      this->object = symbols->functions.at(fpVis.path)(dummy, make_runtime_env(symbols), callArgs);
     }
 
     void visit(UnaryExpression *unoExpr) override
@@ -864,7 +899,7 @@ namespace NG::intp
       {
       case TokenType::MINUS:
       {
-        ExpressionVisitor operandVisitor{context, activeFrames, activeScopes};
+        ExpressionVisitor operandVisitor{symbols, activeFrames, activeScopes, publishGlobals};
         unoExpr->operand->accept(&operandVisitor);
         auto result = operandVisitor.object;
         auto numeric = dynamic_cast<NumeralBase *>(result.get());
@@ -878,7 +913,7 @@ namespace NG::intp
       }
       case TokenType::NOT:
       {
-        ExpressionVisitor operandVisitor{context, activeFrames, activeScopes};
+        ExpressionVisitor operandVisitor{symbols, activeFrames, activeScopes, publishGlobals};
         unoExpr->operand->accept(&operandVisitor);
         moved = false;
         this->object = NGObject::boolean(!runtime_value_bool(operandVisitor.object));
@@ -891,7 +926,7 @@ namespace NG::intp
         return;
       case TokenType::TIMES:
       {
-        ExpressionVisitor operandVisitor{context, activeFrames, activeScopes};
+        ExpressionVisitor operandVisitor{symbols, activeFrames, activeScopes, publishGlobals};
         unoExpr->operand->accept(&operandVisitor);
         auto reference = std::dynamic_pointer_cast<NGReference>(operandVisitor.object);
         if (!reference)
@@ -916,7 +951,7 @@ namespace NG::intp
         if (auto deref = dynamic_ast_cast<UnaryExpression>(unoExpr->operand);
             deref && deref->optr && deref->optr->type == TokenType::TIMES)
         {
-          ExpressionVisitor operandVisitor{context, activeFrames, activeScopes};
+          ExpressionVisitor operandVisitor{symbols, activeFrames, activeScopes, publishGlobals};
           deref->operand->accept(&operandVisitor);
           auto reference = std::dynamic_pointer_cast<NGReference>(operandVisitor.object);
           if (!reference)
@@ -929,7 +964,7 @@ namespace NG::intp
           object = value;
           return;
         }
-        ExpressionVisitor operandVisitor{context, activeFrames, activeScopes};
+        ExpressionVisitor operandVisitor{symbols, activeFrames, activeScopes, publishGlobals};
         unoExpr->operand->accept(&operandVisitor);
         moved = operandVisitor.moved;
         object = operandVisitor.object;
@@ -944,8 +979,8 @@ namespace NG::intp
 
     void visit(BinaryExpression *binExpr) override
     {
-      ExpressionVisitor leftVisitor{context, activeFrames, activeScopes};
-      ExpressionVisitor rightVisitor{context, activeFrames, activeScopes};
+      ExpressionVisitor leftVisitor{symbols, activeFrames, activeScopes, publishGlobals};
+      ExpressionVisitor rightVisitor{symbols, activeFrames, activeScopes, publishGlobals};
       binExpr->left->accept(&leftVisitor);
       binExpr->right->accept(&rightVisitor);
 
@@ -964,7 +999,7 @@ namespace NG::intp
     {
       Vec<RuntimeRef<NGObject>> objects;
 
-      ExpressionVisitor vis{context, activeFrames, activeScopes};
+      ExpressionVisitor vis{symbols, activeFrames, activeScopes, publishGlobals};
 
       for (const auto &element : array->elements)
       {
@@ -989,7 +1024,7 @@ namespace NG::intp
 
     void visit(IndexAccessorExpression *index) override
     {
-      ExpressionVisitor vis{context, activeFrames, activeScopes};
+      ExpressionVisitor vis{symbols, activeFrames, activeScopes, publishGlobals};
 
       index->primary->accept(&vis);
 
@@ -1007,7 +1042,7 @@ namespace NG::intp
 
     void visit(IndexAssignmentExpression *index) override
     {
-      ExpressionVisitor vis{context, activeFrames, activeScopes};
+      ExpressionVisitor vis{symbols, activeFrames, activeScopes, publishGlobals};
 
       index->primary->accept(&vis);
 
@@ -1031,7 +1066,7 @@ namespace NG::intp
     {
       const Str &repr = idAccExpr->accessor->repr();
 
-      ExpressionVisitor vis{context, activeFrames, activeScopes};
+      ExpressionVisitor vis{symbols, activeFrames, activeScopes, publishGlobals};
 
       idAccExpr->primaryExpression->accept(&vis);
 
@@ -1046,29 +1081,45 @@ namespace NG::intp
       }
 
       moved = false;
-      object = runtime_value_respond(main, repr, make_runtime_env(context), callArgs);
+      object = runtime_value_respond(main, repr, make_runtime_env(symbols), callArgs);
     }
 
     void visit(NewObjectExpression *newObj) override
     {
       Str typeName = newObj->targetType ? newObj->targetType->repr() : newObj->typeName;
-      if (auto ngType = resolveRuntimeType(context, typeName))
+      if (auto ngType = resolveRuntimeType(symbols, typeName))
       {
         auto structural = makert<NGStructuralObject>();
 
         structural->customizedType = ngType;
         structural->replace_payload_fields(Vec<RuntimeRef<NGObject>>(ngType->properties.size(), makert<NGUnit>()));
 
-        RuntimeRef<NGContext> newContext = context->fork();
+        if (activeFrames)
+        {
+          CallFrame objectFrame{};
+          objectFrame.functionName = "<object-init>";
+          activeFrames->push_back(objectFrame);
+        }
+        struct ObjectFrameGuard
+        {
+          RuntimeRef<Vec<CallFrame>> frames;
+          ~ObjectFrameGuard()
+          {
+            if (frames && !frames->empty())
+            {
+              frames->pop_back();
+            }
+          }
+        } objectFrameGuard{activeFrames};
         auto objectScopes = make_scope_chain();
-        ExpressionVisitor visitor{newContext, activeFrames, objectScopes};
+        ExpressionVisitor visitor{symbols, activeFrames, objectScopes, false};
 
         for (auto &&[name, expr] : newObj->properties)
         {
           expr->accept(&visitor);
           RuntimeRef<NGObject> result = materialize_value(visitor.object, visitor.moved);
 
-          define_scope_binding(visitor.context, activeFrames, objectScopes, name, result);
+          define_scope_binding(symbols, activeFrames, objectScopes, false, name, result);
 
           structural_write_member(structural, name, result);
         }
@@ -1078,7 +1129,7 @@ namespace NG::intp
         return;
       }
 
-      auto variantType = resolveRuntimeVariantType(context, typeName);
+      auto variantType = resolveRuntimeVariantType(symbols, typeName);
       if (!variantType)
       {
         throw RuntimeException("Unknown type for object: " + typeName);
@@ -1094,7 +1145,7 @@ namespace NG::intp
         {
           throw RuntimeException("Missing payload property '" + property + "' for variant " + typeName);
         }
-        ExpressionVisitor visitor{context, activeFrames, activeScopes};
+        ExpressionVisitor visitor{symbols, activeFrames, activeScopes, publishGlobals};
         it->second->accept(&visitor);
         payload.push_back(materialize_value(visitor.object, visitor.moved));
       }
@@ -1108,7 +1159,7 @@ namespace NG::intp
 
     void visit(AssignmentExpression *assignmentExpr) override
     {
-      ExpressionVisitor vis{context, activeFrames, activeScopes};
+      ExpressionVisitor vis{symbols, activeFrames, activeScopes, publishGlobals};
 
       assignmentExpr->value->accept(&vis);
       auto result = materialize_value(vis.object, vis.moved);
@@ -1120,7 +1171,7 @@ namespace NG::intp
       else if (auto deref = dynamic_ast_cast<UnaryExpression>(assignmentExpr->target);
                deref && deref->optr && deref->optr->type == TokenType::TIMES)
       {
-        ExpressionVisitor targetVisitor{context, activeFrames, activeScopes};
+        ExpressionVisitor targetVisitor{symbols, activeFrames, activeScopes, publishGlobals};
         deref->operand->accept(&targetVisitor);
         auto reference = std::dynamic_pointer_cast<NGReference>(targetVisitor.object);
         if (!reference)
@@ -1159,14 +1210,14 @@ namespace NG::intp
     void visit(TypeCheckingExpression *typeCheckExpr) override
     {
       moved = false;
-      ExpressionVisitor vis{context, activeFrames, activeScopes};
+      ExpressionVisitor vis{symbols, activeFrames, activeScopes, publishGlobals};
       typeCheckExpr->value->accept(&vis);
       RuntimeRef<NGObject> value = auto_deref_value(vis.object);
 
       if (auto anno = dynamic_ast_cast<TypeAnnotation>(typeCheckExpr->type); anno)
       {
         auto name = anno->repr();
-        auto targetType = resolveRuntimeType(context, name);
+        auto targetType = resolveRuntimeType(symbols, name);
         if (targetType)
         {
           auto valueType = runtime_value_type(value);
@@ -1214,7 +1265,7 @@ namespace NG::intp
     void visit(SpreadExpression *spreadExpression) override
     {
       moved = false;
-      ExpressionVisitor vis{context, activeFrames, activeScopes};
+      ExpressionVisitor vis{symbols, activeFrames, activeScopes, publishGlobals};
 
       spreadExpression->expression->accept(&vis);
       auto result = vis.object;
@@ -1244,7 +1295,7 @@ namespace NG::intp
     void visit(CastExpression *castExpr) override
     {
       moved = false;
-      ExpressionVisitor exprVis{context, activeFrames, activeScopes};
+      ExpressionVisitor exprVis{symbols, activeFrames, activeScopes, publishGlobals};
       castExpr->expression->accept(&exprVis);
       RuntimeRef<NGObject> value = exprVis.object;
 
@@ -1260,7 +1311,7 @@ namespace NG::intp
       }
 
       // Check if target is a newtype
-      if (auto targetType = resolveRuntimeType(context, targetTypeName))
+      if (auto targetType = resolveRuntimeType(symbols, targetTypeName))
       {
         // If the value is already an NGNewType with the same type, unwrap it
         if (auto newTypeVal = std::dynamic_pointer_cast<NGNewType>(value); newTypeVal)
@@ -1290,16 +1341,17 @@ namespace NG::intp
 
   struct StatementVisitor : public DummyVisitor
   {
-    RuntimeRef<NGContext> context;
+    NGSymbols symbols;
     RuntimeRef<StorageCell> returnSlot;
     RuntimeRef<Vec<CallFrame>> activeFrames;
     RuntimeRef<Vec<uint64_t>> activeScopes;
+    bool publishGlobals = false;
 
-    explicit StatementVisitor(RuntimeRef<NGContext> context, RuntimeRef<StorageCell> returnSlot = nullptr,
+    explicit StatementVisitor(NGSymbols symbols, RuntimeRef<StorageCell> returnSlot = nullptr,
                               RuntimeRef<Vec<CallFrame>> activeFrames = nullptr,
-                              RuntimeRef<Vec<uint64_t>> activeScopes = nullptr)
-        : context(std::move(context)), returnSlot(std::move(returnSlot)), activeFrames(std::move(activeFrames)),
-          activeScopes(std::move(activeScopes))
+                              RuntimeRef<Vec<uint64_t>> activeScopes = nullptr, bool publishGlobals = false)
+        : symbols(std::move(symbols)), returnSlot(std::move(returnSlot)), activeFrames(std::move(activeFrames)),
+          activeScopes(std::move(activeScopes)), publishGlobals(publishGlobals)
     {
     }
 
@@ -1325,7 +1377,7 @@ namespace NG::intp
 
       if (auto slot = find_frame_binding_slot(activeFrames, activeScopes, name))
       {
-        sync_binding_slot(context, activeFrames, activeScopes, slot, value);
+        sync_binding_slot(symbols, activeFrames, activeScopes, publishGlobals, slot, value);
       }
     }
 
@@ -1334,13 +1386,13 @@ namespace NG::intp
       auto materialized = materialize_value(value, moved);
       if (!activeFrames || activeFrames->empty())
       {
-        context->define(name, materialized);
+        define_global_binding(symbols, name, materialized);
+        return;
       }
       capture_binding(name, materialized, true);
-      if (is_module_frame(activeFrames) && context->parent_context() == nullptr &&
-          current_scope_id(activeScopes) == root_scope_id(activeScopes))
+      if (publishGlobals && is_module_frame(activeFrames) && current_scope_id(activeScopes) == root_scope_id(activeScopes))
       {
-        publish_global_binding(context, name, materialized);
+        publish_global_binding(symbols, name, materialized);
       }
     }
 
@@ -1351,7 +1403,7 @@ namespace NG::intp
       {
         if (auto slot = find_frame_binding_slot(activeFrames, activeScopes, name))
         {
-          sync_binding_slot(context, activeFrames, activeScopes, slot, materialized);
+          sync_binding_slot(symbols, activeFrames, activeScopes, publishGlobals, slot, materialized);
           return;
         }
         if (auto receiver = std::dynamic_pointer_cast<NGStructuralObject>(find_frame_receiver(activeFrames, activeScopes)))
@@ -1363,7 +1415,7 @@ namespace NG::intp
           }
         }
       }
-      assign_global_binding(context, name, materialized);
+      assign_global_binding(symbols, name, materialized);
     }
 
     void visit(ReturnStatement *returnStatement) override
@@ -1371,7 +1423,7 @@ namespace NG::intp
       RuntimeRef<NGObject> result;
       if (returnStatement->expression)
       {
-        ExpressionVisitor vis{context, activeFrames, activeScopes};
+        ExpressionVisitor vis{symbols, activeFrames, activeScopes, publishGlobals};
         returnStatement->expression->accept(&vis);
         result = materialize_value(vis.object, vis.moved);
       }
@@ -1384,7 +1436,7 @@ namespace NG::intp
 
     void visit(IfStatement *ifStmt) override
     {
-      StatementVisitor stmtVis{context, returnSlot, activeFrames, activeScopes};
+      StatementVisitor stmtVis{symbols, returnSlot, activeFrames, activeScopes, publishGlobals};
       if (ifStmt->evaluatedCondition.has_value())
       {
         if (ifStmt->evaluatedCondition.value())
@@ -1398,7 +1450,7 @@ namespace NG::intp
         return;
       }
 
-      ExpressionVisitor vis{context, activeFrames, activeScopes};
+      ExpressionVisitor vis{symbols, activeFrames, activeScopes, publishGlobals};
       ifStmt->testing->accept(&vis);
       if (runtime_value_bool(vis.object))
       {
@@ -1413,7 +1465,7 @@ namespace NG::intp
     void visit(CompoundStatement *stmt) override
     {
       auto blockScopes = fork_scope_chain(activeScopes);
-      StatementVisitor vis{context, returnSlot, activeFrames, blockScopes};
+      StatementVisitor vis{symbols, returnSlot, activeFrames, blockScopes, publishGlobals};
       for (const auto &innerStmt : stmt->statements)
       {
         innerStmt->accept(&vis);
@@ -1426,7 +1478,7 @@ namespace NG::intp
 
     void visit(ValDefStatement *valDef) override
     {
-      ExpressionVisitor vis{context, activeFrames, activeScopes};
+      ExpressionVisitor vis{symbols, activeFrames, activeScopes, publishGlobals};
       valDef->value->accept(&vis);
 
       define_binding(valDef->name, vis.object, vis.moved);
@@ -1434,7 +1486,7 @@ namespace NG::intp
 
     void visit(ValueBindingStatement *valBind) override
     {
-      ExpressionVisitor vis{context, activeFrames, activeScopes};
+      ExpressionVisitor vis{symbols, activeFrames, activeScopes, publishGlobals};
       valBind->value->accept(&vis);
       auto result = vis.object;
 
@@ -1507,13 +1559,13 @@ namespace NG::intp
 
     void visit(SimpleStatement *simpleStmt) override
     {
-      ExpressionVisitor vis{context, activeFrames, activeScopes};
+      ExpressionVisitor vis{symbols, activeFrames, activeScopes, publishGlobals};
       simpleStmt->expression->accept(&vis);
     }
 
     void visit(SwitchStatement *switchStmt) override
     {
-      ExpressionVisitor vis{context, activeFrames, activeScopes};
+      ExpressionVisitor vis{symbols, activeFrames, activeScopes, publishGlobals};
       switchStmt->scrutinee->accept(&vis);
       auto scrutinee = vis.object;
 
@@ -1534,7 +1586,7 @@ namespace NG::intp
         if (c.variantName == tagged->variantName)
         {
           auto caseScopes = fork_scope_chain(activeScopes);
-          StatementVisitor caseVis{context, returnSlot, activeFrames, caseScopes};
+          StatementVisitor caseVis{symbols, returnSlot, activeFrames, caseScopes, publishGlobals};
           auto payloadValues = tagged->payload_items();
           // Bind payload variables
           for (size_t j = 0; j < c.bindings.size() && j < payloadValues.size(); ++j)
@@ -1552,7 +1604,7 @@ namespace NG::intp
       if (otherwise != nullptr)
       {
         auto caseScopes = fork_scope_chain(activeScopes);
-        StatementVisitor caseVis{context, returnSlot, activeFrames, caseScopes};
+        StatementVisitor caseVis{symbols, returnSlot, activeFrames, caseScopes, publishGlobals};
         otherwise->body->accept(&caseVis);
         return;
       }
@@ -1563,7 +1615,7 @@ namespace NG::intp
     void visit(LoopStatement *loopStatement) override
     {
       auto loopScopes = fork_scope_chain(activeScopes);
-      ExpressionVisitor vis{context, activeFrames, loopScopes};
+      ExpressionVisitor vis{symbols, activeFrames, loopScopes, publishGlobals};
       for (auto &&binding : loopStatement->bindings)
       {
         binding.target->accept(&vis);
@@ -1577,7 +1629,7 @@ namespace NG::intp
         }
       }
 
-      StatementVisitor stmtVis{context, returnSlot, activeFrames, loopScopes};
+      StatementVisitor stmtVis{symbols, returnSlot, activeFrames, loopScopes, publishGlobals};
       bool stopLoop = false;
       while (!stopLoop)
       {
@@ -1600,7 +1652,7 @@ namespace NG::intp
 
     void visit(NextStatement *nextStatement) override
     {
-      ExpressionVisitor vis{context, activeFrames, activeScopes};
+      ExpressionVisitor vis{symbols, activeFrames, activeScopes, publishGlobals};
       try
       {
         Vec<RuntimeRef<NGObject>> slotValues{};
@@ -1629,17 +1681,17 @@ namespace NG::intp
   struct Stupid : public Interpreter,
                   DummyVisitor // NOLINT(cppcoreguidelines-special-member-functions)
   {
-    RuntimeRef<NGContext> context;
+    NGSymbols symbols = makert<RuntimeSymbolTable>();
     size_t gcRootProviderId = 0;
 
     Vec<Str> modulePaths;
     RuntimeRef<Vec<CallFrame>> activeFrames = makert<Vec<CallFrame>>();
 
     explicit Stupid(Vec<Str> modulePaths, bool loadingPrelude = false)
-        : context(makert<NGContext>()), modulePaths(modulePaths)
+        : modulePaths(modulePaths)
     {
-      gcRootProviderId = register_gc_root_provider([frames = activeFrames, ctx = context]() {
-        auto roots = enumerate_context_roots(ctx);
+      gcRootProviderId = register_gc_root_provider([frames = activeFrames, symbols = symbols]() {
+        auto roots = enumerate_symbol_roots(symbols);
         auto frameRoots = enumerate_call_frame_roots(*frames);
         roots.insert(roots.end(), frameRoots.begin(), frameRoots.end());
         return roots;
@@ -1650,19 +1702,19 @@ namespace NG::intp
       }
     }
 
-    RuntimeRef<NGModule> asModule() { return makert<NGModule>(context); }
+    RuntimeRef<NGModule> asModule() { return makert<NGModule>(symbols); }
 
     void loadPrelude()
     {
-      if (context->has_module("prelude"))
+      if (symbols->modules.contains("prelude"))
       {
         return;
       }
       if (auto target = get_module_registry().queryModuleById("std.prelude"); target)
       {
         auto targetModule = target->runtimeModule;
-        context->define_module(target->moduleName, target->runtimeModule);
-        importInto(context, {"*"}, targetModule);
+        define_global_module(symbols, target->moduleName, target->runtimeModule);
+        importInto(symbols, {"*"}, targetModule);
       }
       else
       {
@@ -1717,7 +1769,7 @@ namespace NG::intp
           throw RuntimeException("Export undefined symbol: " + exp);
         }
       }
-      context->symbol_table()->exports = mod->exports;
+      symbols->exports = mod->exports;
       CallFrame topLevelFrame{};
       topLevelFrame.functionName = "<module>";
       activeFrames->push_back(topLevelFrame);
@@ -1733,25 +1785,25 @@ namespace NG::intp
           }
         }
       } frameGuard{activeFrames};
-      StatementVisitor vis{context, nullptr, activeFrames, moduleScopes};
+      StatementVisitor vis{symbols, nullptr, activeFrames, moduleScopes, true};
 
       for (const auto &stmt : mod->statements)
       {
         stmt->accept(&vis);
       }
-      materialize_root_frame_bindings(context, activeFrames->back(), root_scope_id(moduleScopes));
+      materialize_root_frame_bindings(symbols, activeFrames->back(), root_scope_id(moduleScopes));
     }
 
     void visit(ImportDecl *importDecl) override
     {
-      if (!context->has_module(importDecl->module))
+      if (!symbols->modules.contains(importDecl->module))
       {
         // load module
         NG::module::FileBasedExternalModuleLoader loader{this->modulePaths};
         auto &&moduleInfo = loader.load(importDecl->modulePath);
         if (auto target = get_module_registry().queryModuleById(moduleInfo->moduleId); target)
         {
-          context->define_module(importDecl->module, target->runtimeModule);
+          define_global_module(symbols, importDecl->module, target->runtimeModule);
         }
         else
         {
@@ -1767,42 +1819,42 @@ namespace NG::intp
           }
           moduleInfo->runtimeModule = runtimeModule;
           get_module_registry().addModuleInfo(moduleInfo);
-          context->define_module(importDecl->module, moduleInfo->runtimeModule);
+          define_global_module(symbols, importDecl->module, moduleInfo->runtimeModule);
         }
       }
-      RuntimeRef<NGModule> targetModule = context->get_module(importDecl->module);
+      RuntimeRef<NGModule> targetModule = symbols->modules.at(importDecl->module);
 
-      importInto(context, importDecl->imports, targetModule);
+      importInto(symbols, importDecl->imports, targetModule);
 
       if (!importDecl->alias.empty())
       {
-        context->define(importDecl->alias, targetModule);
+        define_global_binding(symbols, importDecl->alias, targetModule);
       }
     }
 
-    static void importInto(RuntimeRef<NGContext> context, Vec<Str> declaredImports,
+    static void importInto(const NGSymbols &symbols, Vec<Str> declaredImports,
                            const RuntimeRef<NGModule> &fromModule)
     {
       Set<Str> imports = resolveImports(declaredImports, fromModule);
-      std::copy(imports.begin(), imports.end(), std::back_inserter(context->symbol_table()->imported));
+      std::copy(imports.begin(), imports.end(), std::back_inserter(symbols->imported));
 
       for (auto &&imp : imports)
       {
         if (fromModule->functions.contains(imp))
         {
-          context->define_function(imp, fromModule->functions[imp]);
+          define_global_function(symbols, imp, fromModule->functions[imp]);
         }
         if (fromModule->types.contains(imp))
         {
-          context->define_type(imp, fromModule->types[imp]);
+          define_global_type(symbols, imp, fromModule->types[imp]);
         }
         if (fromModule->objects.contains(imp))
         {
-          context->define(imp, fromModule->objects[imp]);
+          define_global_binding(symbols, imp, fromModule->objects[imp]);
         }
         if (fromModule->native_functions.contains(imp))
         {
-          context->define_function(imp, fromModule->native_functions[imp]);
+          define_global_function(symbols, imp, fromModule->native_functions[imp]);
         }
       }
     }
@@ -1888,14 +1940,14 @@ namespace NG::intp
             break;
           }
         }
-        auto newContext = make_symbol_context(env);
+        auto callSymbols = runtime_symbols_from_env(env);
         auto scopeIds = make_scope_chain();
         CallFrame callFrame{};
         callFrame.functionName = funDef->funName;
         callFrame.receiver = make_named_boxed_storage_cell("self", dummy);
         callFrame.receiver->ownerScopeId = current_scope_id(scopeIds);
         auto returnTypeName = funDef->returnType ? funDef->returnType->repr() : "unit";
-        auto returnRuntimeType = resolveRuntimeType(newContext, returnTypeName);
+        auto returnRuntimeType = resolveRuntimeType(callSymbols, returnTypeName);
         callFrame.returnSlot =
             make_storage_cell(TypeLayout{.name = returnTypeName}, StorageClass::FRAME, nullptr, "ret", returnRuntimeType);
         callFrame.returnSlot->ownerScopeId = current_scope_id(scopeIds);
@@ -1935,7 +1987,7 @@ namespace NG::intp
           }
           else if (funDef->params[i]->value != nullptr)
           {
-            ExpressionVisitor vis{newContext, frames, scopeIds};
+            ExpressionVisitor vis{callSymbols, frames, scopeIds};
             funDef->params[i]->value->accept(&vis);
             auto materialized = materialize_value(vis.object, vis.moved);
             auto slot = make_named_boxed_storage_cell(funDef->params[i]->paramName, materialized);
@@ -1954,7 +2006,7 @@ namespace NG::intp
           runtime_sync_storage_cell(frames->back().returnSlot, nullptr);
           try
           {
-          StatementVisitor vis{newContext, frames->back().returnSlot, frames, scopeIds};
+          StatementVisitor vis{callSymbols, frames->back().returnSlot, frames, scopeIds};
             funDef->body->accept(&vis);
             tailRecur = false;
           }
@@ -1999,18 +2051,18 @@ namespace NG::intp
         return result;
       };
 
-      context->define_function(funDef->funName, functionInvoker);
+      define_global_function(symbols, funDef->funName, functionInvoker);
     }
 
     void visit(Statement *stmt) override
     {
-      StatementVisitor vis{context, nullptr, activeFrames, make_scope_chain()};
+      StatementVisitor vis{symbols, nullptr, activeFrames, make_scope_chain(), true};
       stmt->accept(&vis);
     }
 
     void visit(ValDef *valDef) override
     {
-      StatementVisitor vis{context, nullptr, activeFrames, make_scope_chain()};
+      StatementVisitor vis{symbols, nullptr, activeFrames, make_scope_chain(), true};
 
       valDef->body->accept(&vis);
     }
@@ -2020,7 +2072,7 @@ namespace NG::intp
       auto type = makert<NGType>();
 
       type->name = typeDef->typeName;
-      type->layout = build_inline_type_layout(context, typeDef->typeName, typeDef->properties)
+      type->layout = build_inline_type_layout(symbols, typeDef->typeName, typeDef->properties)
                          .value_or(TypeLayout{.name = typeDef->typeName, .kind = LayoutKind::DYNAMIC});
 
       for (const auto &property : typeDef->properties)
@@ -2035,15 +2087,14 @@ namespace NG::intp
             [memFn, frames = activeFrames](const NGSelf &dummy, const NGEnv &env,
                                            const NGArgs &args) -> RuntimeRef<NGObject>
         {
-          auto newContext = make_symbol_context(env);
-          newContext->define("self", dummy);
+          auto callSymbols = runtime_symbols_from_env(env);
           auto scopeIds = make_scope_chain();
           CallFrame callFrame{};
           callFrame.functionName = memFn->funName;
           callFrame.receiver = make_named_boxed_storage_cell("self", dummy);
           callFrame.receiver->ownerScopeId = current_scope_id(scopeIds);
           auto returnTypeName = memFn->returnType ? memFn->returnType->repr() : "unit";
-          auto returnRuntimeType = resolveRuntimeType(newContext, returnTypeName);
+          auto returnRuntimeType = resolveRuntimeType(callSymbols, returnTypeName);
           callFrame.returnSlot =
               make_storage_cell(TypeLayout{.name = returnTypeName}, StorageClass::FRAME, nullptr, "ret", returnRuntimeType);
           callFrame.returnSlot->ownerScopeId = current_scope_id(scopeIds);
@@ -2068,7 +2119,7 @@ namespace NG::intp
             }
             else if (memFn->params[i]->value != nullptr)
             {
-              ExpressionVisitor vis{newContext, frames, scopeIds};
+              ExpressionVisitor vis{callSymbols, frames, scopeIds};
               memFn->params[i]->value->accept(&vis);
               value = materialize_value(vis.object, vis.moved);
             }
@@ -2083,7 +2134,7 @@ namespace NG::intp
           }
 
           runtime_sync_storage_cell(frames->back().returnSlot, nullptr);
-          StatementVisitor vis{newContext, frames->back().returnSlot, frames, scopeIds};
+          StatementVisitor vis{callSymbols, frames->back().returnSlot, frames, scopeIds};
           memFn->body->accept(&vis);
           auto result = frames->back().returnSlot->boxedValue ? frames->back().returnSlot->boxedValue : makert<NGUnit>();
           sync_storage_cell(frames->back().returnSlot, result);
@@ -2091,7 +2142,7 @@ namespace NG::intp
         };
       }
 
-      context->define_type(type->name, type);
+      define_global_type(symbols, type->name, type);
     }
 
     void visit(TypeAliasDef *typeAliasDef) override
@@ -2100,10 +2151,10 @@ namespace NG::intp
       // The type checker resolves aliases; at runtime we store the underlying type directly
       auto underlyingType = makert<NGType>();
       underlyingType->name = typeAliasDef->aliasName;
-      underlyingType->layout = concrete_layout_for_annotation(context, typeAliasDef->underlyingType.get())
+      underlyingType->layout = concrete_layout_for_annotation(symbols, typeAliasDef->underlyingType.get())
                                    .value_or(TypeLayout{.name = typeAliasDef->aliasName, .kind = LayoutKind::DYNAMIC});
       underlyingType->layout.name = typeAliasDef->aliasName;
-      context->define_type(typeAliasDef->aliasName, underlyingType);
+      define_global_type(symbols, typeAliasDef->aliasName, underlyingType);
     }
 
     void visit(NewTypeDef *newTypeDef) override
@@ -2111,19 +2162,19 @@ namespace NG::intp
       // Create a new nominal type for the newtype
       auto newType = makert<NGType>();
       newType->name = newTypeDef->typeName;
-      newType->layout = concrete_layout_for_annotation(context, newTypeDef->wrappedType.get())
+      newType->layout = concrete_layout_for_annotation(symbols, newTypeDef->wrappedType.get())
                             .value_or(TypeLayout{.name = newTypeDef->typeName, .kind = LayoutKind::INLINE_VALUE});
       newType->layout.name = newTypeDef->typeName;
-      context->define_type(newTypeDef->typeName, newType);
+      define_global_type(symbols, newTypeDef->typeName, newType);
     }
 
     void visit(TaggedUnionDef *taggedUnion) override
     {
       auto type = makert<NGType>();
       type->name = taggedUnion->typeName;
-      type->layout = build_tagged_union_type_layout(context, taggedUnion)
+      type->layout = build_tagged_union_type_layout(symbols, taggedUnion)
                          .value_or(TypeLayout{.name = taggedUnion->typeName, .kind = LayoutKind::TAGGED_UNION});
-      context->define_type(taggedUnion->typeName, type);
+      define_global_type(symbols, taggedUnion->typeName, type);
 
       // Register each variant as a constructor function
       for (int32_t i = 0; i < static_cast<int32_t>(taggedUnion->variants.size()); ++i)
@@ -2140,9 +2191,9 @@ namespace NG::intp
         variantType->properties = payloadNames;
         variantType->variantName = variantName;
         variantType->variantIndex = variantIndex;
-        context->define_variant_type(variantName, variantType);
+        define_global_variant_type(symbols, variantName, variantType);
 
-        context->define_function(variantName,
+        define_global_function(symbols, variantName,
           [unionName, variantName, variantIndex, payloadNames](const NGSelf &self, const NGEnv &env,
                                                                  const NGArgs &args) -> RuntimeRef<NGObject>
           {
@@ -2152,7 +2203,7 @@ namespace NG::intp
       }
     }
 
-    void summary() override { context->summary(); }
+    void summary() override {}
 
     ~Stupid() override
     {

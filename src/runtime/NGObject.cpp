@@ -83,11 +83,11 @@ namespace NG::runtime
     throw NotImplementedException();
   }
 
-  auto NGObject::respond(const RuntimeRef<NGObject> &self, const Str &member, NGCtx context,
+  auto NGObject::respond(const RuntimeRef<NGObject> &self, const Str &member, const NGEnv &env,
                          const NGArgs &args) -> RuntimeRef<NGObject>
   {
     auto dispatchSelf = self && self.get() == this ? self : runtime_self_alias(this);
-    return runtime_value_respond(dispatchSelf, member, make_runtime_env(context), args);
+    return runtime_value_respond(dispatchSelf, member, env, args);
   }
 
   auto NGObject::opNotEqual(RuntimeRef<NGObject> other) const -> bool

@@ -123,8 +123,8 @@ namespace NG::runtime
     // Forward declaration for NGModule.
     struct NGModule;
 
-    // Forward declaration for NGContext.
-    struct NGContext;
+    // Forward declaration for RuntimeSymbolTable.
+    struct RuntimeSymbolTable;
 
     // Forward declaration for NGType.
     struct NGType;

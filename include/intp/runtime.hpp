@@ -15,8 +15,8 @@ namespace NG::runtime
     struct NGObject;
     struct NGType;
     struct NGModule;
-    struct NGContext;
     struct RuntimeEnv;
+    struct RuntimeSymbolTable;
     struct NGStructuralObject;
     struct NGTaggedValue;
     struct NumeralBase;
@@ -60,11 +60,11 @@ namespace NG::runtime
     };
 
     using NGSelf = RuntimeRef<NGObject>; ///< Alias for a `RuntimeRef` to the current object (`self`).
-    using NGCtx = RuntimeRef<NGContext>; ///< Alias for a `RuntimeRef` to the current context.
     using NGEnv = RuntimeRef<RuntimeEnv>; ///< Alias for a runtime dispatch environment.
+    using NGSymbols = RuntimeRef<RuntimeSymbolTable>; ///< Alias for shared runtime symbol tables.
     using NGArgs = Vec<RuntimeRef<NGObject>>;
 
-    [[nodiscard]] auto make_runtime_env(const RuntimeRef<NGContext> &context = nullptr) -> NGEnv;
+    [[nodiscard]] auto make_runtime_env(const NGSymbols &symbols = nullptr) -> NGEnv;
     [[nodiscard]] auto fork_runtime_env(const NGEnv &env) -> NGEnv;
     void runtime_env_set_state(const NGEnv &env, Str name, std::shared_ptr<void> value);
     [[nodiscard]] auto runtime_env_get_state(const NGEnv &env, const Str &name) -> std::shared_ptr<void>;
@@ -176,140 +176,6 @@ namespace NG::runtime
     {
         RuntimeRef<RuntimeSymbolTable> symbols;
         Map<Str, std::shared_ptr<void>> runtimeState;
-    };
-
-    /**
-     * @brief Represents the execution context.
-     */
-    struct NGContext
-    {
-        NGContext();
-        ~NGContext();
-
-        /**
-         * @brief Creates a new child context.
-         *
-         * @return A `RuntimeRef` to the new child context.
-         */
-        auto fork() -> RuntimeRef<NGContext>;
-
-        /**
-         * @brief Gets an object from the context.
-         *
-         * @param name The name of the object.
-         * @return A `RuntimeRef` to the object.
-         */
-        auto get(Str name) -> RuntimeRef<NGObject>;
-        auto get_slot(Str name) -> RuntimeRef<StorageCell>;
-        /**
-         * @brief Sets an object in the context.
-         *
-         * @param name The name of the object.
-         * @param value The value of the object.
-         */
-        void set(Str name, RuntimeRef<NGObject> value);
-
-        /**
-         * @brief Defines a new object in the context.
-         *
-         * @param name The name of the object.
-         * @param value The value of the object.
-         */
-        void define(Str name, RuntimeRef<NGObject> value);
-        /**
-         * @brief Defines a new function in the context.
-         *
-         * @param name The name of the function.
-         * @param value The function.
-         */
-        void define_function(Str name, NGCallable value);
-        /**
-         * @brief Defines a new type in the context.
-         *
-         * @param name The name of the type.
-         * @param type The type.
-         */
-        void define_type(Str name, RuntimeRef<NGType> type);
-        void define_variant_type(Str name, RuntimeRef<NGType> type);
-        /**
-         * @brief Defines a new module in the context.
-         *
-         * @param name The name of the module.
-         * @param module The module.
-         */
-        void define_module(Str name, RuntimeRef<NGModule> module);
-
-        /**
-         * @brief Checks if an object exists in the context.
-         *
-         * @param name The name of the object.
-         * @param global Whether to search in the global scope.
-         * @return `true` if the object exists, `false` otherwise.
-         */
-        auto has_object(Str name, bool global = false) -> bool;
-        /**
-         * @brief Checks if a function exists in the context.
-         *
-         * @param name The name of the function.
-         * @param global Whether to search in the global scope.
-         * @return `true` if the function exists, `false` otherwise.
-         */
-        auto has_function(Str name, bool global = false) -> bool;
-        /**
-         * @brief Checks if a type exists in the context.
-         *
-         * @param name The name of the type.
-         * @param global Whether to search in the global scope.
-         * @return `true` if the type exists, `false` otherwise.
-         */
-        auto has_type(Str name, bool global = false) -> bool;
-        /**
-         * @brief Checks if a module exists in the context.
-         *
-         * @param name The name of the module.
-         * @param global Whether to search in the global scope.
-         * @return `true` if the module exists, `false` otherwise.
-         */
-        auto has_module(Str name, bool global = false) -> bool;
-
-        /**
-         * @brief Gets a function from the context.
-         *
-         * @param name The name of the function.
-         * @return The function.
-         */
-        auto get_function(Str name) -> NGCallable;
-        /**
-         * @brief Gets a type from the context.
-         *
-         * @param name The name of the type.
-         * @return A `RuntimeRef` to the type.
-         */
-        auto get_type(Str name) -> RuntimeRef<NGType>;
-        auto get_variant_type(Str name) -> RuntimeRef<NGType>;
-        /**
-         * @brief Gets a module from the context.
-         *
-         * @param name The name of the module.
-         * @return A `RuntimeRef` to the module.
-         */
-        auto get_module(Str name) -> RuntimeRef<NGModule>;
-
-        auto symbol_table() -> RuntimeRef<RuntimeSymbolTable>;
-        void adopt_symbol_table(RuntimeRef<RuntimeSymbolTable> nextSymbols) { symbols = std::move(nextSymbols); }
-        auto parent_context() const -> NGContext * { return parent; }
-
-        /**
-         * @brief Prints a summary of the context.
-         */
-        void summary();
-
-        Map<Str, RuntimeRef<StorageCell>> objectSlots; ///< Compatibility storage cells for local bindings.
-        Set<Str> locals;                        ///< The local variables.
-
-      private:
-        RuntimeRef<RuntimeSymbolTable> symbols;
-        NGContext *parent = nullptr; ///< The parent context.
     };
 
     /**
@@ -446,7 +312,7 @@ namespace NG::runtime
          * @param invocationContext The invocation context.
          * @return The result of the invocation.
          */
-        virtual auto respond(const RuntimeRef<NGObject> &self, const Str &member, NGCtx context,
+        virtual auto respond(const RuntimeRef<NGObject> &self, const Str &member, const NGEnv &env,
                              const NGArgs &args) -> RuntimeRef<NGObject> = 0;
 
         virtual ~OperatorsBase() noexcept = 0;
@@ -568,7 +434,7 @@ namespace NG::runtime
 
         auto opRShift(RuntimeRef<NGObject> other) -> RuntimeRef<NGObject> override;
         // Meta-Object function
-        auto respond(const RuntimeRef<NGObject> &self, const Str &member, NGCtx context,
+        auto respond(const RuntimeRef<NGObject> &self, const Str &member, const NGEnv &env,
                      const NGArgs &args) -> RuntimeRef<NGObject> override;
     };
 
@@ -656,7 +522,7 @@ namespace NG::runtime
         Map<Str, NGCallable> native_functions;  ///< The native functions in the module.
         Map<Str, std::shared_ptr<void>> native_state; ///< Runtime-owned native module state.
 
-        NGModule(RuntimeRef<NGContext> ctx);
+        explicit NGModule(const NGSymbols &symbols = nullptr);
         static auto moduleType() -> RuntimeRef<NGType>;
         void set_native_state(Str name, std::shared_ptr<void> value);
         [[nodiscard]] auto get_native_state(const Str &name) const -> std::shared_ptr<void>;
@@ -865,16 +731,16 @@ namespace NG::runtime
             return runtime_value_bool(wrapped);
         }
 
-        auto respond(const RuntimeRef<NGObject> &self, const Str &member, NGCtx context,
+        auto respond(const RuntimeRef<NGObject> &self, const Str &member, const NGEnv &env,
                      const NGArgs &args) -> RuntimeRef<NGObject> override
         {
             if (newType && (newType->respondHandler || newType->memberFunctions.contains(member)))
             {
                 auto dispatchSelf = self && self.get() == this ? self
                                                                : RuntimeRef<NGObject>(this, [](NGObject *) {});
-                return NGObject::respond(dispatchSelf, member, context, args);
+                return NGObject::respond(dispatchSelf, member, env, args);
             }
-            return runtime_value_respond(wrapped, member, make_runtime_env(context), args);
+            return runtime_value_respond(wrapped, member, env, args);
         }
     };
 
@@ -935,7 +801,7 @@ namespace NG::runtime
     [[nodiscard]] auto clone_value(const RuntimeRef<NGObject> &value) -> RuntimeRef<NGObject>;
     [[nodiscard]] auto materialize_value(const RuntimeRef<NGObject> &value, bool moved) -> RuntimeRef<NGObject>;
     [[nodiscard]] auto allocate_heap_object(const RuntimeRef<NGObject> &value, const Str &debugName) -> RuntimeRef<NGReference>;
-    [[nodiscard]] auto enumerate_context_roots(const RuntimeRef<NGContext> &context) -> Vec<RuntimeRef<NGObject>>;
+    [[nodiscard]] auto enumerate_symbol_roots(const NGSymbols &symbols) -> Vec<RuntimeRef<NGObject>>;
     [[nodiscard]] auto register_gc_root_provider(GCRootProvider provider) -> size_t;
     void unregister_gc_root_provider(size_t providerId);
     void collect_managed_heap();

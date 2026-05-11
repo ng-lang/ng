@@ -41,7 +41,7 @@ set(NG_LIB_SRC
         src/runtime/OperatorsBase.cpp
         src/runtime/NGObject.cpp
         src/runtime/NGBoolean.cpp
-        src/runtime/NGContext.cpp
+        src/runtime/runtime_env.cpp
         src/runtime/NGString.cpp
         src/runtime/NGArray.cpp
         src/runtime/NGNumeral.cpp
@@ -92,7 +92,7 @@ set(NG_TEST_SRC
         test/runtime/nominal_test.cpp
         test/runtime/runtime_numeral_test.cpp
         test/runtime/tagged_value_test.cpp
-        test/runtime/context_value_ops_test.cpp
+        test/runtime/runtime_value_ops_test.cpp
         test/runtime/buffer_runtime_test.cpp
         test/typecheck/typeinfo_primitive_test.cpp
         test/typecheck/typeinfo_function_test.cpp

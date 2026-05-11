@@ -68,7 +68,7 @@ The `Interpreter` class is also an `AstVisitor`. It traverses the AST and execut
 
 The runtime environment consists of the following components:
 
-*   **`NGContext`:** Represents the execution context, which includes the call stack, local variables, and the current module.
+*   **`RuntimeSymbolTable` + `CallFrame`:** Global definitions live in the shared symbol table, while active locals/parameters/receiver state live in explicit call-frame storage cells.
 *   **`NGObject`:** The base class for all runtime objects.
 *   **`NGType`:** Represents a type in the runtime.
 *   **`NGModule`:** Represents a module in the runtime.
@@ -94,7 +94,7 @@ Today, native functions are wired through the newer runtime env model:
 - native arguments can be read through `NativeArgsView`, which can expose canonical `StorageCell` slots when available
 - ORGASM still adapts VM natives through `wrap_native(...)`, but that adapter now targets the same env-based callable ABI
 
-The remaining cleanup is no longer about exposing `NGContext` to native handlers directly; it is about removing the internal `RuntimeEnv -> executionContext` compatibility bridge and converging the last VM/native shims on direct cell/handle semantics.
+The remaining cleanup is no longer about `NGContext`; it is about converging the last VM/native shims on direct cell/handle semantics and reducing the remaining compatibility layers around object carriers.
 
 ### Planned direction
 

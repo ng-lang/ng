@@ -5,9 +5,12 @@
 namespace NG::runtime
 {
 
-  NGModule::NGModule(RuntimeRef<NGContext> ctx)
+  NGModule::NGModule(const NGSymbols &symbols)
   {
-    auto symbols = ctx->symbol_table();
+    if (!symbols)
+    {
+      return;
+    }
     for (const auto &[name, slot] : symbols->objectSlots)
     {
       objects.insert_or_assign(name, slot ? slot->boxedValue : nullptr);

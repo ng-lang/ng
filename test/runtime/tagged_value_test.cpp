@@ -15,7 +15,7 @@ TEST_CASE("NGTaggedValue exposes payload members and metadata", "[RuntimeTest][T
       {"value"},
   };
 
-  auto ctx = makert<NGContext>();
+  auto env = make_runtime_env();
   auto self = makert<NGUnit>();
   NGArgs args{};
 
@@ -28,19 +28,19 @@ TEST_CASE("NGTaggedValue exposes payload members and metadata", "[RuntimeTest][T
   REQUIRE(typeA->name == "Result");
   REQUIRE(*typeA == *typeB);
 
-  auto value = std::dynamic_pointer_cast<NumeralBase>(tagged.respond(self, "value", ctx, args));
+  auto value = std::dynamic_pointer_cast<NumeralBase>(tagged.respond(self, "value", env, args));
   REQUIRE(value != nullptr);
   REQUIRE(NGIntegral<int32_t>::valueOf(value.get()) == 42);
 
-  auto positional = std::dynamic_pointer_cast<NumeralBase>(tagged.respond(self, "0", ctx, args));
+  auto positional = std::dynamic_pointer_cast<NumeralBase>(tagged.respond(self, "0", env, args));
   REQUIRE(positional != nullptr);
   REQUIRE(NGIntegral<int32_t>::valueOf(positional.get()) == 42);
 
-  auto tag = std::dynamic_pointer_cast<NGString>(tagged.respond(self, "tag", ctx, args));
+  auto tag = std::dynamic_pointer_cast<NGString>(tagged.respond(self, "tag", env, args));
   REQUIRE(tag != nullptr);
   REQUIRE(tag->payload_value() == "Ok");
 
-  auto index = std::dynamic_pointer_cast<NumeralBase>(tagged.respond(self, "index", ctx, args));
+  auto index = std::dynamic_pointer_cast<NumeralBase>(tagged.respond(self, "index", env, args));
   REQUIRE(index != nullptr);
   REQUIRE(NGIntegral<int32_t>::valueOf(index.get()) == 0);
 
@@ -52,7 +52,7 @@ TEST_CASE("NGTaggedValue exposes payload members and metadata", "[RuntimeTest][T
   REQUIRE(std::static_pointer_cast<StorageCell>(tagged.payload_store().get(tagged.payload_cell()).opaqueRefs[0]) == valueSlot);
   runtime_sync_storage_cell(valueSlot, makert<NGIntegral<int32_t>>(99));
 
-  auto slotted = std::dynamic_pointer_cast<NumeralBase>(tagged.respond(self, "value", ctx, args));
+  auto slotted = std::dynamic_pointer_cast<NumeralBase>(tagged.respond(self, "value", env, args));
   REQUIRE(slotted != nullptr);
   REQUIRE(NGIntegral<int32_t>::valueOf(slotted.get()) == 99);
   REQUIRE(NGIntegral<int32_t>::valueOf(std::dynamic_pointer_cast<NumeralBase>(tagged.payload_items()[0]).get()) == 99);
@@ -61,9 +61,9 @@ TEST_CASE("NGTaggedValue exposes payload members and metadata", "[RuntimeTest][T
 TEST_CASE("NGTaggedValue falls back to NGObject for unknown members", "[RuntimeTest][TaggedValue]")
 {
   NGTaggedValue tagged{"Result", "Err", 1, {}, {}};
-  auto ctx = makert<NGContext>();
+  auto env = make_runtime_env();
   auto self = makert<NGUnit>();
   NGArgs args{};
 
-  REQUIRE_THROWS_AS(tagged.respond(self, "missing", ctx, args), NotImplementedException);
+  REQUIRE_THROWS_AS(tagged.respond(self, "missing", env, args), NotImplementedException);
 }

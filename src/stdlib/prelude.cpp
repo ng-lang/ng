@@ -298,8 +298,7 @@ namespace NG::library::prelude
     for (auto &[name, handler] : handlers)
     {
       vm.register_native_raw(name, [handler](const Vec<RuntimeRef<NGObject>> &args) -> RuntimeRef<NGObject> {
-        auto context = makert<NGContext>();
-        auto env = make_runtime_env(context);
+        auto env = make_runtime_env();
         bind_native_arg_slots(env, args);
         return handler(makert<NGUnit>(), env, args);
       });

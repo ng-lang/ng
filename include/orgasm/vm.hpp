@@ -63,7 +63,7 @@ namespace NG::orgasm
         Vec<RuntimeRef<NGObject>> stack;
         const BytecodeModule *current_module = nullptr;
         Vec<RuntimeRef<StorageCell>> globals;
-        RuntimeRef<NGContext> root_context;
+        NGSymbols root_symbols;
         Map<Str, RuntimeRef<NGType>> root_types;
         Vec<Frame> call_stack;
         Vec<Str> modulePaths;

@@ -191,7 +191,7 @@ assert(counter.value == 15);
 )");
 }
 
-TEST_CASE("function frames should resolve globals without NGContext local fallback", "[InterpreterTest]")
+TEST_CASE("function frames should resolve globals without local context fallback", "[InterpreterTest]")
 {
   interpret(R"(
 val total = 1;
@@ -344,7 +344,7 @@ assert(scoped() == 1);
 )");
 }
 
-TEST_CASE("switch case bindings should stay scoped without NGContext forks", "[InterpreterTest]")
+TEST_CASE("switch case bindings should stay scoped without context forks", "[InterpreterTest]")
 {
   interpret(R"(
 type Result = Ok(value: i32) | Err(msg: string);
