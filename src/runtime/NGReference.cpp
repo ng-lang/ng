@@ -1,19 +1,32 @@
 #include <intp/runtime.hpp>
 #include <intp/runtime_numerals.hpp>
+#include <runtime/array_layout_access.hpp>
 
 namespace NG::runtime
 {
+  namespace
+  {
+    auto reference_runtime_show_impl(const NGReference &ref) -> Str
+    {
+      return "ref(" + ref.debugName + ")";
+    }
+  } // namespace
+
   auto NGMovedObject::movedType() -> RuntimeRef<NGType>
   {
-    static auto type = makert<NGType>(NGType{.name = "moved"});
+    static auto type = makert<NGType>(NGType{
+      .name = "moved",
+      .layout = TypeLayout{.name = "moved", .kind = LayoutKind::INLINE_VALUE},
+      .showHandler = [](const NGSelf &) { return Str{"<moved>"}; },
+      .boolHandler = [](const NGSelf &) { return false; },
+    });
     return type;
   }
 
-  auto NGMovedObject::type() const -> RuntimeRef<NGType> { return movedType(); }
-
-  auto NGMovedObject::show() const -> Str { return "<moved>"; }
-
-  auto NGMovedObject::boolValue() const -> bool { return false; }
+  NGReference::NGReference(RuntimeRef<StorageCell> targetCell, Str debugName, MarkHook markHook)
+      : targetCell(std::move(targetCell)), markHook(std::move(markHook)), debugName(std::move(debugName))
+  {
+  }
 
   NGReference::NGReference(Getter getter, Setter setter, Str debugName, MarkHook markHook)
       : getter(std::move(getter)), setter(std::move(setter)), markHook(std::move(markHook)), debugName(std::move(debugName))
@@ -22,19 +35,46 @@ namespace NG::runtime
 
   auto NGReference::referenceType() -> RuntimeRef<NGType>
   {
-    static auto type = makert<NGType>(NGType{.name = "ref"});
+    static auto type = makert<NGType>(NGType{
+      .name = "ref",
+      .layout = buffer_runtime::make_reference_layout("ref"),
+      .showHandler =
+          [](const NGSelf &self) {
+            auto ref = std::dynamic_pointer_cast<NGReference>(self);
+            return ref ? reference_runtime_show_impl(*ref) : Str{"ref(?)"};
+          },
+      .boolHandler = [](const NGSelf &) { return true; },
+    });
     return type;
   }
 
-  auto NGReference::type() const -> RuntimeRef<NGType> { return referenceType(); }
+  auto NGReference::read() const -> RuntimeRef<NGObject>
+  {
+    if (targetCell)
+    {
+      if (!targetCell->boxedValue)
+      {
+        throw RuntimeException("Dangling heap reference");
+      }
+      ensure_usable_value(targetCell->boxedValue);
+      return targetCell->boxedValue;
+    }
+    return getter();
+  }
 
-  auto NGReference::show() const -> Str { return "ref(" + debugName + ")"; }
-
-  auto NGReference::boolValue() const -> bool { return true; }
-
-  auto NGReference::read() const -> RuntimeRef<NGObject> { return getter(); }
-
-  void NGReference::write(const RuntimeRef<NGObject> &value) const { setter(value); }
+  void NGReference::write(const RuntimeRef<NGObject> &value) const
+  {
+    if (targetCell)
+    {
+      if (!targetCell->boxedValue)
+      {
+        throw RuntimeException("Dangling heap reference");
+      }
+      runtime_sync_storage_cell(targetCell, value);
+      return;
+    }
+    setter(value);
+  }
 
   void NGReference::mark_referenced_heap() const
   {
@@ -101,13 +141,14 @@ namespace NG::runtime
     }
     if (auto str = std::dynamic_pointer_cast<NGString>(value))
     {
-      return makert<NGString>(str->value);
+      return makert<NGString>(str->payload_value());
     }
     if (auto array = std::dynamic_pointer_cast<NGArray>(value))
     {
+      auto source = array->payload_items();
       Vec<RuntimeRef<NGObject>> items;
-      items.reserve(array->items->size());
-      for (auto &item : *array->items)
+      items.reserve(source.size());
+      for (auto &item : source)
       {
         items.push_back(clone_value(item));
       }
@@ -115,9 +156,10 @@ namespace NG::runtime
     }
     if (auto tuple = std::dynamic_pointer_cast<NGTuple>(value))
     {
+      auto source = tuple->payload_items();
       Vec<RuntimeRef<NGObject>> items;
-      items.reserve(tuple->items->size());
-      for (auto &item : *tuple->items)
+      items.reserve(source.size());
+      for (auto &item : source)
       {
         items.push_back(clone_value(item));
       }
@@ -132,11 +174,14 @@ namespace NG::runtime
       {
         cloned->properties[name] = clone_value(prop);
       }
-      cloned->fields.reserve(structural->fields.size());
-      for (auto &field : structural->fields)
+      auto sourceFields = structural->payload_fields();
+      Vec<RuntimeRef<NGObject>> clonedFields;
+      clonedFields.reserve(sourceFields.size());
+      for (auto &field : sourceFields)
       {
-        cloned->fields.push_back(clone_value(field));
+        clonedFields.push_back(clone_value(field));
       }
+      cloned->replace_payload_fields(clonedFields);
       return cloned;
     }
     if (auto newType = std::dynamic_pointer_cast<NGNewType>(value))
@@ -145,9 +190,10 @@ namespace NG::runtime
     }
     if (auto tagged = std::dynamic_pointer_cast<NGTaggedValue>(value))
     {
+      auto sourcePayload = tagged->payload_items();
       Vec<RuntimeRef<NGObject>> payload;
-      payload.reserve(tagged->payload.size());
-      for (auto &item : tagged->payload)
+      payload.reserve(sourcePayload.size());
+      for (auto &item : sourcePayload)
       {
         payload.push_back(clone_value(item));
       }

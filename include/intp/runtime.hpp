@@ -2,13 +2,23 @@
 
 #include <algorithm>
 #include <ast.hpp>
+#include <cstddef>
+#include <cstdint>
 #include <debug.hpp>
 #include <functional>
 #include <memory>
+#include <runtime/buffer_runtime.hpp>
 #include <utility>
 
 namespace NG::runtime
 {
+    struct NGObject;
+    struct NGType;
+    struct NGModule;
+    struct NGContext;
+    struct NGStructuralObject;
+    struct NGTaggedValue;
+    struct NumeralBase;
 
     /**
      * @brief Alias for std::shared_ptr for runtime objects.
@@ -33,15 +43,6 @@ namespace NG::runtime
     }
 
     /**
-     * @brief Represents the context of a function invocation.
-     */
-    struct NGInvocationContext
-    {
-        RuntimeRef<NGObject> target;      ///< The target object of the invocation.
-        Vec<RuntimeRef<NGObject>> params; ///< The parameters of the invocation.
-    };
-
-    /**
      * @brief Exception used to signal the next iteration of a loop.
      */
     struct NextIteration : public std::exception
@@ -57,14 +58,56 @@ namespace NG::runtime
     {
     };
 
-    using NGSelf = RuntimeRef<NGObject>;              ///< Alias for a `RuntimeRef` to the current object (`self`).
-    using NGCtx = RuntimeRef<NGContext>;              ///< Alias for a `RuntimeRef` to the current context.
-    using NGInvCtx = RuntimeRef<NGInvocationContext>; ///< Alias for a `RuntimeRef` to the current invocation context.
+    using NGSelf = RuntimeRef<NGObject>; ///< Alias for a `RuntimeRef` to the current object (`self`).
+    using NGCtx = RuntimeRef<NGContext>; ///< Alias for a `RuntimeRef` to the current context.
+    using NGArgs = Vec<RuntimeRef<NGObject>>;
+
+    [[nodiscard]] auto runtime_value_show(const RuntimeRef<NGObject> &value) -> Str;
+    [[nodiscard]] auto runtime_value_bool(const RuntimeRef<NGObject> &value) -> bool;
+    [[nodiscard]] auto runtime_value_respond(const RuntimeRef<NGObject> &value, const Str &member, const NGCtx &context,
+                                             const NGArgs &args) -> RuntimeRef<NGObject>;
+    [[nodiscard]] auto structural_runtime_type(const NGStructuralObject &structural) -> RuntimeRef<NGType>;
+    [[nodiscard]] auto structural_runtime_show(const NGStructuralObject &structural) -> Str;
+    [[nodiscard]] auto tagged_runtime_type(const NGTaggedValue &tagged) -> RuntimeRef<NGType>;
+    [[nodiscard]] auto tagged_runtime_show(const NGTaggedValue &tagged) -> Str;
+    [[nodiscard]] auto numeral_runtime_show(const NumeralBase &numeral) -> Str;
+    [[nodiscard]] auto numeral_runtime_bool(const NumeralBase &numeral) -> bool;
+
+    using LayoutKind = NG::buffer_runtime::LayoutKind;
+    using StorageClass = NG::buffer_runtime::StorageClass;
+    using FieldLayout = NG::buffer_runtime::FieldLayout;
+    using VariantLayout = NG::buffer_runtime::VariantLayout;
+    using TypeLayout = NG::buffer_runtime::TypeLayout;
+    using FieldSpec = NG::buffer_runtime::FieldSpec;
+    using VariantSpec = NG::buffer_runtime::VariantSpec;
+    using LayoutRegistry = NG::buffer_runtime::LayoutRegistry;
+    using HeapStore = NG::buffer_runtime::HeapStore;
+    using CellRef = NG::buffer_runtime::CellRef;
+    using NativeHandle = NG::buffer_runtime::NativeHandle;
+
+    struct StorageCell : NG::buffer_runtime::FrameSlot
+    {
+        RuntimeRef<NGObject> boxedValue;
+        RuntimeRef<NGType> runtimeType;
+        NGContext *ownerContext = nullptr;
+        uint64_t ownerScopeId = 0;
+        bool marked = false;
+    };
+
+    struct CallFrame
+    {
+        Str functionName;
+        RuntimeRef<StorageCell> receiver;
+        Vec<RuntimeRef<StorageCell>> params;
+        Vec<RuntimeRef<StorageCell>> locals;
+        Vec<RuntimeRef<StorageCell>> temporaries;
+        RuntimeRef<StorageCell> returnSlot;
+    };
 
     /**
-     * @brief Represents an invocable entity (e.g., a function).
+     * @brief Represents a callable runtime entity.
      */
-    using NGInvocable = std::function<void(NGSelf self, NGCtx ctx, NGInvCtx invCtx)>;
+    using NGCallable = std::function<RuntimeRef<NGObject>(const NGSelf &self, const NGCtx &ctx, const NGArgs &args)>;
 
     /**
      * @brief Represents a type in the runtime.
@@ -72,6 +115,7 @@ namespace NG::runtime
     struct NGType
     {
         Str name; ///< The name of the type.
+        TypeLayout layout; ///< Runtime layout metadata for value/storage representation.
 
         Vec<Str> properties; ///< The properties of the type.
 
@@ -79,7 +123,12 @@ namespace NG::runtime
 
         int32_t variantIndex = -1; ///< Tagged union variant index when this type describes a variant constructor.
 
-        Map<Str, NGInvocable> memberFunctions; ///< The member functions of the type.
+        Map<Str, NGCallable> memberFunctions; ///< The member functions of the type.
+        std::function<RuntimeRef<NGObject>(const NGSelf &self, const Str &member, const NGCtx &ctx,
+                                           const NGArgs &args)>
+            respondHandler; ///< Optional type-driven member resolution before generic member functions.
+        std::function<Str(const NGSelf &self)> showHandler; ///< Optional type-driven show protocol.
+        std::function<bool(const NGSelf &self)> boolHandler; ///< Optional type-driven truthiness protocol.
 
         auto operator==(const NGType &other) const -> bool
         {
@@ -106,13 +155,25 @@ namespace NG::runtime
         }
     };
 
+    struct RuntimeSymbolTable
+    {
+        Map<Str, RuntimeRef<NGObject>> objects;
+        Map<Str, RuntimeRef<StorageCell>> objectSlots;
+        Map<Str, NGCallable> functions;
+        Map<Str, RuntimeRef<NGType>> types;
+        Map<Str, RuntimeRef<NGType>> variantTypes;
+        Map<Str, RuntimeRef<NGModule>> modules;
+        Vec<Str> exports;
+        Vec<Str> imported;
+    };
+
     /**
      * @brief Represents the execution context.
      */
     struct NGContext
     {
-
-        RuntimeRef<NGObject> retVal; ///< The return value of the current function.
+        NGContext();
+        ~NGContext();
 
         /**
          * @brief Creates a new child context.
@@ -128,6 +189,7 @@ namespace NG::runtime
          * @return A `RuntimeRef` to the object.
          */
         auto get(Str name) -> RuntimeRef<NGObject>;
+        auto get_slot(Str name) -> RuntimeRef<StorageCell>;
         /**
          * @brief Sets an object in the context.
          *
@@ -149,7 +211,7 @@ namespace NG::runtime
          * @param name The name of the function.
          * @param value The function.
          */
-        void define_function(Str name, NGInvocable value);
+        void define_function(Str name, NGCallable value);
         /**
          * @brief Defines a new type in the context.
          *
@@ -205,7 +267,7 @@ namespace NG::runtime
          * @param name The name of the function.
          * @return The function.
          */
-        auto get_function(Str name) -> NGInvocable;
+        auto get_function(Str name) -> NGCallable;
         /**
          * @brief Gets a type from the context.
          *
@@ -222,22 +284,25 @@ namespace NG::runtime
          */
         auto get_module(Str name) -> RuntimeRef<NGModule>;
 
+        void set_runtime_state(Str name, std::shared_ptr<void> value);
+        [[nodiscard]] auto get_runtime_state(const Str &name) const -> std::shared_ptr<void>;
+        void clear_runtime_state(const Str &name);
+
+        auto symbol_table() -> RuntimeRef<RuntimeSymbolTable>;
+        auto parent_context() const -> NGContext * { return parent; }
+
         /**
          * @brief Prints a summary of the context.
          */
         void summary();
 
         Map<Str, RuntimeRef<NGObject>> objects; ///< The objects in the context.
-        Map<Str, NGInvocable> functions;        ///< The functions in the context.
-        Map<Str, RuntimeRef<NGType>> types;     ///< The types in the context.
-        Map<Str, RuntimeRef<NGType>> variantTypes; ///< Tagged union variant metadata.
-        Map<Str, RuntimeRef<NGModule>> modules; ///< The modules in the context.
-        Vec<Str> exports;                       ///< The exported symbols.
-        Vec<Str> imported;                      ///< The imported symbols.
+        Map<Str, RuntimeRef<StorageCell>> objectSlots; ///< Compatibility storage cells for local bindings.
         Set<Str> locals;                        ///< The local variables.
-        Vec<std::weak_ptr<NGContext>> children; ///< Active child contexts.
+        Map<Str, std::shared_ptr<void>> runtimeState; ///< Opaque per-context runtime metadata.
 
       private:
+        RuntimeRef<RuntimeSymbolTable> symbols;
         NGContext *parent = nullptr; ///< The parent context.
     };
 
@@ -375,7 +440,8 @@ namespace NG::runtime
          * @param invocationContext The invocation context.
          * @return The result of the invocation.
          */
-        virtual auto respond(const Str &member, NGCtx context, NGInvCtx invocationContext) -> RuntimeRef<NGObject> = 0;
+        virtual auto respond(const RuntimeRef<NGObject> &self, const Str &member, NGCtx context,
+                             const NGArgs &args) -> RuntimeRef<NGObject> = 0;
 
         virtual ~OperatorsBase() noexcept = 0;
     };
@@ -445,7 +511,7 @@ namespace NG::runtime
          */
         static auto objectType() -> RuntimeRef<NGType>;
 
-        [[nodiscard]] auto boolValue() const -> bool override { return true; }
+        [[nodiscard]] auto boolValue() const -> bool override;
 
         [[nodiscard]] auto show() const -> Str override;
 
@@ -496,7 +562,8 @@ namespace NG::runtime
 
         auto opRShift(RuntimeRef<NGObject> other) -> RuntimeRef<NGObject> override;
         // Meta-Object function
-        auto respond(const Str &member, NGCtx context, NGInvCtx invocationContext) -> RuntimeRef<NGObject> override;
+        auto respond(const RuntimeRef<NGObject> &self, const Str &member, NGCtx context,
+                     const NGArgs &args) -> RuntimeRef<NGObject> override;
     };
 
     /**
@@ -578,11 +645,16 @@ namespace NG::runtime
         Set<Str> exports; ///< The exported symbols.
 
         Map<Str, RuntimeRef<NGObject>> objects; ///< The objects in the module.
-        Map<Str, NGInvocable> functions;        ///< The functions in the module.
+        Map<Str, NGCallable> functions;         ///< The functions in the module.
         Map<Str, RuntimeRef<NGType>> types;     ///< The types in the module.
-        Map<Str, NGInvocable> native_functions; ///< The native functions in the module.
+        Map<Str, NGCallable> native_functions;  ///< The native functions in the module.
+        Map<Str, std::shared_ptr<void>> native_state; ///< Runtime-owned native module state.
 
         NGModule(RuntimeRef<NGContext> ctx);
+        static auto moduleType() -> RuntimeRef<NGType>;
+        void set_native_state(Str name, std::shared_ptr<void> value);
+        [[nodiscard]] auto get_native_state(const Str &name) const -> std::shared_ptr<void>;
+        void clear_native_state(const Str &name);
 
         /**
          * @brief Returns the size of the module.
@@ -590,8 +662,6 @@ namespace NG::runtime
          * @return The size of the module.
          */
         [[nodiscard]] auto size() const -> size_t { return objects.size() + functions.size() + types.size(); }
-
-        auto respond(const Str &member, NGCtx context, NGInvCtx invocationContext) -> RuntimeRef<NGObject> override;
 
         ~NGModule() override;
     };
@@ -601,17 +671,31 @@ namespace NG::runtime
      */
     struct NGArray : NGObject
     {
-        RuntimeRef<Vec<RuntimeRef<NGObject>>> items; ///< The items in the array.
+        mutable Vec<RuntimeRef<StorageCell>> elementSlots;
+        mutable HeapStore headerStore;
+        mutable CellRef headerRef;
+        mutable CellRef payloadRef;
+        mutable size_t payloadCapacity = 0;
 
-        explicit NGArray(const Vec<RuntimeRef<NGObject>> &vec = {}) : items{makert<Vec<RuntimeRef<NGObject>>>(vec)} {}
+        explicit NGArray(const Vec<RuntimeRef<NGObject>> &vec = {});
+
+        static auto arrayType() -> RuntimeRef<NGType>;
+
+        void sync_header_backing() const;
+        void sync_element_slots() const;
+        [[nodiscard]] auto header_cell() const -> CellRef;
+        [[nodiscard]] auto header_store() const -> const HeapStore & { return headerStore; }
+        [[nodiscard]] auto header_length() const -> uint64_t;
+        [[nodiscard]] auto header_capacity() const -> uint64_t;
+        [[nodiscard]] auto header_data_handle() const -> NativeHandle;
+        [[nodiscard]] auto payload_cell() const -> CellRef;
+        [[nodiscard]] auto payload_items() const -> Vec<RuntimeRef<NGObject>>;
+        void replace_payload_items(const Vec<RuntimeRef<NGObject>> &values, size_t capacityHint = 0);
+        [[nodiscard]] auto element_slot(size_t index) const -> RuntimeRef<StorageCell>;
 
         [[nodiscard]] auto opIndex(RuntimeRef<NGObject> index) const -> RuntimeRef<NGObject> override;
 
         auto opIndex(RuntimeRef<NGObject> index, RuntimeRef<NGObject> newValue) -> RuntimeRef<NGObject> override;
-
-        [[nodiscard]] auto show() const -> Str override;
-
-        [[nodiscard]] auto boolValue() const -> bool override;
 
         [[nodiscard]] auto opEquals(RuntimeRef<NGObject> other) const -> bool override;
 
@@ -623,23 +707,25 @@ namespace NG::runtime
      */
     struct NGTuple : NGObject
     {
-        RuntimeRef<Vec<RuntimeRef<NGObject>>> items; ///< The items in the tuple.
+        mutable Vec<RuntimeRef<StorageCell>> elementSlots;
+        mutable HeapStore payloadStore;
+        mutable CellRef payloadRef;
 
-        explicit NGTuple(const Vec<RuntimeRef<NGObject>> &vec = {}) : items{makert<Vec<RuntimeRef<NGObject>>>(vec)} {}
+        explicit NGTuple(const Vec<RuntimeRef<NGObject>> &vec = {});
+        static auto tupleType() -> RuntimeRef<NGType>;
+        void sync_payload_backing() const;
+        void sync_element_slots() const;
+        [[nodiscard]] auto payload_cell() const -> CellRef;
+        [[nodiscard]] auto payload_store() const -> const HeapStore & { return payloadStore; }
+        [[nodiscard]] auto payload_items() const -> Vec<RuntimeRef<NGObject>>;
+        void replace_payload_items(const Vec<RuntimeRef<NGObject>> &values);
+        [[nodiscard]] auto element_slot(size_t index) const -> RuntimeRef<StorageCell>;
 
         [[nodiscard]] auto opIndex(RuntimeRef<NGObject> index) const -> RuntimeRef<NGObject> override;
 
         auto opIndex(RuntimeRef<NGObject> index, RuntimeRef<NGObject> newValue) -> RuntimeRef<NGObject> override;
 
-        [[nodiscard]] auto show() const -> Str override;
-
-        [[nodiscard]] auto boolValue() const -> bool override;
-
         [[nodiscard]] auto opEquals(RuntimeRef<NGObject> other) const -> bool override;
-
-        [[nodiscard]] auto type() const -> RuntimeRef<NGType> override;
-
-        auto respond(const Str &member, NGCtx context, NGInvCtx invocationContext) -> RuntimeRef<NGObject> override;
     };
 
     /**
@@ -651,11 +737,9 @@ namespace NG::runtime
 
         explicit NGBoolean(bool value = false) : value{value} {}
 
-        [[nodiscard]] auto show() const -> Str override;
+        static auto booleanType() -> RuntimeRef<NGType>;
 
         [[nodiscard]] auto opEquals(RuntimeRef<NGObject> other) const -> bool override;
-
-        [[nodiscard]] auto boolValue() const -> bool override;
     };
 
     /**
@@ -664,6 +748,9 @@ namespace NG::runtime
     struct NGString final : NGObject
     {
         Str value; ///< The value of the string.
+        mutable HeapStore headerStore;
+        mutable CellRef headerRef;
+        mutable CellRef payloadRef;
 
         /**
          * @brief Returns the type of the string.
@@ -671,14 +758,16 @@ namespace NG::runtime
          * @return A `RuntimeRef` to the type of the string.
          */
         static auto stringType() -> RuntimeRef<NGType>;
+        void sync_header_backing() const;
+        [[nodiscard]] auto header_cell() const -> CellRef;
+        [[nodiscard]] auto header_store() const -> const HeapStore & { return headerStore; }
+        [[nodiscard]] auto header_length() const -> uint64_t;
+        [[nodiscard]] auto header_data_handle() const -> NativeHandle;
+        [[nodiscard]] auto payload_cell() const -> CellRef;
+        [[nodiscard]] auto payload_value() const -> Str;
+        void replace_payload_value(Str nextValue);
 
-        [[nodiscard]] auto type() const -> RuntimeRef<NGType> override;
-
-        explicit NGString(Str str) : value{std::move(str)} {}
-
-        [[nodiscard]] auto show() const -> Str override;
-
-        [[nodiscard]] auto boolValue() const -> bool override;
+        explicit NGString(Str str);
 
         [[nodiscard]] auto opEquals(RuntimeRef<NGObject> other) const -> bool override;
 
@@ -691,30 +780,31 @@ namespace NG::runtime
     struct NGStructuralObject : NGObject
     {
         RuntimeRef<NGType> customizedType;         ///< The customized type of the object.
-        Map<Str, RuntimeRef<NGObject>> properties; ///< The properties of the object (string-keyed).
-        Vec<RuntimeRef<NGObject>> fields;          ///< The fields of the object (index-based, O(1) access).
+        Map<Str, RuntimeRef<NGObject>> properties; ///< Dynamic/string-keyed properties not backed by typed field slots.
+        mutable Vec<RuntimeRef<StorageCell>> fieldSlots;
+        mutable HeapStore payloadStore;
+        mutable CellRef payloadRef;
 
-        Map<Str, NGInvocable> selfMemberFunctions; ///< The member functions of the object.
+        Map<Str, NGCallable> selfMemberFunctions; ///< The member functions of the object.
 
-        auto respond(const Str &member, NGCtx context, NGInvCtx invocationContext) -> RuntimeRef<NGObject> override;
+        void sync_payload_backing() const;
+        void sync_field_slots() const;
+        [[nodiscard]] auto payload_cell() const -> CellRef;
+        [[nodiscard]] auto payload_store() const -> const HeapStore & { return payloadStore; }
+        [[nodiscard]] auto payload_fields() const -> Vec<RuntimeRef<NGObject>>;
+        void replace_payload_fields(const Vec<RuntimeRef<NGObject>> &values);
+        [[nodiscard]] auto field_slot(size_t index) const -> RuntimeRef<StorageCell>;
 
-        [[nodiscard]] auto type() const -> RuntimeRef<NGType> override;
-
-        [[nodiscard]] auto show() const -> Str override;
     };
 
     struct NGUnit : NGObject
     {
-        [[nodiscard]] auto type() const -> RuntimeRef<NGType> override;
-        [[nodiscard]] auto show() const -> Str override;
+        static auto unitType() -> RuntimeRef<NGType>;
     };
 
     struct NGMovedObject final : NGObject
     {
         [[nodiscard]] static auto movedType() -> RuntimeRef<NGType>;
-        [[nodiscard]] auto type() const -> RuntimeRef<NGType> override;
-        [[nodiscard]] auto show() const -> Str override;
-        [[nodiscard]] auto boolValue() const -> bool override;
     };
 
     struct NGReference final : NGObject
@@ -723,21 +813,21 @@ namespace NG::runtime
         using Setter = std::function<void(RuntimeRef<NGObject>)>;
         using MarkHook = std::function<void()>;
 
+        RuntimeRef<StorageCell> targetCell;
         Getter getter;
         Setter setter;
         MarkHook markHook;
         Str debugName;
 
+        NGReference(RuntimeRef<StorageCell> targetCell, Str debugName, MarkHook markHook = nullptr);
         NGReference(Getter getter, Setter setter, Str debugName, MarkHook markHook = nullptr);
 
         [[nodiscard]] static auto referenceType() -> RuntimeRef<NGType>;
-        [[nodiscard]] auto type() const -> RuntimeRef<NGType> override;
-        [[nodiscard]] auto show() const -> Str override;
-        [[nodiscard]] auto boolValue() const -> bool override;
 
         [[nodiscard]] auto read() const -> RuntimeRef<NGObject>;
         void write(const RuntimeRef<NGObject> &value) const;
         void mark_referenced_heap() const;
+        [[nodiscard]] auto storage_cell() const -> RuntimeRef<StorageCell> { return targetCell; }
     };
 
     /**
@@ -755,12 +845,33 @@ namespace NG::runtime
             : newType(std::move(type)), wrapped(std::move(value)) {}
 
         [[nodiscard]] auto type() const -> RuntimeRef<NGType> override { return newType; }
-        [[nodiscard]] auto show() const -> Str override { return wrapped->show(); }
-        [[nodiscard]] auto boolValue() const -> bool override { return wrapped->boolValue(); }
-
-        auto respond(const Str &member, NGCtx context, NGInvCtx invocationContext) -> RuntimeRef<NGObject> override
+        [[nodiscard]] auto show() const -> Str override
         {
-            return wrapped->respond(member, context, invocationContext);
+            if (newType && newType->showHandler)
+            {
+                return newType->showHandler(RuntimeRef<NGObject>(const_cast<NGNewType *>(this), [](NGObject *) {}));
+            }
+            return runtime_value_show(wrapped);
+        }
+        [[nodiscard]] auto boolValue() const -> bool override
+        {
+            if (newType && newType->boolHandler)
+            {
+                return newType->boolHandler(RuntimeRef<NGObject>(const_cast<NGNewType *>(this), [](NGObject *) {}));
+            }
+            return runtime_value_bool(wrapped);
+        }
+
+        auto respond(const RuntimeRef<NGObject> &self, const Str &member, NGCtx context,
+                     const NGArgs &args) -> RuntimeRef<NGObject> override
+        {
+            if (newType && (newType->respondHandler || newType->memberFunctions.contains(member)))
+            {
+                auto dispatchSelf = self && self.get() == this ? self
+                                                               : RuntimeRef<NGObject>(this, [](NGObject *) {});
+                return NGObject::respond(dispatchSelf, member, context, args);
+            }
+            return runtime_value_respond(wrapped, member, context, args);
         }
     };
 
@@ -772,18 +883,27 @@ namespace NG::runtime
         Str unionName;                       ///< The name of the tagged union type.
         Str variantName;                     ///< The name of this variant.
         int32_t variantIndex;                ///< The index of this variant.
-        Vec<RuntimeRef<NGObject>> payload;   ///< The payload values.
         Vec<Str> payloadNames;               ///< Named fields for the payload (e.g. {"value"} for Ok(value: i32)).
+        mutable Vec<RuntimeRef<StorageCell>> payloadSlots;
+        mutable HeapStore payloadStore;
+        mutable CellRef payloadRef;
 
         NGTaggedValue(Str unionName, Str variantName, int32_t variantIndex,
                       Vec<RuntimeRef<NGObject>> payload, Vec<Str> payloadNames = {})
             : unionName(std::move(unionName)), variantName(std::move(variantName)),
-              variantIndex(variantIndex), payload(std::move(payload)), payloadNames(std::move(payloadNames)) {}
+              variantIndex(variantIndex), payloadNames(std::move(payloadNames))
+        {
+            replace_payload_items(payload);
+        }
 
-        [[nodiscard]] auto type() const -> RuntimeRef<NGType> override;
-        [[nodiscard]] auto show() const -> Str override;
-        [[nodiscard]] auto boolValue() const -> bool override { return true; }
-        auto respond(const Str &member, NGCtx context, NGInvCtx invocationContext) -> RuntimeRef<NGObject> override;
+        void sync_payload_backing() const;
+        void sync_payload_slots() const;
+        [[nodiscard]] auto payload_cell() const -> CellRef;
+        [[nodiscard]] auto payload_store() const -> const HeapStore & { return payloadStore; }
+        [[nodiscard]] auto payload_items() const -> Vec<RuntimeRef<NGObject>>;
+        void replace_payload_items(const Vec<RuntimeRef<NGObject>> &values);
+        [[nodiscard]] auto payload_slot(size_t index) const -> RuntimeRef<StorageCell>;
+
     };
 
     /**
@@ -792,10 +912,19 @@ namespace NG::runtime
      * @param moduleId The ID of the module.
      * @param handlers The handlers for the native functions.
      */
-    void register_native_library(Str moduleId, Map<Str, NGInvocable> handlers);
+    void register_native_library(Str moduleId, Map<Str, NGCallable> handlers);
+    void bind_native_library_handlers(const RuntimeRef<NGModule> &module, const Map<Str, NGCallable> &handlers);
+    [[nodiscard]] auto current_native_module(const RuntimeRef<NGContext> &context) -> RuntimeRef<NGModule>;
 
     using GCRootProvider = std::function<Vec<RuntimeRef<NGObject>>()>;
 
+    [[nodiscard]] auto make_storage_cell(const TypeLayout &layout, StorageClass storageClass = StorageClass::TEMPORARY,
+                                         const RuntimeRef<NGObject> &boxedValue = nullptr, Str name = {},
+                                         const RuntimeRef<NGType> &runtimeType = nullptr)
+        -> RuntimeRef<StorageCell>;
+    [[nodiscard]] auto make_boxed_storage_cell(const RuntimeRef<NGObject> &value,
+                                               StorageClass storageClass = StorageClass::TEMPORARY)
+        -> RuntimeRef<StorageCell>;
     [[nodiscard]] auto moved_object() -> RuntimeRef<NGObject>;
     [[nodiscard]] auto is_moved_object(const RuntimeRef<NGObject> &value) -> bool;
     void ensure_usable_value(const RuntimeRef<NGObject> &value);

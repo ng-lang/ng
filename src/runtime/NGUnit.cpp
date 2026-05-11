@@ -3,16 +3,14 @@
 namespace NG::runtime
 {
 
-  auto NGUnit::show() const -> Str
-  {
-    return "unit";
-  }
-
-  auto NGUnit::type() const -> RuntimeRef<NGType>
+  auto NGUnit::unitType() -> RuntimeRef<NGType>
   {
     static RuntimeRef<NGType> unitType = makert<NGType>(NGType{
       .name = "unit",
+      .layout = TypeLayout{.name = "unit", .kind = LayoutKind::INLINE_VALUE, .triviallyCopyable = true,
+                           .triviallyMovable = true},
       .memberFunctions = {},
+      .showHandler = [](const NGSelf &) { return Str{"unit"}; },
     });
     return unitType;
   }

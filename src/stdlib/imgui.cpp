@@ -3,207 +3,357 @@
 #include <imgui_impl_sdl3.h>
 #include <imgui_impl_sdlgpu3.h>
 #include <intp/runtime.hpp>
+#include <orgasm/vm.hpp>
+#include <runtime/native_marshaling.hpp>
+#include <filesystem>
 
 namespace NG::library::imgui
 {
   using namespace NG::runtime;
-  static SDL_Window *window;
-  static ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
-  static bool done = false;
-  static SDL_Event event;
-  static SDL_GPUDevice *gpu_device;
+  using namespace NG::runtime::native;
 
-  static Map<Str, NGInvocable> handlers{
-    {"init",
-     [](const NGSelf &self, const NGCtx &context, const NGInvCtx &invCtx)
-     {
-       // Setup SDL
-       // [If using SDL_MAIN_USE_CALLBACKS: all code below until the main loop starts would likely be your
-       // SDL_AppInit() function]
-       if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD))
+  namespace
+  {
+    const Str IMGUI_STATE_KEY = "$$imgui.state$$";
+
+    struct ImGuiModuleState
+    {
+      SDL_Window *window = nullptr;
+      SDL_GPUDevice *gpu_device = nullptr;
+      ImVec4 clear_color = ImVec4(0.45F, 0.55F, 0.60F, 1.00F);
+      SDL_Event event{};
+      bool done = false;
+      bool sdl_initialized = false;
+      bool window_claimed = false;
+      bool imgui_initialized = false;
+
+      ~ImGuiModuleState() { shutdown(); }
+
+      void shutdown()
+      {
+        if (gpu_device != nullptr)
+        {
+          SDL_WaitForGPUIdle(gpu_device);
+        }
+        if (imgui_initialized)
+        {
+          ImGui_ImplSDL3_Shutdown();
+          ImGui_ImplSDLGPU3_Shutdown();
+          if (ImGui::GetCurrentContext() != nullptr)
+          {
+            ImGui::DestroyContext();
+          }
+          imgui_initialized = false;
+        }
+        if (window_claimed && gpu_device != nullptr && window != nullptr)
+        {
+          SDL_ReleaseWindowFromGPUDevice(gpu_device, window);
+          window_claimed = false;
+        }
+        if (gpu_device != nullptr)
+        {
+          SDL_DestroyGPUDevice(gpu_device);
+          gpu_device = nullptr;
+        }
+        if (window != nullptr)
+        {
+          SDL_DestroyWindow(window);
+          window = nullptr;
+        }
+        if (sdl_initialized)
+        {
+          SDL_Quit();
+          sdl_initialized = false;
+        }
+        done = false;
+      }
+    };
+
+    auto require_imgui_module(const NGCtx &context) -> RuntimeRef<NGModule>
+    {
+      auto module = current_native_module(context);
+      if (module == nullptr)
+      {
+        throw RuntimeException("imgui native call is missing bound module context");
+      }
+      return module;
+    }
+
+    auto find_imgui_state(const NGCtx &context) -> std::shared_ptr<ImGuiModuleState>
+    {
+      auto module = require_imgui_module(context);
+      auto state = module->get_native_state(IMGUI_STATE_KEY);
+      return state ? std::static_pointer_cast<ImGuiModuleState>(state) : nullptr;
+    }
+
+    auto require_imgui_state(const Str &functionName, const NGCtx &context) -> std::shared_ptr<ImGuiModuleState>
+    {
+      auto state = find_imgui_state(context);
+      if (!state)
+      {
+        throw RuntimeException(functionName + "() requires imgui.init() before use");
+      }
+      return state;
+    }
+
+    void store_imgui_state(const NGCtx &context, const std::shared_ptr<ImGuiModuleState> &state)
+    {
+      require_imgui_module(context)->set_native_state(IMGUI_STATE_KEY, state);
+    }
+
+    void clear_imgui_state(const NGCtx &context)
+    {
+      require_imgui_module(context)->clear_native_state(IMGUI_STATE_KEY);
+    }
+
+    auto resolve_runtime_asset_path(const std::filesystem::path &relativePath) -> std::filesystem::path
+    {
+      namespace fs = std::filesystem;
+
+      Vec<fs::path> candidates{
+          fs::current_path(),
+          fs::current_path().parent_path(),
+      };
+
+      auto sourcePath = fs::path(__FILE__);
+      if (sourcePath.is_relative())
+      {
+        sourcePath = fs::current_path() / sourcePath;
+      }
+      candidates.push_back(sourcePath.lexically_normal().parent_path().parent_path().parent_path());
+
+      for (const auto &root : candidates)
+      {
+        auto candidate = (root / relativePath).lexically_normal();
+        if (fs::exists(candidate))
+        {
+          return candidate;
+        }
+      }
+
+      throw RuntimeException("imgui.init(): unable to locate runtime asset: " + relativePath.string());
+    }
+
+    void add_font_or_throw(ImGuiIO &io, const std::filesystem::path &fontPath)
+    {
+      if (io.Fonts->AddFontFromFileTTF(fontPath.string().c_str()) == nullptr)
+      {
+        throw RuntimeException("imgui.init(): failed to load font: " + fontPath.string());
+      }
+    }
+  } // namespace
+
+  static Map<Str, NGCallable> handlers{
+      {"init",
+       [](const NGSelf &, const NGCtx &context, const NGArgs &) -> RuntimeRef<NGObject>
        {
-         printf("Error: SDL_Init(): %s\n", SDL_GetError());
-         return;
-       }
+         if (find_imgui_state(context))
+         {
+           throw RuntimeException("imgui.init() called while an imgui state is still active");
+         }
 
-       // Create SDL window graphics context
-       float main_scale = SDL_GetDisplayContentScale(SDL_GetPrimaryDisplay());
-       SDL_WindowFlags window_flags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIDDEN | SDL_WINDOW_HIGH_PIXEL_DENSITY;
-       window = SDL_CreateWindow("Dear ImGui NG Binding + SDL3 backend Example", (int) (1280 * main_scale),
-                                 (int) (720 * main_scale), window_flags);
-       if (window == nullptr)
+         auto state = std::make_shared<ImGuiModuleState>();
+         if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD))
+         {
+           throw RuntimeException("imgui.init(): SDL_Init() failed: " + Str(SDL_GetError()));
+         }
+         state->sdl_initialized = true;
+
+         float main_scale = SDL_GetDisplayContentScale(SDL_GetPrimaryDisplay());
+         SDL_WindowFlags window_flags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIDDEN | SDL_WINDOW_HIGH_PIXEL_DENSITY;
+         state->window = SDL_CreateWindow("Dear ImGui NG Binding + SDL3 backend Example", static_cast<int>(1280 * main_scale),
+                                          static_cast<int>(720 * main_scale), window_flags);
+         if (state->window == nullptr)
+         {
+           throw RuntimeException("imgui.init(): SDL_CreateWindow() failed: " + Str(SDL_GetError()));
+         }
+         SDL_SetWindowPosition(state->window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
+         SDL_ShowWindow(state->window);
+
+         state->gpu_device =
+             SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_DXIL | SDL_GPU_SHADERFORMAT_METALLIB,
+                                 true, nullptr);
+         if (state->gpu_device == nullptr)
+         {
+           throw RuntimeException("imgui.init(): SDL_CreateGPUDevice() failed: " + Str(SDL_GetError()));
+         }
+
+         if (!SDL_ClaimWindowForGPUDevice(state->gpu_device, state->window))
+         {
+           throw RuntimeException("imgui.init(): SDL_ClaimWindowForGPUDevice() failed: " + Str(SDL_GetError()));
+         }
+         state->window_claimed = true;
+         SDL_SetGPUSwapchainParameters(state->gpu_device, state->window, SDL_GPU_SWAPCHAINCOMPOSITION_SDR,
+                                       SDL_GPU_PRESENTMODE_VSYNC);
+
+         IMGUI_CHECKVERSION();
+         ImGui::CreateContext();
+         state->imgui_initialized = true;
+
+         ImGuiIO &io = ImGui::GetIO();
+         io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+         io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
+
+         ImGui::StyleColorsLight();
+         ImGuiStyle &style = ImGui::GetStyle();
+         style.ScaleAllSizes(main_scale);
+         style.FontScaleDpi = main_scale;
+
+         ImGui_ImplSDL3_InitForSDLGPU(state->window);
+         ImGui_ImplSDLGPU3_InitInfo init_info = {};
+         init_info.Device = state->gpu_device;
+         init_info.ColorTargetFormat = SDL_GetGPUSwapchainTextureFormat(state->gpu_device, state->window);
+         init_info.MSAASamples = SDL_GPU_SAMPLECOUNT_1;
+         ImGui_ImplSDLGPU3_Init(&init_info);
+
+         add_font_or_throw(io, resolve_runtime_asset_path("misc/fonts/SourceSerif/SourceSerif4-Regular.otf"));
+         add_font_or_throw(io, resolve_runtime_asset_path("misc/fonts/SourceSans/SourceSans3-Regular.otf"));
+         add_font_or_throw(io, resolve_runtime_asset_path("misc/fonts/SourceCodePro/SourceCodePro-Regular.otf"));
+
+         store_imgui_state(context, state);
+         return makert<NGUnit>();
+       }},
+      {"eventLoop",
+       [](const NGSelf &, const NGCtx &context, const NGArgs &) -> RuntimeRef<NGObject>
        {
-         printf("Error: SDL_CreateWindow(): %s\n", SDL_GetError());
-         return;
-       }
-       SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
-       SDL_ShowWindow(window);
-
-       // Create GPU Device
-       gpu_device = SDL_CreateGPUDevice(
-           SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_DXIL | SDL_GPU_SHADERFORMAT_METALLIB, true, nullptr);
-       if (gpu_device == nullptr)
+         auto state = require_imgui_state("imgui.eventLoop", context);
+         while (SDL_PollEvent(&state->event))
+         {
+           ImGui_ImplSDL3_ProcessEvent(&state->event);
+           if (state->event.type == SDL_EVENT_QUIT)
+           {
+             state->done = true;
+           }
+           if (state->event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED &&
+               state->event.window.windowID == SDL_GetWindowID(state->window))
+           {
+             state->done = true;
+           }
+         }
+         return makert<NGUnit>();
+       }},
+      {"checkMinimized",
+       [](const NGSelf &, const NGCtx &context, const NGArgs &) -> RuntimeRef<NGObject>
        {
-         printf("Error: SDL_CreateGPUDevice(): %s\n", SDL_GetError());
-         return;
-       }
-
-       // Claim window for GPU Device
-       if (!SDL_ClaimWindowForGPUDevice(gpu_device, window))
+         auto state = require_imgui_state("imgui.checkMinimized", context);
+         if (SDL_GetWindowFlags(state->window) & SDL_WINDOW_MINIMIZED)
+         {
+           SDL_Delay(10);
+           throw NextIteration{{}};
+         }
+         return makert<NGUnit>();
+       }},
+      {"NewFrame",
+       [](const NGSelf &, const NGCtx &context, const NGArgs &) -> RuntimeRef<NGObject>
        {
-         printf("Error: SDL_ClaimWindowForGPUDevice(): %s\n", SDL_GetError());
-         return;
-       }
-       SDL_SetGPUSwapchainParameters(gpu_device, window, SDL_GPU_SWAPCHAINCOMPOSITION_SDR, SDL_GPU_PRESENTMODE_VSYNC);
-
-       // Setup Dear ImGui context
-       IMGUI_CHECKVERSION();
-       ImGui::CreateContext();
-       ImGuiIO &io = ImGui::GetIO();
-       (void) io;
-       io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard; // Enable Keyboard Controls
-       io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;  // Enable Gamepad Controls
-
-       // Setup Dear ImGui style
-       // ImGui::StyleColorsDark();
-       ImGui::StyleColorsLight();
-
-       // Setup scaling
-       ImGuiStyle &style = ImGui::GetStyle();
-       style.ScaleAllSizes(main_scale); // Bake a fixed style scale. (until we have a solution for dynamic style
-                                        // scaling, changing this requires resetting Style + calling this again)
-       style.FontScaleDpi = main_scale; // Set initial font scale. (using io.ConfigDpiScaleFonts=true makes this
-                                        // unnecessary. We leave both here for documentation purpose)
-
-       // Setup Platform/Renderer backends
-       ImGui_ImplSDL3_InitForSDLGPU(window);
-       ImGui_ImplSDLGPU3_InitInfo init_info = {};
-       init_info.Device = gpu_device;
-       init_info.ColorTargetFormat = SDL_GetGPUSwapchainTextureFormat(gpu_device, window);
-       init_info.MSAASamples = SDL_GPU_SAMPLECOUNT_1;
-       ImGui_ImplSDLGPU3_Init(&init_info);
-
-       // Load Fonts
-       // - If no fonts are loaded, dear imgui will use the default font. You can also load multiple fonts and use
-       // ImGui::PushFont()/PopFont() to select them.
-       // - AddFontFromFileTTF() will return the ImFont* so you can store it if you need to select the font among
-       // multiple.
-       // - If the file cannot be loaded, the function will return a nullptr. Please handle those errors in your
-       // application (e.g. use an assertion, or display an error and quit).
-       // - Use '#define IMGUI_ENABLE_FREETYPE' in your imconfig file to use Freetype for higher quality font
-       // rendering.
-       // - Read 'docs/FONTS.md' for more instructions and details.
-       // - Remember that in C/C++ if you want to include a backslash \ in a string literal you need to write a
-       // double backslash \\ ! style.FontSizeBase = 20.0f; io.Fonts->AddFontDefault();
-       // io.Fonts->AddFontFromFileTTF("c:\\Windows\\Fonts\\segoeui.ttf");
-       io.Fonts->AddFontFromFileTTF("../misc/fonts/SourceSerif/SourceSerif4-Regular.otf");
-       io.Fonts->AddFontFromFileTTF("../misc/fonts/SourceSans/SourceSans3-Regular.otf");
-       io.Fonts->AddFontFromFileTTF("../misc/fonts/SourceCodePro/SourceCodePro-Regular.otf");
-       // io.Fonts->AddFontFromFileTTF("../misc/fonts/SourceHanSerif/SimplifiedChinese/SourceHanSerifSC-Regular.otf");
-       // io.Fonts->AddFontFromFileTTF("../misc/fonts/SourceHanSans/SimplifiedChinese/SourceHanSansSC-Regular.otf");
-       // io.Fonts->AddFontFromFileTTF("../../misc/fonts/Roboto-Medium.ttf");
-       // io.Fonts->AddFontFromFileTTF("../../misc/fonts/Cousine-Regular.ttf");
-       // ImFont* font = io.Fonts->AddFontFromFileTTF("c:\\Windows\\Fonts\\ArialUni.ttf");
-       // IM_ASSERT(font != nullptr);
-     }},
-    {"eventLoop",
-     [](const NGSelf &self, const NGCtx &context, const NGInvCtx &invCtx)
-     {
-       while (SDL_PollEvent(&event))
+         require_imgui_state("imgui.NewFrame", context);
+         ImGui_ImplSDLGPU3_NewFrame();
+         ImGui_ImplSDL3_NewFrame();
+         ImGui::NewFrame();
+         return makert<NGUnit>();
+       }},
+      {"Begin",
+       [](const NGSelf &, const NGCtx &context, const NGArgs &args) -> RuntimeRef<NGObject>
        {
-         ImGui_ImplSDL3_ProcessEvent(&event);
-         if (event.type == SDL_EVENT_QUIT)
-           done = true;
-         if (event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED && event.window.windowID == SDL_GetWindowID(window))
-           done = true;
-       }
-       return;
-     }},
-    {"checkMinimized",
-     [](const NGSelf &self, const NGCtx &context, const NGInvCtx &invCtx)
-     {
-       // [If using SDL_MAIN_USE_CALLBACKS: all code below would likely be your SDL_AppIterate() function]
-       if (SDL_GetWindowFlags(window) & SDL_WINDOW_MINIMIZED)
+          require_imgui_state("imgui.Begin", context);
+          auto title = require_arg_as<NGString>("imgui.Begin", native_args_view(context, args), 0, "a string title");
+          ImGui::Begin(title->payload_value().c_str());
+          return makert<NGUnit>();
+        }},
+      {"Text",
+       [](const NGSelf &, const NGCtx &context, const NGArgs &args) -> RuntimeRef<NGObject>
        {
-         SDL_Delay(10);
-         throw NextIteration{{}};
-       }
-     }},
-
-    {"NewFrame",
-     [](const NGSelf &self, const NGCtx &context, const NGInvCtx &invCtx)
-     {
-       // Start the Dear ImGui frame
-       ImGui_ImplSDLGPU3_NewFrame();
-       ImGui_ImplSDL3_NewFrame();
-       ImGui::NewFrame();
-     }},
-    {"Begin", [](const NGSelf &self, const NGCtx &context, const NGInvCtx &invCtx)
-     { ImGui::Begin(invCtx->params[0]->show().c_str()); }},
-
-    {"Text", [](const NGSelf &self, const NGCtx &context, const NGInvCtx &invCtx)
-     { ImGui::Text("%s", invCtx->params[0]->show().c_str()); }},
-    {"End", [](const NGSelf &self, const NGCtx &context, const NGInvCtx &invCtx) { ImGui::End(); }},
-    {"Aborted", [](const NGSelf &self, const NGCtx &context, const NGInvCtx &invCtx)
-     { context->retVal = NGObject::boolean(done); }},
-    {"Render",
-     [](const NGSelf &self, const NGCtx &context, const NGInvCtx &invCtx)
-     {
-       ImGui::Render();
-
-       ImDrawData *draw_data = ImGui::GetDrawData();
-       const bool is_minimized = (draw_data->DisplaySize.x <= 0.0f || draw_data->DisplaySize.y <= 0.0f);
-
-       SDL_GPUCommandBuffer *command_buffer = SDL_AcquireGPUCommandBuffer(gpu_device); // Acquire a GPU command buffer
-
-       SDL_GPUTexture *swapchain_texture;
-       SDL_WaitAndAcquireGPUSwapchainTexture(command_buffer, window, &swapchain_texture, nullptr,
-                                             nullptr); // Acquire a swapchain texture
-
-       if (swapchain_texture != nullptr && !is_minimized)
+          require_imgui_state("imgui.Text", context);
+          auto text = require_arg_as<NGString>("imgui.Text", native_args_view(context, args), 0, "a string");
+          ImGui::Text("%s", text->payload_value().c_str());
+          return makert<NGUnit>();
+        }},
+      {"End",
+       [](const NGSelf &, const NGCtx &context, const NGArgs &) -> RuntimeRef<NGObject>
        {
-         // This is mandatory: call ImGui_ImplSDLGPU3_PrepareDrawData() to upload the vertex/index buffer!
-         ImGui_ImplSDLGPU3_PrepareDrawData(draw_data, command_buffer);
+         require_imgui_state("imgui.End", context);
+         ImGui::End();
+         return makert<NGUnit>();
+       }},
+      {"Aborted",
+       [](const NGSelf &, const NGCtx &context, const NGArgs &) -> RuntimeRef<NGObject>
+       {
+         auto state = require_imgui_state("imgui.Aborted", context);
+         return NGObject::boolean(state->done);
+       }},
+      {"Render",
+       [](const NGSelf &, const NGCtx &context, const NGArgs &) -> RuntimeRef<NGObject>
+       {
+         auto state = require_imgui_state("imgui.Render", context);
+         ImGui::Render();
 
-         // Setup and start a render pass
-         SDL_GPUColorTargetInfo target_info = {};
-         target_info.texture = swapchain_texture;
-         target_info.clear_color = SDL_FColor{clear_color.x, clear_color.y, clear_color.z, clear_color.w};
-         target_info.load_op = SDL_GPU_LOADOP_CLEAR;
-         target_info.store_op = SDL_GPU_STOREOP_STORE;
-         target_info.mip_level = 0;
-         target_info.layer_or_depth_plane = 0;
-         target_info.cycle = false;
-         SDL_GPURenderPass *render_pass = SDL_BeginGPURenderPass(command_buffer, &target_info, 1, nullptr);
+         ImDrawData *draw_data = ImGui::GetDrawData();
+         const bool is_minimized = (draw_data->DisplaySize.x <= 0.0F || draw_data->DisplaySize.y <= 0.0F);
 
-         // Render ImGui
-         ImGui_ImplSDLGPU3_RenderDrawData(draw_data, command_buffer, render_pass);
+         SDL_GPUCommandBuffer *command_buffer = SDL_AcquireGPUCommandBuffer(state->gpu_device);
 
-         SDL_EndGPURenderPass(render_pass);
-       }
+         SDL_GPUTexture *swapchain_texture = nullptr;
+         SDL_WaitAndAcquireGPUSwapchainTexture(command_buffer, state->window, &swapchain_texture, nullptr, nullptr);
 
-       // Submit the command buffer
-       SDL_SubmitGPUCommandBuffer(command_buffer);
-     }},
-    {"cleanup",
-     [](const NGSelf &self, const NGCtx &context, const NGInvCtx &invCtx)
-     {
-       // Cleanup
-       // [If using SDL_MAIN_USE_CALLBACKS: all code below would likely be your SDL_AppQuit() function]
-       SDL_WaitForGPUIdle(gpu_device);
-       ImGui_ImplSDL3_Shutdown();
-       ImGui_ImplSDLGPU3_Shutdown();
-       ImGui::DestroyContext();
+         if (swapchain_texture != nullptr && !is_minimized)
+         {
+           ImGui_ImplSDLGPU3_PrepareDrawData(draw_data, command_buffer);
 
-       SDL_ReleaseWindowFromGPUDevice(gpu_device, window);
-       SDL_DestroyGPUDevice(gpu_device);
-       SDL_DestroyWindow(window);
-       SDL_Quit();
-     }},
+           SDL_GPUColorTargetInfo target_info = {};
+           target_info.texture = swapchain_texture;
+           target_info.clear_color =
+               SDL_FColor{state->clear_color.x, state->clear_color.y, state->clear_color.z, state->clear_color.w};
+           target_info.load_op = SDL_GPU_LOADOP_CLEAR;
+           target_info.store_op = SDL_GPU_STOREOP_STORE;
+           target_info.mip_level = 0;
+           target_info.layer_or_depth_plane = 0;
+           target_info.cycle = false;
+           SDL_GPURenderPass *render_pass = SDL_BeginGPURenderPass(command_buffer, &target_info, 1, nullptr);
+
+           ImGui_ImplSDLGPU3_RenderDrawData(draw_data, command_buffer, render_pass);
+
+           SDL_EndGPURenderPass(render_pass);
+         }
+
+         SDL_SubmitGPUCommandBuffer(command_buffer);
+         return makert<NGUnit>();
+       }},
+      {"cleanup",
+       [](const NGSelf &, const NGCtx &context, const NGArgs &) -> RuntimeRef<NGObject>
+       {
+         auto state = require_imgui_state("imgui.cleanup", context);
+         state->shutdown();
+         clear_imgui_state(context);
+         return makert<NGUnit>();
+       }},
   };
 
   void do_register()
   {
     register_native_library("std.imgui", handlers);
   };
+
+  void register_vm_natives(NG::orgasm::VM &vm)
+  {
+    auto moduleContext = makert<NGContext>();
+    auto runtimeModule = makert<NGModule>(moduleContext);
+    bind_native_library_handlers(runtimeModule, handlers);
+    for (auto &[name, handler] : runtimeModule->native_functions)
+    {
+      vm.register_native_raw(name, [handler](const Vec<RuntimeRef<NGObject>> &args) -> RuntimeRef<NGObject> {
+        return handler(makert<NGUnit>(), makert<NGContext>(), args);
+      });
+    }
+  }
+
+  Vec<Str> native_function_names()
+  {
+    Vec<Str> names;
+    names.reserve(handlers.size());
+    for (auto &[name, _] : handlers)
+    {
+      names.push_back(name);
+    }
+    return names;
+  }
 } // namespace NG::library::imgui

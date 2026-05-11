@@ -303,6 +303,56 @@ TEST_CASE("recursive generic ref traversal should type check", "[TypeCheck][Gene
   destroyast(ast);
 }
 
+TEST_CASE("concrete recursive union helper should expose tagged-union param types", "[TypeCheck][Generic]")
+{
+  auto ast = parse(R"(
+    type Node<T> = Cell(content: T, _next: ref<Node<T>>) | Empty;
+    val empty: Node<i32> = Empty();
+    val first = Cell(1, ref empty);
+
+    fun f(node: Node<i32>) {
+      return;
+    }
+  )");
+
+  REQUIRE(ast != nullptr);
+  auto index = type_check(ast);
+
+  REQUIRE(index.contains("f"));
+  REQUIRE(index.contains("first"));
+
+  auto *funType = dynamic_cast<FunctionType *>(&*index["f"]);
+  REQUIRE(funType != nullptr);
+  REQUIRE(funType->parametersType.size() == 1);
+  REQUIRE(funType->parametersType[0]->tag() == typeinfo_tag::TAGGED_UNION);
+  auto *firstVariant = dynamic_cast<VariantType *>(&*index["first"]);
+  REQUIRE(firstVariant != nullptr);
+  REQUIRE(firstVariant->unionName == "Node<i32>");
+
+  destroyast(ast);
+}
+
+TEST_CASE("concrete recursive union helper call should type check", "[TypeCheck][Generic]")
+{
+  auto ast = parse(R"(
+    type Node<T> = Cell(content: T, _next: ref<Node<T>>) | Empty;
+    val empty: Node<i32> = Empty();
+    val first = Cell(1, ref empty);
+
+    fun f(node: Node<i32>) {
+      return;
+    }
+
+    f(first);
+  )");
+
+  REQUIRE(ast != nullptr);
+  auto index = type_check(ast);
+  REQUIRE(index.contains("first"));
+
+  destroyast(ast);
+}
+
 TEST_CASE("generic type annotation should require explicit type arguments", "[TypeCheck][Generic][Failure]")
 {
   typecheck_failure(R"(

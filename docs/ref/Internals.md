@@ -79,10 +79,47 @@ NG uses `std::shared_ptr` for automatic memory management of runtime objects. Th
 
 ## 7. Foreign Function Interface (FFI)
 
-NG provides a simple FFI to call native C++ functions from NG code. Native functions are declared using the `= native` syntax.
+NG provides a native-function mechanism so NG declarations can be implemented in host code. On the NG side, the declaration surface remains:
 
 ```ng
 fun my_native_function(arg: i32) -> unit = native;
 ```
 
-These native functions must be registered with the interpreter using the `register_native_library` function.
+### Current implementation
+
+Today, native functions are still wired through the older runtime calling model:
+
+- STUPID stores native handlers as `NGInvocable = std::function<void(NGSelf, NGCtx, NGInvCtx)>`
+- arguments are unpacked manually from `NGInvocationContext::params`
+- return values are written indirectly through `NGContext::retVal`
+- ORGASM has a separate helper layer (`wrap_native`) that marshals `Vec<RuntimeRef<NGObject>>`
+- some standard-library bindings are currently written once for STUPID and then adapted back into VM natives through an extra shim
+
+That shape was sufficient while the runtime itself was still centered on `RuntimeRef<NGObject>` and `NGContext`, but it is not the intended end state.
+
+### Planned direction
+
+As the runtime moves to explicit object layouts, storage cells, and call frames, native FFI should move with it.
+
+The intended direction is:
+
+1. **Keep `= native` as the language-level declaration syntax.**
+2. **Replace the host-side default API** so native functions are registered through a shared callable descriptor and direct signature mapping instead of raw `NGInvocable(self, ctx, invCtx)` callbacks.
+3. **Use the same logical ABI** for interpreted functions, ORGASM functions, and native host functions:
+   - receiver slot
+   - parameter slots
+   - return slot
+   - layout metadata for aggregates
+4. **Keep a low-level raw escape hatch**, but make it an explicit advanced API rather than the default for stdlib/native bindings.
+
+### Target host mapping
+
+The target FFI layer should support direct or near-1:1 mapping for the runtime categories that have stable layouts:
+
+- builtin numerics and `bool`
+- `unit` / `void`
+- string/string-view style host types
+- `ref<T>` as an explicit host-side reference/cell handle
+- layout-backed tuple/array/object/tagged-union views or handles
+
+This is especially important for the standard library, because stdlib native functions should eventually be implemented once and reused by STUPID, ORGASM, and future native code generation without adapter shims.

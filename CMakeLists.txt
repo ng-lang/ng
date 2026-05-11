@@ -51,6 +51,8 @@ set(NG_LIB_SRC
         src/runtime/NGUnit.cpp
         src/runtime/NGTaggedValue.cpp
         src/runtime/NGReference.cpp
+        src/runtime/buffer_runtime.cpp
+        src/runtime/storage_layout.cpp
         src/runtime/managed_heap.cpp
         src/sysdep/process.cpp
         src/stdlib/prelude.cpp
@@ -90,6 +92,8 @@ set(NG_TEST_SRC
         test/runtime/nominal_test.cpp
         test/runtime/runtime_numeral_test.cpp
         test/runtime/tagged_value_test.cpp
+        test/runtime/context_value_ops_test.cpp
+        test/runtime/buffer_runtime_test.cpp
         test/typecheck/typeinfo_primitive_test.cpp
         test/typecheck/typeinfo_function_test.cpp
         test/typecheck/typeinfo_generic_test.cpp

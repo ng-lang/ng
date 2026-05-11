@@ -4,9 +4,23 @@
 namespace NG::runtime
 {
 
-  auto NGBoolean::show() const -> Str
+  auto NGBoolean::booleanType() -> RuntimeRef<NGType>
   {
-    return value ? "true" : "false";
+    static auto type = makert<NGType>(NGType{
+        .name = "Bool",
+        .layout = TypeLayout{.name = "Bool", .kind = LayoutKind::INLINE_VALUE},
+        .showHandler =
+            [](const NGSelf &self) {
+              auto boolean = std::dynamic_pointer_cast<NGBoolean>(self);
+              return boolean && boolean->value ? "true" : "false";
+            },
+        .boolHandler =
+            [](const NGSelf &self) {
+              auto boolean = std::dynamic_pointer_cast<NGBoolean>(self);
+              return boolean && boolean->value;
+            },
+    });
+    return type;
   }
 
   auto NGBoolean::opEquals(RuntimeRef<NGObject> other) const -> bool
@@ -16,11 +30,6 @@ namespace NG::runtime
       return otherBoolean->value == value;
     }
     return false;
-  }
-
-  auto NGBoolean::boolValue() const -> bool
-  {
-    return value;
   }
 
 } // namespace NG::runtime

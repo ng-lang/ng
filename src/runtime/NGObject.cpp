@@ -1,6 +1,7 @@
 
 #include "intp/runtime.hpp"
 #include <debug.hpp>
+#include <runtime/value_access.hpp>
 #include <typeinfo>
 
 namespace NG::runtime
@@ -13,12 +14,17 @@ namespace NG::runtime
 
   auto NGObject::show() const -> Str
   {
-    return "[NGObject]";
+    return runtime_value_show(runtime_self_alias(const_cast<NGObject *>(this)));
   }
 
   auto NGObject::opEquals(RuntimeRef<NGObject> other) const -> bool
   {
     return false;
+  }
+
+  auto NGObject::boolValue() const -> bool
+  {
+    return runtime_value_bool(runtime_self_alias(const_cast<NGObject *>(this)));
   }
 
   auto NGObject::opIndex(RuntimeRef<NGObject> index) const -> RuntimeRef<NGObject>
@@ -77,21 +83,11 @@ namespace NG::runtime
     throw NotImplementedException();
   }
 
-  auto NGObject::respond(const Str &member, NGCtx context, NGInvCtx invocationContext) -> RuntimeRef<NGObject>
+  auto NGObject::respond(const RuntimeRef<NGObject> &self, const Str &member, NGCtx context,
+                         const NGArgs &args) -> RuntimeRef<NGObject>
   {
-    auto type = this->type();
-    Map<Str, NGInvocable> &fns = type->memberFunctions;
-    if (fns.contains(member))
-    {
-      RuntimeRef<NGContext> newContext = context->fork();
-      RuntimeRef<NGObject> self = invocationContext->target;
-      newContext->define("self", self);
-      fns[member](self, newContext, invocationContext);
-
-      return newContext->retVal;
-    }
-
-    throw NotImplementedException("Not implemented " + type->name + "#" + member);
+    auto dispatchSelf = self && self.get() == this ? self : runtime_self_alias(this);
+    return runtime_value_respond(dispatchSelf, member, context, args);
   }
 
   auto NGObject::opNotEqual(RuntimeRef<NGObject> other) const -> bool
@@ -113,13 +109,16 @@ namespace NG::runtime
   {
     static RuntimeRef<NGType> OBJECT_TYPE = makert<NGType>(NGType{
       .name = "Object",
+      .layout = TypeLayout{.name = "Object", .kind = LayoutKind::DYNAMIC},
+      .showHandler = [](const NGSelf &) { return Str{"[NGObject]"}; },
+      .boolHandler = [](const NGSelf &) { return true; },
     });
     return OBJECT_TYPE;
   }
 
   auto NGObject::type() const -> RuntimeRef<NGType>
   {
-    return objectType();
+    return runtime_value_type(runtime_self_alias(const_cast<NGObject *>(this)));
   }
 
   NGObject::~NGObject() = default;

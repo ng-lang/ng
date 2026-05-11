@@ -1,21 +1,16 @@
 #include <intp/runtime.hpp>
+#include <runtime/value_access.hpp>
 
 namespace NG::runtime
 {
   namespace
   {
-    struct ManagedCell
-    {
-      RuntimeRef<NGObject> value;
-      bool marked = false;
-      Str debugName;
-    };
-
     struct ManagedHeapState
     {
       size_t nextProviderId = 1;
-      Vec<std::shared_ptr<ManagedCell>> cells;
+      Vec<RuntimeRef<StorageCell>> cells;
       Map<size_t, GCRootProvider> rootProviders;
+      Set<NGContext *> trackedContexts;
     };
 
     auto heap_state() -> ManagedHeapState &
@@ -24,92 +19,113 @@ namespace NG::runtime
       return state;
     }
 
-    void trace_object(const RuntimeRef<NGObject> &value, Set<const NGObject *> &seen);
+    void trace_object(const RuntimeRef<NGObject> &value, Set<const NGObject *> &seenObjects,
+                      Set<const StorageCell *> &seenCells);
 
-    void trace_reference_target(const RuntimeRef<NGReference> &reference, Set<const NGObject *> &seen)
+    void trace_storage_cell(const RuntimeRef<StorageCell> &cell, Set<const NGObject *> &seenObjects,
+                            Set<const StorageCell *> &seenCells)
+    {
+      if (!cell || seenCells.contains(cell.get()))
+      {
+        return;
+      }
+      seenCells.insert(cell.get());
+      trace_object(cell->boxedValue, seenObjects, seenCells);
+    }
+
+    void trace_reference_target(const RuntimeRef<NGReference> &reference, Set<const NGObject *> &seenObjects,
+                                Set<const StorageCell *> &seenCells)
     {
       if (!reference)
       {
         return;
       }
+      if (auto cell = reference->storage_cell())
+      {
+        trace_storage_cell(cell, seenObjects, seenCells);
+        return;
+      }
       reference->mark_referenced_heap();
-      trace_object(reference->read(), seen);
+      trace_object(reference->read(), seenObjects, seenCells);
     }
 
-    void trace_object(const RuntimeRef<NGObject> &value, Set<const NGObject *> &seen)
+    void trace_object(const RuntimeRef<NGObject> &value, Set<const NGObject *> &seenObjects,
+                      Set<const StorageCell *> &seenCells)
     {
-      if (!value || seen.contains(value.get()) || is_moved_object(value))
+      if (!value || seenObjects.contains(value.get()) || is_moved_object(value))
       {
         return;
       }
-      seen.insert(value.get());
+      seenObjects.insert(value.get());
 
       if (auto reference = std::dynamic_pointer_cast<NGReference>(value))
       {
-        trace_reference_target(reference, seen);
+        trace_reference_target(reference, seenObjects, seenCells);
         return;
       }
       if (auto array = std::dynamic_pointer_cast<NGArray>(value))
       {
-        for (const auto &item : *array->items) trace_object(item, seen);
+        array->sync_element_slots();
+        const auto &payload = array->header_store().get(array->payload_cell()).opaqueRefs;
+        for (const auto &cell : payload)
+        {
+          trace_storage_cell(cell ? std::static_pointer_cast<StorageCell>(cell) : nullptr, seenObjects, seenCells);
+        }
         return;
       }
       if (auto tuple = std::dynamic_pointer_cast<NGTuple>(value))
       {
-        for (const auto &item : *tuple->items) trace_object(item, seen);
+        tuple->sync_element_slots();
+        const auto &payload = tuple->payload_store().get(tuple->payload_cell()).opaqueRefs;
+        for (const auto &cell : payload)
+        {
+          trace_storage_cell(cell ? std::static_pointer_cast<StorageCell>(cell) : nullptr, seenObjects, seenCells);
+        }
         return;
       }
       if (auto structural = std::dynamic_pointer_cast<NGStructuralObject>(value))
       {
-        for (const auto &[name, property] : structural->properties) trace_object(property, seen);
-        for (const auto &field : structural->fields) trace_object(field, seen);
+        for (const auto &[name, property] : structural->properties) trace_object(property, seenObjects, seenCells);
+        structural->sync_field_slots();
+        const auto &payload = structural->payload_store().get(structural->payload_cell()).opaqueRefs;
+        for (const auto &cell : payload)
+        {
+          trace_storage_cell(cell ? std::static_pointer_cast<StorageCell>(cell) : nullptr, seenObjects, seenCells);
+        }
         return;
       }
       if (auto newType = std::dynamic_pointer_cast<NGNewType>(value))
       {
-        trace_object(newType->wrapped, seen);
+        trace_object(newType->wrapped, seenObjects, seenCells);
         return;
       }
       if (auto tagged = std::dynamic_pointer_cast<NGTaggedValue>(value))
       {
-        for (const auto &item : tagged->payload) trace_object(item, seen);
+        tagged->sync_payload_slots();
+        const auto &payload = tagged->payload_store().get(tagged->payload_cell()).opaqueRefs;
+        for (const auto &cell : payload)
+        {
+          trace_storage_cell(cell ? std::static_pointer_cast<StorageCell>(cell) : nullptr, seenObjects, seenCells);
+        }
         return;
       }
       if (auto module = std::dynamic_pointer_cast<NGModule>(value))
       {
-        for (const auto &[name, object] : module->objects) trace_object(object, seen);
+        for (const auto &[name, object] : module->objects) trace_object(object, seenObjects, seenCells);
       }
     }
 
-    void trace_context_roots(const RuntimeRef<NGContext> &context, Vec<RuntimeRef<NGObject>> &roots, Set<const NGContext *> &seen)
-    {
-      if (!context || seen.contains(context.get()))
-      {
-        return;
-      }
-      seen.insert(context.get());
-
-      if (context->retVal)
-      {
-        roots.push_back(context->retVal);
-      }
-      for (const auto &[name, object] : context->objects) roots.push_back(object);
-      for (const auto &[name, module] : context->modules) roots.push_back(module);
-
-      for (auto it = context->children.begin(); it != context->children.end();)
-      {
-        if (auto child = it->lock())
-        {
-          trace_context_roots(child, roots, seen);
-          ++it;
-        }
-        else
-        {
-          it = context->children.erase(it);
-        }
-      }
-    }
   } // namespace
+
+  void register_context_for_gc(NGContext *context)
+  {
+    heap_state().trackedContexts.insert(context);
+  }
+
+  void unregister_context_for_gc(NGContext *context)
+  {
+    heap_state().trackedContexts.erase(context);
+  }
 
   auto auto_deref_value(const RuntimeRef<NGObject> &value) -> RuntimeRef<NGObject>
   {
@@ -125,36 +141,40 @@ namespace NG::runtime
 
   auto allocate_heap_object(const RuntimeRef<NGObject> &value, const Str &debugName) -> RuntimeRef<NGReference>
   {
-    auto cell = std::make_shared<ManagedCell>();
-    cell->value = value;
-    cell->debugName = debugName;
+    auto cell = make_boxed_storage_cell(value, StorageClass::HEAP);
+    cell->name = debugName;
     heap_state().cells.push_back(cell);
-
-    return makert<NGReference>(
-        [cell]() -> RuntimeRef<NGObject> {
-          if (!cell->value)
-          {
-            throw RuntimeException("Dangling heap reference");
-          }
-          ensure_usable_value(cell->value);
-          return cell->value;
-        },
-        [cell](const RuntimeRef<NGObject> &newValue) {
-          if (!cell->value)
-          {
-            throw RuntimeException("Dangling heap reference");
-          }
-          cell->value = newValue;
-        },
-        debugName,
-        [cell]() { cell->marked = true; });
+    return makert<NGReference>(cell, debugName, [cell]() { cell->marked = true; });
   }
 
   auto enumerate_context_roots(const RuntimeRef<NGContext> &context) -> Vec<RuntimeRef<NGObject>>
   {
     Vec<RuntimeRef<NGObject>> roots;
-    Set<const NGContext *> seen;
-    trace_context_roots(context, roots, seen);
+    if (!context)
+    {
+      return roots;
+    }
+    Set<const RuntimeSymbolTable *> seenSymbols;
+    auto rootSymbols = context->symbol_table();
+    for (auto *tracked : heap_state().trackedContexts)
+    {
+      if (!tracked)
+      {
+        continue;
+      }
+      auto trackedSymbols = tracked->symbol_table();
+      if (tracked != context.get() && trackedSymbols.get() != rootSymbols.get())
+      {
+        continue;
+      }
+
+      for (const auto &[name, object] : tracked->objects) roots.push_back(object);
+      if (seenSymbols.insert(trackedSymbols.get()).second)
+      {
+        for (const auto &[name, object] : trackedSymbols->objects) roots.push_back(object);
+        for (const auto &[name, module] : trackedSymbols->modules) roots.push_back(module);
+      }
+    }
     return roots;
   }
 
@@ -176,29 +196,30 @@ namespace NG::runtime
     auto &state = heap_state();
     for (const auto &cell : state.cells) cell->marked = false;
 
-    Set<const NGObject *> seen;
+    Set<const NGObject *> seenObjects;
+    Set<const StorageCell *> seenCells;
     for (const auto &[id, provider] : state.rootProviders)
     {
       for (const auto &root : provider())
       {
-        trace_object(root, seen);
+        trace_object(root, seenObjects, seenCells);
       }
     }
 
     for (const auto &cell : state.cells)
     {
-      if (cell->value && seen.contains(cell->value.get()))
+      if (seenCells.contains(cell.get()))
       {
         cell->marked = true;
       }
     }
 
-    std::erase_if(state.cells, [](const std::shared_ptr<ManagedCell> &cell) {
+    std::erase_if(state.cells, [](const RuntimeRef<StorageCell> &cell) {
       if (cell->marked)
       {
         return false;
       }
-      cell->value = nullptr;
+      runtime_sync_storage_cell(cell, nullptr);
       return true;
     });
   }

@@ -2,6 +2,7 @@
 
 #include <intp/runtime.hpp>
 #include <intp/runtime_numerals.hpp>
+#include <runtime/value_access.hpp>
 #include <functional>
 #include <tuple>
 #include <utility>
@@ -78,7 +79,7 @@ namespace NG::orgasm
     template <>
     inline auto from_ng<bool>(const RuntimeRef<NGObject> &obj) -> bool
     {
-        return obj->boolValue();
+        return runtime_value_bool(obj);
     }
 
     template <>

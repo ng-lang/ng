@@ -170,6 +170,96 @@ assert(person.firstName == "Kimmy");
 )");
 }
 
+TEST_CASE("should resolve unqualified member properties via frame receiver", "[InterpreterTest]")
+{
+  interpret(R"(
+type Counter {
+    property value;
+
+    fun bump(delta) {
+        value := value + delta;
+        return value;
+    }
+}
+
+val counter = new Counter {
+    value: 10
+};
+
+assert(counter.bump(5) == 15);
+assert(counter.value == 15);
+)");
+}
+
+TEST_CASE("function frames should resolve globals without NGContext local fallback", "[InterpreterTest]")
+{
+  interpret(R"(
+val total = 1;
+
+fun bump() {
+    total := total + 1;
+}
+
+bump();
+
+assert(total == 2);
+)");
+}
+
+TEST_CASE("default arguments should resolve earlier parameters through call frame slots", "[InterpreterTest]")
+{
+  interpret(R"(
+fun choose(x, y = x + 1) {
+    return y;
+}
+
+assert(choose(4) == 5);
+assert(choose(4, 9) == 9);
+)");
+}
+
+TEST_CASE("top level frame should publish root bindings before nested function calls", "[InterpreterTest]")
+{
+  interpret(R"(
+val total = 1;
+
+fun readTotal() {
+    assert(total == 3);
+}
+
+{
+    total := 3;
+    readTotal();
+}
+
+assert(total == 3);
+)");
+}
+
+TEST_CASE("nested returns should propagate through return slots only", "[InterpreterTest]")
+{
+  interpret(R"(
+type Result = Ok(value: i32) | Err(msg: string);
+
+fun choose(flag) {
+    if (flag) {
+        switch (Ok(7)) {
+            case Ok(value) {
+                return value;
+            }
+            case Err(msg) {
+                return 0;
+            }
+        }
+    }
+    return -1;
+}
+
+assert(choose(true) == 7);
+assert(choose(false) == -1);
+)");
+}
+
 TEST_CASE("should be able interpret integral values", "[InterpreterTest]")
 {
   interpret(R"(
@@ -233,6 +323,60 @@ fun sum(i, n = 0) {
 val result = sum(10);
 
 assert(result == 55);
+)");
+}
+
+TEST_CASE("block shadowing should honor frame-local scope ownership", "[InterpreterTest]")
+{
+  interpret(R"(
+fun scoped() {
+  val x = 1;
+  if (true) {
+    val x = 2;
+    x := x + 1;
+    assert(x == 3);
+  }
+  assert(x == 1);
+  return x;
+}
+
+assert(scoped() == 1);
+)");
+}
+
+TEST_CASE("switch case bindings should stay scoped without NGContext forks", "[InterpreterTest]")
+{
+  interpret(R"(
+type Result = Ok(value: i32) | Err(msg: string);
+
+fun readOk() {
+  val value = 1;
+  switch (Ok(7)) {
+    case Ok(value) {
+      assert(value == 7);
+    }
+    case Err(msg) {
+      assert(false);
+    }
+  }
+  return value;
+}
+
+fun readErr() {
+  val value = 1;
+  switch (Err("nope")) {
+    case Ok(value) {
+      assert(false);
+    }
+    case Err(msg) {
+      assert(msg == "nope");
+    }
+  }
+  return value;
+}
+
+assert(readOk() == 1);
+assert(readErr() == 1);
 )");
 }
 
@@ -583,6 +727,31 @@ TEST_CASE("interpreter should handle recursive generic ref traversal", "[Interpr
         }
 
         printList(ref first);
+        )");
+}
+
+TEST_CASE("interpreter should handle concrete recursive helper over instantiated union", "[InterpreterTestChecking]")
+{
+  interpret(R"(
+        type Node<T> = Cell(content: T, _next: ref<Node<T>>) | Empty;
+
+        val empty: Node<i32> = Empty();
+        val third = Cell(3, ref empty);
+        val second = Cell(2, ref third);
+        val first = Cell(1, ref second);
+
+        fun printNode(node: Node<i32>) {
+            switch(node) {
+                case Empty {
+                    return;
+                }
+                case Cell(value, nextRef) {
+                    printNode(*nextRef);
+                }
+            }
+        }
+
+        printNode(first);
         )");
 }
 

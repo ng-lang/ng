@@ -2612,7 +2612,7 @@ namespace NG::typecheck
               {
                 payloadNames = tuType->variantPayloadNames[idExpr->id];
               }
-              result = makecheck<VariantType>(name, idExpr->id, 0, payloadTypes, payloadNames);
+              result = makecheck<VariantType>(tuType->name, idExpr->id, 0, payloadTypes, payloadNames);
               return;
             }
           }
@@ -2840,10 +2840,29 @@ namespace NG::typecheck
      * @brief Recursively extract generic parameter bindings by unifying a resolved
      *        parameter type (which may contain GenericParamType) with a concrete argument type.
      */
-    void extractGenericBindings(CheckingRef<TypeInfo> paramType, CheckingRef<TypeInfo> argType,
-                                Map<Str, CheckingRef<TypeInfo>> &substitution)
+    void extractGenericBindingsImpl(CheckingRef<TypeInfo> paramType, CheckingRef<TypeInfo> argType,
+                                    Map<Str, CheckingRef<TypeInfo>> &substitution, Set<uintptr_t> &seen)
     {
       if (!paramType || !argType) return;
+      auto key = reinterpret_cast<uintptr_t>(paramType.get()) ^ (reinterpret_cast<uintptr_t>(argType.get()) << 1U);
+      if (!seen.insert(key).second)
+      {
+        return;
+      }
+
+      paramType = unwrap(paramType);
+      argType = unwrap(argType);
+
+      if (auto paramAlias = std::dynamic_pointer_cast<TypeAliasType>(paramType))
+      {
+        extractGenericBindingsImpl(paramAlias->underlyingType, argType, substitution, seen);
+        return;
+      }
+      if (auto argAlias = std::dynamic_pointer_cast<TypeAliasType>(argType))
+      {
+        extractGenericBindingsImpl(paramType, argAlias->underlyingType, substitution, seen);
+        return;
+      }
 
       if (paramType->tag() == typeinfo_tag::GENERIC_PARAM)
       {
@@ -2856,7 +2875,7 @@ namespace NG::typecheck
       {
         auto &paramArr = static_cast<ArrayType &>(*paramType);
         auto &argArr = static_cast<ArrayType &>(*argType);
-        extractGenericBindings(paramArr.elementType, argArr.elementType, substitution);
+        extractGenericBindingsImpl(paramArr.elementType, argArr.elementType, substitution, seen);
         return;
       }
 
@@ -2866,7 +2885,65 @@ namespace NG::typecheck
         auto &argTup = static_cast<TupleType &>(*argType);
         for (size_t i = 0; i < paramTup.elementTypes.size() && i < argTup.elementTypes.size(); ++i)
         {
-          extractGenericBindings(paramTup.elementTypes[i], argTup.elementTypes[i], substitution);
+          extractGenericBindingsImpl(paramTup.elementTypes[i], argTup.elementTypes[i], substitution, seen);
+        }
+        return;
+      }
+
+      if (paramType->tag() == typeinfo_tag::REFERENCE && argType->tag() == typeinfo_tag::REFERENCE)
+      {
+        auto &paramRef = static_cast<ReferenceType &>(*paramType);
+        auto &argRef = static_cast<ReferenceType &>(*argType);
+        extractGenericBindingsImpl(paramRef.referencedType, argRef.referencedType, substitution, seen);
+        return;
+      }
+
+      if (paramType->tag() == typeinfo_tag::TAGGED_UNION)
+      {
+        auto &paramUnion = static_cast<TaggedUnionType &>(*paramType);
+        if (argType->tag() == typeinfo_tag::TAGGED_UNION)
+        {
+          auto &argUnion = static_cast<TaggedUnionType &>(*argType);
+          for (const auto &[variantName, paramPayload] : paramUnion.variants)
+          {
+            if (!argUnion.variants.contains(variantName))
+            {
+              continue;
+            }
+            const auto &argPayload = argUnion.variants.at(variantName);
+            for (size_t i = 0; i < paramPayload.size() && i < argPayload.size(); ++i)
+            {
+              extractGenericBindingsImpl(paramPayload[i], argPayload[i], substitution, seen);
+            }
+          }
+          return;
+        }
+        if (argType->tag() == typeinfo_tag::VARIANT)
+        {
+          auto &argVariant = static_cast<VariantType &>(*argType);
+          if (paramUnion.variants.contains(argVariant.variantName))
+          {
+            const auto &paramPayload = paramUnion.variants.at(argVariant.variantName);
+            for (size_t i = 0; i < paramPayload.size() && i < argVariant.payloadTypes.size(); ++i)
+            {
+              extractGenericBindingsImpl(paramPayload[i], argVariant.payloadTypes[i], substitution, seen);
+            }
+          }
+          return;
+        }
+      }
+
+      if (paramType->tag() == typeinfo_tag::VARIANT && argType->tag() == typeinfo_tag::VARIANT)
+      {
+        auto &paramVariant = static_cast<VariantType &>(*paramType);
+        auto &argVariant = static_cast<VariantType &>(*argType);
+        if (paramVariant.variantName != argVariant.variantName)
+        {
+          return;
+        }
+        for (size_t i = 0; i < paramVariant.payloadTypes.size() && i < argVariant.payloadTypes.size(); ++i)
+        {
+          extractGenericBindingsImpl(paramVariant.payloadTypes[i], argVariant.payloadTypes[i], substitution, seen);
         }
         return;
       }
@@ -2880,7 +2957,7 @@ namespace NG::typecheck
           auto &argVar = static_cast<VarargsType &>(*argType);
           for (size_t i = 0; i < paramVar.elementTypes.size() && i < argVar.elementTypes.size(); ++i)
           {
-            extractGenericBindings(paramVar.elementTypes[i], argVar.elementTypes[i], substitution);
+            extractGenericBindingsImpl(paramVar.elementTypes[i], argVar.elementTypes[i], substitution, seen);
           }
         }
         else if (argType->tag() == typeinfo_tag::TUPLE)
@@ -2888,13 +2965,20 @@ namespace NG::typecheck
           auto &argTup = static_cast<TupleType &>(*argType);
           for (size_t i = 0; i < paramVar.elementTypes.size() && i < argTup.elementTypes.size(); ++i)
           {
-            extractGenericBindings(paramVar.elementTypes[i], argTup.elementTypes[i], substitution);
+            extractGenericBindingsImpl(paramVar.elementTypes[i], argTup.elementTypes[i], substitution, seen);
           }
         }
         return;
       }
 
       // For other types, no generic params to extract
+    }
+
+    void extractGenericBindings(CheckingRef<TypeInfo> paramType, CheckingRef<TypeInfo> argType,
+                                Map<Str, CheckingRef<TypeInfo>> &substitution)
+    {
+      Set<uintptr_t> seen;
+      extractGenericBindingsImpl(std::move(paramType), std::move(argType), substitution, seen);
     }
 
     /**
@@ -3120,9 +3204,9 @@ namespace NG::typecheck
             bodyChecker.locals[param->paramName] = resolvedType;
             packHandled = true;
           }
-          else if (i < argumentTypes.size())
+          else if (resolvedType)
           {
-            bodyChecker.locals[param->paramName] = argumentTypes[i];
+            bodyChecker.locals[param->paramName] = resolvedType;
           }
           else
           {
@@ -3164,9 +3248,9 @@ namespace NG::typecheck
               packSeen = true;
               resolvedParamTypes.push_back(resolvedType);
             }
-            else if (i < argumentTypes.size())
+            else if (resolvedType)
             {
-              resolvedParamTypes.push_back(argumentTypes[i]);
+              resolvedParamTypes.push_back(resolvedType);
             }
           }
           else if (i < argumentTypes.size())

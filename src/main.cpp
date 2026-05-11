@@ -206,12 +206,17 @@ auto main(int argc, char *argv[]) -> int
       modulePaths.push_back("lib");
       modulePaths.push_back("../lib");
 
-      NG::orgasm::Compiler compiler{modulePaths, NG::library::prelude::native_function_names()};
+      auto nativeNames = NG::library::prelude::native_function_names();
+      auto imguiNativeNames = NG::library::imgui::native_function_names();
+      nativeNames.insert(nativeNames.end(), imguiNativeNames.begin(), imguiNativeNames.end());
+
+      NG::orgasm::Compiler compiler{modulePaths, nativeNames};
       auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
       NG::orgasm::VM vm;
 
       // Register native functions from the prelude
       NG::library::prelude::register_vm_natives(vm);
+      NG::library::imgui::register_vm_natives(vm);
 
       vm.run(bytecode);
     }

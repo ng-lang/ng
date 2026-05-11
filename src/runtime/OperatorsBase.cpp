@@ -82,10 +82,8 @@ namespace NG::runtime
   }
 
   // NOLINT(performance-unnecessary-value-param)
-  auto OperatorsBase::respond(const Str &member,
-                              RuntimeRef<NGContext> context, // NOLINT(performance-unnecessary-value-param)
-                              NGInvCtx invocationContext)    // NOLINT(performance-unnecessary-value-param)
-
+  auto OperatorsBase::respond(const RuntimeRef<NGObject> &self, const Str &member,
+                              RuntimeRef<NGContext> context, const NGArgs &args)
       -> RuntimeRef<NGObject>
   {
     return nullptr;

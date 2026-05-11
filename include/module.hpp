@@ -33,6 +33,16 @@ namespace NG::library::imgui
      * @brief Registers the imgui library.
      */
     void do_register();
+
+    /**
+     * @brief Registers native imgui functions with the ORGASM VM.
+     */
+    void register_vm_natives(NG::orgasm::VM &vm);
+
+    /**
+     * @brief Returns the names of all native imgui functions.
+     */
+    Vec<Str> native_function_names();
 } // namespace NG::library::imgui
 
 namespace NG::module
