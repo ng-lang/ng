@@ -51,16 +51,6 @@ namespace NG::runtime
     }
   }
 
-  auto current_native_module(const RuntimeRef<NGContext> &context) -> RuntimeRef<NGModule>
-  {
-    if (context == nullptr)
-    {
-      return nullptr;
-    }
-    auto state = context->get_runtime_state(NATIVE_MODULE_CONTEXT_KEY);
-    return state ? std::static_pointer_cast<NGModule>(state) : nullptr;
-  }
-
   auto current_native_module(const NGEnv &env) -> RuntimeRef<NGModule>
   {
     auto state = runtime_env_get_state(env, NATIVE_MODULE_CONTEXT_KEY);
@@ -186,7 +176,6 @@ namespace NG::intp
     {
       auto slot = make_boxed_storage_cell(value, StorageClass::GLOBAL);
       slot->name = name;
-      slot->ownerContext = context.get();
       globals->objectSlots[name] = slot;
     }
   }
@@ -1319,7 +1308,6 @@ namespace NG::intp
           throw RuntimeException("Redefine " + name);
         }
         auto slot = make_named_boxed_storage_cell(name, value);
-        slot->ownerContext = context.get();
         slot->ownerScopeId = current_scope_id(activeScopes);
         frame.locals.push_back(slot);
         return;
@@ -1896,13 +1884,11 @@ namespace NG::intp
         CallFrame callFrame{};
         callFrame.functionName = funDef->funName;
         callFrame.receiver = make_named_boxed_storage_cell("self", dummy);
-        callFrame.receiver->ownerContext = newContext.get();
         callFrame.receiver->ownerScopeId = current_scope_id(scopeIds);
         auto returnTypeName = funDef->returnType ? funDef->returnType->repr() : "unit";
         auto returnRuntimeType = resolveRuntimeType(newContext, returnTypeName);
         callFrame.returnSlot =
             make_storage_cell(TypeLayout{.name = returnTypeName}, StorageClass::FRAME, nullptr, "ret", returnRuntimeType);
-        callFrame.returnSlot->ownerContext = newContext.get();
         callFrame.returnSlot->ownerScopeId = current_scope_id(scopeIds);
         frames->push_back(callFrame);
         struct FrameGuard
@@ -1928,7 +1914,6 @@ namespace NG::intp
             }
             auto packed = makert<NGTuple>(packItems);
             auto slot = make_named_boxed_storage_cell(funDef->params[i]->paramName, packed);
-            slot->ownerContext = newContext.get();
             slot->ownerScopeId = current_scope_id(scopeIds);
             frames->back().params.push_back(slot);
             break; // pack parameter is always the last one
@@ -1936,7 +1921,6 @@ namespace NG::intp
           else if (args.size() > i)
           {
             auto slot = make_named_boxed_storage_cell(funDef->params[i]->paramName, args[i]);
-            slot->ownerContext = newContext.get();
             slot->ownerScopeId = current_scope_id(scopeIds);
             frames->back().params.push_back(slot);
           }
@@ -1946,7 +1930,6 @@ namespace NG::intp
             funDef->params[i]->value->accept(&vis);
             auto materialized = materialize_value(vis.object, vis.moved);
             auto slot = make_named_boxed_storage_cell(funDef->params[i]->paramName, materialized);
-            slot->ownerContext = newContext.get();
             slot->ownerScopeId = current_scope_id(scopeIds);
             frames->back().params.push_back(slot);
           }
@@ -2049,13 +2032,11 @@ namespace NG::intp
           CallFrame callFrame{};
           callFrame.functionName = memFn->funName;
           callFrame.receiver = make_named_boxed_storage_cell("self", dummy);
-          callFrame.receiver->ownerContext = newContext.get();
           callFrame.receiver->ownerScopeId = current_scope_id(scopeIds);
           auto returnTypeName = memFn->returnType ? memFn->returnType->repr() : "unit";
           auto returnRuntimeType = resolveRuntimeType(newContext, returnTypeName);
           callFrame.returnSlot =
               make_storage_cell(TypeLayout{.name = returnTypeName}, StorageClass::FRAME, nullptr, "ret", returnRuntimeType);
-          callFrame.returnSlot->ownerContext = newContext.get();
           callFrame.returnSlot->ownerScopeId = current_scope_id(scopeIds);
           frames->push_back(callFrame);
           struct FrameGuard
@@ -2088,7 +2069,6 @@ namespace NG::intp
                                      "' in member function '" + memFn->funName + "'");
             }
             auto slot = make_named_boxed_storage_cell(memFn->params[i]->paramName, value);
-            slot->ownerContext = newContext.get();
             slot->ownerScopeId = current_scope_id(scopeIds);
             frames->back().params.push_back(slot);
           }

@@ -87,15 +87,14 @@ fun my_native_function(arg: i32) -> unit = native;
 
 ### Current implementation
 
-Today, native functions are still wired through the older runtime calling model:
+Today, native functions are wired through the newer runtime env model:
 
-- STUPID stores native handlers as `NGInvocable = std::function<void(NGSelf, NGCtx, NGInvCtx)>`
-- arguments are unpacked manually from `NGInvocationContext::params`
-- return values are written indirectly through `NGContext::retVal`
-- ORGASM has a separate helper layer (`wrap_native`) that marshals `Vec<RuntimeRef<NGObject>>`
-- some standard-library bindings are currently written once for STUPID and then adapted back into VM natives through an extra shim
+- runtime/native callables use `NGCallable = std::function<RuntimeRef<NGObject>(NGSelf, NGEnv, NGArgs)>`
+- env-scoped runtime metadata (for example bound native module identity and slot-backed native args) flows through `RuntimeEnv`
+- native arguments can be read through `NativeArgsView`, which can expose canonical `StorageCell` slots when available
+- ORGASM still adapts VM natives through `wrap_native(...)`, but that adapter now targets the same env-based callable ABI
 
-That shape was sufficient while the runtime itself was still centered on `RuntimeRef<NGObject>` and `NGContext`, but it is not the intended end state.
+The remaining cleanup is no longer about exposing `NGContext` to native handlers directly; it is about removing the internal `RuntimeEnv -> executionContext` compatibility bridge and converging the last VM/native shims on direct cell/handle semantics.
 
 ### Planned direction
 

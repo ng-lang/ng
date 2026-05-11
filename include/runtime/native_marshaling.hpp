@@ -82,10 +82,6 @@ namespace NG::runtime::native
     {
       auto slot = make_boxed_storage_cell(args[i], StorageClass::TEMPORARY);
       slot->name = "arg." + std::to_string(i);
-      if (auto context = runtime_env_context(env))
-      {
-        slot->ownerContext = context.get();
-      }
       slots->push_back(slot);
     }
     if (env)

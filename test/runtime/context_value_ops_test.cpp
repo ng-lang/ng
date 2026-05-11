@@ -273,7 +273,7 @@ TEST_CASE("native library binding injects owning module context and state", "[Ru
                   return makert<NGUnit>();
                 }}});
 
-  REQUIRE(current_native_module(root) == nullptr);
+  REQUIRE(current_native_module(make_runtime_env(root)) == nullptr);
 
   auto result = module->native_functions.at("remember")(nullptr, make_runtime_env(root), {});
   REQUIRE(result != nullptr);
@@ -281,7 +281,7 @@ TEST_CASE("native library binding injects owning module context and state", "[Ru
   auto stored = std::static_pointer_cast<int>(module->get_native_state("sentinel"));
   REQUIRE(stored != nullptr);
   REQUIRE(*stored == 42);
-  REQUIRE(current_native_module(root) == nullptr);
+  REQUIRE(current_native_module(make_runtime_env(root)) == nullptr);
 }
 
 TEST_CASE("heap references are backed by heap storage cells", "[RuntimeTest][GC]")

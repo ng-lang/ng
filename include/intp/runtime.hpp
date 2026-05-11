@@ -98,7 +98,6 @@ namespace NG::runtime
     {
         RuntimeRef<NGObject> boxedValue;
         RuntimeRef<NGType> runtimeType;
-        NGContext *ownerContext = nullptr;
         uint64_t ownerScopeId = 0;
         bool marked = false;
     };
@@ -300,10 +299,6 @@ namespace NG::runtime
          */
         auto get_module(Str name) -> RuntimeRef<NGModule>;
 
-        void set_runtime_state(Str name, std::shared_ptr<void> value);
-        [[nodiscard]] auto get_runtime_state(const Str &name) const -> std::shared_ptr<void>;
-        void clear_runtime_state(const Str &name);
-
         auto symbol_table() -> RuntimeRef<RuntimeSymbolTable>;
         void adopt_symbol_table(RuntimeRef<RuntimeSymbolTable> nextSymbols) { symbols = std::move(nextSymbols); }
         auto parent_context() const -> NGContext * { return parent; }
@@ -315,7 +310,6 @@ namespace NG::runtime
 
         Map<Str, RuntimeRef<StorageCell>> objectSlots; ///< Compatibility storage cells for local bindings.
         Set<Str> locals;                        ///< The local variables.
-        Map<Str, std::shared_ptr<void>> runtimeState; ///< Opaque per-context runtime metadata.
 
       private:
         RuntimeRef<RuntimeSymbolTable> symbols;
@@ -927,7 +921,6 @@ namespace NG::runtime
      */
     void register_native_library(Str moduleId, Map<Str, NGCallable> handlers);
     void bind_native_library_handlers(const RuntimeRef<NGModule> &module, const Map<Str, NGCallable> &handlers);
-    [[nodiscard]] auto current_native_module(const RuntimeRef<NGContext> &context) -> RuntimeRef<NGModule>;
     [[nodiscard]] auto current_native_module(const NGEnv &env) -> RuntimeRef<NGModule>;
 
     using GCRootProvider = std::function<Vec<RuntimeRef<NGObject>>()>;

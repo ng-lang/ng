@@ -18,7 +18,6 @@ namespace NG::runtime
     if (context)
     {
       env->symbols = context->symbol_table();
-      env->runtimeState = context->runtimeState;
       env->executionContext = context;
     }
     return env;
@@ -169,7 +168,6 @@ namespace NG::runtime
     locals.insert(name);
     auto slot = make_boxed_storage_cell(value, parent == nullptr ? StorageClass::GLOBAL : StorageClass::TEMPORARY);
     slot->name = name;
-    slot->ownerContext = this;
     if (parent == nullptr)
     {
       symbol_table()->objectSlots[name] = slot;
@@ -271,29 +269,6 @@ namespace NG::runtime
       symbols = makert<RuntimeSymbolTable>();
     }
     return symbols;
-  }
-
-  void NGContext::set_runtime_state(Str name, std::shared_ptr<void> value)
-  {
-    runtimeState.insert_or_assign(std::move(name), std::move(value));
-  }
-
-  auto NGContext::get_runtime_state(const Str &name) const -> std::shared_ptr<void>
-  {
-    if (runtimeState.contains(name))
-    {
-      return runtimeState.at(name);
-    }
-    if (parent != nullptr)
-    {
-      return parent->get_runtime_state(name);
-    }
-    return nullptr;
-  }
-
-  void NGContext::clear_runtime_state(const Str &name)
-  {
-    runtimeState.erase(name);
   }
 
   void NGContext::summary()
