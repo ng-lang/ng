@@ -157,7 +157,6 @@ namespace NG::runtime
 
     struct RuntimeSymbolTable
     {
-        Map<Str, RuntimeRef<NGObject>> objects;
         Map<Str, RuntimeRef<StorageCell>> objectSlots;
         Map<Str, NGCallable> functions;
         Map<Str, RuntimeRef<NGType>> types;
@@ -296,7 +295,6 @@ namespace NG::runtime
          */
         void summary();
 
-        Map<Str, RuntimeRef<NGObject>> objects; ///< The objects in the context.
         Map<Str, RuntimeRef<StorageCell>> objectSlots; ///< Compatibility storage cells for local bindings.
         Set<Str> locals;                        ///< The local variables.
         Map<Str, std::shared_ptr<void>> runtimeState; ///< Opaque per-context runtime metadata.

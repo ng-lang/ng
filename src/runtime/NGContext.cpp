@@ -62,7 +62,6 @@ namespace NG::runtime
     if (objectSlots.contains(name))
     {
       runtime_sync_storage_cell(objectSlots[name], value);
-      objects[name] = value;
     }
     else if (parent != nullptr)
     {
@@ -71,7 +70,6 @@ namespace NG::runtime
     else if (auto globals = symbol_table(); globals && globals->objectSlots.contains(name))
     {
       runtime_sync_storage_cell(globals->objectSlots[name], value);
-      globals->objects[name] = value;
     }
     else
     {
@@ -93,12 +91,10 @@ namespace NG::runtime
     if (parent == nullptr)
     {
       symbol_table()->objectSlots[name] = slot;
-      symbol_table()->objects[name] = value;
     }
     else
     {
       objectSlots[name] = slot;
-      objects[name] = value;
     }
   }
 
@@ -136,8 +132,7 @@ namespace NG::runtime
 
   auto NGContext::has_object(Str name, bool global) -> bool
   {
-    return get_slot(name) != nullptr || objects.contains(name) || (parent != nullptr && parent->has_object(name, global)) ||
-           (symbol_table() && symbol_table()->objects.contains(name));
+    return get_slot(name) != nullptr;
   }
   auto NGContext::has_function(Str name, bool global) -> bool
   {
@@ -222,18 +217,18 @@ namespace NG::runtime
   void NGContext::summary()
   {
     auto context = this;
-    debug_log("Context objects size", context->objects.size());
+    debug_log("Context objects size", context->objectSlots.size());
 
-    for (const auto &pair : context->objects)
+    for (const auto &[name, slot] : context->objectSlots)
     {
-      debug_log("Context object", "key:", pair.first, "value:", runtime_value_show(pair.second));
+      debug_log("Context object", "key:", name, "value:", runtime_value_show(slot ? slot->boxedValue : nullptr));
     }
 
     auto globals = context->symbol_table();
-    debug_log("Context globals size", globals->objects.size());
-    for (const auto &pair : globals->objects)
+    debug_log("Context globals size", globals->objectSlots.size());
+    for (const auto &[name, slot] : globals->objectSlots)
     {
-      debug_log("Global object", "key:", pair.first, "value:", runtime_value_show(pair.second));
+      debug_log("Global object", "key:", name, "value:", runtime_value_show(slot ? slot->boxedValue : nullptr));
     }
 
     debug_log("Context modules size", globals->modules.size());

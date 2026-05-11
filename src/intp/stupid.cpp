@@ -183,7 +183,6 @@ namespace NG::intp
       slot->ownerContext = context.get();
       globals->objectSlots[name] = slot;
     }
-    globals->objects[name] = value;
   }
 
   static void assign_global_binding(const RuntimeRef<NGContext> &context, const Str &name, const RuntimeRef<NGObject> &value)
@@ -196,7 +195,6 @@ namespace NG::intp
     if (globals && globals->objectSlots.contains(name))
     {
       runtime_sync_storage_cell(globals->objectSlots[name], value);
-      globals->objects[name] = value;
       return;
     }
     throw RuntimeException("Invalid assignment to " + name);

@@ -168,10 +168,22 @@ namespace NG::runtime
         continue;
       }
 
-      for (const auto &[name, object] : tracked->objects) roots.push_back(object);
+      for (const auto &[name, slot] : tracked->objectSlots)
+      {
+        if (slot && slot->boxedValue)
+        {
+          roots.push_back(slot->boxedValue);
+        }
+      }
       if (seenSymbols.insert(trackedSymbols.get()).second)
       {
-        for (const auto &[name, object] : trackedSymbols->objects) roots.push_back(object);
+        for (const auto &[name, slot] : trackedSymbols->objectSlots)
+        {
+          if (slot && slot->boxedValue)
+          {
+            roots.push_back(slot->boxedValue);
+          }
+        }
         for (const auto &[name, module] : trackedSymbols->modules) roots.push_back(module);
       }
     }

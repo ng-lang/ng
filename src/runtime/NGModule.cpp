@@ -8,7 +8,10 @@ namespace NG::runtime
   NGModule::NGModule(RuntimeRef<NGContext> ctx)
   {
     auto symbols = ctx->symbol_table();
-    objects = symbols->objects;
+    for (const auto &[name, slot] : symbols->objectSlots)
+    {
+      objects.insert_or_assign(name, slot ? slot->boxedValue : nullptr);
+    }
     functions = symbols->functions;
     types = symbols->types;
     exports.insert(symbols->exports.begin(), symbols->exports.end());
