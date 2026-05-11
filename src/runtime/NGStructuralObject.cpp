@@ -75,7 +75,7 @@ namespace NG::runtime
     if (!structural.customizedType->respondHandler)
     {
       structural.customizedType->respondHandler =
-          [](const NGSelf &self, const Str &member, const NGCtx &context, const NGArgs &args) -> RuntimeRef<NGObject> {
+          [](const NGSelf &self, const Str &member, const NGEnv &env, const NGArgs &args) -> RuntimeRef<NGObject> {
             auto structural = std::dynamic_pointer_cast<NGStructuralObject>(self);
             if (!structural)
             {
@@ -83,9 +83,7 @@ namespace NG::runtime
             }
             if (structural->selfMemberFunctions.contains(member))
             {
-              auto newContext = context ? context->fork() : makert<NGContext>();
-              newContext->define("self", self);
-              auto result = structural->selfMemberFunctions[member](self, newContext, args);
+              auto result = structural->selfMemberFunctions[member](self, runtime_env_with_self(env, self), args);
               return result ? result : makert<NGUnit>();
             }
             return structural_read_member(structural, member);

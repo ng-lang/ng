@@ -46,7 +46,7 @@ namespace NG::runtime
         .showHandler = [](const NGSelf &) { return Str{"[Module]"}; },
         .boolHandler = [](const NGSelf &) { return true; },
         .respondHandler =
-            [](const NGSelf &self, const Str &member, const NGCtx &context, const NGArgs &args) -> RuntimeRef<NGObject> {
+            [](const NGSelf &self, const Str &member, const NGEnv &env, const NGArgs &args) -> RuntimeRef<NGObject> {
               auto module = std::dynamic_pointer_cast<NGModule>(self);
               if (!module)
               {
@@ -54,9 +54,7 @@ namespace NG::runtime
               }
               if (module->functions.contains(member))
               {
-                auto newContext = context ? context->fork() : makert<NGContext>();
-                newContext->define("self", self);
-                auto result = module->functions[member](self, newContext, args);
+                auto result = module->functions[member](self, runtime_env_with_self(env, self), args);
                 return result ? result : makert<NGUnit>();
               }
               if (module->objects.contains(member))

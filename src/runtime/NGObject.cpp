@@ -87,7 +87,7 @@ namespace NG::runtime
                          const NGArgs &args) -> RuntimeRef<NGObject>
   {
     auto dispatchSelf = self && self.get() == this ? self : runtime_self_alias(this);
-    return runtime_value_respond(dispatchSelf, member, context, args);
+    return runtime_value_respond(dispatchSelf, member, make_runtime_env(context), args);
   }
 
   auto NGObject::opNotEqual(RuntimeRef<NGObject> other) const -> bool

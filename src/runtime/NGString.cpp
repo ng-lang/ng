@@ -107,17 +107,17 @@ namespace NG::runtime
           },
       .memberFunctions = {
         {"size",
-         [](const RuntimeRef<NGObject> &self, const RuntimeRef<NGContext> &context, const NGArgs &args)
-             -> RuntimeRef<NGObject>
-          {
-             auto str = std::dynamic_pointer_cast<NGString>(self);
-             return makert<NGIntegral<uint32_t>>(static_cast<uint32_t>(string_length(*str)));
-           }},
+         [](const RuntimeRef<NGObject> &self, const NGEnv &env, const NGArgs &args)
+              -> RuntimeRef<NGObject>
+           {
+              auto str = std::dynamic_pointer_cast<NGString>(self);
+              return makert<NGIntegral<uint32_t>>(static_cast<uint32_t>(string_length(*str)));
+            }},
         {"charAt",
-         [](const RuntimeRef<NGObject> &self, const RuntimeRef<NGContext> &context, const NGArgs &args)
-             -> RuntimeRef<NGObject>
-          {
-             auto str = std::dynamic_pointer_cast<NGString>(self);
+         [](const RuntimeRef<NGObject> &self, const NGEnv &env, const NGArgs &args)
+              -> RuntimeRef<NGObject>
+           {
+              auto str = std::dynamic_pointer_cast<NGString>(self);
              auto numeral = std::dynamic_pointer_cast<NumeralBase>(args[0]);
 
              auto index = NGIntegral<int32_t>::valueOf(numeral.get());
@@ -126,11 +126,11 @@ namespace NG::runtime
                throw RuntimeException("Index out of bounds: " + std::to_string(index));
              }
              return string_read_code_unit(*str, static_cast<size_t>(index));
-           }},
+            }},
         {"append",
-         [](const RuntimeRef<NGObject> &self, const RuntimeRef<NGContext> &context, const NGArgs &args)
-             -> RuntimeRef<NGObject>
-          {
+         [](const RuntimeRef<NGObject> &self, const NGEnv &env, const NGArgs &args)
+              -> RuntimeRef<NGObject>
+           {
              auto str = std::dynamic_pointer_cast<NGString>(self);
               auto extra = runtime_value_show(args[0]);
               return makert<NGString>(str->payload_value() + extra);

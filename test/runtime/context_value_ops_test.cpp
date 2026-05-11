@@ -20,7 +20,7 @@ TEST_CASE("NGContext shares global symbols across forked frames", "[RuntimeTest]
   sampleType->name = "Sample";
 
   root->define("answer", makert<NGIntegral<int32_t>>(42));
-  root->define_function("unit", [](const NGSelf &, const NGCtx &, const NGArgs &) -> RuntimeRef<NGObject> {
+  root->define_function("unit", [](const NGSelf &, const NGEnv &, const NGArgs &) -> RuntimeRef<NGObject> {
     return makert<NGUnit>();
   });
   root->define_type("Sample", sampleType);
@@ -119,13 +119,14 @@ TEST_CASE("native marshaling supports boolean packs and sum types", "[RuntimeTes
 TEST_CASE("native marshaling can read slot-backed native arg views", "[RuntimeTest][Native]")
 {
   auto context = makert<NGContext>();
+  auto env = make_runtime_env(context);
   NGArgs args{makert<NGIntegral<int32_t>>(1), makert<NGString>("hello")};
 
-  auto slots = bind_native_arg_slots(context, args);
+  auto slots = bind_native_arg_slots(env, args);
   REQUIRE(slots != nullptr);
   REQUIRE(slots->size() == 2);
 
-  auto view = native_args_view(context, args);
+  auto view = native_args_view(env, args);
   REQUIRE(view.size() == 2);
   REQUIRE(view.slot_at(0) == slots->at(0));
 
@@ -162,20 +163,21 @@ TEST_CASE("runtime value respond prefers type-handle member dispatch", "[Runtime
 {
   auto nominalType = makert<NGType>();
   nominalType->name = "WrappedInt";
-  nominalType->memberFunctions["kind"] = [](const NGSelf &, const NGCtx &, const NGArgs &) {
+  nominalType->memberFunctions["kind"] = [](const NGSelf &, const NGEnv &, const NGArgs &) {
     return makert<NGString>("nominal");
   };
 
   auto nominal = makert<NGNewType>(nominalType, makert<NGIntegral<int32_t>>(3));
   auto context = makert<NGContext>();
+  auto env = make_runtime_env(context);
 
-  auto objectResult = std::dynamic_pointer_cast<NGString>(runtime_value_respond(nominal, "kind", context, {}));
+  auto objectResult = std::dynamic_pointer_cast<NGString>(runtime_value_respond(nominal, "kind", env, {}));
   REQUIRE(objectResult != nullptr);
   REQUIRE(objectResult->payload_value() == "nominal");
 
   auto slot = make_boxed_storage_cell(nominal, StorageClass::TEMPORARY);
   runtime_sync_storage_cell(slot, nullptr, nominalType);
-  auto slotResult = std::dynamic_pointer_cast<NGString>(runtime_value_respond(slot, "kind", context, {}));
+  auto slotResult = std::dynamic_pointer_cast<NGString>(runtime_value_respond(slot, "kind", env, {}));
   REQUIRE(slotResult != nullptr);
   REQUIRE(slotResult->payload_value() == "nominal");
 }
@@ -200,15 +202,16 @@ TEST_CASE("runtime show and bool can use nominal type handlers", "[RuntimeTest][
 TEST_CASE("runtime value respond uses type-descriptor handlers for aggregate and module members", "[RuntimeTest][Runtime]")
 {
   auto context = makert<NGContext>();
+  auto env = make_runtime_env(context);
 
   auto tuple = makert<NGTuple>(Vec<RuntimeRef<NGObject>>{makert<NGIntegral<int32_t>>(7), makert<NGString>("two")});
-  auto tupleSize = std::dynamic_pointer_cast<NumeralBase>(runtime_value_respond(tuple, "size", context, {}));
+  auto tupleSize = std::dynamic_pointer_cast<NumeralBase>(runtime_value_respond(tuple, "size", env, {}));
   REQUIRE(tupleSize != nullptr);
   REQUIRE(NGIntegral<uint32_t>::valueOf(tupleSize.get()) == 2);
 
   auto tagged = makert<NGTaggedValue>("Result", "Ok", 0, Vec<RuntimeRef<NGObject>>{makert<NGIntegral<int32_t>>(42)},
                                       Vec<Str>{"value"});
-  auto tag = std::dynamic_pointer_cast<NGString>(runtime_value_respond(tagged, "tag", context, {}));
+  auto tag = std::dynamic_pointer_cast<NGString>(runtime_value_respond(tagged, "tag", env, {}));
   REQUIRE(tag != nullptr);
   REQUIRE(tag->payload_value() == "Ok");
 
@@ -220,13 +223,13 @@ TEST_CASE("runtime value respond uses type-descriptor handlers for aggregate and
   structural->replace_payload_fields({makert<NGIntegral<int32_t>>(1), makert<NGIntegral<int32_t>>(2)});
   REQUIRE(runtime_value_type(structural)->name == "Pair");
   REQUIRE(runtime_value_show(structural) == "{ left: 1, right: 2 }");
-  auto left = std::dynamic_pointer_cast<NumeralBase>(runtime_value_respond(structural, "left", context, {}));
+  auto left = std::dynamic_pointer_cast<NumeralBase>(runtime_value_respond(structural, "left", env, {}));
   REQUIRE(left != nullptr);
   REQUIRE(NGIntegral<int32_t>::valueOf(left.get()) == 1);
 
   auto module = makert<NGModule>(context);
   module->objects["hello"] = makert<NGString>("world");
-  auto hello = std::dynamic_pointer_cast<NGString>(runtime_value_respond(module, "hello", context, {}));
+  auto hello = std::dynamic_pointer_cast<NGString>(runtime_value_respond(module, "hello", env, {}));
   REQUIRE(hello != nullptr);
   REQUIRE(hello->payload_value() == "world");
 }
@@ -263,7 +266,7 @@ TEST_CASE("native library binding injects owning module context and state", "[Ru
 
   bind_native_library_handlers(
       module, {{"remember",
-                [](const NGSelf &, const NGCtx &context, const NGArgs &) -> RuntimeRef<NGObject> {
+                [](const NGSelf &, const NGEnv &context, const NGArgs &) -> RuntimeRef<NGObject> {
                   auto nativeModule = current_native_module(context);
                   REQUIRE(nativeModule != nullptr);
                   nativeModule->set_native_state("sentinel", std::make_shared<int>(42));
@@ -272,7 +275,7 @@ TEST_CASE("native library binding injects owning module context and state", "[Ru
 
   REQUIRE(current_native_module(root) == nullptr);
 
-  auto result = module->native_functions.at("remember")(nullptr, root, {});
+  auto result = module->native_functions.at("remember")(nullptr, make_runtime_env(root), {});
   REQUIRE(result != nullptr);
 
   auto stored = std::static_pointer_cast<int>(module->get_native_state("sentinel"));

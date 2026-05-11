@@ -19,7 +19,7 @@ namespace NG::library::prelude
   static Map<Str, NGCallable> handlers{
     // ---- Core ----
     {"print",
-     [](const NGSelf &self, const NGCtx &context, const NGArgs &args) -> RuntimeRef<NGObject>
+     [](const NGSelf &self, const NGEnv &context, const NGArgs &args) -> RuntimeRef<NGObject>
      {
         auto nativeArgs = native_args_view(context, args);
         for (size_t i = 0; i < nativeArgs.size(); ++i)
@@ -35,7 +35,7 @@ namespace NG::library::prelude
         return makert<NGUnit>();
       }},
     {"assert",
-     [](const NGSelf &self, const NGCtx &context, const NGArgs &args) -> RuntimeRef<NGObject>
+     [](const NGSelf &self, const NGEnv &context, const NGArgs &args) -> RuntimeRef<NGObject>
      {
        auto flags = require_all_args_as<NGBoolean>("assert", native_args_view(context, args), "a boolean");
        for (const auto &flag : flags)
@@ -49,7 +49,7 @@ namespace NG::library::prelude
          return makert<NGUnit>();
        }},
     {"len",
-     [](const NGSelf &self, const NGCtx &context, const NGArgs &args) -> RuntimeRef<NGObject>
+     [](const NGSelf &self, const NGEnv &context, const NGArgs &args) -> RuntimeRef<NGObject>
      {
         auto value =
             require_arg_as_one_of<NGArray, NGString>("len", native_args_view(context, args), 0, "an array or string");
@@ -70,14 +70,14 @@ namespace NG::library::prelude
 
     // C1: Basic I/O
     {"readLine",
-     [](const NGSelf &self, const NGCtx &context, const NGArgs &args) -> RuntimeRef<NGObject>
+     [](const NGSelf &self, const NGEnv &context, const NGArgs &args) -> RuntimeRef<NGObject>
      {
        Str line;
        std::getline(std::cin, line);
        return makert<NGString>(line);
      }},
     {"readFile",
-     [](const NGSelf &self, const NGCtx &context, const NGArgs &args) -> RuntimeRef<NGObject>
+     [](const NGSelf &self, const NGEnv &context, const NGArgs &args) -> RuntimeRef<NGObject>
       {
           auto pathStr = require_arg_as<NGString>("readFile", native_args_view(context, args), 0, "a string path");
          auto path = pathStr->payload_value();
@@ -91,7 +91,7 @@ namespace NG::library::prelude
        return makert<NGString>(content);
      }},
     {"writeFile",
-     [](const NGSelf &self, const NGCtx &context, const NGArgs &args) -> RuntimeRef<NGObject>
+     [](const NGSelf &self, const NGEnv &context, const NGArgs &args) -> RuntimeRef<NGObject>
       {
           auto nativeArgs = native_args_view(context, args);
           auto pathStr = require_arg_as<NGString>("writeFile", nativeArgs, 0, "a string path");
@@ -113,7 +113,7 @@ namespace NG::library::prelude
 
     // C2: String operations
     {"split",
-     [](const NGSelf &self, const NGCtx &context, const NGArgs &args) -> RuntimeRef<NGObject>
+     [](const NGSelf &self, const NGEnv &context, const NGArgs &args) -> RuntimeRef<NGObject>
       {
           auto nativeArgs = native_args_view(context, args);
           auto strObj = require_arg_as<NGString>("split", nativeArgs, 0, "a source string");
@@ -142,7 +142,7 @@ namespace NG::library::prelude
        return makert<NGArray>(*items);
      }},
     {"join",
-     [](const NGSelf &self, const NGCtx &context, const NGArgs &args) -> RuntimeRef<NGObject>
+     [](const NGSelf &self, const NGEnv &context, const NGArgs &args) -> RuntimeRef<NGObject>
       {
           auto nativeArgs = native_args_view(context, args);
           auto arrObj = require_arg_as<NGArray>("join", nativeArgs, 0, "an array");
@@ -158,7 +158,7 @@ namespace NG::library::prelude
        return makert<NGString>(result);
      }},
     {"trim",
-     [](const NGSelf &self, const NGCtx &context, const NGArgs &args) -> RuntimeRef<NGObject>
+     [](const NGSelf &self, const NGEnv &context, const NGArgs &args) -> RuntimeRef<NGObject>
       {
           auto strObj = require_arg_as<NGString>("trim", native_args_view(context, args), 0, "a string");
          auto s = strObj->payload_value();
@@ -174,7 +174,7 @@ namespace NG::library::prelude
        }
      }},
     {"contains",
-     [](const NGSelf &self, const NGCtx &context, const NGArgs &args) -> RuntimeRef<NGObject>
+     [](const NGSelf &self, const NGEnv &context, const NGArgs &args) -> RuntimeRef<NGObject>
       {
           auto nativeArgs = native_args_view(context, args);
           require_arg_count("contains", nativeArgs, 2, 2);
@@ -183,7 +183,7 @@ namespace NG::library::prelude
          return makert<NGBoolean>(strObj->payload_value().find(subObj->payload_value()) != Str::npos);
         }},
     {"replace",
-     [](const NGSelf &self, const NGCtx &context, const NGArgs &args) -> RuntimeRef<NGObject>
+     [](const NGSelf &self, const NGEnv &context, const NGArgs &args) -> RuntimeRef<NGObject>
       {
           auto nativeArgs = native_args_view(context, args);
           auto strObj = require_arg_as<NGString>("replace", nativeArgs, 0, "a source string");
@@ -204,7 +204,7 @@ namespace NG::library::prelude
        return makert<NGString>(result);
      }},
     {"startsWith",
-     [](const NGSelf &self, const NGCtx &context, const NGArgs &args) -> RuntimeRef<NGObject>
+     [](const NGSelf &self, const NGEnv &context, const NGArgs &args) -> RuntimeRef<NGObject>
       {
           auto nativeArgs = native_args_view(context, args);
           auto strObj = require_arg_as<NGString>("startsWith", nativeArgs, 0, "a source string");
@@ -212,7 +212,7 @@ namespace NG::library::prelude
          return makert<NGBoolean>(strObj->payload_value().starts_with(prefixObj->payload_value()));
        }},
     {"endsWith",
-     [](const NGSelf &self, const NGCtx &context, const NGArgs &args) -> RuntimeRef<NGObject>
+     [](const NGSelf &self, const NGEnv &context, const NGArgs &args) -> RuntimeRef<NGObject>
       {
           auto nativeArgs = native_args_view(context, args);
           auto strObj = require_arg_as<NGString>("endsWith", nativeArgs, 0, "a source string");
@@ -220,7 +220,7 @@ namespace NG::library::prelude
          return makert<NGBoolean>(strObj->payload_value().ends_with(suffixObj->payload_value()));
        }},
     {"toUpper",
-     [](const NGSelf &self, const NGCtx &context, const NGArgs &args) -> RuntimeRef<NGObject>
+     [](const NGSelf &self, const NGEnv &context, const NGArgs &args) -> RuntimeRef<NGObject>
       {
           auto strObj = require_arg_as<NGString>("toUpper", native_args_view(context, args), 0, "a string");
           Str result = strObj->payload_value();
@@ -230,7 +230,7 @@ namespace NG::library::prelude
         return makert<NGString>(result);
       }},
     {"toLower",
-     [](const NGSelf &self, const NGCtx &context, const NGArgs &args) -> RuntimeRef<NGObject>
+     [](const NGSelf &self, const NGEnv &context, const NGArgs &args) -> RuntimeRef<NGObject>
       {
           auto strObj = require_arg_as<NGString>("toLower", native_args_view(context, args), 0, "a string");
           Str result = strObj->payload_value();
@@ -242,7 +242,7 @@ namespace NG::library::prelude
 
     // C3: Collection operations
     {"reverse",
-      [](const NGSelf &self, const NGCtx &context, const NGArgs &args) -> RuntimeRef<NGObject>
+      [](const NGSelf &self, const NGEnv &context, const NGArgs &args) -> RuntimeRef<NGObject>
        {
           auto nativeArgs = native_args_view(context, args);
           require_arg_count("reverse", nativeArgs, 1, 1);
@@ -256,7 +256,7 @@ namespace NG::library::prelude
         return makert<NGArray>(*items);
        }},
     {"range",
-      [](const NGSelf &self, const NGCtx &context, const NGArgs &args) -> RuntimeRef<NGObject>
+      [](const NGSelf &self, const NGEnv &context, const NGArgs &args) -> RuntimeRef<NGObject>
        {
         auto nativeArgs = native_args_view(context, args);
         auto startNum = require_arg_as<NGIntegral<int32_t>>("range", nativeArgs, 0, "a start integer");
@@ -270,7 +270,7 @@ namespace NG::library::prelude
        return makert<NGArray>(*items);
      }},
     {"slice",
-      [](const NGSelf &self, const NGCtx &context, const NGArgs &args) -> RuntimeRef<NGObject>
+      [](const NGSelf &self, const NGEnv &context, const NGArgs &args) -> RuntimeRef<NGObject>
        {
         auto nativeArgs = native_args_view(context, args);
         auto arrObj = require_arg_as<NGArray>("slice", nativeArgs, 0, "an array");
@@ -299,8 +299,9 @@ namespace NG::library::prelude
     {
       vm.register_native_raw(name, [handler](const Vec<RuntimeRef<NGObject>> &args) -> RuntimeRef<NGObject> {
         auto context = makert<NGContext>();
-        bind_native_arg_slots(context, args);
-        return handler(makert<NGUnit>(), context, args);
+        auto env = make_runtime_env(context);
+        bind_native_arg_slots(env, args);
+        return handler(makert<NGUnit>(), env, args);
       });
     }
   };

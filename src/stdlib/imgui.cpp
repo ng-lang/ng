@@ -69,7 +69,7 @@ namespace NG::library::imgui
       }
     };
 
-    auto require_imgui_module(const NGCtx &context) -> RuntimeRef<NGModule>
+    auto require_imgui_module(const NGEnv &context) -> RuntimeRef<NGModule>
     {
       auto module = current_native_module(context);
       if (module == nullptr)
@@ -79,14 +79,14 @@ namespace NG::library::imgui
       return module;
     }
 
-    auto find_imgui_state(const NGCtx &context) -> std::shared_ptr<ImGuiModuleState>
+    auto find_imgui_state(const NGEnv &context) -> std::shared_ptr<ImGuiModuleState>
     {
       auto module = require_imgui_module(context);
       auto state = module->get_native_state(IMGUI_STATE_KEY);
       return state ? std::static_pointer_cast<ImGuiModuleState>(state) : nullptr;
     }
 
-    auto require_imgui_state(const Str &functionName, const NGCtx &context) -> std::shared_ptr<ImGuiModuleState>
+    auto require_imgui_state(const Str &functionName, const NGEnv &context) -> std::shared_ptr<ImGuiModuleState>
     {
       auto state = find_imgui_state(context);
       if (!state)
@@ -96,12 +96,12 @@ namespace NG::library::imgui
       return state;
     }
 
-    void store_imgui_state(const NGCtx &context, const std::shared_ptr<ImGuiModuleState> &state)
+    void store_imgui_state(const NGEnv &context, const std::shared_ptr<ImGuiModuleState> &state)
     {
       require_imgui_module(context)->set_native_state(IMGUI_STATE_KEY, state);
     }
 
-    void clear_imgui_state(const NGCtx &context)
+    void clear_imgui_state(const NGEnv &context)
     {
       require_imgui_module(context)->clear_native_state(IMGUI_STATE_KEY);
     }
@@ -145,7 +145,7 @@ namespace NG::library::imgui
 
   static Map<Str, NGCallable> handlers{
       {"init",
-       [](const NGSelf &, const NGCtx &context, const NGArgs &) -> RuntimeRef<NGObject>
+       [](const NGSelf &, const NGEnv &context, const NGArgs &) -> RuntimeRef<NGObject>
        {
          if (find_imgui_state(context))
          {
@@ -214,7 +214,7 @@ namespace NG::library::imgui
          return makert<NGUnit>();
        }},
       {"eventLoop",
-       [](const NGSelf &, const NGCtx &context, const NGArgs &) -> RuntimeRef<NGObject>
+       [](const NGSelf &, const NGEnv &context, const NGArgs &) -> RuntimeRef<NGObject>
        {
          auto state = require_imgui_state("imgui.eventLoop", context);
          while (SDL_PollEvent(&state->event))
@@ -233,7 +233,7 @@ namespace NG::library::imgui
          return makert<NGUnit>();
        }},
       {"checkMinimized",
-       [](const NGSelf &, const NGCtx &context, const NGArgs &) -> RuntimeRef<NGObject>
+       [](const NGSelf &, const NGEnv &context, const NGArgs &) -> RuntimeRef<NGObject>
        {
          auto state = require_imgui_state("imgui.checkMinimized", context);
          if (SDL_GetWindowFlags(state->window) & SDL_WINDOW_MINIMIZED)
@@ -244,7 +244,7 @@ namespace NG::library::imgui
          return makert<NGUnit>();
        }},
       {"NewFrame",
-       [](const NGSelf &, const NGCtx &context, const NGArgs &) -> RuntimeRef<NGObject>
+       [](const NGSelf &, const NGEnv &context, const NGArgs &) -> RuntimeRef<NGObject>
        {
          require_imgui_state("imgui.NewFrame", context);
          ImGui_ImplSDLGPU3_NewFrame();
@@ -253,7 +253,7 @@ namespace NG::library::imgui
          return makert<NGUnit>();
        }},
       {"Begin",
-       [](const NGSelf &, const NGCtx &context, const NGArgs &args) -> RuntimeRef<NGObject>
+       [](const NGSelf &, const NGEnv &context, const NGArgs &args) -> RuntimeRef<NGObject>
        {
           require_imgui_state("imgui.Begin", context);
           auto title = require_arg_as<NGString>("imgui.Begin", native_args_view(context, args), 0, "a string title");
@@ -261,7 +261,7 @@ namespace NG::library::imgui
           return makert<NGUnit>();
         }},
       {"Text",
-       [](const NGSelf &, const NGCtx &context, const NGArgs &args) -> RuntimeRef<NGObject>
+       [](const NGSelf &, const NGEnv &context, const NGArgs &args) -> RuntimeRef<NGObject>
        {
           require_imgui_state("imgui.Text", context);
           auto text = require_arg_as<NGString>("imgui.Text", native_args_view(context, args), 0, "a string");
@@ -269,20 +269,20 @@ namespace NG::library::imgui
           return makert<NGUnit>();
         }},
       {"End",
-       [](const NGSelf &, const NGCtx &context, const NGArgs &) -> RuntimeRef<NGObject>
+       [](const NGSelf &, const NGEnv &context, const NGArgs &) -> RuntimeRef<NGObject>
        {
          require_imgui_state("imgui.End", context);
          ImGui::End();
          return makert<NGUnit>();
        }},
       {"Aborted",
-       [](const NGSelf &, const NGCtx &context, const NGArgs &) -> RuntimeRef<NGObject>
+       [](const NGSelf &, const NGEnv &context, const NGArgs &) -> RuntimeRef<NGObject>
        {
          auto state = require_imgui_state("imgui.Aborted", context);
          return NGObject::boolean(state->done);
        }},
       {"Render",
-       [](const NGSelf &, const NGCtx &context, const NGArgs &) -> RuntimeRef<NGObject>
+       [](const NGSelf &, const NGEnv &context, const NGArgs &) -> RuntimeRef<NGObject>
        {
          auto state = require_imgui_state("imgui.Render", context);
          ImGui::Render();
@@ -319,7 +319,7 @@ namespace NG::library::imgui
          return makert<NGUnit>();
        }},
       {"cleanup",
-       [](const NGSelf &, const NGCtx &context, const NGArgs &) -> RuntimeRef<NGObject>
+       [](const NGSelf &, const NGEnv &context, const NGArgs &) -> RuntimeRef<NGObject>
        {
          auto state = require_imgui_state("imgui.cleanup", context);
          state->shutdown();
@@ -341,7 +341,7 @@ namespace NG::library::imgui
     for (auto &[name, handler] : runtimeModule->native_functions)
     {
       vm.register_native_raw(name, [handler](const Vec<RuntimeRef<NGObject>> &args) -> RuntimeRef<NGObject> {
-        return handler(makert<NGUnit>(), makert<NGContext>(), args);
+        return handler(makert<NGUnit>(), make_runtime_env(makert<NGContext>()), args);
       });
     }
   }

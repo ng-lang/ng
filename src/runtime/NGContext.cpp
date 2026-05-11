@@ -8,9 +8,91 @@ namespace NG::runtime
   void register_context_for_gc(NGContext *context);
   void unregister_context_for_gc(NGContext *context);
 
-  const static NGCallable DUMMY = [](const NGSelf &, const NGCtx &, const NGArgs &) -> RuntimeRef<NGObject> {
+  const static NGCallable DUMMY = [](const NGSelf &, const NGEnv &, const NGArgs &) -> RuntimeRef<NGObject> {
     return makert<NGUnit>();
   };
+
+  auto make_runtime_env(const RuntimeRef<NGContext> &context) -> NGEnv
+  {
+    auto env = makert<RuntimeEnv>();
+    if (context)
+    {
+      env->symbols = context->symbol_table();
+      env->runtimeState = context->runtimeState;
+      env->executionContext = context;
+    }
+    return env;
+  }
+
+  auto fork_runtime_env(const NGEnv &env) -> NGEnv
+  {
+    auto forked = makert<RuntimeEnv>();
+    if (!env)
+    {
+      return forked;
+    }
+    forked->symbols = env->symbols;
+    forked->runtimeState = env->runtimeState;
+    forked->selfSlot = env->selfSlot;
+    forked->executionContext = env->executionContext;
+    return forked;
+  }
+
+  auto runtime_env_with_self(const NGEnv &env, const NGSelf &self) -> NGEnv
+  {
+    auto next = fork_runtime_env(env);
+    next->selfSlot = make_boxed_storage_cell(self ? self : makert<NGUnit>(), StorageClass::TEMPORARY);
+    next->selfSlot->name = "self";
+
+    auto baseContext = next->executionContext;
+    auto dispatchContext = baseContext ? baseContext->fork() : makert<NGContext>();
+    if (next->symbols)
+    {
+      dispatchContext->adopt_symbol_table(next->symbols);
+    }
+    dispatchContext->define("self", self ? self : makert<NGUnit>());
+    next->executionContext = dispatchContext;
+    return next;
+  }
+
+  auto runtime_env_context(const NGEnv &env) -> RuntimeRef<NGContext>
+  {
+    if (!env)
+    {
+      return nullptr;
+    }
+    if (!env->executionContext)
+    {
+      env->executionContext = makert<NGContext>();
+      if (env->symbols)
+      {
+        env->executionContext->adopt_symbol_table(env->symbols);
+      }
+      if (env->selfSlot)
+      {
+        env->executionContext->define("self", env->selfSlot->boxedValue ? env->selfSlot->boxedValue : makert<NGUnit>());
+      }
+    }
+    return env->executionContext;
+  }
+
+  void runtime_env_set_state(const NGEnv &env, Str name, std::shared_ptr<void> value)
+  {
+    if (!env)
+    {
+      return;
+    }
+    env->runtimeState.insert_or_assign(std::move(name), std::move(value));
+  }
+
+  auto runtime_env_get_state(const NGEnv &env, const Str &name) -> std::shared_ptr<void>
+  {
+    if (!env || !env->runtimeState.contains(name))
+    {
+      return nullptr;
+    }
+    return env->runtimeState.at(name);
+  }
 
   NGContext::NGContext()
   {

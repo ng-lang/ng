@@ -198,7 +198,7 @@ namespace NG::runtime
             return tuple && !tuple->payload_items().empty();
           },
       .respondHandler =
-          [](const NGSelf &self, const Str &member, const NGCtx &, const NGArgs &) -> RuntimeRef<NGObject> {
+          [](const NGSelf &self, const Str &member, const NGEnv &, const NGArgs &) -> RuntimeRef<NGObject> {
             auto tuple = std::dynamic_pointer_cast<NGTuple>(self);
             if (!tuple)
             {

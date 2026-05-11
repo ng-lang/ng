@@ -100,7 +100,7 @@ namespace NG::orgasm
         }
         
         // Register built-ins
-        root_context->define_function("not", [](const NGSelf &self, const NGCtx &ctx,
+        root_context->define_function("not", [](const NGSelf &self, const NGEnv &ctx,
                                                 const NGArgs &args) -> RuntimeRef<NGObject> {
             if (args.empty()) throw RuntimeException("not expects 1 arg");
             return NGObject::boolean(!runtime_value_bool(args[0]));
@@ -696,7 +696,7 @@ namespace NG::orgasm
                         callArgs.insert(callArgs.begin(), target);
                         stack.push_back(execute(current_module->functions[funIdx], callArgs));
                     } else {
-                        stack.push_back(runtime_value_respond(target, memberName, root_context, callArgs));
+                        stack.push_back(runtime_value_respond(target, memberName, make_runtime_env(root_context), callArgs));
                     }
                     break;
                 }

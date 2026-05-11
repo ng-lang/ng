@@ -56,25 +56,25 @@ namespace NG::runtime::native
     return NativeArgsView{.values = &args};
   }
 
-  inline auto current_native_arg_slots(const NGCtx &context) -> std::shared_ptr<Vec<RuntimeRef<StorageCell>>>
+  inline auto current_native_arg_slots(const NGEnv &env) -> std::shared_ptr<Vec<RuntimeRef<StorageCell>>>
   {
-    if (!context)
+    if (!env)
     {
       return nullptr;
     }
-    auto state = context->get_runtime_state(native_arg_slots_context_key());
+    auto state = runtime_env_get_state(env, native_arg_slots_context_key());
     return state ? std::static_pointer_cast<Vec<RuntimeRef<StorageCell>>>(state) : nullptr;
   }
 
-  inline auto native_args_view(const NGCtx &context, const NGArgs &args) -> NativeArgsView
+  inline auto native_args_view(const NGEnv &env, const NGArgs &args) -> NativeArgsView
   {
     return NativeArgsView{
         .values = &args,
-        .slotOwner = current_native_arg_slots(context),
+        .slotOwner = current_native_arg_slots(env),
     };
   }
 
-  inline auto bind_native_arg_slots(const NGCtx &context, const NGArgs &args) -> std::shared_ptr<Vec<RuntimeRef<StorageCell>>>
+  inline auto bind_native_arg_slots(const NGEnv &env, const NGArgs &args) -> std::shared_ptr<Vec<RuntimeRef<StorageCell>>>
   {
     auto slots = std::make_shared<Vec<RuntimeRef<StorageCell>>>();
     slots->reserve(args.size());
@@ -82,12 +82,15 @@ namespace NG::runtime::native
     {
       auto slot = make_boxed_storage_cell(args[i], StorageClass::TEMPORARY);
       slot->name = "arg." + std::to_string(i);
-      slot->ownerContext = context.get();
+      if (auto context = runtime_env_context(env))
+      {
+        slot->ownerContext = context.get();
+      }
       slots->push_back(slot);
     }
-    if (context)
+    if (env)
     {
-      context->set_runtime_state(native_arg_slots_context_key(), slots);
+      runtime_env_set_state(env, native_arg_slots_context_key(), slots);
     }
     return slots;
   }

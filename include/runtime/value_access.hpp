@@ -218,7 +218,7 @@ namespace NG::runtime
   }
 
   inline auto runtime_dispatch_member(const RuntimeRef<NGType> &type, const NGSelf &self, const Str &member,
-                                      const NGCtx &context, const NGArgs &args) -> RuntimeRef<NGObject>
+                                      const NGEnv &env, const NGArgs &args) -> RuntimeRef<NGObject>
   {
     if (!type)
     {
@@ -226,7 +226,7 @@ namespace NG::runtime
     }
     if (type->respondHandler)
     {
-      if (auto result = type->respondHandler(self, member, context, args))
+      if (auto result = type->respondHandler(self, member, env, args))
       {
         return result;
       }
@@ -235,41 +235,39 @@ namespace NG::runtime
     {
       return nullptr;
     }
-    auto dispatchContext = context ? context->fork() : makert<NGContext>();
-    dispatchContext->define("self", self ? self : makert<NGUnit>());
-    auto result = type->memberFunctions.at(member)(self, dispatchContext, args);
+    auto result = type->memberFunctions.at(member)(self, runtime_env_with_self(env, self), args);
     return result ? result : makert<NGUnit>();
   }
 
-  inline auto runtime_value_respond(const RuntimeRef<NGObject> &value, const Str &member, const NGCtx &context,
+  inline auto runtime_value_respond(const RuntimeRef<NGObject> &value, const Str &member, const NGEnv &env,
                                     const NGArgs &args) -> RuntimeRef<NGObject>
   {
     if (!value)
     {
       throw RuntimeException("Cannot respond to member '" + member + "' on unit");
     }
-    if (auto result = runtime_dispatch_member(runtime_value_type(value), value, member, context, args))
+    if (auto result = runtime_dispatch_member(runtime_value_type(value), value, member, env, args))
     {
       return result;
     }
     if (auto newType = std::dynamic_pointer_cast<NGNewType>(value))
     {
-      return runtime_value_respond(newType->wrapped, member, context, args);
+      return runtime_value_respond(newType->wrapped, member, env, args);
     }
     throw NotImplementedException("Not implemented " + runtime_value_type(value)->name + "#" + member);
   }
 
-  inline auto runtime_value_respond(const RuntimeRef<StorageCell> &cell, const Str &member, const NGCtx &context,
+  inline auto runtime_value_respond(const RuntimeRef<StorageCell> &cell, const Str &member, const NGEnv &env,
                                     const NGArgs &args) -> RuntimeRef<NGObject>
   {
     if (!cell)
     {
       throw RuntimeException("Cannot respond to member '" + member + "' on null storage cell");
     }
-    if (auto result = runtime_dispatch_member(runtime_value_type(cell), cell->boxedValue, member, context, args))
+    if (auto result = runtime_dispatch_member(runtime_value_type(cell), cell->boxedValue, member, env, args))
     {
       return result;
     }
-    return runtime_value_respond(cell->boxedValue, member, context, args);
+    return runtime_value_respond(cell->boxedValue, member, env, args);
   }
 } // namespace NG::runtime

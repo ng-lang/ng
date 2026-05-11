@@ -16,6 +16,7 @@ namespace NG::runtime
     struct NGType;
     struct NGModule;
     struct NGContext;
+    struct RuntimeEnv;
     struct NGStructuralObject;
     struct NGTaggedValue;
     struct NumeralBase;
@@ -60,11 +61,19 @@ namespace NG::runtime
 
     using NGSelf = RuntimeRef<NGObject>; ///< Alias for a `RuntimeRef` to the current object (`self`).
     using NGCtx = RuntimeRef<NGContext>; ///< Alias for a `RuntimeRef` to the current context.
+    using NGEnv = RuntimeRef<RuntimeEnv>; ///< Alias for a runtime dispatch environment.
     using NGArgs = Vec<RuntimeRef<NGObject>>;
+
+    [[nodiscard]] auto make_runtime_env(const RuntimeRef<NGContext> &context = nullptr) -> NGEnv;
+    [[nodiscard]] auto fork_runtime_env(const NGEnv &env) -> NGEnv;
+    [[nodiscard]] auto runtime_env_with_self(const NGEnv &env, const NGSelf &self) -> NGEnv;
+    [[nodiscard]] auto runtime_env_context(const NGEnv &env) -> RuntimeRef<NGContext>;
+    void runtime_env_set_state(const NGEnv &env, Str name, std::shared_ptr<void> value);
+    [[nodiscard]] auto runtime_env_get_state(const NGEnv &env, const Str &name) -> std::shared_ptr<void>;
 
     [[nodiscard]] auto runtime_value_show(const RuntimeRef<NGObject> &value) -> Str;
     [[nodiscard]] auto runtime_value_bool(const RuntimeRef<NGObject> &value) -> bool;
-    [[nodiscard]] auto runtime_value_respond(const RuntimeRef<NGObject> &value, const Str &member, const NGCtx &context,
+    [[nodiscard]] auto runtime_value_respond(const RuntimeRef<NGObject> &value, const Str &member, const NGEnv &env,
                                              const NGArgs &args) -> RuntimeRef<NGObject>;
     [[nodiscard]] auto structural_runtime_type(const NGStructuralObject &structural) -> RuntimeRef<NGType>;
     [[nodiscard]] auto structural_runtime_show(const NGStructuralObject &structural) -> Str;
@@ -107,7 +116,7 @@ namespace NG::runtime
     /**
      * @brief Represents a callable runtime entity.
      */
-    using NGCallable = std::function<RuntimeRef<NGObject>(const NGSelf &self, const NGCtx &ctx, const NGArgs &args)>;
+    using NGCallable = std::function<RuntimeRef<NGObject>(const NGSelf &self, const NGEnv &env, const NGArgs &args)>;
 
     /**
      * @brief Represents a type in the runtime.
@@ -124,7 +133,7 @@ namespace NG::runtime
         int32_t variantIndex = -1; ///< Tagged union variant index when this type describes a variant constructor.
 
         Map<Str, NGCallable> memberFunctions; ///< The member functions of the type.
-        std::function<RuntimeRef<NGObject>(const NGSelf &self, const Str &member, const NGCtx &ctx,
+        std::function<RuntimeRef<NGObject>(const NGSelf &self, const Str &member, const NGEnv &env,
                                            const NGArgs &args)>
             respondHandler; ///< Optional type-driven member resolution before generic member functions.
         std::function<Str(const NGSelf &self)> showHandler; ///< Optional type-driven show protocol.
@@ -164,6 +173,14 @@ namespace NG::runtime
         Map<Str, RuntimeRef<NGModule>> modules;
         Vec<Str> exports;
         Vec<Str> imported;
+    };
+
+    struct RuntimeEnv
+    {
+        RuntimeRef<RuntimeSymbolTable> symbols;
+        Map<Str, std::shared_ptr<void>> runtimeState;
+        RuntimeRef<StorageCell> selfSlot;
+        RuntimeRef<NGContext> executionContext;
     };
 
     /**
@@ -288,6 +305,7 @@ namespace NG::runtime
         void clear_runtime_state(const Str &name);
 
         auto symbol_table() -> RuntimeRef<RuntimeSymbolTable>;
+        void adopt_symbol_table(RuntimeRef<RuntimeSymbolTable> nextSymbols) { symbols = std::move(nextSymbols); }
         auto parent_context() const -> NGContext * { return parent; }
 
         /**
@@ -866,7 +884,7 @@ namespace NG::runtime
                                                                : RuntimeRef<NGObject>(this, [](NGObject *) {});
                 return NGObject::respond(dispatchSelf, member, context, args);
             }
-            return runtime_value_respond(wrapped, member, context, args);
+            return runtime_value_respond(wrapped, member, make_runtime_env(context), args);
         }
     };
 
@@ -910,6 +928,7 @@ namespace NG::runtime
     void register_native_library(Str moduleId, Map<Str, NGCallable> handlers);
     void bind_native_library_handlers(const RuntimeRef<NGModule> &module, const Map<Str, NGCallable> &handlers);
     [[nodiscard]] auto current_native_module(const RuntimeRef<NGContext> &context) -> RuntimeRef<NGModule>;
+    [[nodiscard]] auto current_native_module(const NGEnv &env) -> RuntimeRef<NGModule>;
 
     using GCRootProvider = std::function<Vec<RuntimeRef<NGObject>>()>;
 

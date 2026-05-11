@@ -20,7 +20,7 @@ namespace NG::runtime
         .name = tagged.unionName,
         .layout = std::move(layout),
         .respondHandler =
-            [](const NGSelf &self, const Str &member, const NGCtx &, const NGArgs &) -> RuntimeRef<NGObject> {
+            [](const NGSelf &self, const Str &member, const NGEnv &, const NGArgs &) -> RuntimeRef<NGObject> {
               auto tagged = std::dynamic_pointer_cast<NGTaggedValue>(self);
               if (!tagged)
               {

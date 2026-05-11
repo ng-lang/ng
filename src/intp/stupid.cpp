@@ -42,11 +42,11 @@ namespace NG::runtime
     for (const auto &[name, handler] : handlers)
     {
       module->native_functions.insert_or_assign(
-          name, [module, handler](const NGSelf &self, const NGCtx &context, const NGArgs &args) -> RuntimeRef<NGObject> {
-            auto nativeContext = context ? context->fork() : makert<NGContext>();
-            nativeContext->set_runtime_state(NATIVE_MODULE_CONTEXT_KEY, module);
-            bind_native_arg_slots(nativeContext, args);
-            return handler(self, nativeContext, args);
+          name, [module, handler](const NGSelf &self, const NGEnv &env, const NGArgs &args) -> RuntimeRef<NGObject> {
+            auto nativeEnv = fork_runtime_env(env);
+            runtime_env_set_state(nativeEnv, NATIVE_MODULE_CONTEXT_KEY, module);
+            bind_native_arg_slots(nativeEnv, args);
+            return handler(self, nativeEnv, args);
           });
     }
   }
@@ -58,6 +58,12 @@ namespace NG::runtime
       return nullptr;
     }
     auto state = context->get_runtime_state(NATIVE_MODULE_CONTEXT_KEY);
+    return state ? std::static_pointer_cast<NGModule>(state) : nullptr;
+  }
+
+  auto current_native_module(const NGEnv &env) -> RuntimeRef<NGModule>
+  {
+    auto state = runtime_env_get_state(env, NATIVE_MODULE_CONTEXT_KEY);
     return state ? std::static_pointer_cast<NGModule>(state) : nullptr;
   }
 } // namespace NG::runtime
@@ -850,7 +856,7 @@ namespace NG::intp
       }
 
       moved = false;
-      this->object = context->get_function(fpVis.path)(dummy, context, callArgs);
+      this->object = context->get_function(fpVis.path)(dummy, make_runtime_env(context), callArgs);
     }
 
     void visit(UnaryExpression *unoExpr) override
@@ -1041,7 +1047,7 @@ namespace NG::intp
       }
 
       moved = false;
-      object = runtime_value_respond(main, repr, context, callArgs);
+      object = runtime_value_respond(main, repr, make_runtime_env(context), callArgs);
     }
 
     void visit(NewObjectExpression *newObj) override
@@ -1871,7 +1877,7 @@ namespace NG::intp
       }
 
       auto functionInvoker =
-          [funDef, frames = activeFrames](const NGSelf &dummy, const NGCtx &ngContext,
+          [funDef, frames = activeFrames](const NGSelf &dummy, const NGEnv &env,
                                           const NGArgs &args) -> RuntimeRef<NGObject>
       {
         // Determine if there's a pack parameter and at which position
@@ -1884,7 +1890,8 @@ namespace NG::intp
             break;
           }
         }
-        RuntimeRef<NGContext> newContext = ngContext->fork();
+        auto baseContext = runtime_env_context(env);
+        RuntimeRef<NGContext> newContext = baseContext ? baseContext->fork() : makert<NGContext>();
         auto scopeIds = make_scope_chain();
         CallFrame callFrame{};
         callFrame.functionName = funDef->funName;
@@ -2033,10 +2040,11 @@ namespace NG::intp
       for (const auto &memFn : typeDef->memberFunctions)
       {
         type->memberFunctions[memFn->funName] =
-            [memFn, frames = activeFrames](const NGSelf &dummy, const NGCtx &ngContext,
+            [memFn, frames = activeFrames](const NGSelf &dummy, const NGEnv &env,
                                            const NGArgs &args) -> RuntimeRef<NGObject>
         {
-          RuntimeRef<NGContext> newContext = ngContext->fork();
+          auto baseContext = runtime_env_context(env);
+          RuntimeRef<NGContext> newContext = baseContext ? baseContext->fork() : makert<NGContext>();
           auto scopeIds = make_scope_chain();
           CallFrame callFrame{};
           callFrame.functionName = memFn->funName;
@@ -2146,8 +2154,8 @@ namespace NG::intp
         context->define_variant_type(variantName, variantType);
 
         context->define_function(variantName,
-          [unionName, variantName, variantIndex, payloadNames](const NGSelf &self, const NGCtx &ctx,
-                                                                const NGArgs &args) -> RuntimeRef<NGObject>
+          [unionName, variantName, variantIndex, payloadNames](const NGSelf &self, const NGEnv &env,
+                                                                 const NGArgs &args) -> RuntimeRef<NGObject>
           {
             Vec<RuntimeRef<NGObject>> payload = args;
             return makert<NGTaggedValue>(unionName, variantName, variantIndex, std::move(payload), payloadNames);
