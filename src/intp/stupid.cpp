@@ -617,56 +617,7 @@ namespace NG::intp
         {
           return makert<NGReference>(slot, name);
         }
-        return makert<NGReference>([ctx = context, frames = activeFrames, scopes = activeScopes, name]() {
-                                       if (!frames || frames->empty())
-                                       {
-                                         auto value = ctx->get(name);
-                                         ensure_usable_value(value);
-                                         return value;
-                                       }
-                                       if (auto slot = find_frame_binding_slot(frames, scopes, name))
-                                        {
-                                          auto value = slot->boxedValue;
-                                          ensure_usable_value(value);
-                                         return value;
-                                       }
-                                       if (auto receiver =
-                                              std::dynamic_pointer_cast<NGStructuralObject>(find_frame_receiver(frames, scopes)))
-                                       {
-                                         if (auto value = structural_read_member(receiver, name))
-                                         {
-                                          ensure_usable_value(value);
-                                          return value;
-                                        }
-                                      }
-                                      auto value = lookup_global_binding(ctx, name);
-                                      ensure_usable_value(value);
-                                      return value;
-                                    },
-                                     [ctx = context, frames = activeFrames, scopes = activeScopes, name](const RuntimeRef<NGObject> &value) {
-                                       if (!frames || frames->empty())
-                                       {
-                                         ctx->set(name, value);
-                                         return;
-                                       }
-                                       if (auto slot = find_frame_binding_slot(frames, scopes, name))
-                                        {
-                                          sync_binding_slot(ctx, frames, scopes, slot, value);
-                                          return;
-                                        }
-                                       if (auto receiver =
-                                               std::dynamic_pointer_cast<NGStructuralObject>(find_frame_receiver(frames, scopes)))
-                                       {
-                                         if (structural_field_index(receiver, name).has_value() ||
-                                             receiver->properties.contains(name))
-                                        {
-                                          structural_write_member(receiver, name, value);
-                                          return;
-                                        }
-                                      }
-                                      assign_global_binding(ctx, name, value);
-                                    },
-                                    name);
+        throw RuntimeException("Identifier reference target is not slot-backed: " + name);
       }
       if (auto *unaryExpr = dynamic_cast<UnaryExpression *>(expr);
           unaryExpr && unaryExpr->optr && unaryExpr->optr->type == TokenType::TIMES)
@@ -695,6 +646,7 @@ namespace NG::intp
             {
               return makert<NGReference>(slot, memberName);
             }
+            throw RuntimeException("Structural field reference is not slot-backed: " + memberName);
           }
           return makert<NGReference>(
               [structural, memberName]() {
@@ -713,15 +665,9 @@ namespace NG::intp
             {
               return makert<NGReference>(slot, memberName);
             }
+            throw RuntimeException("Tagged payload reference is not slot-backed: " + memberName);
           }
-          return makert<NGReference>(
-              [tagged, memberName]() {
-                auto value = tagged_read_member(*tagged, memberName);
-                ensure_usable_value(value);
-                return value;
-              },
-              [tagged, memberName](const RuntimeRef<NGObject> &value) { tagged_write_member(*tagged, memberName, value); },
-              memberName);
+          throw RuntimeException("Unsupported tagged reference target: " + memberName);
         }
         if (auto tuple = std::dynamic_pointer_cast<NGTuple>(main))
         {
@@ -730,13 +676,7 @@ namespace NG::intp
           {
             return makert<NGReference>(slot, memberName);
           }
-          return makert<NGReference>(
-              [tuple, index]() {
-                auto value = tuple_read_element(*tuple, index);
-                ensure_usable_value(value);
-                return value;
-              },
-              [tuple, index](const RuntimeRef<NGObject> &value) { tuple_write_element(*tuple, index, value); }, memberName);
+          throw RuntimeException("Tuple member reference is not slot-backed: " + memberName);
         }
         throw RuntimeException("Unsupported reference target: " + idAcc->repr());
       }
@@ -764,14 +704,7 @@ namespace NG::intp
           {
             return makert<NGReference>(slot, indexExpr->repr());
           }
-          return makert<NGReference>(
-              [array, index]() {
-                auto value = array_read_element(*array, index);
-                ensure_usable_value(value);
-                return value;
-              },
-              [array, index](const RuntimeRef<NGObject> &value) { array_write_element(*array, index, value); },
-              indexExpr->repr());
+          throw RuntimeException("Array index reference is not slot-backed: " + indexExpr->repr());
         }
         if (auto tuple = std::dynamic_pointer_cast<NGTuple>(primary))
         {
@@ -779,14 +712,7 @@ namespace NG::intp
           {
             return makert<NGReference>(slot, indexExpr->repr());
           }
-          return makert<NGReference>(
-              [tuple, index]() {
-                auto value = tuple_read_element(*tuple, index);
-                ensure_usable_value(value);
-                return value;
-              },
-              [tuple, index](const RuntimeRef<NGObject> &value) { tuple_write_element(*tuple, index, value); },
-              indexExpr->repr());
+          throw RuntimeException("Tuple index reference is not slot-backed: " + indexExpr->repr());
         }
         throw RuntimeException("Unsupported indexed reference target: " + indexExpr->repr());
       }

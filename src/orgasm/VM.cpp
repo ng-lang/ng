@@ -282,43 +282,24 @@ namespace NG::orgasm
                 {
                     uint16_t fieldIdx = read_u16();
                     auto target = pop();
-                    if (auto baseRef = std::dynamic_pointer_cast<NGReference>(target))
-                    {
-                        stack.push_back(makert<NGReference>(
-                            [baseRef, fieldIdx]() -> RuntimeRef<NGObject> {
-                                auto structural = std::dynamic_pointer_cast<NGStructuralObject>(auto_deref_value(baseRef->read()));
-                                if (!structural) throw RuntimeException("Cannot reference property on non-object");
-                                auto fields = structural->payload_fields();
-                                if (fieldIdx >= fields.size()) fields.resize(fieldIdx + 1, makert<NGUnit>());
-                                structural->replace_payload_fields(fields);
-                                return structural->payload_fields().at(fieldIdx);
-                            },
-                            [baseRef, fieldIdx](RuntimeRef<NGObject> value) {
-                                auto structural = std::dynamic_pointer_cast<NGStructuralObject>(auto_deref_value(baseRef->read()));
-                                if (!structural) throw RuntimeException("Cannot reference property on non-object");
-                                auto fields = structural->payload_fields();
-                                if (fieldIdx >= fields.size()) fields.resize(fieldIdx + 1, makert<NGUnit>());
-                                fields.at(fieldIdx) = value;
-                                structural->replace_payload_fields(fields);
-                                baseRef->write(structural);
-                            },
-                            "field:" + std::to_string(fieldIdx)));
-                    }
-                    else
-                    {
-                        auto structural = std::dynamic_pointer_cast<NGStructuralObject>(target);
+                    auto resolvePropertySlot = [fieldIdx](const std::shared_ptr<NGStructuralObject> &structural) -> RuntimeRef<StorageCell> {
                         if (!structural) throw RuntimeException("Cannot reference property on non-object");
                         auto fields = structural->payload_fields();
                         if (fieldIdx >= fields.size()) fields.resize(fieldIdx + 1, makert<NGUnit>());
                         structural->replace_payload_fields(fields);
-                        stack.push_back(makert<NGReference>(
-                            [structural, fieldIdx]() -> RuntimeRef<NGObject> { return structural->payload_fields().at(fieldIdx); },
-                            [structural, fieldIdx](RuntimeRef<NGObject> value) {
-                                auto fields = structural->payload_fields();
-                                fields.at(fieldIdx) = value;
-                                structural->replace_payload_fields(fields);
-                            },
-                            "field:" + std::to_string(fieldIdx)));
+                        auto slot = structural->field_slot(fieldIdx);
+                        if (!slot) throw RuntimeException("Property reference is not slot-backed");
+                        return slot;
+                    };
+                    if (auto baseRef = std::dynamic_pointer_cast<NGReference>(target))
+                    {
+                        auto structural = std::dynamic_pointer_cast<NGStructuralObject>(auto_deref_value(baseRef->read()));
+                        stack.push_back(makert<NGReference>(resolvePropertySlot(structural), "field:" + std::to_string(fieldIdx)));
+                    }
+                    else
+                    {
+                        auto structural = std::dynamic_pointer_cast<NGStructuralObject>(target);
+                        stack.push_back(makert<NGReference>(resolvePropertySlot(structural), "field:" + std::to_string(fieldIdx)));
                     }
                     break;
                 }
@@ -329,6 +310,14 @@ namespace NG::orgasm
                     auto target = pop();
                     auto makePropertyRef = [&propName](const std::shared_ptr<NGStructuralObject> &structural,
                                                        const std::function<void(RuntimeRef<NGObject>)> &commit) {
+                        if (auto index = structural_field_index(structural, propName))
+                        {
+                            if (auto slot = structural->field_slot(*index))
+                            {
+                                return makert<NGReference>(slot, "property:" + propName);
+                            }
+                            throw RuntimeException("Property reference is not slot-backed: " + propName);
+                        }
                         return makert<NGReference>(
                             [structural, propName]() -> RuntimeRef<NGObject> {
                                 return structural_read_member(structural, propName);
@@ -359,6 +348,23 @@ namespace NG::orgasm
                     auto target = pop();
                     auto makeIndexRef = [&index](const RuntimeRef<NGObject> &container,
                                                  const std::function<void(RuntimeRef<NGObject>)> &commit) {
+                        auto idx = NGIntegral<int32_t>::valueOf(std::dynamic_pointer_cast<NumeralBase>(index).get());
+                        if (auto tuple = std::dynamic_pointer_cast<NGTuple>(container))
+                        {
+                            if (auto slot = tuple->element_slot(static_cast<size_t>(idx)))
+                            {
+                                return makert<NGReference>(slot, "index");
+                            }
+                            throw RuntimeException("Tuple index reference is not slot-backed");
+                        }
+                        if (auto array = std::dynamic_pointer_cast<NGArray>(container))
+                        {
+                            if (auto slot = array->element_slot(static_cast<size_t>(idx)))
+                            {
+                                return makert<NGReference>(slot, "index");
+                            }
+                            throw RuntimeException("Array index reference is not slot-backed");
+                        }
                         return makert<NGReference>(
                             [container, index]() -> RuntimeRef<NGObject> {
                                 auto idx = NGIntegral<int32_t>::valueOf(std::dynamic_pointer_cast<NumeralBase>(index).get());
