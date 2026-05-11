@@ -329,7 +329,6 @@ TEST_CASE("struct layout access reads and writes typed fields", "[RuntimeTest][L
   auto object = makert<NGStructuralObject>();
   object->customizedType = objectType;
   object->replace_payload_fields({makert<NGIntegral<int32_t>>(1), makert<NGIntegral<int32_t>>(2)});
-  object->properties.clear();
 
   auto right = std::dynamic_pointer_cast<NumeralBase>(structural_read_member(object, "right"));
   REQUIRE(right != nullptr);
@@ -352,6 +351,24 @@ TEST_CASE("struct layout access reads and writes typed fields", "[RuntimeTest][L
   REQUIRE(slotted != nullptr);
   REQUIRE(NGIntegral<int32_t>::valueOf(slotted.get()) == 11);
   REQUIRE(NGIntegral<int32_t>::valueOf(std::dynamic_pointer_cast<NumeralBase>(object->payload_fields()[0]).get()) == 11);
+}
+
+TEST_CASE("struct layout access keeps dynamic properties in slots", "[RuntimeTest][LayoutObjects]")
+{
+  auto object = makert<NGStructuralObject>();
+
+  structural_write_member(object, "dyn", makert<NGIntegral<int32_t>>(7));
+  auto slot = object->property_slot("dyn");
+  REQUIRE(slot != nullptr);
+  REQUIRE(slot->boxedValue != nullptr);
+  REQUIRE(NGIntegral<int32_t>::valueOf(std::dynamic_pointer_cast<NumeralBase>(slot->boxedValue).get()) == 7);
+
+  auto reference = makert<NGReference>(slot, "dyn");
+  reference->write(makert<NGIntegral<int32_t>>(9));
+
+  auto value = std::dynamic_pointer_cast<NumeralBase>(structural_read_member(object, "dyn"));
+  REQUIRE(value != nullptr);
+  REQUIRE(NGIntegral<int32_t>::valueOf(value.get()) == 9);
 }
 
 TEST_CASE("array layout access reads and writes indexed elements", "[RuntimeTest][LayoutObjects]")

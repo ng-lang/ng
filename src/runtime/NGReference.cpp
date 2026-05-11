@@ -28,11 +28,6 @@ namespace NG::runtime
   {
   }
 
-  NGReference::NGReference(Getter getter, Setter setter, Str debugName, MarkHook markHook)
-      : getter(std::move(getter)), setter(std::move(setter)), markHook(std::move(markHook)), debugName(std::move(debugName))
-  {
-  }
-
   auto NGReference::referenceType() -> RuntimeRef<NGType>
   {
     static auto type = makert<NGType>(NGType{
@@ -50,30 +45,29 @@ namespace NG::runtime
 
   auto NGReference::read() const -> RuntimeRef<NGObject>
   {
-    if (targetCell)
+    if (!targetCell)
     {
-      if (!targetCell->boxedValue)
-      {
-        throw RuntimeException("Dangling heap reference");
-      }
-      ensure_usable_value(targetCell->boxedValue);
-      return targetCell->boxedValue;
+      throw RuntimeException("Dangling reference cell");
     }
-    return getter();
+    if (!targetCell->boxedValue)
+    {
+      throw RuntimeException("Dangling heap reference");
+    }
+    ensure_usable_value(targetCell->boxedValue);
+    return targetCell->boxedValue;
   }
 
   void NGReference::write(const RuntimeRef<NGObject> &value) const
   {
-    if (targetCell)
+    if (!targetCell)
     {
-      if (!targetCell->boxedValue)
-      {
-        throw RuntimeException("Dangling heap reference");
-      }
-      runtime_sync_storage_cell(targetCell, value);
-      return;
+      throw RuntimeException("Dangling reference cell");
     }
-    setter(value);
+    if (!targetCell->boxedValue)
+    {
+      throw RuntimeException("Dangling heap reference");
+    }
+    runtime_sync_storage_cell(targetCell, value);
   }
 
   void NGReference::mark_referenced_heap() const
@@ -170,9 +164,10 @@ namespace NG::runtime
       auto cloned = makert<NGStructuralObject>();
       cloned->customizedType = structural->customizedType;
       cloned->selfMemberFunctions = structural->selfMemberFunctions;
-      for (auto &[name, prop] : structural->properties)
+      for (const auto &[name, slot] : structural->propertySlots)
       {
-        cloned->properties[name] = clone_value(prop);
+        auto clonedSlot = cloned->property_slot_or_create(name);
+        runtime_sync_storage_cell(clonedSlot, clone_value(slot ? slot->boxedValue : nullptr));
       }
       auto sourceFields = structural->payload_fields();
       Vec<RuntimeRef<NGObject>> clonedFields;

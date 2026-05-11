@@ -85,7 +85,10 @@ namespace NG::runtime
       }
       if (auto structural = std::dynamic_pointer_cast<NGStructuralObject>(value))
       {
-        for (const auto &[name, property] : structural->properties) trace_object(property, seenObjects, seenCells);
+        for (const auto &[name, slot] : structural->propertySlots)
+        {
+          trace_storage_cell(slot, seenObjects, seenCells);
+        }
         structural->sync_field_slots();
         const auto &payload = structural->payload_store().get(structural->payload_cell()).opaqueRefs;
         for (const auto &cell : payload)

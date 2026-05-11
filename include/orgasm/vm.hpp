@@ -57,13 +57,12 @@ namespace NG::orgasm
         struct Frame
         {
             size_t ip;
-            Vec<RuntimeRef<NGObject>> locals;
-            Vec<RuntimeRef<NGObject>> args;
+            Vec<RuntimeRef<StorageCell>> locals;
         };
 
         Vec<RuntimeRef<NGObject>> stack;
         const BytecodeModule *current_module = nullptr;
-        Vec<RuntimeRef<NGObject>> globals;
+        Vec<RuntimeRef<StorageCell>> globals;
         RuntimeRef<NGContext> root_context;
         Map<Str, RuntimeRef<NGType>> root_types;
         Vec<Frame> call_stack;

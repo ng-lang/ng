@@ -36,9 +36,9 @@ namespace NG::runtime
       }
       return makert<NGUnit>();
     }
-    if (structural->properties.contains(member))
+    if (auto slot = structural->property_slot(member))
     {
-      return structural->properties.at(member);
+      return slot->boxedValue;
     }
     return nullptr;
   }
@@ -66,6 +66,7 @@ namespace NG::runtime
       }
       return;
     }
-    structural->properties[member] = value;
+    auto slot = structural->property_slot_or_create(member);
+    runtime_sync_storage_cell(slot, value);
   }
 } // namespace NG::runtime

@@ -578,12 +578,12 @@ namespace NG::intp
         sync_binding_slot(context, activeFrames, activeScopes, slot, value);
         return;
       }
-      if (auto receiver = std::dynamic_pointer_cast<NGStructuralObject>(find_frame_receiver(activeFrames, activeScopes)))
-      {
-        if (structural_field_index(receiver, name).has_value() || receiver->properties.contains(name))
+        if (auto receiver = std::dynamic_pointer_cast<NGStructuralObject>(find_frame_receiver(activeFrames, activeScopes)))
         {
-          structural_write_member(receiver, name, value);
-          return;
+          if (structural_field_index(receiver, name).has_value() || receiver->property_slot(name))
+          {
+            structural_write_member(receiver, name, value);
+            return;
         }
       }
       assign_global_binding(context, name, value);
@@ -600,15 +600,17 @@ namespace NG::intp
         }
         if (auto receiver = std::dynamic_pointer_cast<NGStructuralObject>(find_frame_receiver(activeFrames, activeScopes)))
         {
-          if (structural_field_index(receiver, name).has_value() || receiver->properties.contains(name))
+          if (structural_field_index(receiver, name).has_value() || receiver->property_slot(name))
           {
-            return makert<NGReference>(
-                [receiver, name]() {
-                  auto value = structural_read_member(receiver, name);
-                  ensure_usable_value(value);
-                  return value;
-                },
-                [receiver, name](const RuntimeRef<NGObject> &value) { structural_write_member(receiver, name, value); }, name);
+            if (auto index = structural_field_index(receiver, name))
+            {
+              if (auto slot = receiver->field_slot(*index))
+              {
+                return makert<NGReference>(slot, name);
+              }
+              throw RuntimeException("Receiver field reference is not slot-backed: " + name);
+            }
+            return makert<NGReference>(receiver->property_slot_or_create(name), name);
           }
         }
         if (auto slot = context ? context->get_slot(name) : nullptr)
@@ -646,14 +648,7 @@ namespace NG::intp
             }
             throw RuntimeException("Structural field reference is not slot-backed: " + memberName);
           }
-          return makert<NGReference>(
-              [structural, memberName]() {
-                auto value = structural_read_member(structural, memberName);
-                ensure_usable_value(value);
-                return value;
-              },
-               [structural, memberName](const RuntimeRef<NGObject> &value) { structural_write_member(structural, memberName, value); },
-               memberName);
+          return makert<NGReference>(structural->property_slot_or_create(memberName), memberName);
         }
         if (auto tagged = std::dynamic_pointer_cast<NGTaggedValue>(main))
         {
@@ -1357,7 +1352,7 @@ namespace NG::intp
         }
         if (auto receiver = std::dynamic_pointer_cast<NGStructuralObject>(find_frame_receiver(activeFrames, activeScopes)))
         {
-          if (structural_field_index(receiver, name).has_value() || receiver->properties.contains(name))
+          if (structural_field_index(receiver, name).has_value() || receiver->property_slot(name))
           {
             structural_write_member(receiver, name, materialized);
             return;

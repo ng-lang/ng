@@ -35,8 +35,9 @@ namespace NG::runtime
       return "{ " + repr + " }";
     }
 
-    for (const auto &[name, value] : structural.properties)
+    for (const auto &[name, slot] : structural.propertySlots)
     {
+      auto value = slot ? slot->boxedValue : nullptr;
       if (!repr.empty())
       {
         repr += ", ";
@@ -216,6 +217,27 @@ namespace NG::runtime
       return nullptr;
     }
     return fieldSlots[index];
+  }
+
+  auto NGStructuralObject::property_slot(const Str &name) const -> RuntimeRef<StorageCell>
+  {
+    if (!propertySlots.contains(name))
+    {
+      return nullptr;
+    }
+    return propertySlots.at(name);
+  }
+
+  auto NGStructuralObject::property_slot_or_create(const Str &name) const -> RuntimeRef<StorageCell>
+  {
+    if (auto slot = property_slot(name))
+    {
+      return slot;
+    }
+    auto slot = make_boxed_storage_cell(makert<NGUnit>(), StorageClass::TEMPORARY);
+    slot->name = name;
+    const_cast<NGStructuralObject *>(this)->propertySlots.insert_or_assign(name, slot);
+    return slot;
   }
 
 } // namespace NG::runtime

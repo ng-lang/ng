@@ -263,6 +263,64 @@ TEST_CASE("compiler and vm should support ref swap with move dereference", "[Org
   destroyast(ast);
 }
 
+TEST_CASE("compiler and vm should support refs to globals", "[OrgasmTest][RefMove]")
+{
+  auto ast = parse(R"(
+        val x = 1;
+
+        fun set_it(target: i32 ref) {
+            *target := 9;
+        }
+
+        fun main() {
+            set_it(ref x);
+            return x;
+        }
+    )");
+  REQUIRE(ast != nullptr);
+
+  Compiler compiler;
+  auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+
+  VM vm;
+  auto result = vm.run(bytecode);
+
+  auto numeric = std::dynamic_pointer_cast<NumeralBase>(result);
+  REQUIRE(numeric != nullptr);
+  REQUIRE(NGIntegral<int32_t>::valueOf(numeric.get()) == 9);
+
+  destroyast(ast);
+}
+
+TEST_CASE("compiler and vm should support refs to object properties", "[OrgasmTest][RefMove]")
+{
+  auto ast = parse(R"(
+        type Box {
+            property value;
+        }
+
+        fun main() {
+            val box = new Box { value: 1 };
+            val ptr = ref box.value;
+            *ptr := 7;
+            return box.value;
+        }
+    )");
+  REQUIRE(ast != nullptr);
+
+  Compiler compiler;
+  auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+
+  VM vm;
+  auto result = vm.run(bytecode);
+
+  auto numeric = std::dynamic_pointer_cast<NumeralBase>(result);
+  REQUIRE(numeric != nullptr);
+  REQUIRE(NGIntegral<int32_t>::valueOf(numeric.get()) == 7);
+
+  destroyast(ast);
+}
+
 TEST_CASE("managed heap should sweep unreachable vm cycles", "[OrgasmTest][RefMove][GC]")
 {
   NG::runtime::collect_managed_heap();

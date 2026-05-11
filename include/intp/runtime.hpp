@@ -778,7 +778,7 @@ namespace NG::runtime
     struct NGStructuralObject : NGObject
     {
         RuntimeRef<NGType> customizedType;         ///< The customized type of the object.
-        Map<Str, RuntimeRef<NGObject>> properties; ///< Dynamic/string-keyed properties not backed by typed field slots.
+        mutable Map<Str, RuntimeRef<StorageCell>> propertySlots; ///< Dynamic/string-keyed properties backed by storage cells.
         mutable Vec<RuntimeRef<StorageCell>> fieldSlots;
         mutable HeapStore payloadStore;
         mutable CellRef payloadRef;
@@ -792,6 +792,8 @@ namespace NG::runtime
         [[nodiscard]] auto payload_fields() const -> Vec<RuntimeRef<NGObject>>;
         void replace_payload_fields(const Vec<RuntimeRef<NGObject>> &values);
         [[nodiscard]] auto field_slot(size_t index) const -> RuntimeRef<StorageCell>;
+        [[nodiscard]] auto property_slot(const Str &name) const -> RuntimeRef<StorageCell>;
+        [[nodiscard]] auto property_slot_or_create(const Str &name) const -> RuntimeRef<StorageCell>;
 
     };
 
@@ -807,18 +809,13 @@ namespace NG::runtime
 
     struct NGReference final : NGObject
     {
-        using Getter = std::function<RuntimeRef<NGObject>()>;
-        using Setter = std::function<void(RuntimeRef<NGObject>)>;
         using MarkHook = std::function<void()>;
 
         RuntimeRef<StorageCell> targetCell;
-        Getter getter;
-        Setter setter;
         MarkHook markHook;
         Str debugName;
 
         NGReference(RuntimeRef<StorageCell> targetCell, Str debugName, MarkHook markHook = nullptr);
-        NGReference(Getter getter, Setter setter, Str debugName, MarkHook markHook = nullptr);
 
         [[nodiscard]] static auto referenceType() -> RuntimeRef<NGType>;
 

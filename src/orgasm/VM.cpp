@@ -29,6 +29,31 @@ namespace NG::orgasm
             }
             return value;
         }
+
+        auto ensure_slot(Vec<RuntimeRef<StorageCell>> &slots, size_t index, const Str &prefix) -> RuntimeRef<StorageCell>
+        {
+            if (index >= slots.size())
+            {
+                slots.resize(index + 1);
+            }
+            if (!slots[index])
+            {
+                slots[index] = make_boxed_storage_cell(makert<NGUnit>(), StorageClass::FRAME);
+                slots[index]->name = prefix + std::to_string(index);
+            }
+            return slots[index];
+        }
+
+        void append_slot_roots(Vec<RuntimeRef<NGObject>> &roots, const Vec<RuntimeRef<StorageCell>> &slots)
+        {
+            for (const auto &slot : slots)
+            {
+                if (slot && slot->boxedValue)
+                {
+                    roots.push_back(slot->boxedValue);
+                }
+            }
+        }
     }
 
     void VM::register_native_raw(const Str &name, NativeFunction func)
@@ -42,12 +67,11 @@ namespace NG::orgasm
         root_context = makert<NGContext>();
         auto gcRootProviderId = register_gc_root_provider([this]() {
             auto roots = enumerate_context_roots(root_context);
-            roots.insert(roots.end(), globals.begin(), globals.end());
+            append_slot_roots(roots, globals);
             roots.insert(roots.end(), stack.begin(), stack.end());
             for (const auto &frame : call_stack)
             {
-                roots.insert(roots.end(), frame.locals.begin(), frame.locals.end());
-                roots.insert(roots.end(), frame.args.begin(), frame.args.end());
+                append_slot_roots(roots, frame.locals);
             }
             return roots;
         });
@@ -69,7 +93,11 @@ namespace NG::orgasm
                 }
             }
         }
-        globals.resize(std::max(maxGlobal, size_t{1}), makert<NGUnit>());
+        globals.resize(std::max(maxGlobal, size_t{1}));
+        for (size_t i = 0; i < globals.size(); ++i)
+        {
+            ensure_slot(globals, i, "global:");
+        }
         
         // Register built-ins
         root_context->define_function("not", [](const NGSelf &self, const NGCtx &ctx,
@@ -106,9 +134,15 @@ namespace NG::orgasm
     {
         Frame frame;
         frame.ip = 0;
-        frame.args = args;
-        frame.locals.resize(std::max(static_cast<int32_t>(fun.num_locals), fun.num_params), makert<NGUnit>());
-        for (size_t i = 0; i < args.size(); ++i) frame.locals[i] = args[i];
+        frame.locals.resize(std::max(static_cast<int32_t>(fun.num_locals), fun.num_params));
+        for (size_t i = 0; i < frame.locals.size(); ++i)
+        {
+            ensure_slot(frame.locals, i, "local:");
+        }
+        for (size_t i = 0; i < args.size(); ++i)
+        {
+            runtime_sync_storage_cell(ensure_slot(frame.locals, i, "param:"), args[i]);
+        }
         
         call_stack.push_back(std::move(frame));
         struct FrameGuard {
@@ -134,6 +168,10 @@ namespace NG::orgasm
         {
             ensure_usable_value(value);
             return clone_value(value);
+        };
+        auto copy_out_slot = [&copy_out](const RuntimeRef<StorageCell> &slot) -> RuntimeRef<NGObject>
+        {
+            return copy_out(slot ? slot->boxedValue : makert<NGUnit>());
         };
         auto access_target = [](const RuntimeRef<NGObject> &value) -> RuntimeRef<NGObject>
         {
@@ -255,27 +293,32 @@ namespace NG::orgasm
                     call_stack.pop_back();
                     return res;
                 }
-                case OpCode::LOAD_LOCAL: { stack.push_back(copy_out(call_stack[frame_idx].locals[read_u16()])); break; }
-                case OpCode::LOAD_PARAM: { stack.push_back(copy_out(call_stack[frame_idx].locals[read_u16()])); break; }
-                case OpCode::STORE_LOCAL: { uint16_t idx = read_u16(); auto &locals = call_stack[frame_idx].locals; if (idx >= locals.size()) locals.resize(idx + 1, makert<NGUnit>()); locals[idx] = stack.back(); break; }
-                case OpCode::LOAD_GLOBAL: { stack.push_back(copy_out(globals[read_u16()])); break; }
-                case OpCode::STORE_GLOBAL: { uint16_t idx = read_u16(); if (idx >= globals.size()) globals.resize(idx + 1, makert<NGUnit>()); globals[idx] = stack.back(); break; }
+                case OpCode::LOAD_LOCAL: { stack.push_back(copy_out_slot(ensure_slot(call_stack[frame_idx].locals, read_u16(), "local:"))); break; }
+                case OpCode::LOAD_PARAM: { stack.push_back(copy_out_slot(ensure_slot(call_stack[frame_idx].locals, read_u16(), "param:"))); break; }
+                case OpCode::STORE_LOCAL:
+                {
+                    uint16_t idx = read_u16();
+                    runtime_sync_storage_cell(ensure_slot(call_stack[frame_idx].locals, idx, "local:"), stack.back());
+                    break;
+                }
+                case OpCode::LOAD_GLOBAL: { stack.push_back(copy_out_slot(ensure_slot(globals, read_u16(), "global:"))); break; }
+                case OpCode::STORE_GLOBAL:
+                {
+                    uint16_t idx = read_u16();
+                    runtime_sync_storage_cell(ensure_slot(globals, idx, "global:"), stack.back());
+                    break;
+                }
                 case OpCode::MAKE_LOCAL_REF:
                 {
                     uint16_t idx = read_u16();
-                    stack.push_back(makert<NGReference>(
-                        [this, frame_idx, idx]() -> RuntimeRef<NGObject> { return call_stack.at(frame_idx).locals.at(idx); },
-                        [this, frame_idx, idx](RuntimeRef<NGObject> value) { call_stack.at(frame_idx).locals.at(idx) = std::move(value); },
-                        "local:" + std::to_string(idx)));
+                    stack.push_back(makert<NGReference>(ensure_slot(call_stack[frame_idx].locals, idx, "local:"),
+                                                        "local:" + std::to_string(idx)));
                     break;
                 }
                 case OpCode::MAKE_GLOBAL_REF:
                 {
                     uint16_t idx = read_u16();
-                    stack.push_back(makert<NGReference>(
-                        [this, idx]() -> RuntimeRef<NGObject> { return globals.at(idx); },
-                        [this, idx](RuntimeRef<NGObject> value) { globals.at(idx) = std::move(value); },
-                        "global:" + std::to_string(idx)));
+                    stack.push_back(makert<NGReference>(ensure_slot(globals, idx, "global:"), "global:" + std::to_string(idx)));
                     break;
                 }
                 case OpCode::MAKE_PROPERTY_REF:
@@ -308,8 +351,7 @@ namespace NG::orgasm
                     uint16_t nameIdx = read_u16();
                     Str propName = current_module->strings[nameIdx];
                     auto target = pop();
-                    auto makePropertyRef = [&propName](const std::shared_ptr<NGStructuralObject> &structural,
-                                                       const std::function<void(RuntimeRef<NGObject>)> &commit) {
+                    auto makePropertyRef = [&propName](const std::shared_ptr<NGStructuralObject> &structural) {
                         if (auto index = structural_field_index(structural, propName))
                         {
                             if (auto slot = structural->field_slot(*index))
@@ -318,27 +360,19 @@ namespace NG::orgasm
                             }
                             throw RuntimeException("Property reference is not slot-backed: " + propName);
                         }
-                        return makert<NGReference>(
-                            [structural, propName]() -> RuntimeRef<NGObject> {
-                                return structural_read_member(structural, propName);
-                            },
-                            [structural, propName, commit](RuntimeRef<NGObject> value) {
-                                structural_write_member(structural, propName, value);
-                                commit(structural);
-                            },
-                            "property:" + propName);
+                        return makert<NGReference>(structural->property_slot_or_create(propName), "property:" + propName);
                     };
                     if (auto baseRef = std::dynamic_pointer_cast<NGReference>(target))
                     {
                         auto structural = std::dynamic_pointer_cast<NGStructuralObject>(auto_deref_value(baseRef->read()));
                         if (!structural) throw RuntimeException("Cannot reference property on non-object");
-                        stack.push_back(makePropertyRef(structural, [baseRef](RuntimeRef<NGObject> value) { baseRef->write(value); }));
+                        stack.push_back(makePropertyRef(structural));
                     }
                     else
                     {
                         auto structural = std::dynamic_pointer_cast<NGStructuralObject>(target);
                         if (!structural) throw RuntimeException("Cannot reference property on non-object");
-                        stack.push_back(makePropertyRef(structural, [](RuntimeRef<NGObject>) {}));
+                        stack.push_back(makePropertyRef(structural));
                     }
                     break;
                 }
@@ -346,8 +380,7 @@ namespace NG::orgasm
                 {
                     auto index = pop();
                     auto target = pop();
-                    auto makeIndexRef = [&index](const RuntimeRef<NGObject> &container,
-                                                 const std::function<void(RuntimeRef<NGObject>)> &commit) {
+                    auto makeIndexRef = [&index](const RuntimeRef<NGObject> &container) {
                         auto idx = NGIntegral<int32_t>::valueOf(std::dynamic_pointer_cast<NumeralBase>(index).get());
                         if (auto tuple = std::dynamic_pointer_cast<NGTuple>(container))
                         {
@@ -365,41 +398,16 @@ namespace NG::orgasm
                             }
                             throw RuntimeException("Array index reference is not slot-backed");
                         }
-                        return makert<NGReference>(
-                            [container, index]() -> RuntimeRef<NGObject> {
-                                auto idx = NGIntegral<int32_t>::valueOf(std::dynamic_pointer_cast<NumeralBase>(index).get());
-                                if (auto tuple = std::dynamic_pointer_cast<NGTuple>(container))
-                                    return tuple_read_element(*tuple, static_cast<size_t>(idx));
-                                if (auto array = std::dynamic_pointer_cast<NGArray>(container))
-                                    return array_read_element(*array, static_cast<size_t>(idx));
-                                throw RuntimeException("Cannot reference index on non-indexable value");
-                            },
-                            [container, index, commit](RuntimeRef<NGObject> value) {
-                                auto idx = NGIntegral<int32_t>::valueOf(std::dynamic_pointer_cast<NumeralBase>(index).get());
-                                if (auto tuple = std::dynamic_pointer_cast<NGTuple>(container))
-                                {
-                                    tuple_write_element(*tuple, static_cast<size_t>(idx), value);
-                                    commit(tuple);
-                                    return;
-                                }
-                                if (auto array = std::dynamic_pointer_cast<NGArray>(container))
-                                {
-                                    array_write_element(*array, static_cast<size_t>(idx), value);
-                                    commit(array);
-                                    return;
-                                }
-                                throw RuntimeException("Cannot reference index on non-indexable value");
-                            },
-                            "index");
+                        throw RuntimeException("Cannot reference index on non-indexable value");
                     };
                     if (auto baseRef = std::dynamic_pointer_cast<NGReference>(target))
                     {
                         auto container = auto_deref_value(baseRef->read());
-                        stack.push_back(makeIndexRef(container, [baseRef](RuntimeRef<NGObject> value) { baseRef->write(value); }));
+                        stack.push_back(makeIndexRef(container));
                     }
                     else
                     {
-                        stack.push_back(makeIndexRef(target, [](RuntimeRef<NGObject>) {}));
+                        stack.push_back(makeIndexRef(target));
                     }
                     break;
                 }
@@ -422,20 +430,20 @@ namespace NG::orgasm
                 case OpCode::MOVE_LOCAL:
                 {
                     uint16_t idx = read_u16();
-                    auto &slot = call_stack[frame_idx].locals[idx];
-                    ensure_usable_value(slot);
-                    auto moved = slot;
-                    slot = moved_object();
+                    auto slot = ensure_slot(call_stack[frame_idx].locals, idx, "local:");
+                    ensure_usable_value(slot->boxedValue);
+                    auto moved = slot->boxedValue;
+                    runtime_sync_storage_cell(slot, moved_object());
                     stack.push_back(moved);
                     break;
                 }
                 case OpCode::MOVE_GLOBAL:
                 {
                     uint16_t idx = read_u16();
-                    auto &slot = globals[idx];
-                    ensure_usable_value(slot);
-                    auto moved = slot;
-                    slot = moved_object();
+                    auto slot = ensure_slot(globals, idx, "global:");
+                    ensure_usable_value(slot->boxedValue);
+                    auto moved = slot->boxedValue;
+                    runtime_sync_storage_cell(slot, moved_object());
                     stack.push_back(moved);
                     break;
                 }
