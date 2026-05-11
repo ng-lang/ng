@@ -71,6 +71,13 @@ TEST_CASE("value_ops handles direct equality and collection mutation", "[Runtime
   runtime_sync_storage_cell(tupleSlot, makert<NGIntegral<int32_t>>(9));
   REQUIRE_FALSE(value_equals(tupleA, tupleB));
 
+  auto leftCell = make_boxed_storage_cell(makert<NGIntegral<int32_t>>(4), StorageClass::TEMPORARY);
+  auto rightCell = make_boxed_storage_cell(makert<NGIntegral<int32_t>>(2), StorageClass::TEMPORARY);
+  REQUIRE(value_greater_than(leftCell, rightCell));
+  auto summedCells = std::dynamic_pointer_cast<NumeralBase>(value_add(leftCell, rightCell));
+  REQUIRE(summedCells != nullptr);
+  REQUIRE(NGIntegral<int32_t>::valueOf(summedCells.get()) == 6);
+
   auto appended = std::dynamic_pointer_cast<NGArray>(value_lshift(lhs, makert<NGIntegral<int32_t>>(9)));
   REQUIRE(appended != nullptr);
   REQUIRE(array_length(*appended) == 3);
