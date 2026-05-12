@@ -1,7 +1,5 @@
 #include <runtime/buffer_runtime.hpp>
 
-#include <cstring>
-
 namespace NG::buffer_runtime
 {
   namespace
@@ -14,6 +12,37 @@ namespace NG::buffer_runtime
       }
       auto remainder = value % alignment;
       return remainder == 0 ? value : value + (alignment - remainder);
+    }
+
+    [[nodiscard]] auto checked_heap_range(const HeapCell &cell, CellRef ref, size_t offset, size_t size, const char *op)
+        -> size_t
+    {
+      if (!ref.valid())
+      {
+        throw std::out_of_range(Str{"Invalid heap cell reference for "} + op);
+      }
+      if (ref.offset > cell.bytes.size())
+      {
+        throw std::out_of_range(Str{"Cell reference offset exceeds cell bounds for "} + op);
+      }
+      if (offset > cell.bytes.size() - ref.offset)
+      {
+        throw std::out_of_range(Str{"Requested offset exceeds cell bounds for "} + op);
+      }
+      const auto absoluteOffset = ref.offset + offset;
+      if (size > cell.bytes.size() - absoluteOffset)
+      {
+        throw std::out_of_range(Str{"Requested range exceeds cell bounds for "} + op);
+      }
+      return absoluteOffset;
+    }
+
+    void ensure_u64_field(const FieldLayout &field)
+    {
+      if (field.size != 0 && field.size < sizeof(uint64_t))
+      {
+        throw std::out_of_range("Field is too small for u64 access");
+      }
     }
   } // namespace
 
@@ -77,22 +106,16 @@ namespace NG::buffer_runtime
   void HeapStore::write(CellRef ref, size_t offset, const Vec<uint8_t> &data)
   {
     auto &cell = get(ref);
-    if (offset + data.size() > cell.bytes.size())
-    {
-      throw std::out_of_range("Write exceeds cell bounds");
-    }
-    std::copy(data.begin(), data.end(), cell.bytes.begin() + static_cast<ptrdiff_t>(offset));
+    const auto absoluteOffset = checked_heap_range(cell, ref, offset, data.size(), "write");
+    std::copy(data.begin(), data.end(), cell.bytes.begin() + static_cast<ptrdiff_t>(absoluteOffset));
   }
 
   auto HeapStore::read(CellRef ref, size_t offset, size_t size) const -> Vec<uint8_t>
   {
     const auto &cell = get(ref);
-    if (offset + size > cell.bytes.size())
-    {
-      throw std::out_of_range("Read exceeds cell bounds");
-    }
-    return Vec<uint8_t>{cell.bytes.begin() + static_cast<ptrdiff_t>(offset),
-                        cell.bytes.begin() + static_cast<ptrdiff_t>(offset + size)};
+    const auto absoluteOffset = checked_heap_range(cell, ref, offset, size, "read");
+    return Vec<uint8_t>{cell.bytes.begin() + static_cast<ptrdiff_t>(absoluteOffset),
+                        cell.bytes.begin() + static_cast<ptrdiff_t>(absoluteOffset + size)};
   }
 
   auto make_slot(Str name, const TypeLayout &layout, StorageClass storageClass) -> FrameSlot
@@ -306,16 +329,24 @@ namespace NG::buffer_runtime
 
   void write_u64_field(HeapStore &heap, CellRef ref, const FieldLayout &field, uint64_t value)
   {
+    ensure_u64_field(field);
     Vec<uint8_t> bytes(sizeof(uint64_t));
-    std::memcpy(bytes.data(), &value, sizeof(uint64_t));
+    for (size_t i = 0; i < bytes.size(); ++i)
+    {
+      bytes[i] = static_cast<uint8_t>((value >> (i * 8U)) & 0xffU);
+    }
     heap.write(ref, field.offset, bytes);
   }
 
   auto read_u64_field(const HeapStore &heap, CellRef ref, const FieldLayout &field) -> uint64_t
   {
+    ensure_u64_field(field);
     auto bytes = heap.read(ref, field.offset, sizeof(uint64_t));
     uint64_t value = 0;
-    std::memcpy(&value, bytes.data(), sizeof(uint64_t));
+    for (size_t i = 0; i < bytes.size(); ++i)
+    {
+      value |= static_cast<uint64_t>(bytes[i]) << (i * 8U);
+    }
     return value;
   }
 
@@ -373,7 +404,11 @@ namespace NG::buffer_runtime
   auto read_string_payload(const HeapStore &heap, CellRef ref) -> Str
   {
     const auto &cell = heap.get(ref);
-    auto bytes = heap.read(ref, 0, cell.bytes.size());
+    if (ref.offset > cell.bytes.size())
+    {
+      throw std::out_of_range("String payload read exceeds cell bounds");
+    }
+    auto bytes = heap.read(ref, 0, cell.bytes.size() - ref.offset);
     return Str(bytes.begin(), bytes.end());
   }
 } // namespace NG::buffer_runtime

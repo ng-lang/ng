@@ -1,7 +1,8 @@
 #pragma once
 
+#include <array>
+#include <bit>
 #include <cmath>
-#include <cstring>
 #include <intp/runtime.hpp>
 #include <limits>
 #include <type_traits>
@@ -16,8 +17,8 @@ namespace NG::runtime
         {
             throw RuntimeException("Cannot write null storage cell");
         }
-        cell->bytes.resize(sizeof(T));
-        std::memcpy(cell->bytes.data(), &value, sizeof(T));
+        auto bytes = std::bit_cast<std::array<uint8_t, sizeof(T)>>(value);
+        cell->bytes.assign(bytes.begin(), bytes.end());
     }
 
     template <class T>
@@ -28,9 +29,9 @@ namespace NG::runtime
         {
             throw RuntimeException("Storage cell does not contain the requested inline value");
         }
-        T value{};
-        std::memcpy(&value, cell->bytes.data(), sizeof(T));
-        return value;
+        std::array<uint8_t, sizeof(T)> bytes{};
+        std::copy_n(cell->bytes.begin(), bytes.size(), bytes.begin());
+        return std::bit_cast<T>(bytes);
     }
 
     template <class T>

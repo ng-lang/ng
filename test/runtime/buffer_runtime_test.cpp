@@ -1,6 +1,8 @@
 #include "../test.hpp"
 #include <runtime/buffer_runtime.hpp>
 
+#include <limits>
+
 using namespace NG::buffer_runtime;
 
 TEST_CASE("LayoutRegistry stores and returns layouts", "[RuntimeTest][BufferRuntime]")
@@ -38,6 +40,18 @@ TEST_CASE("HeapStore allocates and reads raw cell bytes", "[RuntimeTest][BufferR
   auto bytes = heap.read(ref, 0, 4);
 
   REQUIRE(bytes == Vec<uint8_t>{1, 2, 3, 4});
+}
+
+TEST_CASE("HeapStore rejects out-of-bounds and overflowing byte ranges", "[RuntimeTest][BufferRuntime]")
+{
+  HeapStore heap;
+  TypeLayout layout{.name = "bytes", .kind = LayoutKind::DYNAMIC, .size = 4, .alignment = 1};
+  auto ref = heap.allocate(layout);
+
+  REQUIRE_THROWS_AS(heap.read(ref, 5, 1), std::out_of_range);
+  REQUIRE_THROWS_AS(heap.write(ref, 2, Vec<uint8_t>{1, 2, 3}), std::out_of_range);
+  REQUIRE_THROWS_AS(heap.read(ref, std::numeric_limits<size_t>::max(), 1), std::out_of_range);
+  REQUIRE_THROWS_AS(heap.write(CellRef{.cellId = ref.cellId, .offset = 3}, 1, Vec<uint8_t>{1}), std::out_of_range);
 }
 
 TEST_CASE("make_slot sizes frame slots from layout", "[RuntimeTest][BufferRuntime]")

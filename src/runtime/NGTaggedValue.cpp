@@ -3,7 +3,8 @@
 #include <runtime/tagged_layout_access.hpp>
 #include <runtime/value_access.hpp>
 
-#include <cstring>
+#include <array>
+#include <bit>
 
 namespace NG::runtime
 {
@@ -59,7 +60,8 @@ namespace NG::runtime
     auto variantIndex = type ? type->variantIndex : -1;
     if (cell->bytes.size() >= sizeof(int32_t))
     {
-      std::memcpy(cell->bytes.data(), &variantIndex, sizeof(int32_t));
+      auto indexBytes = std::bit_cast<std::array<uint8_t, sizeof(int32_t)>>(variantIndex);
+      std::copy_n(indexBytes.begin(), indexBytes.size(), cell->bytes.begin());
     }
     cell->opaqueRefs.assign(payloadSlots.begin(), payloadSlots.end());
     cell->namedRefs.clear();
