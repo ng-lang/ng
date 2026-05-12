@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <stdexcept>
 
@@ -104,6 +105,8 @@ namespace NG::buffer_runtime
     StorageClass storageClass = StorageClass::FRAME;
     TypeLayout layout;
     Vec<uint8_t> bytes;
+    Map<size_t, NativeHandle> nativeHandles;
+    Vec<std::shared_ptr<void>> opaqueRefs;
   };
 
   struct CallFrame

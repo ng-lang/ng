@@ -6,66 +6,58 @@
 
 using namespace NG::runtime;
 
-TEST_CASE("NGTaggedValue exposes payload members and metadata", "[RuntimeTest][TaggedValue]")
+TEST_CASE("tagged storage cells expose payload members and metadata", "[RuntimeTest][TaggedValue]")
 {
-  NGTaggedValue tagged{
-      "Result",
-      "Ok",
-      0,
-      Vec<RuntimeRef<NGObject>>{makert<NGIntegral<int32_t>>(42)},
-      {"value"},
-  };
+  auto selfSlot = make_runtime_tagged_cell(
+      "Result", "Ok", 0,
+      {
+          numeral_cell_from_value<int32_t>(42),
+      },
+      {"value"});
 
   auto env = make_runtime_env();
-  auto self = makert<NGUnit>();
   NGArgs args{};
 
-  REQUIRE(tagged.show() == "Ok(42)");
+  REQUIRE(runtime_value_show(selfSlot) == "Ok(42)");
 
-  auto typeA = tagged.type();
-  auto typeB = tagged.type();
+  auto typeA = runtime_value_type(selfSlot);
+  auto typeB = runtime_value_type(selfSlot);
   REQUIRE(typeA != nullptr);
   REQUIRE(typeB != nullptr);
   REQUIRE(typeA->name == "Result");
   REQUIRE(*typeA == *typeB);
 
-  auto value = std::dynamic_pointer_cast<NumeralBase>(tagged.respond(self, "value", env, args));
+  auto value = runtime_value_respond(selfSlot, "value", env, args);
   REQUIRE(value != nullptr);
-  REQUIRE(NGIntegral<int32_t>::valueOf(value.get()) == 42);
+  REQUIRE(read_inline_cell_bytes<int32_t>(value) == 42);
 
-  auto positional = std::dynamic_pointer_cast<NumeralBase>(tagged.respond(self, "0", env, args));
+  auto positional = runtime_value_respond(selfSlot, "0", env, args);
   REQUIRE(positional != nullptr);
-  REQUIRE(NGIntegral<int32_t>::valueOf(positional.get()) == 42);
+  REQUIRE(read_inline_cell_bytes<int32_t>(positional) == 42);
 
-  auto tag = std::dynamic_pointer_cast<NGString>(tagged.respond(self, "tag", env, args));
+  auto tag = runtime_value_respond(selfSlot, "tag", env, args);
   REQUIRE(tag != nullptr);
-  REQUIRE(tag->payload_value() == "Ok");
+  REQUIRE(runtime_string_value(tag) == "Ok");
 
-  auto index = std::dynamic_pointer_cast<NumeralBase>(tagged.respond(self, "index", env, args));
+  auto index = runtime_value_respond(selfSlot, "index", env, args);
   REQUIRE(index != nullptr);
-  REQUIRE(NGIntegral<int32_t>::valueOf(index.get()) == 0);
+  REQUIRE(read_inline_cell_bytes<int32_t>(index) == 0);
 
-  REQUIRE(tagged.payload_items().size() == 1);
-  REQUIRE(tagged.payload_store().get(tagged.payload_cell()).layout.name == "Tagged.payload");
-
-  auto valueSlot = tagged.payload_slot(0);
+  auto valueSlot = runtime_cell_slot_ref(selfSlot, 0);
   REQUIRE(valueSlot != nullptr);
-  REQUIRE(tagged_member_slot(tagged, "value") == valueSlot);
-  REQUIRE(std::static_pointer_cast<StorageCell>(tagged.payload_store().get(tagged.payload_cell()).opaqueRefs[0]) == valueSlot);
-  runtime_sync_storage_cell(valueSlot, makert<NGIntegral<int32_t>>(99));
+  REQUIRE(tagged_member_slot(selfSlot, "value") == valueSlot);
+  runtime_copy_storage_cell(valueSlot, numeral_cell_from_value<int32_t>(99));
 
-  auto slotted = std::dynamic_pointer_cast<NumeralBase>(tagged.respond(self, "value", env, args));
+  auto slotted = runtime_value_respond(selfSlot, "value", env, args);
   REQUIRE(slotted != nullptr);
-  REQUIRE(NGIntegral<int32_t>::valueOf(slotted.get()) == 99);
-  REQUIRE(NGIntegral<int32_t>::valueOf(std::dynamic_pointer_cast<NumeralBase>(tagged.payload_items()[0]).get()) == 99);
+  REQUIRE(read_inline_cell_bytes<int32_t>(slotted) == 99);
 }
 
-TEST_CASE("NGTaggedValue falls back to NGObject for unknown members", "[RuntimeTest][TaggedValue]")
+TEST_CASE("tagged storage cells reject unknown members", "[RuntimeTest][TaggedValue]")
 {
-  NGTaggedValue tagged{"Result", "Err", 1, {}, {}};
+  auto selfSlot = make_runtime_tagged_cell("Result", "Err", 1, {}, {});
   auto env = make_runtime_env();
-  auto self = makert<NGUnit>();
   NGArgs args{};
 
-  REQUIRE_THROWS_AS(tagged.respond(self, "missing", env, args), NotImplementedException);
+  REQUIRE_THROWS_AS(runtime_value_respond(selfSlot, "missing", env, args), NotImplementedException);
 }

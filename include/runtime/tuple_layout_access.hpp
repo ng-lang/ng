@@ -7,50 +7,56 @@
 
 namespace NG::runtime
 {
-  inline auto tuple_length(const NGTuple &tuple) -> size_t
+  inline auto tuple_length(const RuntimeRef<StorageCell> &tuple) -> size_t
   {
-    return tuple.payload_items().size();
+    return runtime_tuple_length(tuple);
   }
 
-  inline auto tuple_element_slot(const NGTuple &tuple, size_t index) -> RuntimeRef<StorageCell>
+  inline auto tuple_element_slot(const RuntimeRef<StorageCell> &tuple, size_t index) -> RuntimeRef<StorageCell>
   {
     if (index >= tuple_length(tuple))
     {
       throw RuntimeException("Index out of bounds: " + std::to_string(index));
     }
-    if (auto slot = tuple.element_slot(index))
+    if (auto slot = runtime_cell_slot_ref(tuple, index))
     {
       return slot;
     }
-    auto values = tuple.payload_items();
-    auto mutableTuple = const_cast<NGTuple *>(&tuple);
-    mutableTuple->replace_payload_items(values);
-    return mutableTuple->element_slot(index);
+    throw RuntimeException("Tuple element slot is missing: " + std::to_string(index));
   }
 
-  inline auto tuple_read_element(const NGTuple &tuple, size_t index) -> RuntimeRef<NGObject>
+  inline auto tuple_read_element(const RuntimeRef<StorageCell> &tuple, size_t index) -> RuntimeRef<StorageCell>
+  {
+    return tuple_element_slot(tuple, index);
+  }
+
+  inline void tuple_write_element(const RuntimeRef<StorageCell> &tuple, size_t index, const RuntimeRef<StorageCell> &value)
   {
     auto slot = tuple_element_slot(tuple, index);
-    return slot ? slot->boxedValue : nullptr;
+    runtime_copy_storage_cell(slot, value);
   }
 
-  inline void tuple_write_element(NGTuple &tuple, size_t index, const RuntimeRef<NGObject> &value)
+  inline auto tuple_read_member_slot(const RuntimeRef<StorageCell> &cell, const Str &member) -> RuntimeRef<StorageCell>;
+
+  inline auto tuple_read_member(const RuntimeRef<StorageCell> &tuple, const Str &member) -> RuntimeRef<StorageCell>
   {
-    auto slot = tuple_element_slot(tuple, index);
-    runtime_sync_storage_cell(slot, value);
-    (void) tuple.payload_items();
+    if (!runtime_is_tuple_value(tuple))
+    {
+      return nullptr;
+    }
+    return tuple_read_member_slot(tuple, member);
   }
 
-  inline auto tuple_read_member(const NGTuple &tuple, const Str &member) -> RuntimeRef<NGObject>
+  inline auto tuple_read_member_slot(const RuntimeRef<StorageCell> &cell, const Str &member) -> RuntimeRef<StorageCell>
   {
     if (member == "size")
     {
-      return makert<NGIntegral<uint32_t>>(tuple_length(tuple));
+      return numeral_cell_from_value<uint32_t>(static_cast<uint32_t>(runtime_cell_slot_refs(cell).size()));
     }
     try
     {
       auto index = std::stoul(member);
-      return tuple_read_element(tuple, index);
+      return runtime_cell_slot_ref(cell, index);
     }
     catch (const std::exception &)
     {

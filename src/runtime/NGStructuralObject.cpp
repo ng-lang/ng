@@ -1,241 +1,187 @@
-
 #include <intp/runtime.hpp>
 #include <runtime/struct_layout_access.hpp>
 #include <runtime/value_access.hpp>
 
 namespace NG::runtime
 {
-  auto structural_runtime_show(const NGStructuralObject &structural) -> Str
-  {
-    Str repr{};
-    auto values = structural.payload_fields();
-    if (structural.customizedType && !structural.customizedType->properties.empty())
-    {
-      for (size_t i = 0; i < structural.customizedType->properties.size(); ++i)
-      {
-        const auto &name = structural.customizedType->properties[i];
-        RuntimeRef<NGObject> value = i < values.size() ? values[i] : nullptr;
-        if (!value)
-        {
-          continue;
-        }
-        if (!repr.empty())
-        {
-          repr += ", ";
-        }
-        if (std::dynamic_pointer_cast<NGStructuralObject>(value))
-        {
-          repr += (name + ": #[obj]");
-        }
-        else
-        {
-          repr += (name + ": " + runtime_value_show(value));
-        }
-      }
-      return "{ " + repr + " }";
-    }
-
-    for (const auto &[name, slot] : structural.propertySlots)
-    {
-      auto value = slot ? slot->boxedValue : nullptr;
-      if (!repr.empty())
-      {
-        repr += ", ";
-      }
-      if (std::dynamic_pointer_cast<NGStructuralObject>(value))
-      {
-        repr += (name + ": #[obj]");
-      }
-      else
-      {
-        repr += (name + ": " + runtime_value_show(value));
-      }
-    }
-
-    return "{ " + repr + " }";
-  }
-
-  auto structural_runtime_type(const NGStructuralObject &structural) -> RuntimeRef<NGType>
-  {
-    if (!structural.customizedType)
-    {
-      return NGObject::objectType();
-    }
-    if (!structural.customizedType->showHandler)
-    {
-      structural.customizedType->showHandler = [](const NGSelf &self) {
-        auto structural = std::dynamic_pointer_cast<NGStructuralObject>(self);
-        return structural ? structural_runtime_show(*structural) : Str{"{ }"};
-      };
-    }
-    if (!structural.customizedType->boolHandler)
-    {
-      structural.customizedType->boolHandler = [](const NGSelf &) { return true; };
-    }
-    if (!structural.customizedType->respondHandler)
-    {
-      structural.customizedType->respondHandler =
-          [](const NGSelf &self, const Str &member, const NGEnv &env, const NGArgs &args) -> RuntimeRef<NGObject> {
-            auto structural = std::dynamic_pointer_cast<NGStructuralObject>(self);
-            if (!structural)
-            {
-              return nullptr;
-            }
-            if (structural->selfMemberFunctions.contains(member))
-            {
-              auto result = structural->selfMemberFunctions[member](self, env, args);
-              return result ? result : makert<NGUnit>();
-            }
-            return structural_read_member(structural, member);
-          };
-    }
-    return structural.customizedType;
-  }
-
   namespace
   {
-    auto structural_payload_arity(const NGStructuralObject &structural) -> size_t
+    void ensure_structural_cell_handlers(const RuntimeRef<NGType> &type)
     {
-      if (structural.customizedType)
-      {
-        return structural.customizedType->properties.size();
-      }
-      if (structural.payloadRef.valid())
-      {
-        return structural.payloadStore.get(structural.payloadRef).opaqueRefs.size();
-      }
-      return structural.fieldSlots.size();
-    }
-
-    auto structural_field_name(const NGStructuralObject &structural, size_t index) -> Str
-    {
-      if (structural.customizedType && index < structural.customizedType->properties.size())
-      {
-        return structural.customizedType->properties[index];
-      }
-      return std::to_string(index);
-    }
-
-    void sync_structural_slot(const RuntimeRef<StorageCell> &slot, const RuntimeRef<NGObject> &value)
-    {
-      if (!slot)
+      if (!type)
       {
         return;
       }
-      runtime_sync_storage_cell(slot, value);
+      if (!type->showCellHandler)
+      {
+        type->showCellHandler = [](const RuntimeRef<StorageCell> &cell) {
+          Str repr{};
+          auto valueType = runtime_value_type(cell);
+          auto slots = runtime_cell_slot_refs(cell);
+          if (valueType && !valueType->properties.empty())
+          {
+            for (size_t i = 0; i < valueType->properties.size(); ++i)
+            {
+              auto value = i < slots.size() ? slots[i] : nullptr;
+              if (!value)
+              {
+                continue;
+              }
+              if (!repr.empty())
+              {
+                repr += ", ";
+              }
+              repr += valueType->properties[i] + ": " + runtime_value_show(value);
+            }
+          }
+          for (const auto &[name, slot] : runtime_cell_named_slot_refs(cell))
+          {
+            if (!repr.empty())
+            {
+              repr += ", ";
+            }
+            repr += name + ": " + runtime_value_show(slot);
+          }
+          return "{ " + repr + " }";
+        };
+      }
+      if (!type->boolCellHandler)
+      {
+        type->boolCellHandler = [](const RuntimeRef<StorageCell> &) { return true; };
+      }
+      if (!type->respondCellHandler)
+      {
+        type->respondCellHandler =
+            [](const RuntimeRef<StorageCell> &cell, const Str &member, const NGEnv &, const NGArgs &) -> RuntimeRef<StorageCell> {
+          return structural_member_slot(cell, member);
+        };
+      }
     }
   } // namespace
 
-
-  void NGStructuralObject::sync_payload_backing() const
+  auto make_runtime_structural_cell(const RuntimeRef<NGType> &type,
+                                    const Vec<RuntimeRef<StorageCell>> &fields,
+                                    const Map<Str, RuntimeRef<StorageCell>> &properties,
+                                    StorageClass storageClass) -> RuntimeRef<StorageCell>
   {
-    auto payloadSize = payloadRef.valid() ? payloadStore.get(payloadRef).opaqueRefs.size() : structural_payload_arity(*this);
-    if (!payloadRef.valid())
+    ensure_structural_cell_handlers(type);
+    auto cell = make_storage_cell(type ? type->layout : TypeLayout{}, storageClass, {}, type);
+    cell->runtimeType = type;
+    cell->layout = type ? type->layout : TypeLayout{};
+    cell->bytes.resize(cell->layout.size);
+    cell->opaqueRefs.assign(fields.begin(), fields.end());
+    cell->namedRefs.clear();
+    for (const auto &[name, slot] : properties)
     {
-      payloadRef = payloadStore.allocate(
-          buffer_runtime::make_byte_buffer_layout(payloadSize * sizeof(uintptr_t), "Structural.payload"));
+      cell->namedRefs.insert_or_assign(name, slot);
     }
-    auto &payloadCell = payloadStore.get(payloadRef);
-    if (payloadCell.opaqueRefs.size() < payloadSize)
-    {
-      payloadCell.opaqueRefs.resize(payloadSize);
-    }
+    cell->nativeHandles.clear();
+    cell->initialized = true;
+    return cell;
   }
 
-  void NGStructuralObject::sync_field_slots() const
+  auto runtime_is_structural_value(const RuntimeRef<StorageCell> &value) -> bool
   {
-    sync_payload_backing();
-    auto &slots = const_cast<NGStructuralObject *>(this)->fieldSlots;
-    auto &payloadRefs = payloadStore.get(payloadRef).opaqueRefs;
-    if (slots.size() != payloadRefs.size())
+    if (!value)
     {
-      slots.resize(payloadRefs.size());
+      return false;
     }
-    for (size_t i = 0; i < slots.size(); ++i)
+    auto type = runtime_value_type(value);
+    if (type && (type->name == "Array" || type->name == "Tuple" || type->name == "String" || type->name == "Module" ||
+                 type->name == "ref"))
     {
-      if (!slots[i] && i < payloadRefs.size() && payloadRefs[i])
-      {
-        slots[i] = std::static_pointer_cast<StorageCell>(payloadRefs[i]);
-      }
-      if (!slots[i])
-      {
-        slots[i] = make_boxed_storage_cell(makert<NGUnit>(), StorageClass::TEMPORARY);
-        slots[i]->name = structural_field_name(*this, i);
-      }
-      payloadRefs[i] = slots[i];
+      return false;
     }
+    return (type && (!type->properties.empty() || type->layout.kind == LayoutKind::DYNAMIC)) ||
+           !runtime_cell_named_slot_refs(value).empty();
   }
 
-  auto NGStructuralObject::payload_cell() const -> CellRef
+  auto runtime_structural_type(const RuntimeRef<StorageCell> &value) -> RuntimeRef<NGType>
   {
-    sync_payload_backing();
-    return payloadRef;
+    if (!runtime_is_structural_value(value))
+    {
+      throw RuntimeException("Expected structural runtime value");
+    }
+    auto type = runtime_value_type(value);
+    ensure_structural_cell_handlers(type);
+    return type;
   }
 
-  auto NGStructuralObject::payload_fields() const -> Vec<RuntimeRef<NGObject>>
+  auto runtime_structural_field_slots(const RuntimeRef<StorageCell> &value) -> Vec<RuntimeRef<StorageCell>>
   {
-    sync_payload_backing();
-    sync_field_slots();
-    Vec<RuntimeRef<NGObject>> values;
-    values.reserve(fieldSlots.size());
-    for (const auto &slot : fieldSlots)
+    if (!runtime_is_structural_value(value))
     {
-      values.push_back(slot ? slot->boxedValue : makert<NGUnit>());
+      throw RuntimeException("Expected structural runtime value");
     }
-    payloadStore.get(payloadRef).opaqueRefs.assign(fieldSlots.begin(), fieldSlots.end());
-    return values;
+    return runtime_cell_slot_refs(value);
   }
 
-  void NGStructuralObject::replace_payload_fields(const Vec<RuntimeRef<NGObject>> &values)
+  auto runtime_structural_field_slot(const RuntimeRef<StorageCell> &value, size_t index) -> RuntimeRef<StorageCell>
   {
-    if (!payloadRef.valid() || payloadStore.get(payloadRef).opaqueRefs.size() != values.size())
+    if (!runtime_is_structural_value(value))
     {
-      payloadRef = payloadStore.allocate(
-          buffer_runtime::make_byte_buffer_layout(values.size() * sizeof(uintptr_t), "Structural.payload"));
+      throw RuntimeException("Expected structural runtime value");
     }
-    auto &payloadCell = payloadStore.get(payloadRef);
-    fieldSlots.resize(values.size());
-    for (size_t i = 0; i < values.size(); ++i)
-    {
-      if (!fieldSlots[i])
-      {
-        fieldSlots[i] = make_boxed_storage_cell(values[i], StorageClass::TEMPORARY);
-        fieldSlots[i]->name = structural_field_name(*this, i);
-      }
-      sync_structural_slot(fieldSlots[i], values[i]);
-    }
-    payloadCell.opaqueRefs.assign(fieldSlots.begin(), fieldSlots.end());
+    return runtime_cell_slot_ref(value, index);
   }
 
-  auto NGStructuralObject::field_slot(size_t index) const -> RuntimeRef<StorageCell>
+  auto runtime_structural_field_index(const RuntimeRef<StorageCell> &value, const Str &name) -> std::optional<size_t>
   {
-    sync_field_slots();
-    if (index >= fieldSlots.size())
+    if (!runtime_is_structural_value(value))
     {
-      return nullptr;
+      throw RuntimeException("Expected structural runtime value");
     }
-    return fieldSlots[index];
+    return structural_field_index(value, name);
   }
 
-  auto NGStructuralObject::property_slot(const Str &name) const -> RuntimeRef<StorageCell>
+  auto runtime_structural_property_slots(const RuntimeRef<StorageCell> &value) -> Map<Str, RuntimeRef<StorageCell>>
   {
-    if (!propertySlots.contains(name))
+    if (!runtime_is_structural_value(value))
     {
-      return nullptr;
+      throw RuntimeException("Expected structural runtime value");
     }
-    return propertySlots.at(name);
+    return runtime_cell_named_slot_refs(value);
   }
 
-  auto NGStructuralObject::property_slot_or_create(const Str &name) const -> RuntimeRef<StorageCell>
+  auto runtime_structural_property_slot(const RuntimeRef<StorageCell> &value, const Str &name)
+      -> RuntimeRef<StorageCell>
   {
-    if (auto slot = property_slot(name))
+    if (!runtime_is_structural_value(value))
     {
-      return slot;
+      throw RuntimeException("Expected structural runtime value");
     }
-    auto slot = make_boxed_storage_cell(makert<NGUnit>(), StorageClass::TEMPORARY);
-    slot->name = name;
-    const_cast<NGStructuralObject *>(this)->propertySlots.insert_or_assign(name, slot);
-    return slot;
+    return structural_member_slot(value, name);
   }
 
+  auto runtime_structural_property_slot_or_create(const RuntimeRef<StorageCell> &value, const Str &name)
+      -> RuntimeRef<StorageCell>
+  {
+    if (!runtime_is_structural_value(value))
+    {
+      throw RuntimeException("Expected structural runtime value");
+    }
+    return structural_member_slot_or_create(value, name);
+  }
+
+  auto runtime_structural_read_member(const RuntimeRef<StorageCell> &value, const Str &member)
+      -> RuntimeRef<StorageCell>
+  {
+    return structural_member_slot(value, member);
+  }
+
+  void runtime_structural_write_member(const RuntimeRef<StorageCell> &value, const Str &member,
+                                       const RuntimeRef<StorageCell> &nextValue)
+  {
+    structural_write_member(value, member, nextValue);
+  }
+
+  void runtime_structural_replace_field_slots(const RuntimeRef<StorageCell> &value,
+                                              const Vec<RuntimeRef<StorageCell>> &slots)
+  {
+    if (!runtime_is_structural_value(value))
+    {
+      throw RuntimeException("Expected structural runtime value");
+    }
+    value->opaqueRefs.assign(slots.begin(), slots.end());
+  }
 } // namespace NG::runtime

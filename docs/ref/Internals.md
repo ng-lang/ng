@@ -92,9 +92,11 @@ Today, native functions are wired through the newer runtime env model:
 - runtime/native callables use `NGCallable = std::function<RuntimeRef<NGObject>(NGSelf, NGEnv, NGArgs)>`
 - env-scoped runtime metadata (for example bound native module identity and slot-backed native args) flows through `RuntimeEnv`
 - native arguments can be read through `NativeArgsView`, which can expose canonical `StorageCell` slots when available
-- ORGASM still adapts VM natives through `wrap_native(...)`, but that adapter now targets the same env-based callable ABI
+- runtime native libraries are registered through `register_native_library(...)` / `bind_native_library_handlers(...)`
+- ORGASM VM natives are still adapted through `wrap_native(...)` into the current raw VM native bridge (`RuntimeRef<NGObject>(Vec<RuntimeRef<NGObject>>)`)
+- ORGASM bytecode-to-bytecode calls are now slot-first internally (`execute_slots(...)`), so the remaining object-vector adaptation is concentrated at the VM native edge
 
-The remaining cleanup is no longer about `NGContext`; it is about converging the last VM/native shims on direct cell/handle semantics and reducing the remaining compatibility layers around object carriers.
+The remaining cleanup is no longer about `NGContext`; it is about converging the last VM/native shims on direct cell/handle semantics and reducing the remaining compatibility layers around object carriers at the host boundary.
 
 ### Planned direction
 
@@ -110,6 +112,11 @@ The intended direction is:
    - return slot
    - layout metadata for aggregates
 4. **Keep a low-level raw escape hatch**, but make it an explicit advanced API rather than the default for stdlib/native bindings.
+
+In other words, the current split is:
+
+- **done:** runtime env + `NativeArgsView`, slot-backed STUPID frames, slot-backed ORGASM internal calls
+- **remaining:** host/native handle wrappers and a truly shared host-facing ABI for stdlib + VM native registration
 
 ### Target host mapping
 

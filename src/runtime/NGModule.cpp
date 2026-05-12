@@ -1,74 +1,35 @@
-
-#include <debug.hpp>
 #include <intp/runtime.hpp>
 #include <runtime/value_access.hpp>
+
 namespace NG::runtime
 {
-
-  NGModule::NGModule(const NGSymbols &symbols)
-  {
-    if (!symbols)
-    {
-      return;
-    }
-    for (const auto &[name, slot] : symbols->objectSlots)
-    {
-      objects.insert_or_assign(name, slot ? slot->boxedValue : nullptr);
-    }
-    functions = symbols->functions;
-    types = symbols->types;
-    exports.insert(symbols->exports.begin(), symbols->exports.end());
-    imports.insert(symbols->imported.begin(), symbols->imported.end());
-  }
-
-  void NGModule::set_native_state(Str name, std::shared_ptr<void> value)
-  {
-    native_state.insert_or_assign(std::move(name), std::move(value));
-  }
-
-  auto NGModule::get_native_state(const Str &name) const -> std::shared_ptr<void>
-  {
-    auto it = native_state.find(name);
-    if (it == native_state.end())
-    {
-      return nullptr;
-    }
-    return it->second;
-  }
-
-  void NGModule::clear_native_state(const Str &name)
-  {
-    native_state.erase(name);
-  }
-
-  auto NGModule::moduleType() -> RuntimeRef<NGType>
+  auto module_runtime_type() -> RuntimeRef<NGType>
   {
     static auto type = makert<NGType>(NGType{
         .name = "Module",
         .layout = TypeLayout{.name = "Module", .kind = LayoutKind::DYNAMIC},
-        .showHandler = [](const NGSelf &) { return Str{"[Module]"}; },
-        .boolHandler = [](const NGSelf &) { return true; },
-        .respondHandler =
-            [](const NGSelf &self, const Str &member, const NGEnv &env, const NGArgs &args) -> RuntimeRef<NGObject> {
-              auto module = std::dynamic_pointer_cast<NGModule>(self);
-              if (!module)
+        .showCellHandler = [](const RuntimeRef<StorageCell> &) { return Str{"[Module]"}; },
+        .boolCellHandler = [](const RuntimeRef<StorageCell> &) { return true; },
+        .respondCellHandler =
+            [](const RuntimeRef<StorageCell> &self, const Str &member, const NGEnv &env,
+               const NGArgs &args) -> RuntimeRef<StorageCell> {
+              if (!runtime_is_module_value(self))
               {
                 return nullptr;
               }
-              if (module->functions.contains(member))
+              auto functions = runtime_module_functions(self);
+              if (functions.contains(member))
               {
-                auto result = module->functions[member](self, env, args);
-                return result ? result : makert<NGUnit>();
+                auto result = functions[member](self, env, args);
+                return result ? result : unit_cell();
               }
-              if (module->objects.contains(member))
+              if (auto slot = runtime_module_slot_named(self, member))
               {
-                return module->objects[member];
+                return slot;
               }
               return nullptr;
             },
     });
     return type;
   }
-
-  NGModule::~NGModule() = default;
 } // namespace NG::runtime

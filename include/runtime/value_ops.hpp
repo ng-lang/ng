@@ -10,17 +10,35 @@
 
 namespace NG::runtime::ops
 {
-  inline auto value_equals(const RuntimeRef<NGObject> &left, const RuntimeRef<NGObject> &right) -> bool;
   inline auto value_equals(const RuntimeRef<StorageCell> &left, const RuntimeRef<StorageCell> &right) -> bool;
+  inline auto value_order(const RuntimeRef<StorageCell> &left, const RuntimeRef<StorageCell> &right) -> Orders;
 
-  inline auto deref(const RuntimeRef<NGObject> &value) -> RuntimeRef<NGObject>
-  {
-    return auto_deref_value(value);
-  }
+  inline auto is_nominal_wrapper_cell(const RuntimeRef<StorageCell> &cell) -> bool;
 
-  inline auto deref(const RuntimeRef<StorageCell> &cell) -> RuntimeRef<NGObject>
+  inline auto dispatch_binary_operator(const RuntimeRef<StorageCell> &left, RuntimeBinaryOperator op,
+                                       const RuntimeRef<StorageCell> &right) -> RuntimeRef<StorageCell>
   {
-    return deref(cell ? cell->boxedValue : nullptr);
+    if (!left || !right)
+    {
+      return nullptr;
+    }
+    auto leftType = runtime_value_type(left);
+    auto rightType = runtime_value_type(right);
+    auto leftSize = runtime_value_layout(left).size;
+    auto rightSize = runtime_value_layout(right).size;
+    if (rightType && rightSize > leftSize && rightType->cellBinaryOperators.contains(op))
+    {
+      return rightType->cellBinaryOperators.at(op)(right, left);
+    }
+    if (!leftType || !leftType->cellBinaryOperators.contains(op))
+    {
+      if (leftType && rightType && leftType == rightType && is_nominal_wrapper_cell(left) && is_nominal_wrapper_cell(right))
+      {
+        return dispatch_binary_operator(runtime_cell_slot_ref(left, 0), op, runtime_cell_slot_ref(right, 0));
+      }
+      return nullptr;
+    }
+    return leftType->cellBinaryOperators.at(op)(left, right);
   }
 
   inline auto aggregate_slots_equal(size_t size, auto &&leftSlotAt, auto &&rightSlotAt) -> bool
@@ -35,242 +53,226 @@ namespace NG::runtime::ops
     return true;
   }
 
-  inline auto numeric_order(const RuntimeRef<NGObject> &left, const RuntimeRef<NGObject> &right) -> Orders
+  inline auto is_nominal_wrapper_cell(const RuntimeRef<StorageCell> &cell) -> bool
   {
-    auto lhs = deref(left);
-    auto rhs = deref(right);
-    auto leftNum = std::dynamic_pointer_cast<NumeralBase>(lhs);
-    auto rightNum = std::dynamic_pointer_cast<NumeralBase>(rhs);
-    if (!leftNum || !rightNum)
+    auto type = runtime_value_type(cell);
+    return cell && type && type->name != "ref" && type->name != "Array" && type->name != "Tuple" &&
+           type->layout.kind != LayoutKind::TAGGED_UNION && type->properties.empty() && cell->opaqueRefs.size() == 1 &&
+           cell->namedRefs.empty();
+  }
+
+  inline auto value_order(const RuntimeRef<StorageCell> &left, const RuntimeRef<StorageCell> &right) -> Orders
+  {
+    if (!left || !right)
     {
       return Orders::UNORDERED;
     }
-    return lhs->compareTo(rhs.get());
-  }
-
-  inline auto value_equals(const RuntimeRef<NGObject> &left, const RuntimeRef<NGObject> &right) -> bool
-  {
-    auto lhs = deref(left);
-    auto rhs = deref(right);
-    if (lhs.get() == rhs.get())
+    auto leftType = runtime_value_type(left);
+    auto rightType = runtime_value_type(right);
+    auto leftSize = runtime_value_layout(left).size;
+    auto rightSize = runtime_value_layout(right).size;
+    if (rightType && rightSize > leftSize && rightType->cellOrderHandler)
     {
-      return true;
+      return negate(rightType->cellOrderHandler(right, left));
     }
-    if (!lhs || !rhs)
+    if (!leftType || !leftType->cellOrderHandler)
     {
-      return false;
-    }
-    if (auto leftBool = std::dynamic_pointer_cast<NGBoolean>(lhs))
-    {
-      auto rightBool = std::dynamic_pointer_cast<NGBoolean>(rhs);
-      return rightBool && leftBool->value == rightBool->value;
-    }
-    if (auto leftString = std::dynamic_pointer_cast<NGString>(lhs))
-    {
-      auto rightString = std::dynamic_pointer_cast<NGString>(rhs);
-      return rightString && leftString->payload_value() == rightString->payload_value();
-    }
-    if (auto leftUnit = std::dynamic_pointer_cast<NGUnit>(lhs))
-    {
-      return std::dynamic_pointer_cast<NGUnit>(rhs) != nullptr;
-    }
-    if (std::dynamic_pointer_cast<NumeralBase>(lhs))
-    {
-      return numeric_order(lhs, rhs) == Orders::EQ;
-    }
-    if (auto leftArray = std::dynamic_pointer_cast<NGArray>(lhs))
-    {
-      auto rightArray = std::dynamic_pointer_cast<NGArray>(rhs);
-      if (!rightArray || array_length(*leftArray) != array_length(*rightArray))
+      if (leftType && rightType && leftType == rightType && is_nominal_wrapper_cell(left) && is_nominal_wrapper_cell(right))
       {
-        return false;
+        return value_order(runtime_cell_slot_ref(left, 0), runtime_cell_slot_ref(right, 0));
       }
-      return aggregate_slots_equal(array_length(*leftArray),
-                                   [leftArray](size_t i) { return array_element_slot(*leftArray, i); },
-                                   [rightArray](size_t i) { return array_element_slot(*rightArray, i); });
+      return Orders::UNORDERED;
     }
-    if (auto leftTuple = std::dynamic_pointer_cast<NGTuple>(lhs))
-    {
-      auto rightTuple = std::dynamic_pointer_cast<NGTuple>(rhs);
-      if (!rightTuple || tuple_length(*leftTuple) != tuple_length(*rightTuple))
-      {
-        return false;
-      }
-      return aggregate_slots_equal(tuple_length(*leftTuple),
-                                   [leftTuple](size_t i) { return tuple_element_slot(*leftTuple, i); },
-                                   [rightTuple](size_t i) { return tuple_element_slot(*rightTuple, i); });
-    }
-    if (auto leftTagged = std::dynamic_pointer_cast<NGTaggedValue>(lhs))
-    {
-      auto rightTagged = std::dynamic_pointer_cast<NGTaggedValue>(rhs);
-      if (!rightTagged || leftTagged->unionName != rightTagged->unionName ||
-          leftTagged->variantIndex != rightTagged->variantIndex ||
-          leftTagged->payload_items().size() != rightTagged->payload_items().size())
-      {
-        return false;
-      }
-      return aggregate_slots_equal(leftTagged->payload_items().size(),
-                                   [leftTagged](size_t i) { return leftTagged->payload_slot(i); },
-                                   [rightTagged](size_t i) { return rightTagged->payload_slot(i); });
-    }
-    if (auto leftNewType = std::dynamic_pointer_cast<NGNewType>(lhs))
-    {
-      auto rightNewType = std::dynamic_pointer_cast<NGNewType>(rhs);
-      return rightNewType && leftNewType->newType->name == rightNewType->newType->name &&
-             value_equals(leftNewType->wrapped, rightNewType->wrapped);
-    }
-    return false;
+    return leftType->cellOrderHandler(left, right);
   }
 
   inline auto value_equals(const RuntimeRef<StorageCell> &left, const RuntimeRef<StorageCell> &right) -> bool
   {
-    return value_equals(left ? left->boxedValue : nullptr, right ? right->boxedValue : nullptr);
-  }
-
-  inline auto value_less_than(const RuntimeRef<NGObject> &left, const RuntimeRef<NGObject> &right) -> bool
-  {
-    if (auto order = numeric_order(left, right); order != Orders::UNORDERED)
+    if (left.get() == right.get())
     {
-      return order == Orders::LT;
+      return true;
     }
-    if (auto lhs = std::dynamic_pointer_cast<NGString>(deref(left)))
+    if (auto order = value_order(left, right); order != Orders::UNORDERED)
     {
-      auto rhs = std::dynamic_pointer_cast<NGString>(deref(right));
-      return rhs && lhs->payload_value() < rhs->payload_value();
+      return order == Orders::EQ;
     }
-    throw RuntimeException("Unsupported binary operator");
+    auto leftType = runtime_value_type(left);
+    auto rightType = runtime_value_type(right);
+    if (leftType && rightType && leftType->name == "Array" && rightType->name == "Array")
+    {
+      auto leftSlots = runtime_cell_slot_refs(left);
+      auto rightSlots = runtime_cell_slot_refs(right);
+      if (leftSlots.size() != rightSlots.size())
+      {
+        return false;
+      }
+      for (size_t i = 0; i < leftSlots.size(); ++i)
+      {
+        if (!value_equals(leftSlots[i], rightSlots[i]))
+        {
+          return false;
+        }
+      }
+      return true;
+    }
+    if (leftType && rightType && leftType->name == "Tuple" && rightType->name == "Tuple")
+    {
+      auto leftSlots = runtime_cell_slot_refs(left);
+      auto rightSlots = runtime_cell_slot_refs(right);
+      if (leftSlots.size() != rightSlots.size())
+      {
+        return false;
+      }
+      for (size_t i = 0; i < leftSlots.size(); ++i)
+      {
+        if (!value_equals(leftSlots[i], rightSlots[i]))
+        {
+          return false;
+        }
+      }
+      return true;
+    }
+    if (leftType && rightType && leftType->layout.kind == LayoutKind::TAGGED_UNION &&
+        rightType->layout.kind == LayoutKind::TAGGED_UNION &&
+        leftType->name == rightType->name &&
+        leftType->variantIndex == rightType->variantIndex)
+    {
+      auto leftSlots = runtime_cell_slot_refs(left);
+      auto rightSlots = runtime_cell_slot_refs(right);
+      if (leftSlots.size() != rightSlots.size())
+      {
+        return false;
+      }
+      for (size_t i = 0; i < leftSlots.size(); ++i)
+      {
+        if (!value_equals(leftSlots[i], rightSlots[i]))
+        {
+          return false;
+        }
+      }
+      return true;
+    }
+    if (leftType && rightType && !leftType->properties.empty() && leftType == rightType)
+    {
+      auto leftSlots = runtime_cell_slot_refs(left);
+      auto rightSlots = runtime_cell_slot_refs(right);
+      if (leftSlots.size() != rightSlots.size())
+      {
+        return false;
+      }
+      for (size_t i = 0; i < leftSlots.size(); ++i)
+      {
+        if (!value_equals(leftSlots[i], rightSlots[i]))
+        {
+          return false;
+        }
+      }
+      auto leftNamed = runtime_cell_named_slot_refs(left);
+      auto rightNamed = runtime_cell_named_slot_refs(right);
+      if (leftNamed.size() != rightNamed.size())
+      {
+        return false;
+      }
+      for (const auto &[name, slot] : leftNamed)
+      {
+        if (!rightNamed.contains(name) || !value_equals(slot, rightNamed.at(name)))
+        {
+          return false;
+        }
+      }
+      return true;
+    }
+    if (leftType && rightType && leftType == rightType && is_nominal_wrapper_cell(left) && is_nominal_wrapper_cell(right))
+    {
+      return value_equals(runtime_cell_slot_ref(left, 0), runtime_cell_slot_ref(right, 0));
+    }
+    return false;
   }
 
   inline auto value_less_than(const RuntimeRef<StorageCell> &left, const RuntimeRef<StorageCell> &right) -> bool
   {
-    return value_less_than(left ? left->boxedValue : nullptr, right ? right->boxedValue : nullptr);
-  }
-
-  inline auto value_greater_than(const RuntimeRef<NGObject> &left, const RuntimeRef<NGObject> &right) -> bool
-  {
-    if (auto order = numeric_order(left, right); order != Orders::UNORDERED)
+    if (auto order = value_order(left, right); order != Orders::UNORDERED)
     {
-      return order == Orders::GT;
-    }
-    if (auto lhs = std::dynamic_pointer_cast<NGString>(deref(left)))
-    {
-      auto rhs = std::dynamic_pointer_cast<NGString>(deref(right));
-      return rhs && lhs->payload_value() > rhs->payload_value();
+      return order == Orders::LT;
     }
     throw RuntimeException("Unsupported binary operator");
   }
 
   inline auto value_greater_than(const RuntimeRef<StorageCell> &left, const RuntimeRef<StorageCell> &right) -> bool
   {
-    return value_greater_than(left ? left->boxedValue : nullptr, right ? right->boxedValue : nullptr);
-  }
-
-  inline auto value_add(const RuntimeRef<NGObject> &left, const RuntimeRef<NGObject> &right) -> RuntimeRef<NGObject>
-  {
-    auto lhs = deref(left);
-    auto rhs = deref(right);
-    if (auto leftNum = std::dynamic_pointer_cast<NumeralBase>(lhs))
+    if (auto order = value_order(left, right); order != Orders::UNORDERED)
     {
-      return lhs->opPlus(rhs);
-    }
-    if (auto leftString = std::dynamic_pointer_cast<NGString>(lhs))
-    {
-      return makert<NGString>(leftString->payload_value() + runtime_value_show(rhs));
+      return order == Orders::GT;
     }
     throw RuntimeException("Unsupported binary operator");
   }
 
-  inline auto value_add(const RuntimeRef<StorageCell> &left, const RuntimeRef<StorageCell> &right) -> RuntimeRef<NGObject>
+  inline auto value_add(const RuntimeRef<StorageCell> &left, const RuntimeRef<StorageCell> &right) -> RuntimeRef<StorageCell>
   {
-    return value_add(left ? left->boxedValue : nullptr, right ? right->boxedValue : nullptr);
-  }
-
-  inline auto value_subtract(const RuntimeRef<NGObject> &left, const RuntimeRef<NGObject> &right) -> RuntimeRef<NGObject>
-  {
-    auto lhs = deref(left);
-    auto rhs = deref(right);
-    if (auto leftNum = std::dynamic_pointer_cast<NumeralBase>(lhs))
+    if (auto result = dispatch_binary_operator(left, RuntimeBinaryOperator::Add, right))
     {
-      return lhs->opMinus(rhs);
+      return result;
     }
     throw RuntimeException("Unsupported binary operator");
   }
 
   inline auto value_subtract(const RuntimeRef<StorageCell> &left, const RuntimeRef<StorageCell> &right)
-      -> RuntimeRef<NGObject>
+      -> RuntimeRef<StorageCell>
   {
-    return value_subtract(left ? left->boxedValue : nullptr, right ? right->boxedValue : nullptr);
-  }
-
-  inline auto value_multiply(const RuntimeRef<NGObject> &left, const RuntimeRef<NGObject> &right) -> RuntimeRef<NGObject>
-  {
-    auto lhs = deref(left);
-    auto rhs = deref(right);
-    if (auto leftNum = std::dynamic_pointer_cast<NumeralBase>(lhs))
+    if (auto result = dispatch_binary_operator(left, RuntimeBinaryOperator::Subtract, right))
     {
-      return lhs->opTimes(rhs);
+      return result;
     }
     throw RuntimeException("Unsupported binary operator");
   }
 
   inline auto value_multiply(const RuntimeRef<StorageCell> &left, const RuntimeRef<StorageCell> &right)
-      -> RuntimeRef<NGObject>
+      -> RuntimeRef<StorageCell>
   {
-    return value_multiply(left ? left->boxedValue : nullptr, right ? right->boxedValue : nullptr);
-  }
-
-  inline auto value_divide(const RuntimeRef<NGObject> &left, const RuntimeRef<NGObject> &right) -> RuntimeRef<NGObject>
-  {
-    auto lhs = deref(left);
-    auto rhs = deref(right);
-    if (auto leftNum = std::dynamic_pointer_cast<NumeralBase>(lhs))
+    if (auto result = dispatch_binary_operator(left, RuntimeBinaryOperator::Multiply, right))
     {
-      return lhs->opDividedBy(rhs);
+      return result;
     }
     throw RuntimeException("Unsupported binary operator");
   }
 
   inline auto value_divide(const RuntimeRef<StorageCell> &left, const RuntimeRef<StorageCell> &right)
-      -> RuntimeRef<NGObject>
+      -> RuntimeRef<StorageCell>
   {
-    return value_divide(left ? left->boxedValue : nullptr, right ? right->boxedValue : nullptr);
-  }
-
-  inline auto value_modulus(const RuntimeRef<NGObject> &left, const RuntimeRef<NGObject> &right) -> RuntimeRef<NGObject>
-  {
-    auto lhs = deref(left);
-    auto rhs = deref(right);
-    if (auto leftNum = std::dynamic_pointer_cast<NumeralBase>(lhs))
+    if (auto result = dispatch_binary_operator(left, RuntimeBinaryOperator::Divide, right))
     {
-      return lhs->opModulus(rhs);
+      return result;
     }
     throw RuntimeException("Unsupported binary operator");
   }
 
   inline auto value_modulus(const RuntimeRef<StorageCell> &left, const RuntimeRef<StorageCell> &right)
-      -> RuntimeRef<NGObject>
+      -> RuntimeRef<StorageCell>
   {
-    return value_modulus(left ? left->boxedValue : nullptr, right ? right->boxedValue : nullptr);
-  }
-
-  inline auto value_lshift(const RuntimeRef<NGObject> &left, const RuntimeRef<NGObject> &right) -> RuntimeRef<NGObject>
-  {
-    auto lhs = deref(left);
-    if (auto leftArray = std::dynamic_pointer_cast<NGArray>(lhs))
+    if (auto result = dispatch_binary_operator(left, RuntimeBinaryOperator::Modulus, right))
     {
-      return leftArray->opLShift(right);
+      return result;
     }
     throw RuntimeException("Unsupported binary operator");
   }
 
   inline auto value_lshift(const RuntimeRef<StorageCell> &left, const RuntimeRef<StorageCell> &right)
-      -> RuntimeRef<NGObject>
+      -> RuntimeRef<StorageCell>
   {
-    return value_lshift(left ? left->boxedValue : nullptr, right ? right->boxedValue : nullptr);
+    if (auto result = dispatch_binary_operator(left, RuntimeBinaryOperator::LShift, right))
+    {
+      return result;
+    }
+    throw RuntimeException("Unsupported binary operator");
   }
 
-  inline auto value_rshift(const RuntimeRef<NGObject> &left, const RuntimeRef<NGObject> &right) -> RuntimeRef<NGObject>
+  inline auto value_rshift(const RuntimeRef<StorageCell> &left, const RuntimeRef<StorageCell> &right)
+      -> RuntimeRef<StorageCell>
   {
+    if (auto result = dispatch_binary_operator(left, RuntimeBinaryOperator::RShift, right))
+    {
+      return result;
+    }
     throw RuntimeException("Unsupported binary operator");
   }
 } // namespace NG::runtime::ops

@@ -1,602 +1,193 @@
 #pragma once
 
 #include <cmath>
+#include <cstring>
 #include <intp/runtime.hpp>
 #include <limits>
+#include <type_traits>
 
 namespace NG::runtime
 {
-
-    /**
-     * @brief Base class for all numeral types.
-     */
-    struct NumeralBase
+    template <class T>
+    inline void write_inline_cell_bytes(const RuntimeRef<StorageCell> &cell, T value)
     {
-        /**
-         * @brief Returns the size of the numeral in bytes.
-         *
-         * @return The size of the numeral in bytes.
-         */
-        [[nodiscard]] virtual auto bytesize() const -> size_t = 0;
-        /**
-         * @brief Returns whether the numeral is signed.
-         *
-         * @return `true` if the numeral is signed, `false` otherwise.
-         */
-        [[nodiscard]] virtual auto signedness() const -> bool = 0;
-        /**
-         * @brief Returns whether the numeral is a floating-point number.
-         *
-         * @return `true` if the numeral is a floating-point number, `false` otherwise.
-         */
-        [[nodiscard]] virtual auto floating_point() const -> bool = 0;
-
-        /**
-         * @brief Adds another numeral to this one.
-         *
-         * @param other The other numeral.
-         * @return The result of the addition.
-         */
-        virtual auto opPlus(const NumeralBase *other) const -> RuntimeRef<NGObject> = 0;
-        /**
-         * @brief Subtracts another numeral from this one.
-         *
-         * @param other The other numeral.
-         * @return The result of the subtraction.
-         */
-        virtual auto opMinus(const NumeralBase *other) const -> RuntimeRef<NGObject> = 0;
-        /**
-         * @brief Multiplies this numeral by another one.
-         *
-         * @param other The other numeral.
-         * @return The result of the multiplication.
-         */
-        virtual auto opTimes(const NumeralBase *other) const -> RuntimeRef<NGObject> = 0;
-        /**
-         * @brief Divides this numeral by another one.
-         *
-         * @param other The other numeral.
-         * @return The result of the division.
-         */
-        virtual auto opDividedBy(const NumeralBase *other) const -> RuntimeRef<NGObject> = 0;
-        /**
-         * @brief Computes the modulus of this numeral with another one.
-         *
-         * @param other The other numeral.
-         * @return The result of the modulus operation.
-         */
-        virtual auto opModulus(const NumeralBase *other) const -> RuntimeRef<NGObject> = 0;
-        /**
-         * @brief Computes the negate of this numeral.
-         *
-         * @return The result of the negate operation.
-         */
-        virtual auto opNegate() const -> RuntimeRef<NGObject> = 0;
-        NumeralBase() = default;
-
-        NumeralBase(const NumeralBase &) = delete;
-        auto operator=(const NumeralBase &) -> NumeralBase & = delete;
-
-        NumeralBase(NumeralBase &&) = delete;
-        auto operator=(NumeralBase &&) -> NumeralBase & = delete;
-
-        virtual ~NumeralBase() = 0;
-    };
-
-#pragma region Runtime Integrals
-
-    /**
-     * @brief Represents an integral number in the runtime.
-     *
-     * @tparam T The underlying integral type.
-     */
-    template <std::integral T>
-    struct NGIntegral final : ThreeWayComparable<NGIntegral<T>>, NumeralBase
-    {
-        T value = 0;          ///< The value of the integral.
-        using value_type = T; ///< The underlying integral type.
-        /**
-         * @brief Compares two `NGIntegral` objects.
-         *
-         * @param left The left operand.
-         * @param right The right operand.
-         * @return The result of the comparison.
-         */
-        static auto comparator(const NGObject *left, const NGObject *right) -> Orders;
-
-        /**
-         * @brief Converts a `NumeralBase` to the underlying integral type.
-         *
-         * @param numeralBase The `NumeralBase` to convert.
-         * @return The converted value.
-         */
-        constexpr static auto valueOf(const NumeralBase *numeralBase) -> T
+        static_assert(std::is_trivially_copyable_v<T>);
+        if (!cell)
         {
-            switch (numeralBase->bytesize())
-            {
-            case sizeof(int8_t):
-                if (numeralBase->signedness())
+            throw RuntimeException("Cannot write null storage cell");
+        }
+        cell->bytes.resize(sizeof(T));
+        std::memcpy(cell->bytes.data(), &value, sizeof(T));
+    }
+
+    template <class T>
+    [[nodiscard]] inline auto read_inline_cell_bytes(const RuntimeRef<StorageCell> &cell) -> T
+    {
+        static_assert(std::is_trivially_copyable_v<T>);
+        if (!cell || cell->bytes.size() < sizeof(T))
+        {
+            throw RuntimeException("Storage cell does not contain the requested inline value");
+        }
+        T value{};
+        std::memcpy(&value, cell->bytes.data(), sizeof(T));
+        return value;
+    }
+
+    template <class T>
+    [[nodiscard]] inline auto numeral_type_name() -> Str
+    {
+        if constexpr (std::same_as<T, int8_t>) return "i8";
+        else if constexpr (std::same_as<T, uint8_t>) return "u8";
+        else if constexpr (std::same_as<T, int16_t>) return "i16";
+        else if constexpr (std::same_as<T, uint16_t>) return "u16";
+        else if constexpr (std::same_as<T, int32_t>) return "i32";
+        else if constexpr (std::same_as<T, uint32_t>) return "u32";
+        else if constexpr (std::same_as<T, int64_t>) return "i64";
+        else if constexpr (std::same_as<T, uint64_t>) return "u64";
+        else if constexpr (std::same_as<T, float>) return "f32";
+        else if constexpr (std::same_as<T, double>) return "f64";
+        else static_assert(sizeof(T) == 0, "Unsupported numeral type");
+    }
+
+    template <class T>
+    [[nodiscard]] inline auto numeral_type_layout() -> TypeLayout
+    {
+        return TypeLayout{
+            .name = numeral_type_name<T>(),
+            .kind = LayoutKind::INLINE_VALUE,
+            .size = sizeof(T),
+            .alignment = alignof(T),
+            .containsPointers = false,
+            .triviallyCopyable = true,
+            .triviallyMovable = true,
+        };
+    }
+
+    template <class T>
+    [[nodiscard]] inline auto read_numeric_cell_as(const RuntimeRef<StorageCell> &cell) -> T
+    {
+        auto type = cell ? cell->runtimeType : nullptr;
+        auto name = type ? type->name : Str{};
+        if (name == "i8") return static_cast<T>(read_inline_cell_bytes<int8_t>(cell));
+        if (name == "u8") return static_cast<T>(read_inline_cell_bytes<uint8_t>(cell));
+        if (name == "i16") return static_cast<T>(read_inline_cell_bytes<int16_t>(cell));
+        if (name == "u16") return static_cast<T>(read_inline_cell_bytes<uint16_t>(cell));
+        if (name == "i32" || name == "int") return static_cast<T>(read_inline_cell_bytes<int32_t>(cell));
+        if (name == "u32" || name == "uint") return static_cast<T>(read_inline_cell_bytes<uint32_t>(cell));
+        if (name == "i64") return static_cast<T>(read_inline_cell_bytes<int64_t>(cell));
+        if (name == "u64") return static_cast<T>(read_inline_cell_bytes<uint64_t>(cell));
+        if (name == "f32" || name == "float") return static_cast<T>(read_inline_cell_bytes<float>(cell));
+        if (name == "f64" || name == "double") return static_cast<T>(read_inline_cell_bytes<double>(cell));
+        throw RuntimeException("Not a buffered numeral cell");
+    }
+
+    template <class T>
+    [[nodiscard]] inline auto numeral_runtime_type() -> RuntimeRef<NGType>;
+
+    template <class T>
+    [[nodiscard]] inline auto numeral_cell_from_value(T value) -> RuntimeRef<StorageCell>
+    {
+        auto type = numeral_runtime_type<T>();
+        auto cell = make_storage_cell(type->layout, StorageClass::TEMPORARY, {}, type);
+        write_inline_cell_bytes<T>(cell, value);
+        cell->initialized = true;
+        return cell;
+    }
+
+    [[nodiscard]] inline auto negate_numeric_cell(const RuntimeRef<StorageCell> &cell) -> RuntimeRef<StorageCell>
+    {
+        auto type = cell ? cell->runtimeType : nullptr;
+        auto name = type ? type->name : Str{};
+        if (name == "i8") return numeral_cell_from_value<int8_t>(-read_inline_cell_bytes<int8_t>(cell));
+        if (name == "i16") return numeral_cell_from_value<int16_t>(-read_inline_cell_bytes<int16_t>(cell));
+        if (name == "i32" || name == "int") return numeral_cell_from_value<int32_t>(-read_inline_cell_bytes<int32_t>(cell));
+        if (name == "i64") return numeral_cell_from_value<int64_t>(-read_inline_cell_bytes<int64_t>(cell));
+        if (name == "f32" || name == "float") return numeral_cell_from_value<float>(-read_inline_cell_bytes<float>(cell));
+        if (name == "f64" || name == "double") return numeral_cell_from_value<double>(-read_inline_cell_bytes<double>(cell));
+        if (name == "u8" || name == "u16" || name == "u32" || name == "uint" || name == "u64")
+        {
+            throw RuntimeException("Cannot negate unsigned integers");
+        }
+        throw RuntimeException("Cannot negate a non-number");
+    }
+
+    template <class T>
+    [[nodiscard]] inline auto numeral_runtime_type() -> RuntimeRef<NGType>
+    {
+        static auto type = makert<NGType>(NGType{
+            .name = numeral_type_name<T>(),
+            .layout = numeral_type_layout<T>(),
+            .showCellHandler =
+                [](const RuntimeRef<StorageCell> &cell) {
+                    return std::to_string(read_inline_cell_bytes<T>(cell));
+                },
+            .boolCellHandler =
+                [](const RuntimeRef<StorageCell> &cell) {
+                    return read_inline_cell_bytes<T>(cell) != 0;
+                },
+            .cellBinaryOperators =
                 {
-                    return static_cast<T>(dynamic_cast<const NGIntegral<int8_t> *>(numeralBase)->value);
-                }
-                return static_cast<T>(dynamic_cast<const NGIntegral<uint8_t> *>(numeralBase)->value);
-            case sizeof(int16_t):
-                if (numeralBase->signedness())
-                {
-                    return static_cast<T>(dynamic_cast<const NGIntegral<int16_t> *>(numeralBase)->value);
-                }
-                return static_cast<T>(dynamic_cast<const NGIntegral<uint16_t> *>(numeralBase)->value);
-            case sizeof(int32_t):
-                if (numeralBase->signedness())
-                {
-                    return static_cast<T>(dynamic_cast<const NGIntegral<int32_t> *>(numeralBase)->value);
-                }
-                return static_cast<T>(dynamic_cast<const NGIntegral<uint32_t> *>(numeralBase)->value);
-            case sizeof(int64_t):
-                if (numeralBase->signedness())
-                {
-                    return static_cast<T>(dynamic_cast<const NGIntegral<int64_t> *>(numeralBase)->value);
-                }
-                return static_cast<T>(dynamic_cast<const NGIntegral<uint64_t> *>(numeralBase)->value);
-            default:
-                throw RuntimeException("Invalid value");
-            }
-        }
-
-        explicit NGIntegral(T value = 0) : value{std::move(value)} {}
-
-        template <std::integral U>
-            requires(sizeof(T) >= sizeof(U))
-        explicit NGIntegral(NGIntegral<U> other) : value{other.value}
-        {
-        }
-
-        explicit NGIntegral(const NumeralBase *other)
-        {
-            if (other->bytesize() > this->bytesize())
-            {
-                throw std::overflow_error("Downcast a number");
-            }
-            value = valueOf(other);
-        }
-
-        [[nodiscard]] auto show() const -> Str override { return std::to_string(value); }
-
-        [[nodiscard]] auto bytesize() const -> size_t override { return sizeof(T); }
-
-        [[nodiscard]] auto signedness() const -> bool override { return std::is_signed_v<T>; }
-
-        [[nodiscard]] auto floating_point() const -> bool override { return false; }
-
-        [[nodiscard]] auto boolValue() const -> bool override { return value != 0; }
-
-        [[nodiscard]] auto opPlus(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject> override;
-
-        auto opPlus(const NumeralBase *other) const -> RuntimeRef<NGObject> override;
-
-        [[nodiscard]] auto opMinus(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject> override;
-
-        auto opMinus(const NumeralBase *other) const -> RuntimeRef<NGObject> override;
-
-        [[nodiscard]] auto opTimes(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject> override;
-
-        auto opTimes(const NumeralBase *other) const -> RuntimeRef<NGObject> override;
-
-        [[nodiscard]] auto opDividedBy(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject> override;
-
-        auto opDividedBy(const NumeralBase *other) const -> RuntimeRef<NGObject> override;
-
-        [[nodiscard]] auto opModulus(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject> override;
-
-        auto opModulus(const NumeralBase *other) const -> RuntimeRef<NGObject> override;
-
-        auto opNegate() const -> RuntimeRef<NGObject> override;
-
-        /**
-         * @brief Returns the value as a `size_t`.
-         *
-         * @return The value as a `size_t`.
-         */
-        [[nodiscard]] auto asSize() const -> size_t { return static_cast<size_t>(value); }
-
-        [[nodiscard]] auto type() const -> RuntimeRef<NGType> override
-        {
-            return makert<NGType>(NGType{.name = "Int"});
-        }
-    };
-
-    template <std::integral T>
-    auto NGIntegral<T>::comparator(const NGObject *left, const NGObject *right) -> Orders
-    {
-        const auto *leftNum = dynamic_cast<const NGIntegral<T> *>(left);
-        const auto *rightNum = dynamic_cast<const NumeralBase *>(right);
-        if (leftNum == nullptr || rightNum == nullptr)
-        {
-            return Orders::UNORDERED;
-        }
-        if (leftNum->bytesize() >= rightNum->bytesize())
-        {
-            const auto rv = NGIntegral<T>(rightNum).value;
-            if (leftNum->value < rv)
-                return Orders::LT;
-            if (leftNum->value > rv)
-                return Orders::GT;
-            return Orders::EQ;
-        }
-        return negate(right->compareTo(left));
+                    {RuntimeBinaryOperator::Add,
+                     [](const RuntimeRef<StorageCell> &self, const RuntimeRef<StorageCell> &other) -> RuntimeRef<StorageCell> {
+                         if constexpr (std::integral<T>)
+                         {
+                             auto otherType = other ? other->runtimeType : nullptr;
+                             if (otherType && otherType->name == "String")
+                             {
+                                 return make_runtime_string(std::to_string(read_inline_cell_bytes<T>(self)) +
+                                                            runtime_value_show(other));
+                             }
+                         }
+                         return numeral_cell_from_value<T>(read_inline_cell_bytes<T>(self) + read_numeric_cell_as<T>(other));
+                     }},
+                    {RuntimeBinaryOperator::Subtract,
+                     [](const RuntimeRef<StorageCell> &self, const RuntimeRef<StorageCell> &other) -> RuntimeRef<StorageCell> {
+                         return numeral_cell_from_value<T>(read_inline_cell_bytes<T>(self) - read_numeric_cell_as<T>(other));
+                     }},
+                    {RuntimeBinaryOperator::Multiply,
+                     [](const RuntimeRef<StorageCell> &self, const RuntimeRef<StorageCell> &other) -> RuntimeRef<StorageCell> {
+                         return numeral_cell_from_value<T>(read_inline_cell_bytes<T>(self) * read_numeric_cell_as<T>(other));
+                     }},
+                    {RuntimeBinaryOperator::Divide,
+                     [](const RuntimeRef<StorageCell> &self, const RuntimeRef<StorageCell> &other) -> RuntimeRef<StorageCell> {
+                         auto divisor = read_numeric_cell_as<T>(other);
+                         if (divisor == 0)
+                         {
+                             throw RuntimeException("Division by zero");
+                         }
+                         return numeral_cell_from_value<T>(read_inline_cell_bytes<T>(self) / divisor);
+                     }},
+                    {RuntimeBinaryOperator::Modulus,
+                     [](const RuntimeRef<StorageCell> &self, const RuntimeRef<StorageCell> &other) -> RuntimeRef<StorageCell> {
+                         if constexpr (std::floating_point<T>)
+                         {
+                             throw std::logic_error("floating point not support modulus operation");
+                         }
+                         else
+                         {
+                             auto divisor = read_numeric_cell_as<T>(other);
+                             if (divisor == 0)
+                             {
+                                 throw RuntimeException("Modulus by zero");
+                             }
+                             return numeral_cell_from_value<T>(read_inline_cell_bytes<T>(self) % divisor);
+                         }
+                     }},
+                },
+            .cellOrderHandler =
+                [](const RuntimeRef<StorageCell> &self, const RuntimeRef<StorageCell> &other) {
+                    auto leftValue = read_inline_cell_bytes<T>(self);
+                    auto rightValue = read_numeric_cell_as<T>(other);
+                    if constexpr (std::floating_point<T>)
+                    {
+                        if (std::isnan(leftValue) || std::isnan(rightValue)) return Orders::UNORDERED;
+                    }
+                    if (leftValue < rightValue) return Orders::LT;
+                    if (leftValue > rightValue) return Orders::GT;
+                    return Orders::EQ;
+                },
+        });
+        return type;
     }
-
-    template <std::integral T>
-    auto NGIntegral<T>::opPlus(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject>
-    {
-        if (auto str = std::dynamic_pointer_cast<NGString>(other); str != nullptr)
-        {
-            return makert<NGString>(show() + str->value);
-        }
-        auto result = std::dynamic_pointer_cast<NumeralBase>(other);
-        if (!result)
-        {
-            return NGObject::opPlus(other);
-        }
-        if (result->bytesize() > bytesize())
-        {
-            return result->opPlus(dynamic_cast<const NumeralBase *>(this));
-        }
-        return this->opPlus(result.get());
-    }
-
-    template <std::integral T>
-    auto NGIntegral<T>::opPlus(const NumeralBase *other) const -> RuntimeRef<NGObject>
-    {
-        return makert<NGIntegral<T>>(value + NGIntegral<T>(other).value);
-    }
-
-    template <std::integral T>
-    auto NGIntegral<T>::opMinus(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject>
-    {
-        auto result = std::dynamic_pointer_cast<NumeralBase>(other);
-        if (!result)
-        {
-            throw RuntimeException("Not a number");
-        }
-        if (result->bytesize() > bytesize())
-        {
-            return result->opMinus(dynamic_cast<const NumeralBase *>(this));
-        }
-        return this->opMinus(result.get());
-    }
-
-    template <std::integral T>
-    auto NGIntegral<T>::opMinus(const NumeralBase *other) const -> RuntimeRef<NGObject>
-    {
-        return makert<NGIntegral<T>>(value - NGIntegral<T>(other).value);
-    }
-
-    template <std::integral T>
-    auto NGIntegral<T>::opTimes(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject>
-    {
-        auto result = std::dynamic_pointer_cast<NumeralBase>(other);
-        if (!result)
-        {
-            throw RuntimeException("Not a number");
-        }
-        if (result->bytesize() > bytesize())
-        {
-            return result->opTimes(dynamic_cast<const NumeralBase *>(this));
-        }
-        return this->opTimes(result.get());
-    }
-
-    template <std::integral T>
-    auto NGIntegral<T>::opTimes(const NumeralBase *other) const -> RuntimeRef<NGObject>
-    {
-        return makert<NGIntegral<T>>(value * NGIntegral<T>(other).value);
-    }
-
-    template <std::integral T>
-    auto NGIntegral<T>::opDividedBy(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject>
-    {
-        auto result = std::dynamic_pointer_cast<NumeralBase>(other);
-        if (!result)
-        {
-            throw RuntimeException("Not a number");
-        }
-        if (result->bytesize() > bytesize())
-        {
-            return result->opDividedBy(dynamic_cast<const NumeralBase *>(this));
-        }
-        return this->opDividedBy(result.get());
-    }
-
-    template <std::integral T>
-    auto NGIntegral<T>::opDividedBy(const NumeralBase *other) const -> RuntimeRef<NGObject>
-    {
-        const auto d = NGIntegral<T>(other).value;
-        if (d == 0)
-        {
-            throw RuntimeException("Division by zero");
-        }
-        return makert<NGIntegral<T>>(value / d);
-    }
-
-    template <std::integral T>
-    auto NGIntegral<T>::opModulus(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject>
-    {
-        auto result = std::dynamic_pointer_cast<NumeralBase>(other);
-        if (!result)
-        {
-            throw RuntimeException("Not a number");
-        }
-        if (result->bytesize() > bytesize())
-        {
-            return result->opModulus(dynamic_cast<const NumeralBase *>(this));
-        }
-        return this->opModulus(result.get());
-    }
-
-    template <std::integral T>
-    auto NGIntegral<T>::opModulus(const NumeralBase *other) const -> RuntimeRef<NGObject>
-    {
-        const auto d = NGIntegral<T>(other).value;
-        if (d == 0)
-        {
-            throw RuntimeException("Modulus by zero");
-        }
-        return makert<NGIntegral<T>>(value % d);
-    }
-
-    template <std::integral T>
-    auto NGIntegral<T>::opNegate() const -> RuntimeRef<NGObject>
-    {
-        if (signedness())
-        {
-            using Lim = std::numeric_limits<T>;
-            if (value == Lim::min())
-            {
-                throw RuntimeException("Overflow on negation");
-            }
-            return makert<NGIntegral<T>>(-value);
-        }
-        throw RuntimeException("Cannot negate unsigned integers");
-    }
-
-#pragma endregion
-
-#pragma region Runtime FloatingPoints
-
-    /**
-     * @brief Represents a floating-point number in the runtime.
-     *
-     * @tparam T The underlying floating-point type.
-     */
-    template <std::floating_point T>
-    struct NGFloatingPoint final : ThreeWayComparable<NGFloatingPoint<T>>, NumeralBase
-    {
-        T value = 0;          ///< The value of the floating-point number.
-        using value_type = T; ///< The underlying floating-point type.
-        /**
-         * @brief Compares two `NGFloatingPoint` objects.
-         *
-         * @param left The left operand.
-         * @param right The right operand.
-         * @return The result of the comparison.
-         */
-        static auto comparator(const NGObject *left, const NGObject *right) -> Orders;
-
-        /**
-         * @brief Converts a `NumeralBase` to the underlying floating-point type.
-         *
-         * @param numeralBase The `NumeralBase` to convert.
-         * @return The converted value.
-         */
-        constexpr static auto valueOf(const NumeralBase *numeralBase) -> T
-        {
-            if (!numeralBase->floating_point())
-            {
-                if (numeralBase->signedness())
-                {
-                    return static_cast<T>(NGIntegral<int64_t>::valueOf(numeralBase));
-                }
-                return static_cast<T>(NGIntegral<uint64_t>::valueOf(numeralBase));
-            }
-            switch (numeralBase->bytesize())
-            {
-            // case sizeof(float16_t):
-            //     return static_cast<T>(dynamic_cast<const NGFloatingPoint<float16_t>*>(numeralBase)->value);
-            case sizeof(float /* float32_t */):
-                return static_cast<T>(dynamic_cast<const NGFloatingPoint<float> *>(numeralBase)->value);
-            case sizeof(double /* float64_t */):
-                return static_cast<T>(dynamic_cast<const NGFloatingPoint<double> *>(numeralBase)->value);
-            // case sizeof(float128_t /* float128_t */):
-            //     return static_cast<T>(dynamic_cast<const NGFloatingPoint<float128_t>*>(numeralBase)->value);
-            default:
-                throw RuntimeException("Invalid value");
-            }
-        }
-
-        explicit NGFloatingPoint(T value = 0) : value{std::move(value)} {}
-
-        template <std::floating_point U>
-            requires(sizeof(T) >= sizeof(U))
-        explicit NGFloatingPoint(NGFloatingPoint<U> other) : value{other.value}
-        {
-        }
-
-        explicit NGFloatingPoint(const NumeralBase *other)
-        {
-            if (other->bytesize() > this->bytesize())
-            {
-                throw std::overflow_error("Downcast a number");
-            }
-            value = valueOf(other);
-        }
-
-        [[nodiscard]] auto show() const -> Str override { return std::to_string(value); }
-
-        [[nodiscard]] auto bytesize() const -> size_t override { return sizeof(T); }
-
-        [[nodiscard]] auto signedness() const -> bool override { return true; }
-
-        [[nodiscard]] auto floating_point() const -> bool override { return true; }
-
-        [[nodiscard]] auto boolValue() const -> bool override { return value != 0; }
-
-        [[nodiscard]] auto opPlus(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject> override;
-
-        auto opPlus(const NumeralBase *other) const -> RuntimeRef<NGObject> override;
-
-        [[nodiscard]] auto opMinus(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject> override;
-
-        auto opMinus(const NumeralBase *other) const -> RuntimeRef<NGObject> override;
-
-        [[nodiscard]] auto opTimes(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject> override;
-
-        auto opTimes(const NumeralBase *other) const -> RuntimeRef<NGObject> override;
-
-        [[nodiscard]] auto opDividedBy(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject> override;
-
-        auto opDividedBy(const NumeralBase *other) const -> RuntimeRef<NGObject> override;
-
-        [[nodiscard]] auto opModulus(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject> override;
-
-        auto opModulus(const NumeralBase *other) const -> RuntimeRef<NGObject> override;
-
-        auto opNegate() const -> RuntimeRef<NGObject> override;
-
-        /**
-         * @brief Returns the value as a `size_t`.
-         *
-         * @return The value as a `size_t`.
-         */
-        [[nodiscard]] auto asSize() const -> size_t { return static_cast<size_t>(value); }
-    };
-
-    template <std::floating_point T>
-    auto NGFloatingPoint<T>::comparator(const NGObject *left, const NGObject *right) -> Orders
-    {
-        const auto *leftNum = dynamic_cast<const NGFloatingPoint<T> *>(left);
-        const auto *rightNum = dynamic_cast<const NumeralBase *>(right);
-        if (leftNum == nullptr || rightNum == nullptr)
-        {
-            return Orders::UNORDERED;
-        }
-        if (leftNum->bytesize() >= rightNum->bytesize())
-        {
-            const T rv = NGFloatingPoint<T>(rightNum).value;
-            const T lv = leftNum->value;
-            if (std::isnan(lv) || std::isnan(rv))
-                return Orders::UNORDERED;
-            if (lv < rv)
-                return Orders::LT;
-            if (lv > rv)
-                return Orders::GT;
-            return Orders::EQ;
-        }
-        return negate(right->compareTo(left));
-    }
-
-    template <std::floating_point T>
-    auto NGFloatingPoint<T>::opPlus(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject>
-    {
-        auto result = std::dynamic_pointer_cast<NumeralBase>(other);
-        if (!result)
-        {
-            throw RuntimeException("Not a number");
-        }
-        if (result->bytesize() > bytesize())
-        {
-            return result->opPlus(dynamic_cast<const NumeralBase *>(this));
-        }
-        return this->opPlus(result.get());
-    }
-
-    template <std::floating_point T>
-    auto NGFloatingPoint<T>::opPlus(const NumeralBase *other) const -> RuntimeRef<NGObject>
-    {
-        return makert<NGFloatingPoint<T>>(value + NGFloatingPoint<T>(other).value);
-    }
-
-    template <std::floating_point T>
-    auto NGFloatingPoint<T>::opMinus(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject>
-    {
-        auto result = std::dynamic_pointer_cast<NumeralBase>(other);
-        if (!result)
-        {
-            throw RuntimeException("Not a number");
-        }
-        if (result->bytesize() > bytesize())
-        {
-            return result->opMinus(dynamic_cast<const NumeralBase *>(this));
-        }
-        return this->opMinus(result.get());
-    }
-
-    template <std::floating_point T>
-    auto NGFloatingPoint<T>::opMinus(const NumeralBase *other) const -> RuntimeRef<NGObject>
-    {
-        return makert<NGFloatingPoint<T>>(value - NGFloatingPoint<T>(other).value);
-    }
-
-    template <std::floating_point T>
-    auto NGFloatingPoint<T>::opTimes(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject>
-    {
-        auto result = std::dynamic_pointer_cast<NumeralBase>(other);
-        if (!result)
-        {
-            throw RuntimeException("Not a number");
-        }
-        if (result->bytesize() > bytesize())
-        {
-            return result->opTimes(dynamic_cast<const NumeralBase *>(this));
-        }
-        return this->opTimes(result.get());
-    }
-
-    template <std::floating_point T>
-    auto NGFloatingPoint<T>::opTimes(const NumeralBase *other) const -> RuntimeRef<NGObject>
-    {
-        return makert<NGFloatingPoint<T>>(value * NGFloatingPoint<T>(other).value);
-    }
-
-    template <std::floating_point T>
-    auto NGFloatingPoint<T>::opDividedBy(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject>
-    {
-        auto result = std::dynamic_pointer_cast<NumeralBase>(other);
-        if (!result)
-        {
-            throw RuntimeException("Not a number");
-        }
-        if (result->bytesize() > bytesize())
-        {
-            return result->opDividedBy(dynamic_cast<const NumeralBase *>(this));
-        }
-        return this->opDividedBy(result.get());
-    }
-
-    template <std::floating_point T>
-    auto NGFloatingPoint<T>::opDividedBy(const NumeralBase *other) const -> RuntimeRef<NGObject>
-    {
-        return makert<NGFloatingPoint<T>>(value / NGFloatingPoint<T>(other).value);
-    }
-
-    template <std::floating_point T>
-    auto NGFloatingPoint<T>::opModulus(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject>
-    {
-        throw std::logic_error("floating point not support modulus operation");
-    }
-
-    template <std::floating_point T>
-    auto NGFloatingPoint<T>::opModulus(const NumeralBase *other) const -> RuntimeRef<NGObject>
-    {
-        throw std::logic_error("floating point not support modulus operation");
-    }
-
-    template <std::floating_point T>
-    auto NGFloatingPoint<T>::opNegate() const -> RuntimeRef<NGObject>
-    {
-        return makert<NGFloatingPoint<T>>(-value);
-    }
-
-#pragma endregion
 
 } // namespace NG::runtime

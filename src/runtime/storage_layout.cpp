@@ -3,28 +3,23 @@
 
 namespace NG::runtime
 {
-  auto make_storage_cell(const TypeLayout &layout, StorageClass storageClass, const RuntimeRef<NGObject> &boxedValue,
-                         Str name, const RuntimeRef<NGType> &runtimeType)
+  auto make_storage_cell(const TypeLayout &layout, StorageClass storageClass, Str name,
+                         const RuntimeRef<NGType> &runtimeType)
       -> RuntimeRef<StorageCell>
   {
     auto cell = makert<StorageCell>();
     static_cast<buffer_runtime::FrameSlot &>(*cell) = buffer_runtime::make_slot(std::move(name), layout, storageClass);
-    runtime_sync_storage_cell(cell, boxedValue, runtimeType);
+    cell->runtimeType = runtimeType;
+    cell->layout = layout;
+    cell->initialized = runtimeType != nullptr || layout.size != 0 || !layout.name.empty();
     return cell;
   }
 
-  auto make_boxed_storage_cell(const RuntimeRef<NGObject> &value, StorageClass storageClass) -> RuntimeRef<StorageCell>
+  auto make_value_storage_cell(const RuntimeRef<StorageCell> &value, StorageClass storageClass) -> RuntimeRef<StorageCell>
   {
-    TypeLayout layout;
-    RuntimeRef<NGType> valueType = runtime_value_type(value);
-    if (valueType)
-    {
-      layout = valueType->layout;
-      if (layout.name.empty())
-      {
-        layout.name = valueType->name;
-      }
-    }
-    return make_storage_cell(layout, storageClass, value, {}, valueType);
+    auto cell = make_storage_cell(value ? value->layout : TypeLayout{}, storageClass, {},
+                                  value ? value->runtimeType : nullptr);
+    runtime_copy_storage_cell(cell, value);
+    return cell;
   }
 } // namespace NG::runtime

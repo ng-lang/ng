@@ -37,9 +37,6 @@ set(NG_LIB_SRC
         src/ast/AstVisitor.cpp
         src/ast/DummyVisitor.cpp
         src/intp/stupid.cpp
-        src/runtime/ObjectBase.cpp
-        src/runtime/OperatorsBase.cpp
-        src/runtime/NGObject.cpp
         src/runtime/NGBoolean.cpp
         src/runtime/runtime_env.cpp
         src/runtime/NGString.cpp

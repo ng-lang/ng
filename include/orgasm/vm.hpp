@@ -9,7 +9,7 @@ namespace NG::orgasm
 {
     using namespace NG::runtime;
 
-    using NativeFunction = std::function<RuntimeRef<NGObject>(const Vec<RuntimeRef<NGObject>> &)>;
+    using NativeFunction = std::function<RuntimeRef<StorageCell>(const Vec<RuntimeRef<StorageCell>> &)>;
 
     /**
      * @brief A simple virtual machine for executing ORGASM bytecode.
@@ -25,7 +25,7 @@ namespace NG::orgasm
          * @param module The bytecode module to execute.
          * @return The return value of the entry point.
          */
-        auto run(const BytecodeModule &module) -> RuntimeRef<NGObject>;
+        auto run(const BytecodeModule &module) -> RuntimeRef<StorageCell>;
 
         /**
          * @brief Registers a native function with auto-marshaling.
@@ -34,7 +34,7 @@ namespace NG::orgasm
          * converted between NG runtime and C++ types.
          *
          * Supported C++ types: int8_t..int64_t, uint8_t..uint64_t,
-         * float, double, bool, std::string, RuntimeRef<NGObject>
+         * float, double, bool, std::string, RuntimeRef<StorageCell>
          *
          * @param name The name of the native function (used by NATIVE_CALL opcode).
          * @param func A C++ function or lambda with supported parameter/return types.
@@ -60,7 +60,7 @@ namespace NG::orgasm
             Vec<RuntimeRef<StorageCell>> locals;
         };
 
-        Vec<RuntimeRef<NGObject>> stack;
+        Vec<RuntimeRef<StorageCell>> stack;
         const BytecodeModule *current_module = nullptr;
         Vec<RuntimeRef<StorageCell>> globals;
         NGSymbols root_symbols;
@@ -69,6 +69,6 @@ namespace NG::orgasm
         Vec<Str> modulePaths;
         Map<Str, NativeFunction> native_functions;
 
-        auto execute(const Function &fun, const Vec<RuntimeRef<NGObject>> &args) -> RuntimeRef<NGObject>;
+        auto execute_slots(const Function &fun, const Vec<RuntimeRef<StorageCell>> &argSlots) -> RuntimeRef<StorageCell>;
     };
 } // namespace NG::orgasm

@@ -8,6 +8,7 @@
 #include <runtime/native_marshaling.hpp>
 #include <runtime/value_access.hpp>
 #include <runtime/array_layout_access.hpp>
+#include <runtime/index_layout_access.hpp>
 #include <runtime/tagged_layout_access.hpp>
 #include <runtime/struct_layout_access.hpp>
 #include <runtime/tuple_layout_access.hpp>
@@ -37,12 +38,16 @@ namespace NG::runtime
     get_native_registry().insert_or_assign(moduleId, handlers);
   }
 
-  void bind_native_library_handlers(const RuntimeRef<NGModule> &module, const Map<Str, NGCallable> &handlers)
+  void bind_native_library_handlers(const RuntimeRef<StorageCell> &module, const Map<Str, NGCallable> &handlers)
   {
+    if (!runtime_is_module_value(module))
+    {
+      throw RuntimeException("Cannot bind native handlers to non-module value");
+    }
     for (const auto &[name, handler] : handlers)
     {
-      module->native_functions.insert_or_assign(
-          name, [module, handler](const NGSelf &self, const NGEnv &env, const NGArgs &args) -> RuntimeRef<NGObject> {
+      runtime_module_set_native_function(
+          module, name, [module, handler](const NGSelf &self, const NGEnv &env, const NGArgs &args) -> RuntimeRef<StorageCell> {
             auto nativeEnv = fork_runtime_env(env);
             runtime_env_set_state(nativeEnv, NATIVE_MODULE_CONTEXT_KEY, module);
             bind_native_arg_slots(nativeEnv, args);
@@ -51,10 +56,10 @@ namespace NG::runtime
     }
   }
 
-  auto current_native_module(const NGEnv &env) -> RuntimeRef<NGModule>
+  auto current_native_module(const NGEnv &env) -> RuntimeRef<StorageCell>
   {
     auto state = runtime_env_get_state(env, NATIVE_MODULE_CONTEXT_KEY);
-    return state ? std::static_pointer_cast<NGModule>(state) : nullptr;
+    return state ? std::static_pointer_cast<StorageCell>(state) : nullptr;
   }
 } // namespace NG::runtime
 
@@ -71,8 +76,8 @@ namespace NG::intp
 
   ISummarizable::~ISummarizable() = default;
 
-  static auto evaluateExpr(TokenType optr, const RuntimeRef<NGObject> &leftParam,
-                           const RuntimeRef<NGObject> &rightParam) -> RuntimeRef<NGObject>
+  static auto evaluateExprSlot(TokenType optr, const RuntimeRef<StorageCell> &leftParam,
+                               const RuntimeRef<StorageCell> &rightParam) -> RuntimeRef<StorageCell>
   {
     switch (optr)
     {
@@ -87,29 +92,26 @@ namespace NG::intp
     case TokenType::MODULUS:
       return value_modulus(leftParam, rightParam);
     case TokenType::EQUAL:
-      return NGObject::boolean(value_equals(leftParam, rightParam));
+      return make_runtime_boolean(value_equals(leftParam, rightParam));
     case TokenType::NOT_EQUAL:
-      return NGObject::boolean(!value_equals(leftParam, rightParam));
+      return make_runtime_boolean(!value_equals(leftParam, rightParam));
     case TokenType::LE:
-      return NGObject::boolean(!value_greater_than(leftParam, rightParam));
+      return make_runtime_boolean(!value_greater_than(leftParam, rightParam));
     case TokenType::LT:
-      return NGObject::boolean(value_less_than(leftParam, rightParam));
+      return make_runtime_boolean(value_less_than(leftParam, rightParam));
     case TokenType::GE:
-      return NGObject::boolean(!value_less_than(leftParam, rightParam));
+      return make_runtime_boolean(!value_less_than(leftParam, rightParam));
     case TokenType::GT:
-      return NGObject::boolean(value_greater_than(leftParam, rightParam));
+      return make_runtime_boolean(value_greater_than(leftParam, rightParam));
     case TokenType::RSHIFT:
       return value_rshift(leftParam, rightParam);
     case TokenType::LSHIFT:
       return value_lshift(leftParam, rightParam);
-    //            case TokenType::ASSIGN:
     case TokenType::BIND:
       throw RuntimeException("Operator = is not supported in expressions, perhaps you mean ':='?");
     default:
       throw RuntimeException("Unsupported binary operator");
-      break;
     }
-    return nullptr;
   }
 
   static auto stripGenericTypeSuffix(const Str &typeName) -> Str
@@ -131,15 +133,15 @@ namespace NG::intp
     return nullptr;
   }
 
-  static void define_global_binding(const NGSymbols &symbols, const Str &name, const RuntimeRef<NGObject> &value)
+  static auto clone_global_slot(Str name, const RuntimeRef<StorageCell> &source) -> RuntimeRef<StorageCell>;
+
+  static void define_global_binding(const NGSymbols &symbols, const Str &name, const RuntimeRef<StorageCell> &value)
   {
     if (!symbols || symbols->objectSlots.contains(name))
     {
       throw RuntimeException("Redefine " + name);
     }
-    auto slot = make_boxed_storage_cell(value, StorageClass::GLOBAL);
-    slot->name = name;
-    symbols->objectSlots[name] = slot;
+    symbols->objectSlots[name] = clone_global_slot(name, value);
   }
 
   static void define_global_function(const NGSymbols &symbols, const Str &name, NGCallable value)
@@ -169,7 +171,7 @@ namespace NG::intp
     symbols->variantTypes[name] = type;
   }
 
-  static void define_global_module(const NGSymbols &symbols, const Str &name, const RuntimeRef<NGModule> &module)
+  static void define_global_module(const NGSymbols &symbols, const Str &name, const RuntimeRef<StorageCell> &module)
   {
     if (!symbols || symbols->modules.contains(name))
     {
@@ -203,16 +205,7 @@ namespace NG::intp
     return nullptr;
   }
 
-  static auto lookup_global_binding(const NGSymbols &symbols, const Str &name) -> RuntimeRef<NGObject>
-  {
-    if (auto slot = lookup_global_slot(symbols, name))
-    {
-      return slot->boxedValue;
-    }
-    return nullptr;
-  }
-
-  static void publish_global_binding(const NGSymbols &symbols, const Str &name, const RuntimeRef<NGObject> &value)
+  static void publish_global_binding(const NGSymbols &symbols, const Str &name, const RuntimeRef<StorageCell> &value)
   {
     if (!symbols)
     {
@@ -220,27 +213,20 @@ namespace NG::intp
     }
     if (symbols->objectSlots.contains(name))
     {
-      runtime_sync_storage_cell(symbols->objectSlots[name], value);
+      runtime_copy_storage_cell(symbols->objectSlots[name], value);
       return;
     }
-    auto slot = make_boxed_storage_cell(value, StorageClass::GLOBAL);
-    slot->name = name;
-    symbols->objectSlots[name] = slot;
+    symbols->objectSlots[name] = clone_global_slot(name, value);
   }
 
-  static void assign_global_binding(const NGSymbols &symbols, const Str &name, const RuntimeRef<NGObject> &value)
+  static void assign_global_binding(const NGSymbols &symbols, const Str &name, const RuntimeRef<StorageCell> &value)
   {
     if (symbols && symbols->objectSlots.contains(name))
     {
-      runtime_sync_storage_cell(symbols->objectSlots[name], value);
+      runtime_copy_storage_cell(symbols->objectSlots[name], value);
       return;
     }
     throw RuntimeException("Invalid assignment to " + name);
-  }
-
-  static auto materialized_layout(const RuntimeRef<NGObject> &value) -> TypeLayout
-  {
-    return runtime_value_layout(value);
   }
 
   static auto is_concrete_layout(const TypeLayout &layout) -> bool
@@ -341,10 +327,21 @@ namespace NG::intp
     return env && env->symbols ? env->symbols : makert<RuntimeSymbolTable>();
   }
 
-  static auto make_named_boxed_storage_cell(Str name, const RuntimeRef<NGObject> &value,
-                                            StorageClass storageClass = StorageClass::FRAME) -> RuntimeRef<StorageCell>
+  static auto make_named_storage_cell(Str name, const RuntimeRef<StorageCell> &value,
+                                      StorageClass storageClass = StorageClass::FRAME) -> RuntimeRef<StorageCell>
   {
-    return make_storage_cell(materialized_layout(value), storageClass, value, std::move(name));
+    return clone_runtime_storage_cell(value, storageClass, std::move(name));
+  }
+
+  static auto clone_argument_slot(Str name, const RuntimeRef<StorageCell> &source,
+                                  StorageClass storageClass = StorageClass::TEMPORARY) -> RuntimeRef<StorageCell>
+  {
+    return clone_runtime_storage_cell(source, storageClass, std::move(name));
+  }
+
+  static auto clone_global_slot(Str name, const RuntimeRef<StorageCell> &source) -> RuntimeRef<StorageCell>
+  {
+    return clone_argument_slot(std::move(name), source, StorageClass::GLOBAL);
   }
 
   static auto next_scope_id() -> uint64_t
@@ -388,6 +385,10 @@ namespace NG::intp
     };
 
     auto &frame = frames->back();
+    if (name == "self" && frame.receiver)
+    {
+      return frame.receiver;
+    }
     for (auto itScope = scopeIds->rbegin(); itScope != scopeIds->rend(); ++itScope)
     {
       for (auto it = frame.locals.rbegin(); it != frame.locals.rend(); ++it)
@@ -407,6 +408,13 @@ namespace NG::intp
       if (matchesScope(frame.receiver, *itScope))
       {
         return frame.receiver;
+      }
+    }
+    for (auto it = frame.params.rbegin(); it != frame.params.rend(); ++it)
+    {
+      if (*it && (*it)->name == name)
+      {
+        return *it;
       }
     }
     return nullptr;
@@ -440,6 +448,10 @@ namespace NG::intp
         return *it;
       }
     }
+    if (name == "self" && frame.receiver)
+    {
+      return frame.receiver;
+    }
     if (matchesCurrentScope(frame.receiver))
     {
       return frame.receiver;
@@ -448,7 +460,7 @@ namespace NG::intp
   }
 
   static auto find_frame_receiver(const RuntimeRef<Vec<CallFrame>> &frames, const RuntimeRef<Vec<uint64_t>> &scopeIds)
-      -> RuntimeRef<NGObject>
+      -> RuntimeRef<StorageCell>
   {
     if (!frames || frames->empty() || !scopeIds || scopeIds->empty())
     {
@@ -461,14 +473,7 @@ namespace NG::intp
       return nullptr;
     }
 
-    for (auto itScope = scopeIds->rbegin(); itScope != scopeIds->rend(); ++itScope)
-    {
-      if (receiver->ownerScopeId == *itScope)
-      {
-        return receiver->boxedValue;
-      }
-    }
-    return nullptr;
+    return receiver;
   }
 
   static auto is_module_frame(const RuntimeRef<Vec<CallFrame>> &frames) -> bool
@@ -476,37 +481,48 @@ namespace NG::intp
     return frames && !frames->empty() && frames->back().functionName == "<module>";
   }
 
-  static void sync_storage_cell(const RuntimeRef<StorageCell> &cell, const RuntimeRef<NGObject> &value)
+  static void sync_storage_cell(const RuntimeRef<StorageCell> &cell, const RuntimeRef<StorageCell> &value)
   {
-    runtime_sync_storage_cell(cell, value);
+    runtime_copy_storage_cell(cell, value);
+  }
+
+  static auto move_storage_cell_into_temporary(const RuntimeRef<StorageCell> &source, Str name = "move")
+      -> RuntimeRef<StorageCell>
+  {
+    ensure_usable_cell(source);
+    auto slot = make_storage_cell(source ? source->layout : TypeLayout{}, StorageClass::TEMPORARY, std::move(name),
+                                  source ? source->runtimeType : nullptr);
+    runtime_copy_storage_cell(slot, source);
+    mark_moved_storage_cell(source);
+    return slot;
   }
 
   static void sync_binding_slot(const NGSymbols &symbols, const RuntimeRef<Vec<CallFrame>> &frames,
                                 const RuntimeRef<Vec<uint64_t>> &scopeIds, bool publishGlobals,
                                 const RuntimeRef<StorageCell> &cell,
-                                const RuntimeRef<NGObject> &value)
+                                const RuntimeRef<StorageCell> &value)
   {
     sync_storage_cell(cell, value);
     if (publishGlobals && cell && is_module_frame(frames) && cell->ownerScopeId == root_scope_id(scopeIds))
     {
-      publish_global_binding(symbols, cell->name, value);
+      publish_global_binding(symbols, cell->name, cell);
     }
   }
 
   static auto has_returned(const RuntimeRef<StorageCell> &returnSlot) -> bool
   {
-    return returnSlot && returnSlot->boxedValue != nullptr;
+    return returnSlot && runtime_cell_has_value(returnSlot);
   }
 
-  static auto enumerate_call_frame_roots(const Vec<CallFrame> &frames) -> Vec<RuntimeRef<NGObject>>
+  static auto enumerate_call_frame_roots(const Vec<CallFrame> &frames) -> Vec<RuntimeRef<StorageCell>>
   {
-    Vec<RuntimeRef<NGObject>> roots;
+    Vec<RuntimeRef<StorageCell>> roots;
     for (const auto &frame : frames)
     {
       auto appendCell = [&roots](const RuntimeRef<StorageCell> &cell) {
-        if (cell && cell->boxedValue)
+        if (cell)
         {
-          roots.push_back(cell->boxedValue);
+          roots.push_back(cell);
         }
       };
 
@@ -530,14 +546,15 @@ namespace NG::intp
     {
       if (slot && slot->ownerScopeId == rootScopeId)
       {
-        publish_global_binding(symbols, slot->name, slot->boxedValue);
+        ensure_usable_cell(slot);
+        publish_global_binding(symbols, slot->name, slot);
       }
     }
   }
 
   static void define_scope_binding(const NGSymbols &symbols, const RuntimeRef<Vec<CallFrame>> &frames,
                                    const RuntimeRef<Vec<uint64_t>> &scopeIds, bool publishGlobals, const Str &name,
-                                   const RuntimeRef<NGObject> &value)
+                                   const RuntimeRef<StorageCell> &value)
   {
     if (!frames || frames->empty())
     {
@@ -548,12 +565,12 @@ namespace NG::intp
     {
       throw RuntimeException("Redefine " + name);
     }
-    auto slot = make_named_boxed_storage_cell(name, value);
+    auto slot = make_named_storage_cell(name, value);
     slot->ownerScopeId = current_scope_id(scopeIds);
     frames->back().locals.push_back(slot);
     if (publishGlobals && is_module_frame(frames) && current_scope_id(scopeIds) == root_scope_id(scopeIds))
     {
-      publish_global_binding(symbols, name, value);
+      publish_global_binding(symbols, name, slot);
     }
   }
 
@@ -568,9 +585,9 @@ namespace NG::intp
   struct ExpressionVisitor : public DummyVisitor
   {
 
-    RuntimeRef<NGObject> object = nullptr;
+    RuntimeRef<StorageCell> slot = nullptr;
 
-    RuntimeRef<Vec<RuntimeRef<NGObject>>> collection = nullptr;
+    RuntimeRef<Vec<RuntimeRef<StorageCell>>> collection = nullptr;
 
     NGSymbols symbols = nullptr;
     RuntimeRef<Vec<CallFrame>> activeFrames = nullptr;
@@ -586,27 +603,44 @@ namespace NG::intp
     {
     }
 
-    auto lookup_binding(const Str &name) const -> RuntimeRef<NGObject>
+    void set_result(const RuntimeRef<StorageCell> &value, bool isMoved = false)
     {
-      if (!activeFrames || activeFrames->empty())
-      {
-        return lookup_global_binding(symbols, name);
-      }
-      if (auto slot = find_frame_binding_slot(activeFrames, activeScopes, name))
-      {
-        return slot->boxedValue;
-      }
-      if (auto receiver = std::dynamic_pointer_cast<NGStructuralObject>(find_frame_receiver(activeFrames, activeScopes)))
-      {
-        if (auto value = structural_read_member(receiver, name))
-        {
-          return value;
-        }
-      }
-      return lookup_global_binding(symbols, name);
+      moved = isMoved;
+      slot = value;
     }
 
-    void write_binding(const Str &name, const RuntimeRef<NGObject> &value) const
+    [[nodiscard]] auto result_slot(Str name = {}) const -> RuntimeRef<StorageCell>
+    {
+      if (slot)
+      {
+        return moved ? slot : clone_runtime_storage_cell(slot, StorageClass::TEMPORARY, std::move(name));
+      }
+      auto result = unit_cell();
+      result->name = std::move(name);
+      return result;
+    }
+
+    auto lookup_binding_slot(const Str &name) const -> RuntimeRef<StorageCell>
+    {
+      if (auto slot = find_frame_binding_slot(activeFrames, activeScopes, name))
+      {
+        return slot;
+      }
+      if (auto receiver = find_frame_receiver(activeFrames, activeScopes); runtime_is_structural_value(receiver))
+      {
+        if (auto index = runtime_structural_field_index(receiver, name))
+        {
+          return runtime_structural_field_slot(receiver, *index);
+        }
+        if (auto slot = runtime_structural_property_slot(receiver, name))
+        {
+          return slot;
+        }
+      }
+      return lookup_global_slot(symbols, name);
+    }
+
+    void write_binding(const Str &name, const RuntimeRef<StorageCell> &value) const
     {
       if (!activeFrames || activeFrames->empty())
       {
@@ -618,136 +652,103 @@ namespace NG::intp
         sync_binding_slot(symbols, activeFrames, activeScopes, publishGlobals, slot, value);
         return;
       }
-        if (auto receiver = std::dynamic_pointer_cast<NGStructuralObject>(find_frame_receiver(activeFrames, activeScopes)))
+        if (auto receiver = find_frame_receiver(activeFrames, activeScopes); runtime_is_structural_value(receiver))
         {
-          if (structural_field_index(receiver, name).has_value() || receiver->property_slot(name))
+          if (runtime_structural_field_index(receiver, name).has_value() || runtime_structural_property_slot(receiver, name))
           {
-            structural_write_member(receiver, name, value);
-            return;
-        }
+             runtime_structural_write_member(receiver, name, value);
+             return;
+         }
       }
       assign_global_binding(symbols, name, value);
     }
 
-    [[nodiscard]] auto makeReference(Expression *expr) -> RuntimeRef<NGReference>
+    [[nodiscard]] auto place_slot(Expression *expr) -> RuntimeRef<StorageCell>
     {
       if (auto *idExpr = dynamic_cast<IdExpression *>(expr))
       {
-        auto name = idExpr->id;
-        if (auto slot = find_frame_binding_slot(activeFrames, activeScopes, name))
-        {
-          return makert<NGReference>(slot, name);
-        }
-        if (auto slot = lookup_global_slot(symbols, name))
-        {
-          return makert<NGReference>(slot, name);
-        }
-        if (auto receiver = std::dynamic_pointer_cast<NGStructuralObject>(find_frame_receiver(activeFrames, activeScopes)))
-        {
-          if (structural_field_index(receiver, name).has_value() || receiver->property_slot(name))
-          {
-            if (auto index = structural_field_index(receiver, name))
-            {
-              if (auto slot = receiver->field_slot(*index))
-              {
-                return makert<NGReference>(slot, name);
-              }
-              throw RuntimeException("Receiver field reference is not slot-backed: " + name);
-            }
-            return makert<NGReference>(receiver->property_slot_or_create(name), name);
-          }
-        }
-        throw RuntimeException("Identifier reference target is not slot-backed: " + name);
+        return lookup_binding_slot(idExpr->id);
       }
       if (auto *unaryExpr = dynamic_cast<UnaryExpression *>(expr);
           unaryExpr && unaryExpr->optr && unaryExpr->optr->type == TokenType::TIMES)
       {
         ExpressionVisitor refVisitor{symbols, activeFrames, activeScopes, publishGlobals};
         unaryExpr->operand->accept(&refVisitor);
-        auto reference = std::dynamic_pointer_cast<NGReference>(refVisitor.object);
-        if (!reference)
+        auto refSlot = refVisitor.result_slot();
+        if (!runtime_is_reference_value(refSlot))
         {
-          throw RuntimeException("Cannot take reference of non-reference dereference");
+          return nullptr;
         }
-        return reference;
+        return runtime_reference_target(refSlot);
       }
       if (auto *idAcc = dynamic_cast<IdAccessorExpression *>(expr))
       {
-        ExpressionVisitor mainVisitor{symbols, activeFrames, activeScopes, publishGlobals};
-        idAcc->primaryExpression->accept(&mainVisitor);
-        auto main = auto_deref_value(mainVisitor.object);
-        ensure_usable_value(main);
-        auto memberName = idAcc->accessor->repr();
-        if (auto structural = std::dynamic_pointer_cast<NGStructuralObject>(main))
+        if (!idAcc->arguments.empty())
         {
-          if (auto index = structural_field_index(structural, memberName))
-          {
-            if (auto slot = structural->field_slot(*index))
-            {
-              return makert<NGReference>(slot, memberName);
-            }
-            throw RuntimeException("Structural field reference is not slot-backed: " + memberName);
-          }
-          return makert<NGReference>(structural->property_slot_or_create(memberName), memberName);
+          return nullptr;
         }
-        if (auto tagged = std::dynamic_pointer_cast<NGTaggedValue>(main))
+        auto receiverSlot = place_slot(idAcc->primaryExpression.get());
+        if (!receiverSlot)
         {
-          if (auto index = tagged_payload_index(*tagged, memberName))
-          {
-            if (auto slot = tagged->payload_slot(*index))
-            {
-              return makert<NGReference>(slot, memberName);
-            }
-            throw RuntimeException("Tagged payload reference is not slot-backed: " + memberName);
-          }
-          throw RuntimeException("Unsupported tagged reference target: " + memberName);
+          ExpressionVisitor receiverVisitor{symbols, activeFrames, activeScopes, publishGlobals};
+          idAcc->primaryExpression->accept(&receiverVisitor);
+          receiverSlot = receiverVisitor.result_slot();
         }
-        if (auto tuple = std::dynamic_pointer_cast<NGTuple>(main))
+        if (runtime_is_reference_value(receiverSlot))
         {
-          auto index = static_cast<size_t>(std::stoi(memberName));
-          if (auto slot = tuple->element_slot(index))
-          {
-            return makert<NGReference>(slot, memberName);
-          }
-          throw RuntimeException("Tuple member reference is not slot-backed: " + memberName);
+          receiverSlot = runtime_reference_target(receiverSlot);
         }
-        throw RuntimeException("Unsupported reference target: " + idAcc->repr());
+        ensure_usable_cell(receiverSlot);
+
+        const auto memberName = idAcc->accessor->repr();
+        if (runtime_is_structural_value(receiverSlot))
+        {
+          return structural_member_slot(receiverSlot, memberName);
+        }
+        if (auto receiverType = runtime_value_type(receiverSlot);
+            receiverType && receiverType->layout.kind == LayoutKind::TAGGED_UNION)
+        {
+          return tagged_member_slot(receiverSlot, memberName);
+        }
+        if (runtime_is_tuple_value(receiverSlot))
+        {
+          return tuple_read_member_slot(receiverSlot, memberName);
+        }
+        return nullptr;
       }
       if (auto *indexExpr = dynamic_cast<IndexAccessorExpression *>(expr))
       {
-        ExpressionVisitor mainVisitor{symbols, activeFrames, activeScopes, publishGlobals};
-        indexExpr->primary->accept(&mainVisitor);
-        auto primary = auto_deref_value(mainVisitor.object);
-        ensure_usable_value(primary);
+        auto primarySlot = place_slot(indexExpr->primary.get());
+        if (!primarySlot)
+        {
+          ExpressionVisitor primaryVisitor{symbols, activeFrames, activeScopes, publishGlobals};
+          indexExpr->primary->accept(&primaryVisitor);
+          primarySlot = primaryVisitor.result_slot();
+        }
+        if (runtime_is_reference_value(primarySlot))
+        {
+          primarySlot = runtime_reference_target(primarySlot);
+        }
+        ensure_usable_cell(primarySlot);
 
         ExpressionVisitor indexVisitor{symbols, activeFrames, activeScopes, publishGlobals};
         indexExpr->accessor->accept(&indexVisitor);
-        auto indexObject = materialize_value(indexVisitor.object, indexVisitor.moved);
+        return runtime_index_slot(primarySlot, indexVisitor.result_slot());
+      }
+      return nullptr;
+    }
 
-        auto numeral = std::dynamic_pointer_cast<NumeralBase>(indexObject);
-        if (!numeral)
-        {
-          throw RuntimeException("Index reference requires numeral index");
-        }
-        auto index = NGIntegral<size_t>(numeral.get()).value;
+    [[nodiscard]] auto maybeReference(Expression *expr) -> RuntimeRef<StorageCell>
+    {
+      auto slot = place_slot(expr);
+      return slot ? make_runtime_reference_cell(slot, expr->repr()) : nullptr;
+    }
 
-        if (auto array = std::dynamic_pointer_cast<NGArray>(primary))
-        {
-          if (auto slot = array->element_slot(index))
-          {
-            return makert<NGReference>(slot, indexExpr->repr());
-          }
-          throw RuntimeException("Array index reference is not slot-backed: " + indexExpr->repr());
-        }
-        if (auto tuple = std::dynamic_pointer_cast<NGTuple>(primary))
-        {
-          if (auto slot = tuple->element_slot(index))
-          {
-            return makert<NGReference>(slot, indexExpr->repr());
-          }
-          throw RuntimeException("Tuple index reference is not slot-backed: " + indexExpr->repr());
-        }
-        throw RuntimeException("Unsupported indexed reference target: " + indexExpr->repr());
+    [[nodiscard]] auto makeReference(Expression *expr) -> RuntimeRef<StorageCell>
+    {
+      if (auto reference = maybeReference(expr))
+      {
+        return reference;
       }
       throw RuntimeException("Unsupported reference target: " + expr->repr());
     }
@@ -756,43 +757,35 @@ namespace NG::intp
 
     void visit(IntegralValue<int8_t> *intVal) override
     {
-      moved = false;
-      object = makert<NGIntegral<int8_t>>(intVal->value);
+      set_result(numeral_cell_from_value<int8_t>(intVal->value));
     }
     void visit(IntegralValue<uint8_t> *intVal) override
     {
-      moved = false;
-      object = std::make_shared<NGIntegral<uint8_t>>(intVal->value);
+      set_result(numeral_cell_from_value<uint8_t>(intVal->value));
     }
     void visit(IntegralValue<int16_t> *intVal) override
     {
-      moved = false;
-      object = std::make_shared<NGIntegral<int16_t>>(intVal->value);
+      set_result(numeral_cell_from_value<int16_t>(intVal->value));
     }
     void visit(IntegralValue<uint16_t> *intVal) override
     {
-      moved = false;
-      object = std::make_shared<NGIntegral<uint16_t>>(intVal->value);
+      set_result(numeral_cell_from_value<uint16_t>(intVal->value));
     }
     void visit(IntegralValue<int32_t> *intVal) override
     {
-      moved = false;
-      object = std::make_shared<NGIntegral<int32_t>>(intVal->value);
+      set_result(numeral_cell_from_value<int32_t>(intVal->value));
     }
     void visit(IntegralValue<uint32_t> *intVal) override
     {
-      moved = false;
-      object = std::make_shared<NGIntegral<uint32_t>>(intVal->value);
+      set_result(numeral_cell_from_value<uint32_t>(intVal->value));
     }
     void visit(IntegralValue<int64_t> *intVal) override
     {
-      moved = false;
-      object = std::make_shared<NGIntegral<int64_t>>(intVal->value);
+      set_result(numeral_cell_from_value<int64_t>(intVal->value));
     }
     void visit(IntegralValue<uint64_t> *intVal) override
     {
-      moved = false;
-      object = std::make_shared<NGIntegral<uint64_t>>(intVal->value);
+      set_result(numeral_cell_from_value<uint64_t>(intVal->value));
     }
 
     // void visit(FloatingPointValue<float16_t> *floatVal) override
@@ -802,14 +795,12 @@ namespace NG::intp
 
     void visit(FloatingPointValue<float /*float32_t*/> *floatVal) override
     {
-      moved = false;
-      object = std::make_shared<NGFloatingPoint<float /* float32_t */>>(floatVal->value);
+      set_result(numeral_cell_from_value<float>(floatVal->value));
     }
 
     void visit(FloatingPointValue<double /*float64_t*/> *floatVal) override
     {
-      moved = false;
-      object = std::make_shared<NGFloatingPoint<double /* float64_t */>>(floatVal->value);
+      set_result(numeral_cell_from_value<double>(floatVal->value));
     }
 
     // void visit(FloatingPointValue<float128_t> *floatVal) override
@@ -821,19 +812,17 @@ namespace NG::intp
 
     void visit(StringValue *strVal) override
     {
-      moved = false;
-      object = makert<NGString>(strVal->value);
+      set_result(make_runtime_string(strVal->value));
     }
 
     void visit(BooleanValue *boolVal) override
     {
-      moved = false;
-      object = makert<NGBoolean>(boolVal->value);
+      set_result(make_runtime_boolean(boolVal->value));
     }
 
     void visit(TupleLiteral *tuple) override
     {
-      Vec<RuntimeRef<NGObject>> objects;
+      Vec<RuntimeRef<StorageCell>> slots;
 
       ExpressionVisitor vis{symbols, activeFrames, activeScopes, publishGlobals};
 
@@ -843,19 +832,19 @@ namespace NG::intp
         if (auto spread = dynamic_ast_cast<SpreadExpression>(element); spread)
         {
           auto collection = vis.collection;
-          for (auto &&item : *collection)
+          for (size_t i = 0; i < collection->size(); ++i)
           {
-            objects.push_back(item);
+            auto slot = collection->at(i);
+            slots.push_back(clone_argument_slot(std::to_string(slots.size()), slot));
           }
         }
         else
         {
-          objects.push_back(materialize_value(vis.object, vis.moved));
+          slots.push_back(vis.result_slot(std::to_string(slots.size())));
         }
       }
 
-      moved = false;
-      object = makert<NGTuple>(objects);
+      set_result(make_runtime_tuple_cell(slots));
     }
 
     void visit(FunCallExpression *funCallExpr) override
@@ -873,24 +862,23 @@ namespace NG::intp
           auto collection = vis.collection;
           for (auto &&item : *collection)
           {
-            callArgs.push_back(item);
+            callArgs.push_back(clone_argument_slot("arg." + std::to_string(callArgs.size()), item));
           }
         }
         else
         {
-          callArgs.push_back(materialize_value(vis.object, vis.moved));
+          callArgs.push_back(vis.result_slot("arg." + std::to_string(callArgs.size())));
         }
       }
 
-      RuntimeRef<NGObject> dummy = makert<NGObject>();
+      auto dummy = unit_cell();
 
       if (!symbols || !symbols->functions.contains(fpVis.path))
       {
         throw RuntimeException("No such function: " + fpVis.path, funCallExpr->pos);
       }
 
-      moved = false;
-      this->object = symbols->functions.at(fpVis.path)(dummy, make_runtime_env(symbols), callArgs);
+      set_result(symbols->functions.at(fpVis.path)(dummy, make_runtime_env(symbols), callArgs));
     }
 
     void visit(UnaryExpression *unoExpr) override
@@ -901,51 +889,56 @@ namespace NG::intp
       {
         ExpressionVisitor operandVisitor{symbols, activeFrames, activeScopes, publishGlobals};
         unoExpr->operand->accept(&operandVisitor);
-        auto result = operandVisitor.object;
-        auto numeric = dynamic_cast<NumeralBase *>(result.get());
-        if (numeric)
-        {
-          moved = false;
-          this->object = numeric->opNegate();
-          return;
-        }
-        throw RuntimeException("Cannot negate a non-number");
+        set_result(negate_numeric_cell(operandVisitor.result_slot()));
+        return;
       }
       case TokenType::NOT:
       {
         ExpressionVisitor operandVisitor{symbols, activeFrames, activeScopes, publishGlobals};
         unoExpr->operand->accept(&operandVisitor);
-        moved = false;
-        this->object = NGObject::boolean(!runtime_value_bool(operandVisitor.object));
+        set_result(make_runtime_boolean(!runtime_value_bool(operandVisitor.result_slot())));
         return;
       }
       case TokenType::KEYWORD_REF:
       case TokenType::AMPERSAND:
-        moved = false;
-        object = makeReference(unoExpr->operand.get());
+        set_result(makeReference(unoExpr->operand.get()));
         return;
       case TokenType::TIMES:
       {
         ExpressionVisitor operandVisitor{symbols, activeFrames, activeScopes, publishGlobals};
         unoExpr->operand->accept(&operandVisitor);
-        auto reference = std::dynamic_pointer_cast<NGReference>(operandVisitor.object);
-        if (!reference)
+        auto operandSlot = operandVisitor.result_slot();
+        if (!runtime_is_reference_value(operandSlot))
         {
           throw RuntimeException("Cannot dereference non-reference value");
         }
-        moved = false;
-        object = reference->read();
+        auto targetSlot = runtime_reference_target(operandSlot);
+        if (!targetSlot)
+        {
+          throw RuntimeException("Cannot dereference dangling reference");
+        }
+        ensure_usable_cell(targetSlot);
+        set_result(targetSlot);
         return;
       }
       case TokenType::KEYWORD_MOVE:
       {
         if (auto idExpr = dynamic_ast_cast<IdExpression>(unoExpr->operand))
         {
-          auto value = lookup_binding(idExpr->id);
-          ensure_usable_value(value);
-          write_binding(idExpr->id, moved_object());
-          moved = true;
-          object = value;
+          RuntimeRef<StorageCell> movedSlot = nullptr;
+          if (auto slot = find_frame_binding_slot(activeFrames, activeScopes, idExpr->id))
+          {
+            movedSlot = move_storage_cell_into_temporary(slot, "move:" + idExpr->id);
+          }
+          else if (auto slot = lookup_global_slot(symbols, idExpr->id))
+          {
+            movedSlot = move_storage_cell_into_temporary(slot, "move:" + idExpr->id);
+          }
+          else
+          {
+            throw RuntimeException("Cannot move undefined binding " + idExpr->id);
+          }
+          set_result(movedSlot, true);
           return;
         }
         if (auto deref = dynamic_ast_cast<UnaryExpression>(unoExpr->operand);
@@ -953,21 +946,18 @@ namespace NG::intp
         {
           ExpressionVisitor operandVisitor{symbols, activeFrames, activeScopes, publishGlobals};
           deref->operand->accept(&operandVisitor);
-          auto reference = std::dynamic_pointer_cast<NGReference>(operandVisitor.object);
-          if (!reference)
+          auto targetSlot = runtime_reference_target(operandVisitor.result_slot());
+          if (!targetSlot)
           {
             throw RuntimeException("Cannot move from non-reference dereference");
           }
-          auto value = reference->read();
-          reference->write(moved_object());
-          moved = true;
-          object = value;
+          auto movedSlot = move_storage_cell_into_temporary(targetSlot, "move:deref");
+          set_result(movedSlot, true);
           return;
         }
         ExpressionVisitor operandVisitor{symbols, activeFrames, activeScopes, publishGlobals};
         unoExpr->operand->accept(&operandVisitor);
-        moved = operandVisitor.moved;
-        object = operandVisitor.object;
+        set_result(operandVisitor.slot, operandVisitor.moved);
         return;
       }
       case TokenType::QUERY:
@@ -984,20 +974,23 @@ namespace NG::intp
       binExpr->left->accept(&leftVisitor);
       binExpr->right->accept(&rightVisitor);
 
-      moved = false;
-      object = evaluateExpr(binExpr->optr->type, leftVisitor.object, rightVisitor.object);
+      set_result(evaluateExprSlot(binExpr->optr->type, leftVisitor.result_slot(), rightVisitor.result_slot()));
     }
 
     void visit(IdExpression *idExpr) override
     {
-      moved = false;
-      object = lookup_binding(idExpr->id);
-      ensure_usable_value(object);
+      if (auto bindingSlot = lookup_binding_slot(idExpr->id))
+      {
+        ensure_usable_cell(bindingSlot);
+        set_result(bindingSlot);
+        return;
+      }
+      throw RuntimeException("Undefined binding: " + idExpr->id);
     }
 
     void visit(ArrayLiteral *array) override
     {
-      Vec<RuntimeRef<NGObject>> objects;
+      Vec<RuntimeRef<StorageCell>> slots;
 
       ExpressionVisitor vis{symbols, activeFrames, activeScopes, publishGlobals};
 
@@ -1007,19 +1000,19 @@ namespace NG::intp
         if (auto spread = dynamic_ast_cast<SpreadExpression>(element); spread)
         {
           auto collection = vis.collection;
-          for (auto &&item : *collection)
+          for (size_t i = 0; i < collection->size(); ++i)
           {
-            objects.push_back(item);
+            auto slot = collection->at(i);
+            slots.push_back(clone_argument_slot(std::to_string(slots.size()), slot));
           }
         }
         else
         {
-          objects.push_back(materialize_value(vis.object, vis.moved));
+          slots.push_back(vis.result_slot(std::to_string(slots.size())));
         }
       }
 
-      moved = false;
-      object = makert<NGArray>(objects);
+      set_result(make_runtime_array_cell(slots));
     }
 
     void visit(IndexAccessorExpression *index) override
@@ -1028,38 +1021,45 @@ namespace NG::intp
 
       index->primary->accept(&vis);
 
-      RuntimeRef<NGObject> primaryObject = vis.object;
-      primaryObject = auto_deref_value(primaryObject);
-      ensure_usable_value(primaryObject);
+      auto primarySlot = vis.result_slot();
+      if (runtime_is_reference_value(primarySlot))
+      {
+        primarySlot = runtime_reference_target(primarySlot);
+      }
+      ensure_usable_cell(primarySlot);
 
       index->accessor->accept(&vis);
 
-      RuntimeRef<NGObject> accessorObject = vis.object;
+      auto accessorSlot = vis.result_slot();
 
-      moved = false;
-      object = primaryObject->opIndex(accessorObject);
+      set_result(runtime_index_read(primarySlot, accessorSlot));
     }
 
     void visit(IndexAssignmentExpression *index) override
     {
       ExpressionVisitor vis{symbols, activeFrames, activeScopes, publishGlobals};
 
-      index->primary->accept(&vis);
-
-      RuntimeRef<NGObject> primaryObject = vis.object;
-      primaryObject = auto_deref_value(primaryObject);
-      ensure_usable_value(primaryObject);
+      auto primarySlot = place_slot(index->primary.get());
+      if (!primarySlot)
+      {
+        index->primary->accept(&vis);
+        primarySlot = vis.result_slot();
+      }
+      if (runtime_is_reference_value(primarySlot))
+      {
+        primarySlot = runtime_reference_target(primarySlot);
+      }
+      ensure_usable_cell(primarySlot);
 
       index->accessor->accept(&vis);
 
-      RuntimeRef<NGObject> accessorObject = vis.object;
+      auto accessorSlot = vis.result_slot();
 
       index->value->accept(&vis);
 
-      RuntimeRef<NGObject> valueObject = materialize_value(vis.object, vis.moved);
+      auto valueSlot = vis.result_slot();
 
-      moved = false;
-      object = primaryObject->opIndex(accessorObject, valueObject);
+      set_result(runtime_index_write(primarySlot, accessorSlot, valueSlot));
     }
 
     void visit(IdAccessorExpression *idAccExpr) override
@@ -1067,21 +1067,27 @@ namespace NG::intp
       const Str &repr = idAccExpr->accessor->repr();
 
       ExpressionVisitor vis{symbols, activeFrames, activeScopes, publishGlobals};
-
-      idAccExpr->primaryExpression->accept(&vis);
-
-      RuntimeRef<NGObject> main = auto_deref_value(vis.object);
-      ensure_usable_value(main);
+      auto receiverRef = maybeReference(idAccExpr->primaryExpression.get());
+      auto receiverSlot = runtime_reference_target(receiverRef);
+      if (!receiverSlot)
+      {
+        idAccExpr->primaryExpression->accept(&vis);
+        receiverSlot = vis.result_slot();
+      }
+      if (runtime_is_reference_value(receiverSlot))
+      {
+        receiverSlot = runtime_reference_target(receiverSlot);
+      }
+      ensure_usable_cell(receiverSlot);
 
       NGArgs callArgs;
       for (const auto &argument : idAccExpr->arguments)
       {
         argument->accept(&vis);
-        callArgs.push_back(materialize_value(vis.object, vis.moved));
+        callArgs.push_back(vis.result_slot("arg." + std::to_string(callArgs.size())));
       }
 
-      moved = false;
-      object = runtime_value_respond(main, repr, make_runtime_env(symbols), callArgs);
+      set_result(runtime_value_respond_slot(receiverSlot, repr, make_runtime_env(symbols), callArgs));
     }
 
     void visit(NewObjectExpression *newObj) override
@@ -1089,10 +1095,8 @@ namespace NG::intp
       Str typeName = newObj->targetType ? newObj->targetType->repr() : newObj->typeName;
       if (auto ngType = resolveRuntimeType(symbols, typeName))
       {
-        auto structural = makert<NGStructuralObject>();
-
-        structural->customizedType = ngType;
-        structural->replace_payload_fields(Vec<RuntimeRef<NGObject>>(ngType->properties.size(), makert<NGUnit>()));
+        Vec<RuntimeRef<StorageCell>> fields(ngType->properties.size());
+        Map<Str, RuntimeRef<StorageCell>> dynamicProperties;
 
         if (activeFrames)
         {
@@ -1114,18 +1118,25 @@ namespace NG::intp
         auto objectScopes = make_scope_chain();
         ExpressionVisitor visitor{symbols, activeFrames, objectScopes, false};
 
-        for (auto &&[name, expr] : newObj->properties)
-        {
-          expr->accept(&visitor);
-          RuntimeRef<NGObject> result = materialize_value(visitor.object, visitor.moved);
+      for (auto &&[name, expr] : newObj->properties)
+      {
+        expr->accept(&visitor);
+        auto resultSlot = visitor.result_slot(name);
 
-          define_scope_binding(symbols, activeFrames, objectScopes, false, name, result);
+          define_scope_binding(symbols, activeFrames, objectScopes, false, name, resultSlot);
 
-          structural_write_member(structural, name, result);
+          auto it = std::find(ngType->properties.begin(), ngType->properties.end(), name);
+          if (it != ngType->properties.end())
+          {
+            fields[static_cast<size_t>(std::distance(ngType->properties.begin(), it))] = resultSlot;
+          }
+          else
+          {
+            dynamicProperties.insert_or_assign(name, resultSlot);
+          }
         }
 
-        moved = false;
-        object = allocate_heap_object(structural, "heap:" + typeName);
+        set_result(allocate_heap_cell(make_runtime_structural_cell(ngType, fields, dynamicProperties), "heap:" + typeName));
         return;
       }
 
@@ -1135,7 +1146,7 @@ namespace NG::intp
         throw RuntimeException("Unknown type for object: " + typeName);
       }
 
-      Vec<RuntimeRef<NGObject>> payload;
+      Vec<RuntimeRef<StorageCell>> payload;
       payload.reserve(variantType->properties.size());
 
       for (const auto &property : variantType->properties)
@@ -1147,14 +1158,10 @@ namespace NG::intp
         }
         ExpressionVisitor visitor{symbols, activeFrames, activeScopes, publishGlobals};
         it->second->accept(&visitor);
-        payload.push_back(materialize_value(visitor.object, visitor.moved));
+        payload.push_back(visitor.result_slot(property));
       }
 
-      moved = false;
-      object = allocate_heap_object(
-          makert<NGTaggedValue>(variantType->name, variantType->variantName, variantType->variantIndex, std::move(payload),
-                                variantType->properties),
-          "heap:" + typeName);
+      set_result(allocate_heap_cell(make_runtime_tagged_cell(variantType, payload), "heap:" + typeName));
     }
 
     void visit(AssignmentExpression *assignmentExpr) override
@@ -1162,39 +1169,61 @@ namespace NG::intp
       ExpressionVisitor vis{symbols, activeFrames, activeScopes, publishGlobals};
 
       assignmentExpr->value->accept(&vis);
-      auto result = materialize_value(vis.object, vis.moved);
+      auto resultSlot = vis.result_slot();
       if (auto idexpr = dynamic_ast_cast<IdExpression>(assignmentExpr->target); idexpr)
       {
-        write_binding(idexpr->id, result);
-        object = result;
+        write_binding(idexpr->id, resultSlot);
+        set_result(resultSlot);
       }
       else if (auto deref = dynamic_ast_cast<UnaryExpression>(assignmentExpr->target);
                deref && deref->optr && deref->optr->type == TokenType::TIMES)
       {
         ExpressionVisitor targetVisitor{symbols, activeFrames, activeScopes, publishGlobals};
         deref->operand->accept(&targetVisitor);
-        auto reference = std::dynamic_pointer_cast<NGReference>(targetVisitor.object);
-        if (!reference)
+        auto targetSlot = targetVisitor.result_slot();
+        if (!runtime_is_reference_value(targetSlot))
         {
           throw RuntimeException("Left-hand side of dereference assignment is not a reference");
         }
-        reference->write(result);
-        object = result;
+        if (auto referenceTarget = runtime_reference_target(targetSlot))
+        {
+          runtime_copy_storage_cell(referenceTarget, resultSlot);
+        }
+        else
+        {
+          runtime_write_reference(targetSlot, resultSlot);
+        }
+        set_result(resultSlot);
       }
       else if (auto idAcc = dynamic_ast_cast<IdAccessorExpression>(assignmentExpr->target); idAcc)
       {
-        idAcc->primaryExpression->accept(&vis);
-        auto target = auto_deref_value(vis.object);
-        if (auto obj = std::dynamic_pointer_cast<NGStructuralObject>(target); obj)
+        auto targetSlot = place_slot(idAcc->primaryExpression.get());
+        if (!targetSlot)
         {
-          structural_write_member(obj, idAcc->accessor->repr(), result);
-          object = result;
-          return;
+          idAcc->primaryExpression->accept(&vis);
+          targetSlot = vis.result_slot();
         }
-        if (auto tup = std::dynamic_pointer_cast<NGTuple>(target); tup)
+        if (runtime_is_reference_value(targetSlot))
         {
-          tup->opIndex(makert<NGIntegral<int>>(std::stoi(idAcc->accessor->repr())), result);
-          object = result;
+          targetSlot = runtime_reference_target(targetSlot);
+        }
+        ensure_usable_cell(targetSlot);
+
+        const auto memberName = idAcc->accessor->repr();
+        if (runtime_is_structural_value(targetSlot))
+        {
+          if (auto memberSlot = structural_member_slot_or_create(targetSlot, memberName))
+          {
+            runtime_copy_storage_cell(memberSlot, resultSlot);
+            set_result(resultSlot);
+            return;
+          }
+        }
+        if (runtime_is_tuple_value(targetSlot))
+        {
+          auto indexSlot = numeral_cell_from_value<int32_t>(std::stoi(memberName));
+          runtime_index_write(targetSlot, indexSlot, resultSlot);
+          set_result(resultSlot);
           return;
         }
         throw RuntimeException("Left-hand side of member assignment is not assignable: " +
@@ -1209,10 +1238,14 @@ namespace NG::intp
 
     void visit(TypeCheckingExpression *typeCheckExpr) override
     {
-      moved = false;
       ExpressionVisitor vis{symbols, activeFrames, activeScopes, publishGlobals};
       typeCheckExpr->value->accept(&vis);
-      RuntimeRef<NGObject> value = auto_deref_value(vis.object);
+      auto value = vis.result_slot();
+      if (runtime_is_reference_value(value))
+      {
+        value = runtime_read_reference(value);
+      }
+      bool result = false;
 
       if (auto anno = dynamic_ast_cast<TypeAnnotation>(typeCheckExpr->type); anno)
       {
@@ -1226,36 +1259,35 @@ namespace NG::intp
           {
             matches = stripGenericTypeSuffix(valueType->name) == stripGenericTypeSuffix(name);
           }
-          this->object = makert<NGBoolean>(matches);
+          result = matches;
         }
         else
         {
           // todo: simply fix this, and will migrate to typechecker later.
-          this->object = makert<NGBoolean>((runtime_value_type(value)->name == anno->name));
+          result = runtime_value_type(value)->name == anno->name;
         }
       }
       else if (auto idAcccessor = dynamic_ast_cast<IdAccessorExpression>(typeCheckExpr->type); idAcccessor)
       {
         idAcccessor->primaryExpression->accept(&vis);
         auto name = idAcccessor->accessor->repr();
-        auto result = vis.object;
-        auto mod = std::dynamic_pointer_cast<NGModule>(result);
-        if (!mod)
+        auto module = vis.result_slot();
+        if (!runtime_is_module_value(module))
         {
           throw RuntimeException("Invalid module to locate type: " + name);
         }
-        auto typeIt = mod->types.find(name);
-        if (typeIt == mod->types.end() || !typeIt->second)
+        auto targetType = runtime_module_type_named(module, name);
+        if (!targetType)
         {
           throw RuntimeException("Invalid type name, cannot find: " + name);
         }
-        auto targetType = typeIt->second;
-        this->object = makert<NGBoolean>(*(runtime_value_type(value)) == *(targetType));
+        result = *(runtime_value_type(value)) == *(targetType);
       }
       else
       {
         throw RuntimeException("Invalid target expression for type checking: " + typeCheckExpr->type->repr());
       }
+      set_result(make_runtime_boolean(result));
     }
 
     void visit(TypeOfExpression * /*typeOfExpr*/) override
@@ -1264,22 +1296,20 @@ namespace NG::intp
     }
     void visit(SpreadExpression *spreadExpression) override
     {
-      moved = false;
       ExpressionVisitor vis{symbols, activeFrames, activeScopes, publishGlobals};
 
       spreadExpression->expression->accept(&vis);
-      auto result = vis.object;
-
-      if (auto tup = std::dynamic_pointer_cast<NGTuple>(result); tup)
+      auto resultSlot = vis.result_slot();
+      if (runtime_is_tuple_value(resultSlot))
       {
-        collection = makert<Vec<RuntimeRef<NGObject>>>(tup->payload_items());
-        object = result;
+        collection = makert<Vec<RuntimeRef<StorageCell>>>(runtime_tuple_slots(resultSlot));
+        set_result(resultSlot);
         return;
       }
-      if (auto arr = std::dynamic_pointer_cast<NGArray>(result); arr)
+      if (runtime_is_array_value(resultSlot))
       {
-        collection = makert<Vec<RuntimeRef<NGObject>>>(arr->payload_items());
-        object = result;
+        collection = makert<Vec<RuntimeRef<StorageCell>>>(runtime_array_slots(resultSlot));
+        set_result(resultSlot);
         return;
       }
       throw RuntimeException("Invalid spread expression, expect array or tuple, but got: " +
@@ -1288,16 +1318,14 @@ namespace NG::intp
 
     void visit(UnitLiteral *unit) override
     {
-      moved = false;
-      object = makert<NGUnit>();
+      set_result(unit_cell());
     }
 
     void visit(CastExpression *castExpr) override
     {
-      moved = false;
       ExpressionVisitor exprVis{symbols, activeFrames, activeScopes, publishGlobals};
       castExpr->expression->accept(&exprVis);
-      RuntimeRef<NGObject> value = exprVis.object;
+      auto value = exprVis.result_slot();
 
       // Resolve target type name
       Str targetTypeName;
@@ -1314,27 +1342,22 @@ namespace NG::intp
       if (auto targetType = resolveRuntimeType(symbols, targetTypeName))
       {
         // If the value is already an NGNewType with the same type, unwrap it
-        if (auto newTypeVal = std::dynamic_pointer_cast<NGNewType>(value); newTypeVal)
+        if (runtime_cell_slot_ref(value, 0) && runtime_value_type(value) && runtime_value_type(value)->name == targetTypeName)
         {
-          if (newTypeVal->newType->name == targetTypeName)
-          {
-            // Same newtype — no-op
-            object = value;
-            return;
-          }
-          // Unwrap then potentially rewrap
-          value = newTypeVal->wrapped;
+          set_result(value);
+          return;
         }
 
         // Wrap into newtype
         auto newType = makert<NGType>();
         newType->name = targetTypeName;
-        object = makert<NGNewType>(newType, value);
+        newType->layout = targetType->layout;
+        set_result(make_runtime_newtype_cell(newType, value));
       }
       else
       {
         // For primitive casts or unknown types, just pass through
-        object = value;
+        set_result(value);
       }
     }
   };
@@ -1355,7 +1378,7 @@ namespace NG::intp
     {
     }
 
-    void capture_binding(const Str &name, const RuntimeRef<NGObject> &value, bool defineNew)
+    void capture_binding(const Str &name, const RuntimeRef<StorageCell> &value, bool defineNew)
     {
       if (!activeFrames || activeFrames->empty())
       {
@@ -1369,7 +1392,7 @@ namespace NG::intp
         {
           throw RuntimeException("Redefine " + name);
         }
-        auto slot = make_named_boxed_storage_cell(name, value);
+        auto slot = make_named_storage_cell(name, value);
         slot->ownerScopeId = current_scope_id(activeScopes);
         frame.locals.push_back(slot);
         return;
@@ -1381,57 +1404,59 @@ namespace NG::intp
       }
     }
 
-    void define_binding(const Str &name, const RuntimeRef<NGObject> &value, bool moved = false)
+    void define_binding(const Str &name, const RuntimeRef<StorageCell> &value)
     {
-      auto materialized = materialize_value(value, moved);
       if (!activeFrames || activeFrames->empty())
       {
-        define_global_binding(symbols, name, materialized);
+        define_global_binding(symbols, name, value);
         return;
       }
-      capture_binding(name, materialized, true);
+      if (find_current_scope_binding_slot(activeFrames, activeScopes, name))
+      {
+        throw RuntimeException("Redefine " + name);
+      }
+      auto slot = clone_argument_slot(name, value, StorageClass::FRAME);
+      slot->ownerScopeId = current_scope_id(activeScopes);
+      activeFrames->back().locals.push_back(slot);
       if (publishGlobals && is_module_frame(activeFrames) && current_scope_id(activeScopes) == root_scope_id(activeScopes))
       {
-        publish_global_binding(symbols, name, materialized);
+        publish_global_binding(symbols, name, slot);
       }
     }
 
-    void assign_binding(const Str &name, const RuntimeRef<NGObject> &value, bool moved = false)
+    void assign_binding(const Str &name, const RuntimeRef<StorageCell> &value)
     {
-      auto materialized = materialize_value(value, moved);
       if (activeFrames && !activeFrames->empty())
       {
         if (auto slot = find_frame_binding_slot(activeFrames, activeScopes, name))
         {
-          sync_binding_slot(symbols, activeFrames, activeScopes, publishGlobals, slot, materialized);
+          sync_binding_slot(symbols, activeFrames, activeScopes, publishGlobals, slot, value);
           return;
         }
-        if (auto receiver = std::dynamic_pointer_cast<NGStructuralObject>(find_frame_receiver(activeFrames, activeScopes)))
+        if (auto receiver = find_frame_receiver(activeFrames, activeScopes); runtime_is_structural_value(receiver))
         {
-          if (structural_field_index(receiver, name).has_value() || receiver->property_slot(name))
+          if (runtime_structural_field_index(receiver, name).has_value() || runtime_structural_property_slot(receiver, name))
           {
-            structural_write_member(receiver, name, materialized);
+            runtime_structural_write_member(receiver, name, value);
             return;
           }
         }
       }
-      assign_global_binding(symbols, name, materialized);
+      assign_global_binding(symbols, name, value);
     }
 
     void visit(ReturnStatement *returnStatement) override
     {
-      RuntimeRef<NGObject> result;
       if (returnStatement->expression)
       {
         ExpressionVisitor vis{symbols, activeFrames, activeScopes, publishGlobals};
         returnStatement->expression->accept(&vis);
-        result = materialize_value(vis.object, vis.moved);
+        sync_storage_cell(returnSlot, vis.result_slot());
       }
       else
       {
-        result = makert<NGUnit>();
+        sync_storage_cell(returnSlot, unit_cell());
       }
-      sync_storage_cell(returnSlot, result);
     }
 
     void visit(IfStatement *ifStmt) override
@@ -1452,7 +1477,7 @@ namespace NG::intp
 
       ExpressionVisitor vis{symbols, activeFrames, activeScopes, publishGlobals};
       ifStmt->testing->accept(&vis);
-      if (runtime_value_bool(vis.object))
+      if (runtime_value_bool(vis.result_slot()))
       {
         ifStmt->consequence->accept(&stmtVis);
       }
@@ -1481,14 +1506,13 @@ namespace NG::intp
       ExpressionVisitor vis{symbols, activeFrames, activeScopes, publishGlobals};
       valDef->value->accept(&vis);
 
-      define_binding(valDef->name, vis.object, vis.moved);
+      define_binding(valDef->name, vis.result_slot(valDef->name));
     }
 
     void visit(ValueBindingStatement *valBind) override
     {
       ExpressionVisitor vis{symbols, activeFrames, activeScopes, publishGlobals};
       valBind->value->accept(&vis);
-      auto result = vis.object;
 
       switch (valBind->type)
       {
@@ -1508,12 +1532,12 @@ namespace NG::intp
       // break;
       case BindingType::TUPLE_UNPACK:
       {
-        auto tuple = std::dynamic_pointer_cast<NGTuple>(result);
-        if (!tuple)
+        auto resultSlot = vis.result_slot();
+        if (!runtime_is_tuple_value(resultSlot))
         {
           throw RuntimeException("Tuple unpacking requires a tuple value");
         }
-        auto items = tuple->payload_items();
+        auto items = runtime_tuple_slots(resultSlot);
         for (auto &&binding : valBind->bindings)
         {
           if (!binding->spreadReceiver)
@@ -1522,8 +1546,12 @@ namespace NG::intp
           }
           else if (!binding->name.empty()) // empty spread receiver just ignores everything
           {
-            Vec<RuntimeRef<NGObject>> values{items.begin() + binding->index, items.end()};
-            define_binding(binding->name, makert<NGTuple>(values), true);
+            Vec<RuntimeRef<StorageCell>> values;
+            for (auto it = items.begin() + binding->index; it != items.end(); ++it)
+            {
+              values.push_back(clone_argument_slot(binding->name + "." + std::to_string(values.size()), *it));
+            }
+            define_binding(binding->name, make_runtime_tuple_cell(values));
           }
         }
       }
@@ -1531,12 +1559,12 @@ namespace NG::intp
 
       case BindingType::ARRAY_UNPACK:
       {
-        auto array = std::dynamic_pointer_cast<NGArray>(result);
-        if (!array)
+        auto resultSlot = vis.result_slot();
+        if (!runtime_is_array_value(resultSlot))
         {
           throw RuntimeException("Array unpacking requires an array value");
         }
-        auto items = array->payload_items();
+        auto items = runtime_array_slots(resultSlot);
         for (auto &&binding : valBind->bindings)
         {
           if (!binding->spreadReceiver)
@@ -1545,8 +1573,12 @@ namespace NG::intp
           }
           else if (!binding->name.empty()) // empty spread receiver just ignores everything
           {
-            Vec<RuntimeRef<NGObject>> values{items.begin() + binding->index, items.end()};
-            define_binding(binding->name, makert<NGArray>(values), true);
+            Vec<RuntimeRef<StorageCell>> values;
+            for (auto it = items.begin() + binding->index; it != items.end(); ++it)
+            {
+              values.push_back(clone_argument_slot(binding->name + "." + std::to_string(values.size()), *it));
+            }
+            define_binding(binding->name, make_runtime_array_cell(values));
           }
         }
       }
@@ -1566,11 +1598,18 @@ namespace NG::intp
     void visit(SwitchStatement *switchStmt) override
     {
       ExpressionVisitor vis{symbols, activeFrames, activeScopes, publishGlobals};
-      switchStmt->scrutinee->accept(&vis);
-      auto scrutinee = vis.object;
-
-      auto *tagged = dynamic_cast<NGTaggedValue *>(scrutinee.get());
-      if (!tagged)
+      auto scrutineeSlot = vis.place_slot(switchStmt->scrutinee.get());
+      if (!scrutineeSlot)
+      {
+        switchStmt->scrutinee->accept(&vis);
+        scrutineeSlot = vis.result_slot();
+      }
+      if (runtime_is_reference_value(scrutineeSlot))
+      {
+        scrutineeSlot = runtime_reference_target(scrutineeSlot);
+      }
+      auto scrutineeType = runtime_value_type(scrutineeSlot);
+      if (!scrutineeType || scrutineeType->layout.kind != LayoutKind::TAGGED_UNION)
       {
         throw RuntimeException("Switch scrutinee is not a tagged value");
       }
@@ -1583,11 +1622,11 @@ namespace NG::intp
           otherwise = &c;
           continue;
         }
-        if (c.variantName == tagged->variantName)
+        if (c.variantName == scrutineeType->variantName)
         {
           auto caseScopes = fork_scope_chain(activeScopes);
           StatementVisitor caseVis{symbols, returnSlot, activeFrames, caseScopes, publishGlobals};
-          auto payloadValues = tagged->payload_items();
+          auto payloadValues = runtime_cell_slot_refs(scrutineeSlot);
           // Bind payload variables
           for (size_t j = 0; j < c.bindings.size() && j < payloadValues.size(); ++j)
           {
@@ -1609,7 +1648,7 @@ namespace NG::intp
         return;
       }
 
-      throw RuntimeException("No matching case for variant: " + tagged->variantName);
+      throw RuntimeException("No matching case for variant: " + scrutineeType->variantName);
     }
 
     void visit(LoopStatement *loopStatement) override
@@ -1622,7 +1661,7 @@ namespace NG::intp
         switch (binding.type)
         {
         case LoopBindingType::LOOP_ASSIGN:
-          define_binding(binding.name, vis.object, vis.moved);
+          define_binding(binding.name, vis.result_slot(binding.name));
           break;
         default:
           throw RuntimeException("Unsupported loop binding");
@@ -1641,9 +1680,9 @@ namespace NG::intp
         catch (NextIteration iter)
         {
           int i = 0;
-          for (auto &&object : iter.slotValues)
+          for (auto &&slot : iter.slotValues)
           {
-            assign_binding(loopStatement->bindings[i].name, object, true);
+            assign_binding(loopStatement->bindings[i].name, slot);
             i++;
           }
         }
@@ -1655,7 +1694,7 @@ namespace NG::intp
       ExpressionVisitor vis{symbols, activeFrames, activeScopes, publishGlobals};
       try
       {
-        Vec<RuntimeRef<NGObject>> slotValues{};
+        Vec<RuntimeRef<StorageCell>> slotValues{};
         for (auto &&expr : nextStatement->expressions)
         {
             expr->accept(&vis);
@@ -1666,7 +1705,7 @@ namespace NG::intp
             }
             else
             {
-              slotValues.push_back(materialize_value(vis.object, vis.moved));
+              slotValues.push_back(vis.result_slot("next." + std::to_string(slotValues.size())));
             }
         }
         throw NextIteration{slotValues};
@@ -1693,7 +1732,7 @@ namespace NG::intp
       gcRootProviderId = register_gc_root_provider([frames = activeFrames, symbols = symbols]() {
         auto roots = enumerate_symbol_roots(symbols);
         auto frameRoots = enumerate_call_frame_roots(*frames);
-        roots.insert(roots.end(), frameRoots.begin(), frameRoots.end());
+        roots.cells.insert(roots.cells.end(), frameRoots.begin(), frameRoots.end());
         return roots;
       });
       if (!loadingPrelude)
@@ -1702,7 +1741,7 @@ namespace NG::intp
       }
     }
 
-    RuntimeRef<NGModule> asModule() { return makert<NGModule>(symbols); }
+    RuntimeRef<StorageCell> asModule() { return make_runtime_module(symbols); }
 
     void loadPrelude()
     {
@@ -1822,7 +1861,7 @@ namespace NG::intp
           define_global_module(symbols, importDecl->module, moduleInfo->runtimeModule);
         }
       }
-      RuntimeRef<NGModule> targetModule = symbols->modules.at(importDecl->module);
+      RuntimeRef<StorageCell> targetModule = symbols->modules.at(importDecl->module);
 
       importInto(symbols, importDecl->imports, targetModule);
 
@@ -1833,65 +1872,75 @@ namespace NG::intp
     }
 
     static void importInto(const NGSymbols &symbols, Vec<Str> declaredImports,
-                           const RuntimeRef<NGModule> &fromModule)
+                           const RuntimeRef<StorageCell> &fromModule)
     {
       Set<Str> imports = resolveImports(declaredImports, fromModule);
       std::copy(imports.begin(), imports.end(), std::back_inserter(symbols->imported));
+      auto functions = runtime_module_functions(fromModule);
+      auto types = runtime_module_types(fromModule);
+      auto objectSlots = runtime_module_object_slots(fromModule);
+      auto nativeFunctions = runtime_module_native_functions(fromModule);
 
       for (auto &&imp : imports)
       {
-        if (fromModule->functions.contains(imp))
+        if (functions.contains(imp))
         {
-          define_global_function(symbols, imp, fromModule->functions[imp]);
+          define_global_function(symbols, imp, functions[imp]);
         }
-        if (fromModule->types.contains(imp))
+        if (types.contains(imp))
         {
-          define_global_type(symbols, imp, fromModule->types[imp]);
+          define_global_type(symbols, imp, types[imp]);
         }
-        if (fromModule->objects.contains(imp))
+        if (objectSlots.contains(imp))
         {
-          define_global_binding(symbols, imp, fromModule->objects[imp]);
+          auto slot = objectSlots[imp];
+          define_global_binding(symbols, imp, slot);
         }
-        if (fromModule->native_functions.contains(imp))
+        if (nativeFunctions.contains(imp))
         {
-          define_global_function(symbols, imp, fromModule->native_functions[imp]);
+          define_global_function(symbols, imp, nativeFunctions[imp]);
         }
       }
     }
 
-    static auto resolveImports(const Vec<Str> &imports, const RuntimeRef<NGModule> &targetModule) -> Set<Str>
+    static auto resolveImports(const Vec<Str> &imports, const RuntimeRef<StorageCell> &targetModule) -> Set<Str>
     {
       bool importAll = (std::ranges::find(imports, "*") != end(imports));
+      auto exports = runtime_module_exports(targetModule);
+      auto imported = runtime_module_imports(targetModule);
+      auto functions = runtime_module_functions(targetModule);
+      auto types = runtime_module_types(targetModule);
+      auto objectSlots = runtime_module_object_slots(targetModule);
+      auto nativeFunctions = runtime_module_native_functions(targetModule);
 
-      bool exportsAll =
-          (std::find(begin(targetModule->exports), end(targetModule->exports), "*") != end(targetModule->exports));
+      bool exportsAll = exports.contains("*");
       Set<Str> exported{};
       if (exportsAll)
       {
-        for (auto &&[fnName, _ignored] : targetModule->functions)
+        for (auto &&[fnName, _ignored] : functions)
         {
-          if (!targetModule->imports.contains(fnName) || targetModule->exports.contains(fnName))
+          if (!imported.contains(fnName) || exports.contains(fnName))
           {
             exported.insert(fnName);
           }
         }
-        for (auto &&[typeName, _ignored] : targetModule->types)
+        for (auto &&[typeName, _ignored] : types)
         {
-          if (!targetModule->imports.contains(typeName) || targetModule->exports.contains(typeName))
+          if (!imported.contains(typeName) || exports.contains(typeName))
           {
             exported.insert(typeName);
           }
         }
-        for (auto &&[objName, _ignored] : targetModule->objects)
+        for (auto &&[objName, _ignored] : objectSlots)
         {
-          if (!targetModule->imports.contains(objName) || targetModule->exports.contains(objName))
+          if (!imported.contains(objName) || exports.contains(objName))
           {
             exported.insert(objName);
           }
         }
-        for (auto &&[fnName, _ignored] : targetModule->native_functions)
+        for (auto &&[fnName, _ignored] : nativeFunctions)
         {
-          if (!targetModule->imports.contains(fnName) || targetModule->exports.contains(fnName))
+          if (!imported.contains(fnName) || exports.contains(fnName))
           {
             exported.insert(fnName);
           }
@@ -1899,7 +1948,7 @@ namespace NG::intp
       }
       else
       {
-        exported.insert(begin(targetModule->exports), end(targetModule->exports));
+        exported.insert(begin(exports), end(exports));
       }
 
       if (importAll)
@@ -1928,7 +1977,7 @@ namespace NG::intp
 
       auto functionInvoker =
           [funDef, frames = activeFrames](const NGSelf &dummy, const NGEnv &env,
-                                          const NGArgs &args) -> RuntimeRef<NGObject>
+                                          const NGArgs &args) -> RuntimeRef<StorageCell>
       {
         // Determine if there's a pack parameter and at which position
         int packIndex = -1;
@@ -1944,12 +1993,16 @@ namespace NG::intp
         auto scopeIds = make_scope_chain();
         CallFrame callFrame{};
         callFrame.functionName = funDef->funName;
-        callFrame.receiver = make_named_boxed_storage_cell("self", dummy);
+        callFrame.receiver = dummy;
+        if (callFrame.receiver)
+        {
+          callFrame.receiver->name = "self";
+        }
         callFrame.receiver->ownerScopeId = current_scope_id(scopeIds);
         auto returnTypeName = funDef->returnType ? funDef->returnType->repr() : "unit";
         auto returnRuntimeType = resolveRuntimeType(callSymbols, returnTypeName);
         callFrame.returnSlot =
-            make_storage_cell(TypeLayout{.name = returnTypeName}, StorageClass::FRAME, nullptr, "ret", returnRuntimeType);
+            make_storage_cell(TypeLayout{.name = returnTypeName}, StorageClass::FRAME, "ret", returnRuntimeType);
         callFrame.returnSlot->ownerScopeId = current_scope_id(scopeIds);
         frames->push_back(callFrame);
         struct FrameGuard
@@ -1968,20 +2021,20 @@ namespace NG::intp
           if (static_cast<int>(i) == packIndex)
           {
             // Pack remaining args into a tuple
-            Vec<RuntimeRef<NGObject>> packItems;
+            Vec<RuntimeRef<StorageCell>> packItems;
             for (size_t j = i; j < args.size(); ++j)
             {
-              packItems.push_back(args[j]);
+              packItems.push_back(clone_argument_slot(funDef->params[i]->paramName + "." + std::to_string(j - i), args[j]));
             }
-            auto packed = makert<NGTuple>(packItems);
-            auto slot = make_named_boxed_storage_cell(funDef->params[i]->paramName, packed);
+            auto slot = make_named_storage_cell(funDef->params[i]->paramName,
+                                                make_runtime_tuple_cell(packItems), StorageClass::FRAME);
             slot->ownerScopeId = current_scope_id(scopeIds);
             frames->back().params.push_back(slot);
             break; // pack parameter is always the last one
           }
           else if (args.size() > i)
           {
-            auto slot = make_named_boxed_storage_cell(funDef->params[i]->paramName, args[i]);
+            auto slot = clone_argument_slot(funDef->params[i]->paramName, args[i], StorageClass::FRAME);
             slot->ownerScopeId = current_scope_id(scopeIds);
             frames->back().params.push_back(slot);
           }
@@ -1989,8 +2042,8 @@ namespace NG::intp
           {
             ExpressionVisitor vis{callSymbols, frames, scopeIds};
             funDef->params[i]->value->accept(&vis);
-            auto materialized = materialize_value(vis.object, vis.moved);
-            auto slot = make_named_boxed_storage_cell(funDef->params[i]->paramName, materialized);
+            auto slot = make_named_storage_cell(funDef->params[i]->paramName,
+                                                vis.result_slot(funDef->params[i]->paramName), StorageClass::FRAME);
             slot->ownerScopeId = current_scope_id(scopeIds);
             frames->back().params.push_back(slot);
           }
@@ -2003,7 +2056,7 @@ namespace NG::intp
         bool tailRecur = true;
         while (tailRecur)
         {
-          runtime_sync_storage_cell(frames->back().returnSlot, nullptr);
+          clear_storage_cell(frames->back().returnSlot);
           try
           {
           StatementVisitor vis{callSymbols, frames->back().returnSlot, frames, scopeIds};
@@ -2023,32 +2076,29 @@ namespace NG::intp
                 if (static_cast<int>(i) == packIndex)
                 {
                   // Collect all remaining slot values for the pack
-                  Vec<RuntimeRef<NGObject>> packItems;
+                  Vec<RuntimeRef<StorageCell>> packItems;
                   for (size_t j = i; j < nextIter.slotValues.size(); ++j)
                   {
                     packItems.push_back(nextIter.slotValues[j]);
                    }
-                   auto packed = makert<NGTuple>(packItems);
-                   sync_storage_cell(frames->back().params[i], packed);
-                 }
-                 else if (i < nextIter.slotValues.size())
-                 {
-                   sync_storage_cell(frames->back().params[i], nextIter.slotValues[i]);
-                 }
-               }
+                    sync_storage_cell(frames->back().params[i], make_runtime_tuple_cell(packItems));
+                  }
+                  else if (i < nextIter.slotValues.size())
+                  {
+                    sync_storage_cell(frames->back().params[i], nextIter.slotValues[i]);
+                  }
+                }
             }
             else
              {
-               for (size_t i = 0; i < nextIter.slotValues.size(); i++)
-               {
-                 sync_storage_cell(frames->back().params[i], nextIter.slotValues[i]);
-               }
+                for (size_t i = 0; i < nextIter.slotValues.size(); i++)
+                {
+                  sync_storage_cell(frames->back().params[i], nextIter.slotValues[i]);
+                }
              }
           }
         }
-        auto result = frames->back().returnSlot->boxedValue ? frames->back().returnSlot->boxedValue : makert<NGUnit>();
-        sync_storage_cell(frames->back().returnSlot, result);
-        return result;
+        return clone_runtime_storage_cell(frames->back().returnSlot, StorageClass::TEMPORARY);
       };
 
       define_global_function(symbols, funDef->funName, functionInvoker);
@@ -2085,18 +2135,22 @@ namespace NG::intp
       {
         type->memberFunctions[memFn->funName] =
             [memFn, frames = activeFrames](const NGSelf &dummy, const NGEnv &env,
-                                           const NGArgs &args) -> RuntimeRef<NGObject>
+                                           const NGArgs &args) -> RuntimeRef<StorageCell>
         {
           auto callSymbols = runtime_symbols_from_env(env);
           auto scopeIds = make_scope_chain();
           CallFrame callFrame{};
           callFrame.functionName = memFn->funName;
-          callFrame.receiver = make_named_boxed_storage_cell("self", dummy);
+          callFrame.receiver = dummy;
+          if (callFrame.receiver)
+          {
+            callFrame.receiver->name = "self";
+          }
           callFrame.receiver->ownerScopeId = current_scope_id(scopeIds);
           auto returnTypeName = memFn->returnType ? memFn->returnType->repr() : "unit";
           auto returnRuntimeType = resolveRuntimeType(callSymbols, returnTypeName);
           callFrame.returnSlot =
-              make_storage_cell(TypeLayout{.name = returnTypeName}, StorageClass::FRAME, nullptr, "ret", returnRuntimeType);
+              make_storage_cell(TypeLayout{.name = returnTypeName}, StorageClass::FRAME, "ret", returnRuntimeType);
           callFrame.returnSlot->ownerScopeId = current_scope_id(scopeIds);
           frames->push_back(callFrame);
           struct FrameGuard
@@ -2112,33 +2166,31 @@ namespace NG::intp
           } frameGuard{frames};
           for (size_t i = 0; i < memFn->params.size(); ++i)
           {
-            RuntimeRef<NGObject> value;
+            RuntimeRef<StorageCell> paramSlot;
             if (args.size() > i)
             {
-              value = args[i];
+              paramSlot = args[i];
             }
             else if (memFn->params[i]->value != nullptr)
             {
               ExpressionVisitor vis{callSymbols, frames, scopeIds};
               memFn->params[i]->value->accept(&vis);
-              value = materialize_value(vis.object, vis.moved);
+              paramSlot = vis.result_slot(memFn->params[i]->paramName);
             }
             else
             {
               throw RuntimeException("Missing argument for parameter '" + memFn->params[i]->paramName +
                                      "' in member function '" + memFn->funName + "'");
             }
-            auto slot = make_named_boxed_storage_cell(memFn->params[i]->paramName, value);
+            auto slot = clone_argument_slot(memFn->params[i]->paramName, paramSlot, StorageClass::FRAME);
             slot->ownerScopeId = current_scope_id(scopeIds);
             frames->back().params.push_back(slot);
           }
 
-          runtime_sync_storage_cell(frames->back().returnSlot, nullptr);
+          clear_storage_cell(frames->back().returnSlot);
           StatementVisitor vis{callSymbols, frames->back().returnSlot, frames, scopeIds};
           memFn->body->accept(&vis);
-          auto result = frames->back().returnSlot->boxedValue ? frames->back().returnSlot->boxedValue : makert<NGUnit>();
-          sync_storage_cell(frames->back().returnSlot, result);
-          return result;
+          return clone_runtime_storage_cell(frames->back().returnSlot, StorageClass::TEMPORARY);
         };
       }
 
@@ -2195,10 +2247,9 @@ namespace NG::intp
 
         define_global_function(symbols, variantName,
           [unionName, variantName, variantIndex, payloadNames](const NGSelf &self, const NGEnv &env,
-                                                                 const NGArgs &args) -> RuntimeRef<NGObject>
+                                                                 const NGArgs &args) -> RuntimeRef<StorageCell>
           {
-            Vec<RuntimeRef<NGObject>> payload = args;
-            return makert<NGTaggedValue>(unionName, variantName, variantIndex, std::move(payload), payloadNames);
+            return make_runtime_tagged_cell(unionName, variantName, variantIndex, args, payloadNames);
           });
       }
     }

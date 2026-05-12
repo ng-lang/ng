@@ -1,164 +1,175 @@
-
-#include "intp/runtime.hpp"
-#include "intp/runtime_numerals.hpp"
+#include <intp/runtime.hpp>
+#include <intp/runtime_numerals.hpp>
 #include <runtime/tagged_layout_access.hpp>
 #include <runtime/value_access.hpp>
 
+#include <cstring>
+
 namespace NG::runtime
 {
-  auto tagged_runtime_type(const NGTaggedValue &tagged) -> RuntimeRef<NGType>
-  {
-    auto layout = TypeLayout{.name = tagged.unionName, .kind = LayoutKind::TAGGED_UNION};
-    VariantLayout variant{.name = tagged.variantName, .tag = static_cast<uint32_t>(tagged.variantIndex)};
-    variant.fields.reserve(tagged.payloadNames.size());
-    for (size_t i = 0; i < tagged.payloadNames.size(); ++i)
-    {
-      variant.fields.push_back(FieldLayout{.name = tagged.payloadNames[i]});
-    }
-    layout.variants.push_back(std::move(variant));
-    return makert<NGType>(NGType{
-        .name = tagged.unionName,
-        .layout = std::move(layout),
-        .respondHandler =
-            [](const NGSelf &self, const Str &member, const NGEnv &, const NGArgs &) -> RuntimeRef<NGObject> {
-              auto tagged = std::dynamic_pointer_cast<NGTaggedValue>(self);
-              if (!tagged)
-              {
-                return nullptr;
-              }
-              if (auto value = tagged_read_member(*tagged, member))
-              {
-                return value;
-              }
-              if (member == "tag")
-              {
-                return makert<NGString>(tagged->variantName);
-              }
-              if (member == "index")
-              {
-                return makert<NGIntegral<int32_t>>(tagged->variantIndex);
-              }
-              return nullptr;
-            },
-        .showHandler =
-            [](const NGSelf &self) {
-              auto tagged = std::dynamic_pointer_cast<NGTaggedValue>(self);
-              return tagged ? tagged_runtime_show(*tagged) : Str{"<tagged>"};
-            },
-        .boolHandler = [](const NGSelf &) { return true; },
-    });
-  }
-
-  auto tagged_runtime_show(const NGTaggedValue &tagged) -> Str
-  {
-    Str result = tagged.variantName + "(";
-    auto values = tagged.payload_items();
-    for (size_t i = 0; i < values.size(); ++i)
-    {
-      if (i > 0)
-      {
-        result += ", ";
-      }
-      result += runtime_value_show(values[i]);
-    }
-    result += ")";
-    return result;
-  }
-
   namespace
   {
-    void sync_tagged_slot(const RuntimeRef<StorageCell> &slot, const RuntimeRef<NGObject> &value)
+    void ensure_tagged_cell_handlers(const RuntimeRef<NGType> &type)
     {
-      if (!slot)
+      if (!type)
       {
         return;
       }
-      runtime_sync_storage_cell(slot, value);
+      if (!type->respondCellHandler)
+      {
+        type->respondCellHandler =
+            [](const RuntimeRef<StorageCell> &cell, const Str &member, const NGEnv &, const NGArgs &) -> RuntimeRef<StorageCell> {
+          return tagged_read_member_slot(cell, member);
+        };
+      }
+      if (!type->showCellHandler)
+      {
+        type->showCellHandler = [](const RuntimeRef<StorageCell> &cell) {
+          auto type = runtime_value_type(cell);
+          Str result = (type && !type->variantName.empty() ? type->variantName : Str{"<tagged>"}) + "(";
+          auto slots = runtime_cell_slot_refs(cell);
+          for (size_t i = 0; i < slots.size(); ++i)
+          {
+            if (i > 0)
+            {
+              result += ", ";
+            }
+            result += runtime_value_show(slots[i]);
+          }
+          result += ")";
+          return result;
+        };
+      }
+      if (!type->boolCellHandler)
+      {
+        type->boolCellHandler = [](const RuntimeRef<StorageCell> &) { return true; };
+      }
     }
   } // namespace
 
-
-  void NGTaggedValue::sync_payload_backing() const
+  auto make_runtime_tagged_cell(const RuntimeRef<NGType> &type,
+                                const Vec<RuntimeRef<StorageCell>> &payloadSlots,
+                                StorageClass storageClass) -> RuntimeRef<StorageCell>
   {
-    if (!payloadRef.valid())
+    ensure_tagged_cell_handlers(type);
+    auto cell = make_storage_cell(type ? type->layout : TypeLayout{}, storageClass, {}, type);
+    cell->runtimeType = type;
+    cell->layout = type ? type->layout : TypeLayout{};
+    cell->bytes.resize(std::max<size_t>(cell->layout.size, sizeof(int32_t)));
+    auto variantIndex = type ? type->variantIndex : -1;
+    if (cell->bytes.size() >= sizeof(int32_t))
     {
-      payloadRef = payloadStore.allocate(buffer_runtime::make_byte_buffer_layout(0, "Tagged.payload"));
+      std::memcpy(cell->bytes.data(), &variantIndex, sizeof(int32_t));
     }
+    cell->opaqueRefs.assign(payloadSlots.begin(), payloadSlots.end());
+    cell->namedRefs.clear();
+    cell->nativeHandles.clear();
+    cell->initialized = true;
+    return cell;
   }
 
-  void NGTaggedValue::sync_payload_slots() const
+  auto make_runtime_tagged_cell(Str unionName, Str variantName, int32_t variantIndex,
+                                Vec<RuntimeRef<StorageCell>> payloadSlots, Vec<Str> payloadNames,
+                                StorageClass storageClass) -> RuntimeRef<StorageCell>
   {
-    sync_payload_backing();
-    auto &slots = const_cast<NGTaggedValue *>(this)->payloadSlots;
-    auto &payloadRefs = payloadStore.get(payloadRef).opaqueRefs;
-    if (slots.size() != payloadRefs.size())
+    auto layout = TypeLayout{.name = unionName, .kind = LayoutKind::TAGGED_UNION};
+    VariantLayout variant{.name = variantName, .tag = static_cast<uint32_t>(variantIndex)};
+    variant.fields.reserve(payloadNames.size());
+    for (const auto &name : payloadNames)
     {
-      slots.resize(payloadRefs.size());
+      variant.fields.push_back(FieldLayout{.name = name});
     }
-    for (size_t i = 0; i < slots.size(); ++i)
+    layout.variants.push_back(std::move(variant));
+    auto type = makert<NGType>(NGType{
+        .name = std::move(unionName),
+        .layout = std::move(layout),
+        .properties = payloadNames,
+        .variantName = std::move(variantName),
+        .variantIndex = variantIndex,
+    });
+    ensure_tagged_cell_handlers(type);
+    return make_runtime_tagged_cell(type, payloadSlots, storageClass);
+  }
+
+  auto runtime_is_tagged_value(const RuntimeRef<StorageCell> &value) -> bool
+  {
+    auto type = runtime_value_type(value);
+    return type && type->layout.kind == LayoutKind::TAGGED_UNION;
+  }
+
+  auto runtime_tagged_type(const RuntimeRef<StorageCell> &value) -> RuntimeRef<NGType>
+  {
+    if (!runtime_is_tagged_value(value))
     {
-      if (!slots[i] && i < payloadRefs.size() && payloadRefs[i])
+      throw RuntimeException("Expected tagged runtime value");
+    }
+    auto type = runtime_value_type(value);
+    ensure_tagged_cell_handlers(type);
+    return type;
+  }
+
+  auto runtime_tagged_union_name(const RuntimeRef<StorageCell> &value) -> Str
+  {
+    return runtime_tagged_type(value)->name;
+  }
+
+  auto runtime_tagged_variant_name(const RuntimeRef<StorageCell> &value) -> Str
+  {
+    return runtime_tagged_type(value)->variantName;
+  }
+
+  auto runtime_tagged_variant_index(const RuntimeRef<StorageCell> &value) -> int32_t
+  {
+    auto type = runtime_tagged_type(value);
+    return type ? type->variantIndex : -1;
+  }
+
+  auto runtime_tagged_payload_names(const RuntimeRef<StorageCell> &value) -> Vec<Str>
+  {
+    auto type = runtime_tagged_type(value);
+    if (!type->layout.variants.empty())
+    {
+      Vec<Str> names;
+      for (const auto &field : type->layout.variants.front().fields)
       {
-        slots[i] = std::static_pointer_cast<StorageCell>(payloadRefs[i]);
+        names.push_back(field.name);
       }
-      if (!slots[i])
-      {
-        slots[i] = make_boxed_storage_cell(makert<NGUnit>(), StorageClass::TEMPORARY);
-        slots[i]->name = i < payloadNames.size() && !payloadNames[i].empty() ? payloadNames[i] : std::to_string(i);
-      }
-      payloadRefs[i] = slots[i];
+      return names;
     }
+    return type->properties;
   }
 
-  auto NGTaggedValue::payload_cell() const -> CellRef
+  auto runtime_tagged_slots(const RuntimeRef<StorageCell> &value) -> Vec<RuntimeRef<StorageCell>>
   {
-    sync_payload_backing();
-    return payloadRef;
+    if (!runtime_is_tagged_value(value))
+    {
+      throw RuntimeException("Expected tagged runtime value");
+    }
+    return runtime_cell_slot_refs(value);
   }
 
-  auto NGTaggedValue::payload_items() const -> Vec<RuntimeRef<NGObject>>
+  auto runtime_tagged_slot(const RuntimeRef<StorageCell> &value, size_t index) -> RuntimeRef<StorageCell>
   {
-    sync_payload_backing();
-    sync_payload_slots();
-    Vec<RuntimeRef<NGObject>> values;
-    values.reserve(payloadSlots.size());
-    for (const auto &slot : payloadSlots)
+    if (!runtime_is_tagged_value(value))
     {
-      values.push_back(slot ? slot->boxedValue : makert<NGUnit>());
+      throw RuntimeException("Expected tagged runtime value");
     }
-    payloadStore.get(payloadRef).opaqueRefs.assign(payloadSlots.begin(), payloadSlots.end());
-    return values;
+    return runtime_cell_slot_ref(value, index);
   }
 
-  void NGTaggedValue::replace_payload_items(const Vec<RuntimeRef<NGObject>> &values)
+  auto runtime_tagged_payload_index(const RuntimeRef<StorageCell> &value, const Str &member)
+      -> std::optional<size_t>
   {
-    if (!payloadRef.valid() || payloadStore.get(payloadRef).opaqueRefs.size() != values.size())
+    if (!runtime_is_tagged_value(value))
     {
-      payloadRef = payloadStore.allocate(
-          buffer_runtime::make_byte_buffer_layout(values.size() * sizeof(uintptr_t), "Tagged.payload"));
+      throw RuntimeException("Expected tagged runtime value");
     }
-    auto &payloadCell = payloadStore.get(payloadRef);
-    payloadSlots.resize(values.size());
-    for (size_t i = 0; i < values.size(); ++i)
-    {
-      if (!payloadSlots[i])
-      {
-        payloadSlots[i] = make_boxed_storage_cell(values[i], StorageClass::TEMPORARY);
-        payloadSlots[i]->name = i < payloadNames.size() && !payloadNames[i].empty() ? payloadNames[i] : std::to_string(i);
-      }
-      sync_tagged_slot(payloadSlots[i], values[i]);
-    }
-    payloadCell.opaqueRefs.assign(payloadSlots.begin(), payloadSlots.end());
+    return tagged_payload_index(value, member);
   }
 
-  auto NGTaggedValue::payload_slot(size_t index) const -> RuntimeRef<StorageCell>
+  auto runtime_tagged_read_member(const RuntimeRef<StorageCell> &value, const Str &member)
+      -> RuntimeRef<StorageCell>
   {
-    sync_payload_slots();
-    if (index >= payloadSlots.size())
-    {
-      return nullptr;
-    }
-    return payloadSlots[index];
+    return tagged_read_member_slot(value, member);
   }
-
 } // namespace NG::runtime

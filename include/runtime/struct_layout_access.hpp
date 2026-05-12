@@ -7,14 +7,22 @@
 
 namespace NG::runtime
 {
-  inline auto structural_field_index(const RuntimeRef<NGStructuralObject> &structural, const Str &member)
-      -> std::optional<size_t>
+  inline auto structural_field_index(const RuntimeRef<StorageCell> &cell, const Str &member) -> std::optional<size_t>
   {
-    if (!structural || !structural->customizedType)
+    auto type = runtime_value_type(cell);
+    if (!type)
     {
       return std::nullopt;
     }
-    const auto &props = structural->customizedType->properties;
+    const auto &layoutFields = type->layout.fields;
+    for (size_t i = 0; i < layoutFields.size(); ++i)
+    {
+      if (layoutFields[i].name == member)
+      {
+        return i;
+      }
+    }
+    const auto &props = type->properties;
     for (size_t i = 0; i < props.size(); ++i)
     {
       if (props[i] == member)
@@ -25,57 +33,61 @@ namespace NG::runtime
     return std::nullopt;
   }
 
-  inline auto structural_member_slot(const RuntimeRef<NGStructuralObject> &structural, const Str &member)
-      -> RuntimeRef<StorageCell>
+  inline auto structural_member_slot(const RuntimeRef<StorageCell> &cell, const Str &member) -> RuntimeRef<StorageCell>
   {
-    if (!structural)
+    if (auto index = structural_field_index(cell, member))
     {
-      return nullptr;
+      return runtime_cell_slot_ref(cell, *index);
     }
-    if (auto index = structural_field_index(structural, member))
+    auto named = runtime_cell_named_slot_refs(cell);
+    if (auto it = named.find(member); it != named.end())
     {
-      return structural->field_slot(*index);
+      return it->second;
     }
-    return structural->property_slot(member);
+    return nullptr;
   }
 
-  inline auto structural_member_slot_or_create(const RuntimeRef<NGStructuralObject> &structural, const Str &member)
+  inline auto structural_member_slot_or_create(const RuntimeRef<StorageCell> &cell, const Str &member)
       -> RuntimeRef<StorageCell>
   {
-    if (!structural)
+    if (!cell)
     {
       return nullptr;
     }
-    if (auto index = structural_field_index(structural, member))
+    if (auto index = structural_field_index(cell, member))
     {
-      auto slot = structural->field_slot(*index);
-      if (!slot)
+      if (*index >= cell->opaqueRefs.size())
       {
-        auto values = structural->payload_fields();
-        if (*index >= values.size())
-        {
-          values.resize(*index + 1, makert<NGUnit>());
-        }
-        structural->replace_payload_fields(values);
-        slot = structural->field_slot(*index);
+        cell->opaqueRefs.resize(*index + 1);
       }
+      if (!cell->opaqueRefs[*index])
+      {
+        auto slot = unit_cell();
+        slot->name = member;
+        cell->opaqueRefs[*index] = slot;
+      }
+      return std::static_pointer_cast<StorageCell>(cell->opaqueRefs[*index]);
+    }
+    if (auto slot = structural_member_slot(cell, member))
+    {
       return slot;
     }
-    return structural->property_slot_or_create(member);
+    auto slot = unit_cell();
+    slot->name = member;
+    cell->namedRefs.insert_or_assign(member, slot);
+    return slot;
   }
 
-  inline auto structural_read_member(const RuntimeRef<NGStructuralObject> &structural, const Str &member)
-      -> RuntimeRef<NGObject>
+  inline auto structural_read_member_slot(const RuntimeRef<StorageCell> &cell, const Str &member)
+      -> RuntimeRef<StorageCell>
   {
-    auto slot = structural_member_slot(structural, member);
-    return slot ? slot->boxedValue : nullptr;
+    return structural_member_slot(cell, member);
   }
 
-  inline void structural_write_member(const RuntimeRef<NGStructuralObject> &structural, const Str &member,
-                                      const RuntimeRef<NGObject> &value)
+  inline void structural_write_member(const RuntimeRef<StorageCell> &cell, const Str &member,
+                                      const RuntimeRef<StorageCell> &value)
   {
-    auto slot = structural_member_slot_or_create(structural, member);
-    runtime_sync_storage_cell(slot, value);
-    (void) structural->payload_fields();
+    auto slot = structural_member_slot_or_create(cell, member);
+    runtime_copy_storage_cell(slot, value ? value : unit_cell());
   }
 } // namespace NG::runtime

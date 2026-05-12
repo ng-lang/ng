@@ -24,9 +24,7 @@ TEST_CASE("native bridge wraps function pointers", "[OrgasmTest][NativeBridge]")
   auto wrapped = wrap_native(&add_i32);
   auto result = wrapped({to_ng(20), to_ng(22)});
 
-  auto numeric = std::dynamic_pointer_cast<NumeralBase>(result);
-  REQUIRE(numeric != nullptr);
-  REQUIRE(NGIntegral<int32_t>::valueOf(numeric.get()) == 42);
+  REQUIRE(read_numeric_cell_as<int32_t>(result) == 42);
 }
 
 TEST_CASE("native bridge wraps lambdas and void returns", "[OrgasmTest][NativeBridge]")
@@ -34,13 +32,12 @@ TEST_CASE("native bridge wraps lambdas and void returns", "[OrgasmTest][NativeBr
   auto greet = wrap_native([](Str name, bool excited) -> Str {
     return excited ? name + "!" : name;
   });
-  auto greeting = std::dynamic_pointer_cast<NGString>(greet({to_ng("ng"), to_ng(true)}));
-  REQUIRE(greeting != nullptr);
-  REQUIRE(greeting->value == "ng!");
+  auto greeting = greet({to_ng("ng"), to_ng(true)});
+  REQUIRE(runtime_string_value(greeting) == "ng!");
 
   bool called = false;
   auto mark = wrap_native([&called]() { called = true; });
   auto unit = mark({});
   REQUIRE(called);
-  REQUIRE(std::dynamic_pointer_cast<NGUnit>(unit) != nullptr);
+  REQUIRE(runtime_value_type(unit)->name == "unit");
 }

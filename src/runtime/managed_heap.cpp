@@ -18,130 +18,36 @@ namespace NG::runtime
       return state;
     }
 
-    void trace_object(const RuntimeRef<NGObject> &value, Set<const NGObject *> &seenObjects,
-                      Set<const StorageCell *> &seenCells);
-
-    void trace_storage_cell(const RuntimeRef<StorageCell> &cell, Set<const NGObject *> &seenObjects,
-                            Set<const StorageCell *> &seenCells)
+    void trace_storage_cell(const RuntimeRef<StorageCell> &cell, Set<const StorageCell *> &seenCells)
     {
       if (!cell || seenCells.contains(cell.get()))
       {
         return;
       }
       seenCells.insert(cell.get());
-      trace_object(cell->boxedValue, seenObjects, seenCells);
-    }
-
-    void trace_reference_target(const RuntimeRef<NGReference> &reference, Set<const NGObject *> &seenObjects,
-                                Set<const StorageCell *> &seenCells)
-    {
-      if (!reference)
+      for (const auto &ref : cell->opaqueRefs)
       {
-        return;
+        trace_storage_cell(std::static_pointer_cast<StorageCell>(ref), seenCells);
       }
-      if (auto cell = reference->storage_cell())
+      for (const auto &[name, ref] : cell->namedRefs)
       {
-        trace_storage_cell(cell, seenObjects, seenCells);
-        return;
-      }
-      reference->mark_referenced_heap();
-      trace_object(reference->read(), seenObjects, seenCells);
-    }
-
-    void trace_object(const RuntimeRef<NGObject> &value, Set<const NGObject *> &seenObjects,
-                      Set<const StorageCell *> &seenCells)
-    {
-      if (!value || seenObjects.contains(value.get()) || is_moved_object(value))
-      {
-        return;
-      }
-      seenObjects.insert(value.get());
-
-      if (auto reference = std::dynamic_pointer_cast<NGReference>(value))
-      {
-        trace_reference_target(reference, seenObjects, seenCells);
-        return;
-      }
-      if (auto array = std::dynamic_pointer_cast<NGArray>(value))
-      {
-        array->sync_element_slots();
-        const auto &payload = array->header_store().get(array->payload_cell()).opaqueRefs;
-        for (const auto &cell : payload)
-        {
-          trace_storage_cell(cell ? std::static_pointer_cast<StorageCell>(cell) : nullptr, seenObjects, seenCells);
-        }
-        return;
-      }
-      if (auto tuple = std::dynamic_pointer_cast<NGTuple>(value))
-      {
-        tuple->sync_element_slots();
-        const auto &payload = tuple->payload_store().get(tuple->payload_cell()).opaqueRefs;
-        for (const auto &cell : payload)
-        {
-          trace_storage_cell(cell ? std::static_pointer_cast<StorageCell>(cell) : nullptr, seenObjects, seenCells);
-        }
-        return;
-      }
-      if (auto structural = std::dynamic_pointer_cast<NGStructuralObject>(value))
-      {
-        for (const auto &[name, slot] : structural->propertySlots)
-        {
-          trace_storage_cell(slot, seenObjects, seenCells);
-        }
-        structural->sync_field_slots();
-        const auto &payload = structural->payload_store().get(structural->payload_cell()).opaqueRefs;
-        for (const auto &cell : payload)
-        {
-          trace_storage_cell(cell ? std::static_pointer_cast<StorageCell>(cell) : nullptr, seenObjects, seenCells);
-        }
-        return;
-      }
-      if (auto newType = std::dynamic_pointer_cast<NGNewType>(value))
-      {
-        trace_object(newType->wrapped, seenObjects, seenCells);
-        return;
-      }
-      if (auto tagged = std::dynamic_pointer_cast<NGTaggedValue>(value))
-      {
-        tagged->sync_payload_slots();
-        const auto &payload = tagged->payload_store().get(tagged->payload_cell()).opaqueRefs;
-        for (const auto &cell : payload)
-        {
-          trace_storage_cell(cell ? std::static_pointer_cast<StorageCell>(cell) : nullptr, seenObjects, seenCells);
-        }
-        return;
-      }
-      if (auto module = std::dynamic_pointer_cast<NGModule>(value))
-      {
-        for (const auto &[name, object] : module->objects) trace_object(object, seenObjects, seenCells);
+        trace_storage_cell(std::static_pointer_cast<StorageCell>(ref), seenCells);
       }
     }
 
   } // namespace
 
-  auto auto_deref_value(const RuntimeRef<NGObject> &value) -> RuntimeRef<NGObject>
+  auto allocate_heap_cell(const RuntimeRef<StorageCell> &value, const Str &debugName) -> RuntimeRef<StorageCell>
   {
-    ensure_usable_value(value);
-    if (auto reference = std::dynamic_pointer_cast<NGReference>(value))
-    {
-      auto dereferenced = reference->read();
-      ensure_usable_value(dereferenced);
-      return dereferenced;
-    }
-    return value;
-  }
-
-  auto allocate_heap_object(const RuntimeRef<NGObject> &value, const Str &debugName) -> RuntimeRef<NGReference>
-  {
-    auto cell = make_boxed_storage_cell(value, StorageClass::HEAP);
+    auto cell = clone_runtime_storage_cell(value, StorageClass::HEAP, debugName);
     cell->name = debugName;
     heap_state().cells.push_back(cell);
-    return makert<NGReference>(cell, debugName, [cell]() { cell->marked = true; });
+    return make_runtime_reference_cell(cell, debugName);
   }
 
-  auto enumerate_symbol_roots(const NGSymbols &symbols) -> Vec<RuntimeRef<NGObject>>
+  auto enumerate_symbol_roots(const NGSymbols &symbols) -> GCRootSet
   {
-    Vec<RuntimeRef<NGObject>> roots;
+    GCRootSet roots;
     if (!symbols)
     {
       return roots;
@@ -149,12 +55,18 @@ namespace NG::runtime
 
     for (const auto &[name, slot] : symbols->objectSlots)
     {
-      if (slot && slot->boxedValue)
+      if (slot)
       {
-        roots.push_back(slot->boxedValue);
+        roots.cells.push_back(slot);
       }
     }
-    for (const auto &[name, module] : symbols->modules) roots.push_back(module);
+    for (const auto &[name, module] : symbols->modules)
+    {
+      if (module)
+      {
+        roots.cells.push_back(module);
+      }
+    }
     return roots;
   }
 
@@ -176,13 +88,13 @@ namespace NG::runtime
     auto &state = heap_state();
     for (const auto &cell : state.cells) cell->marked = false;
 
-    Set<const NGObject *> seenObjects;
     Set<const StorageCell *> seenCells;
     for (const auto &[id, provider] : state.rootProviders)
     {
-      for (const auto &root : provider())
+      auto roots = provider();
+      for (const auto &cell : roots.cells)
       {
-        trace_object(root, seenObjects, seenCells);
+        trace_storage_cell(cell, seenCells);
       }
     }
 
@@ -199,7 +111,7 @@ namespace NG::runtime
       {
         return false;
       }
-      runtime_sync_storage_cell(cell, nullptr);
+      clear_storage_cell(cell);
       return true;
     });
   }

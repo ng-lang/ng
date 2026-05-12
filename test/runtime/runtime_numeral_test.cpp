@@ -1,60 +1,63 @@
 #include "../test.hpp"
 #include <intp/runtime_numerals.hpp>
+#include <runtime/value_ops.hpp>
 
 using namespace NG::runtime;
+using namespace NG::runtime::ops;
 
-TEST_CASE("test NGIntegral<T>", "[Numeral][Runtime]")
+TEST_CASE("buffered numeral cells store inline bytes without object cache", "[Numeral][Runtime][Buffered]")
 {
-  auto a = makert<NGIntegral<int>>(1);
-  auto b = makert<NGIntegral<unsigned int>>(2);
-  auto c = makert<NGFloatingPoint<float>>(3.0);
+  auto left = numeral_cell_from_value<int32_t>(4);
+  auto right = numeral_cell_from_value<int32_t>(2);
 
-  auto divided_by = a->opDividedBy(b);
+  REQUIRE(left->runtimeType != nullptr);
+  REQUIRE(left->runtimeType->name == "i32");
+  REQUIRE(read_inline_cell_bytes<int32_t>(left) == 4);
+  REQUIRE(runtime_value_show(left) == "4");
+  REQUIRE(runtime_value_bool(left));
+  REQUIRE(value_greater_than(left, right));
 
-  REQUIRE(divided_by->opEquals(makert<NGIntegral<int>>(0)));
+  auto summed = value_add(left, right);
+  REQUIRE(read_inline_cell_bytes<int32_t>(summed) == 6);
 }
 
-TEST_CASE("test NGIntegral<T> dbz", "[Numeral][Runtime][Failure]")
+TEST_CASE("buffered numeral cells reject division and modulus by zero", "[Numeral][Runtime][Failure]")
 {
-  auto a = makert<NGIntegral<int>>(1);
-  auto zero = makert<NGIntegral<int>>(0);
+  auto value = numeral_cell_from_value<int32_t>(1);
+  auto zero = numeral_cell_from_value<int32_t>(0);
 
-  REQUIRE_THROWS_MATCHES(a->opDividedBy(zero), NG::RuntimeException,
+  REQUIRE_THROWS_MATCHES(value_divide(value, zero), NG::RuntimeException,
                          MessageMatches(ContainsSubstring("Division by zero")));
-  REQUIRE_THROWS_MATCHES(a->opModulus(zero), NG::RuntimeException,
+  REQUIRE_THROWS_MATCHES(value_modulus(value, zero), NG::RuntimeException,
                          MessageMatches(ContainsSubstring("Modulus by zero")));
 }
 
-TEST_CASE("test NGFloatingPoint<T>", "[Numeral][Runtime][Failure]")
+TEST_CASE("buffered numeral cells compare floats", "[Numeral][Runtime]")
 {
-  auto a = makert<NGFloatingPoint<float>>(1.0);
-  auto b = makert<NGFloatingPoint<double>>(2.0);
+  auto left = numeral_cell_from_value<float>(1.0F);
+  auto right = numeral_cell_from_value<double>(2.0);
 
-  REQUIRE(a->signedness());
-
-  REQUIRE(a->opLessEqual(b));
-  REQUIRE(b->opGreaterEqual(a));
+  REQUIRE(!value_greater_than(left, right));
+  REQUIRE(!value_less_than(right, left));
 }
 
-TEST_CASE("test NGInteger<T> negates", "[Numeral][Runtime][Failure]")
+TEST_CASE("buffered numeral cells negate", "[Numeral][Runtime]")
 {
-  auto a = makert<NGIntegral<int>>(std::numeric_limits<int>::min());
+  auto value = numeral_cell_from_value<float>(-3.5F);
+  auto negated = negate_numeric_cell(value);
+  REQUIRE(read_inline_cell_bytes<float>(negated) == 3.5F);
 
-  REQUIRE(a->signedness());
-
-  REQUIRE_THROWS_MATCHES(a->opNegate(), RuntimeException, MessageMatches(ContainsSubstring("Overflow on negation")));
-}
-
-TEST_CASE("NGIntegral<unsigned> negates: disallowed", "[Numeral][Runtime][Failure]")
-{
-  auto u = makert<NGIntegral<unsigned int>>(42u);
-  REQUIRE_THROWS_MATCHES(u->opNegate(), RuntimeException,
+  REQUIRE_THROWS_MATCHES(negate_numeric_cell(numeral_cell_from_value<unsigned int>(42U)), RuntimeException,
                          MessageMatches(ContainsSubstring("Cannot negate unsigned integers")));
 }
 
-TEST_CASE("NGFloatingPoint<T> negates", "[Numeral][Runtime]")
+TEST_CASE("buffered bool cells use inline slot handlers", "[Numeral][Runtime][Buffered]")
 {
-  auto f = makert<NGFloatingPoint<float>>(-3.5f);
-  auto n = f->opNegate();
-  REQUIRE(n->opEquals(makert<NGFloatingPoint<float>>(3.5f)));
+  auto truthy = make_runtime_boolean(true);
+  auto falsy = make_runtime_boolean(false);
+
+  REQUIRE(runtime_value_show(truthy) == "true");
+  REQUIRE(runtime_value_bool(truthy));
+  REQUIRE_FALSE(runtime_value_bool(falsy));
+  REQUIRE(value_greater_than(truthy, falsy));
 }

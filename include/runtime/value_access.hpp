@@ -4,96 +4,337 @@
 #include <intp/runtime_numerals.hpp>
 
 #include <optional>
+#include <utility>
 
 namespace NG::runtime
 {
-  template <class T>
-  inline auto runtime_self_alias(T *self) -> RuntimeRef<NGObject>
+  inline auto make_runtime_boolean(bool value, StorageClass storageClass = StorageClass::TEMPORARY)
+      -> RuntimeRef<StorageCell>
   {
-    return RuntimeRef<NGObject>(self, [](NGObject *) {});
+    auto cell = make_storage_cell(boolean_runtime_type()->layout, storageClass, {}, boolean_runtime_type());
+    cell->bytes.resize(1);
+    cell->bytes[0] = value ? 1 : 0;
+    cell->initialized = true;
+    return cell;
   }
 
-  inline auto runtime_value_type(const RuntimeRef<NGObject> &value) -> RuntimeRef<NGType>
+  inline auto runtime_boolean_value(const RuntimeRef<StorageCell> &cell) -> std::optional<bool>
   {
-    if (!value)
+    if (!cell)
     {
-      return NGObject::objectType();
+      return std::nullopt;
     }
-    if (auto newType = std::dynamic_pointer_cast<NGNewType>(value))
+    if (cell->runtimeType && cell->runtimeType->name == "Bool" && !cell->bytes.empty())
     {
-      return newType->newType ? newType->newType : NGObject::objectType();
+      return cell->bytes[0] != 0;
     }
-    if (std::dynamic_pointer_cast<NGReference>(value))
-    {
-      return NGReference::referenceType();
-    }
-    if (std::dynamic_pointer_cast<NGMovedObject>(value))
-    {
-      return NGMovedObject::movedType();
-    }
-    if (std::dynamic_pointer_cast<NGBoolean>(value))
-    {
-      return NGBoolean::booleanType();
-    }
-    if (std::dynamic_pointer_cast<NGString>(value))
-    {
-      return NGString::stringType();
-    }
-    if (std::dynamic_pointer_cast<NGArray>(value))
-    {
-      return NGArray::arrayType();
-    }
-    if (std::dynamic_pointer_cast<NGTuple>(value))
-    {
-      return NGTuple::tupleType();
-    }
-    if (auto structural = std::dynamic_pointer_cast<NGStructuralObject>(value))
-    {
-      return structural_runtime_type(*structural);
-    }
-    if (std::dynamic_pointer_cast<NGUnit>(value))
-    {
-      return NGUnit::unitType();
-    }
-    if (auto tagged = std::dynamic_pointer_cast<NGTaggedValue>(value))
-    {
-      return tagged_runtime_type(*tagged);
-    }
-    if (std::dynamic_pointer_cast<NGModule>(value))
-    {
-      return NGModule::moduleType();
-    }
-    if (auto numeral = std::dynamic_pointer_cast<NumeralBase>(value))
-    {
-      return makert<NGType>(NGType{
-          .name = numeral->floating_point() ? "Float" : "Int",
-          .showHandler =
-              [](const NGSelf &self) {
-                auto numeral = std::dynamic_pointer_cast<NumeralBase>(self);
-                return numeral ? numeral_runtime_show(*numeral) : Str{"0"};
-              },
-          .boolHandler =
-              [](const NGSelf &self) {
-                auto numeral = std::dynamic_pointer_cast<NumeralBase>(self);
-                return numeral && numeral_runtime_bool(*numeral);
-              },
-      });
-    }
-    return NGObject::objectType();
+    return std::nullopt;
   }
 
-  inline auto runtime_value_layout(const RuntimeRef<NGObject> &value) -> TypeLayout
+  inline auto unit_cell(StorageClass storageClass = StorageClass::TEMPORARY) -> RuntimeRef<StorageCell>
   {
-    if (auto valueType = runtime_value_type(value); valueType)
+    auto cell = make_storage_cell(unit_runtime_type()->layout, storageClass, {}, unit_runtime_type());
+    cell->initialized = true;
+    return cell;
+  }
+
+  struct RuntimeModuleCellState
+  {
+    Map<Str, NGCallable> functions;
+    Map<Str, RuntimeRef<NGType>> types;
+    Map<Str, NGCallable> nativeFunctions;
+    Set<Str> imports;
+    Set<Str> exports;
+    Map<Str, std::shared_ptr<void>> nativeState;
+  };
+
+  inline auto runtime_module_cell_states() -> Map<const StorageCell *, RuntimeModuleCellState> &
+  {
+    static Map<const StorageCell *, RuntimeModuleCellState> states;
+    return states;
+  }
+
+  inline auto runtime_module_state(const RuntimeRef<StorageCell> &value) -> RuntimeModuleCellState *
+  {
+    auto &states = runtime_module_cell_states();
+    auto it = value ? states.find(value.get()) : states.end();
+    return it == states.end() ? nullptr : &it->second;
+  }
+
+  inline auto make_runtime_module(const NGSymbols &symbols) -> RuntimeRef<StorageCell>
+  {
+    auto cell = make_storage_cell(module_runtime_type()->layout, StorageClass::GLOBAL, {}, module_runtime_type());
+    cell->runtimeType = module_runtime_type();
+    cell->layout = module_runtime_type()->layout;
+    cell->initialized = true;
+
+    RuntimeModuleCellState state;
+    if (symbols)
     {
-      auto layout = valueType->layout;
-      if (layout.name.empty())
+      for (const auto &[name, slot] : symbols->objectSlots)
       {
-        layout.name = valueType->name;
+        cell->namedRefs.insert_or_assign(name, slot);
       }
-      return layout;
+      state.functions = symbols->functions;
+      state.types = symbols->types;
+      state.exports.insert(symbols->exports.begin(), symbols->exports.end());
+      state.imports.insert(symbols->imported.begin(), symbols->imported.end());
     }
-    return TypeLayout{};
+    runtime_module_cell_states().insert_or_assign(cell.get(), std::move(state));
+    return cell;
+  }
+
+  inline auto runtime_is_module_value(const RuntimeRef<StorageCell> &value) -> bool
+  {
+    return value && value->runtimeType && value->runtimeType->name == "Module";
+  }
+
+  inline auto runtime_module_slots(const RuntimeRef<StorageCell> &value) -> Vec<RuntimeRef<StorageCell>>
+  {
+    Vec<RuntimeRef<StorageCell>> slots;
+    if (!runtime_is_module_value(value))
+    {
+      throw RuntimeException("Expected module runtime value");
+    }
+    for (const auto &[name, ref] : value->namedRefs)
+    {
+      slots.push_back(ref ? std::static_pointer_cast<StorageCell>(ref) : nullptr);
+    }
+    return slots;
+  }
+
+  inline auto runtime_module_object_slots(const RuntimeRef<StorageCell> &value) -> Map<Str, RuntimeRef<StorageCell>>
+  {
+    if (!runtime_is_module_value(value))
+    {
+      throw RuntimeException("Expected module runtime value");
+    }
+    Map<Str, RuntimeRef<StorageCell>> refs;
+    for (const auto &[name, ref] : value->namedRefs)
+    {
+      refs.insert_or_assign(name, ref ? std::static_pointer_cast<StorageCell>(ref) : nullptr);
+    }
+    return refs;
+  }
+
+  inline auto runtime_module_slot_named(const RuntimeRef<StorageCell> &value, const Str &name) -> RuntimeRef<StorageCell>
+  {
+    auto slots = runtime_module_object_slots(value);
+    if (auto it = slots.find(name); it != slots.end())
+    {
+      return it->second;
+    }
+    return nullptr;
+  }
+
+  inline auto runtime_module_functions(const RuntimeRef<StorageCell> &value) -> Map<Str, NGCallable>
+  {
+    auto state = runtime_module_state(value);
+    if (!state) throw RuntimeException("Expected module runtime value");
+    return state->functions;
+  }
+
+  inline auto runtime_module_types(const RuntimeRef<StorageCell> &value) -> Map<Str, RuntimeRef<NGType>>
+  {
+    auto state = runtime_module_state(value);
+    if (!state) throw RuntimeException("Expected module runtime value");
+    return state->types;
+  }
+
+  inline auto runtime_module_imports(const RuntimeRef<StorageCell> &value) -> Set<Str>
+  {
+    auto state = runtime_module_state(value);
+    if (!state) throw RuntimeException("Expected module runtime value");
+    return state->imports;
+  }
+
+  inline auto runtime_module_exports(const RuntimeRef<StorageCell> &value) -> Set<Str>
+  {
+    auto state = runtime_module_state(value);
+    if (!state) throw RuntimeException("Expected module runtime value");
+    return state->exports;
+  }
+
+  inline void runtime_module_set_native_function(const RuntimeRef<StorageCell> &value, const Str &name, NGCallable handler)
+  {
+    auto state = runtime_module_state(value);
+    if (!state) throw RuntimeException("Expected module runtime value");
+    state->nativeFunctions.insert_or_assign(name, std::move(handler));
+  }
+
+  inline auto runtime_module_native_functions(const RuntimeRef<StorageCell> &value) -> Map<Str, NGCallable>
+  {
+    auto state = runtime_module_state(value);
+    if (!state) throw RuntimeException("Expected module runtime value");
+    return state->nativeFunctions;
+  }
+
+  inline auto runtime_module_type_named(const RuntimeRef<StorageCell> &value, const Str &name) -> RuntimeRef<NGType>
+  {
+    auto types = runtime_module_types(value);
+    if (auto it = types.find(name); it != types.end())
+    {
+      return it->second;
+    }
+    return nullptr;
+  }
+
+  inline void runtime_module_set_native_state(const RuntimeRef<StorageCell> &value, Str name, std::shared_ptr<void> stateValue)
+  {
+    auto state = runtime_module_state(value);
+    if (!state) throw RuntimeException("Expected module runtime value");
+    state->nativeState.insert_or_assign(std::move(name), std::move(stateValue));
+  }
+
+  inline auto runtime_module_get_native_state(const RuntimeRef<StorageCell> &value, const Str &name) -> std::shared_ptr<void>
+  {
+    auto state = runtime_module_state(value);
+    if (!state) throw RuntimeException("Expected module runtime value");
+    auto it = state->nativeState.find(name);
+    return it == state->nativeState.end() ? nullptr : it->second;
+  }
+
+  inline void runtime_module_clear_native_state(const RuntimeRef<StorageCell> &value, const Str &name)
+  {
+    auto state = runtime_module_state(value);
+    if (!state) throw RuntimeException("Expected module runtime value");
+    state->nativeState.erase(name);
+  }
+
+  inline auto runtime_cell_slot_ref(const RuntimeRef<StorageCell> &cell, size_t index) -> RuntimeRef<StorageCell>
+  {
+    if (!cell || index >= cell->opaqueRefs.size() || !cell->opaqueRefs[index])
+    {
+      return nullptr;
+    }
+    return std::static_pointer_cast<StorageCell>(cell->opaqueRefs[index]);
+  }
+
+  inline auto runtime_cell_slot_refs(const RuntimeRef<StorageCell> &cell) -> Vec<RuntimeRef<StorageCell>>
+  {
+    Vec<RuntimeRef<StorageCell>> slots;
+    if (!cell)
+    {
+      return slots;
+    }
+    slots.reserve(cell->opaqueRefs.size());
+    for (const auto &ref : cell->opaqueRefs)
+    {
+      slots.push_back(ref ? std::static_pointer_cast<StorageCell>(ref) : nullptr);
+    }
+    return slots;
+  }
+
+  inline auto runtime_cell_named_slot_refs(const RuntimeRef<StorageCell> &cell) -> Map<Str, RuntimeRef<StorageCell>>
+  {
+    Map<Str, RuntimeRef<StorageCell>> refs;
+    if (!cell)
+    {
+      return refs;
+    }
+    for (const auto &[name, ref] : cell->namedRefs)
+    {
+      refs.insert_or_assign(name, ref ? std::static_pointer_cast<StorageCell>(ref) : nullptr);
+    }
+    return refs;
+  }
+
+  inline void ensure_nominal_cell_handlers(const RuntimeRef<NGType> &type)
+  {
+    if (!type)
+    {
+      return;
+    }
+    if (!type->showCellHandler)
+    {
+      type->showCellHandler = [](const RuntimeRef<StorageCell> &cell) {
+        return runtime_value_show(runtime_cell_slot_ref(cell, 0));
+      };
+    }
+    if (!type->boolCellHandler)
+    {
+      type->boolCellHandler = [](const RuntimeRef<StorageCell> &cell) {
+        return runtime_value_bool(runtime_cell_slot_ref(cell, 0));
+      };
+    }
+    if (type->memberFunctions.empty() && !type->respondCellHandler)
+    {
+      type->respondCellHandler =
+          [](const RuntimeRef<StorageCell> &cell, const Str &member, const NGEnv &env,
+             const NGArgs &args) -> RuntimeRef<StorageCell> {
+             auto wrapped = runtime_cell_slot_ref(cell, 0);
+            if (!wrapped)
+            {
+              return nullptr;
+            }
+            return runtime_value_respond_slot(wrapped, member, env, args);
+          };
+    }
+  }
+
+  inline void ensure_nominal_cell_materializer(const RuntimeRef<NGType> &type)
+  {
+    ensure_nominal_cell_handlers(type);
+  }
+
+  inline auto make_runtime_newtype_cell(const RuntimeRef<NGType> &type, const RuntimeRef<StorageCell> &wrapped,
+                                        StorageClass storageClass) -> RuntimeRef<StorageCell>
+  {
+    auto nominalType = type ? type : runtime_object_type();
+    ensure_nominal_cell_handlers(nominalType);
+    auto cell = make_storage_cell(wrapped ? wrapped->layout : nominalType->layout, storageClass, {}, nominalType);
+    cell->runtimeType = nominalType;
+    cell->layout = wrapped ? wrapped->layout : nominalType->layout;
+    cell->bytes.clear();
+    cell->opaqueRefs.clear();
+    if (wrapped)
+    {
+      cell->opaqueRefs.push_back(wrapped);
+    }
+    cell->namedRefs.clear();
+    cell->nativeHandles.clear();
+    cell->initialized = true;
+    return cell;
+  }
+
+  inline auto runtime_cell_has_value(const RuntimeRef<StorageCell> &cell) -> bool
+  {
+    return cell && cell->initialized;
+  }
+
+  inline auto runtime_cell_is_moved(const RuntimeRef<StorageCell> &cell) -> bool
+  {
+    if (!cell)
+    {
+      return false;
+    }
+    if (cell->runtimeType && cell->runtimeType->name == "moved")
+    {
+      return true;
+    }
+    return false;
+  }
+
+  inline void ensure_usable_cell(const RuntimeRef<StorageCell> &cell)
+  {
+    if (runtime_cell_is_moved(cell))
+    {
+      throw RuntimeException("Use after move");
+    }
+  }
+
+  inline void clear_storage_cell(const RuntimeRef<StorageCell> &cell)
+  {
+    if (!cell)
+    {
+      return;
+    }
+    cell->bytes.clear();
+    cell->opaqueRefs.clear();
+    cell->namedRefs.clear();
+    cell->nativeHandles.clear();
+    cell->initialized = false;
+    cell->marked = false;
   }
 
   inline auto runtime_value_type(const RuntimeRef<StorageCell> &cell) -> RuntimeRef<NGType>
@@ -102,10 +343,6 @@ namespace NG::runtime
     {
       return cell->runtimeType;
     }
-    if (cell && cell->boxedValue)
-    {
-      return runtime_value_type(cell->boxedValue);
-    }
     if (cell)
     {
       return makert<NGType>(NGType{
@@ -113,7 +350,7 @@ namespace NG::runtime
           .layout = cell->layout,
       });
     }
-    return NGObject::objectType();
+    return runtime_object_type();
   }
 
   inline auto runtime_value_layout(const RuntimeRef<StorageCell> &cell) -> TypeLayout
@@ -133,141 +370,154 @@ namespace NG::runtime
       }
       return layout;
     }
-    if (cell && cell->boxedValue)
-    {
-      return runtime_value_layout(cell->boxedValue);
-    }
     return cell ? cell->layout : TypeLayout{};
   }
 
-  inline void runtime_sync_storage_cell(const RuntimeRef<StorageCell> &cell, const RuntimeRef<NGObject> &value,
-                                        const RuntimeRef<NGType> &runtimeType = nullptr)
+  inline void runtime_copy_storage_cell(const RuntimeRef<StorageCell> &dst, const RuntimeRef<StorageCell> &src)
   {
-    if (!cell)
+    if (!dst)
     {
       return;
     }
-
-    auto effectiveType = runtimeType ? runtimeType : (value ? runtime_value_type(value) : cell->runtimeType);
-    auto effectiveLayout = value ? runtime_value_layout(value) : cell->layout;
-    if ((effectiveLayout.id == 0 && effectiveLayout.name.empty()) && effectiveType)
+    if (!src)
     {
-      effectiveLayout = effectiveType->layout;
+      dst->runtimeType = nullptr;
+      dst->layout = {};
+      dst->bytes.clear();
+      dst->initialized = false;
+      return;
     }
-    if (effectiveLayout.name.empty() && effectiveType)
-    {
-      effectiveLayout.name = effectiveType->name;
-    }
-
-    cell->boxedValue = value;
-    cell->runtimeType = effectiveType;
-    cell->layout = effectiveLayout;
-    cell->bytes.resize(cell->layout.size);
+    dst->namedRefs = src->namedRefs;
+    dst->runtimeType = src->runtimeType;
+    dst->layout = src->layout;
+    dst->bytes = src->bytes;
+    dst->nativeHandles = src->nativeHandles;
+    dst->opaqueRefs = src->opaqueRefs;
+    dst->initialized = src->initialized;
   }
 
-  inline auto runtime_value_show(const RuntimeRef<NGObject> &value) -> Str
+  inline auto clone_runtime_storage_cell(const RuntimeRef<StorageCell> &source,
+                                         StorageClass storageClass = StorageClass::TEMPORARY,
+                                         Str name = {}) -> RuntimeRef<StorageCell>
   {
-    if (auto newType = std::dynamic_pointer_cast<NGNewType>(value); newType && !newType->newType->showHandler)
+    if (!source)
     {
-      return runtime_value_show(newType->wrapped);
+      auto slot = unit_cell(storageClass);
+      slot->name = std::move(name);
+      return slot;
     }
-    if (auto valueType = runtime_value_type(value); valueType && valueType->showHandler)
+    if (runtime_is_reference_value(source))
     {
-      return valueType->showHandler(value ? value : makert<NGUnit>());
+      auto slot = make_storage_cell(source->layout, storageClass, std::move(name), source->runtimeType);
+      slot->bytes = source->bytes;
+      slot->nativeHandles = source->nativeHandles;
+      slot->initialized = source->initialized;
+      slot->marked = false;
+      slot->ownerScopeId = source->ownerScopeId;
+      slot->opaqueRefs = source->opaqueRefs;
+      slot->namedRefs = source->namedRefs;
+      return slot;
     }
-    return "unit";
+    if (source->storageClass == StorageClass::HEAP && storageClass == StorageClass::HEAP)
+    {
+      return source;
+    }
+    auto slot = make_storage_cell(source->layout, storageClass, std::move(name), source->runtimeType);
+    slot->bytes = source->bytes;
+    slot->nativeHandles = source->nativeHandles;
+    slot->initialized = source->initialized;
+    slot->marked = false;
+    slot->ownerScopeId = source->ownerScopeId;
+    slot->opaqueRefs.clear();
+    slot->opaqueRefs.reserve(source->opaqueRefs.size());
+    for (const auto &ref : source->opaqueRefs)
+    {
+      auto child = ref ? std::static_pointer_cast<StorageCell>(ref) : nullptr;
+      slot->opaqueRefs.push_back(child ? clone_runtime_storage_cell(child, storageClass, child->name) : nullptr);
+    }
+    slot->namedRefs.clear();
+    for (const auto &[refName, ref] : source->namedRefs)
+    {
+      auto child = ref ? std::static_pointer_cast<StorageCell>(ref) : nullptr;
+      slot->namedRefs.insert_or_assign(refName, child ? clone_runtime_storage_cell(child, storageClass, refName) : nullptr);
+    }
+    return slot;
+  }
+
+  inline auto make_temporary_runtime_slot(const RuntimeRef<StorageCell> &value, Str name = {}) -> RuntimeRef<StorageCell>
+  {
+    if (!value)
+    {
+      auto slot = unit_cell();
+      slot->name = std::move(name);
+      return slot;
+    }
+    return clone_runtime_storage_cell(value, StorageClass::TEMPORARY, std::move(name));
   }
 
   inline auto runtime_value_show(const RuntimeRef<StorageCell> &cell) -> Str
   {
     if (cell)
     {
-      auto self = cell->boxedValue ? cell->boxedValue : makert<NGUnit>();
-      if (auto valueType = runtime_value_type(cell); valueType && valueType->showHandler)
+      if (auto valueType = runtime_value_type(cell); valueType && valueType->showCellHandler)
       {
-        return valueType->showHandler(self);
+        return valueType->showCellHandler(cell);
       }
     }
-    return cell ? runtime_value_show(cell->boxedValue) : "unit";
-  }
-
-  inline auto runtime_value_bool(const RuntimeRef<NGObject> &value) -> bool
-  {
-    if (auto newType = std::dynamic_pointer_cast<NGNewType>(value); newType && !newType->newType->boolHandler)
-    {
-      return runtime_value_bool(newType->wrapped);
-    }
-    if (auto valueType = runtime_value_type(value); valueType && valueType->boolHandler)
-    {
-      return valueType->boolHandler(value ? value : makert<NGUnit>());
-    }
-    return false;
+    return "unit";
   }
 
   inline auto runtime_value_bool(const RuntimeRef<StorageCell> &cell) -> bool
   {
     if (cell)
     {
-      auto self = cell->boxedValue ? cell->boxedValue : makert<NGUnit>();
-      if (auto valueType = runtime_value_type(cell); valueType && valueType->boolHandler)
+      if (auto valueType = runtime_value_type(cell); valueType && valueType->boolCellHandler)
       {
-        return valueType->boolHandler(self);
+        return valueType->boolCellHandler(cell);
       }
     }
-    return cell && runtime_value_bool(cell->boxedValue);
+    return false;
   }
 
   inline auto runtime_dispatch_member(const RuntimeRef<NGType> &type, const NGSelf &self, const Str &member,
-                                      const NGEnv &env, const NGArgs &args) -> RuntimeRef<NGObject>
+                                      const NGEnv &env, const NGArgs &args) -> RuntimeRef<StorageCell>
   {
     if (!type)
     {
       return nullptr;
-    }
-    if (type->respondHandler)
-    {
-      if (auto result = type->respondHandler(self, member, env, args))
-      {
-        return result;
-      }
     }
     if (!type->memberFunctions.contains(member))
     {
       return nullptr;
     }
     auto result = type->memberFunctions.at(member)(self, env, args);
-    return result ? result : makert<NGUnit>();
+    return result ? result : unit_cell();
   }
 
-  inline auto runtime_value_respond(const RuntimeRef<NGObject> &value, const Str &member, const NGEnv &env,
-                                    const NGArgs &args) -> RuntimeRef<NGObject>
-  {
-    if (!value)
-    {
-      throw RuntimeException("Cannot respond to member '" + member + "' on unit");
-    }
-    if (auto result = runtime_dispatch_member(runtime_value_type(value), value, member, env, args))
-    {
-      return result;
-    }
-    if (auto newType = std::dynamic_pointer_cast<NGNewType>(value))
-    {
-      return runtime_value_respond(newType->wrapped, member, env, args);
-    }
-    throw NotImplementedException("Not implemented " + runtime_value_type(value)->name + "#" + member);
-  }
-
-  inline auto runtime_value_respond(const RuntimeRef<StorageCell> &cell, const Str &member, const NGEnv &env,
-                                    const NGArgs &args) -> RuntimeRef<NGObject>
+  inline auto runtime_value_respond_slot(const RuntimeRef<StorageCell> &cell, const Str &member, const NGEnv &env,
+                                         const NGArgs &args) -> RuntimeRef<StorageCell>
   {
     if (!cell)
     {
       throw RuntimeException("Cannot respond to member '" + member + "' on null storage cell");
     }
-    if (auto result = runtime_dispatch_member(runtime_value_type(cell), cell->boxedValue, member, env, args))
+    if (auto type = runtime_value_type(cell); type && type->respondCellHandler)
+    {
+      if (auto result = type->respondCellHandler(cell, member, env, args))
+      {
+        return result;
+      }
+    }
+    if (auto result = runtime_dispatch_member(runtime_value_type(cell), cell, member, env, args))
     {
       return result;
     }
-    return runtime_value_respond(cell->boxedValue, member, env, args);
+    throw NotImplementedException("Not implemented " + runtime_value_type(cell)->name + "#" + member);
+  }
+
+  inline auto runtime_value_respond(const RuntimeRef<StorageCell> &cell, const Str &member, const NGEnv &env,
+                                    const NGArgs &args) -> RuntimeRef<StorageCell>
+  {
+    return runtime_value_respond_slot(cell, member, env, args);
   }
 } // namespace NG::runtime

@@ -63,7 +63,7 @@ namespace NG::module
         ASTRef<NG::ast::ASTNode> moduleAst;              ///< The AST of the module.
         Str moduleAbsolutePath;                          ///< The absolute path to the module.
         Str moduleLoadingLocation;                       ///< The location from which the module was loaded.
-        RuntimeRef<NG::runtime::NGModule> runtimeModule; ///< The runtime representation of the module.
+        RuntimeRef<NG::runtime::StorageCell> runtimeModule; ///< The runtime representation of the module.
         TypeIndex moduleTypeIndex{};                     ///< The type index of the module.
         std::shared_ptr<NG::orgasm::BytecodeModule> bytecodeModule; ///< The bytecode representation.
     };

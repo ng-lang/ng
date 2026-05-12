@@ -117,18 +117,10 @@ namespace NG::ast
 
 namespace NG::runtime
 {
-    // Forward declaration for NGObject.
-    struct NGObject;
-
-    // Forward declaration for NGModule.
-    struct NGModule;
-
     // Forward declaration for RuntimeSymbolTable.
     struct RuntimeSymbolTable;
 
     // Forward declaration for NGType.
     struct NGType;
 
-    // Forward declaration for NGArray.
-    struct NGArray;
 } // namespace NG::runtime

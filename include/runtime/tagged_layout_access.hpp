@@ -7,19 +7,33 @@
 
 namespace NG::runtime
 {
-  inline auto tagged_payload_index(const NGTaggedValue &tagged, const Str &member) -> std::optional<size_t>
+  inline auto tagged_payload_index(const RuntimeRef<StorageCell> &cell, const Str &member) -> std::optional<size_t>
   {
-    for (size_t i = 0; i < tagged.payloadNames.size(); ++i)
+    if (auto type = runtime_value_type(cell); type)
     {
-      if (tagged.payloadNames[i] == member)
+      if (!type->layout.variants.empty())
       {
-        return i;
+        const auto &fields = type->layout.variants.front().fields;
+        for (size_t i = 0; i < fields.size(); ++i)
+        {
+          if (fields[i].name == member)
+          {
+            return i;
+          }
+        }
+      }
+      const auto &props = type->properties;
+      for (size_t i = 0; i < props.size(); ++i)
+      {
+        if (props[i] == member)
+        {
+          return i;
+        }
       }
     }
     try
     {
-      auto index = std::stoul(member);
-      return index;
+      return std::stoul(member);
     }
     catch (const std::exception &)
     {
@@ -27,44 +41,27 @@ namespace NG::runtime
     }
   }
 
-  inline auto tagged_member_slot(NGTaggedValue &tagged, const Str &member) -> RuntimeRef<StorageCell>
+  inline auto tagged_member_slot(const RuntimeRef<StorageCell> &cell, const Str &member) -> RuntimeRef<StorageCell>
   {
-    if (auto index = tagged_payload_index(tagged, member))
+    if (auto index = tagged_payload_index(cell, member))
     {
-      if (auto slot = tagged.payload_slot(*index))
-      {
-        return slot;
-      }
-      auto values = tagged.payload_items();
-      values.resize(*index + 1, makert<NGUnit>());
-      tagged.replace_payload_items(values);
-      return tagged.payload_slot(*index);
+      return runtime_cell_slot_ref(cell, *index);
     }
     return nullptr;
   }
 
-  inline auto tagged_member_slot(const NGTaggedValue &tagged, const Str &member) -> RuntimeRef<StorageCell>
+  inline auto tagged_read_member_slot(const RuntimeRef<StorageCell> &cell, const Str &member) -> RuntimeRef<StorageCell>
   {
-    if (auto index = tagged_payload_index(tagged, member))
+    if (member == "tag")
     {
-      return tagged.payload_slot(*index);
+      auto type = runtime_value_type(cell);
+      return make_runtime_string(type ? type->variantName : Str{});
     }
-    return nullptr;
-  }
-
-  inline auto tagged_read_member(const NGTaggedValue &tagged, const Str &member) -> RuntimeRef<NGObject>
-  {
-    auto slot = tagged_member_slot(tagged, member);
-    return slot ? slot->boxedValue : nullptr;
-  }
-
-  inline void tagged_write_member(NGTaggedValue &tagged, const Str &member,
-                                  const RuntimeRef<NGObject> &value)
-  {
-    if (auto slot = tagged_member_slot(tagged, member))
+    if (member == "index")
     {
-      runtime_sync_storage_cell(slot, value);
-      (void) tagged.payload_items();
+      auto type = runtime_value_type(cell);
+      return numeral_cell_from_value<int32_t>(type ? type->variantIndex : -1);
     }
+    return tagged_member_slot(cell, member);
   }
 } // namespace NG::runtime

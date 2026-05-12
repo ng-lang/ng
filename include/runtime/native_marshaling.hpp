@@ -1,6 +1,7 @@
 #pragma once
 
 #include <intp/runtime.hpp>
+#include <runtime/value_access.hpp>
 
 #include <optional>
 #include <variant>
@@ -27,12 +28,11 @@ namespace NG::runtime::native
       return values ? values->size() : 0;
     }
 
-    [[nodiscard]] auto value_at(size_t index) const -> RuntimeRef<NGObject>
+    [[nodiscard]] auto value_at(size_t index) const -> RuntimeRef<StorageCell>
     {
       if (slotOwner && index < slotOwner->size())
       {
-        auto slot = (*slotOwner)[index];
-        return slot ? slot->boxedValue : nullptr;
+        return (*slotOwner)[index];
       }
       if (values && index < values->size())
       {
@@ -43,11 +43,15 @@ namespace NG::runtime::native
 
     [[nodiscard]] auto slot_at(size_t index) const -> RuntimeRef<StorageCell>
     {
-      if (!slotOwner || index >= slotOwner->size())
+      if (slotOwner && index < slotOwner->size())
+      {
+        return (*slotOwner)[index];
+      }
+      if (!values || index >= values->size())
       {
         return nullptr;
       }
-      return (*slotOwner)[index];
+      return (*values)[index];
     }
   };
 
@@ -76,19 +80,69 @@ namespace NG::runtime::native
 
   inline auto bind_native_arg_slots(const NGEnv &env, const NGArgs &args) -> std::shared_ptr<Vec<RuntimeRef<StorageCell>>>
   {
-    auto slots = std::make_shared<Vec<RuntimeRef<StorageCell>>>();
-    slots->reserve(args.size());
-    for (size_t i = 0; i < args.size(); ++i)
-    {
-      auto slot = make_boxed_storage_cell(args[i], StorageClass::TEMPORARY);
-      slot->name = "arg." + std::to_string(i);
-      slots->push_back(slot);
-    }
+    auto slots = std::make_shared<Vec<RuntimeRef<StorageCell>>>(args);
     if (env)
     {
       runtime_env_set_state(env, native_arg_slots_context_key(), slots);
     }
     return slots;
+  }
+
+  inline auto require_arg_slot(const Str &functionName, const NativeArgsView &args, size_t index, const Str &expectedType)
+      -> RuntimeRef<StorageCell>
+  {
+    if (args.size() < index + 1)
+    {
+      throw RuntimeException(functionName + "() requires " + expectedType + " at argument " +
+                             std::to_string(index + 1));
+    }
+    auto slot = args.slot_at(index);
+    if (!slot)
+    {
+      throw RuntimeException(functionName + "() requires " + expectedType + " at argument " +
+                             std::to_string(index + 1));
+    }
+    return slot;
+  }
+
+  inline auto require_string_arg(const Str &functionName, const NativeArgsView &args, size_t index,
+                                 const Str &expectedType = "a string") -> Str
+  {
+    auto slot = require_arg_slot(functionName, args, index, expectedType);
+    if (!runtime_is_string_value(slot))
+    {
+      throw RuntimeException(functionName + "() requires " + expectedType + " at argument " +
+                             std::to_string(index + 1));
+    }
+    return runtime_string_value(slot);
+  }
+
+  inline auto require_array_arg_slot(const Str &functionName, const NativeArgsView &args, size_t index,
+                                     const Str &expectedType = "an array") -> RuntimeRef<StorageCell>
+  {
+    auto slot = require_arg_slot(functionName, args, index, expectedType);
+    if (!runtime_is_array_value(slot))
+    {
+      throw RuntimeException(functionName + "() requires " + expectedType + " at argument " +
+                             std::to_string(index + 1));
+    }
+    return slot;
+  }
+
+  template <typename T>
+  inline auto require_numeric_arg(const Str &functionName, const NativeArgsView &args, size_t index,
+                                  const Str &expectedType) -> T
+  {
+    auto slot = require_arg_slot(functionName, args, index, expectedType);
+    try
+    {
+      return read_numeric_cell_as<T>(slot);
+    }
+    catch (const std::exception &)
+    {
+      throw RuntimeException(functionName + "() requires " + expectedType + " at argument " +
+                             std::to_string(index + 1));
+    }
   }
 
   inline void require_arg_count(const Str &functionName, const NativeArgsView &args, size_t minCount,
@@ -110,87 +164,4 @@ namespace NG::runtime::native
     require_arg_count(functionName, make_native_args_view(args), minCount, maxCount);
   }
 
-  template <class TObject>
-  auto require_arg_as(const Str &functionName, const NativeArgsView &args, size_t index, const Str &expectedType)
-      -> RuntimeRef<TObject>
-  {
-    require_arg_count(functionName, args, index + 1);
-    auto value = std::dynamic_pointer_cast<TObject>(args.value_at(index));
-    if (!value)
-    {
-      throw RuntimeException(functionName + "() requires " + expectedType + " at argument " +
-                             std::to_string(index + 1));
-    }
-    return value;
-  }
-
-  template <class TObject>
-  auto require_arg_as(const Str &functionName, const NGArgs &args, size_t index, const Str &expectedType)
-      -> RuntimeRef<TObject>
-  {
-    return require_arg_as<TObject>(functionName, make_native_args_view(args), index, expectedType);
-  }
-
-  template <class TResult, class TObject, class... TRest>
-  auto require_arg_as_one_of_impl(const RuntimeRef<NGObject> &value) -> std::optional<TResult>
-  {
-    if (auto typed = std::dynamic_pointer_cast<TObject>(value))
-    {
-      return TResult{typed};
-    }
-    if constexpr (sizeof...(TRest) > 0)
-    {
-      return require_arg_as_one_of_impl<TResult, TRest...>(value);
-    }
-    return std::nullopt;
-  }
-
-  template <class... TObject>
-  auto require_arg_as_one_of(const Str &functionName, const NativeArgsView &args, size_t index, const Str &expectedType)
-      -> std::variant<RuntimeRef<TObject>...>
-  {
-    static_assert(sizeof...(TObject) > 0);
-    require_arg_count(functionName, args, index + 1);
-    using Result = std::variant<RuntimeRef<TObject>...>;
-    auto matched = require_arg_as_one_of_impl<Result, TObject...>(args.value_at(index));
-    if (!matched)
-    {
-      throw RuntimeException(functionName + "() requires " + expectedType + " at argument " +
-                             std::to_string(index + 1));
-    }
-    return *matched;
-  }
-
-  template <class... TObject>
-  auto require_arg_as_one_of(const Str &functionName, const NGArgs &args, size_t index, const Str &expectedType)
-      -> std::variant<RuntimeRef<TObject>...>
-  {
-    return require_arg_as_one_of<TObject...>(functionName, make_native_args_view(args), index, expectedType);
-  }
-
-  template <class TObject>
-  auto require_all_args_as(const Str &functionName, const NativeArgsView &args, const Str &expectedType)
-      -> Vec<RuntimeRef<TObject>>
-  {
-    Vec<RuntimeRef<TObject>> values;
-    values.reserve(args.size());
-    for (size_t i = 0; i < args.size(); ++i)
-    {
-      auto value = std::dynamic_pointer_cast<TObject>(args.value_at(i));
-      if (!value)
-      {
-        throw RuntimeException(functionName + "() requires " + expectedType + " at argument " +
-                               std::to_string(i + 1));
-      }
-      values.push_back(value);
-    }
-    return values;
-  }
-
-  template <class TObject>
-  auto require_all_args_as(const Str &functionName, const NGArgs &args, const Str &expectedType)
-      -> Vec<RuntimeRef<TObject>>
-  {
-    return require_all_args_as<TObject>(functionName, make_native_args_view(args), expectedType);
-  }
 } // namespace NG::runtime::native
