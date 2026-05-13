@@ -12,6 +12,28 @@ using namespace NG::ast;
 using namespace NG::orgasm;
 using namespace NG::runtime;
 
+namespace
+{
+void append_u16(Vec<uint8_t> &code, uint16_t value)
+{
+  code.push_back(static_cast<uint8_t>(value & 0xFFU));
+  code.push_back(static_cast<uint8_t>((value >> 8U) & 0xFFU));
+}
+
+void emit_u16(Vec<uint8_t> &code, OpCode op, uint16_t value)
+{
+  code.push_back(static_cast<uint8_t>(op));
+  append_u16(code, value);
+}
+
+void emit_u16_u16(Vec<uint8_t> &code, OpCode op, uint16_t first, uint16_t second)
+{
+  code.push_back(static_cast<uint8_t>(op));
+  append_u16(code, first);
+  append_u16(code, second);
+}
+} // namespace
+
 static auto result_i32(const RuntimeRef<StorageCell> &result) -> int32_t
 {
   return read_numeric_cell_as<int32_t>(result);
@@ -849,6 +871,103 @@ TEST_CASE("compiler and vm should trampoline deep self tail calls", "[OrgasmTest
   destroyast(ast);
 }
 
+TEST_CASE("vm should execute bytecode calls without consuming the C++ call stack", "[OrgasmTest][VM]")
+{
+  BytecodeModule module;
+  module.name = "manual";
+
+  Function main;
+  main.name = "main";
+  main.num_locals = 0;
+  main.num_params = 0;
+  main.code.push_back(static_cast<uint8_t>(OpCode::PUSH_I32));
+  main.code.push_back(42);
+  main.code.push_back(0);
+  main.code.push_back(0);
+  main.code.push_back(0);
+  emit_u16_u16(main.code, OpCode::CALL, 1, 1);
+  main.code.push_back(static_cast<uint8_t>(OpCode::RETURN));
+
+  Function identity;
+  identity.name = "identity";
+  identity.num_locals = 1;
+  identity.num_params = 1;
+  emit_u16(identity.code, OpCode::LOAD_PARAM, 0);
+  identity.code.push_back(static_cast<uint8_t>(OpCode::RETURN));
+
+  module.functions.push_back(std::move(main));
+  module.functions.push_back(std::move(identity));
+
+  VM vm;
+  auto result = vm.run(module);
+
+  REQUIRE(result_i32(result) == 42);
+}
+
+TEST_CASE("vm should return unit when a nested bytecode frame reaches the end", "[OrgasmTest][VM]")
+{
+  BytecodeModule module;
+  module.name = "manual-fallthrough";
+
+  Function main;
+  main.name = "main";
+  main.num_locals = 0;
+  main.num_params = 0;
+  emit_u16_u16(main.code, OpCode::CALL, 1, 0);
+  main.code.push_back(static_cast<uint8_t>(OpCode::RETURN));
+
+  Function callee;
+  callee.name = "fallthrough";
+  callee.num_locals = 0;
+  callee.num_params = 0;
+
+  module.functions.push_back(std::move(main));
+  module.functions.push_back(std::move(callee));
+
+  VM vm;
+  auto result = vm.run(module);
+
+  REQUIRE(runtime_value_show(result) == "unit");
+}
+
+TEST_CASE("vm should dispatch imported symbols to registered native fallback", "[OrgasmTest][VM]")
+{
+  auto &registry = NG::module::get_module_registry();
+  registry.clear();
+  NG::module::clear_module_loader_cache();
+
+  auto moduleInfo = std::make_shared<NG::module::ModuleInfo>();
+  moduleInfo->moduleId = "native_mod";
+  moduleInfo->moduleName = "native_mod";
+  registry.addModuleInfo(moduleInfo);
+
+  BytecodeModule module;
+  module.name = "native-import";
+  module.imports.push_back(ExternalSymbol{.moduleName = "native_mod", .symbolName = "native_inc"});
+
+  Function main;
+  main.name = "main";
+  main.num_locals = 0;
+  main.num_params = 0;
+  main.code.push_back(static_cast<uint8_t>(OpCode::PUSH_I32));
+  main.code.push_back(41);
+  main.code.push_back(0);
+  main.code.push_back(0);
+  main.code.push_back(0);
+  emit_u16_u16(main.code, OpCode::CALL_IMPORT, 0, 1);
+  main.code.push_back(static_cast<uint8_t>(OpCode::RETURN));
+  module.functions.push_back(std::move(main));
+
+  VM vm;
+  vm.register_native("native_inc", [](int32_t value) { return value + 1; });
+  auto result = vm.run(module);
+
+  REQUIRE(result_i32(result) == 42);
+
+  registry.clear();
+  NG::module::clear_module_loader_cache();
+}
+
 TEST_CASE("compiler and vm should register imgui natives without initialized state", "[OrgasmTest][ImGui]")
 {
   auto names = NG::library::imgui::native_function_names();
@@ -857,4 +976,30 @@ TEST_CASE("compiler and vm should register imgui natives without initialized sta
 
   VM vm;
   REQUIRE_NOTHROW(NG::library::imgui::register_vm_natives(vm));
+}
+
+TEST_CASE("compiler and vm should reject imgui native calls before init", "[OrgasmTest][ImGui]")
+{
+  for (const auto &name : NG::library::imgui::native_function_names())
+  {
+    if (name == "init")
+    {
+      continue;
+    }
+    BytecodeModule module;
+    module.name = "imgui-native-check";
+    module.strings.push_back(name);
+
+    Function main;
+    main.name = "main";
+    main.num_locals = 0;
+    main.num_params = 0;
+    emit_u16_u16(main.code, OpCode::NATIVE_CALL, 0, 0);
+    main.code.push_back(static_cast<uint8_t>(OpCode::RETURN));
+    module.functions.push_back(std::move(main));
+
+    VM vm;
+    NG::library::imgui::register_vm_natives(vm);
+    REQUIRE_THROWS_AS(vm.run(module), RuntimeException);
+  }
 }

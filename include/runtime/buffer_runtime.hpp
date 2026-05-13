@@ -137,7 +137,7 @@ namespace NG::buffer_runtime
     auto get(CellRef ref) -> HeapCell &;
     auto get(CellRef ref) const -> const HeapCell &;
     void write(CellRef ref, size_t offset, const Vec<uint8_t> &data);
-    [[nodiscard]] auto read(CellRef ref, size_t offset, size_t size) const -> Vec<uint8_t>;
+    [[nodiscard]] auto load_bytes(CellRef ref, size_t offset, size_t size) const -> Vec<uint8_t>;
 
   private:
     uint64_t nextId = 1;

@@ -112,7 +112,7 @@ namespace NG::buffer_runtime
     std::copy(data.begin(), data.end(), cell.bytes.begin() + static_cast<ptrdiff_t>(absoluteOffset));
   }
 
-  auto HeapStore::read(CellRef ref, size_t offset, size_t size) const -> Vec<uint8_t>
+  auto HeapStore::load_bytes(CellRef ref, size_t offset, size_t size) const -> Vec<uint8_t>
   {
     const auto &cell = get(ref);
     const auto absoluteOffset = checked_heap_range(cell, ref, offset, size, "read");
@@ -343,7 +343,7 @@ namespace NG::buffer_runtime
   auto read_u64_field(const HeapStore &heap, CellRef ref, const FieldLayout &field) -> uint64_t
   {
     ensure_u64_field(field);
-    auto bytes = heap.read(ref, field.offset, sizeof(uint64_t));
+    auto bytes = heap.load_bytes(ref, field.offset, sizeof(uint64_t));
     uint64_t value = 0;
     for (size_t i = 0; i < bytes.size(); ++i)
     {
@@ -418,7 +418,7 @@ namespace NG::buffer_runtime
     {
       throw std::out_of_range("String payload read exceeds cell bounds");
     }
-    auto bytes = heap.read(ref, 0, cell.bytes.size() - ref.offset);
+    auto bytes = heap.load_bytes(ref, 0, cell.bytes.size() - ref.offset);
     return Str(bytes.begin(), bytes.end());
   }
 } // namespace NG::buffer_runtime

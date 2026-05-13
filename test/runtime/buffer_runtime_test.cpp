@@ -37,7 +37,7 @@ TEST_CASE("HeapStore allocates and reads raw cell bytes", "[RuntimeTest][BufferR
   REQUIRE(ref.valid());
 
   heap.write(ref, 0, Vec<uint8_t>{1, 2, 3, 4});
-  auto bytes = heap.read(ref, 0, 4);
+  auto bytes = heap.load_bytes(ref, 0, 4);
 
   REQUIRE(bytes == Vec<uint8_t>{1, 2, 3, 4});
 }
@@ -48,11 +48,11 @@ TEST_CASE("HeapStore rejects out-of-bounds and overflowing byte ranges", "[Runti
   TypeLayout layout{.name = "bytes", .kind = LayoutKind::DYNAMIC, .size = 4, .alignment = 1};
   auto ref = heap.allocate(layout);
 
-  REQUIRE_THROWS_AS(heap.read(ref, 5, 1), std::out_of_range);
+  REQUIRE_THROWS_AS(heap.load_bytes(ref, 5, 1), std::out_of_range);
   REQUIRE_THROWS_AS(heap.write(ref, 2, Vec<uint8_t>{1, 2, 3}), std::out_of_range);
-  REQUIRE_THROWS_AS(heap.read(ref, std::numeric_limits<size_t>::max(), 1), std::out_of_range);
+  REQUIRE_THROWS_AS(heap.load_bytes(ref, std::numeric_limits<size_t>::max(), 1), std::out_of_range);
   REQUIRE_THROWS_AS(heap.write(CellRef{.cellId = ref.cellId, .offset = 3}, 1, Vec<uint8_t>{1}), std::out_of_range);
-  REQUIRE_THROWS_AS(heap.read(CellRef{}, 0, 0), std::out_of_range);
+  REQUIRE_THROWS_AS(heap.load_bytes(CellRef{}, 0, 0), std::out_of_range);
   REQUIRE_THROWS_AS(heap.get(CellRef{.cellId = 999}), std::out_of_range);
 }
 
@@ -64,9 +64,9 @@ TEST_CASE("HeapStore honors CellRef offsets for subrange reads and writes", "[Ru
   heap.write(ref, 0, Vec<uint8_t>{0, 1, 2, 3, 4, 5});
 
   auto subRef = CellRef{.cellId = ref.cellId, .offset = 2};
-  REQUIRE(heap.read(subRef, 0, 3) == Vec<uint8_t>{2, 3, 4});
+  REQUIRE(heap.load_bytes(subRef, 0, 3) == Vec<uint8_t>{2, 3, 4});
   heap.write(subRef, 1, Vec<uint8_t>{9, 8});
-  REQUIRE(heap.read(ref, 0, 6) == Vec<uint8_t>{0, 1, 2, 9, 8, 5});
+  REQUIRE(heap.load_bytes(ref, 0, 6) == Vec<uint8_t>{0, 1, 2, 9, 8, 5});
 }
 
 TEST_CASE("make_slot sizes frame slots from layout", "[RuntimeTest][BufferRuntime]")

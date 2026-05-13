@@ -326,6 +326,22 @@ assert(result == 55);
 )");
 }
 
+TEST_CASE("interpreter should tail-call self recursion with spread arguments", "[InterpreterTest]")
+{
+  interpret(R"(
+fun drain<T...>(args: T...) {
+  if (args.size == 0) {
+    return 0;
+  }
+
+  val (head, ...tail) = args;
+  return drain(...tail);
+}
+
+assert(drain(1, 2, 3) == 0);
+)");
+}
+
 TEST_CASE("block shadowing should honor frame-local scope ownership", "[InterpreterTest]")
 {
   interpret(R"(

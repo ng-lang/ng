@@ -161,7 +161,19 @@ namespace NG::orgasm
     {
         const auto baseFrameDepth = call_stack.size();
         push_frame(module, fun, args);
-        
+        struct CallStackGuard
+        {
+            Vec<Frame> &frames;
+            size_t baseDepth;
+            ~CallStackGuard()
+            {
+                if (frames.size() > baseDepth)
+                {
+                    frames.resize(baseDepth);
+                }
+            }
+        } callStackGuard{call_stack, baseFrameDepth};
+
         auto clone_value_slot = [](const RuntimeRef<StorageCell> &source, const Str &name) -> RuntimeRef<StorageCell>
         {
             return clone_runtime_storage_cell(source, StorageClass::TEMPORARY, name);
