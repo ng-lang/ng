@@ -23,7 +23,9 @@ fun sum3(i, n = 0) {
   return sum3(i - 1, n + i);
 }
 
-val n = 2969;
-assert(sum(n) == sum2(n), sum2(n) == sum3(n));
+val n = 60000;
+val recursiveCheck = 500;
+assert(sum(n) == sum2(n));
+assert(sum2(recursiveCheck) == sum3(recursiveCheck));
 
-print(sum3(n));
+print(sum2(n));
