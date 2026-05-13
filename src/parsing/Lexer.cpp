@@ -104,6 +104,8 @@ namespace NG::parsing
     {"typeof", TokenType::KEYWORD_TYPEOF},
     {"wraps", TokenType::KEYWORD_WRAPS},
     {"cast", TokenType::KEYWORD_CAST},
+    {"ref", TokenType::KEYWORD_REF},
+    {"move", TokenType::KEYWORD_MOVE},
 
     {"true", TokenType::KEYWORD_TRUE},
     {"false", TokenType::KEYWORD_FALSE},

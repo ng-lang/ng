@@ -25,9 +25,7 @@ TEST_CASE("Orgasm: newtype wrap and unwrap", "[OrgasmTest][Nominal]")
   VM vm;
   auto result = vm.run(bytecode);
 
-  auto numeric = std::dynamic_pointer_cast<NumeralBase>(result);
-  REQUIRE(numeric != nullptr);
-  REQUIRE(NGIntegral<int32_t>::valueOf(numeric.get()) == 42);
+  REQUIRE(read_numeric_cell_as<int32_t>(result) == 42);
 
   destroyast(ast);
 }
@@ -49,9 +47,7 @@ TEST_CASE("Orgasm: type alias transparent", "[OrgasmTest][Nominal]")
   VM vm;
   auto result = vm.run(bytecode);
 
-  auto numeric = std::dynamic_pointer_cast<NumeralBase>(result);
-  REQUIRE(numeric != nullptr);
-  REQUIRE(NGIntegral<int32_t>::valueOf(numeric.get()) == 42);
+  REQUIRE(read_numeric_cell_as<int32_t>(result) == 42);
 
   destroyast(ast);
 }
@@ -75,9 +71,7 @@ TEST_CASE("Orgasm: multiple newtypes", "[OrgasmTest][Nominal]")
   VM vm;
   auto result = vm.run(bytecode);
 
-  auto numeric = std::dynamic_pointer_cast<NumeralBase>(result);
-  REQUIRE(numeric != nullptr);
-  REQUIRE(NGIntegral<int32_t>::valueOf(numeric.get()) == 3);
+  REQUIRE(read_numeric_cell_as<int32_t>(result) == 3);
 
   destroyast(ast);
 }
@@ -100,9 +94,7 @@ TEST_CASE("Orgasm: newtype show delegates to wrapped", "[OrgasmTest][Nominal]")
   VM vm;
   auto result = vm.run(bytecode);
 
-  auto numeric = std::dynamic_pointer_cast<NumeralBase>(result);
-  REQUIRE(numeric != nullptr);
-  REQUIRE(NGIntegral<int32_t>::valueOf(numeric.get()) == 42);
+  REQUIRE(read_numeric_cell_as<int32_t>(result) == 42);
 
   destroyast(ast);
 }

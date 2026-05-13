@@ -194,7 +194,7 @@ TEST_CASE("generic object type declaration should instantiate from annotation", 
       property value: T;
     }
 
-    val box: Box<i32> = new Box<i32> { value: 42 };
+    val box: ref<Box<i32>> = new Box<i32> { value: 42 };
     val n = box.value;
   )");
 
@@ -203,7 +203,7 @@ TEST_CASE("generic object type declaration should instantiate from annotation", 
   auto index = type_check(ast);
 
   REQUIRE(index.contains("box"));
-  REQUIRE(index["box"]->repr() == "Box<i32>");
+  REQUIRE(index["box"]->repr() == "ref<Box<i32>>");
   REQUIRE(index.contains("n"));
   check_type_tag(*index["n"], typeinfo_tag::I32);
 
@@ -248,6 +248,107 @@ TEST_CASE("generic tagged union constructors should infer instantiated type", "[
   auto *variant = dynamic_cast<VariantType *>(&*index["success"]);
   REQUIRE(variant != nullptr);
   REQUIRE(variant->unionName.find("Result<i32>") != Str::npos);
+
+  destroyast(ast);
+}
+
+TEST_CASE("generic unit variants should use expected type for instantiation", "[TypeCheck][Generic]")
+{
+  auto ast = parse(R"(
+    type Node<T> = Cell(content: T, _next: ref<Node<T>>) | Empty;
+    val empty: Node<i32> = Empty();
+  )");
+
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast);
+
+  REQUIRE(index.contains("empty"));
+  REQUIRE(index["empty"]->tag() == typeinfo_tag::TAGGED_UNION);
+
+  auto *emptyType = dynamic_cast<TaggedUnionType *>(&*index["empty"]);
+  REQUIRE(emptyType != nullptr);
+  REQUIRE(emptyType->name == "Node<i32>");
+
+  destroyast(ast);
+}
+
+TEST_CASE("recursive generic ref traversal should type check", "[TypeCheck][Generic]")
+{
+  auto ast = parse(R"(
+    type Node<T> = Cell(content: T, _next: ref<Node<T>>) | Empty;
+
+    val empty: Node<i32> = Empty();
+    val third = Cell(3, ref empty);
+    val second = Cell(2, ref third);
+    val first = Cell(1, ref second);
+
+    fun printList<T>(head: ref<Node<T>>) {
+      switch(*head) {
+        case Empty {
+          return;
+        }
+        case Cell(first, rest) {
+          printList(rest);
+        }
+      }
+    }
+
+    printList(ref first);
+  )");
+
+  REQUIRE(ast != nullptr);
+  auto index = type_check(ast);
+  REQUIRE(index.contains("first"));
+  destroyast(ast);
+}
+
+TEST_CASE("concrete recursive union helper should expose tagged-union param types", "[TypeCheck][Generic]")
+{
+  auto ast = parse(R"(
+    type Node<T> = Cell(content: T, _next: ref<Node<T>>) | Empty;
+    val empty: Node<i32> = Empty();
+    val first = Cell(1, ref empty);
+
+    fun f(node: Node<i32>) {
+      return;
+    }
+  )");
+
+  REQUIRE(ast != nullptr);
+  auto index = type_check(ast);
+
+  REQUIRE(index.contains("f"));
+  REQUIRE(index.contains("first"));
+
+  auto *funType = dynamic_cast<FunctionType *>(&*index["f"]);
+  REQUIRE(funType != nullptr);
+  REQUIRE(funType->parametersType.size() == 1);
+  REQUIRE(funType->parametersType[0]->tag() == typeinfo_tag::TAGGED_UNION);
+  auto *firstVariant = dynamic_cast<VariantType *>(&*index["first"]);
+  REQUIRE(firstVariant != nullptr);
+  REQUIRE(firstVariant->unionName == "Node<i32>");
+
+  destroyast(ast);
+}
+
+TEST_CASE("concrete recursive union helper call should type check", "[TypeCheck][Generic]")
+{
+  auto ast = parse(R"(
+    type Node<T> = Cell(content: T, _next: ref<Node<T>>) | Empty;
+    val empty: Node<i32> = Empty();
+    val first = Cell(1, ref empty);
+
+    fun f(node: Node<i32>) {
+      return;
+    }
+
+    f(first);
+  )");
+
+  REQUIRE(ast != nullptr);
+  auto index = type_check(ast);
+  REQUIRE(index.contains("first"));
 
   destroyast(ast);
 }

@@ -37,11 +37,8 @@ set(NG_LIB_SRC
         src/ast/AstVisitor.cpp
         src/ast/DummyVisitor.cpp
         src/intp/stupid.cpp
-        src/runtime/ObjectBase.cpp
-        src/runtime/OperatorsBase.cpp
-        src/runtime/NGObject.cpp
         src/runtime/NGBoolean.cpp
-        src/runtime/NGContext.cpp
+        src/runtime/runtime_env.cpp
         src/runtime/NGString.cpp
         src/runtime/NGArray.cpp
         src/runtime/NGNumeral.cpp
@@ -50,6 +47,10 @@ set(NG_LIB_SRC
         src/runtime/NGTuple.cpp
         src/runtime/NGUnit.cpp
         src/runtime/NGTaggedValue.cpp
+        src/runtime/NGReference.cpp
+        src/runtime/buffer_runtime.cpp
+        src/runtime/storage_layout.cpp
+        src/runtime/managed_heap.cpp
         src/sysdep/process.cpp
         src/stdlib/prelude.cpp
         src/stdlib/imgui.cpp
@@ -81,12 +82,15 @@ set(NG_TEST_SRC
         test/parsing/parser_unary_expression_test.cpp
         test/parsing/parse_composite_type_test.cpp
         test/parsing/parse_tuple_range_test.cpp
+        test/parsing/parser_ref_move_test.cpp
         test/parsing/parser_generics_test.cpp
         test/integration_test.cpp
         test/runtime/interpreter_test.cpp
         test/runtime/nominal_test.cpp
         test/runtime/runtime_numeral_test.cpp
         test/runtime/tagged_value_test.cpp
+        test/runtime/runtime_value_ops_test.cpp
+        test/runtime/buffer_runtime_test.cpp
         test/typecheck/typeinfo_primitive_test.cpp
         test/typecheck/typeinfo_function_test.cpp
         test/typecheck/typeinfo_generic_test.cpp
@@ -94,6 +98,7 @@ set(NG_TEST_SRC
         test/typecheck/typecheck_function_test.cpp
         test/typecheck/typecheck_expression_test.cpp
         test/typecheck/typecheck_array_test.cpp
+        test/typecheck/typecheck_ref_move_test.cpp
         test/typecheck/typecheck_generic_test.cpp
         test/typecheck/typecheck_parameter_pack_test.cpp
         test/typecheck/typecheck_controlflow_test.cpp

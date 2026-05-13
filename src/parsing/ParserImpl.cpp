@@ -23,6 +23,10 @@ namespace NG::parsing
     TokenType::NOT,
     TokenType::MINUS,
     TokenType::QUERY,
+    TokenType::AMPERSAND,
+    TokenType::TIMES,
+    TokenType::KEYWORD_REF,
+    TokenType::KEYWORD_MOVE,
   };
 
   [[nodiscard]] inline auto isUnaryOperator(TokenType optr) -> bool
@@ -173,6 +177,37 @@ namespace NG::parsing
 
   private:
     auto expect(TokenType type) -> bool { return !state.eof() && state->type == type; }
+
+    auto expectTypeSuffixKeyword() -> bool
+    {
+      return expect(TokenType::ID) || expect(TokenType::KEYWORD_REF);
+    }
+
+    auto isDerefExpression(const ASTRef<Expression> &expr) -> bool
+    {
+      auto unaryExpr = dynamic_ast_cast<UnaryExpression>(expr);
+      return unaryExpr != nullptr && unaryExpr->optr != nullptr && unaryExpr->optr->type == TokenType::TIMES;
+    }
+
+    auto postfixExpression(ASTRef<Expression> expr) -> ASTRef<Expression>
+    {
+      while (expect(TokenType::LEFT_PAREN) || expect(TokenType::DOT) || expect(TokenType::LEFT_SQUARE))
+      {
+        if (expect(TokenType::LEFT_PAREN))
+        {
+          expr = std::move(funCallExpression(std::move(expr)));
+        }
+        else if (expect(TokenType::DOT))
+        {
+          expr = std::move(idAccessorExpression(std::move(expr)));
+        }
+        else if (expect(TokenType::LEFT_SQUARE))
+        {
+          expr = std::move(indexAccessorExpression(std::move(expr)));
+        }
+      }
+      return expr;
+    }
 
     auto peekTokenType(int offset) -> TokenType
     {
@@ -839,6 +874,18 @@ namespace NG::parsing
         accept(TokenType::RIGHT_PAREN);
         return tuple;
       }
+      if (maybeBuiltin == TokenType::KEYWORD_REF)
+      {
+        ASTRef<TypeAnnotation> anno = createNode<TypeAnnotation>("ref");
+        anno->type = TypeAnnotationType::CUSTOMIZED;
+        accept(TokenType::KEYWORD_REF);
+        if (!expect(TokenType::LT))
+        {
+          unexpected("Expected '<' after ref in type annotation");
+        }
+        anno->genericArgs = std::move(genericArgs());
+        return anno;
+      }
       if (maybeBuiltin == TokenType::ID)
       {
         ASTRef<TypeAnnotation> anno = createNode<TypeAnnotation>(state->repr);
@@ -862,7 +909,7 @@ namespace NG::parsing
             TokenType next = state->type;
             if (next == TokenType::ID ||
                 (code(TokenType::KEYWORD_INT) <= code(next) && code(TokenType::KEYWORD_F128) >= code(next)) ||
-                next == TokenType::KEYWORD_UNIT || next == TokenType::LEFT_SQUARE ||
+                next == TokenType::KEYWORD_UNIT || next == TokenType::KEYWORD_REF || next == TokenType::LEFT_SQUARE ||
                 next == TokenType::LEFT_PAREN)
             {
               isGenericArgs = true;
@@ -891,10 +938,10 @@ namespace NG::parsing
     // Multi-param: `(T1, T2) Map` => Map<T1, T2>  (tuple elements spread as generic args)
     auto parseSuffixGeneric(ASTRef<TypeAnnotation> base) -> ASTRef<TypeAnnotation>
     {
-      while (expect(TokenType::ID))
+      while (expectTypeSuffixKeyword())
       {
-        auto suffixName = state->repr;
-        accept(TokenType::ID);
+        auto suffixName = expect(TokenType::KEYWORD_REF) ? Str{"ref"} : state->repr;
+        accept(state->type);
 
         auto wrapper = createNode<TypeAnnotation>(suffixName);
         wrapper->type = TypeAnnotationType::CUSTOMIZED;
@@ -1252,7 +1299,7 @@ namespace NG::parsing
     {
       auto idExpr = dynamic_ast_cast<IdExpression>(ref);
       auto idAccessor = dynamic_ast_cast<IdAccessorExpression>(ref);
-      if (!idExpr && !idAccessor)
+      if (!idExpr && !idAccessor && !isDerefExpression(ref))
       {
         unexpected("Unexpected expression, expect identifier to assign");
       }
@@ -1498,6 +1545,10 @@ namespace NG::parsing
         auto expr = expression();
         return createNode<SpreadExpression>(std::move(expr));
       }
+      if (expect(TokenType::KEYWORD_REF) || expect(TokenType::KEYWORD_MOVE))
+      {
+        return unaryExpression();
+      }
       if (is_operator(state->type))
       {
         if (isUnaryOperator(state->type))
@@ -1523,12 +1574,20 @@ namespace NG::parsing
       case TokenType::MINUS:
         [[fallthrough]];
       case TokenType::QUERY:
+        [[fallthrough]];
+      case TokenType::AMPERSAND:
+        [[fallthrough]];
+      case TokenType::TIMES:
+        [[fallthrough]];
+      case TokenType::KEYWORD_REF:
+        [[fallthrough]];
+      case TokenType::KEYWORD_MOVE:
       {
 
         accept(optrToken.type);
         auto expr = createNode<UnaryExpression>();
         expr->optr = std::make_shared<Token>(optrToken);
-        expr->operand = std::move(expression());
+        expr->operand = postfixExpression(std::move(primaryExpression()));
         return expr;
       }
       default:

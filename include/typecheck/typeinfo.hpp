@@ -235,6 +235,20 @@ namespace NG::typecheck
     };
 
     /**
+     * @brief A reference type.
+     */
+    struct ReferenceType : TypeInfo
+    {
+        CheckingRef<TypeInfo> referencedType;
+
+        explicit ReferenceType(CheckingRef<TypeInfo> referencedType) : referencedType(std::move(referencedType)) {}
+
+        auto tag() const -> typeinfo_tag override;
+        auto repr() const -> Str override;
+        auto match(const TypeInfo &other) const -> bool override;
+    };
+
+    /**
      * @brief A customized type (user-defined object).
      */
     struct CustomizedType : TypeInfo
@@ -366,6 +380,7 @@ namespace NG::typecheck
         Vec<bool> typeParamIsPack;                  ///< Which type params are packs (parallel to typeParamNames)
         NG::ast::ASTRef<NG::ast::FunctionDef> funcDef; ///< The original AST node (for generic functions)
         TypeEnv capturedLocals;                     ///< Local type environment at definition site
+        Map<Str, CheckingRef<TypeInfo>> instances; ///< Monomorphized return types keyed by instantiated name.
 
         GenericDefType(Str name, Vec<Str> typeParamNames, Vec<bool> typeParamIsPack,
                        NG::ast::ASTRef<NG::ast::FunctionDef> funcDef, TypeEnv capturedLocals)

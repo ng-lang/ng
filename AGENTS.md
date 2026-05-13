@@ -11,7 +11,7 @@
 **Key directories and file patterns:**
 - `src/ast/` — AST nodes and visitors (`ast.cpp`, `AstVisitor.cpp`)
 - `src/parsing/` — Lexer, parser, reserved tokens (`Lexer.cpp`, `ParserImpl.cpp`, `reserved.inc`)
-- `src/runtime/` — NG value types and runtime (`NGArray.cpp`, `NGContext.cpp`, `NGString.cpp`, `NGTuple.cpp`)
+- `src/runtime/` — StorageCell/slot-based NG runtime values and layout helpers (`NGArray.cpp`, `runtime_env.cpp`, `NGString.cpp`, `NGTuple.cpp`)
 - `src/typecheck/` — Type info and checker (`PrimitiveType.cpp`, `FunctionType.cpp`, `typecheck.cpp`)
 - `src/module/` — Module loading/registry; `src/stdlib/` — built-ins (e.g., `prelude.cpp`, `imgui.cpp`)
 - `src/orgasm/` — ORGASM Level-2 assembly parser and interpreter (`lexer.cpp`, `parser.cpp`, `interpreter.cpp`)
@@ -41,7 +41,7 @@
 - **Modules:** Each `.ng` file is a module. Use `export`/`import` for visibility (see `docs/guide/language_guide.md`)
 - **Standard Library:** Minimal, in `lib/std.ng` and `lib/std/`
 - **Native functions:** NG supports native (C++) functions via `= native;` in NG code. Register with the interpreter (`register_native_library`).
-- **Memory management:** Use `std::shared_ptr` for runtime objects (see `NGObject`).
+- **Memory management:** Runtime values are `StorageCell` slots managed with `std::shared_ptr`; heap values are cloned into managed heap cells and traced through slot references, `RuntimeEnv`, and call-frame roots.
 
 
 ## Build, Test, and Development Workflows

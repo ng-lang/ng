@@ -1,93 +1,85 @@
-
 #include <intp/runtime.hpp>
 #include <intp/runtime_numerals.hpp>
+#include <runtime/value_access.hpp>
+
 namespace NG::runtime
 {
-
-  auto NGArray::opIndex(RuntimeRef<NGObject> index) const -> RuntimeRef<NGObject>
+  auto make_runtime_array_cell(const Vec<RuntimeRef<StorageCell>> &slots, size_t capacityHint,
+                               StorageClass storageClass) -> RuntimeRef<StorageCell>
   {
-
-    auto ngInt = std::dynamic_pointer_cast<NumeralBase>(index);
-    if (ngInt == nullptr)
-    {
-      throw IllegalTypeException("Not a valid index");
-    }
-
-    auto indexVal = NGIntegral<int32_t>::valueOf(ngInt.get());
-    if (indexVal < 0 || static_cast<size_t>(indexVal) >= items->size())
-    {
-      throw RuntimeException("Index out of bounds: " + std::to_string(indexVal));
-    }
-
-    return (*this->items)[indexVal];
+    auto type = array_runtime_type();
+    auto cell = make_storage_cell(type->layout, storageClass, {}, type);
+    cell->bytes.resize(type->layout.size);
+    cell->opaqueRefs.assign(slots.begin(), slots.end());
+    cell->namedRefs.clear();
+    cell->nativeHandles.clear();
+    cell->initialized = true;
+    (void) capacityHint;
+    return cell;
   }
 
-  // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
-  auto NGArray::opIndex(RuntimeRef<NGObject> index, RuntimeRef<NGObject> newValue) -> RuntimeRef<NGObject>
+  auto runtime_is_array_value(const RuntimeRef<StorageCell> &cell) -> bool
   {
-    auto ngInt = std::dynamic_pointer_cast<NumeralBase>(index);
-    if (ngInt == nullptr)
-    {
-      throw IllegalTypeException("Not a valid index");
-    }
-    auto indexVal = NGIntegral<int32_t>::valueOf(ngInt.get());
-    if (indexVal < 0 || static_cast<size_t>(indexVal) >= items->size())
-    {
-      throw RuntimeException("Index out of bounds: " + std::to_string(indexVal));
-    }
-
-    return (*items)[indexVal] = newValue;
+    auto type = runtime_value_type(cell);
+    return type && type->name == "Array";
   }
 
-  auto NGArray::show() const -> Str
+  auto runtime_array_length(const RuntimeRef<StorageCell> &cell) -> size_t
   {
-    Str result{};
-
-    for (const auto &item : (*this->items))
+    if (runtime_is_array_value(cell))
     {
-      if (!result.empty())
-      {
-        result += ", ";
-      }
-
-      result += item->show();
+      return runtime_cell_slot_refs(cell).size();
     }
-
-    return "[" + result + "]";
+    throw RuntimeException("Expected Array runtime value");
   }
 
-  auto NGArray::opEquals(RuntimeRef<NGObject> other) const -> bool
+  auto runtime_array_slots(const RuntimeRef<StorageCell> &cell) -> Vec<RuntimeRef<StorageCell>>
   {
-
-    if (auto array = std::dynamic_pointer_cast<NGArray>(other); array != nullptr)
+    if (runtime_is_array_value(cell))
     {
-      if (items->size() != array->items->size())
-      {
-        return false;
-      }
-      for (size_t i = 0; i < items->size(); ++i)
-      {
-        if (!(*items)[i]->opEquals((*array->items)[i]))
-        {
-          return false;
-        }
-      }
-      return true;
+      return runtime_cell_slot_refs(cell);
     }
-
-    return false;
+    throw RuntimeException("Expected Array runtime value");
   }
 
-  auto NGArray::boolValue() const -> bool
+  auto array_runtime_type() -> RuntimeRef<NGType>
   {
-    return !items->empty();
-  }
-
-  auto NGArray::opLShift(RuntimeRef<NGObject> other) -> RuntimeRef<NGObject>
-  {
-    items->push_back(other);
-    auto resp = makert<NGArray>();
-    resp->items = items;
-    return resp;
+    static RuntimeRef<NGType> arrayType = makert<NGType>(NGType{
+        .name = "Array",
+        .layout = buffer_runtime::make_array_header_layout(),
+        .showCellHandler =
+            [](const RuntimeRef<StorageCell> &cell) {
+              Str result{};
+              for (const auto &slot : runtime_cell_slot_refs(cell))
+              {
+                if (!result.empty())
+                {
+                  result += ", ";
+                }
+                result += runtime_value_show(slot);
+              }
+              return "[" + result + "]";
+            },
+        .boolCellHandler =
+            [](const RuntimeRef<StorageCell> &cell) {
+              return !runtime_cell_slot_refs(cell).empty();
+            },
+        .cellBinaryOperators =
+            {
+                {RuntimeBinaryOperator::LShift,
+                 [](const RuntimeRef<StorageCell> &self,
+                    const RuntimeRef<StorageCell> &other) -> RuntimeRef<StorageCell> {
+                   auto slots = runtime_cell_slot_refs(self);
+                   auto appended = make_storage_cell(other ? other->layout : TypeLayout{}, StorageClass::TEMPORARY,
+                                                     std::to_string(slots.size()),
+                                                     other ? other->runtimeType : nullptr);
+                   runtime_copy_storage_cell(appended, other);
+                   appended->name = std::to_string(slots.size());
+                   slots.push_back(appended);
+                   return make_runtime_array_cell(slots, slots.size());
+                 }},
+            },
+    });
+    return arrayType;
   }
 } // namespace NG::runtime

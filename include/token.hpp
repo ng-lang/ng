@@ -50,6 +50,8 @@ namespace NG
         KEYWORD_TYPEOF,
         KEYWORD_WRAPS,
         KEYWORD_CAST,
+        KEYWORD_REF,
+        KEYWORD_MOVE,
 
         KEYWORD_TRUE = 0x0400,
         KEYWORD_FALSE,

@@ -1,113 +1,85 @@
 #include <intp/runtime.hpp>
 #include <intp/runtime_numerals.hpp>
+#include <runtime/value_access.hpp>
 
 namespace NG::runtime
 {
-
-  auto NGTuple::opIndex(RuntimeRef<NGObject> index) const -> RuntimeRef<NGObject>
+  auto make_runtime_tuple_cell(const Vec<RuntimeRef<StorageCell>> &slots,
+                               StorageClass storageClass) -> RuntimeRef<StorageCell>
   {
-    auto ngInt = std::dynamic_pointer_cast<NumeralBase>(index);
-    if (ngInt == nullptr)
-    {
-      throw IllegalTypeException("Not a valid index");
-    }
-    auto indexVal = NGIntegral<int32_t>::valueOf(ngInt.get());
-    if (indexVal < 0 || static_cast<size_t>(indexVal) >= items->size())
-    {
-      throw RuntimeException("Index out of bounds: " + std::to_string(indexVal));
-    }
+    auto type = tuple_runtime_type();
+    auto cell = make_storage_cell(type->layout, storageClass, {}, type);
+    cell->bytes.resize(type->layout.size);
+    cell->opaqueRefs.assign(slots.begin(), slots.end());
+    cell->namedRefs.clear();
+    cell->nativeHandles.clear();
+    cell->initialized = true;
+    return cell;
+  }
 
-    return (*this->items)[indexVal];
-  };
-
-  auto NGTuple::opIndex(RuntimeRef<NGObject> index, RuntimeRef<NGObject> newValue) -> RuntimeRef<NGObject>
+  auto runtime_is_tuple_value(const RuntimeRef<StorageCell> &cell) -> bool
   {
-    auto ngInt = std::dynamic_pointer_cast<NumeralBase>(index);
-    if (ngInt == nullptr)
-    {
-      throw IllegalTypeException("Not a valid index");
-    }
-    auto indexVal = NGIntegral<int32_t>::valueOf(ngInt.get());
-    if (indexVal < 0 || static_cast<size_t>(indexVal) >= items->size())
-    {
-      throw RuntimeException("Index out of bounds: " + std::to_string(indexVal));
-    }
+    auto type = runtime_value_type(cell);
+    return type && type->name == "Tuple";
+  }
 
-    return (*items)[indexVal] = newValue;
-  };
-
-  auto NGTuple::show() const -> Str
+  auto runtime_tuple_length(const RuntimeRef<StorageCell> &cell) -> size_t
   {
-    Str result{};
-
-    for (const auto &item : (*this->items))
+    if (runtime_is_tuple_value(cell))
     {
-      if (!result.empty())
-      {
-        result += ", ";
-      }
-
-      result += item->show();
+      return runtime_cell_slot_refs(cell).size();
     }
+    throw RuntimeException("Expected Tuple runtime value");
+  }
 
-    return "(" + result + ")";
-  };
-
-  auto NGTuple::boolValue() const -> bool
+  auto runtime_tuple_slots(const RuntimeRef<StorageCell> &cell) -> Vec<RuntimeRef<StorageCell>>
   {
-    return !items->empty();
-  };
+    if (runtime_is_tuple_value(cell))
+    {
+      return runtime_cell_slot_refs(cell);
+    }
+    throw RuntimeException("Expected Tuple runtime value");
+  }
 
-  auto NGTuple::opEquals(RuntimeRef<NGObject> other) const -> bool
+  auto tuple_runtime_type() -> RuntimeRef<NGType>
   {
-    if (this == other.get())
-    {
-      return true;
-    }
-    auto otherTuple = std::dynamic_pointer_cast<NGTuple>(other);
-    if (!otherTuple)
-    {
-      return false;
-    }
-    if (items->size() != otherTuple->items->size())
-    {
-      return false;
-    }
-    for (size_t i = 0; i < items->size(); ++i)
-    {
-      if (!(*items)[i]->opEquals((*otherTuple->items)[i]))
-      {
-        return false;
-      }
-    }
-    return true;
-  };
-
-  auto NGTuple::type() const -> RuntimeRef<NGType>
-  {
-    static RuntimeRef<NGType> tupleType = makert<NGType>(NGType{.name = "Tuple", .memberFunctions = {}});
+    static RuntimeRef<NGType> tupleType = makert<NGType>(NGType{
+        .name = "Tuple",
+        .layout = TypeLayout{.name = "Tuple", .kind = LayoutKind::DYNAMIC},
+        .showCellHandler =
+            [](const RuntimeRef<StorageCell> &cell) {
+              Str result{};
+              for (const auto &slot : runtime_cell_slot_refs(cell))
+              {
+                if (!result.empty())
+                {
+                  result += ", ";
+                }
+                result += runtime_value_show(slot);
+              }
+              return "(" + result + ")";
+            },
+        .boolCellHandler =
+            [](const RuntimeRef<StorageCell> &cell) {
+              return !runtime_cell_slot_refs(cell).empty();
+            },
+        .respondCellHandler =
+            [](const RuntimeRef<StorageCell> &cell, const Str &member, const NGEnv &,
+               const NGArgs &) -> RuntimeRef<StorageCell> {
+          if (member == "size")
+          {
+            return numeral_cell_from_value<uint32_t>(static_cast<uint32_t>(runtime_cell_slot_refs(cell).size()));
+          }
+          try
+          {
+            return runtime_cell_slot_ref(cell, std::stoul(member));
+          }
+          catch (const std::exception &)
+          {
+            return nullptr;
+          }
+        },
+    });
     return tupleType;
-  };
-
-  auto NGTuple::respond(const Str &member, NGCtx context, NGInvCtx invocationContext) -> RuntimeRef<NGObject>
-  {
-    if (member == "size")
-    {
-      context->retVal = makert<NGIntegral<uint32_t>>(items->size());
-      return context->retVal;
-    }
-    try
-    {
-      if (auto result = std::stoi(member); true)
-      {
-        context->retVal = this->opIndex(makert<NGIntegral<int32_t>>(result));
-        return context->retVal;
-      }
-    }
-    catch (const std::invalid_argument &)
-    {
-      // Not an integer, fall through
-    }
-    return NGObject::respond(member, context, invocationContext);
   }
 } // namespace NG::runtime

@@ -1,0 +1,17 @@
+// ref<T>, ref expression, dereference assignment, and move-based swap.
+
+fun swap<T>(a: ref<T>, b: ref<T>) {
+    val tmp = move *a;
+    *a := move *b;
+    *b := move tmp;
+}
+
+val x = 1;
+val y = 2;
+
+swap(ref x, ref y);
+
+assert(x == 2);
+assert(y == 1);
+print(x);
+print(y);

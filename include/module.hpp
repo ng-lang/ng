@@ -33,6 +33,16 @@ namespace NG::library::imgui
      * @brief Registers the imgui library.
      */
     void do_register();
+
+    /**
+     * @brief Registers native imgui functions with the ORGASM VM.
+     */
+    void register_vm_natives(NG::orgasm::VM &vm);
+
+    /**
+     * @brief Returns the names of all native imgui functions.
+     */
+    Vec<Str> native_function_names();
 } // namespace NG::library::imgui
 
 namespace NG::module
@@ -53,7 +63,7 @@ namespace NG::module
         ASTRef<NG::ast::ASTNode> moduleAst;              ///< The AST of the module.
         Str moduleAbsolutePath;                          ///< The absolute path to the module.
         Str moduleLoadingLocation;                       ///< The location from which the module was loaded.
-        RuntimeRef<NG::runtime::NGModule> runtimeModule; ///< The runtime representation of the module.
+        RuntimeRef<NG::runtime::StorageCell> runtimeModule; ///< The runtime representation of the module.
         TypeIndex moduleTypeIndex{};                     ///< The type index of the module.
         std::shared_ptr<NG::orgasm::BytecodeModule> bytecodeModule; ///< The bytecode representation.
     };

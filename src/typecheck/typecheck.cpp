@@ -57,6 +57,21 @@ namespace NG::typecheck
     if (isUnit(ua) && dynamic_cast<const CustomizedType *>(&ub)) return true;
     if (isUnit(ub) && dynamic_cast<const CustomizedType *>(&ua)) return true;
 
+    if (auto custom = dynamic_cast<const CustomizedType *>(&ua))
+    {
+      if (auto ref = dynamic_cast<const ReferenceType *>(&ub); ref && ref->referencedType)
+      {
+        return custom->match(*ref->referencedType);
+      }
+    }
+    if (auto custom = dynamic_cast<const CustomizedType *>(&ub))
+    {
+      if (auto ref = dynamic_cast<const ReferenceType *>(&ua); ref && ref->referencedType)
+      {
+        return custom->match(*ref->referencedType);
+      }
+    }
+
     return ua.match(ub);
   }
 
@@ -71,8 +86,162 @@ namespace NG::typecheck
     return type;
   }
 
+  static auto deref_reference_type(CheckingRef<TypeInfo> type) -> CheckingRef<TypeInfo>
+  {
+    if (auto refType = std::dynamic_pointer_cast<ReferenceType>(unwrap(type)))
+    {
+      return refType->referencedType;
+    }
+    return type;
+  }
+
+  static auto isReferenceableExpression(const Expression *expr) -> bool
+  {
+    return dynamic_cast<const IdExpression *>(expr) != nullptr ||
+           dynamic_cast<const IdAccessorExpression *>(expr) != nullptr ||
+           dynamic_cast<const IndexAccessorExpression *>(expr) != nullptr ||
+           (dynamic_cast<const UnaryExpression *>(expr) != nullptr &&
+            dynamic_cast<const UnaryExpression *>(expr)->optr != nullptr &&
+            dynamic_cast<const UnaryExpression *>(expr)->optr->type == TokenType::TIMES);
+  }
+
+  static auto isMovableExpression(const Expression *expr) -> bool
+  {
+    if (dynamic_cast<const IdExpression *>(expr) != nullptr)
+    {
+      return true;
+    }
+    auto unaryExpr = dynamic_cast<const UnaryExpression *>(expr);
+    return unaryExpr != nullptr && unaryExpr->optr != nullptr && unaryExpr->optr->type == TokenType::TIMES;
+  }
+
+  static auto scopeNames(const Map<Str, CheckingRef<TypeInfo>> &scope) -> Set<Str>
+  {
+    Set<Str> names;
+    for (const auto &[name, _] : scope)
+    {
+      names.insert(name);
+    }
+    return names;
+  }
+
+  static auto filterMovedBindings(const Set<Str> &moved, const Set<Str> &allowed) -> Set<Str>
+  {
+    Set<Str> filtered;
+    for (const auto &name : moved)
+    {
+      if (allowed.contains(name))
+      {
+        filtered.insert(name);
+      }
+    }
+    return filtered;
+  }
+
+  struct TaggedVariantLookup
+  {
+    CheckingRef<TaggedUnionType> unionType;
+    Vec<CheckingRef<TypeInfo>> payloadTypes;
+    Vec<Str> payloadNames;
+  };
+
+  static auto findTaggedVariant(const Map<Str, CheckingRef<TypeInfo>> &locals, const Str &variantName)
+      -> std::optional<TaggedVariantLookup>
+  {
+    for (const auto &[_, type] : locals)
+    {
+      auto unionType = std::dynamic_pointer_cast<TaggedUnionType>(type);
+      if (!unionType || !unionType->variants.contains(variantName))
+      {
+        continue;
+      }
+
+      Vec<Str> payloadNames;
+      if (unionType->variantPayloadNames.contains(variantName))
+      {
+        payloadNames = unionType->variantPayloadNames.at(variantName);
+      }
+
+      return TaggedVariantLookup{
+          .unionType = unionType,
+          .payloadTypes = unionType->variants.at(variantName),
+          .payloadNames = payloadNames,
+      };
+    }
+
+    return std::nullopt;
+  }
+
+  static auto widenVariantToUnionType(const Map<Str, CheckingRef<TypeInfo>> &locals, CheckingRef<TypeInfo> type)
+      -> CheckingRef<TypeInfo>
+  {
+    auto unwrapped = unwrap(type);
+    auto variantType = std::dynamic_pointer_cast<VariantType>(unwrapped);
+    if (!variantType)
+    {
+      return type;
+    }
+
+    auto it = locals.find(variantType->unionName);
+    if (it != locals.end() && it->second && it->second->tag() == typeinfo_tag::TAGGED_UNION)
+    {
+      return it->second;
+    }
+
+    return type;
+  }
+
   static auto formatTypeInstanceName(const Str &baseName, const Vec<CheckingRef<TypeInfo>> &args) -> Str
   {
+    auto safeTypeName = [](const CheckingRef<TypeInfo> &type, const auto &self) -> Str {
+      if (!type)
+      {
+        return "?";
+      }
+      if (auto tagged = std::dynamic_pointer_cast<TaggedUnionType>(type))
+      {
+        return tagged->name;
+      }
+      if (auto variant = std::dynamic_pointer_cast<VariantType>(type))
+      {
+        return variant->unionName + "." + variant->variantName;
+      }
+      if (auto custom = std::dynamic_pointer_cast<CustomizedType>(type))
+      {
+        return custom->name;
+      }
+      if (auto alias = std::dynamic_pointer_cast<TypeAliasType>(type))
+      {
+        return alias->name;
+      }
+      if (auto newType = std::dynamic_pointer_cast<NewTypeType>(type))
+      {
+        return newType->name;
+      }
+      if (auto ref = std::dynamic_pointer_cast<ReferenceType>(type))
+      {
+        return "ref<" + self(ref->referencedType, self) + ">";
+      }
+      if (auto array = std::dynamic_pointer_cast<ArrayType>(type))
+      {
+        return self(array->elementType, self) + " array";
+      }
+      if (auto tuple = std::dynamic_pointer_cast<TupleType>(type))
+      {
+        Str out = "(";
+        for (size_t i = 0; i < tuple->elementTypes.size(); ++i)
+        {
+          if (i > 0)
+          {
+            out += ", ";
+          }
+          out += self(tuple->elementTypes[i], self);
+        }
+        return out + ")";
+      }
+      return type->repr();
+    };
+
     Str result = baseName + "<";
     for (size_t i = 0; i < args.size(); ++i)
     {
@@ -80,10 +249,20 @@ namespace NG::typecheck
       {
         result += ", ";
       }
-      result += args[i] ? args[i]->repr() : "?";
+      result += safeTypeName(args[i], safeTypeName);
     }
     result += ">";
     return result;
+  }
+
+  static auto stripTypeInstanceSuffix(const Str &typeName) -> Str
+  {
+    auto genericStart = typeName.find('<');
+    if (genericStart == Str::npos)
+    {
+      return typeName;
+    }
+    return typeName.substr(0, genericStart);
   }
 
   static auto typeKindName(const TypeInfo &type) -> Str
@@ -137,13 +316,19 @@ namespace NG::typecheck
 
     CheckingRef<TypeInfo> expectedType; // For bidirectional type inference
 
+    Set<Str> movedBindings{};
+
+    bool allowMovedLvalueRead = false;
+
     // Sentinel key stored in locals to indicate wildcard imports are active.
     // This propagates automatically when locals are copied to child checkers.
     static constexpr const char *WILDCARD_IMPORT_KEY = "$$wildcard_import$$";
 
     explicit TypeChecker(Map<Str, CheckingRef<TypeInfo>> locals, Vec<CheckingRef<TypeInfo>> contextRequirement = {},
-                         CheckingRef<TypeInfo> expectedType = nullptr)
-        : locals(locals), contextRequirement(contextRequirement), expectedType(expectedType)
+                         CheckingRef<TypeInfo> expectedType = nullptr, Set<Str> movedBindings = {},
+                         bool allowMovedLvalueRead = false)
+        : locals(std::move(locals)), contextRequirement(std::move(contextRequirement)), expectedType(std::move(expectedType)),
+          movedBindings(std::move(movedBindings)), allowMovedLvalueRead(allowMovedLvalueRead)
     {
     }
 
@@ -655,12 +840,15 @@ namespace NG::typecheck
               typeParamNames.push_back(gp->name);
               typeParamIsPack.push_back(gp->isPack);
             }
-            locals[taggedUnion->typeName] = makecheck<GenericTypeDef>(taggedUnion->typeName, typeParamNames,
-                                                                      typeParamIsPack, taggedUnion, locals);
+            auto genericDef = makecheck<GenericTypeDef>(taggedUnion->typeName, typeParamNames,
+                                                        typeParamIsPack, taggedUnion, locals);
+            locals[taggedUnion->typeName] = genericDef;
+            genericDef->capturedLocals = locals;
           }
           else
           {
             auto tuType = makecheck<TaggedUnionType>(taggedUnion->typeName);
+            locals.insert_or_assign(taggedUnion->typeName, tuType);
             TypeChecker checker{locals};
             for (int32_t i = 0; i < static_cast<int32_t>(taggedUnion->variants.size()); ++i)
             {
@@ -677,7 +865,6 @@ namespace NG::typecheck
                 tuType->variantPayloadNames[v.variantName] = v.payloadNames;
               }
             }
-            locals.insert_or_assign(taggedUnion->typeName, tuType);
           }
         }
       }
@@ -864,13 +1051,22 @@ namespace NG::typecheck
 
     void visit(SimpleStatement *simpleStatement) override
     {
-      TypeChecker checker{locals};
+      TypeChecker checker{locals, {}, nullptr, movedBindings};
       simpleStatement->expression->accept(&checker);
+      movedBindings = checker.movedBindings;
+      if (auto *assignmentExpr = dynamic_cast<AssignmentExpression *>(simpleStatement->expression.get()))
+      {
+        if (auto *idTarget = dynamic_cast<IdExpression *>(assignmentExpr->target.get()))
+        {
+          movedBindings.erase(idTarget->id);
+        }
+      }
     }
 
     void visit(CompoundStatement *compoundStatement) override
     {
-      TypeChecker checker{locals, contextRequirement, expectedType};
+      auto outerNames = scopeNames(locals);
+      TypeChecker checker{locals, contextRequirement, expectedType, movedBindings};
       CheckingRef<TypeInfo> returnType = nullptr;
       for (auto stmt : compoundStatement->statements)
       {
@@ -900,6 +1096,7 @@ namespace NG::typecheck
           }
         }
       }
+      movedBindings = filterMovedBindings(checker.movedBindings, outerNames);
       result = returnType;
     }
 
@@ -907,8 +1104,9 @@ namespace NG::typecheck
     {
       if (returnStatement->expression)
       {
-        TypeChecker checker{locals};
+        TypeChecker checker{locals, {}, nullptr, movedBindings};
         returnStatement->expression->accept(&checker);
+        movedBindings = checker.movedBindings;
         result = checker.result;
       }
       else
@@ -921,7 +1119,7 @@ namespace NG::typecheck
     {
       // Resolve argument types, expanding spreads
       Vec<CheckingRef<TypeInfo>> resolvedTypes;
-      TypeChecker checker{locals};
+      TypeChecker checker{locals, {}, nullptr, movedBindings};
       for (auto &expr : nextStatement->expressions)
       {
         checker.spreadResult.clear();
@@ -988,6 +1186,7 @@ namespace NG::typecheck
                                       nextStatement->pos);
         }
       }
+      movedBindings = checker.movedBindings;
     }
 
     void visit(IfStatement *ifStatement) override
@@ -1001,14 +1200,18 @@ namespace NG::typecheck
           ifStatement->evaluatedCondition = condResult.value();
           if (condResult.value())
           {
-            TypeChecker thenChecker{locals, contextRequirement, expectedType};
+            auto outerNames = scopeNames(locals);
+            TypeChecker thenChecker{locals, contextRequirement, expectedType, movedBindings};
             ifStatement->consequence->accept(&thenChecker);
+            movedBindings = filterMovedBindings(thenChecker.movedBindings, outerNames);
             result = thenChecker.result;
           }
           else if (ifStatement->alternative)
           {
-            TypeChecker elseChecker{locals, contextRequirement, expectedType};
+            auto outerNames = scopeNames(locals);
+            TypeChecker elseChecker{locals, contextRequirement, expectedType, movedBindings};
             ifStatement->alternative->accept(&elseChecker);
+            movedBindings = filterMovedBindings(elseChecker.movedBindings, outerNames);
             result = elseChecker.result;
           }
           else
@@ -1020,25 +1223,30 @@ namespace NG::typecheck
         // If we can't resolve at compile time, fall through to runtime if behavior
       }
 
-      TypeChecker checker{locals, contextRequirement, expectedType};
-      ifStatement->testing->accept(&checker);
-      auto condType = checker.result;
+      TypeChecker condChecker{locals, contextRequirement, expectedType, movedBindings};
+      ifStatement->testing->accept(&condChecker);
+      auto condType = condChecker.result;
       if (!condType || (condType->tag() != typeinfo_tag::BOOL && condType->tag() != typeinfo_tag::UNTYPED))
       {
         throw TypeCheckingException("Condition expression must be boolean: " + ifStatement->testing->repr(),
                                     ifStatement->testing->pos);
       }
+      auto outerNames = scopeNames(locals);
+      auto entryMovedBindings = filterMovedBindings(condChecker.movedBindings, outerNames);
       CheckingRef<TypeInfo> returnType = nullptr;
       if (ifStatement->consequence)
       {
-        ifStatement->consequence->accept(&checker);
-        returnType = checker.result;
+        TypeChecker thenChecker{locals, contextRequirement, expectedType, entryMovedBindings};
+        ifStatement->consequence->accept(&thenChecker);
+        returnType = thenChecker.result;
         result = returnType;
+        movedBindings = filterMovedBindings(thenChecker.movedBindings, outerNames);
       }
       if (ifStatement->alternative)
       {
-        ifStatement->alternative->accept(&checker);
-        auto consequenceType = checker.result;
+        TypeChecker elseChecker{locals, contextRequirement, expectedType, entryMovedBindings};
+        ifStatement->alternative->accept(&elseChecker);
+        auto consequenceType = elseChecker.result;
         if (returnType && consequenceType)
         {
           if (typeMatch(*returnType, *consequenceType))
@@ -1059,12 +1267,21 @@ namespace NG::typecheck
         {
           result = consequenceType;
         }
+        auto thenMovedBindings = ifStatement->consequence ? movedBindings : entryMovedBindings;
+        auto elseMovedBindings = filterMovedBindings(elseChecker.movedBindings, outerNames);
+        thenMovedBindings.insert(elseMovedBindings.begin(), elseMovedBindings.end());
+        movedBindings = std::move(thenMovedBindings);
+      }
+      else
+      {
+        movedBindings.insert(entryMovedBindings.begin(), entryMovedBindings.end());
       }
     }
 
     void visit(LoopStatement *loopStatement) override
     {
-      TypeChecker checker{locals};
+      auto outerNames = scopeNames(locals);
+      TypeChecker checker{locals, {}, nullptr, movedBindings};
       Vec<CheckingRef<TypeInfo>> paramTypes;
       for (auto binding : loopStatement->bindings)
       {
@@ -1087,6 +1304,7 @@ namespace NG::typecheck
       }
       checker.contextRequirement = paramTypes;
       loopStatement->loopBody->accept(&checker);
+      movedBindings = filterMovedBindings(checker.movedBindings, outerNames);
       result = checker.result;
     }
 
@@ -1095,15 +1313,16 @@ namespace NG::typecheck
       CheckingRef<TypeInfo> annoType = nullptr;
       if (valDefStatement->typeAnnotation)
       {
-        TypeChecker annoChecker{locals};
+        TypeChecker annoChecker{locals, {}, nullptr, movedBindings};
         valDefStatement->typeAnnotation->accept(&annoChecker);
         annoType = annoChecker.result;
       }
 
       // Bidirectional inference: pass annotation type as expectedType to value expression
-      TypeChecker valChecker{locals, {}, annoType};
+      TypeChecker valChecker{locals, {}, annoType, movedBindings};
       valDefStatement->value->accept(&valChecker);
       auto valType = valChecker.result;
+      movedBindings = valChecker.movedBindings;
 
       if (annoType)
       {
@@ -1120,6 +1339,7 @@ namespace NG::typecheck
       {
         locals.insert_or_assign(valDefStatement->name, valType);
       }
+      movedBindings.erase(valDefStatement->name);
     }
 
     void visit(ValueBindingStatement *valBind) override
@@ -1165,9 +1385,10 @@ namespace NG::typecheck
       // break;
       case BindingType::TUPLE_UNPACK:
       {
-        TypeChecker checker{locals};
+        TypeChecker checker{locals, {}, nullptr, movedBindings};
         valBind->value->accept(&checker);
         auto valType = checker.result;
+        movedBindings = checker.movedBindings;
         // Both TupleType and VarargsType have elementTypes and can be unpacked
         Vec<CheckingRef<TypeInfo>> *elementTypesPtr = nullptr;
         if (auto tupleType = std::dynamic_pointer_cast<TupleType>(valType); tupleType)
@@ -1209,6 +1430,7 @@ namespace NG::typecheck
                 if (typeMatch(*annoType, *restTupleType))
                 {
                   locals.insert_or_assign(binding->name, annoType);
+                  movedBindings.erase(binding->name);
                 }
                 else
                 {
@@ -1219,6 +1441,7 @@ namespace NG::typecheck
               else if (!binding->name.empty())
               {
                 locals.insert_or_assign(binding->name, restTupleType);
+                movedBindings.erase(binding->name);
               }
               break;
             }
@@ -1229,6 +1452,7 @@ namespace NG::typecheck
               if (typeMatch(*annoType, *elementTypes[i]))
               {
                 locals.insert_or_assign(binding->name, annoType);
+                movedBindings.erase(binding->name);
               }
               else
               {
@@ -1239,6 +1463,7 @@ namespace NG::typecheck
             else
             {
               locals.insert_or_assign(binding->name, (elementTypes[i]));
+              movedBindings.erase(binding->name);
             }
           }
         }
@@ -1250,9 +1475,10 @@ namespace NG::typecheck
       break;
       case BindingType::ARRAY_UNPACK:
       {
-        TypeChecker checker{locals};
+        TypeChecker checker{locals, {}, nullptr, movedBindings};
         valBind->value->accept(&checker);
         auto valType = checker.result;
+        movedBindings = checker.movedBindings;
         if (auto arrayType = std::dynamic_pointer_cast<ArrayType>(valType); arrayType)
         {
           for (size_t i = 0; i < valBind->bindings.size(); ++i)
@@ -1272,6 +1498,7 @@ namespace NG::typecheck
                 if (typeMatch(*annoType, *restArrayType))
                 {
                   locals.insert_or_assign(binding->name, annoType);
+                  movedBindings.erase(binding->name);
                 }
                 else
                 {
@@ -1282,6 +1509,7 @@ namespace NG::typecheck
               else if (!binding->name.empty())
               {
                 locals.insert_or_assign(binding->name, restArrayType);
+                movedBindings.erase(binding->name);
               }
 
               break;
@@ -1293,6 +1521,7 @@ namespace NG::typecheck
               if (typeMatch(*annoType, *arrayType->elementType))
               {
                 locals.insert_or_assign(binding->name, annoType);
+                movedBindings.erase(binding->name);
               }
               else
               {
@@ -1303,6 +1532,7 @@ namespace NG::typecheck
             else
             {
               locals.insert_or_assign(binding->name, arrayType->elementType);
+              movedBindings.erase(binding->name);
             }
           }
         }
@@ -1371,9 +1601,10 @@ namespace NG::typecheck
 
     void visit(UnaryExpression *unoExpr) override
     {
-      TypeChecker checker{locals};
+      TypeChecker checker{locals, {}, nullptr, movedBindings};
       unoExpr->operand->accept(&checker);
       auto operandType = checker.result;
+      movedBindings = checker.movedBindings;
       switch (unoExpr->optr->type)
       {
       case TokenType::MINUS:
@@ -1399,6 +1630,39 @@ namespace NG::typecheck
       {
         throw TypeCheckingException("Not supported operator QUERY (?).");
       }
+      case TokenType::KEYWORD_REF:
+      case TokenType::AMPERSAND:
+      {
+        if (!isReferenceableExpression(unoExpr->operand.get()))
+        {
+          throw TypeCheckingException("Reference operator requires an lvalue.");
+        }
+        result = makecheck<ReferenceType>(widenVariantToUnionType(locals, operandType));
+        return;
+      }
+      case TokenType::TIMES:
+      {
+        auto refType = std::dynamic_pointer_cast<ReferenceType>(unwrap(operandType));
+        if (!refType)
+        {
+          throw TypeCheckingException("Cannot dereference non-reference type: " + operandType->repr());
+        }
+        result = refType->referencedType;
+        return;
+      }
+      case TokenType::KEYWORD_MOVE:
+      {
+        if (!isMovableExpression(unoExpr->operand.get()))
+        {
+          throw TypeCheckingException("Move operator requires a movable place.");
+        }
+      if (auto *id = dynamic_cast<IdExpression *>(unoExpr->operand.get()))
+      {
+          movedBindings.insert(id->id);
+      }
+      result = operandType;
+      return;
+      }
       default:
         throw TypeCheckingException("Unsupported unary operator.");
       }
@@ -1406,11 +1670,12 @@ namespace NG::typecheck
 
     void visit(BinaryExpression *expression) override
     {
-      TypeChecker checker{locals};
+      TypeChecker checker{locals, {}, nullptr, movedBindings};
       expression->left->accept(&checker);
       auto leftType = checker.result;
       expression->right->accept(&checker);
       auto rightType = checker.result;
+      movedBindings = checker.movedBindings;
 
       if (!leftType || !rightType || leftType->tag() == typeinfo_tag::UNTYPED ||
           rightType->tag() == typeinfo_tag::UNTYPED)
@@ -1627,6 +1892,24 @@ namespace NG::typecheck
       }
       else
       {
+        if (annotation->name == "ref")
+        {
+          if (annotation->genericArgs.size() != 1)
+          {
+            throw TypeCheckingException("Reference type expects exactly 1 type argument");
+          }
+
+          TypeChecker checker{locals};
+          annotation->genericArgs[0]->accept(&checker);
+          auto innerType = checker.result;
+          if (!innerType)
+          {
+            throw TypeCheckingException("Unknown referenced type for ref");
+          }
+          result = makecheck<ReferenceType>(innerType);
+          return;
+        }
+
         // Handle suffix generic "array" syntax: T array => ArrayType<T>
         // This can come from bracket syntax [T] (arguments) or suffix syntax T array (genericArgs)
         if (annotation->name == "array")
@@ -1713,6 +1996,48 @@ namespace NG::typecheck
       }
     }
 
+    void visit(AssignmentExpression *assignmentExpr) override
+    {
+      CheckingRef<TypeInfo> targetType;
+      Set<Str> targetMovedBindings = movedBindings;
+      if (auto *idTarget = dynamic_cast<IdExpression *>(assignmentExpr->target.get()))
+      {
+        auto it = locals.find(idTarget->id);
+        if (it == locals.end())
+        {
+          throw TypeCheckingException("Unknown type for object: " + idTarget->id, idTarget->pos);
+        }
+        targetType = it->second;
+      }
+      else
+      {
+        TypeChecker targetChecker{locals, {}, nullptr, movedBindings, true};
+        assignmentExpr->target->accept(&targetChecker);
+        targetType = targetChecker.result;
+        targetMovedBindings = targetChecker.movedBindings;
+      }
+
+      TypeChecker valueChecker{locals, {}, nullptr, targetMovedBindings};
+      assignmentExpr->value->accept(&valueChecker);
+      auto valueType = valueChecker.result;
+      movedBindings = valueChecker.movedBindings;
+
+      if (!targetType || !valueType)
+      {
+        throw TypeCheckingException("Invalid assignment expression: " + assignmentExpr->repr(), assignmentExpr->pos);
+      }
+      if (!typeMatch(*targetType, *valueType))
+      {
+        throw TypeCheckingException("Invalid assignment type: " + valueType->repr() + " to " + targetType->repr(),
+                                    assignmentExpr->pos);
+      }
+      if (auto *id = dynamic_cast<IdExpression *>(assignmentExpr->target.get()))
+      {
+        movedBindings.erase(id->id);
+      }
+      result = targetType;
+    }
+
     void visit(ArrayLiteral *arrayLit) override
     {
       if (arrayLit->elements.empty())
@@ -1728,7 +2053,7 @@ namespace NG::typecheck
         }
         return;
       }
-      TypeChecker checker{locals};
+      TypeChecker checker{locals, {}, nullptr, movedBindings};
       arrayLit->elements[0]->accept(&checker);
       auto elemType = checker.result;
       for (size_t i = 1; i < arrayLit->elements.size(); ++i)
@@ -1748,6 +2073,7 @@ namespace NG::typecheck
           }
         }
       }
+      movedBindings = checker.movedBindings;
       result = makecheck<ArrayType>(elemType);
     }
 
@@ -1758,7 +2084,7 @@ namespace NG::typecheck
         result = makecheck<TupleType>(Vec<CheckingRef<TypeInfo>>{});
         return;
       }
-      TypeChecker checker{locals};
+      TypeChecker checker{locals, {}, nullptr, movedBindings};
       Vec<CheckingRef<TypeInfo>> types{};
       for (size_t i = 0; i < tuple->elements.size(); ++i)
       {
@@ -1776,6 +2102,7 @@ namespace NG::typecheck
           types.push_back(std::move(checker.result));
         }
       }
+      movedBindings = checker.movedBindings;
       result = makecheck<TupleType>(types);
     }
 
@@ -1783,9 +2110,10 @@ namespace NG::typecheck
 
     void visit(SpreadExpression *spread) override
     {
-      TypeChecker checker{locals};
+      TypeChecker checker{locals, {}, nullptr, movedBindings};
       spread->expression->accept(&checker);
       auto type = checker.result;
+      movedBindings = checker.movedBindings;
       spreadResult.clear();
       if (auto tup = std::dynamic_pointer_cast<TupleType>(type); tup)
       {
@@ -1816,9 +2144,10 @@ namespace NG::typecheck
 
     void visit(IndexAccessorExpression *indexAccess) override
     {
-      TypeChecker checker{locals};
+      TypeChecker checker{locals, {}, nullptr, movedBindings};
       indexAccess->primary->accept(&checker);
       auto primaryType = checker.result;
+      primaryType = deref_reference_type(primaryType);
       if (!primaryType)
       {
         throw TypeCheckingException("Invalid index accessor expression: " + indexAccess->primary->repr());
@@ -1844,6 +2173,7 @@ namespace NG::typecheck
           }
         }
         // Otherwise, return Untyped for dynamic index
+        movedBindings = checker.movedBindings;
         result = makecheck<Untyped>();
         return;
       }
@@ -1858,6 +2188,7 @@ namespace NG::typecheck
         throw TypeCheckingException("Invalid index type for array: " + indexAccess->accessor->repr());
       }
       ArrayType &arrayType = static_cast<ArrayType &>(*primaryType);
+      movedBindings = checker.movedBindings;
       result = arrayType.elementType;
     }
 
@@ -1865,15 +2196,18 @@ namespace NG::typecheck
     {
       if (auto *typeOfExpr = dynamic_cast<TypeOfExpression *>(idAccExpr->primaryExpression.get()))
       {
-        TypeChecker typeChecker{locals};
+        TypeChecker typeChecker{locals, {}, nullptr, movedBindings};
         typeOfExpr->expression->accept(&typeChecker);
+        movedBindings = typeChecker.movedBindings;
         result = typeQueryPropertyType(typeChecker.result, idAccExpr->accessor->repr());
         return;
       }
 
-      TypeChecker checker{locals};
+      TypeChecker checker{locals, {}, nullptr, movedBindings};
       idAccExpr->primaryExpression->accept(&checker);
       auto primaryType = checker.result;
+      primaryType = deref_reference_type(primaryType);
+      movedBindings = checker.movedBindings;
 
       if (!primaryType || primaryType->tag() == typeinfo_tag::UNTYPED)
       {
@@ -1951,11 +2285,21 @@ namespace NG::typecheck
     void visit(NewObjectExpression *newObj) override
     {
       CheckingRef<TypeInfo> objectType;
+      auto variantInfo = std::optional<TaggedVariantLookup>{};
       if (newObj->targetType)
       {
-        TypeChecker checker{locals};
-        newObj->targetType->accept(&checker);
-        objectType = checker.result;
+        if (newObj->targetType->type == TypeAnnotationType::CUSTOMIZED && newObj->targetType->genericArgs.empty() &&
+            !locals.contains(newObj->targetType->name))
+        {
+          variantInfo = findTaggedVariant(locals, newObj->targetType->name);
+        }
+        else
+        {
+          TypeChecker checker{locals, {}, nullptr, movedBindings};
+          newObj->targetType->accept(&checker);
+          objectType = checker.result;
+          movedBindings = checker.movedBindings;
+        }
       }
       else
       {
@@ -1966,43 +2310,107 @@ namespace NG::typecheck
         }
       }
 
+      if (!objectType)
+      {
+        variantInfo = findTaggedVariant(locals, newObj->typeName);
+      }
+
       if (!objectType || objectType->tag() == typeinfo_tag::UNTYPED)
       {
-        result = makecheck<Untyped>();
-        return;
+        if (!variantInfo.has_value())
+        {
+          result = makecheck<Untyped>();
+          return;
+        }
       }
 
       auto customType = std::dynamic_pointer_cast<CustomizedType>(objectType);
-      if (!customType)
+      if (customType)
       {
-        throw TypeCheckingException("Invalid type for new object: " + (newObj->targetType ? newObj->targetType->repr() : newObj->typeName),
+        TypeChecker checker{locals, {}, nullptr, movedBindings};
+        for (auto &&[name, expr] : newObj->properties)
+        {
+          if (!customType->properties.contains(name))
+          {
+            throw TypeCheckingException("Unknown property '" + name + "' for type " + customType->name, expr->pos);
+          }
+          expr->accept(&checker);
+          if (checker.result->tag() != typeinfo_tag::UNTYPED &&
+              !typeMatch(*customType->properties[name], *checker.result))
+          {
+            throw TypeCheckingException("Property type mismatch for '" + name + "': " + checker.result->repr() +
+                                            " to " + customType->properties[name]->repr(),
+                                        expr->pos);
+          }
+        }
+        for (const auto &[name, expectedType] : customType->properties)
+        {
+          if (!newObj->properties.contains(name))
+          {
+            throw TypeCheckingException("Missing property '" + name + "' for type " + customType->name, newObj->pos);
+          }
+        }
+
+        movedBindings = checker.movedBindings;
+        result = makecheck<ReferenceType>(customType);
+        return;
+      }
+
+      if (!variantInfo.has_value())
+      {
+        throw TypeCheckingException("Invalid type for new object: " +
+                                        (newObj->targetType ? newObj->targetType->repr() : newObj->typeName),
                                     newObj->pos);
       }
 
-      TypeChecker checker{locals};
+      if ((!variantInfo->payloadTypes.empty() && variantInfo->payloadNames.empty()) ||
+          variantInfo->payloadNames.size() != variantInfo->payloadTypes.size())
+      {
+        throw TypeCheckingException("new on tagged union variant '" + newObj->typeName +
+                                        "' requires named payload fields for every payload",
+                                    newObj->pos);
+      }
+
+      TypeChecker checker{locals, {}, nullptr, movedBindings};
       for (auto &&[name, expr] : newObj->properties)
       {
-        if (!customType->properties.contains(name))
+        auto payloadIt = std::find(variantInfo->payloadNames.begin(), variantInfo->payloadNames.end(), name);
+        if (payloadIt == variantInfo->payloadNames.end())
         {
-          throw TypeCheckingException("Unknown property '" + name + "' for type " + customType->name, expr->pos);
+          throw TypeCheckingException("Unknown payload property '" + name + "' for variant " + newObj->typeName, expr->pos);
         }
+
+        auto index = static_cast<size_t>(std::distance(variantInfo->payloadNames.begin(), payloadIt));
         expr->accept(&checker);
-        if (!typeMatch(*customType->properties[name], *checker.result))
+        if (checker.result->tag() != typeinfo_tag::UNTYPED &&
+            !typeMatch(*variantInfo->payloadTypes[index], *checker.result))
         {
-          throw TypeCheckingException("Property type mismatch for '" + name + "': " + checker.result->repr() +
-                                          " to " + customType->properties[name]->repr(),
+          throw TypeCheckingException("Payload type mismatch for '" + name + "': " + checker.result->repr() +
+                                          " to " + variantInfo->payloadTypes[index]->repr(),
                                       expr->pos);
         }
       }
 
-      result = customType;
+      for (const auto &payloadName : variantInfo->payloadNames)
+      {
+        if (!newObj->properties.contains(payloadName))
+        {
+          throw TypeCheckingException("Missing payload property '" + payloadName + "' for variant " + newObj->typeName,
+                                      newObj->pos);
+        }
+      }
+
+      movedBindings = checker.movedBindings;
+      result = makecheck<ReferenceType>(
+          makecheck<VariantType>(variantInfo->unionType->name, newObj->typeName, 0, variantInfo->payloadTypes,
+                                 variantInfo->payloadNames));
     }
 
     void visit(IndexAssignmentExpression *indexAssign) override
     {
-      TypeChecker checker{locals};
+      TypeChecker checker{locals, {}, nullptr, movedBindings};
       indexAssign->primary->accept(&checker);
-      auto primaryType = checker.result;
+      auto primaryType = deref_reference_type(checker.result);
       if (!primaryType)
       {
         throw TypeCheckingException("Invalid index assignment expression: " + indexAssign->primary->repr());
@@ -2024,6 +2432,7 @@ namespace NG::typecheck
       {
         throw TypeCheckingException("Invalid value type for array assignment: " + valueType->repr());
       }
+      movedBindings = checker.movedBindings;
       result = arrayType.elementType;
     }
 
@@ -2032,6 +2441,10 @@ namespace NG::typecheck
       auto it = locals.find(id->id);
       if (it != locals.end())
       {
+        if (movedBindings.contains(id->id) && !allowMovedLvalueRead)
+        {
+          throw TypeCheckingException("Use after move: " + id->id, id->pos);
+        }
         result = it->second;
       }
       else if (hasWildcardImportFlag())
@@ -2047,11 +2460,12 @@ namespace NG::typecheck
 
     void visit(CastExpression *castExpr) override
     {
-      TypeChecker checker{locals};
+      TypeChecker checker{locals, {}, nullptr, movedBindings};
       castExpr->expression->accept(&checker);
       auto exprType = checker.result;
       castExpr->targetType->accept(&checker);
       auto targetType = checker.result;
+      movedBindings = checker.movedBindings;
 
       if (!exprType || !targetType)
       {
@@ -2141,18 +2555,24 @@ namespace NG::typecheck
 
     void visit(SwitchStatement *switchStmt) override
     {
-      TypeChecker checker{locals};
+      TypeChecker checker{locals, {}, nullptr, movedBindings};
       switchStmt->scrutinee->accept(&checker);
       auto scrutineeType = checker.result;
+      auto outerNames = scopeNames(locals);
+      auto entryMovedBindings = filterMovedBindings(checker.movedBindings, outerNames);
 
       if (!scrutineeType || scrutineeType->tag() == typeinfo_tag::UNTYPED)
       {
         // Untyped scrutinee — check bodies loosely
+        Set<Str> mergedMovedBindings = entryMovedBindings;
         for (auto &c : switchStmt->cases)
         {
-          TypeChecker caseChecker{locals};
+          TypeChecker caseChecker{locals, {}, nullptr, entryMovedBindings};
           c.body->accept(&caseChecker);
+          auto caseMovedBindings = filterMovedBindings(caseChecker.movedBindings, outerNames);
+          mergedMovedBindings.insert(caseMovedBindings.begin(), caseMovedBindings.end());
         }
+        movedBindings = std::move(mergedMovedBindings);
         result = makecheck<Untyped>();
         return;
       }
@@ -2180,10 +2600,11 @@ namespace NG::typecheck
       // Type-check each case body and collect covered variants
       Set<Str> coveredVariants;
       bool hasOtherwise = false;
+      Set<Str> mergedMovedBindings = entryMovedBindings;
 
       for (auto &c : switchStmt->cases)
       {
-        TypeChecker caseChecker{locals};
+        TypeChecker caseChecker{locals, {}, nullptr, entryMovedBindings};
 
         if (c.isOtherwise)
         {
@@ -2213,6 +2634,8 @@ namespace NG::typecheck
         }
 
         c.body->accept(&caseChecker);
+        auto caseMovedBindings = filterMovedBindings(caseChecker.movedBindings, outerNames);
+        mergedMovedBindings.insert(caseMovedBindings.begin(), caseMovedBindings.end());
       }
 
       // Exhaustiveness check: all variants must be covered or an otherwise branch must exist
@@ -2229,6 +2652,7 @@ namespace NG::typecheck
         }
       }
 
+      movedBindings = std::move(mergedMovedBindings);
       result = makecheck<Untyped>();
     }
 
@@ -2247,10 +2671,31 @@ namespace NG::typecheck
             {
               // It's a tagged value construction
               auto &payloadTypes = tuType->variants[idExpr->id];
-              TypeChecker argChecker{locals};
+              TypeChecker argChecker{locals, {}, nullptr, movedBindings};
+              Vec<CheckingRef<TypeInfo>> argumentTypes;
               for (size_t i = 0; i < funCall->arguments.size(); ++i)
               {
                 funCall->arguments[i]->accept(&argChecker);
+                argumentTypes.push_back(argChecker.result);
+              }
+              movedBindings = argChecker.movedBindings;
+              if (payloadTypes.size() != argumentTypes.size())
+              {
+                throw TypeCheckingException("Invalid payload arity for variant " + idExpr->id + ": expected " +
+                                                std::to_string(payloadTypes.size()) + " argument(s), got " +
+                                                std::to_string(argumentTypes.size()),
+                                            funCall->pos);
+              }
+              for (size_t i = 0; i < payloadTypes.size(); ++i)
+              {
+                if (argumentTypes[i] && argumentTypes[i]->tag() != typeinfo_tag::UNTYPED &&
+                    !typeMatch(*payloadTypes[i], *argumentTypes[i]))
+                {
+                  throw TypeCheckingException("Payload type mismatch for variant " + idExpr->id + " at argument " +
+                                                  std::to_string(i + 1) + ": " + argumentTypes[i]->repr() + " to " +
+                                                  payloadTypes[i]->repr(),
+                                              funCall->arguments[i]->pos);
+                }
               }
               // Find payload names for this variant
               Vec<Str> payloadNames;
@@ -2258,7 +2703,7 @@ namespace NG::typecheck
               {
                 payloadNames = tuType->variantPayloadNames[idExpr->id];
               }
-              result = makecheck<VariantType>(name, idExpr->id, 0, payloadTypes, payloadNames);
+              result = makecheck<VariantType>(tuType->name, idExpr->id, 0, payloadTypes, payloadNames);
               return;
             }
           }
@@ -2269,6 +2714,35 @@ namespace NG::typecheck
             {
               continue;
             }
+
+            auto resolveExpectedUnion = [&]() -> TaggedUnionType * {
+              if (!expectedType)
+              {
+                return nullptr;
+              }
+
+              if (auto *expectedUnion = dynamic_cast<TaggedUnionType *>(&(*expectedType)))
+              {
+                if (stripTypeInstanceSuffix(expectedUnion->name) == genericType->name)
+                {
+                  return expectedUnion;
+                }
+              }
+
+              if (auto *expectedVariant = dynamic_cast<VariantType *>(&(*expectedType)))
+              {
+                if (stripTypeInstanceSuffix(expectedVariant->unionName) == genericType->name)
+                {
+                  auto it = locals.find(expectedVariant->unionName);
+                  if (it != locals.end())
+                  {
+                    return dynamic_cast<TaggedUnionType *>(&(*it->second));
+                  }
+                }
+              }
+
+              return nullptr;
+            };
 
             auto inferFromVariant = [&](const Vec<CheckingRef<TypeInfo>> &expectedPayloadTypes,
                                         const Vec<CheckingRef<TypeInfo>> &argumentTypes)
@@ -2288,7 +2762,26 @@ namespace NG::typecheck
                   return std::nullopt;
                 }
 
-                if (expected->tag() == typeinfo_tag::GENERIC_PARAM)
+                Map<Str, CheckingRef<TypeInfo>> nestedSubstitution;
+                extractGenericBindings(expected, actual, nestedSubstitution);
+                if (!nestedSubstitution.empty())
+                {
+                  for (const auto &[name, inferredType] : nestedSubstitution)
+                  {
+                    auto it = std::find(genericType->typeParamNames.begin(), genericType->typeParamNames.end(), name);
+                    if (it == genericType->typeParamNames.end())
+                    {
+                      return std::nullopt;
+                    }
+                    auto index = static_cast<size_t>(std::distance(genericType->typeParamNames.begin(), it));
+                    if (inferred[index] && !typeMatch(*inferred[index], *inferredType))
+                    {
+                      return std::nullopt;
+                    }
+                    inferred[index] = inferredType;
+                  }
+                }
+                else if (expected->tag() == typeinfo_tag::GENERIC_PARAM)
                 {
                   auto &param = static_cast<GenericParamType &>(*expected);
                   auto it = std::find(genericType->typeParamNames.begin(), genericType->typeParamNames.end(), param.name);
@@ -2337,18 +2830,44 @@ namespace NG::typecheck
                 expectedPayloadTypes.push_back(instChecker.result);
               }
 
-              TypeChecker argChecker{locals};
+              TypeChecker argChecker{locals, {}, nullptr, movedBindings};
               Vec<CheckingRef<TypeInfo>> argumentTypes;
               for (auto &arg : funCall->arguments)
               {
                 arg->accept(&argChecker);
                 argumentTypes.push_back(argChecker.result);
               }
+              movedBindings = argChecker.movedBindings;
+              if (expectedPayloadTypes.size() != argumentTypes.size())
+              {
+                throw TypeCheckingException("Invalid payload arity for variant " + idExpr->id + ": expected " +
+                                                std::to_string(expectedPayloadTypes.size()) + " argument(s), got " +
+                                                std::to_string(argumentTypes.size()),
+                                            funCall->pos);
+              }
 
               auto inferredArgs = inferFromVariant(expectedPayloadTypes, argumentTypes);
               if (!inferredArgs.has_value())
               {
-                continue;
+                if (funCall->arguments.empty())
+                {
+                  if (auto *expectedUnion = resolveExpectedUnion(); expectedUnion && expectedUnion->variants.contains(idExpr->id))
+                  {
+                    Vec<Str> payloadNames;
+                    if (expectedUnion->variantPayloadNames.contains(idExpr->id))
+                    {
+                      payloadNames = expectedUnion->variantPayloadNames[idExpr->id];
+                    }
+                    if (!expectedUnion->variants[idExpr->id].empty() || !payloadNames.empty())
+                    {
+                      continue;
+                    }
+                    result = makecheck<VariantType>(expectedUnion->name, idExpr->id, 0,
+                                                    expectedUnion->variants[idExpr->id], payloadNames);
+                    return;
+                  }
+                }
+                throw TypeCheckingException("Payload type mismatch for variant " + idExpr->id, funCall->pos);
               }
 
               auto instantiatedUnion = instantiateGenericType(*genericType, inferredArgs.value());
@@ -2364,7 +2883,7 @@ namespace NG::typecheck
               {
                 payloadNames = tuType->variantPayloadNames[idExpr->id];
               }
-              result = makecheck<VariantType>(instantiatedUnion->repr(), idExpr->id, 0, tuType->variants[idExpr->id],
+              result = makecheck<VariantType>(tuType->name, idExpr->id, 0, tuType->variants[idExpr->id],
                                               payloadNames);
               return;
             }
@@ -2372,11 +2891,12 @@ namespace NG::typecheck
         }
       }
 
-      TypeChecker checker{locals};
+      TypeChecker checker{locals, {}, nullptr, movedBindings};
       funCall->primaryExpression->accept(&checker);
       auto primaryType = checker.result;
       if (!primaryType || primaryType->tag() == typeinfo_tag::UNTYPED)
       {
+        movedBindings = checker.movedBindings;
         result = makecheck<Untyped>();
         return;
       }
@@ -2402,6 +2922,7 @@ namespace NG::typecheck
         arg->accept(&checker);
         argumentTypes.push_back(checker.result);
       }
+      movedBindings = checker.movedBindings;
 
       if (!funcType->applyWith(argumentTypes))
       {
@@ -2413,7 +2934,6 @@ namespace NG::typecheck
           throw TypeCheckingException("Invalid argument types for function: " + funcType->repr(), funCall->pos);
         }
       }
-
       // Bidirectional inference: infer Untyped parameter types from arguments
       for (size_t i = 0; i < funcType->parametersType.size() && i < argumentTypes.size(); ++i)
       {
@@ -2441,10 +2961,29 @@ namespace NG::typecheck
      * @brief Recursively extract generic parameter bindings by unifying a resolved
      *        parameter type (which may contain GenericParamType) with a concrete argument type.
      */
-    void extractGenericBindings(CheckingRef<TypeInfo> paramType, CheckingRef<TypeInfo> argType,
-                                Map<Str, CheckingRef<TypeInfo>> &substitution)
+    void extractGenericBindingsImpl(CheckingRef<TypeInfo> paramType, CheckingRef<TypeInfo> argType,
+                                    Map<Str, CheckingRef<TypeInfo>> &substitution, Set<uintptr_t> &seen)
     {
       if (!paramType || !argType) return;
+      auto key = reinterpret_cast<uintptr_t>(paramType.get()) ^ (reinterpret_cast<uintptr_t>(argType.get()) << 1U);
+      if (!seen.insert(key).second)
+      {
+        return;
+      }
+
+      paramType = unwrap(paramType);
+      argType = unwrap(argType);
+
+      if (auto paramAlias = std::dynamic_pointer_cast<TypeAliasType>(paramType))
+      {
+        extractGenericBindingsImpl(paramAlias->underlyingType, argType, substitution, seen);
+        return;
+      }
+      if (auto argAlias = std::dynamic_pointer_cast<TypeAliasType>(argType))
+      {
+        extractGenericBindingsImpl(paramType, argAlias->underlyingType, substitution, seen);
+        return;
+      }
 
       if (paramType->tag() == typeinfo_tag::GENERIC_PARAM)
       {
@@ -2457,7 +2996,7 @@ namespace NG::typecheck
       {
         auto &paramArr = static_cast<ArrayType &>(*paramType);
         auto &argArr = static_cast<ArrayType &>(*argType);
-        extractGenericBindings(paramArr.elementType, argArr.elementType, substitution);
+        extractGenericBindingsImpl(paramArr.elementType, argArr.elementType, substitution, seen);
         return;
       }
 
@@ -2467,7 +3006,65 @@ namespace NG::typecheck
         auto &argTup = static_cast<TupleType &>(*argType);
         for (size_t i = 0; i < paramTup.elementTypes.size() && i < argTup.elementTypes.size(); ++i)
         {
-          extractGenericBindings(paramTup.elementTypes[i], argTup.elementTypes[i], substitution);
+          extractGenericBindingsImpl(paramTup.elementTypes[i], argTup.elementTypes[i], substitution, seen);
+        }
+        return;
+      }
+
+      if (paramType->tag() == typeinfo_tag::REFERENCE && argType->tag() == typeinfo_tag::REFERENCE)
+      {
+        auto &paramRef = static_cast<ReferenceType &>(*paramType);
+        auto &argRef = static_cast<ReferenceType &>(*argType);
+        extractGenericBindingsImpl(paramRef.referencedType, argRef.referencedType, substitution, seen);
+        return;
+      }
+
+      if (paramType->tag() == typeinfo_tag::TAGGED_UNION)
+      {
+        auto &paramUnion = static_cast<TaggedUnionType &>(*paramType);
+        if (argType->tag() == typeinfo_tag::TAGGED_UNION)
+        {
+          auto &argUnion = static_cast<TaggedUnionType &>(*argType);
+          for (const auto &[variantName, paramPayload] : paramUnion.variants)
+          {
+            if (!argUnion.variants.contains(variantName))
+            {
+              continue;
+            }
+            const auto &argPayload = argUnion.variants.at(variantName);
+            for (size_t i = 0; i < paramPayload.size() && i < argPayload.size(); ++i)
+            {
+              extractGenericBindingsImpl(paramPayload[i], argPayload[i], substitution, seen);
+            }
+          }
+          return;
+        }
+        if (argType->tag() == typeinfo_tag::VARIANT)
+        {
+          auto &argVariant = static_cast<VariantType &>(*argType);
+          if (paramUnion.variants.contains(argVariant.variantName))
+          {
+            const auto &paramPayload = paramUnion.variants.at(argVariant.variantName);
+            for (size_t i = 0; i < paramPayload.size() && i < argVariant.payloadTypes.size(); ++i)
+            {
+              extractGenericBindingsImpl(paramPayload[i], argVariant.payloadTypes[i], substitution, seen);
+            }
+          }
+          return;
+        }
+      }
+
+      if (paramType->tag() == typeinfo_tag::VARIANT && argType->tag() == typeinfo_tag::VARIANT)
+      {
+        auto &paramVariant = static_cast<VariantType &>(*paramType);
+        auto &argVariant = static_cast<VariantType &>(*argType);
+        if (paramVariant.variantName != argVariant.variantName)
+        {
+          return;
+        }
+        for (size_t i = 0; i < paramVariant.payloadTypes.size() && i < argVariant.payloadTypes.size(); ++i)
+        {
+          extractGenericBindingsImpl(paramVariant.payloadTypes[i], argVariant.payloadTypes[i], substitution, seen);
         }
         return;
       }
@@ -2481,7 +3078,7 @@ namespace NG::typecheck
           auto &argVar = static_cast<VarargsType &>(*argType);
           for (size_t i = 0; i < paramVar.elementTypes.size() && i < argVar.elementTypes.size(); ++i)
           {
-            extractGenericBindings(paramVar.elementTypes[i], argVar.elementTypes[i], substitution);
+            extractGenericBindingsImpl(paramVar.elementTypes[i], argVar.elementTypes[i], substitution, seen);
           }
         }
         else if (argType->tag() == typeinfo_tag::TUPLE)
@@ -2489,13 +3086,20 @@ namespace NG::typecheck
           auto &argTup = static_cast<TupleType &>(*argType);
           for (size_t i = 0; i < paramVar.elementTypes.size() && i < argTup.elementTypes.size(); ++i)
           {
-            extractGenericBindings(paramVar.elementTypes[i], argTup.elementTypes[i], substitution);
+            extractGenericBindingsImpl(paramVar.elementTypes[i], argTup.elementTypes[i], substitution, seen);
           }
         }
         return;
       }
 
       // For other types, no generic params to extract
+    }
+
+    void extractGenericBindings(CheckingRef<TypeInfo> paramType, CheckingRef<TypeInfo> argType,
+                                Map<Str, CheckingRef<TypeInfo>> &substitution)
+    {
+      Set<uintptr_t> seen;
+      extractGenericBindingsImpl(std::move(paramType), std::move(argType), substitution, seen);
     }
 
     /**
@@ -2515,13 +3119,14 @@ namespace NG::typecheck
       auto &typeParamIsPack = genericDef.typeParamIsPack;
 
       // 1. Type-check arguments
-      TypeChecker argChecker{locals};
+      TypeChecker argChecker{locals, {}, nullptr, movedBindings};
       Vec<CheckingRef<TypeInfo>> argumentTypes;
       for (auto arg : funCall->arguments)
       {
         arg->accept(&argChecker);
         argumentTypes.push_back(argChecker.result);
       }
+      movedBindings = argChecker.movedBindings;
 
       // 2. Inject GenericParamType entries (with pack flags) into a working scope
       Map<Str, CheckingRef<TypeInfo>> substitution;
@@ -2657,6 +3262,18 @@ namespace NG::typecheck
         }
       }
 
+      Vec<CheckingRef<TypeInfo>> instantiatedArgs;
+      instantiatedArgs.reserve(typeParamNames.size());
+      for (const auto &name : typeParamNames)
+      {
+        instantiatedArgs.push_back(substitution[name]);
+      }
+      Str instanceName = formatTypeInstanceName(genericDef.name, instantiatedArgs);
+      if (genericDef.instances.contains(instanceName))
+      {
+        return genericDef.instances.at(instanceName);
+      }
+
       // 4. Resolve the return type with substitution
       CheckingRef<TypeInfo> returnType = makecheck<Untyped>();
       if (funcDef->returnType)
@@ -2669,6 +3286,9 @@ namespace NG::typecheck
         funcDef->returnType->accept(&retChecker);
         returnType = retChecker.result;
       }
+      genericDef.instances[instanceName] = returnType;
+      try
+      {
 
       // 5. Type-check the function body with substituted types
       TypeChecker bodyChecker{locals};
@@ -2707,9 +3327,9 @@ namespace NG::typecheck
             bodyChecker.locals[param->paramName] = resolvedType;
             packHandled = true;
           }
-          else if (i < argumentTypes.size())
+          else if (resolvedType)
           {
-            bodyChecker.locals[param->paramName] = argumentTypes[i];
+            bodyChecker.locals[param->paramName] = resolvedType;
           }
           else
           {
@@ -2751,9 +3371,9 @@ namespace NG::typecheck
               packSeen = true;
               resolvedParamTypes.push_back(resolvedType);
             }
-            else if (i < argumentTypes.size())
+            else if (resolvedType)
             {
-              resolvedParamTypes.push_back(argumentTypes[i]);
+              resolvedParamTypes.push_back(resolvedType);
             }
           }
           else if (i < argumentTypes.size())
@@ -2791,7 +3411,14 @@ namespace NG::typecheck
         }
       }
 
+      genericDef.instances[instanceName] = returnType;
       return returnType;
+      }
+      catch (...)
+      {
+        genericDef.instances.erase(instanceName);
+        throw;
+      }
     }
   };
 

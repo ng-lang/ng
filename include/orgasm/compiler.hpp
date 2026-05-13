@@ -97,12 +97,15 @@ namespace NG::orgasm
         struct VariantInfo {
             Str unionName;
             int32_t variantIndex;
+            Vec<Str> payloadFields;
         };
         Map<Str, VariantInfo> variant_map;
 
         void emit(OpCode op);
         void emit_u8(uint8_t val);
         void emit_u16(uint16_t val);
+        void emit_reference(ast::ASTRef<ast::Expression> expr);
+        void emit_move_place(ast::ASTRef<ast::Expression> expr);
 
         // Find the field index of a property in the current type. Returns -1 if not found.
         auto find_field_index(const Str &propertyName) const -> int32_t;

@@ -60,7 +60,6 @@ namespace NG::typecheck
 
   auto FunctionType::applyWith(const Vec<CheckingRef<TypeInfo>> &arguments) const -> bool
   {
-
     // how many required arguments (that without default value)
     auto requiredSize =
         std::count_if(this->parametersType.begin(), this->parametersType.end(), std::not_fn(isParamWithDefault));

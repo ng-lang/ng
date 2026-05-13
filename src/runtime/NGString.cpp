@@ -1,70 +1,107 @@
-
 #include <intp/runtime.hpp>
 #include <intp/runtime_numerals.hpp>
+#include <runtime/value_access.hpp>
+
 namespace NG::runtime
 {
-  using InvCtx = NGInvocationContext;
-
-  auto NGString::show() const -> Str
+  namespace
   {
-    return value;
-  }
-
-  auto NGString::opEquals(RuntimeRef<NGObject> other) const -> bool
-  {
-    if (auto otherString = std::dynamic_pointer_cast<NGString>(other); otherString != nullptr)
+    auto string_cell_payload(const RuntimeRef<StorageCell> &cell) -> Str
     {
-      return otherString->value == value;
+      return cell ? Str(reinterpret_cast<const char *>(cell->bytes.data()), cell->bytes.size()) : Str{};
     }
-    return false;
-  }
+  } // namespace
 
-  auto NGString::boolValue() const -> bool
+  auto make_runtime_string(Str value, StorageClass storageClass) -> RuntimeRef<StorageCell>
   {
-    return !value.empty();
+    auto type = string_runtime_type();
+    auto cell = make_storage_cell(type->layout, storageClass, {}, type);
+    cell->bytes.assign(value.begin(), value.end());
+    cell->initialized = true;
+    return cell;
   }
 
-  auto NGString::type() const -> RuntimeRef<NGType>
+  auto runtime_is_string_value(const RuntimeRef<StorageCell> &cell) -> bool
   {
-    return NGString::stringType();
+    auto type = runtime_value_type(cell);
+    return type && type->name == "String";
   }
 
-  auto NGString::stringType() -> RuntimeRef<NGType>
+  auto runtime_string_value(const RuntimeRef<StorageCell> &cell) -> Str
+  {
+    if (runtime_is_string_value(cell))
+    {
+      return string_cell_payload(cell);
+    }
+    throw RuntimeException("Expected String runtime value");
+  }
+
+  auto string_runtime_type() -> RuntimeRef<NGType>
   {
     static RuntimeRef<NGType> stringType = makert<NGType>(NGType{
-      .name = "String",
-      .memberFunctions = {
-        {"size",
-         [](const RuntimeRef<NGObject> &self, const RuntimeRef<NGContext> &context, const RuntimeRef<InvCtx> &invCtx)
-         {
-           auto str = std::dynamic_pointer_cast<NGString>(self);
-
-           context->retVal = makert<NGIntegral<uint32_t>>(str->value.size());
-         }},
-        {"charAt",
-         [](const RuntimeRef<NGObject> &self, const RuntimeRef<NGContext> &context, const RuntimeRef<InvCtx> &invCtx)
-         {
-           auto str = std::dynamic_pointer_cast<NGString>(self);
-           auto numeral = std::dynamic_pointer_cast<NumeralBase>(invCtx->params[0]);
-
-           auto index = NGIntegral<int32_t>::valueOf(numeral.get());
-
-           context->retVal = makert<NGIntegral<int32_t>>(str->value[index]);
-         }},
-        {"append",
-         [](const RuntimeRef<NGObject> &self, const RuntimeRef<NGContext> &context, const RuntimeRef<InvCtx> &invCtx)
-         {
-           auto str = std::dynamic_pointer_cast<NGString>(self);
-           auto extra = invCtx->params[0]->show();
-           context->retVal = makert<NGString>(str->value + extra);
-         }}}});
-
+        .name = "String",
+        .layout = buffer_runtime::make_string_header_layout(),
+        .showCellHandler =
+            [](const RuntimeRef<StorageCell> &cell) {
+              return string_cell_payload(cell);
+            },
+        .boolCellHandler =
+            [](const RuntimeRef<StorageCell> &cell) {
+              return !string_cell_payload(cell).empty();
+            },
+        .cellBinaryOperators =
+            {
+                {RuntimeBinaryOperator::Add,
+                 [](const RuntimeRef<StorageCell> &self,
+                    const RuntimeRef<StorageCell> &other) -> RuntimeRef<StorageCell> {
+                   return make_runtime_string(string_cell_payload(self) + runtime_value_show(other));
+                 }},
+            },
+        .cellOrderHandler =
+            [](const RuntimeRef<StorageCell> &self, const RuntimeRef<StorageCell> &other) {
+              if (!runtime_is_string_value(other))
+              {
+                return Orders::UNORDERED;
+              }
+              auto left = string_cell_payload(self);
+              auto right = string_cell_payload(other);
+              if (left < right) return Orders::LT;
+              if (left > right) return Orders::GT;
+              return Orders::EQ;
+            },
+        .memberFunctions = {
+            {"size",
+             [](const NGSelf &self, const NGEnv &, const NGArgs &) -> RuntimeRef<StorageCell> {
+               return numeral_cell_from_value<uint32_t>(static_cast<uint32_t>(string_cell_payload(self).size()));
+             }},
+            {"charAt",
+             [](const NGSelf &self, const NGEnv &, const NGArgs &args) -> RuntimeRef<StorageCell> {
+               if (args.empty())
+               {
+                 throw RuntimeException("String.charAt() requires an index argument");
+               }
+               auto index = read_numeric_cell_as<int32_t>(args[0]);
+               if (index < 0)
+               {
+                 throw RuntimeException("Index out of bounds: " + std::to_string(index));
+               }
+               auto payload = string_cell_payload(self);
+               if (static_cast<size_t>(index) >= payload.size())
+               {
+                 throw RuntimeException("Index out of bounds: " + std::to_string(index));
+               }
+               return numeral_cell_from_value<int32_t>(static_cast<unsigned char>(payload[static_cast<size_t>(index)]));
+            }},
+            {"append",
+             [](const NGSelf &self, const NGEnv &, const NGArgs &args) -> RuntimeRef<StorageCell> {
+               if (args.empty())
+               {
+                 throw RuntimeException("String.append() requires a value argument");
+               }
+               return make_runtime_string(string_cell_payload(self) + runtime_value_show(args[0]));
+             }},
+        },
+    });
     return stringType;
   }
-
-  auto NGString::opPlus(RuntimeRef<NGObject> other) const -> RuntimeRef<NGObject>
-  {
-    return makert<NGString>(value + other->show());
-  }
-
 } // namespace NG::runtime

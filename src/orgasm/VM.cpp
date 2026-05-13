@@ -6,9 +6,16 @@
 #include <cstring>
 #include <limits>
 #include <module.hpp>
+#include <runtime/array_layout_access.hpp>
+#include <runtime/index_layout_access.hpp>
+#include <runtime/struct_layout_access.hpp>
+#include <runtime/tuple_layout_access.hpp>
+#include <runtime/value_access.hpp>
+#include <runtime/value_ops.hpp>
 
 namespace NG::orgasm
 {
+    using namespace NG::runtime::ops;
     namespace
     {
         constexpr uint16_t SWITCH_DEFAULT_TAG = std::numeric_limits<uint16_t>::max();
@@ -23,6 +30,32 @@ namespace NG::orgasm
             }
             return value;
         }
+
+        auto ensure_slot(Vec<RuntimeRef<StorageCell>> &slots, size_t index, const Str &prefix,
+                         StorageClass storageClass = StorageClass::FRAME) -> RuntimeRef<StorageCell>
+        {
+            if (index >= slots.size())
+            {
+                slots.resize(index + 1);
+            }
+            if (!slots[index])
+            {
+                slots[index] = unit_cell(storageClass);
+                slots[index]->name = prefix + std::to_string(index);
+            }
+            return slots[index];
+        }
+
+        void append_slot_roots(GCRootSet &roots, const Vec<RuntimeRef<StorageCell>> &slots)
+        {
+            for (const auto &slot : slots)
+            {
+                if (slot)
+                {
+                    roots.cells.push_back(slot);
+                }
+            }
+        }
     }
 
     void VM::register_native_raw(const Str &name, NativeFunction func)
@@ -30,10 +63,25 @@ namespace NG::orgasm
         native_functions[name] = std::move(func);
     }
 
-    auto VM::run(const BytecodeModule &module) -> RuntimeRef<NGObject>
+    auto VM::run(const BytecodeModule &module) -> RuntimeRef<StorageCell>
     {
         current_module = &module;
-        root_context = makert<NGContext>();
+        root_symbols = makert<RuntimeSymbolTable>();
+        auto gcRootProviderId = register_gc_root_provider([this]() {
+            auto roots = enumerate_symbol_roots(root_symbols);
+            append_slot_roots(roots, globals);
+            append_slot_roots(roots, stack);
+            for (const auto &frame : call_stack)
+            {
+                append_slot_roots(roots, frame.locals);
+            }
+            return roots;
+        });
+        struct RootProviderGuard
+        {
+            size_t id;
+            ~RootProviderGuard() { unregister_gc_root_provider(id); }
+        } rootProviderGuard{gcRootProviderId};
         // Size globals dynamically based on module needs
         size_t maxGlobal = 0;
         for (const auto &fun : module.functions) {
@@ -47,13 +95,18 @@ namespace NG::orgasm
                 }
             }
         }
-        globals.resize(std::max(maxGlobal, size_t{1}), makert<NGUnit>());
+        globals.resize(std::max(maxGlobal, size_t{1}));
+        for (size_t i = 0; i < globals.size(); ++i)
+        {
+            ensure_slot(globals, i, "global:", StorageClass::GLOBAL);
+        }
         
         // Register built-ins
-        root_context->define_function("not", [](NGSelf self, NGCtx ctx, NGInvCtx invCtx) {
-            if (invCtx->params.empty()) throw RuntimeException("not expects 1 arg");
-            ctx->retVal = NGObject::boolean(!invCtx->params[0]->boolValue());
-        });
+        root_symbols->functions["not"] = [](const NGSelf &, const NGEnv &,
+                                            const NGArgs &args) -> RuntimeRef<StorageCell> {
+            if (args.empty()) throw RuntimeException("not expects 1 arg");
+            return make_runtime_boolean(!runtime_value_bool(args[0]));
+        };
 
         for (const auto &type : module.types) {
             auto ngType = makert<NGType>();
@@ -72,45 +125,122 @@ namespace NG::orgasm
                 target = &(*it);
             }
             if (target->name != "__start__" && module.functions[0].name == "__start__") {
-                execute(module.functions[0], {});
+                execute_slots(module, module.functions[0], {});
             }
-            return execute(*target, {});
+            return execute_slots(module, *target, {});
         }
-        return makert<NGUnit>();
+        return unit_cell();
     }
 
-    auto VM::execute(const Function &fun, const Vec<RuntimeRef<NGObject>> &args) -> RuntimeRef<NGObject>
+    void VM::push_frame(const BytecodeModule &module, const Function &fun,
+                        const Vec<RuntimeRef<StorageCell>> &args)
     {
         Frame frame;
+        frame.module = &module;
+        frame.function = &fun;
         frame.ip = 0;
-        frame.args = args;
-        frame.locals.resize(std::max(static_cast<int32_t>(fun.num_locals), fun.num_params), makert<NGUnit>());
-        for (size_t i = 0; i < args.size(); ++i) frame.locals[i] = args[i];
+        frame.locals.resize(std::max(static_cast<int32_t>(fun.num_locals), fun.num_params));
+        for (size_t i = 0; i < frame.locals.size(); ++i)
+        {
+            ensure_slot(frame.locals, i, "local:");
+        }
+        auto clone_value_slot = [](const RuntimeRef<StorageCell> &source, const Str &name) -> RuntimeRef<StorageCell>
+        {
+            return clone_runtime_storage_cell(source, StorageClass::TEMPORARY, name);
+        };
+        for (size_t i = 0; i < args.size(); ++i)
+        {
+            runtime_copy_storage_cell(ensure_slot(frame.locals, i, "param:"), clone_value_slot(args[i], "param:"));
+        }
         
         call_stack.push_back(std::move(frame));
-        struct FrameGuard {
-            Vec<Frame> &frames;
-            bool released = false;
+    }
 
-            ~FrameGuard()
+    auto VM::execute_slots(const BytecodeModule &module, const Function &fun,
+                           const Vec<RuntimeRef<StorageCell>> &args) -> RuntimeRef<StorageCell>
+    {
+        const auto baseFrameDepth = call_stack.size();
+        push_frame(module, fun, args);
+        struct CallStackGuard
+        {
+            Vec<Frame> &frames;
+            size_t baseDepth;
+            ~CallStackGuard()
             {
-                if (!released && !frames.empty()) frames.pop_back();
+                if (frames.size() > baseDepth)
+                {
+                    frames.resize(baseDepth);
+                }
             }
-        } guard{call_stack};
-        size_t frame_idx = call_stack.size() - 1;
-        
-        auto pop = [this]() -> RuntimeRef<NGObject>
+        } callStackGuard{call_stack, baseFrameDepth};
+
+        auto clone_value_slot = [](const RuntimeRef<StorageCell> &source, const Str &name) -> RuntimeRef<StorageCell>
+        {
+            return clone_runtime_storage_cell(source, StorageClass::TEMPORARY, name);
+        };
+        auto push_slot_copy = [this, &clone_value_slot](const RuntimeRef<StorageCell> &source, const Str &name = "stack") -> RuntimeRef<StorageCell>
+        {
+            auto slot = clone_value_slot(source, name);
+            stack.push_back(slot);
+            return slot;
+        };
+        auto pop_slot = [this]() -> RuntimeRef<StorageCell>
         {
             if (stack.empty()) throw RuntimeException("Stack underflow");
             auto val = stack.back();
             stack.pop_back();
             return val;
         };
-
-        const auto &code = fun.code;
-        while (call_stack[frame_idx].ip < code.size())
+        auto access_target_slot = [](const RuntimeRef<StorageCell> &slot) -> RuntimeRef<StorageCell>
         {
-            size_t &ip = call_stack[frame_idx].ip;
+            auto current = slot;
+            while (current)
+            {
+                auto type = runtime_value_type(current);
+                if (!type || type->name != "ref")
+                {
+                    return current;
+                }
+                auto target = runtime_reference_target(current);
+                if (!target)
+                {
+                    throw RuntimeException("Cannot dereference non-reference value");
+                }
+                current = target;
+            }
+            return nullptr;
+        };
+        auto push_binary_result = [this](const RuntimeRef<StorageCell> &left, RuntimeBinaryOperator op,
+                                         const RuntimeRef<StorageCell> &right) {
+            auto result = dispatch_binary_operator(left, op, right);
+            if (!result)
+            {
+                throw RuntimeException("Unsupported binary operator");
+            }
+            stack.push_back(result);
+        };
+
+        while (call_stack.size() > baseFrameDepth)
+        {
+            auto &frame = call_stack.back();
+            const auto &activeModule = *frame.module;
+            const auto &activeFunction = *frame.function;
+            current_module = &activeModule;
+            const auto &code = activeFunction.code;
+
+            if (frame.ip >= code.size())
+            {
+                call_stack.pop_back();
+                auto result = unit_cell();
+                if (call_stack.size() == baseFrameDepth)
+                {
+                    return result;
+                }
+                push_slot_copy(result);
+                continue;
+            }
+
+            size_t &ip = frame.ip;
             OpCode op = static_cast<OpCode>(code[ip++]);
 
             auto read_u16 = [&code, &ip]() -> uint16_t
@@ -126,124 +256,284 @@ namespace NG::orgasm
                                 case OpCode::PUSH_I8:
                                 {
                                     int8_t val = static_cast<int8_t>(code[ip++]);
-                                    stack.push_back(makert<NGIntegral<int8_t>>(val));
+                                    push_slot_copy(numeral_cell_from_value<int8_t>(val));
                                     break;
                                 }
                                 case OpCode::PUSH_I16:
                                 {
                                     int16_t val = std::bit_cast<int16_t>(read_le_bytes<uint16_t>(code, ip));
-                                    stack.push_back(makert<NGIntegral<int16_t>>(val));
+                                    push_slot_copy(numeral_cell_from_value<int16_t>(val));
                                     break;
                                 }
                                 case OpCode::PUSH_I32:
                                 {
                                     int32_t val = std::bit_cast<int32_t>(read_le_bytes<uint32_t>(code, ip));
-                                    stack.push_back(makert<NGIntegral<int32_t>>(val));
+                                    push_slot_copy(numeral_cell_from_value<int32_t>(val));
                                     break;
                                 }
                                 case OpCode::PUSH_I64:
                                 {
                                     int64_t val = std::bit_cast<int64_t>(read_le_bytes<uint64_t>(code, ip));
-                                    stack.push_back(makert<NGIntegral<int64_t>>(val));
+                                    push_slot_copy(numeral_cell_from_value<int64_t>(val));
                                     break;
                                 }
                                 case OpCode::PUSH_U8:
                                 {
                                     uint8_t val = code[ip++];
-                                    stack.push_back(makert<NGIntegral<uint8_t>>(val));
+                                    push_slot_copy(numeral_cell_from_value<uint8_t>(val));
                                     break;
                                 }
                                 case OpCode::PUSH_U16:
                                 {
                                     uint16_t val = read_le_bytes<uint16_t>(code, ip);
-                                    stack.push_back(makert<NGIntegral<uint16_t>>(val));
+                                    push_slot_copy(numeral_cell_from_value<uint16_t>(val));
                                     break;
                                 }
                                 case OpCode::PUSH_U32:
                                 {
                                     uint32_t val = read_le_bytes<uint32_t>(code, ip);
-                                    stack.push_back(makert<NGIntegral<uint32_t>>(val));
+                                    push_slot_copy(numeral_cell_from_value<uint32_t>(val));
                                     break;
                                 }
                                 case OpCode::PUSH_U64:
                                 {
                                     uint64_t val = read_le_bytes<uint64_t>(code, ip);
-                                    stack.push_back(makert<NGIntegral<uint64_t>>(val));
+                                    push_slot_copy(numeral_cell_from_value<uint64_t>(val));
                                     break;
                                 }
                                 case OpCode::PUSH_F32:
                                 {
                                     float val = std::bit_cast<float>(read_le_bytes<uint32_t>(code, ip));
-                                    stack.push_back(makert<NGFloatingPoint<float>>(val));
+                                    push_slot_copy(numeral_cell_from_value<float>(val));
                                     break;
                                 }
                                 case OpCode::PUSH_F64:
                                 {
                                     double val = std::bit_cast<double>(read_le_bytes<uint64_t>(code, ip));
-                                    stack.push_back(makert<NGFloatingPoint<double>>(val));
+                                    push_slot_copy(numeral_cell_from_value<double>(val));
                                     break;
                                 }
-                                case OpCode::ADD: { auto b = pop(); auto a = pop(); stack.push_back(a->opPlus(b)); break; }
-                                case OpCode::SUB: { auto b = pop(); auto a = pop(); stack.push_back(a->opMinus(b)); break; }
-                                case OpCode::MUL: { auto b = pop(); auto a = pop(); stack.push_back(a->opTimes(b)); break; }
-                                case OpCode::DIV: { auto b = pop(); auto a = pop(); stack.push_back(a->opDividedBy(b)); break; }
-                                case OpCode::ADD_I32: { auto b = pop(); auto a = pop(); stack.push_back(a->opPlus(b)); break; }
-                                case OpCode::SUB_I32: { auto b = pop(); auto a = pop(); stack.push_back(a->opMinus(b)); break; }
-                                case OpCode::MUL_I32: { auto b = pop(); auto a = pop(); stack.push_back(a->opTimes(b)); break; }
-                                case OpCode::DIV_I32: { auto b = pop(); auto a = pop(); stack.push_back(a->opDividedBy(b)); break; }                            case OpCode::MOD_I32: { 
-                                auto b = pop(); auto a = pop(); 
-                                try { stack.push_back(a->opModulus(b)); }
+                                case OpCode::ADD: { auto b = pop_slot(); auto a = pop_slot(); push_binary_result(a, RuntimeBinaryOperator::Add, b); break; }
+                                case OpCode::SUB: { auto b = pop_slot(); auto a = pop_slot(); push_binary_result(a, RuntimeBinaryOperator::Subtract, b); break; }
+                                case OpCode::MUL: { auto b = pop_slot(); auto a = pop_slot(); push_binary_result(a, RuntimeBinaryOperator::Multiply, b); break; }
+                                case OpCode::DIV: { auto b = pop_slot(); auto a = pop_slot(); push_binary_result(a, RuntimeBinaryOperator::Divide, b); break; }
+                                case OpCode::ADD_I32: { auto b = pop_slot(); auto a = pop_slot(); push_binary_result(a, RuntimeBinaryOperator::Add, b); break; }
+                                case OpCode::SUB_I32: { auto b = pop_slot(); auto a = pop_slot(); push_binary_result(a, RuntimeBinaryOperator::Subtract, b); break; }
+                                case OpCode::MUL_I32: { auto b = pop_slot(); auto a = pop_slot(); push_binary_result(a, RuntimeBinaryOperator::Multiply, b); break; }
+                                case OpCode::DIV_I32: { auto b = pop_slot(); auto a = pop_slot(); push_binary_result(a, RuntimeBinaryOperator::Divide, b); break; }                            case OpCode::MOD_I32: { 
+                                auto b = pop_slot(); auto a = pop_slot(); 
+                                try { push_binary_result(a, RuntimeBinaryOperator::Modulus, b); }
                                 catch (const std::exception& ex) {
-                                    throw RuntimeException(Str(ex.what()) + " (MOD_I32: " + a->type()->name + " % " + b->type()->name + ")");
+                                    auto aType = runtime_value_type(a);
+                                    auto bType = runtime_value_type(b);
+                                    throw RuntimeException(Str(ex.what()) + " (MOD_I32: " +
+                                                           (aType ? aType->name : Str{"?"}) + " % " +
+                                                           (bType ? bType->name : Str{"?"}) + ")");
                                 }
                                 break; 
-                            }                case OpCode::LOAD_STR: { stack.push_back(makert<NGString>(current_module->strings[read_u16()])); break; }
-                case OpCode::LOAD_CONST: { stack.push_back(makert<NGIntegral<int64_t>>(current_module->constants[read_u16()])); break; }
-                case OpCode::EQ_I32: { auto b = pop(); auto a = pop(); stack.push_back(NGObject::boolean(a->opEquals(b))); break; }
-                case OpCode::LT_I32: { auto b = pop(); auto a = pop(); stack.push_back(NGObject::boolean(a->opLessThan(b))); break; }
-                case OpCode::GT_I32: { auto b = pop(); auto a = pop(); stack.push_back(NGObject::boolean(a->opGreaterThan(b))); break; }
-                case OpCode::PUSH_BOOL: stack.push_back(NGObject::boolean(code[ip++] != 0)); break;
-                case OpCode::NOT: { auto val = pop(); stack.push_back(NGObject::boolean(!val->boolValue())); break; }
+                            }                case OpCode::LOAD_STR: { stack.push_back(make_runtime_string(current_module->strings[read_u16()])); break; }
+                case OpCode::LOAD_CONST: { push_slot_copy(numeral_cell_from_value<int64_t>(current_module->constants[read_u16()])); break; }
+                case OpCode::EQ_I32: { auto b = pop_slot(); auto a = pop_slot(); stack.push_back(make_runtime_boolean(value_equals(a, b))); break; }
+                case OpCode::LT_I32: { auto b = pop_slot(); auto a = pop_slot(); stack.push_back(make_runtime_boolean(value_less_than(a, b))); break; }
+                case OpCode::GT_I32: { auto b = pop_slot(); auto a = pop_slot(); stack.push_back(make_runtime_boolean(value_greater_than(a, b))); break; }
+                case OpCode::PUSH_BOOL: stack.push_back(make_runtime_boolean(code[ip++] != 0)); break;
+                case OpCode::NOT: { auto val = pop_slot(); stack.push_back(make_runtime_boolean(!runtime_value_bool(val))); break; }
                 case OpCode::INSTANCE_OF:
                 {
                     uint16_t typeNameIdx = read_u16();
                     Str typeName = current_module->strings[typeNameIdx];
-                    auto val = pop();
+                    auto val = access_target_slot(pop_slot());
                     bool result = false;
-                    if (val->type() && val->type()->name == typeName) result = true;
-                    stack.push_back(NGObject::boolean(result));
+                    if (auto valueType = runtime_value_type(val); valueType && valueType->name == typeName) result = true;
+                    stack.push_back(make_runtime_boolean(result));
                     break;
                 }
-                case OpCode::NEG_I32: { auto val = pop(); auto numeric = std::dynamic_pointer_cast<NumeralBase>(val); if (numeric) stack.push_back(numeric->opNegate()); else throw RuntimeException("Not a number"); break; }
-                case OpCode::RETURN: {
-                    auto res = stack.empty() ? makert<NGUnit>() : pop();
-                    guard.released = true;
-                    call_stack.pop_back();
-                    return res;
+                case OpCode::NEG_I32: {
+                    auto val = pop_slot();
+                    stack.push_back(negate_numeric_cell(val));
+                    break;
                 }
-                case OpCode::LOAD_LOCAL: { stack.push_back(call_stack[frame_idx].locals[read_u16()]); break; }
-                case OpCode::LOAD_PARAM: { stack.push_back(call_stack[frame_idx].locals[read_u16()]); break; }
-                case OpCode::STORE_LOCAL: { uint16_t idx = read_u16(); auto &locals = call_stack[frame_idx].locals; if (idx >= locals.size()) locals.resize(idx + 1, makert<NGUnit>()); locals[idx] = stack.back(); break; }
-                case OpCode::LOAD_GLOBAL: { stack.push_back(globals[read_u16()]); break; }
-                case OpCode::STORE_GLOBAL: { uint16_t idx = read_u16(); if (idx >= globals.size()) globals.resize(idx + 1, makert<NGUnit>()); globals[idx] = stack.back(); break; }
-                            case OpCode::GET_TUPLE_ITEM:
+                case OpCode::RETURN: {
+                    auto res = stack.empty() ? unit_cell() : pop_slot();
+                    call_stack.pop_back();
+                    if (call_stack.size() == baseFrameDepth)
+                    {
+                        return res;
+                    }
+                    push_slot_copy(res);
+                    break;
+                }
+                case OpCode::LOAD_LOCAL: { push_slot_copy(ensure_slot(frame.locals, read_u16(), "local:")); break; }
+                case OpCode::LOAD_PARAM: { push_slot_copy(ensure_slot(frame.locals, read_u16(), "param:")); break; }
+                case OpCode::STORE_LOCAL:
+                {
+                    uint16_t idx = read_u16();
+                    runtime_copy_storage_cell(ensure_slot(frame.locals, idx, "local:"), stack.back());
+                    break;
+                }
+                case OpCode::LOAD_GLOBAL: { push_slot_copy(ensure_slot(globals, read_u16(), "global:", StorageClass::GLOBAL)); break; }
+                case OpCode::STORE_GLOBAL:
+                {
+                    uint16_t idx = read_u16();
+                    runtime_copy_storage_cell(ensure_slot(globals, idx, "global:", StorageClass::GLOBAL), stack.back());
+                    break;
+                }
+                case OpCode::MAKE_LOCAL_REF:
+                {
+                    uint16_t idx = read_u16();
+                    push_slot_copy(make_runtime_reference_cell(ensure_slot(frame.locals, idx, "local:"),
+                                                               "local:" + std::to_string(idx)));
+                    break;
+                }
+                case OpCode::MAKE_GLOBAL_REF:
+                {
+                    uint16_t idx = read_u16();
+                    push_slot_copy(make_runtime_reference_cell(ensure_slot(globals, idx, "global:", StorageClass::GLOBAL), "global:" + std::to_string(idx)));
+                    break;
+                }
+                case OpCode::MAKE_PROPERTY_REF:
+                {
+                    uint16_t fieldIdx = read_u16();
+                    auto target = pop_slot();
+                    auto resolvePropertySlot = [fieldIdx](const RuntimeRef<StorageCell> &structural) -> RuntimeRef<StorageCell> {
+                        auto slot = runtime_cell_slot_ref(structural, fieldIdx);
+                        if (!slot) throw RuntimeException("Property reference is not slot-backed");
+                        return slot;
+                    };
+                    auto structural = access_target_slot(target);
+                    push_slot_copy(make_runtime_reference_cell(resolvePropertySlot(structural), "field:" + std::to_string(fieldIdx)));
+                    break;
+                }
+                case OpCode::MAKE_PROPERTY_STR_REF:
+                {
+                    uint16_t nameIdx = read_u16();
+                    Str propName = current_module->strings[nameIdx];
+                    auto target = pop_slot();
+                    auto makePropertyRef = [&propName](const RuntimeRef<StorageCell> &structural) {
+                        if (auto index = structural_field_index(structural, propName))
+                        {
+                            if (auto slot = runtime_cell_slot_ref(structural, *index))
                             {
-                                auto idxObj = pop();
-                                auto tupleObj = pop();
-                                auto tuple = std::dynamic_pointer_cast<NGTuple>(tupleObj);
-                                auto idx = NGIntegral<int32_t>::valueOf(std::dynamic_pointer_cast<NumeralBase>(idxObj).get());
-                                stack.push_back((*tuple->items)[idx]);
-                                break;
+                                return make_runtime_reference_cell(slot, "property:" + propName);
                             }
-                            case OpCode::POP: pop(); break;
-                            case OpCode::DUP: stack.push_back(stack.back()); break;
-                            case OpCode::PUSH_UNIT: stack.push_back(makert<NGUnit>()); break;                case OpCode::CALL:
+                        }
+                        if (auto slot = structural_member_slot(structural, propName))
+                        {
+                            return make_runtime_reference_cell(slot, "property:" + propName);
+                        }
+                        throw RuntimeException("Property reference is not slot-backed: " + propName);
+                    };
+                    auto structural = access_target_slot(target);
+                    push_slot_copy(makePropertyRef(structural));
+                    break;
+                }
+                case OpCode::MAKE_INDEX_REF:
+                {
+                    auto index = pop_slot();
+                    auto target = pop_slot();
+                    auto makeIndexRef = [&index](const RuntimeRef<StorageCell> &container) {
+                        auto idx = read_numeric_cell_as<int32_t>(index);
+                        if (runtime_is_tuple_value(container))
+                        {
+                            if (auto slot = runtime_cell_slot_ref(container, static_cast<size_t>(idx)))
+                            {
+                                return make_runtime_reference_cell(slot, "index");
+                            }
+                            throw RuntimeException("Tuple index reference is not slot-backed");
+                        }
+                        if (runtime_is_array_value(container))
+                        {
+                            if (auto slot = runtime_cell_slot_ref(container, static_cast<size_t>(idx)))
+                            {
+                                return make_runtime_reference_cell(slot, "index");
+                            }
+                            throw RuntimeException("Array index reference is not slot-backed");
+                        }
+                        throw RuntimeException("Cannot reference index on non-indexable value");
+                    };
+                    push_slot_copy(makeIndexRef(access_target_slot(target)));
+                    break;
+                }
+                case OpCode::LOAD_REF:
+                {
+                    auto reference = pop_slot();
+                    if (!runtime_is_reference_value(reference)) throw RuntimeException("Cannot dereference non-reference value");
+                    auto target = runtime_reference_target(reference);
+                    if (!target) throw RuntimeException("Cannot dereference non-reference value");
+                    ensure_usable_cell(target);
+                    push_slot_copy(target);
+                    break;
+                }
+                case OpCode::STORE_REF:
+                {
+                    auto value = pop_slot();
+                    auto reference = pop_slot();
+                    if (!runtime_is_reference_value(reference)) throw RuntimeException("Cannot assign through non-reference value");
+                    auto target = runtime_reference_target(reference);
+                    if (!target) throw RuntimeException("Cannot assign through non-reference value");
+                    runtime_copy_storage_cell(target, value);
+                    push_slot_copy(value);
+                    break;
+                }
+                case OpCode::MOVE_LOCAL:
+                {
+                    uint16_t idx = read_u16();
+                    auto slot = ensure_slot(frame.locals, idx, "local:");
+                    ensure_usable_cell(slot);
+                    auto moved = make_storage_cell(slot->layout, StorageClass::TEMPORARY, "stack", slot->runtimeType);
+                    runtime_copy_storage_cell(moved, slot);
+                    mark_moved_storage_cell(slot);
+                    stack.push_back(moved);
+                    break;
+                }
+                case OpCode::MOVE_GLOBAL:
+                {
+                    uint16_t idx = read_u16();
+                    auto slot = ensure_slot(globals, idx, "global:", StorageClass::GLOBAL);
+                    ensure_usable_cell(slot);
+                    auto moved = make_storage_cell(slot->layout, StorageClass::TEMPORARY, "stack", slot->runtimeType);
+                    runtime_copy_storage_cell(moved, slot);
+                    mark_moved_storage_cell(slot);
+                    stack.push_back(moved);
+                    break;
+                }
+                case OpCode::MOVE_REF:
+                {
+                    auto reference = pop_slot();
+                    auto slot = runtime_reference_target(reference);
+                    if (!slot) throw RuntimeException("Cannot move from non-reference value");
+                    ensure_usable_cell(slot);
+                    auto moved = make_storage_cell(slot->layout, StorageClass::TEMPORARY, "stack", slot->runtimeType);
+                    runtime_copy_storage_cell(moved, slot);
+                    mark_moved_storage_cell(slot);
+                    stack.push_back(moved);
+                    break;
+                }
+                case OpCode::GET_TUPLE_ITEM:
+                {
+                    auto idxObj = pop_slot();
+                    auto tupleObj = access_target_slot(pop_slot());
+                    auto idx = read_numeric_cell_as<int32_t>(idxObj);
+                    if (!runtime_is_tuple_value(tupleObj)) throw RuntimeException("Not a tuple");
+                    if (auto slot = runtime_cell_slot_ref(tupleObj, static_cast<size_t>(idx)))
+                    {
+                        push_slot_copy(slot);
+                    }
+                    else
+                    {
+                        stack.push_back(unit_cell());
+                    }
+                    break;
+                }
+                            case OpCode::POP: pop_slot(); break;
+                            case OpCode::DUP: push_slot_copy(stack.back()); break;
+                            case OpCode::PUSH_UNIT: stack.push_back(unit_cell()); break;                case OpCode::CALL:
                 {
                     uint16_t funIndex = read_u16();
                     uint16_t numArgs = read_u16();
-                    Vec<RuntimeRef<NGObject>> callArgs;
-                    for (int i = 0; i < numArgs; ++i) callArgs.insert(callArgs.begin(), pop());
-                    stack.push_back(execute(current_module->functions[funIndex], callArgs));
+                    Vec<RuntimeRef<StorageCell>> callArgs;
+                    for (int i = 0; i < numArgs; ++i) callArgs.insert(callArgs.begin(), pop_slot());
+                    push_frame(*current_module, current_module->functions[funIndex], callArgs);
                     break;
                 }
                 case OpCode::CALL_IMPORT:
@@ -271,27 +561,14 @@ namespace NG::orgasm
                         
                         if (funIdx == -1) throw RuntimeException("Function " + imp.symbolName + " not found in module " + imp.moduleName);
                         
-                        Vec<RuntimeRef<NGObject>> callArgs;
-                        for (int i = 0; i < numArgs; ++i) callArgs.insert(callArgs.begin(), pop());
+                        Vec<RuntimeRef<StorageCell>> callArgs;
+                        for (int i = 0; i < numArgs; ++i) callArgs.insert(callArgs.begin(), pop_slot());
                         
-                        auto *saved_module = current_module;
-                        struct ModuleGuard
-                        {
-                            const BytecodeModule *&current;
-                            const BytecodeModule *saved;
-
-                            ~ModuleGuard()
-                            {
-                                current = saved;
-                            }
-                        } module_guard{current_module, saved_module};
-                        current_module = &otherModule;
-                        
-                        stack.push_back(execute(otherModule.functions[funIdx], callArgs));
+                        push_frame(otherModule, otherModule.functions[funIdx], callArgs);
                     } else {
                         // Try native function fallback
-                        Vec<RuntimeRef<NGObject>> callArgs;
-                        for (int i = 0; i < numArgs; ++i) callArgs.insert(callArgs.begin(), pop());
+                        Vec<RuntimeRef<StorageCell>> callArgs;
+                        for (int i = 0; i < numArgs; ++i) callArgs.insert(callArgs.begin(), pop_slot());
                         if (native_functions.contains(imp.symbolName)) {
                             stack.push_back(native_functions[imp.symbolName](callArgs));
                         } else {
@@ -303,13 +580,13 @@ namespace NG::orgasm
                 case OpCode::GET_PROPERTY:
             {
                 uint16_t fieldIdx = read_u16();
-                auto target = pop();
-                if (auto structural = std::dynamic_pointer_cast<NGStructuralObject>(target)) {
-                    if (fieldIdx < structural->fields.size()) {
-                        stack.push_back(structural->fields[fieldIdx]);
-                    } else {
-                        throw RuntimeException("Field index out of bounds: " + std::to_string(fieldIdx));
-                    }
+                        auto target = access_target_slot(pop_slot());
+                        if (runtime_is_structural_value(target)) {
+                            if (auto slot = runtime_structural_field_slot(target, fieldIdx)) {
+                                push_slot_copy(slot);
+                            } else {
+                                throw RuntimeException("Field index out of bounds: " + std::to_string(fieldIdx));
+                            }
                 } else {
                     throw RuntimeException("Cannot get property from non-object");
                 }
@@ -318,131 +595,140 @@ namespace NG::orgasm
                 case OpCode::SET_PROPERTY:
             {
                 uint16_t fieldIdx = read_u16();
-                auto val = pop();
-                auto target = pop();
-                if (auto structural = std::dynamic_pointer_cast<NGStructuralObject>(target)) {
-                    if (fieldIdx >= structural->fields.size()) structural->fields.resize(fieldIdx + 1, makert<NGUnit>());
-                    structural->fields[fieldIdx] = val;
-                    // Also update properties map for compatibility
-                    if (structural->customizedType && fieldIdx < structural->customizedType->properties.size()) {
-                        structural->properties[structural->customizedType->properties[fieldIdx]] = val;
+                auto val = pop_slot();
+                auto target = access_target_slot(pop_slot());
+                if (runtime_is_structural_value(target)) {
+                    if (auto slot = runtime_structural_field_slot(target, fieldIdx)) {
+                        runtime_copy_storage_cell(slot, val);
+                    } else {
+                        throw RuntimeException("Field index out of bounds: " + std::to_string(fieldIdx));
                     }
                 } else {
                     throw RuntimeException("Cannot set property on non-object");
                 }
-                // Push the target (object) back so subsequent property sets work
-                stack.push_back(target);
+                push_slot_copy(target);
                 break;
             }
                 case OpCode::GET_PROPERTY_STR:
             {
                 uint16_t nameIdx = read_u16();
                 Str propName = current_module->strings[nameIdx];
-                auto target = pop();
-                if (auto tup = std::dynamic_pointer_cast<NGTuple>(target)) {
+                auto target = access_target_slot(pop_slot());
+                if (runtime_is_tuple_value(target)) {
                     if (propName == "size") {
-                        stack.push_back(makert<NGIntegral<int32_t>>(static_cast<int32_t>(tup->items->size())));
+                        push_slot_copy(numeral_cell_from_value<uint32_t>(static_cast<uint32_t>(runtime_tuple_length(target))));
                     } else {
-                        throw RuntimeException("Tuple has no property: " + propName);
-                    }
-                } else if (auto structural = std::dynamic_pointer_cast<NGStructuralObject>(target)) {
-                    // Try fields first, then properties map
-                    if (structural->customizedType) {
-                        auto &props = structural->customizedType->properties;
-                        for (size_t i = 0; i < props.size(); ++i) {
-                            if (i < structural->fields.size() && props[i] == propName) {
-                                stack.push_back(structural->fields[i]);
-                                goto next_instruction;
+                        try {
+                            auto slot = runtime_cell_slot_ref(target, std::stoul(propName));
+                            if (!slot) {
+                                throw RuntimeException("Tuple has no property: " + propName);
                             }
+                            push_slot_copy(slot);
+                        } catch (const std::exception &) {
+                            throw RuntimeException("Tuple has no property: " + propName);
                         }
                     }
-                    if (structural->properties.contains(propName)) {
-                        stack.push_back(structural->properties[propName]);
+                } else if (runtime_is_structural_value(target)) {
+                    if (auto index = runtime_structural_field_index(target, propName)) {
+                        push_slot_copy(runtime_cell_slot_ref(target, *index));
+                    } else if (auto slot = runtime_structural_property_slot(target, propName)) {
+                        push_slot_copy(slot);
                     } else {
                         throw RuntimeException("Property not found: " + propName);
                     }
                 } else {
                     throw RuntimeException("Cannot get property from non-object");
                 }
-                next_instruction:
                 break;
             }
                 case OpCode::SET_PROPERTY_STR:
             {
                 uint16_t nameIdx = read_u16();
                 Str propName = current_module->strings[nameIdx];
-                auto val = pop();
-                auto target = pop();
-                if (auto structural = std::dynamic_pointer_cast<NGStructuralObject>(target)) {
-                    structural->properties[propName] = val;
-                    // Also update fields if we can find the index
-                    if (structural->customizedType) {
-                        auto &props = structural->customizedType->properties;
-                        for (size_t i = 0; i < props.size(); ++i) {
-                            if (props[i] == propName) {
-                                if (i >= structural->fields.size()) structural->fields.resize(i + 1, makert<NGUnit>());
-                                structural->fields[i] = val;
-                                break;
-                            }
-                        }
+                auto val = pop_slot();
+                auto target = access_target_slot(pop_slot());
+                if (runtime_is_structural_value(target)) {
+                    if (auto index = runtime_structural_field_index(target, propName)) {
+                        runtime_copy_storage_cell(runtime_structural_field_slot(target, *index), val);
+                    } else {
+                        runtime_copy_storage_cell(runtime_structural_property_slot_or_create(target, propName), val);
                     }
                 } else {
                     throw RuntimeException("Cannot set property on non-object");
                 }
-                stack.push_back(val);
+                push_slot_copy(val);
                 break;
             }
-            case OpCode::NEW_ARRAY:
+                case OpCode::NEW_ARRAY:
                 {
-                    uint16_t num = read_u16(); Vec<RuntimeRef<NGObject>> elems;
-                    for (int i = 0; i < num; ++i) elems.insert(elems.begin(), pop());
-                    stack.push_back(makert<NGArray>(elems));
+                    uint16_t num = read_u16(); Vec<RuntimeRef<StorageCell>> elems;
+                    for (int i = 0; i < num; ++i) elems.insert(elems.begin(), pop_slot());
+                    push_slot_copy(make_runtime_array_cell(elems));
                     break;
                 }
                 case OpCode::NEW_TUPLE:
                 {
-                    uint16_t num = read_u16(); Vec<RuntimeRef<NGObject>> elems;
-                    for (int i = 0; i < num; ++i) elems.insert(elems.begin(), pop());
-                    stack.push_back(makert<NGTuple>(elems));
+                    uint16_t num = read_u16(); Vec<RuntimeRef<StorageCell>> elems;
+                    for (int i = 0; i < num; ++i) elems.insert(elems.begin(), pop_slot());
+                    push_slot_copy(make_runtime_tuple_cell(elems));
                     break;
                 }
                 case OpCode::GET_INDEX:
                 {
-                    auto idx = pop(); auto obj = pop();
-                    stack.push_back(obj->opIndex(idx));
+                    auto idx = pop_slot();
+                    auto obj = access_target_slot(pop_slot());
+                    push_slot_copy(runtime_index_slot(obj, idx));
                     break;
                 }
                 case OpCode::SET_INDEX:
                 {
-                    auto val = pop(); auto idx = pop(); auto obj = pop();
-                    stack.push_back(obj->opIndex(idx, val));
+                    auto val = pop_slot();
+                    auto idx = pop_slot();
+                    auto obj = access_target_slot(pop_slot());
+                    push_slot_copy(runtime_index_write(obj, idx, val));
                     break;
                 }
-                                case OpCode::NEW_OBJECT:
+                case OpCode::NEW_OBJECT:
                                 {
                                     uint16_t typeStrIdx = read_u16();
                                     Str typeName = current_module->strings[typeStrIdx];
                                     uint16_t numFields = read_u16();
 
-                                    auto obj = makert<NGStructuralObject>();
-                                    obj->fields.resize(numFields, makert<NGUnit>());
-
-                                    // Pop values from stack (in reverse order)
+                                    Vec<RuntimeRef<StorageCell>> fields(static_cast<size_t>(numFields));
                                     for (int i = numFields - 1; i >= 0; --i)
                                     {
-                                        obj->fields[i] = pop();
+                                        fields[static_cast<size_t>(i)] = pop_slot();
                                     }
 
-                                    // Set type
                                     if (root_types.contains(typeName)) {
-                                        obj->customizedType = root_types[typeName];
-                                        // Populate properties map from fields for compatibility
-                                        auto &typeProps = root_types[typeName]->properties;
-                                        for (size_t i = 0; i < typeProps.size() && i < numFields; ++i) {
-                                            obj->properties[typeProps[i]] = obj->fields[i];
+                                        push_slot_copy(allocate_heap_cell(
+                                            make_runtime_structural_cell(root_types[typeName], fields), "heap:" + typeName));
+                                        break;
+                                    }
+
+                                    bool foundVariant = false;
+                                    for (const auto &type : current_module->types) {
+                                        for (size_t variantIndex = 0; variantIndex < type.variants.size(); ++variantIndex) {
+                                            const auto &variant = type.variants[variantIndex];
+                                            if (variant.name != typeName) {
+                                                continue;
+                                            }
+
+                                            push_slot_copy(allocate_heap_cell(
+                                                make_runtime_tagged_cell(type.name, variant.name, static_cast<int32_t>(variantIndex),
+                                                                         fields, variant.payloadFields),
+                                                "heap:" + typeName));
+                                            foundVariant = true;
+                                            break;
+                                        }
+                                        if (foundVariant) {
+                                            break;
                                         }
                                     }
-                                    stack.push_back(obj);
+
+                                    if (!foundVariant) {
+                                        throw RuntimeException("Unknown type for new object: " + typeName);
+                                    }
                                     break;
                                 }
                 case OpCode::INVOKE_MEMBER:
@@ -450,11 +736,11 @@ namespace NG::orgasm
                     uint16_t nameIdx = read_u16();
                     uint16_t numArgs = read_u16();
                     Str memberName = current_module->strings[nameIdx];
-                    Vec<RuntimeRef<NGObject>> callArgs;
-                    for (int i = 0; i < numArgs; ++i) callArgs.insert(callArgs.begin(), pop());
-                    auto target = pop();
+                    Vec<RuntimeRef<StorageCell>> callArgs;
+                    for (int i = 0; i < numArgs; ++i) callArgs.insert(callArgs.begin(), pop_slot());
+                    auto targetSlot = access_target_slot(pop_slot());
                     
-                    Str typeName = target->type() ? target->type()->name : "Object";
+                    Str typeName = runtime_value_type(targetSlot) ? runtime_value_type(targetSlot)->name : "Object";
                     Str fullFunName = typeName + "." + memberName;
                     
                     int32_t funIdx = -1;
@@ -463,12 +749,17 @@ namespace NG::orgasm
                     }
                     
                     if (funIdx != -1) {
-                        callArgs.insert(callArgs.begin(), target);
-                        stack.push_back(execute(current_module->functions[funIdx], callArgs));
+                        auto selfSlot = clone_value_slot(targetSlot, "arg:self");
+                        selfSlot->name = "arg:self";
+                        callArgs.insert(callArgs.begin(), selfSlot);
+                        push_frame(*current_module, current_module->functions[funIdx], callArgs);
                     } else {
-                        auto invCtx = makert<NGInvocationContext>();
-                        invCtx->target = target; invCtx->params = std::move(callArgs);
-                        stack.push_back(target->respond(memberName, root_context, invCtx));
+                        NGArgs memberArgs;
+                        memberArgs.reserve(callArgs.size());
+                        for (const auto &slot : callArgs) {
+                            memberArgs.push_back(clone_value_slot(slot, "arg:" + std::to_string(memberArgs.size())));
+                        }
+                        push_slot_copy(runtime_value_respond_slot(targetSlot, memberName, make_runtime_env(root_symbols), memberArgs));
                     }
                     break;
                 }
@@ -479,50 +770,59 @@ namespace NG::orgasm
                     Vec<uint8_t> flags(num);
                     for (int i = 0; i < num; ++i) flags[i] = code[ip++];
                     
-                    Vec<RuntimeRef<NGObject>> segments;
-                    for (int i = 0; i < num; ++i) segments.insert(segments.begin(), pop());
+                    Vec<RuntimeRef<StorageCell>> segments;
+                    for (int i = 0; i < num; ++i) segments.insert(segments.begin(), pop_slot());
                     
-                    Vec<RuntimeRef<NGObject>> elems;
+                    Vec<RuntimeRef<StorageCell>> elems;
                     for (int i = 0; i < num; ++i) {
                         if (flags[i] == 1) { // Spread
                             auto segment = segments[i];
-                            if (auto tup = std::dynamic_pointer_cast<NGTuple>(segment)) {
-                                elems.insert(elems.end(), tup->items->begin(), tup->items->end());
-                            } else if (auto arr = std::dynamic_pointer_cast<NGArray>(segment)) {
-                                elems.insert(elems.end(), arr->items->begin(), arr->items->end());
+                            if (runtime_is_tuple_value(segment)) {
+                                auto values = runtime_tuple_slots(segment);
+                                for (const auto &slot : values) {
+                                    elems.push_back(clone_value_slot(slot, "spread:" + std::to_string(elems.size())));
+                                }
+                            } else if (runtime_is_array_value(segment)) {
+                                auto values = runtime_array_slots(segment);
+                                for (const auto &slot : values) {
+                                    elems.push_back(clone_value_slot(slot, "spread:" + std::to_string(elems.size())));
+                                }
                             } else {
                                 throw RuntimeException("Cannot spread non-iterable");
                             }
                         } else {
-                            elems.push_back(segments[i]);
+                            elems.push_back(clone_value_slot(segments[i], "spread:" + std::to_string(elems.size())));
                         }
                     }
                     
-                    if (op == OpCode::NEW_TUPLE_SPREAD) stack.push_back(makert<NGTuple>(elems));
-                    else stack.push_back(makert<NGArray>(elems));
+                    if (op == OpCode::NEW_TUPLE_SPREAD) push_slot_copy(make_runtime_tuple_cell(elems));
+                    else push_slot_copy(make_runtime_array_cell(elems));
                     break;
                 }
                 case OpCode::GET_TUPLE_REST:
                 {
-                    auto idxObj = pop();
-                    auto tupleObj = pop();
-                    auto tuple = std::dynamic_pointer_cast<NGTuple>(tupleObj);
-                    auto idx = NGIntegral<int32_t>::valueOf(std::dynamic_pointer_cast<NumeralBase>(idxObj).get());
+                    auto idxObj = pop_slot();
+                    auto tupleObj = pop_slot();
+                    auto idx = read_numeric_cell_as<int32_t>(idxObj);
                     
-                    Vec<RuntimeRef<NGObject>> rest;
-                    if (idx < tuple->items->size()) {
-                        rest.insert(rest.end(), tuple->items->begin() + idx, tuple->items->end());
+                    Vec<RuntimeRef<StorageCell>> rest;
+                    if (!runtime_is_tuple_value(tupleObj)) throw RuntimeException("Not a tuple");
+                    auto values = runtime_tuple_slots(tupleObj);
+                    if (idx >= 0 && idx < static_cast<decltype(idx)>(values.size())) {
+                        for (auto it = values.begin() + idx; it != values.end(); ++it) {
+                            rest.push_back(clone_value_slot(*it, "rest:" + std::to_string(rest.size())));
+                        }
                     }
-                    stack.push_back(makert<NGTuple>(rest));
+                    push_slot_copy(make_runtime_tuple_cell(rest));
                     break;
                 }
-                case OpCode::LSHIFT: { auto b = pop(); auto a = pop(); stack.push_back(a->opLShift(b)); break; }
-                case OpCode::RSHIFT: { auto b = pop(); auto a = pop(); stack.push_back(a->opRShift(b)); break; }
+                case OpCode::LSHIFT: { auto b = pop_slot(); auto a = pop_slot(); push_binary_result(a, RuntimeBinaryOperator::LShift, b); break; }
+                case OpCode::RSHIFT: { auto b = pop_slot(); auto a = pop_slot(); push_slot_copy(value_rshift(a, b)); break; }
                 case OpCode::WRAP_NEWTYPE:
                 {
                     uint16_t typeIdx = read_u16();
                     Str typeName = current_module->strings[typeIdx];
-                    auto value = pop();
+                    auto value = pop_slot();
                     RuntimeRef<NGType> newType;
                     if (root_types.contains(typeName)) {
                         newType = root_types[typeName];
@@ -531,14 +831,14 @@ namespace NG::orgasm
                         newType->name = typeName;
                         root_types[typeName] = newType;
                     }
-                    stack.push_back(makert<NGNewType>(newType, value));
+                    push_slot_copy(make_runtime_newtype_cell(newType, value));
                     break;
                 }
                 case OpCode::UNWRAP_NEWTYPE:
                 {
-                    auto value = pop();
-                    if (auto nt = std::dynamic_pointer_cast<NGNewType>(value)) {
-                        stack.push_back(nt->wrapped);
+                    auto value = pop_slot();
+                    if (auto wrapped = runtime_cell_slot_ref(value, 0)) {
+                        push_slot_copy(wrapped);
                     } else {
                         throw RuntimeException("Cannot unwrap non-newtype value");
                     }
@@ -547,13 +847,13 @@ namespace NG::orgasm
                 case OpCode::PRINT:
             {
                 uint16_t numArgs = read_u16();
-                Vec<RuntimeRef<NGObject>> args_to_print;
-                for (int i = 0; i < numArgs; ++i) args_to_print.push_back(pop());
+                Vec<RuntimeRef<StorageCell>> args_to_print;
+                for (int i = 0; i < numArgs; ++i) args_to_print.push_back(pop_slot());
                 for (int i = static_cast<int>(args_to_print.size()) - 1; i >= 0; --i) {
-                    std::cout << args_to_print[i]->show() << (i == 0 ? "" : ", ");
+                    std::cout << runtime_value_show(args_to_print[i]) << (i == 0 ? "" : ", ");
                 }
                 std::cout << std::endl;
-                stack.push_back(makert<NGUnit>());
+                stack.push_back(unit_cell());
                 break;
             }
                 case OpCode::NATIVE_CALL:
@@ -561,8 +861,8 @@ namespace NG::orgasm
                     uint16_t nameIdx = read_u16();
                     uint16_t numArgs = read_u16();
                     Str funcName = current_module->strings[nameIdx];
-                    Vec<RuntimeRef<NGObject>> callArgs;
-                    for (int i = 0; i < numArgs; ++i) callArgs.insert(callArgs.begin(), pop());
+                    Vec<RuntimeRef<StorageCell>> callArgs;
+                    for (int i = 0; i < numArgs; ++i) callArgs.insert(callArgs.begin(), pop_slot());
                     if (!native_functions.contains(funcName)) {
                         throw RuntimeException("Native function not registered: " + funcName);
                     }
@@ -570,62 +870,64 @@ namespace NG::orgasm
                     break;
                 }
                 case OpCode::ASSERT: { 
-                    auto val = pop(); 
-                    if (!val->boolValue()) {
-                        std::cerr << "Assertion Failed. Value: " << val->show() << std::endl;
+                    auto val = pop_slot(); 
+                    if (!runtime_value_bool(val)) {
+                        std::cerr << "Assertion Failed. Value: " << runtime_value_show(val) << std::endl;
                         throw AssertionException(); 
                     }
-                    stack.push_back(makert<NGUnit>()); 
+                    stack.push_back(unit_cell()); 
                     break; 
                 }
                 case OpCode::JUMP: { int32_t target = std::bit_cast<int32_t>(read_le_bytes<uint32_t>(code, ip)); ip = static_cast<size_t>(target); break; }
-                case OpCode::JUMP_IF_FALSE: { int32_t target = std::bit_cast<int32_t>(read_le_bytes<uint32_t>(code, ip)); if (!pop()->boolValue()) ip = static_cast<size_t>(target); break; }
+                case OpCode::JUMP_IF_FALSE: { int32_t target = std::bit_cast<int32_t>(read_le_bytes<uint32_t>(code, ip)); if (!runtime_value_bool(pop_slot())) ip = static_cast<size_t>(target); break; }
 
                 case OpCode::CONSTRUCT_TAGGED: {
                     uint16_t typeIdx = read_u16();
                     uint16_t variantIdx = read_u16();
                     uint16_t numPayload = read_u16();
-                    Vec<RuntimeRef<NGObject>> payload;
+                    Vec<RuntimeRef<StorageCell>> payload;
                     payload.reserve(numPayload);
                     for (uint16_t i = 0; i < numPayload; ++i) {
-                        payload.push_back(pop());
+                        payload.push_back(pop_slot());
                     }
                     std::reverse(payload.begin(), payload.end());
                     auto &type = current_module->types[typeIdx];
-                    auto tagged = makert<NGTaggedValue>(
+                    auto tagged = make_runtime_tagged_cell(
                         type.name,
                         type.variants[variantIdx].name,
                         static_cast<int32_t>(variantIdx),
-                        std::move(payload));
-                    stack.push_back(std::move(tagged));
+                        std::move(payload),
+                        type.variants[variantIdx].payloadFields);
+                    push_slot_copy(std::move(tagged));
                     break;
                 }
 
                 case OpCode::GET_TAG: {
-                    auto val = pop();
-                    auto *tagged = dynamic_cast<NGTaggedValue*>(val.get());
-                    if (!tagged) throw IllegalTypeException("GET_TAG: not a tagged value");
-                    stack.push_back(makert<NGIntegral<int32_t>>(tagged->variantIndex));
+                    auto tagged = access_target_slot(pop_slot());
+                    auto type = runtime_value_type(tagged);
+                    if (!type || type->layout.kind != LayoutKind::TAGGED_UNION) throw IllegalTypeException("GET_TAG: not a tagged value");
+                    push_slot_copy(numeral_cell_from_value<int32_t>(type->variantIndex));
                     break;
                 }
 
                 case OpCode::GET_PAYLOAD: {
                     uint16_t fieldIdx = read_u16();
-                    auto val = pop();
-                    auto *tagged = dynamic_cast<NGTaggedValue*>(val.get());
-                    if (!tagged) throw IllegalTypeException("GET_PAYLOAD: not a tagged value");
-                    if (fieldIdx >= tagged->payload.size()) throw IllegalTypeException("GET_PAYLOAD: index out of bounds");
-                    stack.push_back(tagged->payload[fieldIdx]);
+                    auto tagged = access_target_slot(pop_slot());
+                    auto type = runtime_value_type(tagged);
+                    if (!type || type->layout.kind != LayoutKind::TAGGED_UNION) throw IllegalTypeException("GET_PAYLOAD: not a tagged value");
+                    auto payload = runtime_cell_slot_refs(tagged);
+                    if (fieldIdx >= payload.size()) throw IllegalTypeException("GET_PAYLOAD: index out of bounds");
+                    push_slot_copy(payload[fieldIdx]);
                     break;
                 }
 
                 case OpCode::SWITCH_TAG: {
                     uint16_t numCases = read_u16();
                     // Peek at the tagged value on the stack (don't pop — case bodies need it)
-                    auto &taggedRef = stack.back();
-                    auto *tagged = dynamic_cast<NGTaggedValue*>(taggedRef.get());
-                    if (!tagged) throw IllegalTypeException("SWITCH_TAG: not a tagged value");
-                    int32_t tagVal = tagged->variantIndex;
+                    auto taggedRef = access_target_slot(stack.back());
+                    auto taggedType = runtime_value_type(taggedRef);
+                    if (!taggedType || taggedType->layout.kind != LayoutKind::TAGGED_UNION) throw IllegalTypeException("SWITCH_TAG: not a tagged value");
+                    int32_t tagVal = taggedType->variantIndex;
                     // Read jump table and find matching case
                     bool found = false;
                     int32_t defaultAddr = -1;
@@ -655,12 +957,10 @@ namespace NG::orgasm
                                            std::to_string(ip - 1));
                 }
             } catch (const std::exception& ex) {
-                std::cerr << "Error at ip=" << ip-1 << " op=" << static_cast<int>(op) << " in " << fun.name << ": " << ex.what() << std::endl;
+                std::cerr << "Error at ip=" << ip-1 << " op=" << static_cast<int>(op) << " in " << activeFunction.name << ": " << ex.what() << std::endl;
                 throw;
             }
         }
-        guard.released = true;
-        call_stack.pop_back();
-        return makert<NGUnit>();
+        return unit_cell();
     }
 } // namespace NG::orgasm

@@ -1,94 +1,79 @@
+type Node = Cell(content: i32, _next: ref<Node>) | Empty;
 
-type None {
+fun appendNode(current: ref<Node>, value: i32) -> unit {
+    switch (*current) {
+        case Empty {
+            *current := Cell(value, new Empty {});
+        }
+        case Cell(content, nextRef) {
+            appendNode(nextRef, value);
+        }
+    }
 }
 
-type Node {
-    _next;
-    content: i32;
-
-    fun hasNext() -> bool {
-        return not(self._next is None);
+fun restToString(nextRef: ref<Node>) -> string {
+    switch (*nextRef) {
+        case Empty {
+            return "]";
+        }
+        case Cell(content, tailRef) {
+            val text = ", ".append(content);
+            val suffix = restToString(tailRef);
+            return text.append(suffix);
+        }
     }
+}
 
-    fun getNext() {
-        return self._next;
+fun nodeToString(node: Node) -> string {
+    switch (node) {
+        case Empty {
+            return "[]";
+        }
+        case Cell(content, nextRef) {
+            val text = "[".append(content);
+            val suffix = restToString(nextRef);
+            return text.append(suffix);
+        }
+    }
+}
+
+fun printNodes(node: Node) -> unit {
+    switch (node) {
+        case Empty {
+            return;
+        }
+        case Cell(content, nextRef) {
+            print(content);
+            printNodes(*nextRef);
+        }
     }
 }
 
 type List {
-    node;
+    node: ref<Node>;
     size: i32;
 
-    fun append(value) {
-        print("append", value, self);
+    fun append(value: i32) -> unit {
         self.size := self.size + 1;
-        if (self.node is None) {
-            self.node := new Node {
-                _next: new None {},
-                content: value
-            };
-        } else if (!self.node.hasNext()) {
-            self.node._next := new Node {
-                _next: new None {},
-                content: value
-            };
-        } else {
-            loop current = self.node {
-                if (current is None) { 
-                    return;
-                }
-                if (!current.hasNext()) {
-                    current._next := new Node {
-                        _next: current._next,
-                        content: value
-                    };
-                } else {
-                    next current.getNext();
-                }
-            }
-        }
+        appendNode(self.node, value);
     }
 
-
-    fun hasNext() {
-        return !(self.node is None);
-    }
-
-    fun getNext() {
-        return self.node;
-    }
-
-    fun toString() {
-        loop i = self, text = "[" {
-            if (i.hasNext()) {
-                val v = i.getNext();
-                if (v.hasNext()) {
-                    next v, text.append(v.content).append(", ");
-                }
-                next v, text.append(v.content);
-            }
-            return text.append("]");
-        }
+    fun toString() -> string {
+        return nodeToString(*self.node);
     }
 }
 
-val x = new List { node: new None {}, size: 0 };
+val numbers: ref<List> = new List { node: new Empty {}, size: 0 };
 
-x.append(1);
-x.append(2);
-x.append(3);
+numbers.append(1);
+numbers.append(2);
+numbers.append(3);
 
-print(x);
-print(x.toString());
+print(numbers);
+print(numbers.toString());
 
-fun printList(list) {
-    loop i = list {
-        if (i.hasNext()) {
-            val v = i.getNext();
-            print(v.content);
-            next v;
-        }
-    }
+fun printList(list: ref<List>) -> unit {
+    printNodes(*list.node);
 }
 
-printList(x);
+printList(numbers);

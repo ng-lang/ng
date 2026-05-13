@@ -237,7 +237,7 @@ TEST_CASE("const if should evaluate typeof query properties", "[const_if][TypeCh
         }
 
         fun main() {
-            val box: Box<i32> = new Box<i32> { value: 1 };
+            val box: ref<Box<i32>> = new Box<i32> { value: 1 };
             const if (typeof(box.value).name == "i32") {
                 return 1;
             } else {

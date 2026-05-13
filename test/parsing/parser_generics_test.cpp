@@ -91,7 +91,8 @@ TEST_CASE("parser should parse suffix generic with numeric type: i32 array", "[P
   destroyast(ast);
 }
 
-TEST_CASE("parser should parse suffix generic with left-associative nesting: i32 array Optional", "[Parser][Generics][Suffix]")
+TEST_CASE("parser should parse suffix generic with left-associative nesting: i32 array Optional",
+          "[Parser][Generics][Suffix]")
 {
   // `i32 array Optional` desugars to `Optional<array<i32>>`
   auto ast = parse("val x: i32 array Optional = unit;");
@@ -147,7 +148,8 @@ TEST_CASE("parser should parse multi-param suffix generic: (string, i32) Map", "
   destroyast(ast);
 }
 
-TEST_CASE("parser should parse multi-param suffix with left-associative nesting: (string, i32) Map Optional", "[Parser][Generics][Suffix]")
+TEST_CASE("parser should parse multi-param suffix with left-associative nesting: (string, i32) Map Optional",
+          "[Parser][Generics][Suffix]")
 {
   // `(string, i32) Map Optional` desugars to `Optional<Map<string, i32>>`
   auto ast = parse("val m: (string, i32) Map Optional = unit;");
@@ -300,7 +302,8 @@ TEST_CASE("parser should parse generic function with name-before-angle-bracket s
   destroyast(ast);
 }
 
-TEST_CASE("parser should parse generic function with name-before-angle-bracket and multiple params", "[Parser][Generics]")
+TEST_CASE("parser should parse generic function with name-before-angle-bracket and multiple params",
+          "[Parser][Generics]")
 {
   auto ast = parse("fun convert<A, B>(v: A) -> B { return v; }");
   REQUIRE(ast != nullptr);
@@ -791,7 +794,8 @@ TEST_CASE("parser should parse generic args with builtin type arguments", "[Pars
   destroyast(ast);
 }
 
-TEST_CASE("parser should parse generic type annotation without generic args (no regression)", "[Parser][Generics][TypeAnnotation]")
+TEST_CASE("parser should parse generic type annotation without generic args (no regression)",
+          "[Parser][Generics][TypeAnnotation]")
 {
   auto ast = parse("fun myfn(x: MyType) -> MyType { return x; }");
   REQUIRE(ast != nullptr);
@@ -987,12 +991,10 @@ TEST_CASE("parser should parse multiple generic definitions in sequence", "[Pars
 
 TEST_CASE("parser should parse generic and non-generic definitions mixed", "[Parser][Generics]")
 {
-  auto ast = parse(
-    "fun simple(x: i32) -> i32 { return x; }\n"
-    "fun<T> identity(x: T) -> T { return x; }\n"
-    "val z: i32 = 42;\n"
-    "type Box<T> { property value: T; }"
-  );
+  auto ast = parse("fun simple(x: i32) -> i32 { return x; }\n"
+                   "fun<T> identity(x: T) -> T { return x; }\n"
+                   "val z: i32 = 42;\n"
+                   "type Box<T> { property value: T; }");
   REQUIRE(ast != nullptr);
 
   auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
@@ -1103,7 +1105,8 @@ TEST_CASE("parser should parse generic function with generic param used in multi
 TEST_CASE("parser should parse generic type in new expression context", "[Parser][Generics][TypeAnnotation]")
 {
   // Ensure generic types can appear in new object expressions type position
-  auto ast = parse("type Box<T> { property value: T; }\nfun make_box<T>(v: T) -> Box<T> { return new Box<T> { value: v }; }");
+  auto ast = parse(
+      "type Box<T> { property value: T; }\nfun make_box<T>(v: T) -> ref<Box<T>> { return new Box<T> { value: v }; }");
   REQUIRE(ast != nullptr);
 
   auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
@@ -1119,9 +1122,13 @@ TEST_CASE("parser should parse generic type in new expression context", "[Parser
   REQUIRE(funDef != nullptr);
   REQUIRE(funDef->genericParams.size() == 1);
   REQUIRE(funDef->returnType != nullptr);
-  REQUIRE(funDef->returnType->name == "Box");
+  REQUIRE(funDef->returnType->name == "ref");
   REQUIRE(funDef->returnType->genericArgs.size() == 1);
-  REQUIRE(funDef->returnType->genericArgs[0]->name == "T");
+  auto innerReturnType = dynamic_ast_cast<TypeAnnotation>(funDef->returnType->genericArgs[0]);
+  REQUIRE(innerReturnType != nullptr);
+  REQUIRE(innerReturnType->name == "Box");
+  REQUIRE(innerReturnType->genericArgs.size() == 1);
+  REQUIRE(innerReturnType->genericArgs[0]->name == "T");
 
   auto body = dynamic_ast_cast<CompoundStatement>(funDef->body);
   REQUIRE(body != nullptr);
@@ -1157,6 +1164,28 @@ TEST_CASE("parser should parse typeof expression with property access", "[Parser
   REQUIRE(typeofExpr != nullptr);
   REQUIRE(typeofExpr->repr() == "typeof(1)");
   REQUIRE(accessor->accessor->repr() == "kind");
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should recognize ref as nested generic argument starter", "[Parser][Generics][RefMove]")
+{
+  auto ast = parse("type Box<T> { property value: T; }\nval nested: Box<ref<i32>> = unit;");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto valDef = dynamic_ast_cast<ValDef>(compileUnit->module->definitions[1]);
+  REQUIRE(valDef != nullptr);
+  auto valStmt = dynamic_ast_cast<ValDefStatement>(valDef->body);
+  REQUIRE(valStmt != nullptr);
+  REQUIRE(valStmt->typeAnnotation != nullptr);
+  REQUIRE(valStmt->typeAnnotation->name == "Box");
+  REQUIRE(valStmt->typeAnnotation->genericArgs.size() == 1);
+  REQUIRE(valStmt->typeAnnotation->genericArgs[0]->name == "ref");
+  REQUIRE(valStmt->typeAnnotation->genericArgs[0]->genericArgs.size() == 1);
+  REQUIRE(valStmt->typeAnnotation->genericArgs[0]->genericArgs[0]->name == "i32");
+  REQUIRE(valStmt->typeAnnotation->genericArgs[0]->genericArgs[0]->type == TypeAnnotationType::BUILTIN_I32);
 
   destroyast(ast);
 }

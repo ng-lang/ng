@@ -123,3 +123,57 @@ TEST_CASE("switch with otherwise covers missing variants", "[TypeCheck][Switch][
   auto index = type_check(ast);
   destroyast(ast);
 }
+
+TEST_CASE("self recursive tagged union payloads should resolve enclosing union", "[TypeCheck][Union][Recursive]")
+{
+  auto ast = parse(R"(
+            type Node = Cell(content: i32, _next: ref<Node>) | Empty;
+
+            val tail = Empty();
+            val head = Cell(1, ref tail);
+        )");
+
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast);
+  REQUIRE(index.count("tail") == 1);
+  REQUIRE(index.count("head") == 1);
+
+  auto *tailType = dynamic_cast<VariantType *>(&*index["tail"]);
+  REQUIRE(tailType != nullptr);
+  REQUIRE(tailType->unionName == "Node");
+
+  auto *headType = dynamic_cast<VariantType *>(&*index["head"]);
+  REQUIRE(headType != nullptr);
+  REQUIRE(headType->unionName == "Node");
+
+  destroyast(ast);
+}
+
+TEST_CASE("new should type check tagged union variants as heap refs", "[TypeCheck][Union][Recursive]")
+{
+  auto ast = parse(R"(
+            type Node = Cell(content: i32, _next: ref<Node>) | Empty;
+
+            val empty: ref<Node> = new Empty {};
+            val head: ref<Node> = new Cell { content: 1, _next: new Empty {} };
+        )");
+
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast);
+  REQUIRE(index.count("empty") == 1);
+  REQUIRE(index.count("head") == 1);
+  REQUIRE(index["empty"]->tag() == typeinfo_tag::REFERENCE);
+  REQUIRE(index["head"]->tag() == typeinfo_tag::REFERENCE);
+
+  auto *emptyRef = dynamic_cast<ReferenceType *>(&*index["empty"]);
+  REQUIRE(emptyRef != nullptr);
+  REQUIRE(emptyRef->referencedType->tag() == typeinfo_tag::TAGGED_UNION);
+
+  auto *headRef = dynamic_cast<ReferenceType *>(&*index["head"]);
+  REQUIRE(headRef != nullptr);
+  REQUIRE(headRef->referencedType->tag() == typeinfo_tag::TAGGED_UNION);
+
+  destroyast(ast);
+}

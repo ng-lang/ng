@@ -1,5 +1,5 @@
 #include "../test.hpp"
-#include <filesystem>
+#include <algorithm>
 #include <module.hpp>
 #include <orgasm/compiler.hpp>
 #include <orgasm/vm.hpp>
@@ -9,6 +9,34 @@
 using namespace NG;
 using namespace NG::ast;
 using namespace NG::orgasm;
+using namespace NG::runtime;
+
+namespace
+{
+void append_u16(Vec<uint8_t> &code, uint16_t value)
+{
+  code.push_back(static_cast<uint8_t>(value & 0xFFU));
+  code.push_back(static_cast<uint8_t>((value >> 8U) & 0xFFU));
+}
+
+void emit_u16(Vec<uint8_t> &code, OpCode op, uint16_t value)
+{
+  code.push_back(static_cast<uint8_t>(op));
+  append_u16(code, value);
+}
+
+void emit_u16_u16(Vec<uint8_t> &code, OpCode op, uint16_t first, uint16_t second)
+{
+  code.push_back(static_cast<uint8_t>(op));
+  append_u16(code, first);
+  append_u16(code, second);
+}
+} // namespace
+
+static auto result_i32(const RuntimeRef<StorageCell> &result) -> int32_t
+{
+  return read_numeric_cell_as<int32_t>(result);
+}
 
 TEST_CASE("compiler and vm should handle basic arithmetic", "[OrgasmTest]")
 {
@@ -27,9 +55,7 @@ TEST_CASE("compiler and vm should handle basic arithmetic", "[OrgasmTest]")
   VM vm;
   auto result = vm.run(bytecode);
 
-  auto numeric = std::dynamic_pointer_cast<NumeralBase>(result);
-  REQUIRE(numeric != nullptr);
-  REQUIRE(NGIntegral<int32_t>::valueOf(numeric.get()) == 7);
+  REQUIRE(result_i32(result) == 7);
 
   destroyast(ast);
 }
@@ -55,9 +81,7 @@ TEST_CASE("compiler and vm should handle const if true branch", "[const_if][Orga
   VM vm;
   auto result = vm.run(bytecode);
 
-  auto numeric = std::dynamic_pointer_cast<NumeralBase>(result);
-  REQUIRE(numeric != nullptr);
-  REQUIRE(NGIntegral<int32_t>::valueOf(numeric.get()) == 42);
+  REQUIRE(result_i32(result) == 42);
 
   destroyast(ast);
 }
@@ -83,9 +107,7 @@ TEST_CASE("compiler and vm should handle const if false branch", "[const_if][Org
   VM vm;
   auto result = vm.run(bytecode);
 
-  auto numeric = std::dynamic_pointer_cast<NumeralBase>(result);
-  REQUIRE(numeric != nullptr);
-  REQUIRE(NGIntegral<int32_t>::valueOf(numeric.get()) == 42);
+  REQUIRE(result_i32(result) == 42);
 
   destroyast(ast);
 }
@@ -110,9 +132,7 @@ TEST_CASE("compiler and vm should handle const if with negation", "[const_if][Or
   VM vm;
   auto result = vm.run(bytecode);
 
-  auto numeric = std::dynamic_pointer_cast<NumeralBase>(result);
-  REQUIRE(numeric != nullptr);
-  REQUIRE(NGIntegral<int32_t>::valueOf(numeric.get()) == 7);
+  REQUIRE(result_i32(result) == 7);
 
   destroyast(ast);
 }
@@ -137,9 +157,7 @@ TEST_CASE("compiler and vm should handle const if without else", "[const_if][Org
   VM vm;
   auto result = vm.run(bytecode);
 
-  auto numeric = std::dynamic_pointer_cast<NumeralBase>(result);
-  REQUIRE(numeric != nullptr);
-  REQUIRE(NGIntegral<int32_t>::valueOf(numeric.get()) == 42);
+  REQUIRE(result_i32(result) == 42);
 
   destroyast(ast);
 }
@@ -162,11 +180,214 @@ TEST_CASE("compiler and vm should handle function parameters", "[OrgasmTest]")
   VM vm;
   auto result = vm.run(bytecode);
 
-  auto numeric = std::dynamic_pointer_cast<NumeralBase>(result);
-  REQUIRE(numeric != nullptr);
-  REQUIRE(NGIntegral<int32_t>::valueOf(numeric.get()) == 30);
+  REQUIRE(result_i32(result) == 30);
 
   destroyast(ast);
+}
+
+TEST_CASE("compiler and vm should copy array bindings by default", "[OrgasmTest][RefMove]")
+{
+  auto ast = parse(R"(
+        fun main() {
+            val arr = [1];
+            val copy = arr;
+            copy[0] := 2;
+            if (arr[0] == 1) {
+                return copy[0];
+            }
+            return 0;
+        }
+    )");
+  REQUIRE(ast != nullptr);
+
+  Compiler compiler;
+  auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+
+  VM vm;
+  auto result = vm.run(bytecode);
+
+  REQUIRE(result_i32(result) == 2);
+
+  destroyast(ast);
+}
+
+TEST_CASE("compiler and vm should alias heap object bindings from new", "[OrgasmTest][RefMove]")
+{
+  auto ast = parse(R"(
+        type Box {
+            value: i32;
+        }
+
+        fun main() {
+            val box = new Box { value: 1 };
+            val copy = box;
+            copy.value := 2;
+            if (box.value == 2) {
+                return copy.value;
+            }
+            return 0;
+        }
+    )");
+  REQUIRE(ast != nullptr);
+
+  Compiler compiler;
+  auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+
+  VM vm;
+  auto result = vm.run(bytecode);
+
+  REQUIRE(result_i32(result) == 2);
+
+  destroyast(ast);
+}
+
+TEST_CASE("compiler and vm should support ref swap with move dereference", "[OrgasmTest][RefMove]")
+{
+  auto ast = parse(R"(
+        fun swap(a: i32 ref, b: i32 ref) {
+            val tmp = move *a;
+            *a := move *b;
+            *b := move tmp;
+        }
+
+        fun main() {
+            val x = 1;
+            val y = 2;
+            swap(ref x, ref y);
+            if (x == 2) {
+                return y;
+            }
+            return 0;
+        }
+    )");
+  REQUIRE(ast != nullptr);
+
+  Compiler compiler;
+  auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+
+  VM vm;
+  auto result = vm.run(bytecode);
+
+  REQUIRE(result_i32(result) == 1);
+
+  destroyast(ast);
+}
+
+TEST_CASE("compiler and vm should support refs to globals", "[OrgasmTest][RefMove]")
+{
+  auto ast = parse(R"(
+        val x = 1;
+
+        fun set_it(target: i32 ref) {
+            *target := 9;
+        }
+
+        fun main() {
+            set_it(ref x);
+            return x;
+        }
+    )");
+  REQUIRE(ast != nullptr);
+
+  Compiler compiler;
+  auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+
+  VM vm;
+  auto result = vm.run(bytecode);
+
+  REQUIRE(result_i32(result) == 9);
+
+  destroyast(ast);
+}
+
+TEST_CASE("compiler and vm should support refs to object properties", "[OrgasmTest][RefMove]")
+{
+  auto ast = parse(R"(
+        type Box {
+            property value;
+        }
+
+        fun main() {
+            val box = new Box { value: 1 };
+            val ptr = ref box.value;
+            *ptr := 7;
+            return box.value;
+        }
+    )");
+  REQUIRE(ast != nullptr);
+
+  Compiler compiler;
+  auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+
+  VM vm;
+  auto result = vm.run(bytecode);
+
+  REQUIRE(result_i32(result) == 7);
+
+  destroyast(ast);
+}
+
+TEST_CASE("compiler and vm should invoke member functions through slot-backed call args", "[OrgasmTest][RefMove]")
+{
+  auto ast = parse(R"(
+        type Counter {
+            property value;
+
+            fun bump(delta) {
+                value := value + delta;
+                return value;
+            }
+        }
+
+        fun main() {
+            val counter = new Counter { value: 10 };
+            return counter.bump(5);
+        }
+    )");
+  REQUIRE(ast != nullptr);
+
+  Compiler compiler;
+  auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+
+  VM vm;
+  auto result = vm.run(bytecode);
+
+  REQUIRE(result_i32(result) == 15);
+
+  destroyast(ast);
+}
+
+TEST_CASE("managed heap should sweep unreachable vm cycles", "[OrgasmTest][RefMove][GC]")
+{
+  NG::runtime::collect_managed_heap();
+  REQUIRE(NG::runtime::managed_heap_size() == 0);
+
+  auto ast = parse(R"(
+        type Node {
+            property link;
+        }
+
+        fun main() {
+            val node = new Node { link: unit };
+            node.link := node;
+            return unit;
+        }
+    )");
+  REQUIRE(ast != nullptr);
+
+  {
+    Compiler compiler;
+    auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+    VM vm;
+    auto result = vm.run(bytecode);
+    REQUIRE(result != nullptr);
+    REQUIRE(NG::runtime::managed_heap_size() == 1);
+  }
+
+  destroyast(ast);
+
+  NG::runtime::collect_managed_heap();
+  REQUIRE(NG::runtime::managed_heap_size() == 0);
 }
 
 TEST_CASE("compiler and vm should handle tagged unions", "[OrgasmTest]")
@@ -194,9 +415,7 @@ TEST_CASE("compiler and vm should handle tagged unions", "[OrgasmTest]")
   VM vm;
   auto result = vm.run(bytecode);
 
-  auto numeric = std::dynamic_pointer_cast<NumeralBase>(result);
-  REQUIRE(numeric != nullptr);
-  REQUIRE(NGIntegral<int32_t>::valueOf(numeric.get()) == 42);
+  REQUIRE(result_i32(result) == 42);
 
   destroyast(ast);
 }
@@ -226,9 +445,84 @@ TEST_CASE("compiler and vm should handle switch otherwise for tagged unions", "[
   VM vm;
   auto result = vm.run(bytecode);
 
-  auto numeric = std::dynamic_pointer_cast<NumeralBase>(result);
-  REQUIRE(numeric != nullptr);
-  REQUIRE(NGIntegral<int32_t>::valueOf(numeric.get()) == 7);
+  REQUIRE(result_i32(result) == 7);
+
+  destroyast(ast);
+}
+
+TEST_CASE("compiler and vm should handle recursive tagged union refs", "[OrgasmTest]")
+{
+  auto ast = parse(R"(
+        type Node = Cell(content: i32, _next: ref<Node>) | Empty;
+
+        fun main() {
+            val tail = Empty();
+            val head = Cell(1, ref tail);
+
+            switch (head) {
+                case Cell(content, nextRef) {
+                    switch (*nextRef) {
+                        case Empty {
+                            return content;
+                        }
+                        case Cell(other, rest) {
+                            return 0;
+                        }
+                    }
+                }
+                case Empty {
+                    return 0;
+                }
+            }
+        }
+    )");
+  REQUIRE(ast != nullptr);
+
+  Compiler compiler;
+  auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+
+  VM vm;
+  auto result = vm.run(bytecode);
+
+  REQUIRE(result_i32(result) == 1);
+
+  destroyast(ast);
+}
+
+TEST_CASE("compiler and vm should allocate tagged union variants on heap", "[OrgasmTest]")
+{
+  auto ast = parse(R"(
+        type Node = Cell(content: i32, _next: ref<Node>) | Empty;
+
+        fun main() {
+            val head: ref<Node> = new Cell { content: 1, _next: new Empty {} };
+
+            switch (*head) {
+                case Empty {
+                    return 0;
+                }
+                case Cell(content, nextRef) {
+                    switch (*nextRef) {
+                        case Empty {
+                            return content;
+                        }
+                        case Cell(other, rest) {
+                            return 0;
+                        }
+                    }
+                }
+            }
+        }
+    )");
+  REQUIRE(ast != nullptr);
+
+  Compiler compiler;
+  auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+
+  VM vm;
+  auto result = vm.run(bytecode);
+
+  REQUIRE(result_i32(result) == 1);
 
   destroyast(ast);
 }
@@ -258,9 +552,7 @@ TEST_CASE("compiler and vm should dispatch switch cases by declared variant tag"
   VM vm;
   auto result = vm.run(bytecode);
 
-  auto numeric = std::dynamic_pointer_cast<NumeralBase>(result);
-  REQUIRE(numeric != nullptr);
-  REQUIRE(NGIntegral<int32_t>::valueOf(numeric.get()) == 42);
+  REQUIRE(result_i32(result) == 42);
 
   destroyast(ast);
 }
@@ -290,9 +582,7 @@ TEST_CASE("compiler and vm should treat otherwise as switch default", "[OrgasmTe
   VM vm;
   auto result = vm.run(bytecode);
 
-  auto numeric = std::dynamic_pointer_cast<NumeralBase>(result);
-  REQUIRE(numeric != nullptr);
-  REQUIRE(NGIntegral<int32_t>::valueOf(numeric.get()) == 7);
+  REQUIRE(result_i32(result) == 7);
 
   destroyast(ast);
 }
@@ -318,9 +608,7 @@ TEST_CASE("compiler and vm should fold const if from typeof query", "[const_if][
   VM vm;
   auto result = vm.run(bytecode);
 
-  auto numeric = std::dynamic_pointer_cast<NumeralBase>(result);
-  REQUIRE(numeric != nullptr);
-  REQUIRE(NGIntegral<int32_t>::valueOf(numeric.get()) == 42);
+  REQUIRE(result_i32(result) == 42);
 
   destroyast(ast);
 }
@@ -363,9 +651,7 @@ TEST_CASE("compiler and vm should pass arguments to imported functions", "[Orgas
   VM vm;
   auto result = vm.run(bytecode);
 
-  auto numeric = std::dynamic_pointer_cast<NumeralBase>(result);
-  REQUIRE(numeric != nullptr);
-  REQUIRE(NGIntegral<int32_t>::valueOf(numeric.get()) == 42);
+  REQUIRE(result_i32(result) == 42);
 
   registry.clear();
   NG::module::clear_module_loader_cache();
@@ -402,9 +688,7 @@ TEST_CASE("compiler should clear variant state between compile calls", "[OrgasmT
   VM vm;
   auto result = vm.run(bytecode);
 
-  auto numeric = std::dynamic_pointer_cast<NumeralBase>(result);
-  REQUIRE(numeric != nullptr);
-  REQUIRE(NGIntegral<int32_t>::valueOf(numeric.get()) == 42);
+  REQUIRE(result_i32(result) == 42);
 
   destroyast(firstAst);
   destroyast(secondAst);
@@ -445,38 +729,37 @@ TEST_CASE("compiler and vm should call native prelude helpers", "[OrgasmTest][Pr
   NG::library::prelude::register_vm_natives(vm);
   auto result = vm.run(bytecode);
 
-  auto numeric = std::dynamic_pointer_cast<NumeralBase>(result);
-  REQUIRE(numeric != nullptr);
-  REQUIRE(NGIntegral<int32_t>::valueOf(numeric.get()) == 42);
+  REQUIRE(result_i32(result) == 42);
 
   destroyast(ast);
 }
 
 TEST_CASE("compiler and vm should call native prelude file helpers", "[OrgasmTest][Prelude]")
 {
-  const auto path = std::filesystem::path("ng-prelude-vm-test.txt").string();
-  std::filesystem::remove(path);
+  Map<Str, Str> files;
 
-  auto ast = parse(Str{R"(
+  auto ast = parse(R"(
         fun main() {
-            writeFile(")"} + path + R"(", "hello from vm");
-            return readFile(")" + path + R"(");
+            writeFile("memory://ng-prelude-vm-test.txt", "hello from vm");
+            return readFile("memory://ng-prelude-vm-test.txt");
         }
     )");
   REQUIRE(ast != nullptr);
 
-  Compiler compiler{{}, NG::library::prelude::native_function_names()};
+  Compiler compiler{{}, {"readFile", "writeFile"}};
   auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
 
   VM vm;
-  NG::library::prelude::register_vm_natives(vm);
+  vm.register_native_raw("writeFile", [&files](const Vec<RuntimeRef<StorageCell>> &args) -> RuntimeRef<StorageCell> {
+    files[runtime_string_value(args.at(0))] = runtime_string_value(args.at(1));
+    return unit_cell();
+  });
+  vm.register_native_raw("readFile", [&files](const Vec<RuntimeRef<StorageCell>> &args) -> RuntimeRef<StorageCell> {
+    return make_runtime_string(files.at(runtime_string_value(args.at(0))));
+  });
   auto result = vm.run(bytecode);
 
-  auto str = std::dynamic_pointer_cast<NGString>(result);
-  REQUIRE(str != nullptr);
-  REQUIRE(str->value == "hello from vm");
-
-  std::filesystem::remove(path);
+  REQUIRE(runtime_string_value(result) == "hello from vm");
   destroyast(ast);
 }
 
@@ -515,9 +798,7 @@ TEST_CASE("compiler and vm should handle spread unpack property updates and memb
   VM vm;
   auto result = vm.run(bytecode);
 
-  auto numeric = std::dynamic_pointer_cast<NumeralBase>(result);
-  REQUIRE(numeric != nullptr);
-  REQUIRE(NGIntegral<int32_t>::valueOf(numeric.get()) == 35);
+  REQUIRE(result_i32(result) == 35);
 
   destroyast(ast);
 }
@@ -540,9 +821,7 @@ TEST_CASE("compiler and vm should handle descending range and clamped slice", "[
   NG::library::prelude::register_vm_natives(vm);
   auto result = vm.run(bytecode);
 
-  auto numeric = std::dynamic_pointer_cast<NumeralBase>(result);
-  REQUIRE(numeric != nullptr);
-  REQUIRE(NGIntegral<int32_t>::valueOf(numeric.get()) == 6);
+  REQUIRE(result_i32(result) == 6);
 
   destroyast(ast);
 }
@@ -565,4 +844,164 @@ TEST_CASE("compiler and vm should surface native prelude argument errors", "[Org
   REQUIRE_THROWS_AS(vm.run(bytecode), RuntimeException);
 
   destroyast(ast);
+}
+
+TEST_CASE("compiler and vm should trampoline deep self tail calls", "[OrgasmTest][Recursion]")
+{
+  auto ast = parse(R"(
+        fun sum(i, n = 0) {
+          if (i == 0) {
+            return n;
+          }
+          return sum(i - 1, n + i);
+        }
+
+        fun main() {
+          return sum(60000);
+        }
+    )");
+  REQUIRE(ast != nullptr);
+
+  Compiler compiler;
+  auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+
+  VM vm;
+  auto result = vm.run(bytecode);
+
+  REQUIRE(result_i32(result) == 1800030000);
+
+  destroyast(ast);
+}
+
+TEST_CASE("vm should execute bytecode calls without consuming the C++ call stack", "[OrgasmTest][VM]")
+{
+  BytecodeModule module;
+  module.name = "manual";
+
+  Function main;
+  main.name = "main";
+  main.num_locals = 0;
+  main.num_params = 0;
+  main.code.push_back(static_cast<uint8_t>(OpCode::PUSH_I32));
+  main.code.push_back(42);
+  main.code.push_back(0);
+  main.code.push_back(0);
+  main.code.push_back(0);
+  emit_u16_u16(main.code, OpCode::CALL, 1, 1);
+  main.code.push_back(static_cast<uint8_t>(OpCode::RETURN));
+
+  Function identity;
+  identity.name = "identity";
+  identity.num_locals = 1;
+  identity.num_params = 1;
+  emit_u16(identity.code, OpCode::LOAD_PARAM, 0);
+  identity.code.push_back(static_cast<uint8_t>(OpCode::RETURN));
+
+  module.functions.push_back(std::move(main));
+  module.functions.push_back(std::move(identity));
+
+  VM vm;
+  auto result = vm.run(module);
+
+  REQUIRE(result_i32(result) == 42);
+}
+
+TEST_CASE("vm should return unit when a nested bytecode frame reaches the end", "[OrgasmTest][VM]")
+{
+  BytecodeModule module;
+  module.name = "manual-fallthrough";
+
+  Function main;
+  main.name = "main";
+  main.num_locals = 0;
+  main.num_params = 0;
+  emit_u16_u16(main.code, OpCode::CALL, 1, 0);
+  main.code.push_back(static_cast<uint8_t>(OpCode::RETURN));
+
+  Function callee;
+  callee.name = "fallthrough";
+  callee.num_locals = 0;
+  callee.num_params = 0;
+
+  module.functions.push_back(std::move(main));
+  module.functions.push_back(std::move(callee));
+
+  VM vm;
+  auto result = vm.run(module);
+
+  REQUIRE(runtime_value_show(result) == "unit");
+}
+
+TEST_CASE("vm should dispatch imported symbols to registered native fallback", "[OrgasmTest][VM]")
+{
+  auto &registry = NG::module::get_module_registry();
+  registry.clear();
+  NG::module::clear_module_loader_cache();
+
+  auto moduleInfo = std::make_shared<NG::module::ModuleInfo>();
+  moduleInfo->moduleId = "native_mod";
+  moduleInfo->moduleName = "native_mod";
+  registry.addModuleInfo(moduleInfo);
+
+  BytecodeModule module;
+  module.name = "native-import";
+  module.imports.push_back(ExternalSymbol{.moduleName = "native_mod", .symbolName = "native_inc"});
+
+  Function main;
+  main.name = "main";
+  main.num_locals = 0;
+  main.num_params = 0;
+  main.code.push_back(static_cast<uint8_t>(OpCode::PUSH_I32));
+  main.code.push_back(41);
+  main.code.push_back(0);
+  main.code.push_back(0);
+  main.code.push_back(0);
+  emit_u16_u16(main.code, OpCode::CALL_IMPORT, 0, 1);
+  main.code.push_back(static_cast<uint8_t>(OpCode::RETURN));
+  module.functions.push_back(std::move(main));
+
+  VM vm;
+  vm.register_native("native_inc", [](int32_t value) { return value + 1; });
+  auto result = vm.run(module);
+
+  REQUIRE(result_i32(result) == 42);
+
+  registry.clear();
+  NG::module::clear_module_loader_cache();
+}
+
+TEST_CASE("compiler and vm should register imgui natives without initialized state", "[OrgasmTest][ImGui]")
+{
+  auto names = NG::library::imgui::native_function_names();
+  REQUIRE(std::find(names.begin(), names.end(), "init") != names.end());
+  REQUIRE(std::find(names.begin(), names.end(), "cleanup") != names.end());
+
+  VM vm;
+  REQUIRE_NOTHROW(NG::library::imgui::register_vm_natives(vm));
+}
+
+TEST_CASE("compiler and vm should reject imgui native calls before init", "[OrgasmTest][ImGui]")
+{
+  for (const auto &name : NG::library::imgui::native_function_names())
+  {
+    if (name == "init")
+    {
+      continue;
+    }
+    BytecodeModule module;
+    module.name = "imgui-native-check";
+    module.strings.push_back(name);
+
+    Function main;
+    main.name = "main";
+    main.num_locals = 0;
+    main.num_params = 0;
+    emit_u16_u16(main.code, OpCode::NATIVE_CALL, 0, 0);
+    main.code.push_back(static_cast<uint8_t>(OpCode::RETURN));
+    module.functions.push_back(std::move(main));
+
+    VM vm;
+    NG::library::imgui::register_vm_natives(vm);
+    REQUIRE_THROWS_AS(vm.run(module), RuntimeException);
+  }
 }

@@ -1,0 +1,22 @@
+// References can point at named values and stable object fields.
+
+type Box {
+    property value: i32;
+}
+
+fun set_to(target: i32 ref, value: i32) {
+    *target := value;
+}
+
+val n = 10;
+val nr: ref<i32> = ref n;
+set_to(nr, 11);
+assert(n == 11);
+
+val box = new Box { value: 20 };
+val field = ref box.value;
+set_to(field, 21);
+assert(box.value == 21);
+
+print(n);
+print(box.value);

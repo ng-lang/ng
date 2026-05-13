@@ -199,6 +199,15 @@ Functions can be marked as `native`, which means they are implemented in the hos
 fun my_native_function(arg: i32) -> unit = native;
 ```
 
+The NG-side declaration syntax stays the same even as the runtime evolves. Internally, native registration is being refactored away from the older callback shape that manually unpacks runtime objects (`self`, `context`, `invocationContext`) and toward a more direct signature-mapped FFI, so native functions can follow the same receiver/parameter/return layout model as interpreted code, ORGASM, and future native lowering.
+
+At the moment there are two host-side integration paths:
+
+- runtime native libraries use the env-based callable ABI (`NGCallable`) and can inspect slot-backed arguments through `NativeArgsView`
+- ORGASM VM natives can be registered directly with `vm.register_native(...)`, which maps ordinary C++ signatures to NG values automatically
+
+The VM now keeps its internal bytecode-to-bytecode call ABI slot-backed; only the native boundary still adapts arguments back to boxed runtime values for the current host bridge.
+
 ## 6. Data Structures
 
 ### Arrays
@@ -236,6 +245,8 @@ val person = new Person {
 
 print(person.name()); // "John Doe"
 ```
+
+`new` allocates on the managed heap and returns `ref<T>`, so heap-allocated objects alias by reference unless you explicitly copy out their fields.
 
 ## 7. Modules and Code Organization
 

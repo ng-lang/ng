@@ -125,11 +125,13 @@ namespace NG::orgasm
                 {
                     Variant v;
                     v.name = taggedUnion->variants[i].variantName;
+                    v.payloadFields = taggedUnion->variants[i].payloadNames;
                     type.variants.push_back(std::move(v));
 
                     variant_map[taggedUnion->variants[i].variantName] = VariantInfo{
                         .unionName = taggedUnion->typeName,
                         .variantIndex = i,
+                        .payloadFields = taggedUnion->variants[i].payloadNames,
                     };
                 }
                 module.types.push_back(std::move(type));
@@ -509,10 +511,11 @@ namespace NG::orgasm
 
     void Compiler::visit(ast::IndexAssignmentExpression *idxAssignExpr)
     {
-        idxAssignExpr->primary->accept(this);
+        emit_reference(idxAssignExpr->primary);
         idxAssignExpr->accessor->accept(this);
+        emit(OpCode::MAKE_INDEX_REF);
         idxAssignExpr->value->accept(this);
-        emit(OpCode::SET_INDEX);
+        emit(OpCode::STORE_REF);
     }
 
     void Compiler::visit(ast::CompoundStatement *compoundStmt)
@@ -758,13 +761,123 @@ namespace NG::orgasm
     }
 
 
+    void Compiler::emit_reference(ast::ASTRef<ast::Expression> expr)
+    {
+        if (auto idExpr = dynamic_ast_cast<IdExpression>(expr))
+        {
+            if (locals.contains(idExpr->id))
+            {
+                emit(OpCode::MAKE_LOCAL_REF);
+                emit_u16(static_cast<uint16_t>(locals[idExpr->id]));
+                return;
+            }
+            if (globals.contains(idExpr->id))
+            {
+                emit(OpCode::MAKE_GLOBAL_REF);
+                emit_u16(static_cast<uint16_t>(globals[idExpr->id]));
+                return;
+            }
+            if (locals.contains("self"))
+            {
+                emit(OpCode::MAKE_LOCAL_REF);
+                emit_u16(static_cast<uint16_t>(locals["self"]));
+                int32_t fieldIdx = find_field_index(idExpr->id);
+                if (fieldIdx >= 0)
+                {
+                    emit(OpCode::MAKE_PROPERTY_REF);
+                    emit_u16(static_cast<uint16_t>(fieldIdx));
+                    return;
+                }
+            }
+        }
+        else if (auto idAcc = dynamic_ast_cast<IdAccessorExpression>(expr))
+        {
+            emit_reference(idAcc->primaryExpression);
+            Str accessorRepr = idAcc->accessor->repr();
+            bool isNumeric = !accessorRepr.empty() && std::all_of(accessorRepr.begin(), accessorRepr.end(), ::isdigit);
+            if (isNumeric)
+            {
+                emit(OpCode::PUSH_I32);
+                emit_i32(std::stoi(accessorRepr));
+                emit(OpCode::MAKE_INDEX_REF);
+            }
+            else
+            {
+                uint16_t nameIndex = static_cast<uint16_t>(module.strings.size());
+                module.strings.push_back(accessorRepr);
+                emit(OpCode::MAKE_PROPERTY_STR_REF);
+                emit_u16(nameIndex);
+            }
+            return;
+        }
+        else if (auto idxAcc = dynamic_ast_cast<IndexAccessorExpression>(expr))
+        {
+            emit_reference(idxAcc->primary);
+            idxAcc->accessor->accept(this);
+            emit(OpCode::MAKE_INDEX_REF);
+            return;
+        }
+        else if (auto unaryExpr = dynamic_ast_cast<UnaryExpression>(expr);
+                 unaryExpr && unaryExpr->optr && unaryExpr->optr->type == TokenType::TIMES)
+        {
+            unaryExpr->operand->accept(this);
+            return;
+        }
+
+        throw NotImplementedException("Reference target not supported: " + expr->repr());
+    }
+
+    void Compiler::emit_move_place(ast::ASTRef<ast::Expression> expr)
+    {
+        if (auto idExpr = dynamic_ast_cast<IdExpression>(expr))
+        {
+            if (locals.contains(idExpr->id))
+            {
+                emit(OpCode::MOVE_LOCAL);
+                emit_u16(static_cast<uint16_t>(locals[idExpr->id]));
+                return;
+            }
+            if (globals.contains(idExpr->id))
+            {
+                emit(OpCode::MOVE_GLOBAL);
+                emit_u16(static_cast<uint16_t>(globals[idExpr->id]));
+                return;
+            }
+        }
+        else if (auto unaryExpr = dynamic_ast_cast<UnaryExpression>(expr);
+                 unaryExpr && unaryExpr->optr && unaryExpr->optr->type == TokenType::TIMES)
+        {
+            unaryExpr->operand->accept(this);
+            emit(OpCode::MOVE_REF);
+            return;
+        }
+
+        throw NotImplementedException("Move target not supported: " + expr->repr());
+    }
+
     void Compiler::visit(ast::UnaryExpression *unaryExpr)
     {
-        unaryExpr->operand->accept(this);
         switch (unaryExpr->optr->type)
         {
-        case TokenType::MINUS: emit(OpCode::NEG_I32); break;
-        case TokenType::NOT:   emit(OpCode::NOT);     break;
+        case TokenType::KEYWORD_REF:
+        case TokenType::AMPERSAND:
+            emit_reference(unaryExpr->operand);
+            break;
+        case TokenType::TIMES:
+            unaryExpr->operand->accept(this);
+            emit(OpCode::LOAD_REF);
+            break;
+        case TokenType::KEYWORD_MOVE:
+            emit_move_place(unaryExpr->operand);
+            break;
+        case TokenType::MINUS:
+            unaryExpr->operand->accept(this);
+            emit(OpCode::NEG_I32);
+            break;
+        case TokenType::NOT:
+            unaryExpr->operand->accept(this);
+            emit(OpCode::NOT);
+            break;
         default: throw NotImplementedException("Unary op not implemented");
         }
     }
@@ -806,40 +919,32 @@ namespace NG::orgasm
             }
             else if (locals.contains("self"))
             {
-                // Assign to property of self: push self then val
-                emit(OpCode::LOAD_LOCAL);
-                emit_u16(static_cast<uint16_t>(locals["self"]));
+                emit_reference(assignExpr->target);
                 assignExpr->value->accept(this);
-                int32_t fieldIdx = find_field_index(idExpr->id);
-                if (fieldIdx >= 0) {
-                    emit(OpCode::SET_PROPERTY);
-                    emit_u16(static_cast<uint16_t>(fieldIdx));
-                } else {
-                    throw NotImplementedException("Unknown property: " + idExpr->id + " in type " + current_type_name);
-                }
+                emit(OpCode::STORE_REF);
             }
             else throw NotImplementedException("Unknown assignment target: " + idExpr->id);
         }
         else if (auto idAcc = dynamic_ast_cast<IdAccessorExpression>(assignExpr->target))
         {
-            idAcc->primaryExpression->accept(this);  // push object
-            // Check if accessor is a numeric literal (tuple index like x.1)
-            Str accessorRepr = idAcc->accessor->repr();
-            bool isNumeric = !accessorRepr.empty() && std::all_of(accessorRepr.begin(), accessorRepr.end(), ::isdigit);
-            if (isNumeric) {
-                // SET_INDEX pops: val, idx, obj. Push order: obj, idx, val.
-                int32_t idx = std::stoi(accessorRepr);
-                emit(OpCode::PUSH_I32);
-                emit_i32(idx);
-                assignExpr->value->accept(this);  // push value on top
-                emit(OpCode::SET_INDEX);
-            } else {
-                assignExpr->value->accept(this);
-                uint16_t nameIndex = static_cast<uint16_t>(module.strings.size());
-                module.strings.push_back(accessorRepr);
-                emit(OpCode::SET_PROPERTY_STR);
-                emit_u16(nameIndex);
-            }
+            emit_reference(idAcc);
+            assignExpr->value->accept(this);
+            emit(OpCode::STORE_REF);
+        }
+        else if (auto idxAssign = dynamic_ast_cast<IndexAssignmentExpression>(assignExpr->target))
+        {
+            emit_reference(idxAssign->primary);
+            idxAssign->accessor->accept(this);
+            emit(OpCode::MAKE_INDEX_REF);
+            assignExpr->value->accept(this);
+            emit(OpCode::STORE_REF);
+        }
+        else if (auto derefExpr = dynamic_ast_cast<UnaryExpression>(assignExpr->target);
+                 derefExpr && derefExpr->optr && derefExpr->optr->type == TokenType::TIMES)
+        {
+            derefExpr->operand->accept(this);
+            assignExpr->value->accept(this);
+            emit(OpCode::STORE_REF);
         }
         else throw NotImplementedException("Assignment to non-id: " + assignExpr->target->repr());
     }
@@ -866,9 +971,25 @@ namespace NG::orgasm
                 }
             }
         } else {
-            // Fallback: push values in iteration order
-            numFields = static_cast<uint16_t>(newObj->properties.size());
-            for (auto &&[name, expr] : newObj->properties) expr->accept(this);
+            bool foundVariant = false;
+            if (auto variantIt = variant_map.find(typeName); variantIt != variant_map.end()) {
+                foundVariant = true;
+                const auto &payloadFields = variantIt->second.payloadFields;
+                numFields = static_cast<uint16_t>(payloadFields.size());
+                for (const auto &fieldName : payloadFields) {
+                    auto it = newObj->properties.find(fieldName);
+                    if (it == newObj->properties.end()) {
+                        throw NotImplementedException("Missing payload property '" + fieldName + "' for variant " + typeName);
+                    }
+                    it->second->accept(this);
+                }
+            }
+
+            if (!foundVariant) {
+                // Fallback: push values in iteration order
+                numFields = static_cast<uint16_t>(newObj->properties.size());
+                for (auto &&[name, expr] : newObj->properties) expr->accept(this);
+            }
         }
 
         uint16_t typeStrIdx = static_cast<uint16_t>(module.strings.size());

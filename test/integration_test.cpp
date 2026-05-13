@@ -36,7 +36,7 @@ static inline void runIntegrationTest(const std::string &filename)
 
 TEST_CASE("should run with max loop stack", "[IntegrationLoop]")
 {
-  SKIP("example/12.loop_max_stack.ng still needs a real stack-growth fix before this can be asserted.");
+  runIntegrationTest("example/12.loop_max_stack.ng");
 }
 
 TEST_CASE("should run numbered examples", "[Integration]")
@@ -61,6 +61,10 @@ TEST_CASE("should run numbered examples", "[Integration]")
       "example/18.stdlib_basics.ng",
       "example/19.union_type.ng",
       "example/20.switch_otherwise.ng",
+      "example/21.recursive_tagged_union_ref.ng",
+      "example/22.ref_move_swap.ng",
+      "example/23.ref_places.ng",
+      "example/24.move_value_semantics.ng",
   };
 
   for (const auto &example : examples)

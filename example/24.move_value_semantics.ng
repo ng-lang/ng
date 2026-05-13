@@ -1,0 +1,19 @@
+// Default bindings copy values; move transfers a place and invalidates it until reassigned.
+
+val original = [1, 2, 3];
+val copied = original;
+
+copied[0] := 9;
+assert(original[0] == 1);
+assert(copied[0] == 9);
+
+val source = 42;
+val moved = move source;
+assert(moved == 42);
+
+source := 7;
+assert(source == 7);
+
+print(original);
+print(copied);
+print(moved);
