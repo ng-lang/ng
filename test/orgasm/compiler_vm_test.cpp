@@ -1,6 +1,5 @@
 #include "../test.hpp"
 #include <algorithm>
-#include <filesystem>
 #include <module.hpp>
 #include <orgasm/compiler.hpp>
 #include <orgasm/vm.hpp>
@@ -737,27 +736,30 @@ TEST_CASE("compiler and vm should call native prelude helpers", "[OrgasmTest][Pr
 
 TEST_CASE("compiler and vm should call native prelude file helpers", "[OrgasmTest][Prelude]")
 {
-  const auto path = std::filesystem::path("ng-prelude-vm-test.txt").string();
-  std::filesystem::remove(path);
+  Map<Str, Str> files;
 
-  auto ast = parse(Str{R"(
+  auto ast = parse(R"(
         fun main() {
-            writeFile(")"} + path + R"(", "hello from vm");
-            return readFile(")" + path + R"(");
+            writeFile("memory://ng-prelude-vm-test.txt", "hello from vm");
+            return readFile("memory://ng-prelude-vm-test.txt");
         }
     )");
   REQUIRE(ast != nullptr);
 
-  Compiler compiler{{}, NG::library::prelude::native_function_names()};
+  Compiler compiler{{}, {"readFile", "writeFile"}};
   auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
 
   VM vm;
-  NG::library::prelude::register_vm_natives(vm);
+  vm.register_native_raw("writeFile", [&files](const Vec<RuntimeRef<StorageCell>> &args) -> RuntimeRef<StorageCell> {
+    files[runtime_string_value(args.at(0))] = runtime_string_value(args.at(1));
+    return unit_cell();
+  });
+  vm.register_native_raw("readFile", [&files](const Vec<RuntimeRef<StorageCell>> &args) -> RuntimeRef<StorageCell> {
+    return make_runtime_string(files.at(runtime_string_value(args.at(0))));
+  });
   auto result = vm.run(bytecode);
 
   REQUIRE(runtime_string_value(result) == "hello from vm");
-
-  std::filesystem::remove(path);
   destroyast(ast);
 }
 

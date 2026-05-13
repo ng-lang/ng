@@ -889,3 +889,27 @@ TEST_CASE("native marshaling validates slot views and argument contracts", "[Run
   REQUIRE_THROWS_MATCHES(require_arg_count("native", make_native_args_view(values), 0, 0), RuntimeException,
                          MessageMatches(ContainsSubstring("accepts at most 0")));
 }
+
+TEST_CASE("storage cell copies clear stale graphs and preserve module state", "[RuntimeTest][Runtime]")
+{
+  auto dst = make_runtime_array_cell({make_runtime_string("stale")});
+  dst->nativeHandles.insert_or_assign(0, NativeHandle{.typeName = "stale", .address = 1});
+  runtime_copy_storage_cell(dst, nullptr);
+
+  REQUIRE(dst->runtimeType == nullptr);
+  REQUIRE(dst->namedRefs.empty());
+  REQUIRE(dst->opaqueRefs.empty());
+  REQUIRE(dst->nativeHandles.empty());
+  REQUIRE(dst->moduleState == nullptr);
+
+  auto symbols = makert<RuntimeSymbolTable>();
+  symbols->functions["f"] = [](const NGSelf &, const NGEnv &, const NGArgs &) -> RuntimeRef<StorageCell> {
+    return unit_cell();
+  };
+  auto module = make_runtime_module(symbols);
+  auto copied = clone_runtime_storage_cell(module);
+
+  REQUIRE(runtime_module_functions(copied).contains("f"));
+  runtime_module_set_native_state(copied, "state", std::make_shared<int>(42));
+  REQUIRE(runtime_module_get_native_state(module, "state") != nullptr);
+}

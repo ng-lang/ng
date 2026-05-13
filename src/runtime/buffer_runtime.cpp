@@ -355,21 +355,15 @@ namespace NG::buffer_runtime
   void write_native_handle_field(HeapStore &heap, CellRef ref, const FieldLayout &field, const NativeHandle &value)
   {
     auto &cell = heap.get(ref);
-    if (ref.offset > std::numeric_limits<size_t>::max() - field.offset)
-    {
-      throw std::out_of_range("Native handle field offset overflow");
-    }
-    cell.nativeHandles.insert_or_assign(ref.offset + field.offset, value);
+    const auto absoluteOffset = checked_heap_range(cell, ref, field.offset, 0, "write_native_handle_field");
+    cell.nativeHandles.insert_or_assign(absoluteOffset, value);
   }
 
   auto read_native_handle_field(const HeapStore &heap, CellRef ref, const FieldLayout &field) -> NativeHandle
   {
     const auto &cell = heap.get(ref);
-    if (ref.offset > std::numeric_limits<size_t>::max() - field.offset)
-    {
-      throw std::out_of_range("Native handle field offset overflow");
-    }
-    auto it = cell.nativeHandles.find(ref.offset + field.offset);
+    const auto absoluteOffset = checked_heap_range(cell, ref, field.offset, 0, "read_native_handle_field");
+    auto it = cell.nativeHandles.find(absoluteOffset);
     if (it == cell.nativeHandles.end())
     {
       return NativeHandle{};

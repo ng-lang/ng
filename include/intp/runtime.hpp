@@ -16,6 +16,7 @@ namespace NG::runtime
     struct RuntimeEnv;
     struct RuntimeSymbolTable;
     struct StorageCell;
+    struct RuntimeModuleCellState;
     enum class Orders : int8_t;
 
     /**
@@ -88,6 +89,7 @@ namespace NG::runtime
     struct StorageCell : NG::buffer_runtime::FrameSlot
     {
         Map<Str, RuntimeRef<StorageCell>> namedRefs;
+        std::shared_ptr<RuntimeModuleCellState> moduleState;
         RuntimeRef<NGType> runtimeType;
         uint64_t ownerScopeId = 0;
         bool initialized = false;

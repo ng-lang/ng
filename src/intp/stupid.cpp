@@ -1589,10 +1589,18 @@ namespace NG::intp
         {
           if (!binding->spreadReceiver)
           {
+            if (binding->index >= items.size())
+            {
+              throw RuntimeException("Tuple unpacking arity mismatch");
+            }
             define_binding(binding->name, items.at(binding->index));
           }
           else if (!binding->name.empty()) // empty spread receiver just ignores everything
           {
+            if (binding->index > items.size())
+            {
+              throw RuntimeException("Tuple unpacking arity mismatch");
+            }
             Vec<RuntimeRef<StorageCell>> values;
             for (auto it = items.begin() + binding->index; it != items.end(); ++it)
             {
@@ -1616,10 +1624,18 @@ namespace NG::intp
         {
           if (!binding->spreadReceiver)
           {
+            if (binding->index >= items.size())
+            {
+              throw RuntimeException("Array unpacking arity mismatch");
+            }
             define_binding(binding->name, items.at(binding->index));
           }
           else if (!binding->name.empty()) // empty spread receiver just ignores everything
           {
+            if (binding->index > items.size())
+            {
+              throw RuntimeException("Array unpacking arity mismatch");
+            }
             Vec<RuntimeRef<StorageCell>> values;
             for (auto it = items.begin() + binding->index; it != items.end(); ++it)
             {
@@ -1704,13 +1720,15 @@ namespace NG::intp
     {
       auto loopScopes = fork_scope_chain(activeScopes);
       ExpressionVisitor vis{symbols, activeFrames, loopScopes, publishGlobals};
+      StatementVisitor bindingVis{symbols, returnSlot, activeFrames, loopScopes, publishGlobals, currentFunctionName,
+                                  currentFunctionParamCount};
       for (auto &&binding : loopStatement->bindings)
       {
         binding.target->accept(&vis);
         switch (binding.type)
         {
         case LoopBindingType::LOOP_ASSIGN:
-          define_binding(binding.name, vis.result_slot(binding.name));
+          bindingVis.define_binding(binding.name, vis.result_slot(binding.name));
           break;
         default:
           throw RuntimeException("Unsupported loop binding");
@@ -1732,7 +1750,7 @@ namespace NG::intp
           int i = 0;
           for (auto &&slot : iter.slotValues)
           {
-            assign_binding(loopStatement->bindings[i].name, slot);
+            stmtVis.assign_binding(loopStatement->bindings[i].name, slot);
             i++;
           }
         }
@@ -2179,7 +2197,6 @@ namespace NG::intp
       for (const auto &property : typeDef->properties)
       {
         type->properties.push_back(property->propertyName);
-        type->layout.fields.push_back(FieldLayout{.name = property->propertyName});
       }
 
       for (const auto &memFn : typeDef->memberFunctions)

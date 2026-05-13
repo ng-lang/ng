@@ -230,6 +230,10 @@ TEST_CASE("heap native handle fields respect CellRef offsets", "[RuntimeTest][Bu
   REQUIRE(read_native_handle_field(heap, ref, FieldLayout{.name = "absolute", .offset = 12}).typeName == "sub");
   REQUIRE(read_native_handle_field(heap, subRef, field).address == 0xCAFE);
   REQUIRE(read_native_handle_field(heap, ref, field).address == 0);
+  REQUIRE_THROWS_AS(write_native_handle_field(heap, CellRef{.cellId = ref.cellId, .offset = 99}, field, {}),
+                    std::out_of_range);
+  REQUIRE_THROWS_AS(read_native_handle_field(heap, CellRef{.cellId = ref.cellId, .offset = 99}, field),
+                    std::out_of_range);
 }
 
 TEST_CASE("heap store allocates and reads string payload cells", "[RuntimeTest][BufferRuntime]")

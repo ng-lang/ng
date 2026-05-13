@@ -629,6 +629,31 @@ TEST_CASE("Tuples", "[InterpreterTestChecking]")
         )");
 }
 
+TEST_CASE("interpreter should reject unpacking arity mismatches at runtime", "[InterpreterTestChecking][Failure]")
+{
+  REQUIRE_THROWS_MATCHES(interpret("val (a, b, c) = (1, 2);"), RuntimeException,
+                         MessageMatches(ContainsSubstring("Tuple unpacking arity mismatch")));
+  REQUIRE_THROWS_MATCHES(interpret("val [a, b] = [1];"), RuntimeException,
+                         MessageMatches(ContainsSubstring("Array unpacking arity mismatch")));
+}
+
+TEST_CASE("loop bindings should stay scoped to the loop", "[InterpreterTestChecking]")
+{
+  interpret(R"(
+        val x = 10;
+        loop i = x {
+          assert(i == 10);
+        }
+        assert(x == 10);
+    )");
+  REQUIRE_THROWS_MATCHES(interpret(R"(
+        loop i = 1 {
+        }
+        val leaked = i;
+    )"),
+                         RuntimeException, MessageMatches(ContainsSubstring("Undefined binding: i")));
+}
+
 TEST_CASE("Tagged unions", "[InterpreterTestChecking]")
 {
   interpret(R"(

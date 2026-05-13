@@ -48,17 +48,9 @@ namespace NG::runtime
     Map<Str, std::shared_ptr<void>> nativeState;
   };
 
-  inline auto runtime_module_cell_states() -> Map<const StorageCell *, RuntimeModuleCellState> &
-  {
-    static Map<const StorageCell *, RuntimeModuleCellState> states;
-    return states;
-  }
-
   inline auto runtime_module_state(const RuntimeRef<StorageCell> &value) -> RuntimeModuleCellState *
   {
-    auto &states = runtime_module_cell_states();
-    auto it = value ? states.find(value.get()) : states.end();
-    return it == states.end() ? nullptr : &it->second;
+    return value && value->moduleState ? value->moduleState.get() : nullptr;
   }
 
   inline auto make_runtime_module(const NGSymbols &symbols) -> RuntimeRef<StorageCell>
@@ -68,19 +60,19 @@ namespace NG::runtime
     cell->layout = module_runtime_type()->layout;
     cell->initialized = true;
 
-    RuntimeModuleCellState state;
+    auto state = std::make_shared<RuntimeModuleCellState>();
     if (symbols)
     {
       for (const auto &[name, slot] : symbols->objectSlots)
       {
         cell->namedRefs.insert_or_assign(name, slot);
       }
-      state.functions = symbols->functions;
-      state.types = symbols->types;
-      state.exports.insert(symbols->exports.begin(), symbols->exports.end());
-      state.imports.insert(symbols->imported.begin(), symbols->imported.end());
+      state->functions = symbols->functions;
+      state->types = symbols->types;
+      state->exports.insert(symbols->exports.begin(), symbols->exports.end());
+      state->imports.insert(symbols->imported.begin(), symbols->imported.end());
     }
-    runtime_module_cell_states().insert_or_assign(cell.get(), std::move(state));
+    cell->moduleState = std::move(state);
     return cell;
   }
 
@@ -332,6 +324,7 @@ namespace NG::runtime
     cell->bytes.clear();
     cell->opaqueRefs.clear();
     cell->namedRefs.clear();
+    cell->moduleState = nullptr;
     cell->nativeHandles.clear();
     cell->initialized = false;
     cell->marked = false;
@@ -416,10 +409,15 @@ namespace NG::runtime
       dst->runtimeType = nullptr;
       dst->layout = {};
       dst->bytes.clear();
+      dst->nativeHandles.clear();
+      dst->opaqueRefs.clear();
+      dst->namedRefs.clear();
+      dst->moduleState = nullptr;
       dst->initialized = false;
       return;
     }
     dst->namedRefs = src->namedRefs;
+    dst->moduleState = src->moduleState;
     dst->runtimeType = src->runtimeType;
     dst->layout = src->layout;
     dst->bytes = src->bytes;
@@ -448,6 +446,7 @@ namespace NG::runtime
       slot->ownerScopeId = source->ownerScopeId;
       slot->opaqueRefs = source->opaqueRefs;
       slot->namedRefs = source->namedRefs;
+      slot->moduleState = source->moduleState;
       return slot;
     }
     if (source->storageClass == StorageClass::HEAP && storageClass == StorageClass::HEAP)
@@ -460,6 +459,7 @@ namespace NG::runtime
     slot->initialized = source->initialized;
     slot->marked = false;
     slot->ownerScopeId = source->ownerScopeId;
+    slot->moduleState = source->moduleState;
     slot->opaqueRefs.clear();
     slot->opaqueRefs.reserve(source->opaqueRefs.size());
     for (const auto &ref : source->opaqueRefs)
