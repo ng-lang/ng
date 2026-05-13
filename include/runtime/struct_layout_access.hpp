@@ -66,7 +66,7 @@ namespace NG::runtime
         slot->name = member;
         cell->opaqueRefs[*index] = slot;
       }
-      return std::static_pointer_cast<StorageCell>(cell->opaqueRefs[*index]);
+      return cell->opaqueRefs[*index];
     }
     if (auto slot = structural_member_slot(cell, member))
     {

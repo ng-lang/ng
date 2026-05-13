@@ -98,7 +98,7 @@ namespace NG::runtime
     }
     for (const auto &[name, ref] : value->namedRefs)
     {
-      slots.push_back(ref ? std::static_pointer_cast<StorageCell>(ref) : nullptr);
+      slots.push_back(ref);
     }
     return slots;
   }
@@ -112,7 +112,7 @@ namespace NG::runtime
     Map<Str, RuntimeRef<StorageCell>> refs;
     for (const auto &[name, ref] : value->namedRefs)
     {
-      refs.insert_or_assign(name, ref ? std::static_pointer_cast<StorageCell>(ref) : nullptr);
+      refs.insert_or_assign(name, ref);
     }
     return refs;
   }
@@ -207,7 +207,7 @@ namespace NG::runtime
     {
       return nullptr;
     }
-    return std::static_pointer_cast<StorageCell>(cell->opaqueRefs[index]);
+    return cell->opaqueRefs[index];
   }
 
   inline auto runtime_cell_slot_refs(const RuntimeRef<StorageCell> &cell) -> Vec<RuntimeRef<StorageCell>>
@@ -220,7 +220,7 @@ namespace NG::runtime
     slots.reserve(cell->opaqueRefs.size());
     for (const auto &ref : cell->opaqueRefs)
     {
-      slots.push_back(ref ? std::static_pointer_cast<StorageCell>(ref) : nullptr);
+      slots.push_back(ref);
     }
     return slots;
   }
@@ -234,7 +234,7 @@ namespace NG::runtime
     }
     for (const auto &[name, ref] : cell->namedRefs)
     {
-      refs.insert_or_assign(name, ref ? std::static_pointer_cast<StorageCell>(ref) : nullptr);
+      refs.insert_or_assign(name, ref);
     }
     return refs;
   }
@@ -345,10 +345,42 @@ namespace NG::runtime
     }
     if (cell)
     {
-      return makert<NGType>(NGType{
-          .name = cell->layout.name.empty() ? "Object" : cell->layout.name,
-          .layout = cell->layout,
+      static Map<Str, RuntimeRef<NGType>> synthesizedTypes;
+      auto layout = cell->layout;
+      if (layout.name.empty())
+      {
+        layout.name = "Object";
+      }
+      auto key = std::to_string(layout.id) + ":" + layout.name + ":" +
+                 std::to_string(static_cast<uint8_t>(layout.kind)) + ":" + std::to_string(layout.size) + ":" +
+                 std::to_string(layout.alignment);
+      for (const auto &field : layout.fields)
+      {
+        key += "|f:" + field.name + ":" + std::to_string(field.layoutId) + ":" + std::to_string(field.offset) + ":" +
+               std::to_string(field.size) + ":" + std::to_string(field.alignment);
+      }
+      for (const auto &variant : layout.variants)
+      {
+        key += "|v:" + variant.name + ":" + std::to_string(variant.tag) + ":" +
+               std::to_string(variant.payloadOffset) + ":" + std::to_string(variant.payloadSize) + ":" +
+               std::to_string(variant.alignment);
+        for (const auto &field : variant.fields)
+        {
+          key += "|vf:" + field.name + ":" + std::to_string(field.layoutId) + ":" + std::to_string(field.offset) +
+                 ":" + std::to_string(field.size) + ":" + std::to_string(field.alignment);
+        }
+      }
+      auto it = synthesizedTypes.find(key);
+      if (it != synthesizedTypes.end())
+      {
+        return it->second;
+      }
+      auto type = makert<NGType>(NGType{
+          .name = layout.name,
+          .layout = layout,
       });
+      synthesizedTypes.insert_or_assign(key, type);
+      return type;
     }
     return runtime_object_type();
   }
@@ -432,14 +464,12 @@ namespace NG::runtime
     slot->opaqueRefs.reserve(source->opaqueRefs.size());
     for (const auto &ref : source->opaqueRefs)
     {
-      auto child = ref ? std::static_pointer_cast<StorageCell>(ref) : nullptr;
-      slot->opaqueRefs.push_back(child ? clone_runtime_storage_cell(child, storageClass, child->name) : nullptr);
+      slot->opaqueRefs.push_back(ref ? clone_runtime_storage_cell(ref, storageClass, ref->name) : nullptr);
     }
     slot->namedRefs.clear();
     for (const auto &[refName, ref] : source->namedRefs)
     {
-      auto child = ref ? std::static_pointer_cast<StorageCell>(ref) : nullptr;
-      slot->namedRefs.insert_or_assign(refName, child ? clone_runtime_storage_cell(child, storageClass, refName) : nullptr);
+      slot->namedRefs.insert_or_assign(refName, ref ? clone_runtime_storage_cell(ref, storageClass, refName) : nullptr);
     }
     return slot;
   }

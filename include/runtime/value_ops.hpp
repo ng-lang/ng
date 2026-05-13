@@ -14,6 +14,10 @@ namespace NG::runtime::ops
   inline auto value_order(const RuntimeRef<StorageCell> &left, const RuntimeRef<StorageCell> &right) -> Orders;
 
   inline auto is_nominal_wrapper_cell(const RuntimeRef<StorageCell> &cell) -> bool;
+  inline auto is_commutative_binary_operator(RuntimeBinaryOperator op) -> bool
+  {
+    return op == RuntimeBinaryOperator::Add || op == RuntimeBinaryOperator::Multiply;
+  }
 
   inline auto dispatch_binary_operator(const RuntimeRef<StorageCell> &left, RuntimeBinaryOperator op,
                                        const RuntimeRef<StorageCell> &right) -> RuntimeRef<StorageCell>
@@ -26,7 +30,7 @@ namespace NG::runtime::ops
     auto rightType = runtime_value_type(right);
     auto leftSize = runtime_value_layout(left).size;
     auto rightSize = runtime_value_layout(right).size;
-    if (rightType && rightSize > leftSize && rightType->cellBinaryOperators.contains(op))
+    if (is_commutative_binary_operator(op) && rightType && rightSize > leftSize && rightType->cellBinaryOperators.contains(op))
     {
       return rightType->cellBinaryOperators.at(op)(right, left);
     }

@@ -2,6 +2,7 @@
 #include <intp/runtime.hpp>
 #include <intp/runtime_numerals.hpp>
 #include <runtime/array_layout_access.hpp>
+#include <runtime/index_layout_access.hpp>
 #include <runtime/native_marshaling.hpp>
 #include <runtime/struct_layout_access.hpp>
 #include <runtime/string_layout_access.hpp>
@@ -591,7 +592,7 @@ TEST_CASE("struct layout access reads and writes typed fields", "[RuntimeTest][L
   auto leftSlot = structural_member_slot(object, "left");
   REQUIRE(leftSlot != nullptr);
   REQUIRE(structural_member_slot(object, "left") == leftSlot);
-  REQUIRE(std::static_pointer_cast<StorageCell>(object->opaqueRefs[0]) == leftSlot);
+  REQUIRE(object->opaqueRefs[0] == leftSlot);
   runtime_copy_storage_cell(leftSlot, numeral_cell_from_value<int32_t>(11));
 
   auto slotted = structural_read_member_slot(object, "left");
@@ -627,7 +628,7 @@ TEST_CASE("struct layout access can replace typed fields with storage slots", "[
 
   REQUIRE(runtime_structural_field_slot(object, 0) == left);
   REQUIRE(runtime_structural_field_slot(object, 1) == right);
-  REQUIRE(std::static_pointer_cast<StorageCell>(object->opaqueRefs[0]) == left);
+  REQUIRE(object->opaqueRefs[0] == left);
 
   runtime_copy_storage_cell(left, numeral_cell_from_value<int32_t>(8));
   auto updated = structural_read_member_slot(object, "left");
@@ -682,7 +683,7 @@ TEST_CASE("array layout access reads and writes indexed elements", "[RuntimeTest
   auto firstSlot = array_element_slot(array, 0);
   REQUIRE(firstSlot != nullptr);
   REQUIRE(array_element_slot(array, 0) == firstSlot);
-  REQUIRE(std::static_pointer_cast<StorageCell>(array->opaqueRefs[0]) == firstSlot);
+  REQUIRE(array->opaqueRefs[0] == firstSlot);
   runtime_copy_storage_cell(firstSlot, numeral_cell_from_value<int32_t>(12));
 
   auto slotted = array_read_element(array, 0);
@@ -710,7 +711,7 @@ TEST_CASE("tuple layout access reads members and indexed elements", "[RuntimeTes
   auto firstSlot = tuple_element_slot(tuple, 0);
   REQUIRE(firstSlot != nullptr);
   REQUIRE(tuple_element_slot(tuple, 0) == firstSlot);
-  REQUIRE(std::static_pointer_cast<StorageCell>(tuple->opaqueRefs[0]) == firstSlot);
+  REQUIRE(tuple->opaqueRefs[0] == firstSlot);
   runtime_copy_storage_cell(firstSlot, numeral_cell_from_value<int32_t>(12));
 
   auto slotted = tuple_read_element(tuple, 0);
@@ -801,4 +802,90 @@ TEST_CASE("clone_runtime_storage_cell preserves slot-backed structural and tagge
   REQUIRE(runtime_cell_slot_ref(clonedTagged, 0) != runtime_cell_slot_ref(tagged, 0));
   REQUIRE(read_inline_cell_bytes<int32_t>(structural_read_member_slot(clonedStructural, "left")) == 1);
   REQUIRE(read_inline_cell_bytes<int32_t>(tagged_read_member_slot(clonedTagged, "value")) == 5);
+}
+
+TEST_CASE("indexed runtime access uses bounds-checked array and tuple slots", "[RuntimeTest][LayoutObjects][Failure]")
+{
+  auto array = make_runtime_array_cell({numeral_cell_from_value<int32_t>(1)});
+  auto tuple = make_runtime_tuple_cell({numeral_cell_from_value<int32_t>(2)});
+
+  REQUIRE(read_inline_cell_bytes<int32_t>(runtime_index_read(array, numeral_cell_from_value<int32_t>(0))) == 1);
+  REQUIRE(read_inline_cell_bytes<int32_t>(runtime_index_read(tuple, numeral_cell_from_value<int32_t>(0))) == 2);
+  REQUIRE_THROWS_MATCHES(runtime_index_read(array, numeral_cell_from_value<int32_t>(1)), RuntimeException,
+                         MessageMatches(ContainsSubstring("Index out of bounds")));
+  REQUIRE_THROWS_MATCHES(runtime_index_read(tuple, numeral_cell_from_value<int32_t>(1)), RuntimeException,
+                         MessageMatches(ContainsSubstring("Index out of bounds")));
+  REQUIRE_THROWS_MATCHES(runtime_index_read(array, numeral_cell_from_value<int32_t>(-1)), RuntimeException,
+                         MessageMatches(ContainsSubstring("Index out of bounds")));
+  REQUIRE_THROWS_MATCHES(runtime_index_read(make_runtime_string("x"), numeral_cell_from_value<int32_t>(0)),
+                         IllegalTypeException, MessageMatches(ContainsSubstring("Not index-accessible")));
+}
+
+TEST_CASE("runtime value type synthesizes stable metadata for raw storage cells", "[RuntimeTest][LayoutObjects]")
+{
+  TypeLayout layout{
+      .id = 99,
+      .name = "RawPair",
+      .kind = LayoutKind::INLINE_VALUE,
+      .size = 8,
+      .alignment = 4,
+  };
+  auto first = make_storage_cell(layout);
+  auto second = make_storage_cell(layout);
+
+  auto firstType = runtime_value_type(first);
+  auto secondType = runtime_value_type(second);
+
+  REQUIRE(firstType != nullptr);
+  REQUIRE(firstType == runtime_value_type(first));
+  REQUIRE(firstType == secondType);
+  REQUIRE(firstType->name == "RawPair");
+  REQUIRE(firstType->layout.id == 99);
+}
+
+TEST_CASE("mixed-width non-commutative numeric operators preserve operand order", "[RuntimeTest][Numeral]")
+{
+  auto left = numeral_cell_from_value<int32_t>(20);
+  auto right = numeral_cell_from_value<int64_t>(6);
+
+  REQUIRE(read_inline_cell_bytes<int32_t>(value_subtract(left, right)) == 14);
+  REQUIRE(read_inline_cell_bytes<int32_t>(value_divide(left, numeral_cell_from_value<int64_t>(5))) == 4);
+  REQUIRE(read_inline_cell_bytes<int32_t>(value_modulus(left, right)) == 2);
+  REQUIRE(read_inline_cell_bytes<int64_t>(value_add(left, right)) == 26);
+  REQUIRE(read_inline_cell_bytes<int64_t>(value_multiply(left, right)) == 120);
+}
+
+TEST_CASE("native marshaling validates slot views and argument contracts", "[RuntimeTest][Native]")
+{
+  NativeArgsView empty;
+  REQUIRE(empty.size() == 0);
+  REQUIRE(empty.value_at(0) == nullptr);
+  REQUIRE(empty.slot_at(0) == nullptr);
+
+  NGArgs values{make_runtime_string("value")};
+  auto slots = std::make_shared<Vec<RuntimeRef<StorageCell>>>();
+  slots->push_back(make_runtime_string("slot"));
+  NativeArgsView slotView{.values = &values, .slotOwner = slots};
+
+  REQUIRE(slotView.size() == 1);
+  REQUIRE(runtime_string_value(slotView.value_at(0)) == "slot");
+  REQUIRE(runtime_string_value(slotView.slot_at(0)) == "slot");
+  REQUIRE(require_string_arg("native", slotView, 0) == "slot");
+
+  auto env = make_runtime_env();
+  bind_native_arg_slots(env, *slots);
+  auto viewFromEnv = native_args_view(env, values);
+  REQUIRE(viewFromEnv.size() == 1);
+  REQUIRE(runtime_string_value(viewFromEnv.slot_at(0)) == "slot");
+
+  REQUIRE_THROWS_MATCHES(require_arg_slot("native", empty, 0, "a value"), RuntimeException,
+                         MessageMatches(ContainsSubstring("requires a value")));
+  REQUIRE_THROWS_MATCHES(require_string_arg("native", make_native_args_view(NGArgs{numeral_cell_from_value<int32_t>(1)}), 0),
+                         RuntimeException, MessageMatches(ContainsSubstring("requires a string")));
+  REQUIRE_THROWS_MATCHES(require_numeric_arg<int32_t>("native", make_native_args_view(values), 0, "an integer"),
+                         RuntimeException, MessageMatches(ContainsSubstring("requires an integer")));
+  REQUIRE_THROWS_MATCHES(require_arg_count("native", empty, 1), RuntimeException,
+                         MessageMatches(ContainsSubstring("requires at least 1")));
+  REQUIRE_THROWS_MATCHES(require_arg_count("native", make_native_args_view(values), 0, 0), RuntimeException,
+                         MessageMatches(ContainsSubstring("accepts at most 0")));
 }

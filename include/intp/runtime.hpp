@@ -87,7 +87,7 @@ namespace NG::runtime
 
     struct StorageCell : NG::buffer_runtime::FrameSlot
     {
-        Map<Str, std::shared_ptr<void>> namedRefs;
+        Map<Str, RuntimeRef<StorageCell>> namedRefs;
         RuntimeRef<NGType> runtimeType;
         uint64_t ownerScopeId = 0;
         bool initialized = false;

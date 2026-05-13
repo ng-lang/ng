@@ -29,16 +29,14 @@ namespace NG::runtime
       {
         if (ref)
         {
-          auto storage = std::static_pointer_cast<StorageCell>(ref);
-          trace_storage_cell(storage, seenCells);
+          trace_storage_cell(ref, seenCells);
         }
       }
       for (const auto &[name, ref] : cell->namedRefs)
       {
         if (ref)
         {
-          auto storage = std::static_pointer_cast<StorageCell>(ref);
-          trace_storage_cell(storage, seenCells);
+          trace_storage_cell(ref, seenCells);
         }
       }
     }

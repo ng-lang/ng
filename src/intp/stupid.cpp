@@ -27,6 +27,12 @@ namespace NG::runtime
   using namespace NG::runtime::native;
   static const Str NATIVE_MODULE_CONTEXT_KEY = "$$native_module$$";
 
+  struct NativeModuleContext
+  {
+    RuntimeRef<StorageCell> module;
+    explicit NativeModuleContext(RuntimeRef<StorageCell> module) : module(std::move(module)) {}
+  };
+
   auto get_native_registry() -> Map<Str, Map<Str, NGCallable>> &
   {
     static Map<Str, Map<Str, NGCallable>> natives;
@@ -49,7 +55,7 @@ namespace NG::runtime
       runtime_module_set_native_function(
           module, name, [module, handler](const NGSelf &self, const NGEnv &env, const NGArgs &args) -> RuntimeRef<StorageCell> {
             auto nativeEnv = fork_runtime_env(env);
-            runtime_env_set_state(nativeEnv, NATIVE_MODULE_CONTEXT_KEY, module);
+            runtime_env_set_state(nativeEnv, NATIVE_MODULE_CONTEXT_KEY, std::make_shared<NativeModuleContext>(module));
             bind_native_arg_slots(nativeEnv, args);
             return handler(self, nativeEnv, args);
           });
@@ -59,7 +65,8 @@ namespace NG::runtime
   auto current_native_module(const NGEnv &env) -> RuntimeRef<StorageCell>
   {
     auto state = runtime_env_get_state(env, NATIVE_MODULE_CONTEXT_KEY);
-    return state ? std::static_pointer_cast<StorageCell>(state) : nullptr;
+    auto context = state ? std::static_pointer_cast<NativeModuleContext>(state) : nullptr;
+    return context ? context->module : nullptr;
   }
 } // namespace NG::runtime
 

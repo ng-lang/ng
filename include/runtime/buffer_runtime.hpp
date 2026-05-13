@@ -9,6 +9,11 @@
 #include <optional>
 #include <stdexcept>
 
+namespace NG::runtime
+{
+  struct StorageCell;
+}
+
 namespace NG::buffer_runtime
 {
   enum class LayoutKind : uint8_t
@@ -96,7 +101,7 @@ namespace NG::buffer_runtime
     TypeLayout layout;
     Vec<uint8_t> bytes;
     Map<size_t, NativeHandle> nativeHandles;
-    Vec<std::shared_ptr<void>> opaqueRefs;
+    Vec<std::shared_ptr<NG::runtime::StorageCell>> opaqueRefs;
   };
 
   struct FrameSlot
@@ -106,7 +111,7 @@ namespace NG::buffer_runtime
     TypeLayout layout;
     Vec<uint8_t> bytes;
     Map<size_t, NativeHandle> nativeHandles;
-    Vec<std::shared_ptr<void>> opaqueRefs;
+    Vec<std::shared_ptr<NG::runtime::StorageCell>> opaqueRefs;
   };
 
   struct CallFrame

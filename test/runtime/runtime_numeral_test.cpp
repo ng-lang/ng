@@ -34,7 +34,8 @@ TEST_CASE("buffered numeral cells reject division and modulus by zero", "[Numera
                          MessageMatches(ContainsSubstring("Modulus by zero")));
 }
 
-TEST_CASE("buffered numeral cells cover supported inline widths and invalid reads", "[Numeral][Runtime][Buffered][Failure]")
+TEST_CASE("buffered numeral cells cover supported inline widths and invalid reads",
+          "[Numeral][Runtime][Buffered][Failure]")
 {
   REQUIRE(numeral_type_name<int8_t>() == "i8");
   REQUIRE(numeral_type_name<uint8_t>() == "u8");
@@ -90,6 +91,12 @@ TEST_CASE("buffered numeral cells negate", "[Numeral][Runtime]")
   REQUIRE(read_inline_cell_bytes<int32_t>(negate_numeric_cell(numeral_cell_from_value<int32_t>(-5))) == 5);
   REQUIRE(read_inline_cell_bytes<int64_t>(negate_numeric_cell(numeral_cell_from_value<int64_t>(-6))) == 6);
   REQUIRE(read_inline_cell_bytes<double>(negate_numeric_cell(numeral_cell_from_value<double>(-7.5))) == 7.5);
+  REQUIRE(read_inline_cell_bytes<int8_t>(negate_numeric_cell(numeral_cell_from_value<int8_t>(3))) == -3);
+  REQUIRE(read_inline_cell_bytes<int16_t>(negate_numeric_cell(numeral_cell_from_value<int16_t>(4))) == -4);
+  REQUIRE(read_inline_cell_bytes<int32_t>(negate_numeric_cell(numeral_cell_from_value<int32_t>(5))) == -5);
+  REQUIRE(read_inline_cell_bytes<int64_t>(negate_numeric_cell(numeral_cell_from_value<int64_t>(6))) == -6);
+  REQUIRE(read_inline_cell_bytes<float>(negate_numeric_cell(numeral_cell_from_value<float>(7.25F))) == -7.25F);
+  REQUIRE(read_inline_cell_bytes<double>(negate_numeric_cell(numeral_cell_from_value<double>(7.5))) == -7.5);
   REQUIRE_THROWS_MATCHES(negate_numeric_cell(numeral_cell_from_value<unsigned int>(42U)), RuntimeException,
                          MessageMatches(ContainsSubstring("Cannot negate unsigned integers")));
   REQUIRE_THROWS_MATCHES(negate_numeric_cell(make_runtime_string("x")), RuntimeException,

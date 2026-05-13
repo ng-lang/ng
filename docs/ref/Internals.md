@@ -68,7 +68,7 @@ The `Interpreter` class is also an `AstVisitor`. It traverses the AST and execut
 
 The runtime environment consists of the following components:
 
-*   **`RuntimeSymbolTable` + `CallFrame`:** Global definitions live in the shared symbol table, while active locals/parameters/receiver state live in explicit `StorageCell` slots.
+*   **`RuntimeSymbolTable` + `CallFrame`:** Global definitions live in the shared symbol table, while active locals/parameters/receiver state lives in explicit `StorageCell` slots.
 *   **`NGObject`:** A historical object-carrier name; runtime values are represented by storage cells and type/layout metadata rather than boxed object instances.
 *   **`NGType`:** Represents runtime type metadata, including layout and cell-native protocol handlers.
 *   **`NGModule`:** Represents module state through a module-typed storage cell with symbol slots and native state.

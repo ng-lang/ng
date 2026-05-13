@@ -19,11 +19,11 @@ namespace NG::runtime
     auto offset = static_cast<size_t>(indexValue);
     if (runtime_is_array_value(container))
     {
-      return runtime_cell_slot_ref(container, offset);
+      return array_element_slot(container, offset);
     }
     if (runtime_is_tuple_value(container))
     {
-      return runtime_cell_slot_ref(container, offset);
+      return tuple_element_slot(container, offset);
     }
 
     throw IllegalTypeException("Not index-accessible");
