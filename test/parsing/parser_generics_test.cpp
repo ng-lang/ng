@@ -1164,3 +1164,22 @@ TEST_CASE("parser should parse typeof expression with property access", "[Parser
 
   destroyast(ast);
 }
+
+TEST_CASE("parser should recognize ref as nested generic argument starter", "[Parser][Generics][RefMove]")
+{
+  auto ast = parse("type Box<T> { property value: T; }\nval nested: Box<ref<i32>> = unit;");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto valDef = dynamic_ast_cast<ValDef>(compileUnit->module->definitions[1]);
+  REQUIRE(valDef != nullptr);
+  auto valStmt = dynamic_ast_cast<ValDefStatement>(valDef->body);
+  REQUIRE(valStmt != nullptr);
+  REQUIRE(valStmt->typeAnnotation != nullptr);
+  REQUIRE(valStmt->typeAnnotation->name == "Box");
+  REQUIRE(valStmt->typeAnnotation->genericArgs.size() == 1);
+  REQUIRE(valStmt->typeAnnotation->genericArgs[0]->name == "ref");
+
+  destroyast(ast);
+}

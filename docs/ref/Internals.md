@@ -68,14 +68,14 @@ The `Interpreter` class is also an `AstVisitor`. It traverses the AST and execut
 
 The runtime environment consists of the following components:
 
-*   **`RuntimeSymbolTable` + `CallFrame`:** Global definitions live in the shared symbol table, while active locals/parameters/receiver state live in explicit call-frame storage cells.
-*   **`NGObject`:** The base class for all runtime objects.
-*   **`NGType`:** Represents a type in the runtime.
-*   **`NGModule`:** Represents a module in the runtime.
+*   **`RuntimeSymbolTable` + `CallFrame`:** Global definitions live in the shared symbol table, while active locals/parameters/receiver state live in explicit `StorageCell` slots.
+*   **`NGObject`:** A historical object-carrier name; runtime values are represented by storage cells and type/layout metadata rather than boxed object instances.
+*   **`NGType`:** Represents runtime type metadata, including layout and cell-native protocol handlers.
+*   **`NGModule`:** Represents module state through a module-typed storage cell with symbol slots and native state.
 
 ### Memory Management
 
-NG uses `std::shared_ptr` for automatic memory management of runtime objects. This means that memory is automatically deallocated when an object is no longer referenced.
+NG uses `std::shared_ptr` for storage cells and managed heap references. Heap values are cloned into `StorageCell` instances and traced from symbol tables, call frames, module slots, and registered GC roots.
 
 ## 7. Foreign Function Interface (FFI)
 
@@ -89,14 +89,14 @@ fun my_native_function(arg: i32) -> unit = native;
 
 Today, native functions are wired through the newer runtime env model:
 
-- runtime/native callables use `NGCallable = std::function<RuntimeRef<NGObject>(NGSelf, NGEnv, NGArgs)>`
+- runtime/native callables use `NGCallable = std::function<RuntimeRef<StorageCell>(NGSelf, NGEnv, NGArgs)>`
 - env-scoped runtime metadata (for example bound native module identity and slot-backed native args) flows through `RuntimeEnv`
 - native arguments can be read through `NativeArgsView`, which can expose canonical `StorageCell` slots when available
 - runtime native libraries are registered through `register_native_library(...)` / `bind_native_library_handlers(...)`
-- ORGASM VM natives are still adapted through `wrap_native(...)` into the current raw VM native bridge (`RuntimeRef<NGObject>(Vec<RuntimeRef<NGObject>>)`)
-- ORGASM bytecode-to-bytecode calls are now slot-first internally (`execute_slots(...)`), so the remaining object-vector adaptation is concentrated at the VM native edge
+- ORGASM VM natives are adapted through `wrap_native(...)` into the raw VM native bridge (`RuntimeRef<StorageCell>(Vec<RuntimeRef<StorageCell>>)`)
+- ORGASM bytecode-to-bytecode calls are slot-first internally (`execute_slots(...)`), so native adaptation stays on direct cell/handle semantics
 
-The remaining cleanup is no longer about `NGContext`; it is about converging the last VM/native shims on direct cell/handle semantics and reducing the remaining compatibility layers around object carriers at the host boundary.
+The remaining cleanup is no longer about `NGContext` or boxed object carriers; it is about keeping native boundaries aligned with direct cell/handle semantics.
 
 ### Planned direction
 

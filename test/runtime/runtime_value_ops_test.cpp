@@ -225,6 +225,29 @@ TEST_CASE("runtime value access adapts storage cells and boxed objects", "[Runti
   REQUIRE(runtime_value_type(slot)->name == "i32");
 }
 
+TEST_CASE("runtime value access handles null and cleared cells without materialization", "[RuntimeTest][Runtime][Failure]")
+{
+  REQUIRE(runtime_value_type(nullptr)->name == "Object");
+  REQUIRE(runtime_value_layout(nullptr).size == 0);
+  REQUIRE(runtime_value_show(nullptr) == "unit");
+  REQUIRE_FALSE(runtime_value_bool(nullptr));
+  REQUIRE_FALSE(runtime_cell_has_value(nullptr));
+  REQUIRE_FALSE(runtime_cell_is_moved(nullptr));
+  REQUIRE_THROWS_WITH(runtime_value_respond_slot(nullptr, "missing", make_runtime_env(), {}),
+                      Catch::Matchers::ContainsSubstring("Cannot respond to member 'missing' on null storage cell"));
+
+  auto slot = numeral_cell_from_value<int32_t>(12);
+  runtime_copy_storage_cell(slot, nullptr);
+  REQUIRE_FALSE(runtime_cell_has_value(slot));
+  REQUIRE(slot->runtimeType == nullptr);
+  REQUIRE(slot->bytes.empty());
+
+  auto fallback = clone_runtime_storage_cell(nullptr, StorageClass::GLOBAL, "fallback");
+  REQUIRE(runtime_value_type(fallback)->name == "unit");
+  REQUIRE(fallback->storageClass == StorageClass::GLOBAL);
+  REQUIRE(fallback->name == "fallback");
+}
+
 TEST_CASE("runtime value respond prefers type-handle member dispatch", "[RuntimeTest][Runtime]")
 {
   auto nominalType = makert<NGType>();
@@ -328,6 +351,57 @@ TEST_CASE("runtime value ops prefer type-driven operator handlers", "[RuntimeTes
   REQUIRE(value_less_than(left, right));
 }
 
+TEST_CASE("runtime value ops cover unsupported and aggregate mismatch paths", "[RuntimeTest][Runtime][ValueOps][Failure]")
+{
+  REQUIRE(dispatch_binary_operator(nullptr, RuntimeBinaryOperator::Add, numeral_cell_from_value<int32_t>(1)) == nullptr);
+  REQUIRE_THROWS_WITH(value_subtract(make_runtime_string("a"), make_runtime_string("b")),
+                      Catch::Matchers::ContainsSubstring("Unsupported binary operator"));
+  REQUIRE_THROWS_WITH(value_less_than(make_runtime_array_cell({}), make_runtime_array_cell({})),
+                      Catch::Matchers::ContainsSubstring("Unsupported binary operator"));
+
+  REQUIRE_FALSE(value_equals(make_runtime_array_cell({numeral_cell_from_value<int32_t>(1)}),
+                             make_runtime_array_cell({numeral_cell_from_value<int32_t>(1),
+                                                      numeral_cell_from_value<int32_t>(2)})));
+  REQUIRE_FALSE(value_equals(make_runtime_tuple_cell({numeral_cell_from_value<int32_t>(1)}),
+                             make_runtime_tuple_cell({numeral_cell_from_value<int32_t>(1),
+                                                      numeral_cell_from_value<int32_t>(2)})));
+  REQUIRE_FALSE(value_equals(make_runtime_tagged_cell("Result", "Ok", 0, {numeral_cell_from_value<int32_t>(1)}, {"value"}),
+                             make_runtime_tagged_cell("Result", "Err", 1, {make_runtime_string("bad")}, {"message"})));
+
+  auto objectType = makert<NGType>();
+  objectType->name = "Record";
+  objectType->properties = {"value"};
+  auto left = make_runtime_structural_cell(objectType, {numeral_cell_from_value<int32_t>(1)}, {{"extra", unit_cell()}});
+  auto right = make_runtime_structural_cell(objectType, {numeral_cell_from_value<int32_t>(1)});
+  REQUIRE_FALSE(value_equals(left, right));
+}
+
+TEST_CASE("runtime value ops can dispatch from larger right-hand layouts", "[RuntimeTest][Runtime][ValueOps]")
+{
+  auto narrowType = makert<NGType>();
+  narrowType->name = "Narrow";
+  narrowType->layout = TypeLayout{.name = "Narrow", .kind = LayoutKind::INLINE_VALUE, .size = 1};
+
+  auto wideType = makert<NGType>();
+  wideType->name = "Wide";
+  wideType->layout = TypeLayout{.name = "Wide", .kind = LayoutKind::INLINE_VALUE, .size = 16};
+  wideType->cellBinaryOperators[RuntimeBinaryOperator::Add] =
+      [](const RuntimeRef<StorageCell> &, const RuntimeRef<StorageCell> &) {
+        return make_runtime_string("right-dispatch");
+      };
+  wideType->cellOrderHandler = [](const RuntimeRef<StorageCell> &, const RuntimeRef<StorageCell> &) {
+    return Orders::GT;
+  };
+
+  auto narrow = make_storage_cell(narrowType->layout, StorageClass::TEMPORARY, {}, narrowType);
+  narrow->initialized = true;
+  auto wide = make_storage_cell(wideType->layout, StorageClass::TEMPORARY, {}, wideType);
+  wide->initialized = true;
+
+  REQUIRE(runtime_string_value(value_add(narrow, wide)) == "right-dispatch");
+  REQUIRE(value_less_than(narrow, wide));
+}
+
 TEST_CASE("runtime value respond uses type-descriptor handlers for aggregate and module members", "[RuntimeTest][Runtime]")
 {
   auto env = make_runtime_env();
@@ -380,6 +454,21 @@ TEST_CASE("runtime value respond uses type-descriptor handlers for aggregate and
   auto hello = runtime_value_respond(module, "hello", env, {});
   REQUIRE(hello != nullptr);
   REQUIRE(runtime_string_value(hello) == "world");
+}
+
+TEST_CASE("string member handlers validate missing arguments", "[RuntimeTest][Runtime][Failure]")
+{
+  auto env = make_runtime_env();
+  auto text = make_runtime_string("abc");
+
+  REQUIRE_THROWS_WITH(runtime_value_respond(text, "charAt", env, {}),
+                      Catch::Matchers::ContainsSubstring("requires an index argument"));
+  REQUIRE_THROWS_WITH(runtime_value_respond(text, "append", env, {}),
+                      Catch::Matchers::ContainsSubstring("requires a value argument"));
+  REQUIRE_THROWS_WITH(runtime_value_respond(text, "charAt", env, {numeral_cell_from_value<int32_t>(3)}),
+                      Catch::Matchers::ContainsSubstring("Index out of bounds"));
+  auto appended = runtime_value_respond(text, "append", env, {make_runtime_string("d")});
+  REQUIRE(runtime_string_value(appended) == "abcd");
 }
 
 TEST_CASE("cell protocol calls fall through to type-descriptor handlers", "[RuntimeTest][Runtime]")
@@ -543,6 +632,38 @@ TEST_CASE("struct layout access can replace typed fields with storage slots", "[
   runtime_copy_storage_cell(left, numeral_cell_from_value<int32_t>(8));
   auto updated = structural_read_member_slot(object, "left");
   REQUIRE(read_inline_cell_bytes<int32_t>(updated) == 8);
+}
+
+TEST_CASE("structural cells expose dynamic slot creation and reject non-structural values", "[RuntimeTest][LayoutObjects][Failure]")
+{
+  auto dynamic = make_runtime_structural_cell(nullptr, {});
+  auto created = runtime_structural_property_slot_or_create(dynamic, "created");
+  REQUIRE(created != nullptr);
+  REQUIRE(created->name == "created");
+  runtime_structural_write_member(dynamic, "created", make_runtime_string("slot"));
+  REQUIRE(runtime_string_value(runtime_structural_read_member(dynamic, "created")) == "slot");
+  REQUIRE(runtime_structural_property_slots(dynamic).contains("created"));
+
+  auto objectType = makert<NGType>();
+  objectType->name = "Pair";
+  objectType->properties = {"left", "right"};
+  auto sparse = make_runtime_structural_cell(objectType, {});
+  auto left = runtime_structural_property_slot_or_create(sparse, "left");
+  REQUIRE(left != nullptr);
+  REQUIRE(runtime_structural_field_slots(sparse).size() == 1);
+  REQUIRE(runtime_structural_field_slot(sparse, 1) == nullptr);
+  REQUIRE(runtime_structural_field_index(sparse, "right").value() == 1);
+
+  auto array = make_runtime_array_cell({});
+  REQUIRE_FALSE(runtime_is_structural_value(array));
+  REQUIRE_FALSE(runtime_is_structural_value(make_runtime_tuple_cell({})));
+  REQUIRE_FALSE(runtime_is_structural_value(make_runtime_string("x")));
+  REQUIRE_FALSE(runtime_is_structural_value(make_runtime_module()));
+  REQUIRE_FALSE(runtime_is_structural_value(make_runtime_reference_cell(unit_cell())));
+  REQUIRE_THROWS_WITH(runtime_structural_type(array),
+                      Catch::Matchers::ContainsSubstring("Expected structural runtime value"));
+  REQUIRE_THROWS_WITH(runtime_structural_replace_field_slots(array, {}),
+                      Catch::Matchers::ContainsSubstring("Expected structural runtime value"));
 }
 
 TEST_CASE("array layout access reads and writes indexed elements", "[RuntimeTest][LayoutObjects]")

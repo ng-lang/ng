@@ -97,6 +97,7 @@ namespace NG::orgasm
         struct VariantInfo {
             Str unionName;
             int32_t variantIndex;
+            Vec<Str> payloadFields;
         };
         Map<Str, VariantInfo> variant_map;
 

@@ -131,12 +131,16 @@ namespace NG::runtime
     auto type = runtime_tagged_type(value);
     if (!type->layout.variants.empty())
     {
-      Vec<Str> names;
-      for (const auto &field : type->layout.variants.front().fields)
+      auto index = type->variantIndex;
+      if (index >= 0 && static_cast<size_t>(index) < type->layout.variants.size())
       {
-        names.push_back(field.name);
+        Vec<Str> names;
+        for (const auto &field : type->layout.variants[static_cast<size_t>(index)].fields)
+        {
+          names.push_back(field.name);
+        }
+        return names;
       }
-      return names;
     }
     return type->properties;
   }

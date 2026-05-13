@@ -909,7 +909,7 @@ namespace NG::parsing
             TokenType next = state->type;
             if (next == TokenType::ID ||
                 (code(TokenType::KEYWORD_INT) <= code(next) && code(TokenType::KEYWORD_F128) >= code(next)) ||
-                next == TokenType::KEYWORD_UNIT || next == TokenType::LEFT_SQUARE ||
+                next == TokenType::KEYWORD_UNIT || next == TokenType::KEYWORD_REF || next == TokenType::LEFT_SQUARE ||
                 next == TokenType::LEFT_PAREN)
             {
               isGenericArgs = true;

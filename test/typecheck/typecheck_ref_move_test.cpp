@@ -140,3 +140,43 @@ TEST_CASE("should reject read after switch-branch move", "[TypeCheck][RefMove][F
       )",
       "Use after move: x");
 }
+
+TEST_CASE("should reject object construction with missing declared property", "[TypeCheck][RefMove][Failure]")
+{
+  typecheck_failure(
+      R"(
+        type Box {
+          value: i32;
+          other: i32;
+        }
+        val box = new Box { value: 1 };
+      )",
+      "Missing property 'other' for type Box");
+}
+
+TEST_CASE("should reject tagged variant calls with invalid payload arity or type", "[TypeCheck][RefMove][Failure]")
+{
+  typecheck_failure(
+      R"(
+        type Result = Ok(value: i32) | Err(msg: string);
+        val result = Ok();
+      )",
+      "Invalid payload arity for variant Ok");
+
+  typecheck_failure(
+      R"(
+        type Result = Ok(value: i32) | Err(msg: string);
+        val result = Ok("bad");
+      )",
+      "Payload type mismatch for variant Ok");
+}
+
+TEST_CASE("should reject generic tagged variant calls with invalid payload arity", "[TypeCheck][RefMove][Failure]")
+{
+  typecheck_failure(
+      R"(
+        type Option<T> = Some(value: T) | None;
+        val option: Option<i32> = Some();
+      )",
+      "Invalid payload arity for variant Some");
+}

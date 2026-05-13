@@ -57,6 +57,21 @@ namespace NG::typecheck
     if (isUnit(ua) && dynamic_cast<const CustomizedType *>(&ub)) return true;
     if (isUnit(ub) && dynamic_cast<const CustomizedType *>(&ua)) return true;
 
+    if (auto custom = dynamic_cast<const CustomizedType *>(&ua))
+    {
+      if (auto ref = dynamic_cast<const ReferenceType *>(&ub); ref && ref->referencedType)
+      {
+        return custom->match(*ref->referencedType);
+      }
+    }
+    if (auto custom = dynamic_cast<const CustomizedType *>(&ub))
+    {
+      if (auto ref = dynamic_cast<const ReferenceType *>(&ua); ref && ref->referencedType)
+      {
+        return custom->match(*ref->referencedType);
+      }
+    }
+
     return ua.match(ub);
   }
 
@@ -178,6 +193,55 @@ namespace NG::typecheck
 
   static auto formatTypeInstanceName(const Str &baseName, const Vec<CheckingRef<TypeInfo>> &args) -> Str
   {
+    auto safeTypeName = [](const CheckingRef<TypeInfo> &type, const auto &self) -> Str {
+      if (!type)
+      {
+        return "?";
+      }
+      if (auto tagged = std::dynamic_pointer_cast<TaggedUnionType>(type))
+      {
+        return tagged->name;
+      }
+      if (auto variant = std::dynamic_pointer_cast<VariantType>(type))
+      {
+        return variant->unionName + "." + variant->variantName;
+      }
+      if (auto custom = std::dynamic_pointer_cast<CustomizedType>(type))
+      {
+        return custom->name;
+      }
+      if (auto alias = std::dynamic_pointer_cast<TypeAliasType>(type))
+      {
+        return alias->name;
+      }
+      if (auto newType = std::dynamic_pointer_cast<NewTypeType>(type))
+      {
+        return newType->name;
+      }
+      if (auto ref = std::dynamic_pointer_cast<ReferenceType>(type))
+      {
+        return "ref<" + self(ref->referencedType, self) + ">";
+      }
+      if (auto array = std::dynamic_pointer_cast<ArrayType>(type))
+      {
+        return self(array->elementType, self) + " array";
+      }
+      if (auto tuple = std::dynamic_pointer_cast<TupleType>(type))
+      {
+        Str out = "(";
+        for (size_t i = 0; i < tuple->elementTypes.size(); ++i)
+        {
+          if (i > 0)
+          {
+            out += ", ";
+          }
+          out += self(tuple->elementTypes[i], self);
+        }
+        return out + ")";
+      }
+      return type->repr();
+    };
+
     Str result = baseName + "<";
     for (size_t i = 0; i < args.size(); ++i)
     {
@@ -185,7 +249,7 @@ namespace NG::typecheck
       {
         result += ", ";
       }
-      result += args[i] ? args[i]->repr() : "?";
+      result += safeTypeName(args[i], safeTypeName);
     }
     result += ">";
     return result;
@@ -2279,6 +2343,13 @@ namespace NG::typecheck
                                         expr->pos);
           }
         }
+        for (const auto &[name, expectedType] : customType->properties)
+        {
+          if (!newObj->properties.contains(name))
+          {
+            throw TypeCheckingException("Missing property '" + name + "' for type " + customType->name, newObj->pos);
+          }
+        }
 
         movedBindings = checker.movedBindings;
         result = makecheck<ReferenceType>(customType);
@@ -2601,11 +2672,31 @@ namespace NG::typecheck
               // It's a tagged value construction
               auto &payloadTypes = tuType->variants[idExpr->id];
               TypeChecker argChecker{locals, {}, nullptr, movedBindings};
+              Vec<CheckingRef<TypeInfo>> argumentTypes;
               for (size_t i = 0; i < funCall->arguments.size(); ++i)
               {
                 funCall->arguments[i]->accept(&argChecker);
+                argumentTypes.push_back(argChecker.result);
               }
               movedBindings = argChecker.movedBindings;
+              if (payloadTypes.size() != argumentTypes.size())
+              {
+                throw TypeCheckingException("Invalid payload arity for variant " + idExpr->id + ": expected " +
+                                                std::to_string(payloadTypes.size()) + " argument(s), got " +
+                                                std::to_string(argumentTypes.size()),
+                                            funCall->pos);
+              }
+              for (size_t i = 0; i < payloadTypes.size(); ++i)
+              {
+                if (argumentTypes[i] && argumentTypes[i]->tag() != typeinfo_tag::UNTYPED &&
+                    !typeMatch(*payloadTypes[i], *argumentTypes[i]))
+                {
+                  throw TypeCheckingException("Payload type mismatch for variant " + idExpr->id + " at argument " +
+                                                  std::to_string(i + 1) + ": " + argumentTypes[i]->repr() + " to " +
+                                                  payloadTypes[i]->repr(),
+                                              funCall->arguments[i]->pos);
+                }
+              }
               // Find payload names for this variant
               Vec<Str> payloadNames;
               if (tuType->variantPayloadNames.contains(idExpr->id))
@@ -2671,7 +2762,26 @@ namespace NG::typecheck
                   return std::nullopt;
                 }
 
-                if (expected->tag() == typeinfo_tag::GENERIC_PARAM)
+                Map<Str, CheckingRef<TypeInfo>> nestedSubstitution;
+                extractGenericBindings(expected, actual, nestedSubstitution);
+                if (!nestedSubstitution.empty())
+                {
+                  for (const auto &[name, inferredType] : nestedSubstitution)
+                  {
+                    auto it = std::find(genericType->typeParamNames.begin(), genericType->typeParamNames.end(), name);
+                    if (it == genericType->typeParamNames.end())
+                    {
+                      return std::nullopt;
+                    }
+                    auto index = static_cast<size_t>(std::distance(genericType->typeParamNames.begin(), it));
+                    if (inferred[index] && !typeMatch(*inferred[index], *inferredType))
+                    {
+                      return std::nullopt;
+                    }
+                    inferred[index] = inferredType;
+                  }
+                }
+                else if (expected->tag() == typeinfo_tag::GENERIC_PARAM)
                 {
                   auto &param = static_cast<GenericParamType &>(*expected);
                   auto it = std::find(genericType->typeParamNames.begin(), genericType->typeParamNames.end(), param.name);
@@ -2728,6 +2838,13 @@ namespace NG::typecheck
                 argumentTypes.push_back(argChecker.result);
               }
               movedBindings = argChecker.movedBindings;
+              if (expectedPayloadTypes.size() != argumentTypes.size())
+              {
+                throw TypeCheckingException("Invalid payload arity for variant " + idExpr->id + ": expected " +
+                                                std::to_string(expectedPayloadTypes.size()) + " argument(s), got " +
+                                                std::to_string(argumentTypes.size()),
+                                            funCall->pos);
+              }
 
               auto inferredArgs = inferFromVariant(expectedPayloadTypes, argumentTypes);
               if (!inferredArgs.has_value())
@@ -2741,12 +2858,16 @@ namespace NG::typecheck
                     {
                       payloadNames = expectedUnion->variantPayloadNames[idExpr->id];
                     }
+                    if (!expectedUnion->variants[idExpr->id].empty() || !payloadNames.empty())
+                    {
+                      continue;
+                    }
                     result = makecheck<VariantType>(expectedUnion->name, idExpr->id, 0,
                                                     expectedUnion->variants[idExpr->id], payloadNames);
                     return;
                   }
                 }
-                continue;
+                throw TypeCheckingException("Payload type mismatch for variant " + idExpr->id, funCall->pos);
               }
 
               auto instantiatedUnion = instantiateGenericType(*genericType, inferredArgs.value());
@@ -2762,7 +2883,7 @@ namespace NG::typecheck
               {
                 payloadNames = tuType->variantPayloadNames[idExpr->id];
               }
-              result = makecheck<VariantType>(instantiatedUnion->repr(), idExpr->id, 0, tuType->variants[idExpr->id],
+              result = makecheck<VariantType>(tuType->name, idExpr->id, 0, tuType->variants[idExpr->id],
                                               payloadNames);
               return;
             }
@@ -3166,6 +3287,8 @@ namespace NG::typecheck
         returnType = retChecker.result;
       }
       genericDef.instances[instanceName] = returnType;
+      try
+      {
 
       // 5. Type-check the function body with substituted types
       TypeChecker bodyChecker{locals};
@@ -3290,6 +3413,12 @@ namespace NG::typecheck
 
       genericDef.instances[instanceName] = returnType;
       return returnType;
+      }
+      catch (...)
+      {
+        genericDef.instances.erase(instanceName);
+        throw;
+      }
     }
   };
 

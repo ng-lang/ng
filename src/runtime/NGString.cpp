@@ -76,6 +76,10 @@ namespace NG::runtime
              }},
             {"charAt",
              [](const NGSelf &self, const NGEnv &, const NGArgs &args) -> RuntimeRef<StorageCell> {
+               if (args.empty())
+               {
+                 throw RuntimeException("String.charAt() requires an index argument");
+               }
                auto index = read_numeric_cell_as<int32_t>(args[0]);
                if (index < 0)
                {
@@ -87,9 +91,13 @@ namespace NG::runtime
                  throw RuntimeException("Index out of bounds: " + std::to_string(index));
                }
                return numeral_cell_from_value<int32_t>(static_cast<unsigned char>(payload[static_cast<size_t>(index)]));
-             }},
+            }},
             {"append",
              [](const NGSelf &self, const NGEnv &, const NGArgs &args) -> RuntimeRef<StorageCell> {
+               if (args.empty())
+               {
+                 throw RuntimeException("String.append() requires a value argument");
+               }
                return make_runtime_string(string_cell_payload(self) + runtime_value_show(args[0]));
              }},
         },

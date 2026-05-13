@@ -166,6 +166,10 @@ namespace NG::intp
   {
     if (!symbols)
     {
+      throw RuntimeException("Invalid symbols for variant type registration: " + name);
+    }
+    if (symbols->variantTypes.contains(name))
+    {
       throw RuntimeException("Redefine " + name);
     }
     symbols->variantTypes[name] = type;
@@ -1997,8 +2001,8 @@ namespace NG::intp
         if (callFrame.receiver)
         {
           callFrame.receiver->name = "self";
+          callFrame.receiver->ownerScopeId = current_scope_id(scopeIds);
         }
-        callFrame.receiver->ownerScopeId = current_scope_id(scopeIds);
         auto returnTypeName = funDef->returnType ? funDef->returnType->repr() : "unit";
         auto returnRuntimeType = resolveRuntimeType(callSymbols, returnTypeName);
         callFrame.returnSlot =
@@ -2145,8 +2149,8 @@ namespace NG::intp
           if (callFrame.receiver)
           {
             callFrame.receiver->name = "self";
+            callFrame.receiver->ownerScopeId = current_scope_id(scopeIds);
           }
-          callFrame.receiver->ownerScopeId = current_scope_id(scopeIds);
           auto returnTypeName = memFn->returnType ? memFn->returnType->repr() : "unit";
           auto returnRuntimeType = resolveRuntimeType(callSymbols, returnTypeName);
           callFrame.returnSlot =

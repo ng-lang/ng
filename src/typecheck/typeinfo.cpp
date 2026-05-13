@@ -2,6 +2,61 @@
 
 namespace NG::typecheck
 {
+  namespace
+  {
+    auto nestedTypeRepr(const CheckingRef<TypeInfo> &type) -> Str;
+
+    auto nestedTypeRepr(const TypeInfo &type) -> Str
+    {
+      if (auto tagged = dynamic_cast<const TaggedUnionType *>(&type))
+      {
+        return tagged->name;
+      }
+      if (auto custom = dynamic_cast<const CustomizedType *>(&type))
+      {
+        return custom->name;
+      }
+      if (auto alias = dynamic_cast<const TypeAliasType *>(&type))
+      {
+        return alias->name;
+      }
+      if (auto newType = dynamic_cast<const NewTypeType *>(&type))
+      {
+        return newType->name;
+      }
+      if (auto variant = dynamic_cast<const VariantType *>(&type))
+      {
+        return variant->unionName + "." + variant->variantName;
+      }
+      if (auto ref = dynamic_cast<const ReferenceType *>(&type))
+      {
+        return "ref<" + nestedTypeRepr(ref->referencedType) + ">";
+      }
+      if (auto array = dynamic_cast<const ArrayType *>(&type))
+      {
+        return "[" + nestedTypeRepr(array->elementType) + "]";
+      }
+      if (auto tuple = dynamic_cast<const TupleType *>(&type))
+      {
+        Str out = "(";
+        for (size_t i = 0; i < tuple->elementTypes.size(); ++i)
+        {
+          if (i > 0)
+          {
+            out += ", ";
+          }
+          out += nestedTypeRepr(tuple->elementTypes[i]);
+        }
+        return out + ")";
+      }
+      return type.repr();
+    }
+
+    auto nestedTypeRepr(const CheckingRef<TypeInfo> &type) -> Str
+    {
+      return type ? nestedTypeRepr(*type) : "?";
+    }
+  } // namespace
 
   auto TypeInfo::tag() const -> typeinfo_tag
   {
@@ -97,7 +152,7 @@ namespace NG::typecheck
       for (size_t i = 0; i < payloadTypes.size(); ++i)
       {
         if (i > 0) out += ", ";
-        out += payloadTypes[i]->repr();
+        out += nestedTypeRepr(payloadTypes[i]);
       }
       out += ")";
     }
@@ -125,8 +180,8 @@ namespace NG::typecheck
     Str out = variantName + "(";
     for (size_t i = 0; i < payloadTypes.size(); ++i)
     {
-      if (i > 0) out += ", ";
-      out += payloadTypes[i]->repr();
+        if (i > 0) out += ", ";
+        out += nestedTypeRepr(payloadTypes[i]);
     }
     out += ")";
     return out;
@@ -177,7 +232,7 @@ namespace NG::typecheck
 
   auto ReferenceType::repr() const -> Str
   {
-    return "ref<" + (referencedType ? referencedType->repr() : Str{"?"}) + ">";
+    return "ref<" + nestedTypeRepr(referencedType) + ">";
   }
 
   auto ReferenceType::match(const TypeInfo &other) const -> bool
@@ -185,6 +240,10 @@ namespace NG::typecheck
     if (other.tag() == typeinfo_tag::UNTYPED) return true;
     if (auto otherRef = dynamic_cast<const ReferenceType *>(&other))
     {
+      if (!referencedType || !otherRef->referencedType)
+      {
+        return referencedType == otherRef->referencedType;
+      }
       return referencedType->match(*otherRef->referencedType);
     }
     return false;

@@ -131,6 +131,7 @@ namespace NG::orgasm
                     variant_map[taggedUnion->variants[i].variantName] = VariantInfo{
                         .unionName = taggedUnion->typeName,
                         .variantIndex = i,
+                        .payloadFields = taggedUnion->variants[i].payloadNames,
                     };
                 }
                 module.types.push_back(std::move(type));
@@ -971,25 +972,16 @@ namespace NG::orgasm
             }
         } else {
             bool foundVariant = false;
-            for (const auto &type : module.types) {
-                for (const auto &variant : type.variants) {
-                    if (variant.name != typeName) {
-                        continue;
+            if (auto variantIt = variant_map.find(typeName); variantIt != variant_map.end()) {
+                foundVariant = true;
+                const auto &payloadFields = variantIt->second.payloadFields;
+                numFields = static_cast<uint16_t>(payloadFields.size());
+                for (const auto &fieldName : payloadFields) {
+                    auto it = newObj->properties.find(fieldName);
+                    if (it == newObj->properties.end()) {
+                        throw NotImplementedException("Missing payload property '" + fieldName + "' for variant " + typeName);
                     }
-
-                    foundVariant = true;
-                    numFields = static_cast<uint16_t>(variant.payloadFields.size());
-                    for (const auto &fieldName : variant.payloadFields) {
-                        auto it = newObj->properties.find(fieldName);
-                        if (it == newObj->properties.end()) {
-                            throw NotImplementedException("Missing payload property '" + fieldName + "' for variant " + typeName);
-                        }
-                        it->second->accept(this);
-                    }
-                    break;
-                }
-                if (foundVariant) {
-                    break;
+                    it->second->accept(this);
                 }
             }
 

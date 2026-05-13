@@ -53,6 +53,18 @@ namespace NG::runtime::ops
     return true;
   }
 
+  inline auto aggregate_slots_equal(const Vec<RuntimeRef<StorageCell>> &leftSlots,
+                                    const Vec<RuntimeRef<StorageCell>> &rightSlots) -> bool
+  {
+    if (leftSlots.size() != rightSlots.size())
+    {
+      return false;
+    }
+    return aggregate_slots_equal(leftSlots.size(),
+                                 [&](size_t index) { return leftSlots[index]; },
+                                 [&](size_t index) { return rightSlots[index]; });
+  }
+
   inline auto is_nominal_wrapper_cell(const RuntimeRef<StorageCell> &cell) -> bool
   {
     auto type = runtime_value_type(cell);
@@ -102,35 +114,13 @@ namespace NG::runtime::ops
     {
       auto leftSlots = runtime_cell_slot_refs(left);
       auto rightSlots = runtime_cell_slot_refs(right);
-      if (leftSlots.size() != rightSlots.size())
-      {
-        return false;
-      }
-      for (size_t i = 0; i < leftSlots.size(); ++i)
-      {
-        if (!value_equals(leftSlots[i], rightSlots[i]))
-        {
-          return false;
-        }
-      }
-      return true;
+      return aggregate_slots_equal(leftSlots, rightSlots);
     }
     if (leftType && rightType && leftType->name == "Tuple" && rightType->name == "Tuple")
     {
       auto leftSlots = runtime_cell_slot_refs(left);
       auto rightSlots = runtime_cell_slot_refs(right);
-      if (leftSlots.size() != rightSlots.size())
-      {
-        return false;
-      }
-      for (size_t i = 0; i < leftSlots.size(); ++i)
-      {
-        if (!value_equals(leftSlots[i], rightSlots[i]))
-        {
-          return false;
-        }
-      }
-      return true;
+      return aggregate_slots_equal(leftSlots, rightSlots);
     }
     if (leftType && rightType && leftType->layout.kind == LayoutKind::TAGGED_UNION &&
         rightType->layout.kind == LayoutKind::TAGGED_UNION &&
@@ -139,33 +129,15 @@ namespace NG::runtime::ops
     {
       auto leftSlots = runtime_cell_slot_refs(left);
       auto rightSlots = runtime_cell_slot_refs(right);
-      if (leftSlots.size() != rightSlots.size())
-      {
-        return false;
-      }
-      for (size_t i = 0; i < leftSlots.size(); ++i)
-      {
-        if (!value_equals(leftSlots[i], rightSlots[i]))
-        {
-          return false;
-        }
-      }
-      return true;
+      return aggregate_slots_equal(leftSlots, rightSlots);
     }
     if (leftType && rightType && !leftType->properties.empty() && leftType == rightType)
     {
       auto leftSlots = runtime_cell_slot_refs(left);
       auto rightSlots = runtime_cell_slot_refs(right);
-      if (leftSlots.size() != rightSlots.size())
+      if (!aggregate_slots_equal(leftSlots, rightSlots))
       {
         return false;
-      }
-      for (size_t i = 0; i < leftSlots.size(); ++i)
-      {
-        if (!value_equals(leftSlots[i], rightSlots[i]))
-        {
-          return false;
-        }
       }
       auto leftNamed = runtime_cell_named_slot_refs(left);
       auto rightNamed = runtime_cell_named_slot_refs(right);

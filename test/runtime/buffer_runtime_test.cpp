@@ -52,6 +52,21 @@ TEST_CASE("HeapStore rejects out-of-bounds and overflowing byte ranges", "[Runti
   REQUIRE_THROWS_AS(heap.write(ref, 2, Vec<uint8_t>{1, 2, 3}), std::out_of_range);
   REQUIRE_THROWS_AS(heap.read(ref, std::numeric_limits<size_t>::max(), 1), std::out_of_range);
   REQUIRE_THROWS_AS(heap.write(CellRef{.cellId = ref.cellId, .offset = 3}, 1, Vec<uint8_t>{1}), std::out_of_range);
+  REQUIRE_THROWS_AS(heap.read(CellRef{}, 0, 0), std::out_of_range);
+  REQUIRE_THROWS_AS(heap.get(CellRef{.cellId = 999}), std::out_of_range);
+}
+
+TEST_CASE("HeapStore honors CellRef offsets for subrange reads and writes", "[RuntimeTest][BufferRuntime]")
+{
+  HeapStore heap;
+  TypeLayout layout{.name = "bytes", .kind = LayoutKind::DYNAMIC, .size = 6, .alignment = 1};
+  auto ref = heap.allocate(layout);
+  heap.write(ref, 0, Vec<uint8_t>{0, 1, 2, 3, 4, 5});
+
+  auto subRef = CellRef{.cellId = ref.cellId, .offset = 2};
+  REQUIRE(heap.read(subRef, 0, 3) == Vec<uint8_t>{2, 3, 4});
+  heap.write(subRef, 1, Vec<uint8_t>{9, 8});
+  REQUIRE(heap.read(ref, 0, 6) == Vec<uint8_t>{0, 1, 2, 9, 8, 5});
 }
 
 TEST_CASE("make_slot sizes frame slots from layout", "[RuntimeTest][BufferRuntime]")
@@ -198,6 +213,25 @@ TEST_CASE("heap store preserves native handle side-table fields", "[RuntimeTest]
   REQUIRE_FALSE(handle.owning);
 }
 
+TEST_CASE("heap native handle fields respect CellRef offsets", "[RuntimeTest][BufferRuntime]")
+{
+  HeapStore heap;
+  TypeLayout layout{.name = "handles", .kind = LayoutKind::DYNAMIC, .size = 32, .alignment = 8};
+  auto ref = heap.allocate(layout);
+  auto subRef = CellRef{.cellId = ref.cellId, .offset = 8};
+  FieldLayout field{.name = "handle", .offset = 4, .size = sizeof(NativeHandle)};
+
+  write_native_handle_field(heap, subRef, field, NativeHandle{
+                                                    .typeName = "sub",
+                                                    .address = 0xCAFE,
+                                                    .owning = true,
+                                                });
+
+  REQUIRE(read_native_handle_field(heap, ref, FieldLayout{.name = "absolute", .offset = 12}).typeName == "sub");
+  REQUIRE(read_native_handle_field(heap, subRef, field).address == 0xCAFE);
+  REQUIRE(read_native_handle_field(heap, ref, field).address == 0);
+}
+
 TEST_CASE("heap store allocates and reads string payload cells", "[RuntimeTest][BufferRuntime]")
 {
   HeapStore heap;
@@ -208,4 +242,20 @@ TEST_CASE("heap store allocates and reads string payload cells", "[RuntimeTest][
 
   write_string_payload(heap, ref, "world");
   REQUIRE(read_string_payload(heap, ref) == "world");
+  REQUIRE(read_string_payload(heap, CellRef{.cellId = ref.cellId, .offset = 1}) == "orld");
+  REQUIRE_THROWS_AS(write_string_payload(heap, ref, "too long"), std::out_of_range);
+  REQUIRE_THROWS_AS(read_string_payload(heap, CellRef{.cellId = ref.cellId, .offset = 99}), std::out_of_range);
+}
+
+TEST_CASE("heap field helpers validate u64 field size and default native handles", "[RuntimeTest][BufferRuntime]")
+{
+  HeapStore heap;
+  TypeLayout layout{.name = "small", .kind = LayoutKind::INLINE_VALUE, .size = 4, .alignment = 4};
+  auto ref = heap.allocate(layout);
+  FieldLayout smallField{.name = "small", .offset = 0, .size = 4};
+  FieldLayout absentHandle{.name = "handle", .offset = 0, .size = sizeof(NativeHandle)};
+
+  REQUIRE_THROWS_AS(write_u64_field(heap, ref, smallField, 1), std::out_of_range);
+  REQUIRE_THROWS_AS(read_u64_field(heap, ref, smallField), std::out_of_range);
+  REQUIRE(read_native_handle_field(heap, ref, absentHandle).address == 0);
 }

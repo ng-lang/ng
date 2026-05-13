@@ -199,12 +199,18 @@ namespace NG::library::imgui
          style.ScaleAllSizes(main_scale);
          style.FontScaleDpi = main_scale;
 
-         ImGui_ImplSDL3_InitForSDLGPU(state->window);
+         if (!ImGui_ImplSDL3_InitForSDLGPU(state->window))
+         {
+           throw RuntimeException("imgui.init(): failed to initialize ImGui SDL3 backend: " + Str(SDL_GetError()));
+         }
          ImGui_ImplSDLGPU3_InitInfo init_info = {};
          init_info.Device = state->gpu_device;
          init_info.ColorTargetFormat = SDL_GetGPUSwapchainTextureFormat(state->gpu_device, state->window);
          init_info.MSAASamples = SDL_GPU_SAMPLECOUNT_1;
-         ImGui_ImplSDLGPU3_Init(&init_info);
+         if (!ImGui_ImplSDLGPU3_Init(&init_info))
+         {
+           throw RuntimeException("imgui.init(): failed to initialize ImGui SDLGPU3 backend: " + Str(SDL_GetError()));
+         }
 
          add_font_or_throw(io, resolve_runtime_asset_path("misc/fonts/SourceSerif/SourceSerif4-Regular.otf"));
          add_font_or_throw(io, resolve_runtime_asset_path("misc/fonts/SourceSans/SourceSans3-Regular.otf"));
@@ -291,9 +297,24 @@ namespace NG::library::imgui
          const bool is_minimized = (draw_data->DisplaySize.x <= 0.0F || draw_data->DisplaySize.y <= 0.0F);
 
          SDL_GPUCommandBuffer *command_buffer = SDL_AcquireGPUCommandBuffer(state->gpu_device);
+         if (command_buffer == nullptr)
+         {
+           SDL_Log("imgui.Render(): SDL_AcquireGPUCommandBuffer() failed: %s", SDL_GetError());
+           return unit_cell();
+         }
 
          SDL_GPUTexture *swapchain_texture = nullptr;
-         SDL_WaitAndAcquireGPUSwapchainTexture(command_buffer, state->window, &swapchain_texture, nullptr, nullptr);
+         if (!SDL_WaitAndAcquireGPUSwapchainTexture(command_buffer, state->window, &swapchain_texture, nullptr, nullptr))
+         {
+           SDL_Log("imgui.Render(): SDL_WaitAndAcquireGPUSwapchainTexture() failed: %s", SDL_GetError());
+           SDL_CancelGPUCommandBuffer(command_buffer);
+           return unit_cell();
+         }
+         if (swapchain_texture == nullptr)
+         {
+           SDL_CancelGPUCommandBuffer(command_buffer);
+           return unit_cell();
+         }
 
          if (swapchain_texture != nullptr && !is_minimized)
          {
@@ -315,7 +336,10 @@ namespace NG::library::imgui
            SDL_EndGPURenderPass(render_pass);
          }
 
-         SDL_SubmitGPUCommandBuffer(command_buffer);
+         if (!SDL_SubmitGPUCommandBuffer(command_buffer))
+         {
+           SDL_Log("imgui.Render(): SDL_SubmitGPUCommandBuffer() failed: %s", SDL_GetError());
+         }
          return unit_cell();
        }},
       {"cleanup",

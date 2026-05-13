@@ -31,7 +31,8 @@ namespace NG::orgasm
             return value;
         }
 
-        auto ensure_slot(Vec<RuntimeRef<StorageCell>> &slots, size_t index, const Str &prefix) -> RuntimeRef<StorageCell>
+        auto ensure_slot(Vec<RuntimeRef<StorageCell>> &slots, size_t index, const Str &prefix,
+                         StorageClass storageClass = StorageClass::FRAME) -> RuntimeRef<StorageCell>
         {
             if (index >= slots.size())
             {
@@ -39,7 +40,7 @@ namespace NG::orgasm
             }
             if (!slots[index])
             {
-                slots[index] = unit_cell(StorageClass::FRAME);
+                slots[index] = unit_cell(storageClass);
                 slots[index]->name = prefix + std::to_string(index);
             }
             return slots[index];
@@ -97,7 +98,7 @@ namespace NG::orgasm
         globals.resize(std::max(maxGlobal, size_t{1}));
         for (size_t i = 0; i < globals.size(); ++i)
         {
-            ensure_slot(globals, i, "global:");
+            ensure_slot(globals, i, "global:", StorageClass::GLOBAL);
         }
         
         // Register built-ins
@@ -333,11 +334,11 @@ namespace NG::orgasm
                     runtime_copy_storage_cell(ensure_slot(call_stack[frame_idx].locals, idx, "local:"), stack.back());
                     break;
                 }
-                case OpCode::LOAD_GLOBAL: { push_slot_copy(ensure_slot(globals, read_u16(), "global:")); break; }
+                case OpCode::LOAD_GLOBAL: { push_slot_copy(ensure_slot(globals, read_u16(), "global:", StorageClass::GLOBAL)); break; }
                 case OpCode::STORE_GLOBAL:
                 {
                     uint16_t idx = read_u16();
-                    runtime_copy_storage_cell(ensure_slot(globals, idx, "global:"), stack.back());
+                    runtime_copy_storage_cell(ensure_slot(globals, idx, "global:", StorageClass::GLOBAL), stack.back());
                     break;
                 }
                 case OpCode::MAKE_LOCAL_REF:
@@ -350,7 +351,7 @@ namespace NG::orgasm
                 case OpCode::MAKE_GLOBAL_REF:
                 {
                     uint16_t idx = read_u16();
-                    push_slot_copy(make_runtime_reference_cell(ensure_slot(globals, idx, "global:"), "global:" + std::to_string(idx)));
+                    push_slot_copy(make_runtime_reference_cell(ensure_slot(globals, idx, "global:", StorageClass::GLOBAL), "global:" + std::to_string(idx)));
                     break;
                 }
                 case OpCode::MAKE_PROPERTY_REF:
@@ -451,7 +452,7 @@ namespace NG::orgasm
                 case OpCode::MOVE_GLOBAL:
                 {
                     uint16_t idx = read_u16();
-                    auto slot = ensure_slot(globals, idx, "global:");
+                    auto slot = ensure_slot(globals, idx, "global:", StorageClass::GLOBAL);
                     ensure_usable_cell(slot);
                     auto moved = make_storage_cell(slot->layout, StorageClass::TEMPORARY, "stack", slot->runtimeType);
                     runtime_copy_storage_cell(moved, slot);
@@ -594,7 +595,11 @@ namespace NG::orgasm
                         push_slot_copy(numeral_cell_from_value<uint32_t>(static_cast<uint32_t>(runtime_tuple_length(target))));
                     } else {
                         try {
-                            push_slot_copy(runtime_cell_slot_ref(target, std::stoul(propName)));
+                            auto slot = runtime_cell_slot_ref(target, std::stoul(propName));
+                            if (!slot) {
+                                throw RuntimeException("Tuple has no property: " + propName);
+                            }
+                            push_slot_copy(slot);
                         } catch (const std::exception &) {
                             throw RuntimeException("Tuple has no property: " + propName);
                         }

@@ -61,3 +61,54 @@ TEST_CASE("tagged storage cells reject unknown members", "[RuntimeTest][TaggedVa
 
   REQUIRE_THROWS_AS(runtime_value_respond(selfSlot, "missing", env, args), NotImplementedException);
 }
+
+TEST_CASE("tagged storage cell helpers expose metadata and reject non-tagged values", "[RuntimeTest][TaggedValue][Failure]")
+{
+  auto tagged = make_runtime_tagged_cell(
+      "Result", "Err", 2,
+      {
+          make_runtime_string("boom"),
+          numeral_cell_from_value<int32_t>(500),
+      },
+      {"message", "code"});
+
+  REQUIRE(runtime_is_tagged_value(tagged));
+  REQUIRE(runtime_tagged_type(tagged)->name == "Result");
+  REQUIRE(runtime_tagged_union_name(tagged) == "Result");
+  REQUIRE(runtime_tagged_variant_name(tagged) == "Err");
+  REQUIRE(runtime_tagged_variant_index(tagged) == 2);
+  REQUIRE(runtime_tagged_payload_names(tagged) == Vec<Str>{"message", "code"});
+  REQUIRE(runtime_tagged_slots(tagged).size() == 2);
+  REQUIRE(runtime_tagged_slot(tagged, 1) == runtime_cell_slot_ref(tagged, 1));
+  REQUIRE(runtime_tagged_payload_index(tagged, "message").value() == 0);
+  REQUIRE(runtime_tagged_payload_index(tagged, "1").value() == 1);
+  REQUIRE(runtime_tagged_payload_index(tagged, "missing") == std::nullopt);
+  REQUIRE(runtime_string_value(runtime_tagged_read_member(tagged, "message")) == "boom");
+  REQUIRE(read_inline_cell_bytes<int32_t>(runtime_tagged_read_member(tagged, "index")) == 2);
+
+  auto plain = make_runtime_string("plain");
+  REQUIRE_FALSE(runtime_is_tagged_value(plain));
+  REQUIRE_THROWS_WITH(runtime_tagged_type(plain), Catch::Matchers::ContainsSubstring("Expected tagged runtime value"));
+  REQUIRE_THROWS_WITH(runtime_tagged_slots(plain), Catch::Matchers::ContainsSubstring("Expected tagged runtime value"));
+  REQUIRE_THROWS_WITH(runtime_tagged_slot(plain, 0), Catch::Matchers::ContainsSubstring("Expected tagged runtime value"));
+  REQUIRE_THROWS_WITH(runtime_tagged_payload_index(plain, "0"),
+                      Catch::Matchers::ContainsSubstring("Expected tagged runtime value"));
+}
+
+TEST_CASE("tagged payload names use the active variant layout", "[RuntimeTest][TaggedValue]")
+{
+  TypeLayout layout{.name = "Result", .kind = LayoutKind::TAGGED_UNION};
+  layout.variants.push_back(VariantLayout{.name = "Ok", .fields = {FieldLayout{.name = "value"}}});
+  layout.variants.push_back(VariantLayout{.name = "Err", .fields = {FieldLayout{.name = "message"},
+                                                                     FieldLayout{.name = "code"}}});
+
+  auto errType = makert<NGType>(NGType{
+      .name = "Result",
+      .layout = layout,
+      .variantName = "Err",
+      .variantIndex = 1,
+  });
+  auto err = make_runtime_tagged_cell(errType, {make_runtime_string("boom"), numeral_cell_from_value<int32_t>(500)});
+
+  REQUIRE(runtime_tagged_payload_names(err) == Vec<Str>{"message", "code"});
+}

@@ -1,5 +1,7 @@
 #include <runtime/buffer_runtime.hpp>
 
+#include <limits>
+
 namespace NG::buffer_runtime
 {
   namespace
@@ -353,13 +355,21 @@ namespace NG::buffer_runtime
   void write_native_handle_field(HeapStore &heap, CellRef ref, const FieldLayout &field, const NativeHandle &value)
   {
     auto &cell = heap.get(ref);
-    cell.nativeHandles.insert_or_assign(field.offset, value);
+    if (ref.offset > std::numeric_limits<size_t>::max() - field.offset)
+    {
+      throw std::out_of_range("Native handle field offset overflow");
+    }
+    cell.nativeHandles.insert_or_assign(ref.offset + field.offset, value);
   }
 
   auto read_native_handle_field(const HeapStore &heap, CellRef ref, const FieldLayout &field) -> NativeHandle
   {
     const auto &cell = heap.get(ref);
-    auto it = cell.nativeHandles.find(field.offset);
+    if (ref.offset > std::numeric_limits<size_t>::max() - field.offset)
+    {
+      throw std::out_of_range("Native handle field offset overflow");
+    }
+    auto it = cell.nativeHandles.find(ref.offset + field.offset);
     if (it == cell.nativeHandles.end())
     {
       return NativeHandle{};
@@ -394,7 +404,7 @@ namespace NG::buffer_runtime
   void write_string_payload(HeapStore &heap, CellRef ref, const Str &value)
   {
     auto &cell = heap.get(ref);
-    if (cell.bytes.size() != value.size())
+    if (ref.offset > cell.bytes.size() || value.size() != cell.bytes.size() - ref.offset)
     {
       throw std::out_of_range("String payload write exceeds cell bounds");
     }

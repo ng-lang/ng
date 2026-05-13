@@ -1,4 +1,5 @@
 #include "../test.hpp"
+#include <algorithm>
 #include <filesystem>
 #include <module.hpp>
 #include <orgasm/compiler.hpp>
@@ -346,7 +347,7 @@ TEST_CASE("managed heap should sweep unreachable vm cycles", "[OrgasmTest][RefMo
         }
 
         fun main() {
-            val node = new Node {};
+            val node = new Node { link: unit };
             node.link := node;
             return unit;
         }
@@ -819,4 +820,14 @@ TEST_CASE("compiler and vm should surface native prelude argument errors", "[Org
   REQUIRE_THROWS_AS(vm.run(bytecode), RuntimeException);
 
   destroyast(ast);
+}
+
+TEST_CASE("compiler and vm should register imgui natives without initialized state", "[OrgasmTest][ImGui]")
+{
+  auto names = NG::library::imgui::native_function_names();
+  REQUIRE(std::find(names.begin(), names.end(), "init") != names.end());
+  REQUIRE(std::find(names.begin(), names.end(), "cleanup") != names.end());
+
+  VM vm;
+  REQUIRE_NOTHROW(NG::library::imgui::register_vm_natives(vm));
 }

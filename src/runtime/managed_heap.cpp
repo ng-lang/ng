@@ -27,11 +27,19 @@ namespace NG::runtime
       seenCells.insert(cell.get());
       for (const auto &ref : cell->opaqueRefs)
       {
-        trace_storage_cell(std::static_pointer_cast<StorageCell>(ref), seenCells);
+        if (ref)
+        {
+          auto storage = std::static_pointer_cast<StorageCell>(ref);
+          trace_storage_cell(storage, seenCells);
+        }
       }
       for (const auto &[name, ref] : cell->namedRefs)
       {
-        trace_storage_cell(std::static_pointer_cast<StorageCell>(ref), seenCells);
+        if (ref)
+        {
+          auto storage = std::static_pointer_cast<StorageCell>(ref);
+          trace_storage_cell(storage, seenCells);
+        }
       }
     }
 
