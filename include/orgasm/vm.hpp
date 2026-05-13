@@ -56,6 +56,8 @@ namespace NG::orgasm
       private:
         struct Frame
         {
+            const BytecodeModule *module = nullptr;
+            const Function *function = nullptr;
             size_t ip;
             Vec<RuntimeRef<StorageCell>> locals;
         };
@@ -69,6 +71,9 @@ namespace NG::orgasm
         Vec<Str> modulePaths;
         Map<Str, NativeFunction> native_functions;
 
-        auto execute_slots(const Function &fun, const Vec<RuntimeRef<StorageCell>> &argSlots) -> RuntimeRef<StorageCell>;
+        void push_frame(const BytecodeModule &module, const Function &fun,
+                        const Vec<RuntimeRef<StorageCell>> &argSlots);
+        auto execute_slots(const BytecodeModule &module, const Function &fun,
+                           const Vec<RuntimeRef<StorageCell>> &argSlots) -> RuntimeRef<StorageCell>;
     };
 } // namespace NG::orgasm

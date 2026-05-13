@@ -24,8 +24,7 @@ fun sum3(i, n = 0) {
 }
 
 val n = 60000;
-val recursiveCheck = 500;
 assert(sum(n) == sum2(n));
-assert(sum2(recursiveCheck) == sum3(recursiveCheck));
+assert(sum2(n) == sum3(n));
 
 print(sum2(n));

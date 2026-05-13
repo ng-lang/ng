@@ -125,16 +125,19 @@ namespace NG::orgasm
                 target = &(*it);
             }
             if (target->name != "__start__" && module.functions[0].name == "__start__") {
-                execute_slots(module.functions[0], {});
+                execute_slots(module, module.functions[0], {});
             }
-            return execute_slots(*target, {});
+            return execute_slots(module, *target, {});
         }
         return unit_cell();
     }
 
-    auto VM::execute_slots(const Function &fun, const Vec<RuntimeRef<StorageCell>> &args) -> RuntimeRef<StorageCell>
+    void VM::push_frame(const BytecodeModule &module, const Function &fun,
+                        const Vec<RuntimeRef<StorageCell>> &args)
     {
         Frame frame;
+        frame.module = &module;
+        frame.function = &fun;
         frame.ip = 0;
         frame.locals.resize(std::max(static_cast<int32_t>(fun.num_locals), fun.num_params));
         for (size_t i = 0; i < frame.locals.size(); ++i)
@@ -151,17 +154,18 @@ namespace NG::orgasm
         }
         
         call_stack.push_back(std::move(frame));
-        struct FrameGuard {
-            Vec<Frame> &frames;
-            bool released = false;
+    }
 
-            ~FrameGuard()
-            {
-                if (!released && !frames.empty()) frames.pop_back();
-            }
-        } guard{call_stack};
-        size_t frame_idx = call_stack.size() - 1;
+    auto VM::execute_slots(const BytecodeModule &module, const Function &fun,
+                           const Vec<RuntimeRef<StorageCell>> &args) -> RuntimeRef<StorageCell>
+    {
+        const auto baseFrameDepth = call_stack.size();
+        push_frame(module, fun, args);
         
+        auto clone_value_slot = [](const RuntimeRef<StorageCell> &source, const Str &name) -> RuntimeRef<StorageCell>
+        {
+            return clone_runtime_storage_cell(source, StorageClass::TEMPORARY, name);
+        };
         auto push_slot_copy = [this, &clone_value_slot](const RuntimeRef<StorageCell> &source, const Str &name = "stack") -> RuntimeRef<StorageCell>
         {
             auto slot = clone_value_slot(source, name);
@@ -204,10 +208,27 @@ namespace NG::orgasm
             stack.push_back(result);
         };
 
-        const auto &code = fun.code;
-        while (call_stack[frame_idx].ip < code.size())
+        while (call_stack.size() > baseFrameDepth)
         {
-            size_t &ip = call_stack[frame_idx].ip;
+            auto &frame = call_stack.back();
+            const auto &activeModule = *frame.module;
+            const auto &activeFunction = *frame.function;
+            current_module = &activeModule;
+            const auto &code = activeFunction.code;
+
+            if (frame.ip >= code.size())
+            {
+                call_stack.pop_back();
+                auto result = unit_cell();
+                if (call_stack.size() == baseFrameDepth)
+                {
+                    return result;
+                }
+                push_slot_copy(result);
+                continue;
+            }
+
+            size_t &ip = frame.ip;
             OpCode op = static_cast<OpCode>(code[ip++]);
 
             auto read_u16 = [&code, &ip]() -> uint16_t
@@ -322,16 +343,20 @@ namespace NG::orgasm
                 }
                 case OpCode::RETURN: {
                     auto res = stack.empty() ? unit_cell() : pop_slot();
-                    guard.released = true;
                     call_stack.pop_back();
-                    return res;
+                    if (call_stack.size() == baseFrameDepth)
+                    {
+                        return res;
+                    }
+                    push_slot_copy(res);
+                    break;
                 }
-                case OpCode::LOAD_LOCAL: { push_slot_copy(ensure_slot(call_stack[frame_idx].locals, read_u16(), "local:")); break; }
-                case OpCode::LOAD_PARAM: { push_slot_copy(ensure_slot(call_stack[frame_idx].locals, read_u16(), "param:")); break; }
+                case OpCode::LOAD_LOCAL: { push_slot_copy(ensure_slot(frame.locals, read_u16(), "local:")); break; }
+                case OpCode::LOAD_PARAM: { push_slot_copy(ensure_slot(frame.locals, read_u16(), "param:")); break; }
                 case OpCode::STORE_LOCAL:
                 {
                     uint16_t idx = read_u16();
-                    runtime_copy_storage_cell(ensure_slot(call_stack[frame_idx].locals, idx, "local:"), stack.back());
+                    runtime_copy_storage_cell(ensure_slot(frame.locals, idx, "local:"), stack.back());
                     break;
                 }
                 case OpCode::LOAD_GLOBAL: { push_slot_copy(ensure_slot(globals, read_u16(), "global:", StorageClass::GLOBAL)); break; }
@@ -344,7 +369,7 @@ namespace NG::orgasm
                 case OpCode::MAKE_LOCAL_REF:
                 {
                     uint16_t idx = read_u16();
-                    push_slot_copy(make_runtime_reference_cell(ensure_slot(call_stack[frame_idx].locals, idx, "local:"),
+                    push_slot_copy(make_runtime_reference_cell(ensure_slot(frame.locals, idx, "local:"),
                                                                "local:" + std::to_string(idx)));
                     break;
                 }
@@ -441,7 +466,7 @@ namespace NG::orgasm
                 case OpCode::MOVE_LOCAL:
                 {
                     uint16_t idx = read_u16();
-                    auto slot = ensure_slot(call_stack[frame_idx].locals, idx, "local:");
+                    auto slot = ensure_slot(frame.locals, idx, "local:");
                     ensure_usable_cell(slot);
                     auto moved = make_storage_cell(slot->layout, StorageClass::TEMPORARY, "stack", slot->runtimeType);
                     runtime_copy_storage_cell(moved, slot);
@@ -496,7 +521,7 @@ namespace NG::orgasm
                     uint16_t numArgs = read_u16();
                     Vec<RuntimeRef<StorageCell>> callArgs;
                     for (int i = 0; i < numArgs; ++i) callArgs.insert(callArgs.begin(), pop_slot());
-                    push_slot_copy(execute_slots(current_module->functions[funIndex], callArgs));
+                    push_frame(*current_module, current_module->functions[funIndex], callArgs);
                     break;
                 }
                 case OpCode::CALL_IMPORT:
@@ -527,20 +552,7 @@ namespace NG::orgasm
                         Vec<RuntimeRef<StorageCell>> callArgs;
                         for (int i = 0; i < numArgs; ++i) callArgs.insert(callArgs.begin(), pop_slot());
                         
-                        auto *saved_module = current_module;
-                        struct ModuleGuard
-                        {
-                            const BytecodeModule *&current;
-                            const BytecodeModule *saved;
-
-                            ~ModuleGuard()
-                            {
-                                current = saved;
-                            }
-                        } module_guard{current_module, saved_module};
-                        current_module = &otherModule;
-                        
-                        push_slot_copy(execute_slots(otherModule.functions[funIdx], callArgs));
+                        push_frame(otherModule, otherModule.functions[funIdx], callArgs);
                     } else {
                         // Try native function fallback
                         Vec<RuntimeRef<StorageCell>> callArgs;
@@ -728,7 +740,7 @@ namespace NG::orgasm
                         auto selfSlot = clone_value_slot(targetSlot, "arg:self");
                         selfSlot->name = "arg:self";
                         callArgs.insert(callArgs.begin(), selfSlot);
-                        push_slot_copy(execute_slots(current_module->functions[funIdx], callArgs));
+                        push_frame(*current_module, current_module->functions[funIdx], callArgs);
                     } else {
                         NGArgs memberArgs;
                         memberArgs.reserve(callArgs.size());
@@ -933,12 +945,10 @@ namespace NG::orgasm
                                            std::to_string(ip - 1));
                 }
             } catch (const std::exception& ex) {
-                std::cerr << "Error at ip=" << ip-1 << " op=" << static_cast<int>(op) << " in " << fun.name << ": " << ex.what() << std::endl;
+                std::cerr << "Error at ip=" << ip-1 << " op=" << static_cast<int>(op) << " in " << activeFunction.name << ": " << ex.what() << std::endl;
                 throw;
             }
         }
-        guard.released = true;
-        call_stack.pop_back();
         return unit_cell();
     }
 } // namespace NG::orgasm

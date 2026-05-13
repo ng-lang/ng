@@ -1373,12 +1373,16 @@ namespace NG::intp
     RuntimeRef<Vec<CallFrame>> activeFrames;
     RuntimeRef<Vec<uint64_t>> activeScopes;
     bool publishGlobals = false;
+    Str currentFunctionName;
+    size_t currentFunctionParamCount = 0;
 
     explicit StatementVisitor(NGSymbols symbols, RuntimeRef<StorageCell> returnSlot = nullptr,
                               RuntimeRef<Vec<CallFrame>> activeFrames = nullptr,
-                              RuntimeRef<Vec<uint64_t>> activeScopes = nullptr, bool publishGlobals = false)
+                              RuntimeRef<Vec<uint64_t>> activeScopes = nullptr, bool publishGlobals = false,
+                              Str currentFunctionName = {}, size_t currentFunctionParamCount = 0)
         : symbols(std::move(symbols)), returnSlot(std::move(returnSlot)), activeFrames(std::move(activeFrames)),
-          activeScopes(std::move(activeScopes)), publishGlobals(publishGlobals)
+          activeScopes(std::move(activeScopes)), publishGlobals(publishGlobals),
+          currentFunctionName(std::move(currentFunctionName)), currentFunctionParamCount(currentFunctionParamCount)
     {
     }
 
@@ -1453,6 +1457,36 @@ namespace NG::intp
     {
       if (returnStatement->expression)
       {
+        if (!currentFunctionName.empty())
+        {
+          if (auto tailCall = dynamic_ast_cast<FunCallExpression>(returnStatement->expression))
+          {
+            FunctionPathVisitor fpVis{};
+            tailCall->primaryExpression->accept(&fpVis);
+            if (fpVis.path == currentFunctionName)
+            {
+              Vec<RuntimeRef<StorageCell>> slotValues;
+              for (auto &&arg : tailCall->arguments)
+              {
+                ExpressionVisitor argVis{symbols, activeFrames, activeScopes, publishGlobals};
+                arg->accept(&argVis);
+                if (auto spread = dynamic_ast_cast<SpreadExpression>(arg); spread)
+                {
+                  auto collection = argVis.collection;
+                  slotValues.insert(slotValues.end(), collection->begin(), collection->end());
+                }
+                else
+                {
+                  slotValues.push_back(argVis.result_slot("tail." + std::to_string(slotValues.size())));
+                }
+              }
+              if (slotValues.size() == currentFunctionParamCount)
+              {
+                throw NextIteration{slotValues};
+              }
+            }
+          }
+        }
         ExpressionVisitor vis{symbols, activeFrames, activeScopes, publishGlobals};
         returnStatement->expression->accept(&vis);
         sync_storage_cell(returnSlot, vis.result_slot());
@@ -1465,7 +1499,8 @@ namespace NG::intp
 
     void visit(IfStatement *ifStmt) override
     {
-      StatementVisitor stmtVis{symbols, returnSlot, activeFrames, activeScopes, publishGlobals};
+      StatementVisitor stmtVis{symbols, returnSlot, activeFrames, activeScopes, publishGlobals, currentFunctionName,
+                               currentFunctionParamCount};
       if (ifStmt->evaluatedCondition.has_value())
       {
         if (ifStmt->evaluatedCondition.value())
@@ -1494,7 +1529,8 @@ namespace NG::intp
     void visit(CompoundStatement *stmt) override
     {
       auto blockScopes = fork_scope_chain(activeScopes);
-      StatementVisitor vis{symbols, returnSlot, activeFrames, blockScopes, publishGlobals};
+      StatementVisitor vis{symbols, returnSlot, activeFrames, blockScopes, publishGlobals, currentFunctionName,
+                           currentFunctionParamCount};
       for (const auto &innerStmt : stmt->statements)
       {
         innerStmt->accept(&vis);
@@ -1629,7 +1665,8 @@ namespace NG::intp
         if (c.variantName == scrutineeType->variantName)
         {
           auto caseScopes = fork_scope_chain(activeScopes);
-          StatementVisitor caseVis{symbols, returnSlot, activeFrames, caseScopes, publishGlobals};
+          StatementVisitor caseVis{symbols, returnSlot, activeFrames, caseScopes, publishGlobals, currentFunctionName,
+                                   currentFunctionParamCount};
           auto payloadValues = runtime_cell_slot_refs(scrutineeSlot);
           // Bind payload variables
           for (size_t j = 0; j < c.bindings.size() && j < payloadValues.size(); ++j)
@@ -1647,7 +1684,8 @@ namespace NG::intp
       if (otherwise != nullptr)
       {
         auto caseScopes = fork_scope_chain(activeScopes);
-        StatementVisitor caseVis{symbols, returnSlot, activeFrames, caseScopes, publishGlobals};
+        StatementVisitor caseVis{symbols, returnSlot, activeFrames, caseScopes, publishGlobals, currentFunctionName,
+                                 currentFunctionParamCount};
         otherwise->body->accept(&caseVis);
         return;
       }
@@ -1672,7 +1710,8 @@ namespace NG::intp
         }
       }
 
-      StatementVisitor stmtVis{symbols, returnSlot, activeFrames, loopScopes, publishGlobals};
+      StatementVisitor stmtVis{symbols, returnSlot, activeFrames, loopScopes, publishGlobals, currentFunctionName,
+                               currentFunctionParamCount};
       bool stopLoop = false;
       while (!stopLoop)
       {
@@ -2063,7 +2102,8 @@ namespace NG::intp
           clear_storage_cell(frames->back().returnSlot);
           try
           {
-          StatementVisitor vis{callSymbols, frames->back().returnSlot, frames, scopeIds};
+          StatementVisitor vis{callSymbols, frames->back().returnSlot, frames, scopeIds, false, funDef->funName,
+                               funDef->params.size()};
             funDef->body->accept(&vis);
             tailRecur = false;
           }
@@ -2192,7 +2232,8 @@ namespace NG::intp
           }
 
           clear_storage_cell(frames->back().returnSlot);
-          StatementVisitor vis{callSymbols, frames->back().returnSlot, frames, scopeIds};
+          StatementVisitor vis{callSymbols, frames->back().returnSlot, frames, scopeIds, false, memFn->funName,
+                               memFn->params.size()};
           memFn->body->accept(&vis);
           return clone_runtime_storage_cell(frames->back().returnSlot, StorageClass::TEMPORARY);
         };

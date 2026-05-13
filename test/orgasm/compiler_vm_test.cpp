@@ -822,6 +822,33 @@ TEST_CASE("compiler and vm should surface native prelude argument errors", "[Org
   destroyast(ast);
 }
 
+TEST_CASE("compiler and vm should trampoline deep self tail calls", "[OrgasmTest][Recursion]")
+{
+  auto ast = parse(R"(
+        fun sum(i, n = 0) {
+          if (i == 0) {
+            return n;
+          }
+          return sum(i - 1, n + i);
+        }
+
+        fun main() {
+          return sum(60000);
+        }
+    )");
+  REQUIRE(ast != nullptr);
+
+  Compiler compiler;
+  auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+
+  VM vm;
+  auto result = vm.run(bytecode);
+
+  REQUIRE(result_i32(result) == 1800030000);
+
+  destroyast(ast);
+}
+
 TEST_CASE("compiler and vm should register imgui natives without initialized state", "[OrgasmTest][ImGui]")
 {
   auto names = NG::library::imgui::native_function_names();
