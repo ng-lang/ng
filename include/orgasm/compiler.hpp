@@ -27,6 +27,7 @@ namespace NG::orgasm
         void visit(ast::FunctionDef *funDef) override;
         void visit(ast::FunCallExpression *funCallExpr) override;
         void visit(ast::IdAccessorExpression *idAccExpr) override;
+        void visit(ast::QualifiedTraitCallExpression *qualifiedCall) override;
         void visit(ast::IndexAccessorExpression *idxAccExpr) override;
         void visit(ast::IndexAssignmentExpression *idxAssignExpr) override;
         void visit(ast::CompoundStatement *compoundStmt) override;

@@ -420,6 +420,26 @@ namespace NG::ast
     return this->primaryExpression->repr() + (this->accessor == nullptr ? "" : ("." + this->accessor->repr()));
   }
 
+  void QualifiedTraitCallExpression::accept(AstVisitor *visitor)
+  {
+    visitor->visit(this);
+  }
+
+  QualifiedTraitCallExpression::~QualifiedTraitCallExpression()
+  {
+    destroyast(receiver);
+    for (const auto &arg : arguments)
+    {
+      destroyast(arg);
+    }
+  }
+
+  auto QualifiedTraitCallExpression::repr() const -> Str
+  {
+    auto prefix = receiver ? receiver->repr() + "." : "";
+    return prefix + traitName + "::" + methodName + "(" + strOfNodeList(arguments) + ")";
+  }
+
   void StringValue::accept(AstVisitor *visitor)
   {
     visitor->visit(this);

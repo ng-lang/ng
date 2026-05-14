@@ -58,6 +58,7 @@ namespace NG::ast
         TUPLE_UNPACKING_EXPRESSION = 0x211,
         TYPEOF_EXPRESSION = 0x212,
         SPREAD_EXPRESSION = 0x213,
+        QUALIFIED_TRAIT_CALL_EXPRESSION = 0x217,
 
         LITERAL = 0x300,
         INTEGER_VALUE = 0x301,
@@ -596,6 +597,23 @@ namespace NG::ast
         auto repr() const -> Str override;
 
         ~IdAccessorExpression() override;
+    };
+
+    struct QualifiedTraitCallExpression : Expression
+    {
+        ASTRef<Expression> receiver = nullptr; ///< Receiver for `value.Trait::method`; null for UFCS.
+        Str traitName;
+        Str methodName;
+        Vec<ASTRef<Expression>> arguments;
+
+        void accept(AstVisitor *visitor) override;
+
+        auto astNodeType() const -> ASTNodeType override { return ASTNodeType::QUALIFIED_TRAIT_CALL_EXPRESSION; }
+
+        [[nodiscard]]
+        auto repr() const -> Str override;
+
+        ~QualifiedTraitCallExpression() override;
     };
 
     /**

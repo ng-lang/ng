@@ -13,6 +13,7 @@ namespace NG::ast
   void DummyVisitor::visit(FunCallExpression *funCallExpr) {}
 
   void DummyVisitor::visit(IdAccessorExpression *idAccExpr) {}
+  void DummyVisitor::visit(QualifiedTraitCallExpression *qualifiedCall) {}
 
   void DummyVisitor::visit(UnaryExpression *unoExpr) {}
 

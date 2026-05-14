@@ -34,6 +34,26 @@ namespace NG::orgasm
                              is_ref_self_type_annotation(param->annotatedType.get()));
         }
 
+        auto append_function_if_missing(BytecodeModule &module, Map<Str, FunctionDef*> &functionDefs,
+                                        const Str &functionName, FunctionDef *functionDef) -> void
+        {
+            for (auto &&existing : module.functions)
+            {
+                if (existing.name == functionName)
+                {
+                    return;
+                }
+            }
+            Function fun;
+            fun.name = functionName;
+            const bool explicitReceiver =
+                !functionDef->params.empty() && is_explicit_receiver_param(functionDef->params.front().get());
+            fun.num_params = static_cast<int32_t>(functionDef->params.size() + (explicitReceiver ? 0 : 1));
+            fun.explicit_receiver = explicitReceiver;
+            module.functions.push_back(std::move(fun));
+            functionDefs[functionName] = functionDef;
+        }
+
         template <typename UInt>
         void append_le_bytes(Vec<uint8_t> &code, UInt value)
         {
@@ -125,26 +145,12 @@ namespace NG::orgasm
             else if (auto implDef = dynamic_ast_cast<ImplDef>(def))
             {
                 auto targetName = implDef->targetType->repr();
+                auto traitName = implDef->trait->repr();
                 for (auto &&method : implDef->methods)
                 {
-                    Str functionName = targetName + "." + method->funName;
-                    bool exists = false;
-                    for (auto &&existing : module.functions)
-                    {
-                        if (existing.name == functionName)
-                        {
-                            exists = true;
-                            break;
-                        }
-                    }
-                    if (exists) continue;
-                    Function fun;
-                    fun.name = functionName;
-                    const bool explicitReceiver = !method->params.empty() && is_explicit_receiver_param(method->params.front().get());
-                    fun.num_params = static_cast<int32_t>(method->params.size() + (explicitReceiver ? 0 : 1));
-                    fun.explicit_receiver = explicitReceiver;
-                    module.functions.push_back(std::move(fun));
-                    functionDefs[fun.name] = method.get();
+                    append_function_if_missing(module, functionDefs, targetName + "." + traitName + "::" + method->funName,
+                                               method.get());
+                    append_function_if_missing(module, functionDefs, targetName + "." + method->funName, method.get());
                 }
             }
             else if (auto aliasDef = dynamic_ast_cast<TypeAliasDef>(def))
@@ -318,45 +324,50 @@ namespace NG::orgasm
             else if (auto implDef = dynamic_ast_cast<ImplDef>(def))
             {
                 current_type_name = implDef->targetType->repr();
+                auto traitName = implDef->trait->repr();
                 for (auto &&method : implDef->methods)
                 {
-                    Str functionName = current_type_name + "." + method->funName;
-                    if (funIndex >= static_cast<int>(module.functions.size()) ||
-                        module.functions[funIndex].name != functionName)
-                    {
-                        continue;
-                    }
-                    current_function = &module.functions[funIndex++];
-                    last_emit_was_return = false;
-                    locals.clear();
-                    loop_stack.clear();
+                    auto compileImplFunction = [&](const Str &functionName) {
+                        if (funIndex >= static_cast<int>(module.functions.size()) ||
+                            module.functions[funIndex].name != functionName)
+                        {
+                            return;
+                        }
+                        current_function = &module.functions[funIndex++];
+                        last_emit_was_return = false;
+                        locals.clear();
+                        loop_stack.clear();
 
-                    const bool explicitReceiver = !method->params.empty() && is_explicit_receiver_param(method->params.front().get());
-                    LoopInfo info;
-                    info.startIp = 0;
-                    int32_t paramBase = 0;
-                    if (!explicitReceiver)
-                    {
-                        locals["self"] = 0;
-                        info.bindingSlots.push_back(0);
-                        paramBase = 1;
-                    }
-                    for (int32_t i = 0; i < method->params.size(); ++i)
-                    {
-                        locals[method->params[i]->paramName] = i + paramBase;
-                        info.bindingSlots.push_back(i + paramBase);
-                    }
-                    loop_stack.push_back(std::move(info));
+                        const bool explicitReceiver =
+                            !method->params.empty() && is_explicit_receiver_param(method->params.front().get());
+                        LoopInfo info;
+                        info.startIp = 0;
+                        int32_t paramBase = 0;
+                        if (!explicitReceiver)
+                        {
+                            locals["self"] = 0;
+                            info.bindingSlots.push_back(0);
+                            paramBase = 1;
+                        }
+                        for (int32_t i = 0; i < method->params.size(); ++i)
+                        {
+                            locals[method->params[i]->paramName] = i + paramBase;
+                            info.bindingSlots.push_back(i + paramBase);
+                        }
+                        loop_stack.push_back(std::move(info));
 
-                    if (method->body) method->body->accept(this);
+                        if (method->body) method->body->accept(this);
 
-                    loop_stack.pop_back();
-                    current_function->num_locals = static_cast<int32_t>(locals.size());
-                    if (!last_emit_was_return)
-                    {
-                        emit(OpCode::PUSH_UNIT);
-                        emit(OpCode::RETURN);
-                    }
+                        loop_stack.pop_back();
+                        current_function->num_locals = static_cast<int32_t>(locals.size());
+                        if (!last_emit_was_return)
+                        {
+                            emit(OpCode::PUSH_UNIT);
+                            emit(OpCode::RETURN);
+                        }
+                    };
+                    compileImplFunction(current_type_name + "." + traitName + "::" + method->funName);
+                    compileImplFunction(current_type_name + "." + method->funName);
                 }
             }
         }
@@ -580,6 +591,10 @@ namespace NG::orgasm
             emit_u16(nameIndex);
             emit_u16(static_cast<uint16_t>(funCallExpr->arguments.size()));
         }
+        else if (auto qualifiedCall = dynamic_ast_cast<QualifiedTraitCallExpression>(funCallExpr->primaryExpression))
+        {
+            qualifiedCall->accept(this);
+        }
         else throw NotImplementedException("Complex calls not implemented");
     }
 
@@ -595,6 +610,34 @@ namespace NG::orgasm
         emit(OpCode::INVOKE_MEMBER);
         emit_u16(nameIndex);
         emit_u16(static_cast<uint16_t>(idAccExpr->arguments.size()));
+    }
+
+    void Compiler::visit(ast::QualifiedTraitCallExpression *qualifiedCall)
+    {
+        size_t firstRegularArg = 0;
+        if (qualifiedCall->receiver)
+        {
+            for (auto &&arg : qualifiedCall->arguments) arg->accept(this);
+            qualifiedCall->receiver->accept(this);
+        }
+        else
+        {
+            if (qualifiedCall->arguments.empty())
+            {
+                throw NotImplementedException("Trait-qualified call requires a receiver argument");
+            }
+            for (size_t i = 1; i < qualifiedCall->arguments.size(); ++i)
+            {
+                qualifiedCall->arguments[i]->accept(this);
+            }
+            qualifiedCall->arguments.front()->accept(this);
+            firstRegularArg = 1;
+        }
+        uint16_t nameIndex = static_cast<uint16_t>(module.strings.size());
+        module.strings.push_back(qualifiedCall->traitName + "::" + qualifiedCall->methodName);
+        emit(OpCode::INVOKE_MEMBER);
+        emit_u16(nameIndex);
+        emit_u16(static_cast<uint16_t>(qualifiedCall->arguments.size() - firstRegularArg));
     }
 
     void Compiler::visit(ast::IndexAccessorExpression *idxAccExpr)

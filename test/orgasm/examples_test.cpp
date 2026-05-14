@@ -70,3 +70,6 @@ TEST_CASE("Orgasm example 24.move_value_semantics.ng", "[OrgasmExample]") { runO
 TEST_CASE("Orgasm example 25.trait_show.ng", "[OrgasmExample]") { runOrgasmExample("example/25.trait_show.ng"); }
 TEST_CASE("Orgasm example 26.trait_generic_bound.ng", "[OrgasmExample]") { runOrgasmExample("example/26.trait_generic_bound.ng"); }
 TEST_CASE("Orgasm example 27.trait_receiver_ref.ng", "[OrgasmExample]") { runOrgasmExample("example/27.trait_receiver_ref.ng"); }
+TEST_CASE("Orgasm example 28.trait_supertraits.ng", "[OrgasmExample]") { runOrgasmExample("example/28.trait_supertraits.ng"); }
+TEST_CASE("Orgasm example 29.trait_qualified_call.ng", "[OrgasmExample]") { runOrgasmExample("example/29.trait_qualified_call.ng"); }
+TEST_CASE("Orgasm example 30.trait_inherent_precedence.ng", "[OrgasmExample]") { runOrgasmExample("example/30.trait_inherent_precedence.ng"); }

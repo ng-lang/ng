@@ -1123,6 +1123,58 @@ namespace NG::intp
       set_result(runtime_value_respond_slot(receiverSlot, repr, make_runtime_env(symbols), callArgs));
     }
 
+    void visit(QualifiedTraitCallExpression *qualifiedCall) override
+    {
+      ExpressionVisitor vis{symbols, activeFrames, activeScopes, publishGlobals};
+      RuntimeRef<StorageCell> receiverSlot;
+      size_t firstRegularArg = 0;
+      if (qualifiedCall->receiver)
+      {
+        auto receiverRef = maybeReference(qualifiedCall->receiver.get());
+        receiverSlot = runtime_reference_target(receiverRef);
+        if (!receiverSlot)
+        {
+          qualifiedCall->receiver->accept(&vis);
+          receiverSlot = vis.result_slot();
+        }
+      }
+      else
+      {
+        if (qualifiedCall->arguments.empty())
+        {
+          throw RuntimeException("Trait-qualified call requires a receiver argument", qualifiedCall->pos);
+        }
+        auto receiverRef = maybeReference(qualifiedCall->arguments.front().get());
+        receiverSlot = runtime_reference_target(receiverRef);
+        if (!receiverSlot)
+        {
+          qualifiedCall->arguments.front()->accept(&vis);
+          receiverSlot = vis.result_slot();
+        }
+        firstRegularArg = 1;
+      }
+      while (runtime_is_reference_value(receiverSlot))
+      {
+        auto target = runtime_reference_target(receiverSlot);
+        if (!target)
+        {
+          break;
+        }
+        receiverSlot = target;
+      }
+      ensure_usable_cell(receiverSlot);
+
+      NGArgs callArgs;
+      for (size_t i = firstRegularArg; i < qualifiedCall->arguments.size(); ++i)
+      {
+        qualifiedCall->arguments[i]->accept(&vis);
+        callArgs.push_back(vis.result_slot("arg." + std::to_string(callArgs.size())));
+      }
+
+      set_result(runtime_value_respond_slot(receiverSlot, qualifiedCall->traitName + "::" + qualifiedCall->methodName,
+                                            make_runtime_env(symbols), callArgs));
+    }
+
     void visit(NewObjectExpression *newObj) override
     {
       Str typeName = newObj->targetType ? newObj->targetType->repr() : newObj->typeName;
@@ -2312,72 +2364,75 @@ namespace NG::intp
 
       for (const auto &method : implDef->methods)
       {
-        if (type->memberFunctions.contains(method->funName))
-        {
-          continue;
-        }
-        type->memberFunctions[method->funName] =
-            [method, frames = activeFrames](const NGSelf &dummy, const NGEnv &env,
-                                            const NGArgs &args) -> RuntimeRef<StorageCell>
-        {
-          auto callSymbols = runtime_symbols_from_env(env);
-          auto scopeIds = make_scope_chain();
-          CallFrame callFrame{};
-          callFrame.functionName = method->funName;
-          callFrame.receiver = dummy;
-          if (callFrame.receiver)
+        auto registerMethod = [&](const Str &memberName) {
+          type->memberFunctions[memberName] =
+              [method, frames = activeFrames](const NGSelf &dummy, const NGEnv &env,
+                                              const NGArgs &args) -> RuntimeRef<StorageCell>
           {
-            callFrame.receiver->name = "self";
-            callFrame.receiver->ownerScopeId = current_scope_id(scopeIds);
-          }
-          auto returnTypeName = method->returnType ? method->returnType->repr() : "unit";
-          auto returnRuntimeType = resolveRuntimeType(callSymbols, returnTypeName);
-          callFrame.returnSlot =
-              make_storage_cell(TypeLayout{.name = returnTypeName}, StorageClass::FRAME, "ret", returnRuntimeType);
-          callFrame.returnSlot->ownerScopeId = current_scope_id(scopeIds);
-          frames->push_back(callFrame);
-          struct FrameGuard
-          {
-            RuntimeRef<Vec<CallFrame>> frames;
-            ~FrameGuard()
+            auto callSymbols = runtime_symbols_from_env(env);
+            auto scopeIds = make_scope_chain();
+            CallFrame callFrame{};
+            callFrame.functionName = method->funName;
+            callFrame.receiver = dummy;
+            if (callFrame.receiver)
             {
-              if (frames && !frames->empty())
+              callFrame.receiver->name = "self";
+              callFrame.receiver->ownerScopeId = current_scope_id(scopeIds);
+            }
+            auto returnTypeName = method->returnType ? method->returnType->repr() : "unit";
+            auto returnRuntimeType = resolveRuntimeType(callSymbols, returnTypeName);
+            callFrame.returnSlot =
+                make_storage_cell(TypeLayout{.name = returnTypeName}, StorageClass::FRAME, "ret", returnRuntimeType);
+            callFrame.returnSlot->ownerScopeId = current_scope_id(scopeIds);
+            frames->push_back(callFrame);
+            struct FrameGuard
+            {
+              RuntimeRef<Vec<CallFrame>> frames;
+              ~FrameGuard()
               {
-                frames->pop_back();
+                if (frames && !frames->empty())
+                {
+                  frames->pop_back();
+                }
+              }
+            } frameGuard{frames};
+
+            NGArgs effectiveArgs = args;
+            if (!method->params.empty() && is_explicit_receiver_param(method->params.front().get()))
+            {
+              if (is_ref_self_type_annotation(method->params.front()->annotatedType.get()))
+              {
+                effectiveArgs.insert(effectiveArgs.begin(), make_runtime_reference_cell(dummy, "self"));
+              }
+              else
+              {
+                effectiveArgs.insert(effectiveArgs.begin(), dummy);
               }
             }
-          } frameGuard{frames};
+            for (size_t i = 0; i < method->params.size(); ++i)
+            {
+              if (effectiveArgs.size() <= i)
+              {
+                throw RuntimeException("Missing argument for parameter '" + method->params[i]->paramName +
+                                       "' in impl method '" + method->funName + "'");
+              }
+              auto slot = clone_argument_slot(method->params[i]->paramName, effectiveArgs[i], StorageClass::FRAME);
+              slot->ownerScopeId = current_scope_id(scopeIds);
+              frames->back().params.push_back(slot);
+            }
 
-          NGArgs effectiveArgs = args;
-          if (!method->params.empty() && is_explicit_receiver_param(method->params.front().get()))
-          {
-            if (is_ref_self_type_annotation(method->params.front()->annotatedType.get()))
-            {
-              effectiveArgs.insert(effectiveArgs.begin(), make_runtime_reference_cell(dummy, "self"));
-            }
-            else
-            {
-              effectiveArgs.insert(effectiveArgs.begin(), dummy);
-            }
-          }
-          for (size_t i = 0; i < method->params.size(); ++i)
-          {
-            if (effectiveArgs.size() <= i)
-            {
-              throw RuntimeException("Missing argument for parameter '" + method->params[i]->paramName +
-                                     "' in impl method '" + method->funName + "'");
-            }
-            auto slot = clone_argument_slot(method->params[i]->paramName, effectiveArgs[i], StorageClass::FRAME);
-            slot->ownerScopeId = current_scope_id(scopeIds);
-            frames->back().params.push_back(slot);
-          }
-
-          clear_storage_cell(frames->back().returnSlot);
-          StatementVisitor vis{callSymbols, frames->back().returnSlot, frames, scopeIds, false, method->funName,
-                               method->params.size()};
-          method->body->accept(&vis);
-          return clone_runtime_storage_cell(frames->back().returnSlot, StorageClass::TEMPORARY);
+            clear_storage_cell(frames->back().returnSlot);
+            StatementVisitor vis{callSymbols, frames->back().returnSlot, frames, scopeIds, false, method->funName,
+                                 method->params.size()};
+            method->body->accept(&vis);
+            return clone_runtime_storage_cell(frames->back().returnSlot, StorageClass::TEMPORARY);
+          };
         };
+        registerMethod(implDef->trait->repr() + "::" + method->funName);
+        if (!type->memberFunctions.contains(method->funName))
+        {
+          registerMethod(method->funName);
+        }
       }
     }
 

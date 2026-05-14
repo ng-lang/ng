@@ -45,3 +45,49 @@ TEST_CASE("parser should parse impl and where bounds", "[Parser][Traits]")
 
   destroyast(ast);
 }
+
+TEST_CASE("parser should parse supertraits and qualified trait calls", "[Parser][Traits]")
+{
+  auto ast = parse(R"(
+    trait Read {
+      fun read(self: ref<Self>) -> string;
+    }
+
+    trait ReadWrite: Read {
+      fun write(self: ref<Self>, value: string) -> unit;
+    }
+
+    val x = value.Read::read();
+    val y = Read::read(ref value);
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto trait = dynamic_ast_cast<TraitDef>(compileUnit->module->definitions[1]);
+  REQUIRE(trait != nullptr);
+  REQUIRE(trait->traitName == "ReadWrite");
+  REQUIRE(trait->superTraits.size() == 1);
+  REQUIRE(trait->superTraits[0]->repr() == "Read");
+
+  auto qualifiedReceiver = dynamic_ast_cast<QualifiedTraitCallExpression>(
+      dynamic_ast_cast<ValDefStatement>(
+          dynamic_ast_cast<ValDef>(compileUnit->module->definitions[2])->body)
+          ->value);
+  REQUIRE(qualifiedReceiver != nullptr);
+  REQUIRE(qualifiedReceiver->receiver != nullptr);
+  REQUIRE(qualifiedReceiver->traitName == "Read");
+  REQUIRE(qualifiedReceiver->methodName == "read");
+
+  auto qualifiedUfcs = dynamic_ast_cast<QualifiedTraitCallExpression>(
+      dynamic_ast_cast<ValDefStatement>(
+          dynamic_ast_cast<ValDef>(compileUnit->module->definitions[3])->body)
+          ->value);
+  REQUIRE(qualifiedUfcs != nullptr);
+  REQUIRE(qualifiedUfcs->receiver == nullptr);
+  REQUIRE(qualifiedUfcs->traitName == "Read");
+  REQUIRE(qualifiedUfcs->methodName == "read");
+  REQUIRE(qualifiedUfcs->arguments.size() == 1);
+
+  destroyast(ast);
+}

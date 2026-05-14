@@ -257,6 +257,7 @@ namespace NG::typecheck
         Str name;
         Map<Str, CheckingRef<TypeInfo>> properties;
         Map<Str, CheckingRef<FunctionType>> memberFunctions;
+        Map<Str, Map<Str, CheckingRef<FunctionType>>> traitMemberFunctions;
 
         explicit CustomizedType(Str name) : name(std::move(name)) {}
 
@@ -269,7 +270,9 @@ namespace NG::typecheck
     {
         Str name;
         Vec<Str> typeParamNames;
+        Vec<CheckingRef<TraitType>> superTraits;
         Map<Str, CheckingRef<FunctionType>> methods;
+        Map<Str, CheckingRef<FunctionType>> allMethods;
 
         explicit TraitType(Str name, Vec<Str> typeParamNames = {})
             : name(std::move(name)), typeParamNames(std::move(typeParamNames))

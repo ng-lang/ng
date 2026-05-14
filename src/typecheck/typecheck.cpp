@@ -319,6 +319,7 @@ namespace NG::typecheck
     Set<Str> movedBindings{};
 
     bool allowMovedLvalueRead = false;
+    Map<Str, Vec<Str>> trait_impls_by_type;
 
     // Sentinel key stored in locals to indicate wildcard imports are active.
     // This propagates automatically when locals are copied to child checkers.
@@ -479,21 +480,105 @@ namespace NG::typecheck
       }
       if (auto generic = std::dynamic_pointer_cast<GenericParamType>(candidate))
       {
-        return generic->bound == trait.name;
+        return generic->bound == trait.name || traitImplies(generic->bound, trait.name);
       }
       auto custom = std::dynamic_pointer_cast<CustomizedType>(candidate);
       if (!custom)
       {
         return false;
       }
-      for (auto &[methodName, methodType] : trait.methods)
+      if (auto implIt = trait_impls_by_type.find(custom->name); implIt != trait_impls_by_type.end())
       {
-        if (!custom->memberFunctions.contains(methodName))
+        if (std::ranges::any_of(implIt->second, [&](const Str &implemented) {
+              return implemented == trait.name || traitImplies(implemented, trait.name);
+            }))
+        {
+          return true;
+        }
+      }
+      auto &methods = trait.allMethods.empty() ? trait.methods : trait.allMethods;
+      for (auto &[methodName, methodType] : methods)
+      {
+        if (!custom->memberFunctions.contains(methodName) &&
+            (!custom->traitMemberFunctions.contains(trait.name) ||
+             !custom->traitMemberFunctions.at(trait.name).contains(methodName)))
         {
           return false;
         }
       }
       return true;
+    }
+
+    auto traitImplies(const Str &candidateName, const Str &requiredName) const -> bool
+    {
+      if (candidateName == requiredName)
+      {
+        return true;
+      }
+      auto it = locals.find(candidateName);
+      auto trait = it == locals.end() ? nullptr : std::dynamic_pointer_cast<TraitType>(it->second);
+      if (!trait)
+      {
+        return false;
+      }
+      Set<Str> seen;
+      return traitImplies(*trait, requiredName, seen);
+    }
+
+    auto traitImplies(const TraitType &candidate, const Str &requiredName, Set<Str> &seen) const -> bool
+    {
+      if (!seen.insert(candidate.name).second)
+      {
+        return false;
+      }
+      for (auto &superTrait : candidate.superTraits)
+      {
+        if (!superTrait)
+        {
+          continue;
+        }
+        if (superTrait->name == requiredName || traitImplies(*superTrait, requiredName, seen))
+        {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    void resolveTraitClosure(TraitType &trait, Set<Str> &visiting, Set<Str> &visited, TokenPosition pos)
+    {
+      if (visited.contains(trait.name))
+      {
+        return;
+      }
+      if (!visiting.insert(trait.name).second)
+      {
+        throw TypeCheckingException("Cyclic trait inheritance involving " + trait.name, pos);
+      }
+      Map<Str, CheckingRef<FunctionType>> allMethods;
+      for (auto &superTrait : trait.superTraits)
+      {
+        resolveTraitClosure(*superTrait, visiting, visited, pos);
+        for (auto &[methodName, methodType] : superTrait->allMethods)
+        {
+          if (allMethods.contains(methodName) && !functionSignaturesMatch(*allMethods[methodName], *methodType))
+          {
+            throw TypeCheckingException("Conflicting inherited trait method: " + methodName, pos);
+          }
+          allMethods[methodName] = methodType;
+        }
+      }
+      for (auto &[methodName, methodType] : trait.methods)
+      {
+        if (allMethods.contains(methodName) && !functionSignaturesMatch(*allMethods[methodName], *methodType))
+        {
+          throw TypeCheckingException("Conflicting trait method: " + methodName, pos);
+        }
+        allMethods[methodName] = methodType;
+      }
+      trait.allMethods = std::move(allMethods);
+      visiting.erase(trait.name);
+      visited.insert(trait.name);
     }
 
     auto instantiateGenericType(GenericTypeDef &genericDef,
@@ -1174,6 +1259,18 @@ namespace NG::typecheck
       Map<Str, CheckingRef<TypeInfo>> traitScope = locals;
       addGenericParamsToScope(traitScope, traitDef->genericParams);
       traitScope["Self"] = makecheck<GenericParamType>("Self", traitDef->traitName);
+      trait->superTraits.clear();
+      for (auto &superTraitAnnotation : traitDef->superTraits)
+      {
+        TypeChecker superChecker{traitScope};
+        superTraitAnnotation->accept(&superChecker);
+        auto superTrait = std::dynamic_pointer_cast<TraitType>(superChecker.result);
+        if (!superTrait)
+        {
+          throw TypeCheckingException("Unknown trait: " + superTraitAnnotation->repr(), superTraitAnnotation->pos);
+        }
+        trait->superTraits.push_back(superTrait);
+      }
 
       for (auto &&method : traitDef->methods)
       {
@@ -1189,6 +1286,10 @@ namespace NG::typecheck
         }
         trait->methods[method->funName] = functionTypeFor(method.get(), traitScope);
       }
+
+      Set<Str> visiting;
+      Set<Str> visited;
+      resolveTraitClosure(*trait, visiting, visited, traitDef->pos);
     }
 
     void visit(ImplDef *implDef) override
@@ -1222,7 +1323,8 @@ namespace NG::typecheck
         methods[method->funName] = method.get();
       }
 
-      for (auto &&[methodName, expectedMethodType] : trait->methods)
+      auto &requiredMethods = trait->allMethods.empty() ? trait->methods : trait->allMethods;
+      for (auto &&[methodName, expectedMethodType] : requiredMethods)
       {
         if (!methods.contains(methodName))
         {
@@ -1242,12 +1344,21 @@ namespace NG::typecheck
         }
       }
 
+      auto &implTraits = trait_impls_by_type[customType->name];
+      if (std::ranges::find(implTraits, trait->name) == implTraits.end())
+      {
+        implTraits.push_back(trait->name);
+      }
+
       for (auto &&method : implDef->methods)
       {
         auto funType = functionTypeFor(method.get(), implScope);
-        customType->memberFunctions[method->funName] = funType;
+        auto traitMethodName = trait->name + "::" + method->funName;
+        customType->traitMemberFunctions[trait->name][method->funName] = funType;
+        customType->memberFunctions[traitMethodName] = funType;
 
         TypeChecker bodyChecker{implScope};
+        bodyChecker.trait_impls_by_type = trait_impls_by_type;
         for (size_t i = 0; i < method->params.size(); ++i)
         {
           bodyChecker.locals.insert_or_assign(method->params[i]->paramName, unwrap(funType->parametersType[i]));
@@ -2550,13 +2661,39 @@ namespace NG::typecheck
 
       if (auto customType = std::dynamic_pointer_cast<CustomizedType>(primaryType))
       {
-        if (customType->memberFunctions.contains(memberName))
+        if (customType->properties.contains(memberName))
+        {
+          memberType = customType->properties[memberName];
+        }
+        else if (customType->memberFunctions.contains(memberName))
         {
           memberType = customType->memberFunctions[memberName];
         }
-        else if (customType->properties.contains(memberName))
+        if (!customType->properties.contains(memberName))
         {
-          memberType = customType->properties[memberName];
+          Vec<Str> traitCandidates;
+          for (auto &[traitName, methods] : customType->traitMemberFunctions)
+          {
+            if (methods.contains(memberName))
+            {
+              traitCandidates.push_back(traitName);
+            }
+          }
+          if (traitCandidates.size() > 1 && !customType->memberFunctions.contains(memberName))
+          {
+            Str candidates;
+            for (size_t i = 0; i < traitCandidates.size(); ++i)
+            {
+              if (i > 0) candidates += ", ";
+              candidates += traitCandidates[i] + "::" + memberName;
+            }
+            throw TypeCheckingException("Ambiguous trait method call " + memberName + ": candidates " + candidates,
+                                        idAccExpr->pos);
+          }
+          if (traitCandidates.size() == 1 && !customType->memberFunctions.contains(memberName))
+          {
+            memberType = customType->traitMemberFunctions[traitCandidates.front()][memberName];
+          }
         }
       }
       else if (auto genericType = std::dynamic_pointer_cast<GenericParamType>(primaryType))
@@ -2565,9 +2702,10 @@ namespace NG::typecheck
         {
           auto traitIt = locals.find(genericType->bound);
           auto traitType = traitIt == locals.end() ? nullptr : std::dynamic_pointer_cast<TraitType>(traitIt->second);
-          if (traitType && traitType->methods.contains(memberName))
+          auto &methods = traitType && !traitType->allMethods.empty() ? traitType->allMethods : traitType->methods;
+          if (traitType && methods.contains(memberName))
           {
-            memberType = traitType->methods[memberName];
+            memberType = methods[memberName];
           }
         }
       }
@@ -2608,6 +2746,70 @@ namespace NG::typecheck
       }
 
       result = memberType;
+    }
+
+    void visit(QualifiedTraitCallExpression *qualifiedCall) override
+    {
+      auto traitIt = locals.find(qualifiedCall->traitName);
+      auto trait = traitIt == locals.end() ? nullptr : std::dynamic_pointer_cast<TraitType>(traitIt->second);
+      if (!trait)
+      {
+        throw TypeCheckingException("Unknown trait: " + qualifiedCall->traitName, qualifiedCall->pos);
+      }
+      auto &methods = trait->allMethods.empty() ? trait->methods : trait->allMethods;
+      if (!methods.contains(qualifiedCall->methodName))
+      {
+        throw TypeCheckingException("Trait " + trait->name + " has no method " + qualifiedCall->methodName,
+                                    qualifiedCall->pos);
+      }
+
+      TypeChecker checker{locals, {}, nullptr, movedBindings};
+      CheckingRef<TypeInfo> receiverType;
+      size_t firstRegularArg = 0;
+      if (qualifiedCall->receiver)
+      {
+        qualifiedCall->receiver->accept(&checker);
+        receiverType = checker.result;
+      }
+      else
+      {
+        if (qualifiedCall->arguments.empty())
+        {
+          throw TypeCheckingException("Trait-qualified call requires a receiver argument", qualifiedCall->pos);
+        }
+        qualifiedCall->arguments.front()->accept(&checker);
+        receiverType = checker.result;
+        firstRegularArg = 1;
+      }
+      receiverType = deref_reference_type(receiverType);
+      if (!typeSatisfiesTrait(receiverType, *trait))
+      {
+        throw TypeCheckingException("Type " + (receiverType ? receiverType->repr() : Str{"?"}) +
+                                        " does not implement trait " + trait->name,
+                                    qualifiedCall->pos);
+      }
+
+      Vec<CheckingRef<TypeInfo>> argumentTypes;
+      for (size_t i = firstRegularArg; i < qualifiedCall->arguments.size(); ++i)
+      {
+        qualifiedCall->arguments[i]->accept(&checker);
+        argumentTypes.push_back(checker.result);
+      }
+      movedBindings = checker.movedBindings;
+
+      auto funcType = methods[qualifiedCall->methodName];
+      Vec<CheckingRef<TypeInfo>> expectedArgs;
+      for (size_t i = 1; i < funcType->parametersType.size(); ++i)
+      {
+        expectedArgs.push_back(funcType->parametersType[i]);
+      }
+      auto expectedFunction = makecheck<FunctionType>(funcType->returnType, expectedArgs);
+      if (!expectedFunction->applyWith(argumentTypes))
+      {
+        throw TypeCheckingException("Invalid argument types for trait-qualified call: " + qualifiedCall->repr(),
+                                    qualifiedCall->pos);
+      }
+      result = funcType->returnType;
     }
 
     void visit(NewObjectExpression *newObj) override

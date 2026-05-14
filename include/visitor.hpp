@@ -130,6 +130,7 @@ namespace NG::ast
          * @param idAccExpr The ID accessor expression to visit.
          */
         virtual void visit(IdAccessorExpression *idAccExpr) = 0;
+        virtual void visit(QualifiedTraitCallExpression *qualifiedCall) = 0;
 
         /**
          * @brief Visits an index accessor expression.
@@ -358,6 +359,7 @@ namespace NG::ast
         void visit(FunCallExpression *funCallExpr) override;
 
         void visit(IdAccessorExpression *idAccExpr) override;
+        void visit(QualifiedTraitCallExpression *qualifiedCall) override;
 
         void visit(IndexAccessorExpression *index) override;
 
