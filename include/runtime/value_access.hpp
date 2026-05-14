@@ -285,6 +285,7 @@ namespace NG::runtime
     }
     cell->namedRefs.clear();
     cell->nativeHandles.clear();
+    cell->traitObjectName.clear();
     cell->initialized = true;
     return cell;
   }
@@ -325,6 +326,7 @@ namespace NG::runtime
     cell->opaqueRefs.clear();
     cell->namedRefs.clear();
     cell->moduleState = nullptr;
+    cell->traitObjectName.clear();
     cell->nativeHandles.clear();
     cell->initialized = false;
     cell->marked = false;
@@ -413,11 +415,13 @@ namespace NG::runtime
       dst->opaqueRefs.clear();
       dst->namedRefs.clear();
       dst->moduleState = nullptr;
+      dst->traitObjectName.clear();
       dst->initialized = false;
       return;
     }
     dst->namedRefs = src->namedRefs;
     dst->moduleState = src->moduleState;
+    dst->traitObjectName = src->traitObjectName;
     dst->runtimeType = src->runtimeType;
     dst->layout = src->layout;
     dst->bytes = src->bytes;
@@ -447,6 +451,7 @@ namespace NG::runtime
       slot->opaqueRefs = source->opaqueRefs;
       slot->namedRefs = source->namedRefs;
       slot->moduleState = source->moduleState;
+      slot->traitObjectName = source->traitObjectName;
       return slot;
     }
     if (source->storageClass == StorageClass::HEAP && storageClass == StorageClass::HEAP)
@@ -460,6 +465,7 @@ namespace NG::runtime
     slot->marked = false;
     slot->ownerScopeId = source->ownerScopeId;
     slot->moduleState = source->moduleState;
+    slot->traitObjectName = source->traitObjectName;
     slot->opaqueRefs.clear();
     slot->opaqueRefs.reserve(source->opaqueRefs.size());
     for (const auto &ref : source->opaqueRefs)
@@ -487,6 +493,10 @@ namespace NG::runtime
 
   inline auto runtime_value_show(const RuntimeRef<StorageCell> &cell) -> Str
   {
+    if (runtime_is_trait_object_ref(cell))
+    {
+      return runtime_value_show(runtime_trait_object_target(cell));
+    }
     if (cell)
     {
       if (auto valueType = runtime_value_type(cell); valueType && valueType->showCellHandler)
@@ -499,6 +509,10 @@ namespace NG::runtime
 
   inline auto runtime_value_bool(const RuntimeRef<StorageCell> &cell) -> bool
   {
+    if (runtime_is_trait_object_ref(cell))
+    {
+      return runtime_value_bool(runtime_trait_object_target(cell));
+    }
     if (cell)
     {
       if (auto valueType = runtime_value_type(cell); valueType && valueType->boolCellHandler)
@@ -518,7 +532,18 @@ namespace NG::runtime
     }
     if (!type->memberFunctions.contains(member))
     {
-      return nullptr;
+      auto separator = member.find("::");
+      if (separator == Str::npos)
+      {
+        return nullptr;
+      }
+      auto shortMember = member.substr(separator + 2);
+      if (!type->memberFunctions.contains(shortMember))
+      {
+        return nullptr;
+      }
+      auto result = type->memberFunctions.at(shortMember)(self, env, args);
+      return result ? result : unit_cell();
     }
     auto result = type->memberFunctions.at(member)(self, env, args);
     return result ? result : unit_cell();
@@ -530,6 +555,17 @@ namespace NG::runtime
     if (!cell)
     {
       throw RuntimeException("Cannot respond to member '" + member + "' on null storage cell");
+    }
+    if (runtime_is_trait_object_ref(cell))
+    {
+      auto target = runtime_trait_object_target(cell);
+      auto traitName = runtime_trait_object_name(cell);
+      auto qualifiedMember = member.find("::") == Str::npos ? traitName + "::" + member : member;
+      if (auto result = runtime_dispatch_member(runtime_value_type(target), target, qualifiedMember, env, args))
+      {
+        return result;
+      }
+      throw NotImplementedException("Not implemented " + runtime_value_type(target)->name + "#" + qualifiedMember);
     }
     if (auto type = runtime_value_type(cell); type && type->respondCellHandler)
     {

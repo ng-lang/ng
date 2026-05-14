@@ -34,6 +34,6 @@ impl Ord for Counter {
 val one = new Counter { value: 1 };
 val two = new Counter { value: 2 };
 
-assert(one.not_same(ref two));
-assert(one.less_or_same(ref two));
-assert(!two.less_or_same(ref one));
+assert(one.not_same(two));
+assert(one.less_or_same(two));
+assert(!two.less_or_same(one));

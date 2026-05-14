@@ -71,7 +71,7 @@ TEST_CASE("bytecode module merge remaps mixed operands and prefixes exports", "[
 
   BytecodeModule other;
   other.constants = {30};
-  other.strings = {"field", "dynamic", "nativeFn", "WrappedName"};
+  other.strings = {"field", "dynamic", "nativeFn", "WrappedName", "Show"};
   other.types.push_back(Type{.name = "Result", .variants = Vec<Variant>{{.name = "Ok"}}});
   other.types.push_back(Type{.name = "Wrapped"});
 
@@ -115,6 +115,7 @@ TEST_CASE("bytecode module merge remaps mixed operands and prefixes exports", "[
   const size_t invokeMemberPos = emit_u16_u16_op(OpCode::INVOKE_MEMBER, 1, 2);
   const size_t nativeCallPos = emit_u16_u16_op(OpCode::NATIVE_CALL, 2, 1);
   const size_t wrapNewtypePos = emit_u16_op(OpCode::WRAP_NEWTYPE, 3);
+  const size_t makeTraitRefPos = emit_u16_op(OpCode::MAKE_TRAIT_REF, 4);
   const size_t loadConstPos = emit_u16_op(OpCode::LOAD_CONST, 0);
   const size_t callPos = emit_u16_u16_op(OpCode::CALL, 0, 1);
   const size_t constructTaggedPos = emit_u16_u16_u16_op(OpCode::CONSTRUCT_TAGGED, 0, 0, 1);
@@ -172,7 +173,7 @@ TEST_CASE("bytecode module merge remaps mixed operands and prefixes exports", "[
   base.merge(other, "math");
 
   REQUIRE(base.constants == Vec<int64_t>{10, 20, 30});
-  REQUIRE(base.strings == Vec<Str>{"existing", "member", "field", "dynamic", "nativeFn", "WrappedName"});
+  REQUIRE(base.strings == Vec<Str>{"existing", "member", "field", "dynamic", "nativeFn", "WrappedName", "Show"});
   REQUIRE(base.functions.size() == 3);
   REQUIRE(base.types.size() == 3);
   REQUIRE(base.exports.at("math.run") == 2);
@@ -189,6 +190,7 @@ TEST_CASE("bytecode module merge remaps mixed operands and prefixes exports", "[
   REQUIRE(read_u16(merged, nativeCallPos + 1) == 4);
   REQUIRE(read_u16(merged, nativeCallPos + 3) == 1);
   REQUIRE(read_u16(merged, wrapNewtypePos + 1) == 5);
+  REQUIRE(read_u16(merged, makeTraitRefPos + 1) == 6);
   REQUIRE(read_u16(merged, loadConstPos + 1) == 2);
   REQUIRE(read_u16(merged, callPos + 1) == 1);
   REQUIRE(read_u16(merged, callPos + 3) == 1);

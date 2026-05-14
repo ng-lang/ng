@@ -28,6 +28,20 @@ namespace NG::runtime
     return type;
   }
 
+  auto trait_object_ref_runtime_type() -> RuntimeRef<NGType>
+  {
+    static auto type = makert<NGType>(NGType{
+        .name = "ref<trait>",
+        .layout = buffer_runtime::make_reference_layout("ref<trait>"),
+        .showCellHandler =
+            [](const RuntimeRef<StorageCell> &cell) {
+              return "ref<" + runtime_trait_object_name(cell) + ">(" + cell->name + ")";
+            },
+        .boolCellHandler = [](const RuntimeRef<StorageCell> &) { return true; },
+    });
+    return type;
+  }
+
   auto make_runtime_reference_cell(const RuntimeRef<StorageCell> &targetCell, Str debugName,
                                    StorageClass storageClass) -> RuntimeRef<StorageCell>
   {
@@ -51,6 +65,54 @@ namespace NG::runtime
       return nullptr;
     }
     return runtime_cell_slot_ref(cell, 0);
+  }
+
+  auto make_runtime_trait_object_ref(const RuntimeRef<StorageCell> &targetRef, Str traitName, Str debugName,
+                                     StorageClass storageClass) -> RuntimeRef<StorageCell>
+  {
+    if (!runtime_is_reference_value(targetRef))
+    {
+      throw RuntimeException("Trait object requires a concrete reference value");
+    }
+    auto type = trait_object_ref_runtime_type();
+    auto cell = make_storage_cell(type->layout, storageClass, std::move(debugName), type);
+    cell->opaqueRefs = {targetRef};
+    cell->traitObjectName = std::move(traitName);
+    cell->initialized = true;
+    return cell;
+  }
+
+  auto runtime_is_trait_object_ref(const RuntimeRef<StorageCell> &cell) -> bool
+  {
+    return cell && cell->runtimeType && cell->runtimeType->name == "ref<trait>";
+  }
+
+  auto runtime_trait_object_target_ref(const RuntimeRef<StorageCell> &cell) -> RuntimeRef<StorageCell>
+  {
+    if (!runtime_is_trait_object_ref(cell))
+    {
+      return nullptr;
+    }
+    return runtime_cell_slot_ref(cell, 0);
+  }
+
+  auto runtime_trait_object_target(const RuntimeRef<StorageCell> &cell) -> RuntimeRef<StorageCell>
+  {
+    auto targetRef = runtime_trait_object_target_ref(cell);
+    if (!targetRef)
+    {
+      throw RuntimeException("Dangling trait object reference");
+    }
+    return runtime_read_reference(targetRef);
+  }
+
+  auto runtime_trait_object_name(const RuntimeRef<StorageCell> &cell) -> Str
+  {
+    if (!runtime_is_trait_object_ref(cell))
+    {
+      return {};
+    }
+    return cell->traitObjectName;
   }
 
   auto runtime_read_reference(const RuntimeRef<StorageCell> &cell) -> RuntimeRef<StorageCell>
@@ -94,6 +156,7 @@ namespace NG::runtime
     cell->opaqueRefs.clear();
     cell->namedRefs.clear();
     cell->nativeHandles.clear();
+    cell->traitObjectName.clear();
     cell->initialized = true;
   }
 

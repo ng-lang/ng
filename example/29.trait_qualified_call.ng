@@ -25,4 +25,4 @@ impl Debug for Person {
 val ada = new Person { name: "Ada" };
 
 assert(ada.Display::text() == "Ada");
-assert(Debug::text(ref ada) == "Person(Ada)");
+assert(Debug::text(ada) == "Person(Ada)");

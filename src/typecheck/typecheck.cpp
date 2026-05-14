@@ -95,6 +95,48 @@ namespace NG::typecheck
     return type;
   }
 
+  static auto is_self_type(const CheckingRef<TypeInfo> &type) -> bool
+  {
+    auto generic = std::dynamic_pointer_cast<GenericParamType>(unwrap(type));
+    return generic && generic->name == "Self";
+  }
+
+  static auto is_ref_self_type(const CheckingRef<TypeInfo> &type) -> bool
+  {
+    auto ref = std::dynamic_pointer_cast<ReferenceType>(unwrap(type));
+    return ref && is_self_type(ref->referencedType);
+  }
+
+  static auto contains_non_receiver_self(const CheckingRef<TypeInfo> &type) -> bool
+  {
+    auto unwrapped = unwrap(type);
+    if (!unwrapped)
+    {
+      return false;
+    }
+    if (is_self_type(unwrapped))
+    {
+      return true;
+    }
+    if (auto ref = std::dynamic_pointer_cast<ReferenceType>(unwrapped))
+    {
+      return contains_non_receiver_self(ref->referencedType);
+    }
+    if (auto array = std::dynamic_pointer_cast<ArrayType>(unwrapped))
+    {
+      return contains_non_receiver_self(array->elementType);
+    }
+    if (auto tuple = std::dynamic_pointer_cast<TupleType>(unwrapped))
+    {
+      return std::ranges::any_of(tuple->elementTypes, contains_non_receiver_self);
+    }
+    if (auto unionType = std::dynamic_pointer_cast<UnionType>(unwrapped))
+    {
+      return std::ranges::any_of(unionType->types, contains_non_receiver_self);
+    }
+    return false;
+  }
+
   static auto isReferenceableExpression(const Expression *expr) -> bool
   {
     return dynamic_cast<const IdExpression *>(expr) != nullptr ||
@@ -350,6 +392,120 @@ namespace NG::typecheck
     {
       return param && (isSelfTypeAnnotation(param->annotatedType.get()) ||
                        isRefSelfTypeAnnotation(param->annotatedType.get()));
+    }
+
+    static auto isObjectSafeTraitMethod(const FunctionType &methodType) -> bool
+    {
+      if (methodType.parametersType.empty() || !is_ref_self_type(methodType.parametersType.front()))
+      {
+        return false;
+      }
+      if (contains_non_receiver_self(methodType.returnType))
+      {
+        return false;
+      }
+      for (size_t i = 1; i < methodType.parametersType.size(); ++i)
+      {
+        if (contains_non_receiver_self(methodType.parametersType[i]))
+        {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    static auto isObjectSafeTrait(const TraitType &trait) -> bool
+    {
+      if (!trait.typeParamNames.empty())
+      {
+        return false;
+      }
+      const auto &methods = trait.allMethods.empty() ? trait.methods : trait.allMethods;
+      return std::ranges::all_of(methods, [](const auto &entry) {
+        return isObjectSafeTraitMethod(*entry.second);
+      });
+    }
+
+    static void validateObjectSafeTraitRefs(const CheckingRef<TypeInfo> &type)
+    {
+      auto unwrapped = unwrap(type);
+      if (!unwrapped)
+      {
+        return;
+      }
+      if (auto ref = std::dynamic_pointer_cast<ReferenceType>(unwrapped))
+      {
+        if (auto trait = std::dynamic_pointer_cast<TraitType>(unwrap(ref->referencedType));
+            trait && !isObjectSafeTrait(*trait))
+        {
+          throw TypeCheckingException("Trait is not object-safe for ref<" + trait->repr() + ">");
+        }
+        validateObjectSafeTraitRefs(ref->referencedType);
+        return;
+      }
+      if (auto array = std::dynamic_pointer_cast<ArrayType>(unwrapped))
+      {
+        validateObjectSafeTraitRefs(array->elementType);
+        return;
+      }
+      if (auto tuple = std::dynamic_pointer_cast<TupleType>(unwrapped))
+      {
+        for (auto &element : tuple->elementTypes)
+        {
+          validateObjectSafeTraitRefs(element);
+        }
+        return;
+      }
+      if (auto unionType = std::dynamic_pointer_cast<UnionType>(unwrapped))
+      {
+        for (auto &member : unionType->types)
+        {
+          validateObjectSafeTraitRefs(member);
+        }
+      }
+    }
+
+    auto refTraitCoercionMatches(const TypeInfo &expected, const TypeInfo &actual) const -> bool
+    {
+      auto expectedRef = dynamic_cast<const ReferenceType *>(&unwrapAlias(expected));
+      auto actualRef = dynamic_cast<const ReferenceType *>(&unwrapAlias(actual));
+      if (!expectedRef || !actualRef || !expectedRef->referencedType || !actualRef->referencedType)
+      {
+        return false;
+      }
+      auto trait = std::dynamic_pointer_cast<TraitType>(unwrap(expectedRef->referencedType));
+      if (!trait || !isObjectSafeTrait(*trait))
+      {
+        return false;
+      }
+      return typeSatisfiesTrait(actualRef->referencedType, *trait);
+    }
+
+    auto typeMatches(const TypeInfo &expected, const TypeInfo &actual) const -> bool
+    {
+      return typeMatch(expected, actual) || refTraitCoercionMatches(expected, actual);
+    }
+
+    auto functionApplyWithCoercions(const FunctionType &funcType,
+                                    const Vec<CheckingRef<TypeInfo>> &argumentTypes) const -> bool
+    {
+      auto requiredSize = std::count_if(funcType.parametersType.begin(), funcType.parametersType.end(),
+                                        [](const auto &type) {
+                                          return type->tag() != typeinfo_tag::PARAM_WITH_DEFAULT_VALUE;
+                                        });
+      if (argumentTypes.size() < static_cast<size_t>(requiredSize) ||
+          argumentTypes.size() > funcType.parametersType.size())
+      {
+        return false;
+      }
+      for (size_t i = 0; i < argumentTypes.size(); ++i)
+      {
+        if (!typeMatches(*funcType.parametersType[i], *argumentTypes[i]))
+        {
+          return false;
+        }
+      }
+      return true;
     }
 
     static auto typeParamBoundName(const GenericParam &param) -> Str
@@ -1555,6 +1711,11 @@ namespace NG::typecheck
       }
 
       auto &funcInfo = static_cast<FunctionType &>(*funType);
+      for (auto &paramType : funcInfo.parametersType)
+      {
+        validateObjectSafeTraitRefs(paramType);
+      }
+      validateObjectSafeTraitRefs(funcInfo.returnType);
       // Pass return type as expectedType for bidirectional inference
       CheckingRef<TypeInfo> bodyExpectedType = nullptr;
       if (funcInfo.returnType->tag() != typeinfo_tag::UNTYPED)
@@ -1577,7 +1738,7 @@ namespace NG::typecheck
           bodyReturnType = makecheck<PrimitiveType>(typeinfo_tag::UNIT);
         }
         if (bodyReturnType->tag() != typeinfo_tag::UNTYPED && funcInfo.returnType->tag() != typeinfo_tag::UNTYPED &&
-            !typeMatch(*funcInfo.returnType, *bodyReturnType))
+            !typeMatches(*funcInfo.returnType, *bodyReturnType))
         {
           throw TypeCheckingException("Return Type Mismatch: " + bodyReturnType->repr() + " to " +
                                           funcInfo.returnType->repr(),
@@ -1864,7 +2025,7 @@ namespace NG::typecheck
 
       if (annoType)
       {
-        if (typeMatch(*annoType, *valType))
+        if (typeMatches(*annoType, *valType))
         {
           locals.insert_or_assign(valDefStatement->name, annoType);
         }
@@ -2175,6 +2336,10 @@ namespace NG::typecheck
         {
           throw TypeCheckingException("Reference operator requires an lvalue.");
         }
+        if (std::dynamic_pointer_cast<ReferenceType>(unwrap(operandType)))
+        {
+          throw TypeCheckingException("Reference operator cannot take a reference value.");
+        }
         result = makecheck<ReferenceType>(widenVariantToUnionType(locals, operandType));
         return;
       }
@@ -2444,10 +2609,9 @@ namespace NG::typecheck
           {
             throw TypeCheckingException("Unknown referenced type for ref");
           }
-          if (innerType->tag() == typeinfo_tag::TRAIT)
+          if (auto trait = std::dynamic_pointer_cast<TraitType>(unwrap(innerType)); trait && !isObjectSafeTrait(*trait))
           {
-            throw TypeCheckingException("ref<Trait> dynamic dispatch is not supported in Phase 1: ref<" +
-                                        innerType->repr() + ">");
+            throw TypeCheckingException("Trait is not object-safe for ref<" + innerType->repr() + ">");
           }
           result = makecheck<ReferenceType>(innerType);
           return;
@@ -2569,7 +2733,7 @@ namespace NG::typecheck
       {
         throw TypeCheckingException("Invalid assignment expression: " + assignmentExpr->repr(), assignmentExpr->pos);
       }
-      if (!typeMatch(*targetType, *valueType))
+      if (!typeMatches(*targetType, *valueType))
       {
         throw TypeCheckingException("Invalid assignment type: " + valueType->repr() + " to " + targetType->repr(),
                                     assignmentExpr->pos);
@@ -2926,7 +3090,7 @@ namespace NG::typecheck
         expectedArgs.push_back(funcType->parametersType[i]);
       }
       auto expectedFunction = makecheck<FunctionType>(funcType->returnType, expectedArgs);
-      if (!expectedFunction->applyWith(argumentTypes))
+      if (!functionApplyWithCoercions(*expectedFunction, argumentTypes))
       {
         throw TypeCheckingException("Invalid argument types for trait-qualified call: " + qualifiedCall->repr(),
                                     qualifiedCall->pos);
@@ -3576,7 +3740,7 @@ namespace NG::typecheck
       }
       movedBindings = checker.movedBindings;
 
-      if (!funcType->applyWith(argumentTypes))
+      if (!functionApplyWithCoercions(*funcType, argumentTypes))
       {
         // Check if any argument is untyped, if so, allow it
         bool hasUntyped = std::any_of(argumentTypes.begin(), argumentTypes.end(),

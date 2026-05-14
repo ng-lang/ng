@@ -27,6 +27,6 @@ fun compare<T: Ord>(left: ref<T>, right: ref<T>) -> bool {
 val one = new Counter { value: 1 };
 val two = new Counter { value: 2 };
 
-assert(compare(ref one, ref two));
-assert(one.same(ref one));
-assert(!two.less(ref one));
+assert(compare(one, two));
+assert(one.same(one));
+assert(!two.less(one));

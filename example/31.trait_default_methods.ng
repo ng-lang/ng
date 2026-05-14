@@ -19,4 +19,4 @@ impl Show for Counter {
 val counter = new Counter { value: 1 };
 
 assert(counter.bracketed() == "[counter]");
-assert(Show::bracketed(ref counter) == "[counter]");
+assert(Show::bracketed(counter) == "[counter]");

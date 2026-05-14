@@ -48,7 +48,7 @@ TEST_CASE("generic trait bound should allow bounded method calls", "[TypeCheck][
     }
 
     val c = new Counter { label: "three" };
-    val s = render(ref c);
+    val s = render(c);
   )");
   REQUIRE(ast != nullptr);
 
@@ -71,16 +71,47 @@ TEST_CASE("trait impl missing method should fail", "[TypeCheck][Traits][Failure]
   )", "missing method");
 }
 
-TEST_CASE("ref trait object should fail in phase 1", "[TypeCheck][Traits][Failure]")
+TEST_CASE("ref trait object should support dynamic dispatch", "[TypeCheck][Traits]")
 {
-  typecheck_failure(R"(
+  auto ast = parse(R"(
+    type Counter { label: string; }
+
     trait Show {
       fun show(self: ref<Self>) -> string;
     }
+
+    impl Show for Counter {
+      fun show(self: ref<Self>) -> string {
+        return self.label;
+      }
+    }
+
     fun render(x: ref<Show>) -> string {
       return x.show();
     }
-  )", "ref<Trait>");
+
+    val counter = new Counter { label: "three" };
+    val view: ref<Show> = counter;
+    val text = render(counter);
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast);
+  check_type_tag(*index["view"], typeinfo_tag::REFERENCE);
+  check_type_tag(*index["text"], typeinfo_tag::STRING);
+
+  destroyast(ast);
+}
+
+TEST_CASE("non object-safe ref trait object should fail", "[TypeCheck][Traits][Failure]")
+{
+  typecheck_failure(R"(
+    trait CloneLike {
+      fun clone(self: ref<Self>) -> Self;
+    }
+    fun copy(x: ref<CloneLike>) -> unit {
+    }
+  )", "object-safe");
 }
 
 TEST_CASE("supertrait bound should expose inherited methods", "[TypeCheck][Traits]")
@@ -146,7 +177,7 @@ TEST_CASE("qualified trait calls should resolve ambiguous trait method names", "
 
     val ada = new Person { name: "Ada" };
     val display = ada.Display::text();
-    val debugText = Debug::text(ref ada);
+    val debugText = Debug::text(ada);
   )");
   REQUIRE(ast != nullptr);
 
@@ -257,7 +288,7 @@ TEST_CASE("trait default method may be omitted by impl", "[TypeCheck][Traits]")
 
     val c = new Counter { value: 1 };
     val text = c.bracketed();
-    val qualified = Show::bracketed(ref c);
+    val qualified = Show::bracketed(c);
   )");
   REQUIRE(ast != nullptr);
 
@@ -332,8 +363,8 @@ TEST_CASE("inherited trait default methods should be available", "[TypeCheck][Tr
 
     val one = new Counter { value: 1 };
     val two = new Counter { value: 2 };
-    val a = one.not_same(ref two);
-    val b = one.less_or_same(ref two);
+    val a = one.not_same(two);
+    val b = one.less_or_same(two);
   )");
   REQUIRE(ast != nullptr);
 

@@ -196,6 +196,10 @@ namespace NG::orgasm
             auto current = slot;
             while (current)
             {
+                if (runtime_is_trait_object_ref(current))
+                {
+                    return current;
+                }
                 auto type = runtime_value_type(current);
                 if (!type || type->name != "ref")
                 {
@@ -452,6 +456,22 @@ namespace NG::orgasm
                         throw RuntimeException("Cannot reference index on non-indexable value");
                     };
                     push_slot_copy(makeIndexRef(access_target_slot(target)));
+                    break;
+                }
+                case OpCode::MAKE_TRAIT_REF:
+                {
+                    uint16_t traitIdx = read_u16();
+                    auto targetRef = pop_slot();
+                    if (runtime_is_trait_object_ref(targetRef))
+                    {
+                        push_slot_copy(targetRef);
+                        break;
+                    }
+                    if (!runtime_is_reference_value(targetRef))
+                    {
+                        throw RuntimeException("Trait object requires a reference value");
+                    }
+                    push_slot_copy(make_runtime_trait_object_ref(targetRef, current_module->strings[traitIdx], "trait-ref"));
                     break;
                 }
                 case OpCode::LOAD_REF:
@@ -740,7 +760,12 @@ namespace NG::orgasm
                     for (int i = 0; i < numArgs; ++i) callArgs.insert(callArgs.begin(), pop_slot());
                     auto targetSlot = access_target_slot(pop_slot());
                     
-                    Str typeName = runtime_value_type(targetSlot) ? runtime_value_type(targetSlot)->name : "Object";
+                    auto dispatchTarget = runtime_is_trait_object_ref(targetSlot) ? runtime_trait_object_target(targetSlot) : targetSlot;
+                    Str typeName = runtime_value_type(dispatchTarget) ? runtime_value_type(dispatchTarget)->name : "Object";
+                    if (runtime_is_trait_object_ref(targetSlot) && memberName.find("::") == Str::npos)
+                    {
+                        memberName = runtime_trait_object_name(targetSlot) + "::" + memberName;
+                    }
                     Str fullFunName = typeName + "." + memberName;
                     
                     int32_t funIdx = -1;
@@ -750,8 +775,8 @@ namespace NG::orgasm
                     
                     if (funIdx != -1) {
                         auto selfSlot = current_module->functions[funIdx].explicit_receiver
-                                            ? make_runtime_reference_cell(targetSlot, "arg:self")
-                                            : clone_value_slot(targetSlot, "arg:self");
+                                            ? make_runtime_reference_cell(dispatchTarget, "arg:self")
+                                            : clone_value_slot(dispatchTarget, "arg:self");
                         selfSlot->name = "arg:self";
                         callArgs.insert(callArgs.begin(), selfSlot);
                         push_frame(*current_module, current_module->functions[funIdx], callArgs);

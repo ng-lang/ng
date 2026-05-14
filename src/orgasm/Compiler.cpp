@@ -191,6 +191,10 @@ namespace NG::orgasm
                 if (auto valStmt = dynamic_ast_cast<ValDefStatement>(valDef->body))
                 {
                     globals[valStmt->name] = static_cast<int32_t>(globals.size());
+                    if (auto traitName = trait_ref_name(valStmt->typeAnnotation.get()); !traitName.empty())
+                    {
+                        globalTraitObjectTypes[valStmt->name] = traitName;
+                    }
                 }
                 else if (auto valBind = dynamic_ast_cast<ValueBindingStatement>(valDef->body))
                 {
@@ -308,6 +312,7 @@ namespace NG::orgasm
                 if (auto valStmt = dynamic_ast_cast<ValDefStatement>(valDef->body))
                 {
                     valStmt->value->accept(this);
+                    emit_trait_ref_if_needed(valStmt->typeAnnotation.get());
                     emit(OpCode::STORE_GLOBAL);
                     emit_u16(static_cast<uint16_t>(globals[valStmt->name]));
                     emit(OpCode::POP);
@@ -354,6 +359,7 @@ namespace NG::orgasm
                 current_function = &module.functions[funIndex++];
                 last_emit_was_return = false;
                 locals.clear();
+                localTraitObjectTypes.clear();
                 loop_stack.clear();
                 
                 LoopInfo info;
@@ -361,6 +367,10 @@ namespace NG::orgasm
                 for (int32_t i = 0; i < funDef->params.size(); ++i)
                 {
                     locals[funDef->params[i]->paramName] = i;
+                    if (auto traitName = trait_ref_name(funDef->params[i]->annotatedType.get()); !traitName.empty())
+                    {
+                        localTraitObjectTypes[funDef->params[i]->paramName] = traitName;
+                    }
                     info.bindingSlots.push_back(i);
                 }
                 loop_stack.push_back(std::move(info));
@@ -383,6 +393,7 @@ namespace NG::orgasm
                     current_function = &module.functions[funIndex++];
                     last_emit_was_return = false;
                     locals.clear();
+                    localTraitObjectTypes.clear();
                     loop_stack.clear();
                     current_type_name = typeDef->typeName;
                     const bool explicitReceiver = !memFn->params.empty() && is_explicit_receiver_param(memFn->params.front().get());
@@ -400,6 +411,10 @@ namespace NG::orgasm
                     for (int32_t i = 0; i < memFn->params.size(); ++i)
                     {
                         locals[memFn->params[i]->paramName] = i + paramBase;
+                        if (auto traitName = trait_ref_name(memFn->params[i]->annotatedType.get()); !traitName.empty())
+                        {
+                            localTraitObjectTypes[memFn->params[i]->paramName] = traitName;
+                        }
                         info.bindingSlots.push_back(i + paramBase);
                     }
                     loop_stack.push_back(std::move(info));
@@ -434,6 +449,7 @@ namespace NG::orgasm
                     current_function = &module.functions[funIndex++];
                     last_emit_was_return = false;
                     locals.clear();
+                    localTraitObjectTypes.clear();
                     loop_stack.clear();
 
                     const bool explicitReceiver =
@@ -450,6 +466,10 @@ namespace NG::orgasm
                     for (int32_t i = 0; i < method->params.size(); ++i)
                     {
                         locals[method->params[i]->paramName] = i + paramBase;
+                        if (auto traitName = trait_ref_name(method->params[i]->annotatedType.get()); !traitName.empty())
+                        {
+                            localTraitObjectTypes[method->params[i]->paramName] = traitName;
+                        }
                         info.bindingSlots.push_back(i + paramBase);
                     }
                     loop_stack.push_back(std::move(info));
@@ -639,11 +659,19 @@ namespace NG::orgasm
                 if (def) {
                     size_t provided = funCallExpr->arguments.size();
                     size_t expected = def->params.size();
-                    for (auto &&arg : funCallExpr->arguments) arg->accept(this);
+                    for (size_t i = 0; i < funCallExpr->arguments.size(); ++i)
+                    {
+                        funCallExpr->arguments[i]->accept(this);
+                        if (i < def->params.size())
+                        {
+                            emit_trait_ref_if_needed(def->params[i]->annotatedType.get());
+                        }
+                    }
                     if (provided < expected) {
                         for (size_t i = provided; i < expected; ++i) {
                             if (def->params[i]->value) {
                                 def->params[i]->value->accept(this);
+                                emit_trait_ref_if_needed(def->params[i]->annotatedType.get());
                             } else {
                                 throw NotImplementedException("Missing argument and no default value for param " + def->params[i]->paramName);
                             }
@@ -865,12 +893,17 @@ namespace NG::orgasm
 
     void Compiler::visit(ast::ValDefStatement *valDefStmt)
     {
-        valDefStmt->value->accept(this);
-        if (current_function)
-        {
-            int32_t index = static_cast<int32_t>(locals.size());
-            locals[valDefStmt->name] = index;
-            emit(OpCode::STORE_LOCAL);
+                valDefStmt->value->accept(this);
+                emit_trait_ref_if_needed(valDefStmt->typeAnnotation.get());
+                if (current_function)
+                {
+                    int32_t index = static_cast<int32_t>(locals.size());
+                    locals[valDefStmt->name] = index;
+                    if (auto traitName = trait_ref_name(valDefStmt->typeAnnotation.get()); !traitName.empty())
+                    {
+                        localTraitObjectTypes[valDefStmt->name] = traitName;
+                    }
+                    emit(OpCode::STORE_LOCAL);
             emit_u16(static_cast<uint16_t>(index));
             emit(OpCode::POP);
         }
@@ -1080,6 +1113,29 @@ namespace NG::orgasm
         throw NotImplementedException("Reference target not supported: " + expr->repr());
     }
 
+    auto Compiler::trait_ref_name(const ast::TypeAnnotation *annotation) const -> Str
+    {
+        if (!annotation || annotation->name != "ref" || annotation->genericArgs.size() != 1)
+        {
+            return {};
+        }
+        auto traitName = annotation->genericArgs[0]->repr();
+        return runtimeTraits.contains(traitName) ? traitName : Str{};
+    }
+
+    void Compiler::emit_trait_ref_if_needed(const ast::TypeAnnotation *annotation)
+    {
+        auto traitName = trait_ref_name(annotation);
+        if (traitName.empty())
+        {
+            return;
+        }
+        uint16_t traitIndex = static_cast<uint16_t>(module.strings.size());
+        module.strings.push_back(traitName);
+        emit(OpCode::MAKE_TRAIT_REF);
+        emit_u16(traitIndex);
+    }
+
     void Compiler::emit_move_place(ast::ASTRef<ast::Expression> expr)
     {
         if (auto idExpr = dynamic_ast_cast<IdExpression>(expr))
@@ -1162,11 +1218,25 @@ namespace NG::orgasm
             assignExpr->value->accept(this);
             if (locals.contains(idExpr->id))
             {
+                if (auto it = localTraitObjectTypes.find(idExpr->id); it != localTraitObjectTypes.end())
+                {
+                    uint16_t traitIndex = static_cast<uint16_t>(module.strings.size());
+                    module.strings.push_back(it->second);
+                    emit(OpCode::MAKE_TRAIT_REF);
+                    emit_u16(traitIndex);
+                }
                 emit(OpCode::STORE_LOCAL);
                 emit_u16(static_cast<uint16_t>(locals[idExpr->id]));
             }
             else if (globals.contains(idExpr->id))
             {
+                if (auto it = globalTraitObjectTypes.find(idExpr->id); it != globalTraitObjectTypes.end())
+                {
+                    uint16_t traitIndex = static_cast<uint16_t>(module.strings.size());
+                    module.strings.push_back(it->second);
+                    emit(OpCode::MAKE_TRAIT_REF);
+                    emit_u16(traitIndex);
+                }
                 emit(OpCode::STORE_GLOBAL);
                 emit_u16(static_cast<uint16_t>(globals[idExpr->id]));
             }
@@ -1336,11 +1406,25 @@ namespace NG::orgasm
         {
             emit(OpCode::LOAD_LOCAL);
             emit_u16(static_cast<uint16_t>(locals[idExpr->id]));
+            if (auto it = localTraitObjectTypes.find(idExpr->id); it != localTraitObjectTypes.end())
+            {
+                uint16_t traitIndex = static_cast<uint16_t>(module.strings.size());
+                module.strings.push_back(it->second);
+                emit(OpCode::MAKE_TRAIT_REF);
+                emit_u16(traitIndex);
+            }
         }
         else if (globals.contains(idExpr->id))
         {
             emit(OpCode::LOAD_GLOBAL);
             emit_u16(static_cast<uint16_t>(globals[idExpr->id]));
+            if (auto it = globalTraitObjectTypes.find(idExpr->id); it != globalTraitObjectTypes.end())
+            {
+                uint16_t traitIndex = static_cast<uint16_t>(module.strings.size());
+                module.strings.push_back(it->second);
+                emit(OpCode::MAKE_TRAIT_REF);
+                emit_u16(traitIndex);
+            }
         }
         else if (locals.contains("self"))
         {

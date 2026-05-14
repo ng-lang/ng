@@ -93,7 +93,9 @@ namespace NG::orgasm
             int32_t importIndex;
         };
         Map<Str, int32_t> locals;
+        Map<Str, Str> localTraitObjectTypes;
         Map<Str, int32_t> globals;
+        Map<Str, Str> globalTraitObjectTypes;
         Map<Str, ImportedSymbol> imported_symbols;
         Map<Str, ast::FunctionDef*> functionDefs;
         Map<Str, ast::TraitDef*> traitDefs;
@@ -116,6 +118,8 @@ namespace NG::orgasm
         void emit_u8(uint8_t val);
         void emit_u16(uint16_t val);
         void emit_reference(ast::ASTRef<ast::Expression> expr);
+        auto trait_ref_name(const ast::TypeAnnotation *annotation) const -> Str;
+        void emit_trait_ref_if_needed(const ast::TypeAnnotation *annotation);
         void emit_move_place(ast::ASTRef<ast::Expression> expr);
 
         // Find the field index of a property in the current type. Returns -1 if not found.

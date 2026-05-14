@@ -91,6 +91,7 @@ namespace NG::runtime
         Map<Str, RuntimeRef<StorageCell>> namedRefs;
         std::shared_ptr<RuntimeModuleCellState> moduleState;
         RuntimeRef<NGType> runtimeType;
+        Str traitObjectName;
         uint64_t ownerScopeId = 0;
         bool initialized = false;
         bool marked = false;
@@ -223,6 +224,7 @@ namespace NG::runtime
         Map<Str, RuntimeRef<NGType>> types;
         Map<Str, RuntimeRef<NGType>> variantTypes;
         Map<Str, RuntimeRef<StorageCell>> modules;
+        Set<Str> traitNames;
         Vec<Str> exports;
         Vec<Str> imported;
     };
@@ -374,6 +376,15 @@ namespace NG::runtime
     [[nodiscard]] auto runtime_reference_target(const RuntimeRef<StorageCell> &cell) -> RuntimeRef<StorageCell>;
     [[nodiscard]] auto runtime_read_reference(const RuntimeRef<StorageCell> &cell) -> RuntimeRef<StorageCell>;
     void runtime_write_reference(const RuntimeRef<StorageCell> &cell, const RuntimeRef<StorageCell> &nextValue);
+    [[nodiscard]] auto trait_object_ref_runtime_type() -> RuntimeRef<NGType>;
+    [[nodiscard]] auto make_runtime_trait_object_ref(const RuntimeRef<StorageCell> &targetRef, Str traitName,
+                                                     Str debugName = {},
+                                                     StorageClass storageClass = StorageClass::TEMPORARY)
+        -> RuntimeRef<StorageCell>;
+    [[nodiscard]] auto runtime_is_trait_object_ref(const RuntimeRef<StorageCell> &cell) -> bool;
+    [[nodiscard]] auto runtime_trait_object_target_ref(const RuntimeRef<StorageCell> &cell) -> RuntimeRef<StorageCell>;
+    [[nodiscard]] auto runtime_trait_object_target(const RuntimeRef<StorageCell> &cell) -> RuntimeRef<StorageCell>;
+    [[nodiscard]] auto runtime_trait_object_name(const RuntimeRef<StorageCell> &cell) -> Str;
     [[nodiscard]] auto allocate_heap_cell(const RuntimeRef<StorageCell> &value, const Str &debugName) -> RuntimeRef<StorageCell>;
     [[nodiscard]] auto make_runtime_module(const NGSymbols &symbols = nullptr) -> RuntimeRef<StorageCell>;
     [[nodiscard]] auto runtime_is_module_value(const RuntimeRef<StorageCell> &value) -> bool;

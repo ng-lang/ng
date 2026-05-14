@@ -101,6 +101,7 @@ namespace NG::orgasm
                     i += 4; // name + numArgs
                     break;
                 case OpCode::WRAP_NEWTYPE:
+                case OpCode::MAKE_TRAIT_REF:
                     remap_u16(1);
                     i += 2;
                     break;

@@ -17,4 +17,4 @@ fun render<T: Show>(value: ref<T>) -> string {
 }
 
 val counter = new Counter { label: "eleven" };
-print(render(ref counter));
+print(render(counter));
