@@ -53,12 +53,12 @@ type List {
     node: ref<Node>;
     size: i32;
 
-    fun append(value: i32) -> unit {
+    fun append(self: ref<Self>, value: i32) -> unit {
         self.size := self.size + 1;
         appendNode(self.node, value);
     }
 
-    fun toString() -> string {
+    fun toString(self: ref<Self>) -> string {
         return nodeToString(*self.node);
     }
 }

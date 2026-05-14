@@ -148,8 +148,8 @@ type Person {
     property lastName;
     property kid;
 
-    fun name() {
-        return self.firstName + " " + lastName;
+    fun name(self: ref<Self>) {
+        return self.firstName + " " + self.lastName;
     }
 }
 
@@ -176,9 +176,9 @@ TEST_CASE("should resolve unqualified member properties via frame receiver", "[I
 type Counter {
     property value;
 
-    fun bump(delta) {
-        value := value + delta;
-        return value;
+    fun bump(self: ref<Self>, delta) {
+        self.value := self.value + delta;
+        return self.value;
     }
 }
 

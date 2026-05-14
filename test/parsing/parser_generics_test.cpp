@@ -452,7 +452,7 @@ TEST_CASE("parser should parse generic TypeDef with multiple params", "[Parser][
 
 TEST_CASE("parser should parse generic TypeDef with member functions", "[Parser][Generics][TypeDef]")
 {
-  auto ast = parse("type Container<T> { property value: T; fun get(self) -> T { return self.value; } }");
+  auto ast = parse("type Container<T> { property value: T; fun get(self: ref<Self>) -> T { return self.value; } }");
   REQUIRE(ast != nullptr);
 
   auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
