@@ -67,3 +67,6 @@ TEST_CASE("Orgasm example 21.recursive_tagged_union_ref.ng", "[OrgasmExample]") 
 TEST_CASE("Orgasm example 22.ref_move_swap.ng", "[OrgasmExample]") { runOrgasmExample("example/22.ref_move_swap.ng"); }
 TEST_CASE("Orgasm example 23.ref_places.ng", "[OrgasmExample]") { runOrgasmExample("example/23.ref_places.ng"); }
 TEST_CASE("Orgasm example 24.move_value_semantics.ng", "[OrgasmExample]") { runOrgasmExample("example/24.move_value_semantics.ng"); }
+TEST_CASE("Orgasm example 25.trait_show.ng", "[OrgasmExample]") { runOrgasmExample("example/25.trait_show.ng"); }
+TEST_CASE("Orgasm example 26.trait_generic_bound.ng", "[OrgasmExample]") { runOrgasmExample("example/26.trait_generic_bound.ng"); }
+TEST_CASE("Orgasm example 27.trait_receiver_ref.ng", "[OrgasmExample]") { runOrgasmExample("example/27.trait_receiver_ref.ng"); }

@@ -17,6 +17,23 @@ namespace NG::orgasm
     {
         constexpr uint16_t SWITCH_DEFAULT_TAG = std::numeric_limits<uint16_t>::max();
 
+        auto is_self_type_annotation(const TypeAnnotation *annotation) -> bool
+        {
+            return annotation && annotation->name == "Self" && annotation->genericArgs.empty();
+        }
+
+        auto is_ref_self_type_annotation(const TypeAnnotation *annotation) -> bool
+        {
+            return annotation && annotation->name == "ref" && annotation->genericArgs.size() == 1 &&
+                   is_self_type_annotation(annotation->genericArgs[0].get());
+        }
+
+        auto is_explicit_receiver_param(const Param *param) -> bool
+        {
+            return param && (is_self_type_annotation(param->annotatedType.get()) ||
+                             is_ref_self_type_annotation(param->annotatedType.get()));
+        }
+
         template <typename UInt>
         void append_le_bytes(Vec<uint8_t> &code, UInt value)
         {
@@ -98,9 +115,36 @@ namespace NG::orgasm
                 {
                     Function fun;
                     fun.name = typeDef->typeName + "." + memFn->funName;
-                    fun.num_params = static_cast<int32_t>(memFn->params.size() + 1); // +1 for self
+                    const bool explicitReceiver = !memFn->params.empty() && is_explicit_receiver_param(memFn->params.front().get());
+                    fun.num_params = static_cast<int32_t>(memFn->params.size() + (explicitReceiver ? 0 : 1));
+                    fun.explicit_receiver = explicitReceiver;
                     module.functions.push_back(std::move(fun));
                     functionDefs[fun.name] = memFn.get();
+                }
+            }
+            else if (auto implDef = dynamic_ast_cast<ImplDef>(def))
+            {
+                auto targetName = implDef->targetType->repr();
+                for (auto &&method : implDef->methods)
+                {
+                    Str functionName = targetName + "." + method->funName;
+                    bool exists = false;
+                    for (auto &&existing : module.functions)
+                    {
+                        if (existing.name == functionName)
+                        {
+                            exists = true;
+                            break;
+                        }
+                    }
+                    if (exists) continue;
+                    Function fun;
+                    fun.name = functionName;
+                    const bool explicitReceiver = !method->params.empty() && is_explicit_receiver_param(method->params.front().get());
+                    fun.num_params = static_cast<int32_t>(method->params.size() + (explicitReceiver ? 0 : 1));
+                    fun.explicit_receiver = explicitReceiver;
+                    module.functions.push_back(std::move(fun));
+                    functionDefs[fun.name] = method.get();
                 }
             }
             else if (auto aliasDef = dynamic_ast_cast<TypeAliasDef>(def))
@@ -240,16 +284,22 @@ namespace NG::orgasm
                     locals.clear();
                     loop_stack.clear();
                     current_type_name = typeDef->typeName;
+                    const bool explicitReceiver = !memFn->params.empty() && is_explicit_receiver_param(memFn->params.front().get());
                     
                     LoopInfo info;
                     info.startIp = 0;
-                    locals["self"] = 0;
-                    info.bindingSlots.push_back(0); // self can be updated by next? maybe not, but keep slot.
+                    int32_t paramBase = 0;
+                    if (!explicitReceiver)
+                    {
+                        locals["self"] = 0;
+                        info.bindingSlots.push_back(0); // self can be updated by next? maybe not, but keep slot.
+                        paramBase = 1;
+                    }
                     
                     for (int32_t i = 0; i < memFn->params.size(); ++i)
                     {
-                        locals[memFn->params[i]->paramName] = i + 1;
-                        info.bindingSlots.push_back(i + 1);
+                        locals[memFn->params[i]->paramName] = i + paramBase;
+                        info.bindingSlots.push_back(i + paramBase);
                     }
                     loop_stack.push_back(std::move(info));
 
@@ -265,12 +315,57 @@ namespace NG::orgasm
                     }
                 }
             }
+            else if (auto implDef = dynamic_ast_cast<ImplDef>(def))
+            {
+                current_type_name = implDef->targetType->repr();
+                for (auto &&method : implDef->methods)
+                {
+                    Str functionName = current_type_name + "." + method->funName;
+                    if (funIndex >= static_cast<int>(module.functions.size()) ||
+                        module.functions[funIndex].name != functionName)
+                    {
+                        continue;
+                    }
+                    current_function = &module.functions[funIndex++];
+                    last_emit_was_return = false;
+                    locals.clear();
+                    loop_stack.clear();
+
+                    const bool explicitReceiver = !method->params.empty() && is_explicit_receiver_param(method->params.front().get());
+                    LoopInfo info;
+                    info.startIp = 0;
+                    int32_t paramBase = 0;
+                    if (!explicitReceiver)
+                    {
+                        locals["self"] = 0;
+                        info.bindingSlots.push_back(0);
+                        paramBase = 1;
+                    }
+                    for (int32_t i = 0; i < method->params.size(); ++i)
+                    {
+                        locals[method->params[i]->paramName] = i + paramBase;
+                        info.bindingSlots.push_back(i + paramBase);
+                    }
+                    loop_stack.push_back(std::move(info));
+
+                    if (method->body) method->body->accept(this);
+
+                    loop_stack.pop_back();
+                    current_function->num_locals = static_cast<int32_t>(locals.size());
+                    if (!last_emit_was_return)
+                    {
+                        emit(OpCode::PUSH_UNIT);
+                        emit(OpCode::RETURN);
+                    }
+                }
+            }
         }
         current_function = nullptr;
     }
 
     void Compiler::visit(ast::FunctionDef *funDef) {}
     void Compiler::visit(ast::TypeDef *typeDef) {}
+    void Compiler::visit(ast::ImplDef *implDef) {}
     void Compiler::visit(ast::TypeAliasDef *typeAliasDef) {}
     void Compiler::visit(ast::NewTypeDef *newTypeDef) {}
 

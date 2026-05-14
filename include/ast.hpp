@@ -38,6 +38,9 @@ namespace NG::ast
         BINDING = 0x114,
         TYPE_ALIAS_DEFINITION = 0x115,
         NEW_TYPE_DEFINITION = 0x116,
+        TRAIT_DEFINITION = 0x119,
+        IMPL_DEFINITION = 0x11A,
+        TRAIT_BOUND = 0x11B,
 
         CAST_EXPRESSION = 0x214,
 
@@ -290,6 +293,26 @@ namespace NG::ast
 
         ~GenericParam() override = default;
     };
+
+    struct TraitBound : ASTNode
+    {
+        ASTRef<TypeAnnotation> subject = nullptr;
+        ASTRef<TypeAnnotation> trait = nullptr;
+
+        TraitBound(ASTRef<TypeAnnotation> subject, ASTRef<TypeAnnotation> trait)
+            : subject(std::move(subject)), trait(std::move(trait))
+        {
+        }
+
+        void accept(AstVisitor *visitor) override;
+        auto astNodeType() const -> ASTNodeType override { return ASTNodeType::TRAIT_BOUND; }
+
+        [[nodiscard]]
+        auto repr() const -> Str override;
+
+        ~TraitBound() override;
+    };
+
     /**
      * @brief A parameter.
      */
@@ -328,6 +351,7 @@ namespace NG::ast
         Vec<ASTRef<GenericParam>> genericParams;     ///< The generic type parameters (e.g. <T, U>).
         Vec<ASTRef<Param>> params;                   ///< The parameters of the function.
         ASTRef<TypeAnnotation> returnType = nullptr; ///< The return type of the function.
+        Vec<ASTRef<TraitBound>> whereBounds;         ///< Narrow Phase-1 trait bounds from `where`.
         ASTRef<Statement> body = nullptr;            ///< The body of the function.
         bool native = false;                         ///< Whether the function is a native function.
 
@@ -1009,6 +1033,45 @@ namespace NG::ast
         auto repr() const -> Str override;
 
         ~TypeDef() override;
+    };
+
+    struct TraitDef : Definition
+    {
+        Str traitName;
+        Vec<ASTRef<GenericParam>> genericParams;
+        Vec<ASTRef<TypeAnnotation>> superTraits;
+        Vec<ASTRef<FunctionDef>> methods;
+
+        auto astNodeType() const -> ASTNodeType override { return ASTNodeType::TRAIT_DEFINITION; }
+
+        [[nodiscard]] auto names() const -> Vec<Str> override;
+
+        void accept(AstVisitor *visitor) override;
+
+        [[nodiscard]]
+        auto repr() const -> Str override;
+
+        ~TraitDef() override;
+    };
+
+    struct ImplDef : Definition
+    {
+        Vec<ASTRef<GenericParam>> genericParams;
+        ASTRef<TypeAnnotation> trait = nullptr;
+        ASTRef<TypeAnnotation> targetType = nullptr;
+        Vec<ASTRef<TraitBound>> whereBounds;
+        Vec<ASTRef<FunctionDef>> methods;
+
+        auto astNodeType() const -> ASTNodeType override { return ASTNodeType::IMPL_DEFINITION; }
+
+        [[nodiscard]] auto names() const -> Vec<Str> override;
+
+        void accept(AstVisitor *visitor) override;
+
+        [[nodiscard]]
+        auto repr() const -> Str override;
+
+        ~ImplDef() override;
     };
 
     /**

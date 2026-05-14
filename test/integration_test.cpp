@@ -65,6 +65,9 @@ TEST_CASE("should run numbered examples", "[Integration]")
       "example/22.ref_move_swap.ng",
       "example/23.ref_places.ng",
       "example/24.move_value_semantics.ng",
+      "example/25.trait_show.ng",
+      "example/26.trait_generic_bound.ng",
+      "example/27.trait_receiver_ref.ng",
   };
 
   for (const auto &example : examples)

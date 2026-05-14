@@ -84,6 +84,7 @@ set(NG_TEST_SRC
         test/parsing/parse_tuple_range_test.cpp
         test/parsing/parser_ref_move_test.cpp
         test/parsing/parser_generics_test.cpp
+        test/parsing/parser_traits_test.cpp
         test/integration_test.cpp
         test/runtime/interpreter_test.cpp
         test/runtime/nominal_test.cpp
@@ -100,6 +101,7 @@ set(NG_TEST_SRC
         test/typecheck/typecheck_array_test.cpp
         test/typecheck/typecheck_ref_move_test.cpp
         test/typecheck/typecheck_generic_test.cpp
+        test/typecheck/typecheck_traits_test.cpp
         test/typecheck/typecheck_parameter_pack_test.cpp
         test/typecheck/typecheck_controlflow_test.cpp
         test/typecheck/typecheck_tuple_test.cpp

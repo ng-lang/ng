@@ -141,6 +141,24 @@ namespace NG::parsing
           current_mod->definitions.push_back(std::move(type));
           break;
         }
+        case TokenType::KEYWORD_TRAIT:
+        {
+          auto trait = traitDef();
+          if (exported)
+          {
+            for (auto &&name : trait->names())
+            {
+              mod->exports.push_back(name);
+            }
+          }
+          current_mod->definitions.push_back(std::move(trait));
+          break;
+        }
+        case TokenType::KEYWORD_IMPL:
+        {
+          current_mod->definitions.push_back(implDef());
+          break;
+        }
         case TokenType::KEYWORD_MODULE:
         {
           if (moduleDeclared)
@@ -317,7 +335,26 @@ namespace NG::parsing
       return args;
     }
 
-    auto funDef() -> ASTRef<FunctionDef>
+    auto whereBounds() -> Vec<ASTRef<TraitBound>>
+    {
+      Vec<ASTRef<TraitBound>> bounds;
+      accept(TokenType::KEYWORD_WHERE);
+      while (!state.eof())
+      {
+        auto subject = typeAnnotation();
+        accept(TokenType::COLON);
+        auto trait = typeAnnotation();
+        bounds.push_back(createNode<TraitBound>(std::move(subject), std::move(trait)));
+        if (!expect(TokenType::AND))
+        {
+          break;
+        }
+        accept(TokenType::AND);
+      }
+      return bounds;
+    }
+
+    auto funDef(bool allowSignatureOnly = false) -> ASTRef<FunctionDef>
     {
       accept(TokenType::KEYWORD_FUN);
 
@@ -348,6 +385,17 @@ namespace NG::parsing
         {
           accept(TokenType::SINGLE_ARROW);
           def->returnType = std::move(typeAnnotation());
+        }
+
+        if (expect(TokenType::KEYWORD_WHERE))
+        {
+          def->whereBounds = whereBounds();
+        }
+
+        if (allowSignatureOnly && expect(TokenType::SEMICOLON))
+        {
+          accept(TokenType::SEMICOLON);
+          return def;
         }
 
         if (expect(TokenType::BIND))
@@ -487,6 +535,81 @@ namespace NG::parsing
 
       accept(TokenType::SEMICOLON);
       return createNode<PropertyDef>((name)->repr(), std::move(type));
+    }
+
+    auto traitDef() -> ASTRef<TraitDef>
+    {
+      accept(TokenType::KEYWORD_TRAIT);
+      auto trait = createNode<TraitDef>();
+      trait->traitName = idExpression()->repr();
+
+      if (expect(TokenType::LT))
+      {
+        trait->genericParams = genericParams();
+      }
+
+      if (expect(TokenType::COLON))
+      {
+        accept(TokenType::COLON);
+        while (!state.eof())
+        {
+          trait->superTraits.push_back(typeAnnotation());
+          if (!expect(TokenType::PLUS))
+          {
+            break;
+          }
+          accept(TokenType::PLUS);
+        }
+      }
+
+      accept(TokenType::LEFT_CURLY);
+      while (!expect(TokenType::RIGHT_CURLY))
+      {
+        if (!expect(TokenType::KEYWORD_FUN))
+        {
+          unexpected("Expected trait method declaration");
+        }
+        auto method = funDef(true);
+        if (method->body)
+        {
+          unexpected("Trait default method bodies are not supported in Phase 1");
+        }
+        trait->methods.push_back(std::move(method));
+      }
+      accept(TokenType::RIGHT_CURLY);
+      return trait;
+    }
+
+    auto implDef() -> ASTRef<ImplDef>
+    {
+      accept(TokenType::KEYWORD_IMPL);
+      auto impl = createNode<ImplDef>();
+
+      if (expect(TokenType::LT))
+      {
+        impl->genericParams = genericParams();
+      }
+
+      impl->trait = typeAnnotation();
+      accept(TokenType::KEYWORD_FOR);
+      impl->targetType = typeAnnotation();
+
+      if (expect(TokenType::KEYWORD_WHERE))
+      {
+        impl->whereBounds = whereBounds();
+      }
+
+      accept(TokenType::LEFT_CURLY);
+      while (!expect(TokenType::RIGHT_CURLY))
+      {
+        if (!expect(TokenType::KEYWORD_FUN))
+        {
+          unexpected("Expected impl method definition");
+        }
+        impl->methods.push_back(funDef());
+      }
+      accept(TokenType::RIGHT_CURLY);
+      return impl;
     }
 
     auto typeDef() -> ASTRef<Definition>

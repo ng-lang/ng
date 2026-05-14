@@ -59,7 +59,7 @@ RESERVED(extern),
 RESERVED(final),
 RESERVED(finally),
 RESERVED(float),
-RESERVED(for),
+// RESERVED(for), // keyword
 RESERVED(foreach),
 RESERVED(friend),
 RESERVED(from),
@@ -140,7 +140,7 @@ RESERVED(with),
 
 // other words
 RESERVED(which),
-RESERVED(where),
+// RESERVED(where), // keyword
 RESERVED(how),
 RESERVED(why),
 RESERVED(what),

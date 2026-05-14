@@ -95,6 +95,9 @@ namespace NG::ast
   void DummyVisitor::visit(TaggedValueExpression *taggedVal) {}
   void DummyVisitor::visit(SwitchStatement *switchStmt) {}
   void DummyVisitor::visit(GenericParam *genericParam) {}
+  void DummyVisitor::visit(TraitBound *traitBound) {}
+  void DummyVisitor::visit(TraitDef *traitDef) {}
+  void DummyVisitor::visit(ImplDef *implDef) {}
 
   void DummyVisitor::visit(CompileUnit *compileUnit) {}
 

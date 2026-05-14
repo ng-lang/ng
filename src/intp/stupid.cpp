@@ -131,6 +131,23 @@ namespace NG::intp
     return typeName.substr(0, genericStart);
   }
 
+  static auto is_self_type_annotation(const TypeAnnotation *annotation) -> bool
+  {
+    return annotation && annotation->name == "Self" && annotation->genericArgs.empty();
+  }
+
+  static auto is_ref_self_type_annotation(const TypeAnnotation *annotation) -> bool
+  {
+    return annotation && annotation->name == "ref" && annotation->genericArgs.size() == 1 &&
+           is_self_type_annotation(annotation->genericArgs[0].get());
+  }
+
+  static auto is_explicit_receiver_param(const Param *param) -> bool
+  {
+    return param && (is_self_type_annotation(param->annotatedType.get()) ||
+                     is_ref_self_type_annotation(param->annotatedType.get()));
+  }
+
   static auto lookup_global_slot(const NGSymbols &symbols, const Str &name) -> RuntimeRef<StorageCell>
   {
     if (symbols && symbols->objectSlots.contains(name))
@@ -1085,9 +1102,14 @@ namespace NG::intp
         idAccExpr->primaryExpression->accept(&vis);
         receiverSlot = vis.result_slot();
       }
-      if (runtime_is_reference_value(receiverSlot))
+      while (runtime_is_reference_value(receiverSlot))
       {
-        receiverSlot = runtime_reference_target(receiverSlot);
+        auto target = runtime_reference_target(receiverSlot);
+        if (!target)
+        {
+          break;
+        }
+        receiverSlot = target;
       }
       ensure_usable_cell(receiverSlot);
 
@@ -2230,14 +2252,26 @@ namespace NG::intp
               {
                 frames->pop_back();
               }
+          }
+        } frameGuard{frames};
+          NGArgs effectiveArgs = args;
+          if (!memFn->params.empty() && is_explicit_receiver_param(memFn->params.front().get()))
+          {
+            if (is_ref_self_type_annotation(memFn->params.front()->annotatedType.get()))
+            {
+              effectiveArgs.insert(effectiveArgs.begin(), make_runtime_reference_cell(dummy, "self"));
             }
-          } frameGuard{frames};
+            else
+            {
+              effectiveArgs.insert(effectiveArgs.begin(), dummy);
+            }
+          }
           for (size_t i = 0; i < memFn->params.size(); ++i)
           {
             RuntimeRef<StorageCell> paramSlot;
-            if (args.size() > i)
+            if (effectiveArgs.size() > i)
             {
-              paramSlot = args[i];
+              paramSlot = effectiveArgs[i];
             }
             else if (memFn->params[i]->value != nullptr)
             {
@@ -2264,6 +2298,87 @@ namespace NG::intp
       }
 
       define_global_type(symbols, type->name, type);
+    }
+
+    void visit(TraitDef *traitDef) override {}
+
+    void visit(ImplDef *implDef) override
+    {
+      auto type = resolveRuntimeType(symbols, implDef->targetType->repr());
+      if (!type)
+      {
+        throw RuntimeException("Cannot implement trait for unknown type: " + implDef->targetType->repr(), implDef->pos);
+      }
+
+      for (const auto &method : implDef->methods)
+      {
+        if (type->memberFunctions.contains(method->funName))
+        {
+          continue;
+        }
+        type->memberFunctions[method->funName] =
+            [method, frames = activeFrames](const NGSelf &dummy, const NGEnv &env,
+                                            const NGArgs &args) -> RuntimeRef<StorageCell>
+        {
+          auto callSymbols = runtime_symbols_from_env(env);
+          auto scopeIds = make_scope_chain();
+          CallFrame callFrame{};
+          callFrame.functionName = method->funName;
+          callFrame.receiver = dummy;
+          if (callFrame.receiver)
+          {
+            callFrame.receiver->name = "self";
+            callFrame.receiver->ownerScopeId = current_scope_id(scopeIds);
+          }
+          auto returnTypeName = method->returnType ? method->returnType->repr() : "unit";
+          auto returnRuntimeType = resolveRuntimeType(callSymbols, returnTypeName);
+          callFrame.returnSlot =
+              make_storage_cell(TypeLayout{.name = returnTypeName}, StorageClass::FRAME, "ret", returnRuntimeType);
+          callFrame.returnSlot->ownerScopeId = current_scope_id(scopeIds);
+          frames->push_back(callFrame);
+          struct FrameGuard
+          {
+            RuntimeRef<Vec<CallFrame>> frames;
+            ~FrameGuard()
+            {
+              if (frames && !frames->empty())
+              {
+                frames->pop_back();
+              }
+            }
+          } frameGuard{frames};
+
+          NGArgs effectiveArgs = args;
+          if (!method->params.empty() && is_explicit_receiver_param(method->params.front().get()))
+          {
+            if (is_ref_self_type_annotation(method->params.front()->annotatedType.get()))
+            {
+              effectiveArgs.insert(effectiveArgs.begin(), make_runtime_reference_cell(dummy, "self"));
+            }
+            else
+            {
+              effectiveArgs.insert(effectiveArgs.begin(), dummy);
+            }
+          }
+          for (size_t i = 0; i < method->params.size(); ++i)
+          {
+            if (effectiveArgs.size() <= i)
+            {
+              throw RuntimeException("Missing argument for parameter '" + method->params[i]->paramName +
+                                     "' in impl method '" + method->funName + "'");
+            }
+            auto slot = clone_argument_slot(method->params[i]->paramName, effectiveArgs[i], StorageClass::FRAME);
+            slot->ownerScopeId = current_scope_id(scopeIds);
+            frames->back().params.push_back(slot);
+          }
+
+          clear_storage_cell(frames->back().returnSlot);
+          StatementVisitor vis{callSymbols, frames->back().returnSlot, frames, scopeIds, false, method->funName,
+                               method->params.size()};
+          method->body->accept(&vis);
+          return clone_runtime_storage_cell(frames->back().returnSlot, StorageClass::TEMPORARY);
+        };
+      }
     }
 
     void visit(TypeAliasDef *typeAliasDef) override

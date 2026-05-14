@@ -749,7 +749,9 @@ namespace NG::orgasm
                     }
                     
                     if (funIdx != -1) {
-                        auto selfSlot = clone_value_slot(targetSlot, "arg:self");
+                        auto selfSlot = current_module->functions[funIdx].explicit_receiver
+                                            ? make_runtime_reference_cell(targetSlot, "arg:self")
+                                            : clone_value_slot(targetSlot, "arg:self");
                         selfSlot->name = "arg:self";
                         callArgs.insert(callArgs.begin(), selfSlot);
                         push_frame(*current_module, current_module->functions[funIdx], callArgs);

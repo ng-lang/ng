@@ -41,6 +41,7 @@ namespace NG::orgasm
         void visit(ast::NewObjectExpression *newObj) override;
         void visit(ast::Binding *binding) override;
         void visit(ast::TypeDef *typeDef) override;
+        void visit(ast::ImplDef *implDef) override;
         void visit(ast::TypeAliasDef *typeAliasDef) override;
         void visit(ast::NewTypeDef *newTypeDef) override;
         void visit(ast::CastExpression *castExpr) override;

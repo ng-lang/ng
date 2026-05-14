@@ -57,6 +57,7 @@ namespace NG::typecheck
         TAGGED_UNION = 0xB3,
         VARIANT = 0xB4,
         UNION = 0xB5,
+        TRAIT = 0xB6,
 
         GENERICS = 0xC0,
         GENERIC_PARAM = 0xC1,
@@ -260,6 +261,22 @@ namespace NG::typecheck
         explicit CustomizedType(Str name) : name(std::move(name)) {}
 
         auto tag() const -> typeinfo_tag override;
+        auto repr() const -> Str override;
+        auto match(const TypeInfo &other) const -> bool override;
+    };
+
+    struct TraitType : TypeInfo
+    {
+        Str name;
+        Vec<Str> typeParamNames;
+        Map<Str, CheckingRef<FunctionType>> methods;
+
+        explicit TraitType(Str name, Vec<Str> typeParamNames = {})
+            : name(std::move(name)), typeParamNames(std::move(typeParamNames))
+        {
+        }
+
+        auto tag() const -> typeinfo_tag override { return typeinfo_tag::TRAIT; }
         auto repr() const -> Str override;
         auto match(const TypeInfo &other) const -> bool override;
     };
