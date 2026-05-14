@@ -121,6 +121,79 @@ namespace NG::intp
     }
   }
 
+  struct RuntimeTraitInfo
+  {
+    Vec<TraitDef *> superTraits;
+    Map<Str, FunctionDef *> methods;
+    Map<Str, FunctionDef *> defaultMethods;
+    Map<Str, FunctionDef *> allDefaultMethods;
+    Map<Str, Str> allDefaultOrigins;
+    Map<Str, Str> allMethodOrigins;
+  };
+
+  static auto resolve_trait_closure(const Str &traitName, const Map<Str, TraitDef *> &traitDefs,
+                                    Map<Str, RuntimeTraitInfo> &traits, Set<Str> &visiting,
+                                    Set<Str> &visited) -> RuntimeTraitInfo &
+  {
+    if (visited.contains(traitName))
+    {
+      return traits[traitName];
+    }
+    if (!visiting.insert(traitName).second)
+    {
+      throw RuntimeException("Cyclic trait inheritance involving " + traitName);
+    }
+    auto traitDefIt = traitDefs.find(traitName);
+    if (traitDefIt == traitDefs.end())
+    {
+      throw RuntimeException("Unknown trait: " + traitName);
+    }
+    auto &info = traits[traitName];
+    info = RuntimeTraitInfo{};
+    auto *traitDef = traitDefIt->second;
+    for (const auto &superTraitAnnotation : traitDef->superTraits)
+    {
+      auto superName = superTraitAnnotation->repr();
+      auto &superInfo = resolve_trait_closure(superName, traitDefs, traits, visiting, visited);
+      info.superTraits.push_back(traitDefs.at(superName));
+      for (auto &[methodName, method] : superInfo.methods)
+      {
+        info.methods[methodName] = method;
+        info.allMethodOrigins[methodName] =
+            superInfo.allMethodOrigins.contains(methodName) ? superInfo.allMethodOrigins[methodName] : superName;
+      }
+      for (auto &[methodName, method] : superInfo.allDefaultMethods)
+      {
+        if (info.allDefaultMethods.contains(methodName))
+        {
+          throw RuntimeException("Conflicting default trait method " + methodName + " inherited by " + traitName);
+        }
+        info.allDefaultMethods[methodName] = method;
+        info.allDefaultOrigins[methodName] =
+            superInfo.allDefaultOrigins.contains(methodName) ? superInfo.allDefaultOrigins[methodName] : superName;
+      }
+    }
+    for (const auto &method : traitDef->methods)
+    {
+      info.methods[method->funName] = method.get();
+      info.allMethodOrigins[method->funName] = traitName;
+      if (method->body)
+      {
+        info.defaultMethods[method->funName] = method.get();
+        info.allDefaultMethods[method->funName] = method.get();
+        info.allDefaultOrigins[method->funName] = traitName;
+      }
+      else
+      {
+        info.allDefaultMethods.erase(method->funName);
+        info.allDefaultOrigins.erase(method->funName);
+      }
+    }
+    visiting.erase(traitName);
+    visited.insert(traitName);
+    return info;
+  }
+
   static auto stripGenericTypeSuffix(const Str &typeName) -> Str
   {
     auto genericStart = typeName.find('<');
@@ -1867,6 +1940,8 @@ namespace NG::intp
 
     Vec<Str> modulePaths;
     RuntimeRef<Vec<CallFrame>> activeFrames = makert<Vec<CallFrame>>();
+    Map<Str, TraitDef *> traitDefs;
+    Map<Str, RuntimeTraitInfo> runtimeTraits;
 
     explicit Stupid(Vec<Str> modulePaths, bool loadingPrelude = false)
         : modulePaths(modulePaths)
@@ -1934,6 +2009,19 @@ namespace NG::intp
       }
 
       Set<Str> definedSymbols = {};
+      for (auto &&def : mod->definitions)
+      {
+        if (auto traitDef = dynamic_ast_cast<TraitDef>(def))
+        {
+          traitDefs[traitDef->traitName] = traitDef.get();
+        }
+      }
+      Set<Str> visitingTraits;
+      Set<Str> visitedTraits;
+      for (auto &&[traitName, _traitDef] : traitDefs)
+      {
+        resolve_trait_closure(traitName, traitDefs, runtimeTraits, visitingTraits, visitedTraits);
+      }
       for (auto &&defs : mod->definitions)
       {
         for (auto &&name : defs->names())
@@ -2361,77 +2449,106 @@ namespace NG::intp
       {
         throw RuntimeException("Cannot implement trait for unknown type: " + implDef->targetType->repr(), implDef->pos);
       }
+      auto traitName = implDef->trait->repr();
+      auto traitIt = runtimeTraits.find(traitName);
+      if (traitIt == runtimeTraits.end())
+      {
+        throw RuntimeException("Cannot implement unknown trait: " + traitName, implDef->pos);
+      }
+      const auto &traitInfo = traitIt->second;
+
+      Map<Str, FunctionDef *> providedMethods;
+      for (const auto &method : implDef->methods)
+      {
+        providedMethods[method->funName] = method.get();
+      }
+
+      auto registerImplMethod = [&](const Str &memberName, FunctionDef *method) {
+        type->memberFunctions[memberName] =
+            [method, frames = activeFrames](const NGSelf &dummy, const NGEnv &env,
+                                            const NGArgs &args) -> RuntimeRef<StorageCell>
+      {
+        auto callSymbols = runtime_symbols_from_env(env);
+        auto scopeIds = make_scope_chain();
+        CallFrame callFrame{};
+        callFrame.functionName = method->funName;
+        callFrame.receiver = dummy;
+        if (callFrame.receiver)
+        {
+          callFrame.receiver->name = "self";
+          callFrame.receiver->ownerScopeId = current_scope_id(scopeIds);
+        }
+        auto returnTypeName = method->returnType ? method->returnType->repr() : "unit";
+        auto returnRuntimeType = resolveRuntimeType(callSymbols, returnTypeName);
+        callFrame.returnSlot =
+            make_storage_cell(TypeLayout{.name = returnTypeName}, StorageClass::FRAME, "ret", returnRuntimeType);
+        callFrame.returnSlot->ownerScopeId = current_scope_id(scopeIds);
+        frames->push_back(callFrame);
+        struct FrameGuard
+        {
+          RuntimeRef<Vec<CallFrame>> frames;
+          ~FrameGuard()
+          {
+            if (frames && !frames->empty())
+            {
+              frames->pop_back();
+            }
+          }
+        } frameGuard{frames};
+
+        NGArgs effectiveArgs = args;
+        if (!method->params.empty() && is_explicit_receiver_param(method->params.front().get()))
+        {
+          if (is_ref_self_type_annotation(method->params.front()->annotatedType.get()))
+          {
+            effectiveArgs.insert(effectiveArgs.begin(), make_runtime_reference_cell(dummy, "self"));
+          }
+          else
+          {
+            effectiveArgs.insert(effectiveArgs.begin(), dummy);
+          }
+        }
+        for (size_t i = 0; i < method->params.size(); ++i)
+        {
+          if (effectiveArgs.size() <= i)
+          {
+            throw RuntimeException("Missing argument for parameter '" + method->params[i]->paramName +
+                                   "' in impl method '" + method->funName + "'");
+          }
+          auto slot = clone_argument_slot(method->params[i]->paramName, effectiveArgs[i], StorageClass::FRAME);
+          slot->ownerScopeId = current_scope_id(scopeIds);
+          frames->back().params.push_back(slot);
+        }
+
+        clear_storage_cell(frames->back().returnSlot);
+        StatementVisitor vis{callSymbols, frames->back().returnSlot, frames, scopeIds, false, method->funName,
+                             method->params.size()};
+        method->body->accept(&vis);
+        return clone_runtime_storage_cell(frames->back().returnSlot, StorageClass::TEMPORARY);
+      };
+    };
 
       for (const auto &method : implDef->methods)
       {
-        auto registerMethod = [&](const Str &memberName) {
-          type->memberFunctions[memberName] =
-              [method, frames = activeFrames](const NGSelf &dummy, const NGEnv &env,
-                                              const NGArgs &args) -> RuntimeRef<StorageCell>
-          {
-            auto callSymbols = runtime_symbols_from_env(env);
-            auto scopeIds = make_scope_chain();
-            CallFrame callFrame{};
-            callFrame.functionName = method->funName;
-            callFrame.receiver = dummy;
-            if (callFrame.receiver)
-            {
-              callFrame.receiver->name = "self";
-              callFrame.receiver->ownerScopeId = current_scope_id(scopeIds);
-            }
-            auto returnTypeName = method->returnType ? method->returnType->repr() : "unit";
-            auto returnRuntimeType = resolveRuntimeType(callSymbols, returnTypeName);
-            callFrame.returnSlot =
-                make_storage_cell(TypeLayout{.name = returnTypeName}, StorageClass::FRAME, "ret", returnRuntimeType);
-            callFrame.returnSlot->ownerScopeId = current_scope_id(scopeIds);
-            frames->push_back(callFrame);
-            struct FrameGuard
-            {
-              RuntimeRef<Vec<CallFrame>> frames;
-              ~FrameGuard()
-              {
-                if (frames && !frames->empty())
-                {
-                  frames->pop_back();
-                }
-              }
-            } frameGuard{frames};
-
-            NGArgs effectiveArgs = args;
-            if (!method->params.empty() && is_explicit_receiver_param(method->params.front().get()))
-            {
-              if (is_ref_self_type_annotation(method->params.front()->annotatedType.get()))
-              {
-                effectiveArgs.insert(effectiveArgs.begin(), make_runtime_reference_cell(dummy, "self"));
-              }
-              else
-              {
-                effectiveArgs.insert(effectiveArgs.begin(), dummy);
-              }
-            }
-            for (size_t i = 0; i < method->params.size(); ++i)
-            {
-              if (effectiveArgs.size() <= i)
-              {
-                throw RuntimeException("Missing argument for parameter '" + method->params[i]->paramName +
-                                       "' in impl method '" + method->funName + "'");
-              }
-              auto slot = clone_argument_slot(method->params[i]->paramName, effectiveArgs[i], StorageClass::FRAME);
-              slot->ownerScopeId = current_scope_id(scopeIds);
-              frames->back().params.push_back(slot);
-            }
-
-            clear_storage_cell(frames->back().returnSlot);
-            StatementVisitor vis{callSymbols, frames->back().returnSlot, frames, scopeIds, false, method->funName,
-                                 method->params.size()};
-            method->body->accept(&vis);
-            return clone_runtime_storage_cell(frames->back().returnSlot, StorageClass::TEMPORARY);
-          };
-        };
-        registerMethod(implDef->trait->repr() + "::" + method->funName);
+        registerImplMethod(traitName + "::" + method->funName, method.get());
         if (!type->memberFunctions.contains(method->funName))
         {
-          registerMethod(method->funName);
+          registerImplMethod(method->funName, method.get());
+        }
+      }
+
+      for (const auto &[methodName, defaultMethod] : traitInfo.allDefaultMethods)
+      {
+        if (providedMethods.contains(methodName))
+        {
+          continue;
+        }
+        auto originTraitName =
+            traitInfo.allDefaultOrigins.contains(methodName) ? traitInfo.allDefaultOrigins.at(methodName) : traitName;
+        registerImplMethod(originTraitName + "::" + methodName, defaultMethod);
+        if (!type->memberFunctions.contains(methodName))
+        {
+          registerImplMethod(methodName, defaultMethod);
         }
       }
     }

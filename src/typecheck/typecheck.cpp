@@ -556,6 +556,9 @@ namespace NG::typecheck
         throw TypeCheckingException("Cyclic trait inheritance involving " + trait.name, pos);
       }
       Map<Str, CheckingRef<FunctionType>> allMethods;
+      Map<Str, FunctionDef *> allDefaults;
+      Map<Str, Str> allOrigins;
+      Map<Str, Str> allDefaultOrigins;
       for (auto &superTrait : trait.superTraits)
       {
         resolveTraitClosure(*superTrait, visiting, visited, pos);
@@ -566,6 +569,22 @@ namespace NG::typecheck
             throw TypeCheckingException("Conflicting inherited trait method: " + methodName, pos);
           }
           allMethods[methodName] = methodType;
+          allOrigins[methodName] = superTrait->allMethodOrigins.contains(methodName)
+                                       ? superTrait->allMethodOrigins[methodName]
+                                       : superTrait->name;
+        }
+        for (auto &[methodName, defaultMethod] : superTrait->allDefaultMethods)
+        {
+          if (allDefaults.contains(methodName))
+          {
+            throw TypeCheckingException("Conflicting default trait method " + methodName + " inherited by " +
+                                            trait.name,
+                                        pos);
+          }
+          allDefaults[methodName] = defaultMethod;
+          allDefaultOrigins[methodName] = superTrait->allDefaultOrigins.contains(methodName)
+                                             ? superTrait->allDefaultOrigins[methodName]
+                                             : superTrait->name;
         }
       }
       for (auto &[methodName, methodType] : trait.methods)
@@ -575,8 +594,22 @@ namespace NG::typecheck
           throw TypeCheckingException("Conflicting trait method: " + methodName, pos);
         }
         allMethods[methodName] = methodType;
+        allOrigins[methodName] = trait.name;
+        if (trait.defaultMethods.contains(methodName))
+        {
+          allDefaults[methodName] = trait.defaultMethods[methodName];
+          allDefaultOrigins[methodName] = trait.name;
+        }
+        else
+        {
+          allDefaults.erase(methodName);
+          allDefaultOrigins.erase(methodName);
+        }
       }
       trait.allMethods = std::move(allMethods);
+      trait.allDefaultMethods = std::move(allDefaults);
+      trait.allMethodOrigins = std::move(allOrigins);
+      trait.allDefaultOrigins = std::move(allDefaultOrigins);
       visiting.erase(trait.name);
       visited.insert(trait.name);
     }
@@ -1272,24 +1305,56 @@ namespace NG::typecheck
         trait->superTraits.push_back(superTrait);
       }
 
+      trait->methods.clear();
+      trait->defaultMethods.clear();
       for (auto &&method : traitDef->methods)
       {
-        if (method->body)
-        {
-          throw TypeCheckingException("Trait default method bodies are not supported in Phase 1", method->pos);
-        }
         if (method->params.empty() || !isReceiverParam(method->params.front().get()))
         {
           throw TypeCheckingException("Trait method '" + method->funName +
                                           "' must declare an explicit Self receiver in Phase 1",
                                       method->pos);
         }
-        trait->methods[method->funName] = functionTypeFor(method.get(), traitScope);
+        auto funType = functionTypeFor(method.get(), traitScope);
+        trait->methods[method->funName] = funType;
+        if (method->body)
+        {
+          trait->defaultMethods[method->funName] = method.get();
+        }
       }
 
       Set<Str> visiting;
       Set<Str> visited;
       resolveTraitClosure(*trait, visiting, visited, traitDef->pos);
+
+      for (auto &&method : traitDef->methods)
+      {
+        if (!method->body)
+        {
+          continue;
+        }
+        auto funType = trait->methods[method->funName];
+        TypeChecker bodyChecker{traitScope};
+        bodyChecker.trait_impls_by_type = trait_impls_by_type;
+        for (size_t i = 0; i < method->params.size(); ++i)
+        {
+          bodyChecker.locals.insert_or_assign(method->params[i]->paramName, unwrap(funType->parametersType[i]));
+        }
+        bodyChecker.contextRequirement = funType->parametersType;
+        if (funType->returnType->tag() != typeinfo_tag::UNTYPED)
+        {
+          bodyChecker.expectedType = funType->returnType;
+        }
+        method->body->accept(&bodyChecker);
+        auto bodyReturnType = bodyChecker.result ? bodyChecker.result : makecheck<PrimitiveType>(typeinfo_tag::UNIT);
+        if (bodyReturnType->tag() != typeinfo_tag::UNTYPED && funType->returnType->tag() != typeinfo_tag::UNTYPED &&
+            !typeMatch(*funType->returnType, *bodyReturnType))
+        {
+          throw TypeCheckingException("Return Type Mismatch: " + bodyReturnType->repr() + " to " +
+                                          funType->returnType->repr(),
+                                      method->pos);
+        }
+      }
     }
 
     void visit(ImplDef *implDef) override
@@ -1328,8 +1393,12 @@ namespace NG::typecheck
       {
         if (!methods.contains(methodName))
         {
-          throw TypeCheckingException("Impl for trait '" + trait->name + "' is missing method '" + methodName + "'",
-                                      implDef->pos);
+          if (!trait->allDefaultMethods.contains(methodName))
+          {
+            throw TypeCheckingException("Impl for trait '" + trait->name + "' is missing method '" + methodName + "'",
+                                        implDef->pos);
+          }
+          continue;
         }
         auto actualMethod = methods[methodName];
         if (actualMethod->params.empty() || !isReceiverParam(actualMethod->params.front().get()))
@@ -1341,6 +1410,16 @@ namespace NG::typecheck
         if (!functionSignaturesMatchReplacingSelf(*expectedMethodType, *expected, customType))
         {
           throw TypeCheckingException("Impl method signature mismatch for '" + methodName + "'", actualMethod->pos);
+        }
+      }
+
+      for (auto &&[methodName, actualMethod] : methods)
+      {
+        if (!requiredMethods.contains(methodName))
+        {
+          throw TypeCheckingException("Impl method '" + methodName + "' is not a member of trait '" +
+                                          trait->name + "'",
+                                      actualMethod->pos);
         }
       }
 
@@ -1378,6 +1457,43 @@ namespace NG::typecheck
             throw TypeCheckingException("Return Type Mismatch: " + bodyReturnType->repr() + " to " +
                                             funType->returnType->repr(),
                                         method->pos);
+          }
+        }
+      }
+
+      for (auto &&[methodName, defaultMethod] : trait->allDefaultMethods)
+      {
+        if (methods.contains(methodName))
+        {
+          continue;
+        }
+        auto funType = requiredMethods[methodName];
+        auto originTraitName = trait->allDefaultOrigins.contains(methodName) ? trait->allDefaultOrigins[methodName] : trait->name;
+        auto traitMethodName = originTraitName + "::" + methodName;
+        customType->traitMemberFunctions[originTraitName][methodName] = funType;
+        customType->memberFunctions[traitMethodName] = funType;
+
+        TypeChecker bodyChecker{implScope};
+        bodyChecker.trait_impls_by_type = trait_impls_by_type;
+        for (size_t i = 0; i < defaultMethod->params.size(); ++i)
+        {
+          bodyChecker.locals.insert_or_assign(defaultMethod->params[i]->paramName, unwrap(funType->parametersType[i]));
+        }
+        bodyChecker.contextRequirement = funType->parametersType;
+        if (funType->returnType->tag() != typeinfo_tag::UNTYPED)
+        {
+          bodyChecker.expectedType = funType->returnType;
+        }
+        if (defaultMethod->body)
+        {
+          defaultMethod->body->accept(&bodyChecker);
+          auto bodyReturnType = bodyChecker.result ? bodyChecker.result : makecheck<PrimitiveType>(typeinfo_tag::UNIT);
+          if (bodyReturnType->tag() != typeinfo_tag::UNTYPED && funType->returnType->tag() != typeinfo_tag::UNTYPED &&
+              !typeMatch(*funType->returnType, *bodyReturnType))
+          {
+            throw TypeCheckingException("Return Type Mismatch: " + bodyReturnType->repr() + " to " +
+                                            funType->returnType->repr(),
+                                        defaultMethod->pos);
           }
         }
       }
@@ -2707,6 +2823,12 @@ namespace NG::typecheck
           {
             memberType = methods[memberName];
           }
+        }
+        if (genericType->name == "Self" && !std::dynamic_pointer_cast<FunctionType>(memberType))
+        {
+          throw TypeCheckingException("Trait default method cannot access member '" + memberName +
+                                          "' on abstract Self",
+                                      idAccExpr->pos);
         }
       }
 

@@ -273,6 +273,10 @@ namespace NG::typecheck
         Vec<CheckingRef<TraitType>> superTraits;
         Map<Str, CheckingRef<FunctionType>> methods;
         Map<Str, CheckingRef<FunctionType>> allMethods;
+        Map<Str, ast::FunctionDef *> defaultMethods;
+        Map<Str, ast::FunctionDef *> allDefaultMethods;
+        Map<Str, Str> allMethodOrigins;
+        Map<Str, Str> allDefaultOrigins;
 
         explicit TraitType(Str name, Vec<Str> typeParamNames = {})
             : name(std::move(name)), typeParamNames(std::move(typeParamNames))

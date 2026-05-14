@@ -235,3 +235,122 @@ TEST_CASE("cyclic trait inheritance should fail", "[TypeCheck][Traits][Failure]"
     }
   )", "Cyclic trait inheritance");
 }
+
+TEST_CASE("trait default method may be omitted by impl", "[TypeCheck][Traits]")
+{
+  auto ast = parse(R"(
+    type Counter { value: i32; }
+
+    trait Show {
+      fun show(self: ref<Self>) -> string;
+
+      fun bracketed(self: ref<Self>) -> string {
+        return "[" + self.show() + "]";
+      }
+    }
+
+    impl Show for Counter {
+      fun show(self: ref<Self>) -> string {
+        return "counter";
+      }
+    }
+
+    val c = new Counter { value: 1 };
+    val text = c.bracketed();
+    val qualified = Show::bracketed(ref c);
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast);
+  check_type_tag(*index["text"], typeinfo_tag::STRING);
+  check_type_tag(*index["qualified"], typeinfo_tag::STRING);
+
+  destroyast(ast);
+}
+
+TEST_CASE("trait default method may be overridden by impl", "[TypeCheck][Traits]")
+{
+  auto ast = parse(R"(
+    type Counter { value: i32; }
+
+    trait Describe {
+      fun describe(self: ref<Self>) -> string {
+        return "default";
+      }
+    }
+
+    impl Describe for Counter {
+      fun describe(self: ref<Self>) -> string {
+        return "override";
+      }
+    }
+
+    val c = new Counter { value: 1 };
+    val text = c.describe();
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast);
+  check_type_tag(*index["text"], typeinfo_tag::STRING);
+
+  destroyast(ast);
+}
+
+TEST_CASE("inherited trait default methods should be available", "[TypeCheck][Traits]")
+{
+  auto ast = parse(R"(
+    type Counter { value: i32; }
+
+    trait Eq {
+      fun same(self: ref<Self>, other: ref<Self>) -> bool;
+
+      fun not_same(self: ref<Self>, other: ref<Self>) -> bool {
+        return !self.same(other);
+      }
+    }
+
+    trait Ord: Eq {
+      fun less(self: ref<Self>, other: ref<Self>) -> bool;
+
+      fun less_or_same(self: ref<Self>, other: ref<Self>) -> bool {
+        if (self.less(other)) {
+          return true;
+        }
+        return self.same(other);
+      }
+    }
+
+    impl Ord for Counter {
+      fun same(self: ref<Self>, other: ref<Self>) -> bool {
+        return self.value == other.value;
+      }
+
+      fun less(self: ref<Self>, other: ref<Self>) -> bool {
+        return self.value < other.value;
+      }
+    }
+
+    val one = new Counter { value: 1 };
+    val two = new Counter { value: 2 };
+    val a = one.not_same(ref two);
+    val b = one.less_or_same(ref two);
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast);
+  check_type_tag(*index["a"], typeinfo_tag::BOOL);
+  check_type_tag(*index["b"], typeinfo_tag::BOOL);
+
+  destroyast(ast);
+}
+
+TEST_CASE("trait default method cannot access concrete Self fields", "[TypeCheck][Traits][Failure]")
+{
+  typecheck_failure(R"(
+    trait Named {
+      fun display(self: ref<Self>) -> string {
+        return self.label;
+      }
+    }
+  )", "abstract Self");
+}

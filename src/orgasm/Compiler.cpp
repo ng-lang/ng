@@ -54,6 +54,67 @@ namespace NG::orgasm
             functionDefs[functionName] = functionDef;
         }
 
+        auto resolve_trait_closure(const Str &traitName, const Map<Str, TraitDef *> &traitDefs,
+                                   Map<Str, Compiler::RuntimeTraitInfo> &traits, Set<Str> &visiting,
+                                   Set<Str> &visited) -> Compiler::RuntimeTraitInfo &
+        {
+            if (visited.contains(traitName))
+            {
+                return traits[traitName];
+            }
+            if (!visiting.insert(traitName).second)
+            {
+                throw RuntimeException("Cyclic trait inheritance involving " + traitName);
+            }
+            auto traitDefIt = traitDefs.find(traitName);
+            if (traitDefIt == traitDefs.end())
+            {
+                throw RuntimeException("Unknown trait: " + traitName);
+            }
+            auto &info = traits[traitName];
+            info = Compiler::RuntimeTraitInfo{};
+            auto *traitDef = traitDefIt->second;
+            for (const auto &superTraitAnnotation : traitDef->superTraits)
+            {
+                auto superName = superTraitAnnotation->repr();
+                auto &superInfo = resolve_trait_closure(superName, traitDefs, traits, visiting, visited);
+                for (auto &[methodName, method] : superInfo.methods)
+                {
+                    info.methods[methodName] = method;
+                    info.allMethodOrigins[methodName] =
+                        superInfo.allMethodOrigins.contains(methodName) ? superInfo.allMethodOrigins[methodName] : superName;
+                }
+                for (auto &[methodName, method] : superInfo.allDefaultMethods)
+                {
+                    if (info.allDefaultMethods.contains(methodName))
+                    {
+                        throw RuntimeException("Conflicting default trait method " + methodName + " inherited by " + traitName);
+                    }
+                    info.allDefaultMethods[methodName] = method;
+                    info.allDefaultOrigins[methodName] =
+                        superInfo.allDefaultOrigins.contains(methodName) ? superInfo.allDefaultOrigins[methodName] : superName;
+                }
+            }
+            for (const auto &method : traitDef->methods)
+            {
+                info.methods[method->funName] = method.get();
+                info.allMethodOrigins[method->funName] = traitName;
+                if (method->body)
+                {
+                    info.allDefaultMethods[method->funName] = method.get();
+                    info.allDefaultOrigins[method->funName] = traitName;
+                }
+                else
+                {
+                    info.allDefaultMethods.erase(method->funName);
+                    info.allDefaultOrigins.erase(method->funName);
+                }
+            }
+            visiting.erase(traitName);
+            visited.insert(traitName);
+            return info;
+        }
+
         template <typename UInt>
         void append_le_bytes(Vec<uint8_t> &code, UInt value)
         {
@@ -74,6 +135,8 @@ namespace NG::orgasm
         globals.clear();
         imported_symbols.clear();
         functionDefs.clear();
+        traitDefs.clear();
+        runtimeTraits.clear();
         loop_stack.clear();
         current_type_name.clear();
         variant_map.clear();
@@ -97,6 +160,20 @@ namespace NG::orgasm
 
         for (auto &&import : mod->imports) {
             import->accept(this);
+        }
+
+        for (auto &&def : mod->definitions)
+        {
+            if (auto traitDef = dynamic_ast_cast<TraitDef>(def))
+            {
+                traitDefs[traitDef->traitName] = traitDef.get();
+            }
+        }
+        Set<Str> visitingTraits;
+        Set<Str> visitedTraits;
+        for (auto &&[traitName, _traitDef] : traitDefs)
+        {
+            resolve_trait_closure(traitName, traitDefs, runtimeTraits, visitingTraits, visitedTraits);
         }
 
         for (auto &&def : mod->definitions)
@@ -146,11 +223,29 @@ namespace NG::orgasm
             {
                 auto targetName = implDef->targetType->repr();
                 auto traitName = implDef->trait->repr();
+                Map<Str, FunctionDef*> providedMethods;
                 for (auto &&method : implDef->methods)
                 {
+                    providedMethods[method->funName] = method.get();
                     append_function_if_missing(module, functionDefs, targetName + "." + traitName + "::" + method->funName,
                                                method.get());
                     append_function_if_missing(module, functionDefs, targetName + "." + method->funName, method.get());
+                }
+                if (runtimeTraits.contains(traitName))
+                {
+                    for (auto &&[methodName, defaultMethod] : runtimeTraits[traitName].allDefaultMethods)
+                    {
+                        if (providedMethods.contains(methodName))
+                        {
+                            continue;
+                        }
+                        auto originTraitName = runtimeTraits[traitName].allDefaultOrigins.contains(methodName)
+                                                   ? runtimeTraits[traitName].allDefaultOrigins[methodName]
+                                                   : traitName;
+                        append_function_if_missing(module, functionDefs, targetName + "." + originTraitName + "::" + methodName,
+                                                   defaultMethod);
+                        append_function_if_missing(module, functionDefs, targetName + "." + methodName, defaultMethod);
+                    }
                 }
             }
             else if (auto aliasDef = dynamic_ast_cast<TypeAliasDef>(def))
@@ -325,49 +420,69 @@ namespace NG::orgasm
             {
                 current_type_name = implDef->targetType->repr();
                 auto traitName = implDef->trait->repr();
+                Map<Str, FunctionDef*> providedMethods;
                 for (auto &&method : implDef->methods)
                 {
-                    auto compileImplFunction = [&](const Str &functionName) {
-                        if (funIndex >= static_cast<int>(module.functions.size()) ||
-                            module.functions[funIndex].name != functionName)
-                        {
-                            return;
-                        }
-                        current_function = &module.functions[funIndex++];
-                        last_emit_was_return = false;
-                        locals.clear();
-                        loop_stack.clear();
+                    providedMethods[method->funName] = method.get();
+                }
+                auto compileMethodFunction = [&](FunctionDef *method, const Str &functionName) {
+                    if (funIndex >= static_cast<int>(module.functions.size()) ||
+                        module.functions[funIndex].name != functionName)
+                    {
+                        return;
+                    }
+                    current_function = &module.functions[funIndex++];
+                    last_emit_was_return = false;
+                    locals.clear();
+                    loop_stack.clear();
 
-                        const bool explicitReceiver =
-                            !method->params.empty() && is_explicit_receiver_param(method->params.front().get());
-                        LoopInfo info;
-                        info.startIp = 0;
-                        int32_t paramBase = 0;
-                        if (!explicitReceiver)
-                        {
-                            locals["self"] = 0;
-                            info.bindingSlots.push_back(0);
-                            paramBase = 1;
-                        }
-                        for (int32_t i = 0; i < method->params.size(); ++i)
-                        {
-                            locals[method->params[i]->paramName] = i + paramBase;
-                            info.bindingSlots.push_back(i + paramBase);
-                        }
-                        loop_stack.push_back(std::move(info));
+                    const bool explicitReceiver =
+                        !method->params.empty() && is_explicit_receiver_param(method->params.front().get());
+                    LoopInfo info;
+                    info.startIp = 0;
+                    int32_t paramBase = 0;
+                    if (!explicitReceiver)
+                    {
+                        locals["self"] = 0;
+                        info.bindingSlots.push_back(0);
+                        paramBase = 1;
+                    }
+                    for (int32_t i = 0; i < method->params.size(); ++i)
+                    {
+                        locals[method->params[i]->paramName] = i + paramBase;
+                        info.bindingSlots.push_back(i + paramBase);
+                    }
+                    loop_stack.push_back(std::move(info));
 
-                        if (method->body) method->body->accept(this);
+                    if (method->body) method->body->accept(this);
 
-                        loop_stack.pop_back();
-                        current_function->num_locals = static_cast<int32_t>(locals.size());
-                        if (!last_emit_was_return)
+                    loop_stack.pop_back();
+                    current_function->num_locals = static_cast<int32_t>(locals.size());
+                    if (!last_emit_was_return)
+                    {
+                        emit(OpCode::PUSH_UNIT);
+                        emit(OpCode::RETURN);
+                    }
+                };
+                for (auto &&method : implDef->methods)
+                {
+                    compileMethodFunction(method.get(), current_type_name + "." + traitName + "::" + method->funName);
+                    compileMethodFunction(method.get(), current_type_name + "." + method->funName);
+                }
+                if (runtimeTraits.contains(traitName))
+                {
+                    for (auto &&[methodName, defaultMethod] : runtimeTraits[traitName].allDefaultMethods)
+                    {
+                        if (providedMethods.contains(methodName))
                         {
-                            emit(OpCode::PUSH_UNIT);
-                            emit(OpCode::RETURN);
+                            continue;
                         }
-                    };
-                    compileImplFunction(current_type_name + "." + traitName + "::" + method->funName);
-                    compileImplFunction(current_type_name + "." + method->funName);
+                        auto originTraitName = runtimeTraits[traitName].allDefaultOrigins.contains(methodName)
+                                                   ? runtimeTraits[traitName].allDefaultOrigins[methodName]
+                                                   : traitName;
+                        compileMethodFunction(defaultMethod, current_type_name + "." + originTraitName + "::" + methodName);
+                        compileMethodFunction(defaultMethod, current_type_name + "." + methodName);
+                    }
                 }
             }
         }

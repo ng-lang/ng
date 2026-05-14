@@ -575,10 +575,6 @@ namespace NG::parsing
           unexpected("Expected trait method declaration");
         }
         auto method = funDef(true);
-        if (method->body)
-        {
-          unexpected("Trait default method bodies are not supported in Phase 1");
-        }
         trait->methods.push_back(std::move(method));
       }
       accept(TokenType::RIGHT_CURLY);

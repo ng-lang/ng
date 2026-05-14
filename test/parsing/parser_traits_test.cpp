@@ -91,3 +91,27 @@ TEST_CASE("parser should parse supertraits and qualified trait calls", "[Parser]
 
   destroyast(ast);
 }
+
+TEST_CASE("parser should parse trait default method bodies", "[Parser][Traits]")
+{
+  auto ast = parse(R"(
+    trait Show {
+      fun show(self: ref<Self>) -> string;
+
+      fun bracketed(self: ref<Self>) -> string {
+        return "[" + self.show() + "]";
+      }
+    }
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto trait = dynamic_ast_cast<TraitDef>(compileUnit->module->definitions[0]);
+  REQUIRE(trait != nullptr);
+  REQUIRE(trait->methods.size() == 2);
+  REQUIRE(trait->methods[0]->body == nullptr);
+  REQUIRE(trait->methods[1]->body != nullptr);
+
+  destroyast(ast);
+}

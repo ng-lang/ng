@@ -71,6 +71,9 @@ TEST_CASE("should run numbered examples", "[Integration]")
       "example/28.trait_supertraits.ng",
       "example/29.trait_qualified_call.ng",
       "example/30.trait_inherent_precedence.ng",
+      "example/31.trait_default_methods.ng",
+      "example/32.trait_default_override.ng",
+      "example/33.trait_default_supertraits.ng",
   };
 
   for (const auto &example : examples)

@@ -73,3 +73,6 @@ TEST_CASE("Orgasm example 27.trait_receiver_ref.ng", "[OrgasmExample]") { runOrg
 TEST_CASE("Orgasm example 28.trait_supertraits.ng", "[OrgasmExample]") { runOrgasmExample("example/28.trait_supertraits.ng"); }
 TEST_CASE("Orgasm example 29.trait_qualified_call.ng", "[OrgasmExample]") { runOrgasmExample("example/29.trait_qualified_call.ng"); }
 TEST_CASE("Orgasm example 30.trait_inherent_precedence.ng", "[OrgasmExample]") { runOrgasmExample("example/30.trait_inherent_precedence.ng"); }
+TEST_CASE("Orgasm example 31.trait_default_methods.ng", "[OrgasmExample]") { runOrgasmExample("example/31.trait_default_methods.ng"); }
+TEST_CASE("Orgasm example 32.trait_default_override.ng", "[OrgasmExample]") { runOrgasmExample("example/32.trait_default_override.ng"); }
+TEST_CASE("Orgasm example 33.trait_default_supertraits.ng", "[OrgasmExample]") { runOrgasmExample("example/33.trait_default_supertraits.ng"); }

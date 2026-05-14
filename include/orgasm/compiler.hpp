@@ -74,6 +74,13 @@ namespace NG::orgasm
         void visit(ast::TupleLiteral *tupleLit) override;
         void visit(ast::IdExpression *idExpr) override;
 
+        struct RuntimeTraitInfo {
+            Map<Str, ast::FunctionDef*> methods;
+            Map<Str, ast::FunctionDef*> allDefaultMethods;
+            Map<Str, Str> allDefaultOrigins;
+            Map<Str, Str> allMethodOrigins;
+        };
+
       private:
         BytecodeModule module;
         Function *current_function = nullptr;
@@ -89,6 +96,8 @@ namespace NG::orgasm
         Map<Str, int32_t> globals;
         Map<Str, ImportedSymbol> imported_symbols;
         Map<Str, ast::FunctionDef*> functionDefs;
+        Map<Str, ast::TraitDef*> traitDefs;
+        Map<Str, RuntimeTraitInfo> runtimeTraits;
         Vec<LoopInfo> loop_stack;
         Vec<Str> modulePaths;
         Set<Str> nativeFnNames;

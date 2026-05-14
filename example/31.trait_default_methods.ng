@@ -1,0 +1,22 @@
+type Counter {
+    value: i32;
+}
+
+trait Show {
+    fun show(self: ref<Self>) -> string;
+
+    fun bracketed(self: ref<Self>) -> string {
+        return "[" + self.show() + "]";
+    }
+}
+
+impl Show for Counter {
+    fun show(self: ref<Self>) -> string {
+        return "counter";
+    }
+}
+
+val counter = new Counter { value: 1 };
+
+assert(counter.bracketed() == "[counter]");
+assert(Show::bracketed(ref counter) == "[counter]");
