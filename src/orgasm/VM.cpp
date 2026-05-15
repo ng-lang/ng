@@ -459,7 +459,20 @@ namespace NG::orgasm
                                     push_slot_copy(numeral_cell_from_value<double>(val));
                                     break;
                                 }
-                                case OpCode::ADD: { auto b = pop_slot(); auto a = pop_slot(); push_binary_result(a, RuntimeBinaryOperator::Add, b); break; }
+                                case OpCode::ADD: {
+                                    auto b = pop_slot();
+                                    auto a = pop_slot();
+                                    try {
+                                        push_binary_result(a, RuntimeBinaryOperator::Add, b);
+                                    } catch (const std::exception &ex) {
+                                        auto aType = runtime_value_type(a);
+                                        auto bType = runtime_value_type(b);
+                                        throw RuntimeException(Str(ex.what()) + " (ADD: " +
+                                                               (aType ? aType->name : Str{"?"}) + " + " +
+                                                               (bType ? bType->name : Str{"?"}) + ")");
+                                    }
+                                    break;
+                                }
                                 case OpCode::SUB: { auto b = pop_slot(); auto a = pop_slot(); push_binary_result(a, RuntimeBinaryOperator::Subtract, b); break; }
                                 case OpCode::MUL: { auto b = pop_slot(); auto a = pop_slot(); push_binary_result(a, RuntimeBinaryOperator::Multiply, b); break; }
                                 case OpCode::DIV: { auto b = pop_slot(); auto a = pop_slot(); push_binary_result(a, RuntimeBinaryOperator::Divide, b); break; }

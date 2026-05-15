@@ -84,4 +84,5 @@ TEST_CASE("Orgasm example 36.trait_object_mutation.ng", "[OrgasmExample]") { run
 TEST_CASE("Orgasm example 37.copy_marker.ng", "[OrgasmExample]") { runOrgasmExample("example/37.copy_marker.ng"); }
 TEST_CASE("Orgasm example 38.clone_trait.ng", "[OrgasmExample]") { runOrgasmExample("example/38.clone_trait.ng"); }
 TEST_CASE("Orgasm example 39.drop_raii.ng", "[OrgasmExample]") { runOrgasmExample("example/39.drop_raii.ng"); }
+TEST_CASE("Orgasm example 40.trait_object_list.ng", "[OrgasmExample]") { runOrgasmExample("example/40.trait_object_list.ng"); }
 TEST_CASE("Orgasm example 41.drop_smart_pointer.ng", "[OrgasmExample]") { runOrgasmExample("example/41.drop_smart_pointer.ng"); }

@@ -94,8 +94,10 @@ namespace NG::orgasm
         };
         Map<Str, int32_t> locals;
         Map<Str, Str> localTraitObjectTypes;
+        Map<Str, Str> localValueTypes;
         Map<Str, int32_t> globals;
         Map<Str, Str> globalTraitObjectTypes;
+        Map<Str, Str> globalValueTypes;
         Map<Str, ImportedSymbol> imported_symbols;
         Map<Str, ast::FunctionDef*> functionDefs;
         Map<Str, ast::TraitDef*> traitDefs;
@@ -111,6 +113,7 @@ namespace NG::orgasm
             Str unionName;
             int32_t variantIndex;
             Vec<Str> payloadFields;
+            Vec<Str> payloadTypes;
         };
         Map<Str, VariantInfo> variant_map;
 
@@ -119,6 +122,10 @@ namespace NG::orgasm
         void emit_u16(uint16_t val);
         void emit_reference(ast::ASTRef<ast::Expression> expr);
         auto trait_ref_name(const ast::TypeAnnotation *annotation) const -> Str;
+        auto trait_ref_name_from_type_repr(const Str &typeName) const -> Str;
+        auto specialize_type_repr(const Str &typeName, const Map<Str, Str> &typeBindings) const -> Str;
+        void infer_type_bindings_from_reprs(const Str &pattern, const Str &actual, Map<Str, Str> &typeBindings) const;
+        auto infer_expression_type_name(ast::ASTRef<ast::Expression> expr) const -> Str;
         void emit_trait_ref_if_needed(const ast::TypeAnnotation *annotation);
         void emit_move_place(ast::ASTRef<ast::Expression> expr);
 
