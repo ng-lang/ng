@@ -426,6 +426,19 @@ namespace NG::typecheck
 
     bool allowMovedLvalueRead = false;
     Map<Str, Vec<Str>> trait_impls_by_type;
+    Str currentModuleId = "default";
+    struct TraitImplRecord
+    {
+      Str traitName;
+      Str targetPattern;
+      Str moduleId;
+      Set<Str> genericParamNames;
+      Vec<Str> whereBounds;
+      Map<Str, Str> methods;
+      ImplDef *definition = nullptr;
+      TokenPosition pos;
+    };
+    Vec<TraitImplRecord> localTraitImpls;
 
     // Sentinel key stored in locals to indicate wildcard imports are active.
     // This propagates automatically when locals are copied to child checkers.
@@ -635,6 +648,137 @@ namespace NG::typecheck
     static auto typeParamBoundName(const GenericParam &param) -> Str
     {
       return param.bound ? param.bound->repr() : "";
+    }
+
+    static auto genericParamNameSet(const Vec<ASTRef<GenericParam>> &genericParams) -> Set<Str>
+    {
+      Set<Str> names;
+      for (auto &param : genericParams)
+      {
+        names.insert(param->name);
+      }
+      return names;
+    }
+
+    static auto whereBoundPatterns(const Vec<ASTRef<TraitBound>> &bounds) -> Vec<Str>
+    {
+      Vec<Str> patterns;
+      for (auto &bound : bounds)
+      {
+        if (bound && bound->subject && bound->trait)
+        {
+          patterns.push_back(bound->subject->repr() + ": " + bound->trait->repr());
+        }
+      }
+      return patterns;
+    }
+
+    static auto implMethodMap(const ImplDef &implDef, const TraitType &trait) -> Map<Str, Str>
+    {
+      Map<Str, Str> methods;
+      for (auto &method : implDef.methods)
+      {
+        methods[method->funName] = trait.name + "::" + method->funName;
+      }
+      return methods;
+    }
+
+    static auto isGenericPatternWildcard(const TypeAnnotation *annotation, const Set<Str> &genericParamNames) -> bool
+    {
+      return annotation && annotation->genericArgs.empty() && annotation->arguments.empty() &&
+             genericParamNames.contains(annotation->name);
+    }
+
+    static auto typePatternChildren(const TypeAnnotation *annotation) -> Vec<const TypeAnnotation *>
+    {
+      Vec<const TypeAnnotation *> children;
+      if (!annotation)
+      {
+        return children;
+      }
+      for (auto &arg : annotation->genericArgs)
+      {
+        children.push_back(arg.get());
+      }
+      for (auto &arg : annotation->arguments)
+      {
+        if (auto child = dynamic_ast_cast<TypeAnnotation>(arg))
+        {
+          children.push_back(child.get());
+        }
+      }
+      return children;
+    }
+
+    static auto typePatternsMayOverlap(const TypeAnnotation *left, const Set<Str> &leftGenericParams,
+                                       const TypeAnnotation *right, const Set<Str> &rightGenericParams) -> bool
+    {
+      if (!left || !right)
+      {
+        return false;
+      }
+      if (isGenericPatternWildcard(left, leftGenericParams) ||
+          isGenericPatternWildcard(right, rightGenericParams))
+      {
+        return true;
+      }
+      if (left->name != right->name)
+      {
+        return false;
+      }
+      auto leftChildren = typePatternChildren(left);
+      auto rightChildren = typePatternChildren(right);
+      if (leftChildren.size() != rightChildren.size())
+      {
+        return leftChildren.empty() && rightChildren.empty();
+      }
+      for (size_t i = 0; i < leftChildren.size(); ++i)
+      {
+        if (!typePatternsMayOverlap(leftChildren[i], leftGenericParams, rightChildren[i], rightGenericParams))
+        {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    void registerLocalTraitImpl(ImplDef *implDef, const TraitType &trait)
+    {
+      TraitImplRecord candidate{
+          .traitName = trait.name,
+          .targetPattern = implDef->targetType ? implDef->targetType->repr() : "",
+          .moduleId = currentModuleId,
+          .genericParamNames = genericParamNameSet(implDef->genericParams),
+          .whereBounds = whereBoundPatterns(implDef->whereBounds),
+          .methods = implMethodMap(*implDef, trait),
+          .definition = implDef,
+          .pos = implDef->pos,
+      };
+
+      for (const auto &existing : localTraitImpls)
+      {
+        if (existing.traitName != candidate.traitName)
+        {
+          continue;
+        }
+        if (!typePatternsMayOverlap(existing.definition->targetType.get(), existing.genericParamNames,
+                                    candidate.definition->targetType.get(), candidate.genericParamNames))
+        {
+          continue;
+        }
+        if (existing.targetPattern == candidate.targetPattern)
+        {
+          throw TypeCheckingException("Duplicate impl for trait '" + candidate.traitName +
+                                          "' and type '" + candidate.targetPattern + "'",
+                                      implDef->pos);
+        }
+        throw TypeCheckingException("Overlapping impl for trait '" + candidate.traitName +
+                                        "' between '" + existing.targetPattern + "' and '" +
+                                        candidate.targetPattern + "'",
+                                    implDef->pos);
+      }
+
+      localTraitImpls.push_back(std::move(candidate));
     }
 
     void addGenericParamsToScope(Map<Str, CheckingRef<TypeInfo>> &scope,
@@ -1281,6 +1425,7 @@ namespace NG::typecheck
     void visit(Module *module) override
     {
       installBuiltinLifecycleTraits();
+      currentModuleId = module->name;
       // First pass: collect function signatures and type definitions
       for (auto def : module->definitions)
       {
@@ -1716,6 +1861,7 @@ namespace NG::typecheck
         throw TypeCheckingException("Impl target must be a structural or native opaque type: " +
                                     implDef->targetType->repr(), implDef->pos);
       }
+      registerLocalTraitImpl(implDef, *trait);
 
       implScope["Self"] = customType;
       Map<Str, FunctionDef *> methods;

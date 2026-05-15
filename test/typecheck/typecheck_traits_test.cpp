@@ -385,3 +385,171 @@ TEST_CASE("trait default method cannot access concrete Self fields", "[TypeCheck
     }
   )", "abstract Self");
 }
+
+TEST_CASE("duplicate local trait impl should fail", "[TypeCheck][Traits][Coherence][Failure]")
+{
+  typecheck_failure(R"(
+    type Person { name: string; }
+
+    trait Show {
+      fun show(self: ref<Self>) -> string;
+    }
+
+    impl Show for Person {
+      fun show(self: ref<Self>) -> string {
+        return self.name;
+      }
+    }
+
+    impl Show for Person {
+      fun show(self: ref<Self>) -> string {
+        return self.name;
+      }
+    }
+  )", "Duplicate impl");
+}
+
+TEST_CASE("overlapping generic and concrete trait impl should fail", "[TypeCheck][Traits][Coherence][Failure]")
+{
+  typecheck_failure(R"(
+    type Box<T> {
+      value: T;
+    }
+
+    trait Show {
+      fun show(self: ref<Self>) -> string;
+    }
+
+    impl<T> Show for Box<T> {
+      fun show(self: ref<Self>) -> string {
+        return "generic";
+      }
+    }
+
+    impl Show for Box<i32> {
+      fun show(self: ref<Self>) -> string {
+        return "i32";
+      }
+    }
+  )", "Overlapping impl");
+}
+
+TEST_CASE("different traits may be implemented for same type", "[TypeCheck][Traits][Coherence]")
+{
+  auto ast = parse(R"(
+    type Person { name: string; }
+
+    trait Display {
+      fun text(self: ref<Self>) -> string;
+    }
+
+    trait Debug {
+      fun text(self: ref<Self>) -> string;
+    }
+
+    impl Display for Person {
+      fun text(self: ref<Self>) -> string {
+        return self.name;
+      }
+    }
+
+    impl Debug for Person {
+      fun text(self: ref<Self>) -> string {
+        return "debug " + self.name;
+      }
+    }
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast);
+  REQUIRE(index.contains("Person"));
+
+  destroyast(ast);
+}
+
+TEST_CASE("same trait may be implemented for different concrete types", "[TypeCheck][Traits][Coherence]")
+{
+  auto ast = parse(R"(
+    type Foo { value: i32; }
+    type Bar { value: i32; }
+
+    trait Show {
+      fun show(self: ref<Self>) -> string;
+    }
+
+    impl Show for Foo {
+      fun show(self: ref<Self>) -> string {
+        return "foo";
+      }
+    }
+
+    impl Show for Bar {
+      fun show(self: ref<Self>) -> string {
+        return "bar";
+      }
+    }
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast);
+  REQUIRE(index.contains("Foo"));
+  REQUIRE(index.contains("Bar"));
+
+  destroyast(ast);
+}
+
+TEST_CASE("same trait may be implemented for non-overlapping concrete generic instances", "[TypeCheck][Traits][Coherence]")
+{
+  auto ast = parse(R"(
+    type Box<T> {
+      value: T;
+    }
+
+    trait Show {
+      fun show(self: ref<Self>) -> string;
+    }
+
+    impl Show for Box<i32> {
+      fun show(self: ref<Self>) -> string {
+        return "i32";
+      }
+    }
+
+    impl Show for Box<string> {
+      fun show(self: ref<Self>) -> string {
+        return "string";
+      }
+    }
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast);
+  REQUIRE(index.contains("Box"));
+
+  destroyast(ast);
+}
+
+TEST_CASE("equivalent generic trait impl patterns should fail", "[TypeCheck][Traits][Coherence][Failure]")
+{
+  typecheck_failure(R"(
+    type Box<T> {
+      value: T;
+    }
+
+    trait Show {
+      fun show(self: ref<Self>) -> string;
+    }
+
+    impl<T> Show for Box<T> {
+      fun show(self: ref<Self>) -> string {
+        return "first";
+      }
+    }
+
+    impl<U> Show for Box<U> {
+      fun show(self: ref<Self>) -> string {
+        return "second";
+      }
+    }
+  )", "Overlapping impl");
+}
