@@ -1100,6 +1100,7 @@ namespace NG::ast
         Str aliasName;                          ///< The name of the alias.
         Vec<ASTRef<GenericParam>> genericParams;///< The generic type parameters (e.g. <T>).
         ASTRef<TypeAnnotation> underlyingType;  ///< The underlying type.
+        bool nativeOpaque = false;              ///< Whether this alias declares an opaque native runtime type.
 
         explicit TypeAliasDef(Str name) : aliasName(std::move(name)) {}
 

@@ -77,6 +77,11 @@ TEST_CASE("should run numbered examples", "[Integration]")
       "example/34.trait_object_show.ng",
       "example/35.trait_object_default.ng",
       "example/36.trait_object_mutation.ng",
+      "example/37.copy_marker.ng",
+      "example/38.clone_trait.ng",
+      "example/39.drop_raii.ng",
+      "example/40.trait_object_list.ng",
+      "example/41.drop_smart_pointer.ng",
   };
 
   for (const auto &example : examples)

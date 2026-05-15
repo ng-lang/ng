@@ -763,7 +763,8 @@ namespace NG::ast
 
   auto TypeAliasDef::repr() const -> Str
   {
-    return "type " + aliasName + genericParamsRepr(genericParams) + " = " + (underlyingType ? underlyingType->repr() : "?") + ";";
+    return "type " + aliasName + genericParamsRepr(genericParams) + " = " +
+           (nativeOpaque ? "native" : (underlyingType ? underlyingType->repr() : "?")) + ";";
   }
 
   TypeAliasDef::~TypeAliasDef()

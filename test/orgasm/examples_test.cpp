@@ -37,10 +37,12 @@ static inline void runOrgasmExample(const std::string &filename)
     modulePaths.push_back((project_root / "lib").string());
     modulePaths.push_back((project_root / "example").string());
 
-    Compiler compiler(modulePaths);
+    auto nativeNames = NG::library::prelude::native_function_names();
+    Compiler compiler(modulePaths, nativeNames);
     auto bytecode = compiler.compile(dynamic_ast_cast<ast::CompileUnit>(ast));
 
     VM vm(modulePaths);
+    NG::library::prelude::register_vm_natives(vm);
     vm.run(bytecode);
 
     destroyast(ast);
@@ -79,3 +81,7 @@ TEST_CASE("Orgasm example 33.trait_default_supertraits.ng", "[OrgasmExample]") {
 TEST_CASE("Orgasm example 34.trait_object_show.ng", "[OrgasmExample]") { runOrgasmExample("example/34.trait_object_show.ng"); }
 TEST_CASE("Orgasm example 35.trait_object_default.ng", "[OrgasmExample]") { runOrgasmExample("example/35.trait_object_default.ng"); }
 TEST_CASE("Orgasm example 36.trait_object_mutation.ng", "[OrgasmExample]") { runOrgasmExample("example/36.trait_object_mutation.ng"); }
+TEST_CASE("Orgasm example 37.copy_marker.ng", "[OrgasmExample]") { runOrgasmExample("example/37.copy_marker.ng"); }
+TEST_CASE("Orgasm example 38.clone_trait.ng", "[OrgasmExample]") { runOrgasmExample("example/38.clone_trait.ng"); }
+TEST_CASE("Orgasm example 39.drop_raii.ng", "[OrgasmExample]") { runOrgasmExample("example/39.drop_raii.ng"); }
+TEST_CASE("Orgasm example 41.drop_smart_pointer.ng", "[OrgasmExample]") { runOrgasmExample("example/41.drop_smart_pointer.ng"); }

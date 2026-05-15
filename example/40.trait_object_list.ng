@@ -1,0 +1,67 @@
+trait Item {
+    fun score(self: ref<Self>) -> i32;
+}
+
+type Foo {
+    amount: i32;
+}
+
+type Bar {
+    amount: i32;
+}
+
+impl Item for Foo {
+    fun score(self: ref<Self>) -> i32 {
+        return self.amount;
+    }
+}
+
+impl Item for Bar {
+    fun score(self: ref<Self>) -> i32 {
+        return self.amount;
+    }
+}
+
+type Node<T> = Cell(value: T, rest: ref<Node<T>>) | Empty;
+
+type List<T> {
+    head: ref<Node<T>>;
+    size: i32;
+}
+
+fun appendNode<T>(current: ref<Node<T>>, value: T) -> unit {
+    switch (*current) {
+        case Empty {
+            *current := Cell(value, new Empty {});
+        }
+        case Cell(existing, restRef) {
+            appendNode(restRef, value);
+        }
+    }
+}
+
+fun append<T>(list: ref<List<T>>, value: T) -> unit {
+    list.size := list.size + 1;
+    appendNode(list.head, value);
+}
+
+fun sum(node: ref<Node<ref<Item>>>) -> i32 {
+    switch (*node) {
+        case Empty {
+            return 0;
+        }
+        case Cell(item, restRef) {
+            return item.score() + sum(restRef);
+        }
+    }
+}
+
+val items = new List<ref<Item>> { head: new Empty {}, size: 0 };
+val foo = new Foo { amount: 10 };
+val bar = new Bar { amount: 32 };
+
+append(items, foo);
+append(items, bar);
+
+assert(items.size == 2);
+assert(sum(items.head) == 42);

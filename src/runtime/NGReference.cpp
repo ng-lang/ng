@@ -157,6 +157,7 @@ namespace NG::runtime
     cell->namedRefs.clear();
     cell->nativeHandles.clear();
     cell->traitObjectName.clear();
+    cell->dropArmed = false;
     cell->initialized = true;
   }
 

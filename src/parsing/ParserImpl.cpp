@@ -699,7 +699,15 @@ namespace NG::parsing
         // Otherwise it's a type alias
         auto aliasDef = createNode<TypeAliasDef>(nameStr);
         aliasDef->genericParams = std::move(typeGenericParams);
-        aliasDef->underlyingType = std::move(typeAnnotation());
+        if (expect(TokenType::KEYWORD_NATIVE))
+        {
+          accept(TokenType::KEYWORD_NATIVE);
+          aliasDef->nativeOpaque = true;
+        }
+        else
+        {
+          aliasDef->underlyingType = std::move(typeAnnotation());
+        }
         accept(TokenType::SEMICOLON);
         return aliasDef;
       }

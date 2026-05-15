@@ -16,6 +16,16 @@ namespace NG::orgasm
     namespace
     {
         constexpr uint16_t SWITCH_DEFAULT_TAG = std::numeric_limits<uint16_t>::max();
+        constexpr const char *COPY_TRAIT_NAME = "Copy";
+        constexpr const char *CLONE_TRAIT_NAME = "Clone";
+        constexpr const char *DROP_TRAIT_NAME = "Drop";
+
+        void install_builtin_lifecycle_traits(Map<Str, Compiler::RuntimeTraitInfo> &runtimeTraits)
+        {
+            runtimeTraits.try_emplace(COPY_TRAIT_NAME);
+            runtimeTraits.try_emplace(CLONE_TRAIT_NAME);
+            runtimeTraits.try_emplace(DROP_TRAIT_NAME);
+        }
 
         auto is_self_type_annotation(const TypeAnnotation *annotation) -> bool
         {
@@ -145,6 +155,7 @@ namespace NG::orgasm
         
         module.constants.push_back(0);
         module.constants.push_back(1);
+        install_builtin_lifecycle_traits(runtimeTraits);
 
         compileUnit->module->accept(this);
         return std::move(module);
@@ -173,6 +184,10 @@ namespace NG::orgasm
         Set<Str> visitedTraits;
         for (auto &&[traitName, _traitDef] : traitDefs)
         {
+            if (runtimeTraits.contains(traitName))
+            {
+                continue;
+            }
             resolve_trait_closure(traitName, traitDefs, runtimeTraits, visitingTraits, visitedTraits);
         }
 
@@ -254,7 +269,7 @@ namespace NG::orgasm
             }
             else if (auto aliasDef = dynamic_ast_cast<TypeAliasDef>(def))
             {
-                // Type alias is transparent — register as a type with no properties
+                // Native opaque aliases are nominal runtime types; transparent aliases are registered without fields.
                 Type type;
                 type.name = aliasDef->aliasName;
                 module.types.push_back(std::move(type));
@@ -1160,6 +1175,12 @@ namespace NG::orgasm
             emit(OpCode::MOVE_REF);
             return;
         }
+        else if (dynamic_ast_cast<IdAccessorExpression>(expr) || dynamic_ast_cast<IndexAccessorExpression>(expr))
+        {
+            emit_reference(expr);
+            emit(OpCode::MOVE_REF);
+            return;
+        }
 
         throw NotImplementedException("Move target not supported: " + expr->repr());
     }
@@ -1279,6 +1300,17 @@ namespace NG::orgasm
         int32_t typeIdx = -1;
         for (size_t i = 0; i < module.types.size(); ++i) {
             if (module.types[i].name == typeName) { typeIdx = static_cast<int32_t>(i); break; }
+        }
+        if (typeIdx < 0)
+        {
+            auto genericStart = typeName.find('<');
+            if (genericStart != Str::npos)
+            {
+                auto baseName = typeName.substr(0, genericStart);
+                for (size_t i = 0; i < module.types.size(); ++i) {
+                    if (module.types[i].name == baseName) { typeIdx = static_cast<int32_t>(i); break; }
+                }
+            }
         }
 
         uint16_t numFields = 0;

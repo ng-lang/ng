@@ -1,0 +1,9 @@
+fun allocate_stack_native() -> unit {
+    val one: UniquePtr<i32> = nativeMalloc(8);
+    val two: UniquePtr<i32> = nativeMalloc(16);
+    assert(nativeOutstandingAllocations() == 2);
+}
+
+assert(nativeOutstandingAllocations() == 0);
+allocate_stack_native();
+assert(nativeOutstandingAllocations() == 0);

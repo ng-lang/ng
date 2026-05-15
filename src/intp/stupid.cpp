@@ -131,6 +131,24 @@ namespace NG::intp
     Map<Str, Str> allMethodOrigins;
   };
 
+  static constexpr const char *COPY_TRAIT_NAME = "Copy";
+  static constexpr const char *CLONE_TRAIT_NAME = "Clone";
+  static constexpr const char *DROP_TRAIT_NAME = "Drop";
+
+  static void install_builtin_lifecycle_traits(const NGSymbols &symbols,
+                                               Map<Str, RuntimeTraitInfo> &runtimeTraits)
+  {
+    if (symbols)
+    {
+      symbols->traitNames.insert(COPY_TRAIT_NAME);
+      symbols->traitNames.insert(CLONE_TRAIT_NAME);
+      symbols->traitNames.insert(DROP_TRAIT_NAME);
+    }
+    runtimeTraits.try_emplace(COPY_TRAIT_NAME);
+    runtimeTraits.try_emplace(CLONE_TRAIT_NAME);
+    runtimeTraits.try_emplace(DROP_TRAIT_NAME);
+  }
+
   static auto resolve_trait_closure(const Str &traitName, const Map<Str, TraitDef *> &traitDefs,
                                     Map<Str, RuntimeTraitInfo> &traits, Set<Str> &visiting,
                                     Set<Str> &visited) -> RuntimeTraitInfo &
@@ -231,6 +249,9 @@ namespace NG::intp
   }
 
   static auto clone_global_slot(Str name, const RuntimeRef<StorageCell> &source) -> RuntimeRef<StorageCell>;
+  static void transfer_reference_ownership(const RuntimeRef<StorageCell> &target,
+                                           const RuntimeRef<StorageCell> &source);
+  static void drop_storage_cell_if_needed(const NGSymbols &symbols, const RuntimeRef<StorageCell> &cell);
 
   static void define_global_binding(const NGSymbols &symbols, const Str &name, const RuntimeRef<StorageCell> &value)
   {
@@ -314,7 +335,9 @@ namespace NG::intp
     }
     if (symbols->objectSlots.contains(name))
     {
+      drop_storage_cell_if_needed(symbols, symbols->objectSlots[name]);
       runtime_copy_storage_cell(symbols->objectSlots[name], value);
+      transfer_reference_ownership(symbols->objectSlots[name], value);
       return;
     }
     symbols->objectSlots[name] = clone_global_slot(name, value);
@@ -324,7 +347,9 @@ namespace NG::intp
   {
     if (symbols && symbols->objectSlots.contains(name))
     {
+      drop_storage_cell_if_needed(symbols, symbols->objectSlots[name]);
       runtime_copy_storage_cell(symbols->objectSlots[name], value);
+      transfer_reference_ownership(symbols->objectSlots[name], value);
       return;
     }
     throw RuntimeException("Invalid assignment to " + name);
@@ -478,6 +503,13 @@ namespace NG::intp
     return clone_argument_slot(std::move(name), source, StorageClass::GLOBAL);
   }
 
+  static void transfer_reference_ownership(const RuntimeRef<StorageCell> &target,
+                                           const RuntimeRef<StorageCell> &source)
+  {
+    (void)target;
+    (void)source;
+  }
+
   static auto next_scope_id() -> uint64_t
   {
     static uint64_t nextId = 1;
@@ -519,10 +551,6 @@ namespace NG::intp
     };
 
     auto &frame = frames->back();
-    if (name == "self" && frame.receiver)
-    {
-      return frame.receiver;
-    }
     for (auto itScope = scopeIds->rbegin(); itScope != scopeIds->rend(); ++itScope)
     {
       for (auto it = frame.locals.rbegin(); it != frame.locals.rend(); ++it)
@@ -543,6 +571,10 @@ namespace NG::intp
       {
         return frame.receiver;
       }
+    }
+    if (name == "self" && frame.receiver)
+    {
+      return frame.receiver;
     }
     for (auto it = frame.params.rbegin(); it != frame.params.rend(); ++it)
     {
@@ -644,10 +676,92 @@ namespace NG::intp
                                 const RuntimeRef<StorageCell> &cell,
                                 const RuntimeRef<StorageCell> &value)
   {
+    drop_storage_cell_if_needed(symbols, cell);
     sync_storage_cell(cell, value);
     if (publishGlobals && cell && is_module_frame(frames) && cell->ownerScopeId == root_scope_id(scopeIds))
     {
       publish_global_binding(symbols, cell->name, cell);
+    }
+  }
+
+  static auto drop_target_for_cell(const RuntimeRef<StorageCell> &cell) -> RuntimeRef<StorageCell>
+  {
+    if (!cell || runtime_cell_is_moved(cell) || !runtime_cell_has_value(cell))
+    {
+      return nullptr;
+    }
+    if (runtime_is_trait_object_ref(cell))
+    {
+      return nullptr;
+    }
+    if (runtime_is_reference_value(cell))
+    {
+      return nullptr;
+    }
+    return cell;
+  }
+
+  static void drop_storage_cell_if_needed(const NGSymbols &symbols, const RuntimeRef<StorageCell> &cell)
+  {
+    auto target = drop_target_for_cell(cell);
+    if (!target || runtime_cell_is_moved(target) || !runtime_cell_has_value(target) ||
+        !target->dropArmed || target->lifecycleDropped || target->dropInProgress)
+    {
+      return;
+    }
+    auto type = runtime_value_type(target);
+    if (!type || !type->memberFunctions.contains("Drop::drop"))
+    {
+      if (type && type->dropCellHandler)
+      {
+        type->dropCellHandler(target);
+        target->lifecycleDropped = true;
+        target->dropArmed = false;
+      }
+      return;
+    }
+
+    target->dropInProgress = true;
+    try
+    {
+      (void)runtime_value_respond_slot(target, "Drop::drop", make_runtime_env(symbols), {});
+      target->lifecycleDropped = true;
+      target->dropArmed = false;
+      target->dropInProgress = false;
+    }
+    catch (...)
+    {
+      target->dropInProgress = false;
+      throw;
+    }
+  }
+
+  static void drop_scope_cells(const NGSymbols &symbols, const RuntimeRef<Vec<CallFrame>> &frames,
+                               uint64_t scopeId)
+  {
+    if (!frames || frames->empty())
+    {
+      return;
+    }
+    auto &frame = frames->back();
+    for (auto it = frame.locals.rbegin(); it != frame.locals.rend(); ++it)
+    {
+      if (*it && (*it)->ownerScopeId == scopeId)
+      {
+        drop_storage_cell_if_needed(symbols, *it);
+      }
+    }
+  }
+
+  static void drop_frame_cells(const NGSymbols &symbols, const CallFrame &frame)
+  {
+    for (auto it = frame.locals.rbegin(); it != frame.locals.rend(); ++it)
+    {
+      drop_storage_cell_if_needed(symbols, *it);
+    }
+    for (auto it = frame.params.rbegin(); it != frame.params.rend(); ++it)
+    {
+      drop_storage_cell_if_needed(symbols, *it);
     }
   }
 
@@ -708,6 +822,7 @@ namespace NG::intp
       throw RuntimeException("Redefine " + name);
     }
     auto slot = make_named_storage_cell(name, value);
+    transfer_reference_ownership(slot, value);
     slot->ownerScopeId = current_scope_id(scopeIds);
     frames->back().locals.push_back(slot);
     if (publishGlobals && is_module_frame(frames) && current_scope_id(scopeIds) == root_scope_id(scopeIds))
@@ -1097,6 +1212,12 @@ namespace NG::intp
           set_result(movedSlot, true);
           return;
         }
+        if (auto targetSlot = place_slot(unoExpr->operand.get()))
+        {
+          auto movedSlot = move_storage_cell_into_temporary(targetSlot, "move:place");
+          set_result(movedSlot, true);
+          return;
+        }
         ExpressionVisitor operandVisitor{symbols, activeFrames, activeScopes, publishGlobals};
         unoExpr->operand->accept(&operandVisitor);
         set_result(operandVisitor.slot, operandVisitor.moved);
@@ -1421,6 +1542,7 @@ namespace NG::intp
         {
           if (auto memberSlot = structural_member_slot_or_create(targetSlot, memberName))
           {
+            drop_storage_cell_if_needed(symbols, memberSlot);
             runtime_copy_storage_cell(memberSlot, resultSlot);
             set_result(resultSlot);
             return;
@@ -1604,6 +1726,7 @@ namespace NG::intp
           throw RuntimeException("Redefine " + name);
         }
         auto slot = make_named_storage_cell(name, value);
+        transfer_reference_ownership(slot, value);
         slot->ownerScopeId = current_scope_id(activeScopes);
         frame.locals.push_back(slot);
         return;
@@ -1627,6 +1750,7 @@ namespace NG::intp
         throw RuntimeException("Redefine " + name);
       }
       auto slot = clone_argument_slot(name, value, StorageClass::FRAME);
+      transfer_reference_ownership(slot, value);
       slot->ownerScopeId = current_scope_id(activeScopes);
       activeFrames->back().locals.push_back(slot);
       if (publishGlobals && is_module_frame(activeFrames) && current_scope_id(activeScopes) == root_scope_id(activeScopes))
@@ -1648,6 +1772,10 @@ namespace NG::intp
         {
           if (runtime_structural_field_index(receiver, name).has_value() || runtime_structural_property_slot(receiver, name))
           {
+            if (auto oldSlot = structural_member_slot(receiver, name))
+            {
+              drop_storage_cell_if_needed(symbols, oldSlot);
+            }
             runtime_structural_write_member(receiver, name, value);
             return;
           }
@@ -1732,6 +1860,17 @@ namespace NG::intp
     void visit(CompoundStatement *stmt) override
     {
       auto blockScopes = fork_scope_chain(activeScopes);
+      auto blockScopeId = current_scope_id(blockScopes);
+      struct ScopeDropGuard
+      {
+        NGSymbols symbols;
+        RuntimeRef<Vec<CallFrame>> frames;
+        uint64_t scopeId = 0;
+        ~ScopeDropGuard()
+        {
+          drop_scope_cells(symbols, frames, scopeId);
+        }
+      } scopeDropGuard{symbols, activeFrames, blockScopeId};
       StatementVisitor vis{symbols, returnSlot, activeFrames, blockScopes, publishGlobals, currentFunctionName,
                            currentFunctionParamCount};
       for (const auto &innerStmt : stmt->statements)
@@ -1988,6 +2127,7 @@ namespace NG::intp
   {
     NGSymbols symbols = makert<RuntimeSymbolTable>();
     size_t gcRootProviderId = 0;
+    size_t gcFinalizerId = 0;
 
     Vec<Str> modulePaths;
     RuntimeRef<Vec<CallFrame>> activeFrames = makert<Vec<CallFrame>>();
@@ -2002,6 +2142,9 @@ namespace NG::intp
         auto frameRoots = enumerate_call_frame_roots(*frames);
         roots.cells.insert(roots.cells.end(), frameRoots.begin(), frameRoots.end());
         return roots;
+      });
+      gcFinalizerId = register_gc_finalizer([symbols = symbols](const RuntimeRef<StorageCell> &cell) {
+        drop_storage_cell_if_needed(symbols, cell);
       });
       if (!loadingPrelude)
       {
@@ -2059,6 +2202,7 @@ namespace NG::intp
         import->accept(this);
       }
 
+      install_builtin_lifecycle_traits(symbols, runtimeTraits);
       Set<Str> definedSymbols = {};
       for (auto &&def : mod->definitions)
       {
@@ -2072,6 +2216,10 @@ namespace NG::intp
       Set<Str> visitedTraits;
       for (auto &&[traitName, _traitDef] : traitDefs)
       {
+        if (runtimeTraits.contains(traitName))
+        {
+          continue;
+        }
         resolve_trait_closure(traitName, traitDefs, runtimeTraits, visitingTraits, visitedTraits);
       }
       for (auto &&defs : mod->definitions)
@@ -2113,6 +2261,13 @@ namespace NG::intp
         stmt->accept(&vis);
       }
       materialize_root_frame_bindings(symbols, activeFrames->back(), root_scope_id(moduleScopes));
+      for (auto &slot : activeFrames->back().locals)
+      {
+        if (slot && slot->ownerScopeId == root_scope_id(moduleScopes))
+        {
+          slot->lifecycleDropped = true;
+        }
+      }
     }
 
     void visit(ImportDecl *importDecl) override
@@ -2289,15 +2444,17 @@ namespace NG::intp
         frames->push_back(callFrame);
         struct FrameGuard
         {
+          NGSymbols symbols;
           RuntimeRef<Vec<CallFrame>> frames;
           ~FrameGuard()
           {
             if (frames && !frames->empty())
             {
+              drop_frame_cells(symbols, frames->back());
               frames->pop_back();
             }
           }
-        } frameGuard{frames};
+        } frameGuard{callSymbols, frames};
         for (size_t i = 0; i < funDef->params.size(); ++i)
         {
           if (static_cast<int>(i) == packIndex)
@@ -2437,15 +2594,17 @@ namespace NG::intp
           frames->push_back(callFrame);
           struct FrameGuard
           {
+            NGSymbols symbols;
             RuntimeRef<Vec<CallFrame>> frames;
             ~FrameGuard()
             {
               if (frames && !frames->empty())
               {
+                drop_frame_cells(symbols, frames->back());
                 frames->pop_back();
               }
-          }
-        } frameGuard{frames};
+            }
+          } frameGuard{callSymbols, frames};
           NGArgs effectiveArgs = args;
           if (!memFn->params.empty() && is_explicit_receiver_param(memFn->params.front().get()))
           {
@@ -2544,15 +2703,17 @@ namespace NG::intp
         frames->push_back(callFrame);
         struct FrameGuard
         {
+          NGSymbols symbols;
           RuntimeRef<Vec<CallFrame>> frames;
           ~FrameGuard()
           {
             if (frames && !frames->empty())
             {
+              drop_frame_cells(symbols, frames->back());
               frames->pop_back();
             }
           }
-        } frameGuard{frames};
+        } frameGuard{callSymbols, frames};
 
         NGArgs effectiveArgs = args;
         if (!method->params.empty() && is_explicit_receiver_param(method->params.front().get()))
@@ -2613,6 +2774,14 @@ namespace NG::intp
 
     void visit(TypeAliasDef *typeAliasDef) override
     {
+      if (typeAliasDef->nativeOpaque)
+      {
+        auto nativeType = makert<NGType>();
+        nativeType->name = typeAliasDef->aliasName;
+        nativeType->layout = buffer_runtime::make_native_handle_layout(typeAliasDef->aliasName);
+        define_global_type(symbols, typeAliasDef->aliasName, nativeType);
+        return;
+      }
       // Type alias is transparent — just register the underlying type under the alias name
       // The type checker resolves aliases; at runtime we store the underlying type directly
       auto underlyingType = makert<NGType>();
@@ -2672,6 +2841,7 @@ namespace NG::intp
 
     ~Stupid() override
     {
+      unregister_gc_finalizer(gcFinalizerId);
       unregister_gc_root_provider(gcRootProviderId);
     }
   };

@@ -255,11 +255,13 @@ namespace NG::typecheck
     struct CustomizedType : TypeInfo
     {
         Str name;
+        bool nativeOpaque = false;
         Map<Str, CheckingRef<TypeInfo>> properties;
         Map<Str, CheckingRef<FunctionType>> memberFunctions;
         Map<Str, Map<Str, CheckingRef<FunctionType>>> traitMemberFunctions;
 
-        explicit CustomizedType(Str name) : name(std::move(name)) {}
+        explicit CustomizedType(Str name, bool nativeOpaque = false)
+            : name(std::move(name)), nativeOpaque(nativeOpaque) {}
 
         auto tag() const -> typeinfo_tag override;
         auto repr() const -> Str override;
