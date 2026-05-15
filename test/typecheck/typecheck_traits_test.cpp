@@ -1,0 +1,555 @@
+#include "typecheck_utils.hpp"
+
+TEST_CASE("trait definition and concrete impl should type check", "[TypeCheck][Traits]")
+{
+  auto ast = parse(R"(
+    type Counter {
+      label: string;
+    }
+
+    trait Show {
+      fun show(self: ref<Self>) -> string;
+    }
+
+    impl Show for Counter {
+      fun show(self: ref<Self>) -> string {
+        return self.label;
+      }
+    }
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast);
+  REQUIRE(index.contains("Show"));
+  check_type_tag(*index["Show"], typeinfo_tag::TRAIT);
+
+  destroyast(ast);
+}
+
+TEST_CASE("generic trait bound should allow bounded method calls", "[TypeCheck][Traits]")
+{
+  auto ast = parse(R"(
+    type Counter {
+      label: string;
+    }
+
+    trait Show {
+      fun show(self: ref<Self>) -> string;
+    }
+
+    impl Show for Counter {
+      fun show(self: ref<Self>) -> string {
+        return self.label;
+      }
+    }
+
+    fun render<T: Show>(x: ref<T>) -> string {
+      return x.show();
+    }
+
+    val c = new Counter { label: "three" };
+    val s = render(c);
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast);
+  REQUIRE(index.contains("s"));
+  check_type_tag(*index["s"], typeinfo_tag::STRING);
+
+  destroyast(ast);
+}
+
+TEST_CASE("trait impl missing method should fail", "[TypeCheck][Traits][Failure]")
+{
+  typecheck_failure(R"(
+    type Counter { value: i32; }
+    trait Show {
+      fun show(self: ref<Self>) -> string;
+    }
+    impl Show for Counter {
+    }
+  )", "missing method");
+}
+
+TEST_CASE("ref trait object should support dynamic dispatch", "[TypeCheck][Traits]")
+{
+  auto ast = parse(R"(
+    type Counter { label: string; }
+
+    trait Show {
+      fun show(self: ref<Self>) -> string;
+    }
+
+    impl Show for Counter {
+      fun show(self: ref<Self>) -> string {
+        return self.label;
+      }
+    }
+
+    fun render(x: ref<Show>) -> string {
+      return x.show();
+    }
+
+    val counter = new Counter { label: "three" };
+    val view: ref<Show> = counter;
+    val text = render(counter);
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast);
+  check_type_tag(*index["view"], typeinfo_tag::REFERENCE);
+  check_type_tag(*index["text"], typeinfo_tag::STRING);
+
+  destroyast(ast);
+}
+
+TEST_CASE("non object-safe ref trait object should fail", "[TypeCheck][Traits][Failure]")
+{
+  typecheck_failure(R"(
+    trait CloneLike {
+      fun clone(self: ref<Self>) -> Self;
+    }
+    fun copy(x: ref<CloneLike>) -> unit {
+    }
+  )", "object-safe");
+}
+
+TEST_CASE("supertrait bound should expose inherited methods", "[TypeCheck][Traits]")
+{
+  auto ast = parse(R"(
+    type Counter { value: i32; }
+
+    trait Eq {
+      fun same(self: ref<Self>, other: ref<Self>) -> bool;
+    }
+
+    trait Ord: Eq {
+      fun less(self: ref<Self>, other: ref<Self>) -> bool;
+    }
+
+    impl Ord for Counter {
+      fun same(self: ref<Self>, other: ref<Self>) -> bool {
+        return self.value == other.value;
+      }
+
+      fun less(self: ref<Self>, other: ref<Self>) -> bool {
+        return self.value < other.value;
+      }
+    }
+
+    fun equal<T: Ord>(left: ref<T>, right: ref<T>) -> bool {
+      return left.same(right);
+    }
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast);
+  REQUIRE(index.contains("equal"));
+  check_type_tag(*index["Ord"], typeinfo_tag::TRAIT);
+
+  destroyast(ast);
+}
+
+TEST_CASE("qualified trait calls should resolve ambiguous trait method names", "[TypeCheck][Traits]")
+{
+  auto ast = parse(R"(
+    type Person { name: string; }
+
+    trait Display {
+      fun text(self: ref<Self>) -> string;
+    }
+
+    trait Debug {
+      fun text(self: ref<Self>) -> string;
+    }
+
+    impl Display for Person {
+      fun text(self: ref<Self>) -> string {
+        return self.name;
+      }
+    }
+
+    impl Debug for Person {
+      fun text(self: ref<Self>) -> string {
+        return "debug " + self.name;
+      }
+    }
+
+    val ada = new Person { name: "Ada" };
+    val display = ada.Display::text();
+    val debugText = Debug::text(ada);
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast);
+  REQUIRE(index.contains("display"));
+  REQUIRE(index.contains("debugText"));
+  check_type_tag(*index["display"], typeinfo_tag::STRING);
+  check_type_tag(*index["debugText"], typeinfo_tag::STRING);
+
+  destroyast(ast);
+}
+
+TEST_CASE("ambiguous unqualified trait method call should fail", "[TypeCheck][Traits][Failure]")
+{
+  typecheck_failure(R"(
+    type Person { name: string; }
+
+    trait Display {
+      fun text(self: ref<Self>) -> string;
+    }
+
+    trait Debug {
+      fun text(self: ref<Self>) -> string;
+    }
+
+    impl Display for Person {
+      fun text(self: ref<Self>) -> string {
+        return self.name;
+      }
+    }
+
+    impl Debug for Person {
+      fun text(self: ref<Self>) -> string {
+        return self.name;
+      }
+    }
+
+    val ada = new Person { name: "Ada" };
+    val text = ada.text();
+  )", "Ambiguous trait method call");
+}
+
+TEST_CASE("inherent method should take precedence over same-named trait method", "[TypeCheck][Traits]")
+{
+  auto ast = parse(R"(
+    type Box {
+      value: i32;
+
+      fun label(self: ref<Self>) -> string {
+        return "inherent";
+      }
+    }
+
+    trait Label {
+      fun label(self: ref<Self>) -> string;
+    }
+
+    impl Label for Box {
+      fun label(self: ref<Self>) -> string {
+        return "trait";
+      }
+    }
+
+    val box = new Box { value: 1 };
+    val inherent = box.label();
+    val qualified = box.Label::label();
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast);
+  check_type_tag(*index["inherent"], typeinfo_tag::STRING);
+  check_type_tag(*index["qualified"], typeinfo_tag::STRING);
+
+  destroyast(ast);
+}
+
+TEST_CASE("cyclic trait inheritance should fail", "[TypeCheck][Traits][Failure]")
+{
+  typecheck_failure(R"(
+    trait A: B {
+      fun a(self: ref<Self>) -> unit;
+    }
+
+    trait B: A {
+      fun b(self: ref<Self>) -> unit;
+    }
+  )", "Cyclic trait inheritance");
+}
+
+TEST_CASE("trait default method may be omitted by impl", "[TypeCheck][Traits]")
+{
+  auto ast = parse(R"(
+    type Counter { value: i32; }
+
+    trait Show {
+      fun show(self: ref<Self>) -> string;
+
+      fun bracketed(self: ref<Self>) -> string {
+        return "[" + self.show() + "]";
+      }
+    }
+
+    impl Show for Counter {
+      fun show(self: ref<Self>) -> string {
+        return "counter";
+      }
+    }
+
+    val c = new Counter { value: 1 };
+    val text = c.bracketed();
+    val qualified = Show::bracketed(c);
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast);
+  check_type_tag(*index["text"], typeinfo_tag::STRING);
+  check_type_tag(*index["qualified"], typeinfo_tag::STRING);
+
+  destroyast(ast);
+}
+
+TEST_CASE("trait default method may be overridden by impl", "[TypeCheck][Traits]")
+{
+  auto ast = parse(R"(
+    type Counter { value: i32; }
+
+    trait Describe {
+      fun describe(self: ref<Self>) -> string {
+        return "default";
+      }
+    }
+
+    impl Describe for Counter {
+      fun describe(self: ref<Self>) -> string {
+        return "override";
+      }
+    }
+
+    val c = new Counter { value: 1 };
+    val text = c.describe();
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast);
+  check_type_tag(*index["text"], typeinfo_tag::STRING);
+
+  destroyast(ast);
+}
+
+TEST_CASE("inherited trait default methods should be available", "[TypeCheck][Traits]")
+{
+  auto ast = parse(R"(
+    type Counter { value: i32; }
+
+    trait Eq {
+      fun same(self: ref<Self>, other: ref<Self>) -> bool;
+
+      fun not_same(self: ref<Self>, other: ref<Self>) -> bool {
+        return !self.same(other);
+      }
+    }
+
+    trait Ord: Eq {
+      fun less(self: ref<Self>, other: ref<Self>) -> bool;
+
+      fun less_or_same(self: ref<Self>, other: ref<Self>) -> bool {
+        if (self.less(other)) {
+          return true;
+        }
+        return self.same(other);
+      }
+    }
+
+    impl Ord for Counter {
+      fun same(self: ref<Self>, other: ref<Self>) -> bool {
+        return self.value == other.value;
+      }
+
+      fun less(self: ref<Self>, other: ref<Self>) -> bool {
+        return self.value < other.value;
+      }
+    }
+
+    val one = new Counter { value: 1 };
+    val two = new Counter { value: 2 };
+    val a = one.not_same(two);
+    val b = one.less_or_same(two);
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast);
+  check_type_tag(*index["a"], typeinfo_tag::BOOL);
+  check_type_tag(*index["b"], typeinfo_tag::BOOL);
+
+  destroyast(ast);
+}
+
+TEST_CASE("trait default method cannot access concrete Self fields", "[TypeCheck][Traits][Failure]")
+{
+  typecheck_failure(R"(
+    trait Named {
+      fun display(self: ref<Self>) -> string {
+        return self.label;
+      }
+    }
+  )", "abstract Self");
+}
+
+TEST_CASE("duplicate local trait impl should fail", "[TypeCheck][Traits][Coherence][Failure]")
+{
+  typecheck_failure(R"(
+    type Person { name: string; }
+
+    trait Show {
+      fun show(self: ref<Self>) -> string;
+    }
+
+    impl Show for Person {
+      fun show(self: ref<Self>) -> string {
+        return self.name;
+      }
+    }
+
+    impl Show for Person {
+      fun show(self: ref<Self>) -> string {
+        return self.name;
+      }
+    }
+  )", "Duplicate impl");
+}
+
+TEST_CASE("overlapping generic and concrete trait impl should fail", "[TypeCheck][Traits][Coherence][Failure]")
+{
+  typecheck_failure(R"(
+    type Box<T> {
+      value: T;
+    }
+
+    trait Show {
+      fun show(self: ref<Self>) -> string;
+    }
+
+    impl<T> Show for Box<T> {
+      fun show(self: ref<Self>) -> string {
+        return "generic";
+      }
+    }
+
+    impl Show for Box<i32> {
+      fun show(self: ref<Self>) -> string {
+        return "i32";
+      }
+    }
+  )", "Overlapping impl");
+}
+
+TEST_CASE("different traits may be implemented for same type", "[TypeCheck][Traits][Coherence]")
+{
+  auto ast = parse(R"(
+    type Person { name: string; }
+
+    trait Display {
+      fun text(self: ref<Self>) -> string;
+    }
+
+    trait Debug {
+      fun text(self: ref<Self>) -> string;
+    }
+
+    impl Display for Person {
+      fun text(self: ref<Self>) -> string {
+        return self.name;
+      }
+    }
+
+    impl Debug for Person {
+      fun text(self: ref<Self>) -> string {
+        return "debug " + self.name;
+      }
+    }
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast);
+  REQUIRE(index.contains("Person"));
+
+  destroyast(ast);
+}
+
+TEST_CASE("same trait may be implemented for different concrete types", "[TypeCheck][Traits][Coherence]")
+{
+  auto ast = parse(R"(
+    type Foo { value: i32; }
+    type Bar { value: i32; }
+
+    trait Show {
+      fun show(self: ref<Self>) -> string;
+    }
+
+    impl Show for Foo {
+      fun show(self: ref<Self>) -> string {
+        return "foo";
+      }
+    }
+
+    impl Show for Bar {
+      fun show(self: ref<Self>) -> string {
+        return "bar";
+      }
+    }
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast);
+  REQUIRE(index.contains("Foo"));
+  REQUIRE(index.contains("Bar"));
+
+  destroyast(ast);
+}
+
+TEST_CASE("same trait may be implemented for non-overlapping concrete generic instances", "[TypeCheck][Traits][Coherence]")
+{
+  auto ast = parse(R"(
+    type Box<T> {
+      value: T;
+    }
+
+    trait Show {
+      fun show(self: ref<Self>) -> string;
+    }
+
+    impl Show for Box<i32> {
+      fun show(self: ref<Self>) -> string {
+        return "i32";
+      }
+    }
+
+    impl Show for Box<string> {
+      fun show(self: ref<Self>) -> string {
+        return "string";
+      }
+    }
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast);
+  REQUIRE(index.contains("Box"));
+
+  destroyast(ast);
+}
+
+TEST_CASE("equivalent generic trait impl patterns should fail", "[TypeCheck][Traits][Coherence][Failure]")
+{
+  typecheck_failure(R"(
+    type Box<T> {
+      value: T;
+    }
+
+    trait Show {
+      fun show(self: ref<Self>) -> string;
+    }
+
+    impl<T> Show for Box<T> {
+      fun show(self: ref<Self>) -> string {
+        return "first";
+      }
+    }
+
+    impl<U> Show for Box<U> {
+      fun show(self: ref<Self>) -> string {
+        return "second";
+      }
+    }
+  )", "Overlapping impl");
+}

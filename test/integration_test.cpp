@@ -65,6 +65,23 @@ TEST_CASE("should run numbered examples", "[Integration]")
       "example/22.ref_move_swap.ng",
       "example/23.ref_places.ng",
       "example/24.move_value_semantics.ng",
+      "example/25.trait_show.ng",
+      "example/26.trait_generic_bound.ng",
+      "example/27.trait_receiver_ref.ng",
+      "example/28.trait_supertraits.ng",
+      "example/29.trait_qualified_call.ng",
+      "example/30.trait_inherent_precedence.ng",
+      "example/31.trait_default_methods.ng",
+      "example/32.trait_default_override.ng",
+      "example/33.trait_default_supertraits.ng",
+      "example/34.trait_object_show.ng",
+      "example/35.trait_object_default.ng",
+      "example/36.trait_object_mutation.ng",
+      "example/37.copy_marker.ng",
+      "example/38.clone_trait.ng",
+      "example/39.drop_raii.ng",
+      "example/40.trait_object_list.ng",
+      "example/41.drop_smart_pointer.ng",
   };
 
   for (const auto &example : examples)

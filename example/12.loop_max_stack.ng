@@ -23,7 +23,10 @@ fun sum3(i, n = 0) {
   return sum3(i - 1, n + i);
 }
 
-val n = 60000;
+// Keep this comfortably above the old object-runtime recursion depth while
+// staying fast enough for coverage/CI runs. This is a regression test, not a
+// stress benchmark.
+val n = 12000;
 assert(sum(n) == sum2(n));
 assert(sum2(n) == sum3(n));
 

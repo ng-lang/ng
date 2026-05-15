@@ -53,6 +53,8 @@ namespace NG::orgasm
          */
         void register_native_raw(const Str &name, NativeFunction func);
 
+        [[nodiscard]] auto symbols() const -> NGSymbols { return root_symbols; }
+
       private:
         struct Frame
         {
@@ -70,6 +72,7 @@ namespace NG::orgasm
         Vec<Frame> call_stack;
         Vec<Str> modulePaths;
         Map<Str, NativeFunction> native_functions;
+        size_t gcFinalizerId = 0;
 
         void push_frame(const BytecodeModule &module, const Function &fun,
                         const Vec<RuntimeRef<StorageCell>> &argSlots);

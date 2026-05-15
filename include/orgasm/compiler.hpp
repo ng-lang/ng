@@ -27,6 +27,7 @@ namespace NG::orgasm
         void visit(ast::FunctionDef *funDef) override;
         void visit(ast::FunCallExpression *funCallExpr) override;
         void visit(ast::IdAccessorExpression *idAccExpr) override;
+        void visit(ast::QualifiedTraitCallExpression *qualifiedCall) override;
         void visit(ast::IndexAccessorExpression *idxAccExpr) override;
         void visit(ast::IndexAssignmentExpression *idxAssignExpr) override;
         void visit(ast::CompoundStatement *compoundStmt) override;
@@ -41,6 +42,7 @@ namespace NG::orgasm
         void visit(ast::NewObjectExpression *newObj) override;
         void visit(ast::Binding *binding) override;
         void visit(ast::TypeDef *typeDef) override;
+        void visit(ast::ImplDef *implDef) override;
         void visit(ast::TypeAliasDef *typeAliasDef) override;
         void visit(ast::NewTypeDef *newTypeDef) override;
         void visit(ast::CastExpression *castExpr) override;
@@ -72,6 +74,13 @@ namespace NG::orgasm
         void visit(ast::TupleLiteral *tupleLit) override;
         void visit(ast::IdExpression *idExpr) override;
 
+        struct RuntimeTraitInfo {
+            Map<Str, ast::FunctionDef*> methods;
+            Map<Str, ast::FunctionDef*> allDefaultMethods;
+            Map<Str, Str> allDefaultOrigins;
+            Map<Str, Str> allMethodOrigins;
+        };
+
       private:
         BytecodeModule module;
         Function *current_function = nullptr;
@@ -84,9 +93,15 @@ namespace NG::orgasm
             int32_t importIndex;
         };
         Map<Str, int32_t> locals;
+        Map<Str, Str> localTraitObjectTypes;
+        Map<Str, Str> localValueTypes;
         Map<Str, int32_t> globals;
+        Map<Str, Str> globalTraitObjectTypes;
+        Map<Str, Str> globalValueTypes;
         Map<Str, ImportedSymbol> imported_symbols;
         Map<Str, ast::FunctionDef*> functionDefs;
+        Map<Str, ast::TraitDef*> traitDefs;
+        Map<Str, RuntimeTraitInfo> runtimeTraits;
         Vec<LoopInfo> loop_stack;
         Vec<Str> modulePaths;
         Set<Str> nativeFnNames;
@@ -98,6 +113,7 @@ namespace NG::orgasm
             Str unionName;
             int32_t variantIndex;
             Vec<Str> payloadFields;
+            Vec<Str> payloadTypes;
         };
         Map<Str, VariantInfo> variant_map;
 
@@ -105,6 +121,12 @@ namespace NG::orgasm
         void emit_u8(uint8_t val);
         void emit_u16(uint16_t val);
         void emit_reference(ast::ASTRef<ast::Expression> expr);
+        auto trait_ref_name(const ast::TypeAnnotation *annotation) const -> Str;
+        auto trait_ref_name_from_type_repr(const Str &typeName) const -> Str;
+        auto specialize_type_repr(const Str &typeName, const Map<Str, Str> &typeBindings) const -> Str;
+        void infer_type_bindings_from_reprs(const Str &pattern, const Str &actual, Map<Str, Str> &typeBindings) const;
+        auto infer_expression_type_name(ast::ASTRef<ast::Expression> expr) const -> Str;
+        void emit_trait_ref_if_needed(const ast::TypeAnnotation *annotation);
         void emit_move_place(ast::ASTRef<ast::Expression> expr);
 
         // Find the field index of a property in the current type. Returns -1 if not found.

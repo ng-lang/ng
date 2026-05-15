@@ -13,6 +13,7 @@ namespace NG::ast
   void DummyVisitor::visit(FunCallExpression *funCallExpr) {}
 
   void DummyVisitor::visit(IdAccessorExpression *idAccExpr) {}
+  void DummyVisitor::visit(QualifiedTraitCallExpression *qualifiedCall) {}
 
   void DummyVisitor::visit(UnaryExpression *unoExpr) {}
 
@@ -95,6 +96,9 @@ namespace NG::ast
   void DummyVisitor::visit(TaggedValueExpression *taggedVal) {}
   void DummyVisitor::visit(SwitchStatement *switchStmt) {}
   void DummyVisitor::visit(GenericParam *genericParam) {}
+  void DummyVisitor::visit(TraitBound *traitBound) {}
+  void DummyVisitor::visit(TraitDef *traitDef) {}
+  void DummyVisitor::visit(ImplDef *implDef) {}
 
   void DummyVisitor::visit(CompileUnit *compileUnit) {}
 

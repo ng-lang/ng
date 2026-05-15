@@ -56,6 +56,23 @@ namespace NG::orgasm
                 }
             }
         }
+
+        auto drop_target_for_cell(const RuntimeRef<StorageCell> &cell) -> RuntimeRef<StorageCell>
+        {
+            if (!cell || runtime_cell_is_moved(cell) || !runtime_cell_has_value(cell))
+            {
+                return nullptr;
+            }
+            if (runtime_is_trait_object_ref(cell))
+            {
+                return nullptr;
+            }
+            if (runtime_is_reference_value(cell))
+            {
+                return nullptr;
+            }
+            return cell;
+        }
     }
 
     void VM::register_native_raw(const Str &name, NativeFunction func)
@@ -82,6 +99,57 @@ namespace NG::orgasm
             size_t id;
             ~RootProviderGuard() { unregister_gc_root_provider(id); }
         } rootProviderGuard{gcRootProviderId};
+        gcFinalizerId = register_gc_finalizer([this, &module](const RuntimeRef<StorageCell> &cell) {
+            if (!cell || runtime_cell_is_moved(cell) || !runtime_cell_has_value(cell) ||
+                !cell->dropArmed || cell->lifecycleDropped || cell->dropInProgress)
+            {
+                return;
+            }
+            auto type = runtime_value_type(cell);
+            if (!type)
+            {
+                return;
+            }
+            if (type->dropCellHandler)
+            {
+                type->dropCellHandler(cell);
+                cell->lifecycleDropped = true;
+                cell->dropArmed = false;
+                return;
+            }
+            auto dropIt = std::find_if(module.functions.begin(), module.functions.end(), [&](const Function &fun) {
+                return fun.name == type->name + ".Drop::drop";
+            });
+            if (dropIt == module.functions.end())
+            {
+                return;
+            }
+            cell->dropInProgress = true;
+            try
+            {
+                execute_slots(module, *dropIt, {make_runtime_reference_cell(cell, "arg:self")});
+                cell->lifecycleDropped = true;
+                cell->dropArmed = false;
+                cell->dropInProgress = false;
+            }
+            catch (...)
+            {
+                cell->dropInProgress = false;
+                throw;
+            }
+        });
+        struct FinalizerGuard
+        {
+            size_t &id;
+            ~FinalizerGuard()
+            {
+                if (id != 0)
+                {
+                    unregister_gc_finalizer(id);
+                    id = 0;
+                }
+            }
+        } finalizerGuard{gcFinalizerId};
         // Size globals dynamically based on module needs
         size_t maxGlobal = 0;
         for (const auto &fun : module.functions) {
@@ -113,6 +181,7 @@ namespace NG::orgasm
             ngType->name = type.name;
             ngType->properties = type.properties;
             root_types[type.name] = ngType;
+            root_symbols->types[type.name] = ngType;
         }
 
         if (!module.functions.empty())
@@ -150,7 +219,8 @@ namespace NG::orgasm
         };
         for (size_t i = 0; i < args.size(); ++i)
         {
-            runtime_copy_storage_cell(ensure_slot(frame.locals, i, "param:"), clone_value_slot(args[i], "param:"));
+            auto target = ensure_slot(frame.locals, i, "param:");
+            runtime_copy_storage_cell(target, clone_value_slot(args[i], "param:"));
         }
         
         call_stack.push_back(std::move(frame));
@@ -196,6 +266,10 @@ namespace NG::orgasm
             auto current = slot;
             while (current)
             {
+                if (runtime_is_trait_object_ref(current))
+                {
+                    return current;
+                }
                 auto type = runtime_value_type(current);
                 if (!type || type->name != "ref")
                 {
@@ -218,6 +292,78 @@ namespace NG::orgasm
                 throw RuntimeException("Unsupported binary operator");
             }
             stack.push_back(result);
+        };
+        auto function_index_by_name = [&module](const Str &name) -> int32_t {
+            for (size_t i = 0; i < module.functions.size(); ++i)
+            {
+                if (module.functions[i].name == name)
+                {
+                    return static_cast<int32_t>(i);
+                }
+            }
+            return -1;
+        };
+        auto drop_cell_if_needed = [this, &module, &function_index_by_name](const RuntimeRef<StorageCell> &cell) {
+            auto target = drop_target_for_cell(cell);
+            if (!target || runtime_cell_is_moved(target) || !runtime_cell_has_value(target) ||
+                !target->dropArmed || target->lifecycleDropped || target->dropInProgress)
+            {
+                return;
+            }
+            auto type = runtime_value_type(target);
+            if (!type)
+            {
+                return;
+            }
+            if (type->dropCellHandler)
+            {
+                type->dropCellHandler(target);
+                target->lifecycleDropped = true;
+                target->dropArmed = false;
+                return;
+            }
+            auto dropIndex = function_index_by_name(type->name + ".Drop::drop");
+            if (dropIndex < 0)
+            {
+                if (!type->memberFunctions.contains("Drop::drop"))
+                {
+                    return;
+                }
+                target->dropInProgress = true;
+                try
+                {
+                    (void)runtime_value_respond_slot(target, "Drop::drop", make_runtime_env(root_symbols), {});
+                    target->lifecycleDropped = true;
+                    target->dropArmed = false;
+                    target->dropInProgress = false;
+                }
+                catch (...)
+                {
+                    target->dropInProgress = false;
+                    throw;
+                }
+                return;
+            }
+            target->dropInProgress = true;
+            try
+            {
+                execute_slots(module, module.functions[static_cast<size_t>(dropIndex)],
+                              {make_runtime_reference_cell(target, "arg:self")});
+                target->lifecycleDropped = true;
+                target->dropArmed = false;
+                target->dropInProgress = false;
+            }
+            catch (...)
+            {
+                target->dropInProgress = false;
+                throw;
+            }
+        };
+        auto drop_frame_slots = [&drop_cell_if_needed](const Frame &frameToDrop) {
+            for (auto it = frameToDrop.locals.rbegin(); it != frameToDrop.locals.rend(); ++it)
+            {
+                drop_cell_if_needed(*it);
+            }
         };
 
         while (call_stack.size() > baseFrameDepth)
@@ -313,7 +459,20 @@ namespace NG::orgasm
                                     push_slot_copy(numeral_cell_from_value<double>(val));
                                     break;
                                 }
-                                case OpCode::ADD: { auto b = pop_slot(); auto a = pop_slot(); push_binary_result(a, RuntimeBinaryOperator::Add, b); break; }
+                                case OpCode::ADD: {
+                                    auto b = pop_slot();
+                                    auto a = pop_slot();
+                                    try {
+                                        push_binary_result(a, RuntimeBinaryOperator::Add, b);
+                                    } catch (const std::exception &ex) {
+                                        auto aType = runtime_value_type(a);
+                                        auto bType = runtime_value_type(b);
+                                        throw RuntimeException(Str(ex.what()) + " (ADD: " +
+                                                               (aType ? aType->name : Str{"?"}) + " + " +
+                                                               (bType ? bType->name : Str{"?"}) + ")");
+                                    }
+                                    break;
+                                }
                                 case OpCode::SUB: { auto b = pop_slot(); auto a = pop_slot(); push_binary_result(a, RuntimeBinaryOperator::Subtract, b); break; }
                                 case OpCode::MUL: { auto b = pop_slot(); auto a = pop_slot(); push_binary_result(a, RuntimeBinaryOperator::Multiply, b); break; }
                                 case OpCode::DIV: { auto b = pop_slot(); auto a = pop_slot(); push_binary_result(a, RuntimeBinaryOperator::Divide, b); break; }
@@ -355,6 +514,7 @@ namespace NG::orgasm
                 }
                 case OpCode::RETURN: {
                     auto res = stack.empty() ? unit_cell() : pop_slot();
+                    drop_frame_slots(call_stack.back());
                     call_stack.pop_back();
                     if (call_stack.size() == baseFrameDepth)
                     {
@@ -368,14 +528,18 @@ namespace NG::orgasm
                 case OpCode::STORE_LOCAL:
                 {
                     uint16_t idx = read_u16();
-                    runtime_copy_storage_cell(ensure_slot(frame.locals, idx, "local:"), stack.back());
+                    auto target = ensure_slot(frame.locals, idx, "local:");
+                    drop_cell_if_needed(target);
+                    runtime_copy_storage_cell(target, stack.back());
                     break;
                 }
                 case OpCode::LOAD_GLOBAL: { push_slot_copy(ensure_slot(globals, read_u16(), "global:", StorageClass::GLOBAL)); break; }
                 case OpCode::STORE_GLOBAL:
                 {
                     uint16_t idx = read_u16();
-                    runtime_copy_storage_cell(ensure_slot(globals, idx, "global:", StorageClass::GLOBAL), stack.back());
+                    auto target = ensure_slot(globals, idx, "global:", StorageClass::GLOBAL);
+                    drop_cell_if_needed(target);
+                    runtime_copy_storage_cell(target, stack.back());
                     break;
                 }
                 case OpCode::MAKE_LOCAL_REF:
@@ -454,6 +618,22 @@ namespace NG::orgasm
                     push_slot_copy(makeIndexRef(access_target_slot(target)));
                     break;
                 }
+                case OpCode::MAKE_TRAIT_REF:
+                {
+                    uint16_t traitIdx = read_u16();
+                    auto targetRef = pop_slot();
+                    if (runtime_is_trait_object_ref(targetRef))
+                    {
+                        push_slot_copy(targetRef);
+                        break;
+                    }
+                    if (!runtime_is_reference_value(targetRef))
+                    {
+                        throw RuntimeException("Trait object requires a reference value");
+                    }
+                    push_slot_copy(make_runtime_trait_object_ref(targetRef, current_module->strings[traitIdx], "trait-ref"));
+                    break;
+                }
                 case OpCode::LOAD_REF:
                 {
                     auto reference = pop_slot();
@@ -471,6 +651,7 @@ namespace NG::orgasm
                     if (!runtime_is_reference_value(reference)) throw RuntimeException("Cannot assign through non-reference value");
                     auto target = runtime_reference_target(reference);
                     if (!target) throw RuntimeException("Cannot assign through non-reference value");
+                    drop_cell_if_needed(target);
                     runtime_copy_storage_cell(target, value);
                     push_slot_copy(value);
                     break;
@@ -599,6 +780,7 @@ namespace NG::orgasm
                 auto target = access_target_slot(pop_slot());
                 if (runtime_is_structural_value(target)) {
                     if (auto slot = runtime_structural_field_slot(target, fieldIdx)) {
+                        drop_cell_if_needed(slot);
                         runtime_copy_storage_cell(slot, val);
                     } else {
                         throw RuntimeException("Field index out of bounds: " + std::to_string(fieldIdx));
@@ -649,9 +831,13 @@ namespace NG::orgasm
                 auto target = access_target_slot(pop_slot());
                 if (runtime_is_structural_value(target)) {
                     if (auto index = runtime_structural_field_index(target, propName)) {
-                        runtime_copy_storage_cell(runtime_structural_field_slot(target, *index), val);
+                        auto slot = runtime_structural_field_slot(target, *index);
+                        drop_cell_if_needed(slot);
+                        runtime_copy_storage_cell(slot, val);
                     } else {
-                        runtime_copy_storage_cell(runtime_structural_property_slot_or_create(target, propName), val);
+                        auto slot = runtime_structural_property_slot_or_create(target, propName);
+                        drop_cell_if_needed(slot);
+                        runtime_copy_storage_cell(slot, val);
                     }
                 } else {
                     throw RuntimeException("Cannot set property on non-object");
@@ -700,9 +886,21 @@ namespace NG::orgasm
                                         fields[static_cast<size_t>(i)] = pop_slot();
                                     }
 
+                                    RuntimeRef<NGType> objectType = nullptr;
                                     if (root_types.contains(typeName)) {
-                                        push_slot_copy(allocate_heap_cell(
-                                            make_runtime_structural_cell(root_types[typeName], fields), "heap:" + typeName));
+                                        objectType = root_types[typeName];
+                                    } else {
+                                        auto genericStart = typeName.find('<');
+                                        if (genericStart != Str::npos) {
+                                            auto baseName = typeName.substr(0, genericStart);
+                                            if (root_types.contains(baseName)) {
+                                                objectType = root_types[baseName];
+                                            }
+                                        }
+                                    }
+                                    if (objectType) {
+                                        stack.push_back(allocate_heap_cell(
+                                            make_runtime_structural_cell(objectType, fields), "heap:" + typeName));
                                         break;
                                     }
 
@@ -714,7 +912,7 @@ namespace NG::orgasm
                                                 continue;
                                             }
 
-                                            push_slot_copy(allocate_heap_cell(
+                                            stack.push_back(allocate_heap_cell(
                                                 make_runtime_tagged_cell(type.name, variant.name, static_cast<int32_t>(variantIndex),
                                                                          fields, variant.payloadFields),
                                                 "heap:" + typeName));
@@ -740,7 +938,12 @@ namespace NG::orgasm
                     for (int i = 0; i < numArgs; ++i) callArgs.insert(callArgs.begin(), pop_slot());
                     auto targetSlot = access_target_slot(pop_slot());
                     
-                    Str typeName = runtime_value_type(targetSlot) ? runtime_value_type(targetSlot)->name : "Object";
+                    auto dispatchTarget = runtime_is_trait_object_ref(targetSlot) ? runtime_trait_object_target(targetSlot) : targetSlot;
+                    Str typeName = runtime_value_type(dispatchTarget) ? runtime_value_type(dispatchTarget)->name : "Object";
+                    if (runtime_is_trait_object_ref(targetSlot) && memberName.find("::") == Str::npos)
+                    {
+                        memberName = runtime_trait_object_name(targetSlot) + "::" + memberName;
+                    }
                     Str fullFunName = typeName + "." + memberName;
                     
                     int32_t funIdx = -1;
@@ -749,7 +952,9 @@ namespace NG::orgasm
                     }
                     
                     if (funIdx != -1) {
-                        auto selfSlot = clone_value_slot(targetSlot, "arg:self");
+                        auto selfSlot = current_module->functions[funIdx].explicit_receiver
+                                            ? make_runtime_reference_cell(dispatchTarget, "arg:self")
+                                            : clone_value_slot(dispatchTarget, "arg:self");
                         selfSlot->name = "arg:self";
                         callArgs.insert(callArgs.begin(), selfSlot);
                         push_frame(*current_module, current_module->functions[funIdx], callArgs);

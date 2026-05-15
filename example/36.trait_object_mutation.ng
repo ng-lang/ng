@@ -1,0 +1,26 @@
+type Box {
+    value: i32;
+}
+
+trait Bump {
+    fun bump(self: ref<Self>) -> i32;
+}
+
+impl Bump for Box {
+    fun bump(self: ref<Self>) -> i32 {
+        self.value := self.value + 1;
+        return self.value;
+    }
+}
+
+fun bump_twice(item: ref<Bump>) -> i32 {
+    item.bump();
+    return item.bump();
+}
+
+val box = new Box { value: 40 };
+val item: ref<Bump> = box;
+
+assert(item.bump() == 41);
+assert(bump_twice(box) == 43);
+assert(box.value == 43);

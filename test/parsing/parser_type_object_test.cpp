@@ -34,7 +34,7 @@ TEST_CASE("parser should parse simple type definition", "[Parser][Type][Declarat
         type MixedPropertiesAndMembers {
             property name;
             property password;
-            fun validate(name, password) {
+            fun validate(self: ref<Self>, name, password) {
                 return self.password == password;
             }
         }

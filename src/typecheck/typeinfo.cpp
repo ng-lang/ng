@@ -112,6 +112,21 @@ namespace NG::typecheck
     return false;
   }
 
+  auto TraitType::repr() const -> Str
+  {
+    return name;
+  }
+
+  auto TraitType::match(const TypeInfo &other) const -> bool
+  {
+    if (other.tag() == typeinfo_tag::UNTYPED) return true;
+    if (auto otherTrait = dynamic_cast<const TraitType *>(&other))
+    {
+      return name == otherTrait->name;
+    }
+    return false;
+  }
+
   auto TypeAliasType::tag() const -> typeinfo_tag { return typeinfo_tag::TYPE_ALIAS; }
   auto TypeAliasType::repr() const -> Str { return name; }
   auto TypeAliasType::match(const TypeInfo &other) const -> bool

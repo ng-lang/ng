@@ -1,0 +1,32 @@
+type Counter {
+    value: i32;
+}
+
+trait Eq {
+    fun same(self: ref<Self>, other: ref<Self>) -> bool;
+}
+
+trait Ord: Eq {
+    fun less(self: ref<Self>, other: ref<Self>) -> bool;
+}
+
+impl Ord for Counter {
+    fun same(self: ref<Self>, other: ref<Self>) -> bool {
+        return self.value == other.value;
+    }
+
+    fun less(self: ref<Self>, other: ref<Self>) -> bool {
+        return self.value < other.value;
+    }
+}
+
+fun compare<T: Ord>(left: ref<T>, right: ref<T>) -> bool {
+    return left.less(right);
+}
+
+val one = new Counter { value: 1 };
+val two = new Counter { value: 2 };
+
+assert(compare(one, two));
+assert(one.same(one));
+assert(!two.less(one));

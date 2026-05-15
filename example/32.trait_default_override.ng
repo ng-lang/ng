@@ -1,0 +1,28 @@
+type DefaultBox {
+    label: string;
+}
+
+type OverrideBox {
+    label: string;
+}
+
+trait Describe {
+    fun describe(self: ref<Self>) -> string {
+        return "default";
+    }
+}
+
+impl Describe for DefaultBox {
+}
+
+impl Describe for OverrideBox {
+    fun describe(self: ref<Self>) -> string {
+        return self.label;
+    }
+}
+
+val a = new DefaultBox { label: "ignored" };
+val b = new OverrideBox { label: "override" };
+
+assert(a.describe() == "default");
+assert(b.describe() == "override");

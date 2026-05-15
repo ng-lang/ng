@@ -132,6 +132,22 @@ namespace NG::ast
     return result;
   }
 
+  void TraitBound::accept(AstVisitor *visitor)
+  {
+    visitor->visit(this);
+  }
+
+  auto TraitBound::repr() const -> Str
+  {
+    return (subject ? subject->repr() : "?") + ": " + (trait ? trait->repr() : "?");
+  }
+
+  TraitBound::~TraitBound()
+  {
+    destroyast(subject);
+    destroyast(trait);
+  }
+
 
   void Param::accept(AstVisitor *visitor)
   {
@@ -404,6 +420,26 @@ namespace NG::ast
     return this->primaryExpression->repr() + (this->accessor == nullptr ? "" : ("." + this->accessor->repr()));
   }
 
+  void QualifiedTraitCallExpression::accept(AstVisitor *visitor)
+  {
+    visitor->visit(this);
+  }
+
+  QualifiedTraitCallExpression::~QualifiedTraitCallExpression()
+  {
+    destroyast(receiver);
+    for (const auto &arg : arguments)
+    {
+      destroyast(arg);
+    }
+  }
+
+  auto QualifiedTraitCallExpression::repr() const -> Str
+  {
+    auto prefix = receiver ? receiver->repr() + "." : "";
+    return prefix + traitName + "::" + methodName + "(" + strOfNodeList(arguments) + ")";
+  }
+
   void StringValue::accept(AstVisitor *visitor)
   {
     visitor->visit(this);
@@ -477,9 +513,17 @@ namespace NG::ast
 
   FunctionDef::~FunctionDef()
   {
+    for (const auto &genericParam : genericParams)
+    {
+      destroyast(genericParam);
+    }
     for (const auto &param : params)
     {
       destroyast(param);
+    }
+    for (const auto &bound : whereBounds)
+    {
+      destroyast(bound);
     }
     destroyast(returnType);
     destroyast(body);
@@ -492,8 +536,9 @@ namespace NG::ast
 
   auto FunctionDef::repr() const -> Str
   {
-    return "fun " + funName + "(" + strOfNodeList(params) + ")" + (returnType ? " -> " + returnType->repr() : "") +
-           body->repr();
+    auto whereRepr = whereBounds.empty() ? "" : " where " + strOfNodeList(whereBounds, " && ");
+    return "fun " + funName + genericParamsRepr(genericParams) + "(" + strOfNodeList(params) + ")" +
+           (returnType ? " -> " + returnType->repr() : "") + whereRepr + (body ? body->repr() : ";");
   }
 
   void UnaryExpression::accept(AstVisitor *visitor)
@@ -621,6 +666,10 @@ namespace NG::ast
 
   TypeDef::~TypeDef()
   {
+    for (const auto &genericParam : genericParams)
+    {
+      destroyast(genericParam);
+    }
     for (const auto &item : memberFunctions)
     {
       destroyast(item);
@@ -632,6 +681,81 @@ namespace NG::ast
     }
   }
 
+  auto TraitDef::names() const -> Vec<Str>
+  {
+    return Vec<Str>{traitName};
+  }
+
+  void TraitDef::accept(AstVisitor *visitor)
+  {
+    visitor->visit(this);
+  }
+
+  auto TraitDef::repr() const -> Str
+  {
+    Str supers;
+    if (!superTraits.empty())
+    {
+      supers = ": " + strOfNodeList(superTraits, " + ");
+    }
+    return "trait " + traitName + genericParamsRepr(genericParams) + supers + "{" + strOfNodeList(methods, "\n") + "}";
+  }
+
+  TraitDef::~TraitDef()
+  {
+    for (const auto &genericParam : genericParams)
+    {
+      destroyast(genericParam);
+    }
+    for (const auto &trait : superTraits)
+    {
+      destroyast(trait);
+    }
+    for (const auto &method : methods)
+    {
+      destroyast(method);
+    }
+  }
+
+  auto ImplDef::names() const -> Vec<Str>
+  {
+    if (!trait || !targetType)
+    {
+      return {};
+    }
+    return Vec<Str>{"impl " + trait->repr() + " for " + targetType->repr()};
+  }
+
+  void ImplDef::accept(AstVisitor *visitor)
+  {
+    visitor->visit(this);
+  }
+
+  auto ImplDef::repr() const -> Str
+  {
+    auto whereRepr = whereBounds.empty() ? "" : " where " + strOfNodeList(whereBounds, " && ");
+    return "impl " + genericParamsRepr(genericParams) + (trait ? trait->repr() : "?") + " for " +
+           (targetType ? targetType->repr() : "?") + whereRepr + "{" + strOfNodeList(methods, "\n") + "}";
+  }
+
+  ImplDef::~ImplDef()
+  {
+    for (const auto &genericParam : genericParams)
+    {
+      destroyast(genericParam);
+    }
+    destroyast(trait);
+    destroyast(targetType);
+    for (const auto &bound : whereBounds)
+    {
+      destroyast(bound);
+    }
+    for (const auto &method : methods)
+    {
+      destroyast(method);
+    }
+  }
+
   void TypeAliasDef::accept(AstVisitor *visitor)
   {
     visitor->visit(this);
@@ -639,7 +763,8 @@ namespace NG::ast
 
   auto TypeAliasDef::repr() const -> Str
   {
-    return "type " + aliasName + genericParamsRepr(genericParams) + " = " + (underlyingType ? underlyingType->repr() : "?") + ";";
+    return "type " + aliasName + genericParamsRepr(genericParams) + " = " +
+           (nativeOpaque ? "native" : (underlyingType ? underlyingType->repr() : "?")) + ";";
   }
 
   TypeAliasDef::~TypeAliasDef()

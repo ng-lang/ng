@@ -1,0 +1,22 @@
+type Box {
+    value: i32;
+
+    fun value_text(self: ref<Self>) -> string {
+        return "box";
+    }
+}
+
+trait Label {
+    fun value_text(self: ref<Self>) -> string;
+}
+
+impl Label for Box {
+    fun value_text(self: ref<Self>) -> string {
+        return "trait";
+    }
+}
+
+val box = new Box { value: 3 };
+
+assert(box.value_text() == "box");
+assert(box.Label::value_text() == "trait");

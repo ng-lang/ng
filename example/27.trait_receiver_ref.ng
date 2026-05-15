@@ -1,0 +1,17 @@
+type Counter {
+    value: i32;
+}
+
+trait Increment {
+    fun inc(self: ref<Self>) -> unit;
+}
+
+impl Increment for Counter {
+    fun inc(self: ref<Self>) -> unit {
+        self.value := self.value + 1;
+    }
+}
+
+val counter = new Counter { value: 1 };
+counter.inc();
+assert(counter.value == 2);

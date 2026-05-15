@@ -57,6 +57,7 @@ namespace NG::typecheck
         TAGGED_UNION = 0xB3,
         VARIANT = 0xB4,
         UNION = 0xB5,
+        TRAIT = 0xB6,
 
         GENERICS = 0xC0,
         GENERIC_PARAM = 0xC1,
@@ -254,12 +255,37 @@ namespace NG::typecheck
     struct CustomizedType : TypeInfo
     {
         Str name;
+        bool nativeOpaque = false;
         Map<Str, CheckingRef<TypeInfo>> properties;
         Map<Str, CheckingRef<FunctionType>> memberFunctions;
+        Map<Str, Map<Str, CheckingRef<FunctionType>>> traitMemberFunctions;
 
-        explicit CustomizedType(Str name) : name(std::move(name)) {}
+        explicit CustomizedType(Str name, bool nativeOpaque = false)
+            : name(std::move(name)), nativeOpaque(nativeOpaque) {}
 
         auto tag() const -> typeinfo_tag override;
+        auto repr() const -> Str override;
+        auto match(const TypeInfo &other) const -> bool override;
+    };
+
+    struct TraitType : TypeInfo
+    {
+        Str name;
+        Vec<Str> typeParamNames;
+        Vec<CheckingRef<TraitType>> superTraits;
+        Map<Str, CheckingRef<FunctionType>> methods;
+        Map<Str, CheckingRef<FunctionType>> allMethods;
+        Map<Str, ast::FunctionDef *> defaultMethods;
+        Map<Str, ast::FunctionDef *> allDefaultMethods;
+        Map<Str, Str> allMethodOrigins;
+        Map<Str, Str> allDefaultOrigins;
+
+        explicit TraitType(Str name, Vec<Str> typeParamNames = {})
+            : name(std::move(name)), typeParamNames(std::move(typeParamNames))
+        {
+        }
+
+        auto tag() const -> typeinfo_tag override { return typeinfo_tag::TRAIT; }
         auto repr() const -> Str override;
         auto match(const TypeInfo &other) const -> bool override;
     };

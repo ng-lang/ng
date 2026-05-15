@@ -4,6 +4,7 @@
 #include <typecheck/typecheck.hpp>
 #include <parser.hpp>
 #include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <variant>
@@ -95,6 +96,48 @@ namespace NG::typecheck
     return type;
   }
 
+  static auto is_self_type(const CheckingRef<TypeInfo> &type) -> bool
+  {
+    auto generic = std::dynamic_pointer_cast<GenericParamType>(unwrap(type));
+    return generic && generic->name == "Self";
+  }
+
+  static auto is_ref_self_type(const CheckingRef<TypeInfo> &type) -> bool
+  {
+    auto ref = std::dynamic_pointer_cast<ReferenceType>(unwrap(type));
+    return ref && is_self_type(ref->referencedType);
+  }
+
+  static auto contains_non_receiver_self(const CheckingRef<TypeInfo> &type) -> bool
+  {
+    auto unwrapped = unwrap(type);
+    if (!unwrapped)
+    {
+      return false;
+    }
+    if (is_self_type(unwrapped))
+    {
+      return true;
+    }
+    if (auto ref = std::dynamic_pointer_cast<ReferenceType>(unwrapped))
+    {
+      return contains_non_receiver_self(ref->referencedType);
+    }
+    if (auto array = std::dynamic_pointer_cast<ArrayType>(unwrapped))
+    {
+      return contains_non_receiver_self(array->elementType);
+    }
+    if (auto tuple = std::dynamic_pointer_cast<TupleType>(unwrapped))
+    {
+      return std::ranges::any_of(tuple->elementTypes, contains_non_receiver_self);
+    }
+    if (auto unionType = std::dynamic_pointer_cast<UnionType>(unwrapped))
+    {
+      return std::ranges::any_of(unionType->types, contains_non_receiver_self);
+    }
+    return false;
+  }
+
   static auto isReferenceableExpression(const Expression *expr) -> bool
   {
     return dynamic_cast<const IdExpression *>(expr) != nullptr ||
@@ -108,6 +151,14 @@ namespace NG::typecheck
   static auto isMovableExpression(const Expression *expr) -> bool
   {
     if (dynamic_cast<const IdExpression *>(expr) != nullptr)
+    {
+      return true;
+    }
+    if (dynamic_cast<const IdAccessorExpression *>(expr) != nullptr)
+    {
+      return true;
+    }
+    if (dynamic_cast<const IndexAccessorExpression *>(expr) != nullptr)
     {
       return true;
     }
@@ -265,6 +316,61 @@ namespace NG::typecheck
     return typeName.substr(0, genericStart);
   }
 
+  static auto parseTypeInstanceArgs(const Str &typeName) -> Vec<Str>
+  {
+    auto start = typeName.find('<');
+    auto end = typeName.rfind('>');
+    if (start == Str::npos || end == Str::npos || end <= start)
+    {
+      return {};
+    }
+    Vec<Str> args;
+    Str current;
+    int depth = 0;
+    for (size_t i = start + 1; i < end; ++i)
+    {
+      char ch = typeName[i];
+      if (ch == '<')
+      {
+        ++depth;
+        current.push_back(ch);
+      }
+      else if (ch == '>')
+      {
+        --depth;
+        current.push_back(ch);
+      }
+      else if (ch == ',' && depth == 0)
+      {
+        current.erase(current.begin(), std::find_if(current.begin(), current.end(), [](unsigned char c) {
+                        return !std::isspace(c);
+                      }));
+        current.erase(std::find_if(current.rbegin(), current.rend(), [](unsigned char c) {
+                        return !std::isspace(c);
+                      }).base(),
+                      current.end());
+        args.push_back(current);
+        current.clear();
+      }
+      else
+      {
+        current.push_back(ch);
+      }
+    }
+    current.erase(current.begin(), std::find_if(current.begin(), current.end(), [](unsigned char c) {
+                    return !std::isspace(c);
+                  }));
+    current.erase(std::find_if(current.rbegin(), current.rend(), [](unsigned char c) {
+                    return !std::isspace(c);
+                  }).base(),
+                  current.end());
+    if (!current.empty())
+    {
+      args.push_back(current);
+    }
+    return args;
+  }
+
   static auto typeKindName(const TypeInfo &type) -> Str
   {
     switch (type.tag())
@@ -319,10 +425,27 @@ namespace NG::typecheck
     Set<Str> movedBindings{};
 
     bool allowMovedLvalueRead = false;
+    Map<Str, Vec<Str>> trait_impls_by_type;
+    Str currentModuleId = "default";
+    struct TraitImplRecord
+    {
+      Str traitName;
+      Str targetPattern;
+      Str moduleId;
+      Set<Str> genericParamNames;
+      Vec<Str> whereBounds;
+      Map<Str, Str> methods;
+      ImplDef *definition = nullptr;
+      TokenPosition pos;
+    };
+    Vec<TraitImplRecord> localTraitImpls;
 
     // Sentinel key stored in locals to indicate wildcard imports are active.
     // This propagates automatically when locals are copied to child checkers.
     static constexpr const char *WILDCARD_IMPORT_KEY = "$$wildcard_import$$";
+    static constexpr const char *COPY_TRAIT_NAME = "Copy";
+    static constexpr const char *CLONE_TRAIT_NAME = "Clone";
+    static constexpr const char *DROP_TRAIT_NAME = "Drop";
 
     explicit TypeChecker(Map<Str, CheckingRef<TypeInfo>> locals, Vec<CheckingRef<TypeInfo>> contextRequirement = {},
                          CheckingRef<TypeInfo> expectedType = nullptr, Set<Str> movedBindings = {},
@@ -333,6 +456,587 @@ namespace NG::typecheck
     }
 
     bool hasWildcardImportFlag() const { return locals.contains(WILDCARD_IMPORT_KEY); }
+
+    static auto isBuiltinLifecycleTraitName(const Str &name) -> bool
+    {
+      return name == COPY_TRAIT_NAME || name == CLONE_TRAIT_NAME || name == DROP_TRAIT_NAME;
+    }
+
+    static auto unitType() -> CheckingRef<TypeInfo>
+    {
+      return makecheck<PrimitiveType>(typeinfo_tag::UNIT);
+    }
+
+    static auto selfType() -> CheckingRef<TypeInfo>
+    {
+      return makecheck<GenericParamType>("Self");
+    }
+
+    static auto refSelfType() -> CheckingRef<TypeInfo>
+    {
+      return makecheck<ReferenceType>(selfType());
+    }
+
+    static auto isUniquePtrType(const CheckingRef<TypeInfo> &type) -> bool
+    {
+      auto custom = std::dynamic_pointer_cast<CustomizedType>(unwrap(type));
+      return custom && stripTypeInstanceSuffix(custom->name) == "UniquePtr";
+    }
+
+    static auto isUniquePtrAnnotation(const TypeAnnotation *annotation) -> bool
+    {
+      return annotation && stripTypeInstanceSuffix(annotation->repr()) == "UniquePtr";
+    }
+
+    static auto builtinLifecycleTrait(Str name) -> CheckingRef<TraitType>
+    {
+      auto trait = makecheck<TraitType>(std::move(name));
+      if (trait->name == CLONE_TRAIT_NAME)
+      {
+        trait->methods["clone"] = makecheck<FunctionType>(selfType(), Vec<CheckingRef<TypeInfo>>{refSelfType()});
+      }
+      else if (trait->name == DROP_TRAIT_NAME)
+      {
+        trait->methods["drop"] = makecheck<FunctionType>(unitType(), Vec<CheckingRef<TypeInfo>>{refSelfType()});
+      }
+      trait->allMethods = trait->methods;
+      return trait;
+    }
+
+    void installBuiltinLifecycleTraits()
+    {
+      for (const auto &name : Vec<Str>{COPY_TRAIT_NAME, CLONE_TRAIT_NAME, DROP_TRAIT_NAME})
+      {
+        if (!locals.contains(name))
+        {
+          locals[name] = builtinLifecycleTrait(name);
+        }
+      }
+    }
+
+    static auto isSelfTypeAnnotation(const TypeAnnotation *annotation) -> bool
+    {
+      return annotation && annotation->name == "Self" && annotation->genericArgs.empty();
+    }
+
+    static auto isRefSelfTypeAnnotation(const TypeAnnotation *annotation) -> bool
+    {
+      return annotation && annotation->name == "ref" && annotation->genericArgs.size() == 1 &&
+             isSelfTypeAnnotation(annotation->genericArgs[0].get());
+    }
+
+    static auto isReceiverParam(const Param *param) -> bool
+    {
+      return param && (isSelfTypeAnnotation(param->annotatedType.get()) ||
+                       isRefSelfTypeAnnotation(param->annotatedType.get()));
+    }
+
+    static auto isObjectSafeTraitMethod(const FunctionType &methodType) -> bool
+    {
+      if (methodType.parametersType.empty() || !is_ref_self_type(methodType.parametersType.front()))
+      {
+        return false;
+      }
+      if (contains_non_receiver_self(methodType.returnType))
+      {
+        return false;
+      }
+      for (size_t i = 1; i < methodType.parametersType.size(); ++i)
+      {
+        if (contains_non_receiver_self(methodType.parametersType[i]))
+        {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    static auto isObjectSafeTrait(const TraitType &trait) -> bool
+    {
+      if (!trait.typeParamNames.empty())
+      {
+        return false;
+      }
+      const auto &methods = trait.allMethods.empty() ? trait.methods : trait.allMethods;
+      return std::ranges::all_of(methods, [](const auto &entry) {
+        return isObjectSafeTraitMethod(*entry.second);
+      });
+    }
+
+    static void validateObjectSafeTraitRefs(const CheckingRef<TypeInfo> &type)
+    {
+      auto unwrapped = unwrap(type);
+      if (!unwrapped)
+      {
+        return;
+      }
+      if (auto ref = std::dynamic_pointer_cast<ReferenceType>(unwrapped))
+      {
+        if (auto trait = std::dynamic_pointer_cast<TraitType>(unwrap(ref->referencedType));
+            trait && !isObjectSafeTrait(*trait))
+        {
+          throw TypeCheckingException("Trait is not object-safe for ref<" + trait->repr() + ">");
+        }
+        validateObjectSafeTraitRefs(ref->referencedType);
+        return;
+      }
+      if (auto array = std::dynamic_pointer_cast<ArrayType>(unwrapped))
+      {
+        validateObjectSafeTraitRefs(array->elementType);
+        return;
+      }
+      if (auto tuple = std::dynamic_pointer_cast<TupleType>(unwrapped))
+      {
+        for (auto &element : tuple->elementTypes)
+        {
+          validateObjectSafeTraitRefs(element);
+        }
+        return;
+      }
+      if (auto unionType = std::dynamic_pointer_cast<UnionType>(unwrapped))
+      {
+        for (auto &member : unionType->types)
+        {
+          validateObjectSafeTraitRefs(member);
+        }
+      }
+    }
+
+    auto refTraitCoercionMatches(const TypeInfo &expected, const TypeInfo &actual) const -> bool
+    {
+      auto expectedRef = dynamic_cast<const ReferenceType *>(&unwrapAlias(expected));
+      auto actualRef = dynamic_cast<const ReferenceType *>(&unwrapAlias(actual));
+      if (!expectedRef || !actualRef || !expectedRef->referencedType || !actualRef->referencedType)
+      {
+        return false;
+      }
+      auto trait = std::dynamic_pointer_cast<TraitType>(unwrap(expectedRef->referencedType));
+      if (!trait || !isObjectSafeTrait(*trait))
+      {
+        return false;
+      }
+      return typeSatisfiesTrait(actualRef->referencedType, *trait);
+    }
+
+    auto typeMatches(const TypeInfo &expected, const TypeInfo &actual) const -> bool
+    {
+      return typeMatch(expected, actual) || refTraitCoercionMatches(expected, actual);
+    }
+
+    auto functionApplyWithCoercions(const FunctionType &funcType,
+                                    const Vec<CheckingRef<TypeInfo>> &argumentTypes) const -> bool
+    {
+      auto requiredSize = std::count_if(funcType.parametersType.begin(), funcType.parametersType.end(),
+                                        [](const auto &type) {
+                                          return type->tag() != typeinfo_tag::PARAM_WITH_DEFAULT_VALUE;
+                                        });
+      if (argumentTypes.size() < static_cast<size_t>(requiredSize) ||
+          argumentTypes.size() > funcType.parametersType.size())
+      {
+        return false;
+      }
+      for (size_t i = 0; i < argumentTypes.size(); ++i)
+      {
+        if (!typeMatches(*funcType.parametersType[i], *argumentTypes[i]))
+        {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    static auto typeParamBoundName(const GenericParam &param) -> Str
+    {
+      return param.bound ? param.bound->repr() : "";
+    }
+
+    static auto genericParamNameSet(const Vec<ASTRef<GenericParam>> &genericParams) -> Set<Str>
+    {
+      Set<Str> names;
+      for (auto &param : genericParams)
+      {
+        names.insert(param->name);
+      }
+      return names;
+    }
+
+    static auto whereBoundPatterns(const Vec<ASTRef<TraitBound>> &bounds) -> Vec<Str>
+    {
+      Vec<Str> patterns;
+      for (auto &bound : bounds)
+      {
+        if (bound && bound->subject && bound->trait)
+        {
+          patterns.push_back(bound->subject->repr() + ": " + bound->trait->repr());
+        }
+      }
+      return patterns;
+    }
+
+    static auto implMethodMap(const ImplDef &implDef, const TraitType &trait) -> Map<Str, Str>
+    {
+      Map<Str, Str> methods;
+      for (auto &method : implDef.methods)
+      {
+        methods[method->funName] = trait.name + "::" + method->funName;
+      }
+      return methods;
+    }
+
+    static auto isGenericPatternWildcard(const TypeAnnotation *annotation, const Set<Str> &genericParamNames) -> bool
+    {
+      return annotation && annotation->genericArgs.empty() && annotation->arguments.empty() &&
+             genericParamNames.contains(annotation->name);
+    }
+
+    static auto typePatternChildren(const TypeAnnotation *annotation) -> Vec<const TypeAnnotation *>
+    {
+      Vec<const TypeAnnotation *> children;
+      if (!annotation)
+      {
+        return children;
+      }
+      for (auto &arg : annotation->genericArgs)
+      {
+        children.push_back(arg.get());
+      }
+      for (auto &arg : annotation->arguments)
+      {
+        if (auto child = dynamic_ast_cast<TypeAnnotation>(arg))
+        {
+          children.push_back(child.get());
+        }
+      }
+      return children;
+    }
+
+    static auto typePatternsMayOverlap(const TypeAnnotation *left, const Set<Str> &leftGenericParams,
+                                       const TypeAnnotation *right, const Set<Str> &rightGenericParams) -> bool
+    {
+      if (!left || !right)
+      {
+        return false;
+      }
+      if (isGenericPatternWildcard(left, leftGenericParams) ||
+          isGenericPatternWildcard(right, rightGenericParams))
+      {
+        return true;
+      }
+      if (left->name != right->name)
+      {
+        return false;
+      }
+      auto leftChildren = typePatternChildren(left);
+      auto rightChildren = typePatternChildren(right);
+      if (leftChildren.size() != rightChildren.size())
+      {
+        return leftChildren.empty() && rightChildren.empty();
+      }
+      for (size_t i = 0; i < leftChildren.size(); ++i)
+      {
+        if (!typePatternsMayOverlap(leftChildren[i], leftGenericParams, rightChildren[i], rightGenericParams))
+        {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    void registerLocalTraitImpl(ImplDef *implDef, const TraitType &trait)
+    {
+      TraitImplRecord candidate{
+          .traitName = trait.name,
+          .targetPattern = implDef->targetType ? implDef->targetType->repr() : "",
+          .moduleId = currentModuleId,
+          .genericParamNames = genericParamNameSet(implDef->genericParams),
+          .whereBounds = whereBoundPatterns(implDef->whereBounds),
+          .methods = implMethodMap(*implDef, trait),
+          .definition = implDef,
+          .pos = implDef->pos,
+      };
+
+      for (const auto &existing : localTraitImpls)
+      {
+        if (existing.traitName != candidate.traitName)
+        {
+          continue;
+        }
+        if (!typePatternsMayOverlap(existing.definition->targetType.get(), existing.genericParamNames,
+                                    candidate.definition->targetType.get(), candidate.genericParamNames))
+        {
+          continue;
+        }
+        if (existing.targetPattern == candidate.targetPattern)
+        {
+          throw TypeCheckingException("Duplicate impl for trait '" + candidate.traitName +
+                                          "' and type '" + candidate.targetPattern + "'",
+                                      implDef->pos);
+        }
+        throw TypeCheckingException("Overlapping impl for trait '" + candidate.traitName +
+                                        "' between '" + existing.targetPattern + "' and '" +
+                                        candidate.targetPattern + "'",
+                                    implDef->pos);
+      }
+
+      localTraitImpls.push_back(std::move(candidate));
+    }
+
+    void addGenericParamsToScope(Map<Str, CheckingRef<TypeInfo>> &scope,
+                                 const Vec<ASTRef<GenericParam>> &genericParams) const
+    {
+      for (auto &gp : genericParams)
+      {
+        scope[gp->name] = makecheck<GenericParamType>(gp->name, typeParamBoundName(*gp), gp->isPack);
+      }
+    }
+
+    void addWhereBoundsToScope(Map<Str, CheckingRef<TypeInfo>> &scope,
+                               const Vec<ASTRef<TraitBound>> &bounds) const
+    {
+      for (auto &bound : bounds)
+      {
+        if (!bound || !bound->subject || !bound->trait || !bound->subject->genericArgs.empty())
+        {
+          throw TypeCheckingException("Phase 1 where clauses only support `T: Trait` bounds");
+        }
+        auto it = scope.find(bound->subject->name);
+        if (it == scope.end())
+        {
+          throw TypeCheckingException("Unknown type parameter in where clause: " + bound->subject->name,
+                                      bound->pos);
+        }
+        auto generic = std::dynamic_pointer_cast<GenericParamType>(it->second);
+        if (!generic)
+        {
+          throw TypeCheckingException("Where clause subject must be a generic parameter: " +
+                                      bound->subject->repr(), bound->pos);
+        }
+        generic->bound = bound->trait->repr();
+      }
+    }
+
+    auto functionTypeFor(FunctionDef *funDef, const Map<Str, CheckingRef<TypeInfo>> &scope) -> CheckingRef<FunctionType>
+    {
+      TypeChecker checker{scope};
+      Vec<CheckingRef<TypeInfo>> paramTypes;
+      for (auto param : funDef->params)
+      {
+        param->accept(&checker);
+        paramTypes.push_back(checker.result);
+      }
+
+      CheckingRef<TypeInfo> returnType = makecheck<Untyped>();
+      if (funDef->returnType)
+      {
+        funDef->returnType->accept(&checker);
+        returnType = checker.result;
+      }
+      return makecheck<FunctionType>(returnType, paramTypes);
+    }
+
+    static auto functionSignaturesMatch(const FunctionType &expected, const FunctionType &actual) -> bool
+    {
+      if (expected.parametersType.size() != actual.parametersType.size())
+      {
+        return false;
+      }
+      if (!typeMatch(*expected.returnType, *actual.returnType))
+      {
+        return false;
+      }
+      for (size_t i = 0; i < expected.parametersType.size(); ++i)
+      {
+        if (!typeMatch(*expected.parametersType[i], *actual.parametersType[i]))
+        {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    static auto typeMatchesReplacingSelf(const CheckingRef<TypeInfo> &expected,
+                                         const CheckingRef<TypeInfo> &actual,
+                                         const CheckingRef<TypeInfo> &selfType) -> bool
+    {
+      if (auto generic = std::dynamic_pointer_cast<GenericParamType>(unwrap(expected));
+          generic && generic->name == "Self")
+      {
+        return typeMatch(*selfType, *actual);
+      }
+      auto expectedRef = std::dynamic_pointer_cast<ReferenceType>(unwrap(expected));
+      auto actualRef = std::dynamic_pointer_cast<ReferenceType>(unwrap(actual));
+      if (expectedRef || actualRef)
+      {
+        return expectedRef && actualRef &&
+               typeMatchesReplacingSelf(expectedRef->referencedType, actualRef->referencedType, selfType);
+      }
+      return typeMatch(*expected, *actual);
+    }
+
+    static auto functionSignaturesMatchReplacingSelf(const FunctionType &expected,
+                                                     const FunctionType &actual,
+                                                     const CheckingRef<TypeInfo> &selfType) -> bool
+    {
+      if (expected.parametersType.size() != actual.parametersType.size())
+      {
+        return false;
+      }
+      if (!typeMatchesReplacingSelf(expected.returnType, actual.returnType, selfType))
+      {
+        return false;
+      }
+      for (size_t i = 0; i < expected.parametersType.size(); ++i)
+      {
+        if (!typeMatchesReplacingSelf(expected.parametersType[i], actual.parametersType[i], selfType))
+        {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    auto typeSatisfiesTrait(const CheckingRef<TypeInfo> &type, const TraitType &trait) const -> bool
+    {
+      auto candidate = unwrap(type);
+      if (auto ref = std::dynamic_pointer_cast<ReferenceType>(candidate))
+      {
+        candidate = unwrap(ref->referencedType);
+      }
+      if (auto generic = std::dynamic_pointer_cast<GenericParamType>(candidate))
+      {
+        return generic->bound == trait.name || traitImplies(generic->bound, trait.name);
+      }
+      auto custom = std::dynamic_pointer_cast<CustomizedType>(candidate);
+      if (!custom)
+      {
+        return false;
+      }
+      if (auto implIt = trait_impls_by_type.find(custom->name); implIt != trait_impls_by_type.end())
+      {
+        if (std::ranges::any_of(implIt->second, [&](const Str &implemented) {
+              return implemented == trait.name || traitImplies(implemented, trait.name);
+            }))
+        {
+          return true;
+        }
+      }
+      auto &methods = trait.allMethods.empty() ? trait.methods : trait.allMethods;
+      for (auto &[methodName, methodType] : methods)
+      {
+        if (!custom->memberFunctions.contains(methodName) &&
+            (!custom->traitMemberFunctions.contains(trait.name) ||
+             !custom->traitMemberFunctions.at(trait.name).contains(methodName)))
+        {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    auto traitImplies(const Str &candidateName, const Str &requiredName) const -> bool
+    {
+      if (candidateName == requiredName)
+      {
+        return true;
+      }
+      auto it = locals.find(candidateName);
+      auto trait = it == locals.end() ? nullptr : std::dynamic_pointer_cast<TraitType>(it->second);
+      if (!trait)
+      {
+        return false;
+      }
+      Set<Str> seen;
+      return traitImplies(*trait, requiredName, seen);
+    }
+
+    auto traitImplies(const TraitType &candidate, const Str &requiredName, Set<Str> &seen) const -> bool
+    {
+      if (!seen.insert(candidate.name).second)
+      {
+        return false;
+      }
+      for (auto &superTrait : candidate.superTraits)
+      {
+        if (!superTrait)
+        {
+          continue;
+        }
+        if (superTrait->name == requiredName || traitImplies(*superTrait, requiredName, seen))
+        {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    void resolveTraitClosure(TraitType &trait, Set<Str> &visiting, Set<Str> &visited, TokenPosition pos)
+    {
+      if (visited.contains(trait.name))
+      {
+        return;
+      }
+      if (!visiting.insert(trait.name).second)
+      {
+        throw TypeCheckingException("Cyclic trait inheritance involving " + trait.name, pos);
+      }
+      Map<Str, CheckingRef<FunctionType>> allMethods;
+      Map<Str, FunctionDef *> allDefaults;
+      Map<Str, Str> allOrigins;
+      Map<Str, Str> allDefaultOrigins;
+      for (auto &superTrait : trait.superTraits)
+      {
+        resolveTraitClosure(*superTrait, visiting, visited, pos);
+        for (auto &[methodName, methodType] : superTrait->allMethods)
+        {
+          if (allMethods.contains(methodName) && !functionSignaturesMatch(*allMethods[methodName], *methodType))
+          {
+            throw TypeCheckingException("Conflicting inherited trait method: " + methodName, pos);
+          }
+          allMethods[methodName] = methodType;
+          allOrigins[methodName] = superTrait->allMethodOrigins.contains(methodName)
+                                       ? superTrait->allMethodOrigins[methodName]
+                                       : superTrait->name;
+        }
+        for (auto &[methodName, defaultMethod] : superTrait->allDefaultMethods)
+        {
+          if (allDefaults.contains(methodName))
+          {
+            throw TypeCheckingException("Conflicting default trait method " + methodName + " inherited by " +
+                                            trait.name,
+                                        pos);
+          }
+          allDefaults[methodName] = defaultMethod;
+          allDefaultOrigins[methodName] = superTrait->allDefaultOrigins.contains(methodName)
+                                             ? superTrait->allDefaultOrigins[methodName]
+                                             : superTrait->name;
+        }
+      }
+      for (auto &[methodName, methodType] : trait.methods)
+      {
+        if (allMethods.contains(methodName) && !functionSignaturesMatch(*allMethods[methodName], *methodType))
+        {
+          throw TypeCheckingException("Conflicting trait method: " + methodName, pos);
+        }
+        allMethods[methodName] = methodType;
+        allOrigins[methodName] = trait.name;
+        if (trait.defaultMethods.contains(methodName))
+        {
+          allDefaults[methodName] = trait.defaultMethods[methodName];
+          allDefaultOrigins[methodName] = trait.name;
+        }
+        else
+        {
+          allDefaults.erase(methodName);
+          allDefaultOrigins.erase(methodName);
+        }
+      }
+      trait.allMethods = std::move(allMethods);
+      trait.allDefaultMethods = std::move(allDefaults);
+      trait.allMethodOrigins = std::move(allOrigins);
+      trait.allDefaultOrigins = std::move(allDefaultOrigins);
+      visiting.erase(trait.name);
+      visited.insert(trait.name);
+    }
 
     auto instantiateGenericType(GenericTypeDef &genericDef,
                                 const Vec<CheckingRef<TypeInfo>> &typeArgs) -> CheckingRef<TypeInfo>
@@ -380,7 +1084,14 @@ namespace NG::typecheck
         for (auto &&memFn : genericDef.typeDef->memberFunctions)
         {
           Vec<CheckingRef<TypeInfo>> paramTypes;
-          paramTypes.push_back(customType);
+          const bool hasExplicitReceiver = !memFn->params.empty() && isReceiverParam(memFn->params.front().get());
+          if (!hasExplicitReceiver)
+          {
+            paramTypes.push_back(customType);
+          }
+          auto methodScope = instLocals;
+          methodScope["Self"] = customType;
+          TypeChecker checker{methodScope};
           for (auto &&param : memFn->params)
           {
             param->accept(&checker);
@@ -401,15 +1112,19 @@ namespace NG::typecheck
           auto funType = makecheck<FunctionType>(returnType, paramTypes);
           customType->memberFunctions[memFn->funName] = funType;
 
-          TypeChecker bodyChecker{instLocals};
-          bodyChecker.locals.insert_or_assign("self", customType);
-          for (auto &&[name, type] : customType->properties)
+          TypeChecker bodyChecker{methodScope};
+          if (!hasExplicitReceiver)
           {
-            bodyChecker.locals.insert_or_assign(name, type);
+            bodyChecker.locals.insert_or_assign("self", customType);
+            for (auto &&[name, type] : customType->properties)
+            {
+              bodyChecker.locals.insert_or_assign(name, type);
+            }
           }
           for (size_t i = 0; i < memFn->params.size(); ++i)
           {
-            bodyChecker.locals.insert_or_assign(memFn->params[i]->paramName, unwrap(funType->parametersType[i + 1]));
+            auto paramIndex = i + (hasExplicitReceiver ? 0 : 1);
+            bodyChecker.locals.insert_or_assign(memFn->params[i]->paramName, unwrap(funType->parametersType[paramIndex]));
           }
           bodyChecker.contextRequirement = funType->parametersType;
 
@@ -431,6 +1146,12 @@ namespace NG::typecheck
       }
       case GenericTypeKind::TYPE_ALIAS:
       {
+        if (genericDef.typeAliasDef->nativeOpaque)
+        {
+          auto nativeType = makecheck<CustomizedType>(instanceName, true);
+          genericDef.instances[instanceName] = nativeType;
+          return nativeType;
+        }
         auto aliasType = makecheck<TypeAliasType>(instanceName, makecheck<Untyped>());
         genericDef.instances[instanceName] = aliasType;
         TypeChecker checker{instLocals};
@@ -703,10 +1424,25 @@ namespace NG::typecheck
 
     void visit(Module *module) override
     {
+      installBuiltinLifecycleTraits();
+      currentModuleId = module->name;
       // First pass: collect function signatures and type definitions
       for (auto def : module->definitions)
       {
-        if (auto funDef = dynamic_ast_cast<FunctionDef>(def))
+        if (auto traitDef = dynamic_ast_cast<TraitDef>(def))
+        {
+          if (isBuiltinLifecycleTraitName(traitDef->traitName))
+          {
+            continue;
+          }
+          Vec<Str> typeParamNames;
+          for (auto &gp : traitDef->genericParams)
+          {
+            typeParamNames.push_back(gp->name);
+          }
+          locals[traitDef->traitName] = makecheck<TraitType>(traitDef->traitName, typeParamNames);
+        }
+        else if (auto funDef = dynamic_ast_cast<FunctionDef>(def))
         {
           // Check if this is a generic function (has type parameters)
           if (!funDef->genericParams.empty())
@@ -728,10 +1464,8 @@ namespace NG::typecheck
             // body here, but the params must be visible for annotation parsing.
             {
               Map<Str, CheckingRef<TypeInfo>> genericLocals = locals;
-              for (auto &gp : funDef->genericParams)
-              {
-                genericLocals[gp->name] = makecheck<GenericParamType>(gp->name, "", gp->isPack);
-              }
+              addGenericParamsToScope(genericLocals, funDef->genericParams);
+              addWhereBoundsToScope(genericLocals, funDef->whereBounds);
               for (auto param : funDef->params)
               {
                 if (param->annotatedType)
@@ -781,6 +1515,11 @@ namespace NG::typecheck
           }
           else
           {
+            if (typeAlias->nativeOpaque)
+            {
+              locals.insert_or_assign(typeAlias->aliasName, makecheck<CustomizedType>(typeAlias->aliasName, true));
+              continue;
+            }
             TypeChecker checker{locals};
             typeAlias->underlyingType->accept(&checker);
             auto aliasType = makecheck<TypeAliasType>(typeAlias->aliasName, checker.result);
@@ -876,6 +1615,17 @@ namespace NG::typecheck
       }
       for (auto def : module->definitions)
       {
+        if (auto traitDef = dynamic_ast_cast<TraitDef>(def))
+        {
+          traitDef->accept(this);
+        }
+      }
+      for (auto def : module->definitions)
+      {
+        if (dynamic_ast_cast<TraitDef>(def))
+        {
+          continue;
+        }
         def->accept(this);
       }
       for (auto stmt : module->statements)
@@ -904,9 +1654,15 @@ namespace NG::typecheck
 
       for (auto &&memFn : typeDef->memberFunctions)
       {
-        // First parameter is implicitly 'self'
         Vec<CheckingRef<TypeInfo>> paramTypes;
-        paramTypes.push_back(customType);
+        const bool hasExplicitReceiver = !memFn->params.empty() && isReceiverParam(memFn->params.front().get());
+        if (!hasExplicitReceiver)
+        {
+          paramTypes.push_back(customType);
+        }
+        auto methodScope = locals;
+        methodScope["Self"] = customType;
+        TypeChecker checker{methodScope};
         for (auto &&param : memFn->params)
         {
           param->accept(&checker);
@@ -928,17 +1684,21 @@ namespace NG::typecheck
         customType->memberFunctions[memFn->funName] = funType;
 
         // Check member function body
-        TypeChecker bodyChecker{locals};
-        bodyChecker.locals.insert_or_assign("self", customType);
-        // Flatten properties into body scope
-        for (auto &&[name, type] : customType->properties)
+        TypeChecker bodyChecker{methodScope};
+        if (!hasExplicitReceiver)
         {
-          bodyChecker.locals.insert_or_assign(name, type);
+          bodyChecker.locals.insert_or_assign("self", customType);
+          // Flatten properties into body scope for legacy implicit-receiver methods.
+          for (auto &&[name, type] : customType->properties)
+          {
+            bodyChecker.locals.insert_or_assign(name, type);
+          }
         }
         for (size_t i = 0; i < memFn->params.size(); ++i)
         {
+          auto paramIndex = i + (hasExplicitReceiver ? 0 : 1);
           bodyChecker.locals.insert_or_assign(memFn->params[i]->paramName,
-                                              unwrap(funType->parametersType[i + 1]));
+                                              unwrap(funType->parametersType[paramIndex]));
         }
         bodyChecker.contextRequirement = funType->parametersType;
 
@@ -956,6 +1716,266 @@ namespace NG::typecheck
             throw TypeCheckingException("Return Type Mismatch: " + bodyReturnType->repr() + " to " +
                                             returnType->repr(),
                                         memFn->pos);
+          }
+        }
+      }
+    }
+
+    void visit(TraitDef *traitDef) override
+    {
+      if (isBuiltinLifecycleTraitName(traitDef->traitName))
+      {
+        auto builtin = std::dynamic_pointer_cast<TraitType>(locals[traitDef->traitName]);
+        if (!builtin)
+        {
+          throw TypeCheckingException("Internal lifecycle trait is missing: " + traitDef->traitName, traitDef->pos);
+        }
+        if (!traitDef->genericParams.empty() || !traitDef->superTraits.empty())
+        {
+          throw TypeCheckingException("Builtin lifecycle trait '" + traitDef->traitName +
+                                          "' cannot declare generics or supertraits",
+                                      traitDef->pos);
+        }
+        if (traitDef->methods.size() != builtin->methods.size())
+        {
+          throw TypeCheckingException("Builtin lifecycle trait '" + traitDef->traitName +
+                                          "' must match the reserved builtin shape",
+                                      traitDef->pos);
+        }
+        Map<Str, CheckingRef<TypeInfo>> traitScope = locals;
+        traitScope["Self"] = makecheck<GenericParamType>("Self", traitDef->traitName);
+        for (auto &&method : traitDef->methods)
+        {
+          if (!builtin->methods.contains(method->funName))
+          {
+            throw TypeCheckingException("Builtin lifecycle trait '" + traitDef->traitName +
+                                            "' cannot declare method '" + method->funName + "'",
+                                        method->pos);
+          }
+          auto actual = functionTypeFor(method.get(), traitScope);
+          if (!functionSignaturesMatch(*builtin->methods[method->funName], *actual))
+          {
+            throw TypeCheckingException("Builtin lifecycle trait '" + traitDef->traitName +
+                                            "' method signature mismatch for '" + method->funName + "'",
+                                        method->pos);
+          }
+        }
+        return;
+      }
+
+      auto trait = std::dynamic_pointer_cast<TraitType>(locals[traitDef->traitName]);
+      if (!trait)
+      {
+        trait = makecheck<TraitType>(traitDef->traitName);
+        locals[traitDef->traitName] = trait;
+      }
+
+      Map<Str, CheckingRef<TypeInfo>> traitScope = locals;
+      addGenericParamsToScope(traitScope, traitDef->genericParams);
+      traitScope["Self"] = makecheck<GenericParamType>("Self", traitDef->traitName);
+      trait->superTraits.clear();
+      for (auto &superTraitAnnotation : traitDef->superTraits)
+      {
+        TypeChecker superChecker{traitScope};
+        superTraitAnnotation->accept(&superChecker);
+        auto superTrait = std::dynamic_pointer_cast<TraitType>(superChecker.result);
+        if (!superTrait)
+        {
+          throw TypeCheckingException("Unknown trait: " + superTraitAnnotation->repr(), superTraitAnnotation->pos);
+        }
+        trait->superTraits.push_back(superTrait);
+      }
+
+      trait->methods.clear();
+      trait->defaultMethods.clear();
+      for (auto &&method : traitDef->methods)
+      {
+        if (method->params.empty() || !isReceiverParam(method->params.front().get()))
+        {
+          throw TypeCheckingException("Trait method '" + method->funName +
+                                          "' must declare an explicit Self receiver in Phase 1",
+                                      method->pos);
+        }
+        auto funType = functionTypeFor(method.get(), traitScope);
+        trait->methods[method->funName] = funType;
+        if (method->body)
+        {
+          trait->defaultMethods[method->funName] = method.get();
+        }
+      }
+
+      Set<Str> visiting;
+      Set<Str> visited;
+      resolveTraitClosure(*trait, visiting, visited, traitDef->pos);
+
+      for (auto &&method : traitDef->methods)
+      {
+        if (!method->body)
+        {
+          continue;
+        }
+        auto funType = trait->methods[method->funName];
+        TypeChecker bodyChecker{traitScope};
+        bodyChecker.trait_impls_by_type = trait_impls_by_type;
+        for (size_t i = 0; i < method->params.size(); ++i)
+        {
+          bodyChecker.locals.insert_or_assign(method->params[i]->paramName, unwrap(funType->parametersType[i]));
+        }
+        bodyChecker.contextRequirement = funType->parametersType;
+        if (funType->returnType->tag() != typeinfo_tag::UNTYPED)
+        {
+          bodyChecker.expectedType = funType->returnType;
+        }
+        method->body->accept(&bodyChecker);
+        auto bodyReturnType = bodyChecker.result ? bodyChecker.result : makecheck<PrimitiveType>(typeinfo_tag::UNIT);
+        if (bodyReturnType->tag() != typeinfo_tag::UNTYPED && funType->returnType->tag() != typeinfo_tag::UNTYPED &&
+            !typeMatch(*funType->returnType, *bodyReturnType))
+        {
+          throw TypeCheckingException("Return Type Mismatch: " + bodyReturnType->repr() + " to " +
+                                          funType->returnType->repr(),
+                                      method->pos);
+        }
+      }
+    }
+
+    void visit(ImplDef *implDef) override
+    {
+      Map<Str, CheckingRef<TypeInfo>> implScope = locals;
+      addGenericParamsToScope(implScope, implDef->genericParams);
+      addWhereBoundsToScope(implScope, implDef->whereBounds);
+
+      TypeChecker traitChecker{implScope};
+      implDef->trait->accept(&traitChecker);
+      auto trait = std::dynamic_pointer_cast<TraitType>(traitChecker.result);
+      if (!trait)
+      {
+        throw TypeCheckingException("Impl target trait is not a trait: " + implDef->trait->repr(), implDef->pos);
+      }
+
+      TypeChecker targetChecker{implScope};
+      implDef->targetType->accept(&targetChecker);
+      auto targetType = unwrap(targetChecker.result);
+      auto customType = std::dynamic_pointer_cast<CustomizedType>(targetType);
+      if (!customType)
+      {
+        throw TypeCheckingException("Impl target must be a structural or native opaque type: " +
+                                    implDef->targetType->repr(), implDef->pos);
+      }
+      registerLocalTraitImpl(implDef, *trait);
+
+      implScope["Self"] = customType;
+      Map<Str, FunctionDef *> methods;
+      for (auto &&method : implDef->methods)
+      {
+        methods[method->funName] = method.get();
+      }
+
+      auto &requiredMethods = trait->allMethods.empty() ? trait->methods : trait->allMethods;
+      for (auto &&[methodName, expectedMethodType] : requiredMethods)
+      {
+        if (!methods.contains(methodName))
+        {
+          if (!trait->allDefaultMethods.contains(methodName))
+          {
+            throw TypeCheckingException("Impl for trait '" + trait->name + "' is missing method '" + methodName + "'",
+                                        implDef->pos);
+          }
+          continue;
+        }
+        auto actualMethod = methods[methodName];
+        if (actualMethod->params.empty() || !isReceiverParam(actualMethod->params.front().get()))
+        {
+          throw TypeCheckingException("Impl method '" + methodName + "' must declare an explicit Self receiver",
+                                      actualMethod->pos);
+        }
+        auto expected = functionTypeFor(actualMethod, implScope);
+        if (!functionSignaturesMatchReplacingSelf(*expectedMethodType, *expected, customType))
+        {
+          throw TypeCheckingException("Impl method signature mismatch for '" + methodName + "'", actualMethod->pos);
+        }
+      }
+
+      for (auto &&[methodName, actualMethod] : methods)
+      {
+        if (!requiredMethods.contains(methodName))
+        {
+          throw TypeCheckingException("Impl method '" + methodName + "' is not a member of trait '" +
+                                          trait->name + "'",
+                                      actualMethod->pos);
+        }
+      }
+
+      auto &implTraits = trait_impls_by_type[customType->name];
+      if (std::ranges::find(implTraits, trait->name) == implTraits.end())
+      {
+        implTraits.push_back(trait->name);
+      }
+
+      for (auto &&method : implDef->methods)
+      {
+        auto funType = functionTypeFor(method.get(), implScope);
+        auto traitMethodName = trait->name + "::" + method->funName;
+        customType->traitMemberFunctions[trait->name][method->funName] = funType;
+        customType->memberFunctions[traitMethodName] = funType;
+
+        TypeChecker bodyChecker{implScope};
+        bodyChecker.trait_impls_by_type = trait_impls_by_type;
+        for (size_t i = 0; i < method->params.size(); ++i)
+        {
+          bodyChecker.locals.insert_or_assign(method->params[i]->paramName, unwrap(funType->parametersType[i]));
+        }
+        bodyChecker.contextRequirement = funType->parametersType;
+        if (funType->returnType->tag() != typeinfo_tag::UNTYPED)
+        {
+          bodyChecker.expectedType = funType->returnType;
+        }
+        if (method->body)
+        {
+          method->body->accept(&bodyChecker);
+          auto bodyReturnType = bodyChecker.result ? bodyChecker.result : makecheck<PrimitiveType>(typeinfo_tag::UNIT);
+          if (bodyReturnType->tag() != typeinfo_tag::UNTYPED && funType->returnType->tag() != typeinfo_tag::UNTYPED &&
+              !typeMatch(*funType->returnType, *bodyReturnType))
+          {
+            throw TypeCheckingException("Return Type Mismatch: " + bodyReturnType->repr() + " to " +
+                                            funType->returnType->repr(),
+                                        method->pos);
+          }
+        }
+      }
+
+      for (auto &&[methodName, defaultMethod] : trait->allDefaultMethods)
+      {
+        if (methods.contains(methodName))
+        {
+          continue;
+        }
+        auto funType = requiredMethods[methodName];
+        auto originTraitName = trait->allDefaultOrigins.contains(methodName) ? trait->allDefaultOrigins[methodName] : trait->name;
+        auto traitMethodName = originTraitName + "::" + methodName;
+        customType->traitMemberFunctions[originTraitName][methodName] = funType;
+        customType->memberFunctions[traitMethodName] = funType;
+
+        TypeChecker bodyChecker{implScope};
+        bodyChecker.trait_impls_by_type = trait_impls_by_type;
+        for (size_t i = 0; i < defaultMethod->params.size(); ++i)
+        {
+          bodyChecker.locals.insert_or_assign(defaultMethod->params[i]->paramName, unwrap(funType->parametersType[i]));
+        }
+        bodyChecker.contextRequirement = funType->parametersType;
+        if (funType->returnType->tag() != typeinfo_tag::UNTYPED)
+        {
+          bodyChecker.expectedType = funType->returnType;
+        }
+        if (defaultMethod->body)
+        {
+          defaultMethod->body->accept(&bodyChecker);
+          auto bodyReturnType = bodyChecker.result ? bodyChecker.result : makecheck<PrimitiveType>(typeinfo_tag::UNIT);
+          if (bodyReturnType->tag() != typeinfo_tag::UNTYPED && funType->returnType->tag() != typeinfo_tag::UNTYPED &&
+              !typeMatch(*funType->returnType, *bodyReturnType))
+          {
+            throw TypeCheckingException("Return Type Mismatch: " + bodyReturnType->repr() + " to " +
+                                            funType->returnType->repr(),
+                                        defaultMethod->pos);
           }
         }
       }
@@ -1017,6 +2037,11 @@ namespace NG::typecheck
       }
 
       auto &funcInfo = static_cast<FunctionType &>(*funType);
+      for (auto &paramType : funcInfo.parametersType)
+      {
+        validateObjectSafeTraitRefs(paramType);
+      }
+      validateObjectSafeTraitRefs(funcInfo.returnType);
       // Pass return type as expectedType for bidirectional inference
       CheckingRef<TypeInfo> bodyExpectedType = nullptr;
       if (funcInfo.returnType->tag() != typeinfo_tag::UNTYPED)
@@ -1039,7 +2064,7 @@ namespace NG::typecheck
           bodyReturnType = makecheck<PrimitiveType>(typeinfo_tag::UNIT);
         }
         if (bodyReturnType->tag() != typeinfo_tag::UNTYPED && funcInfo.returnType->tag() != typeinfo_tag::UNTYPED &&
-            !typeMatch(*funcInfo.returnType, *bodyReturnType))
+            !typeMatches(*funcInfo.returnType, *bodyReturnType))
         {
           throw TypeCheckingException("Return Type Mismatch: " + bodyReturnType->repr() + " to " +
                                           funcInfo.returnType->repr(),
@@ -1104,7 +2129,7 @@ namespace NG::typecheck
     {
       if (returnStatement->expression)
       {
-        TypeChecker checker{locals, {}, nullptr, movedBindings};
+        TypeChecker checker{locals, {}, expectedType, movedBindings};
         returnStatement->expression->accept(&checker);
         movedBindings = checker.movedBindings;
         result = checker.result;
@@ -1326,7 +2351,7 @@ namespace NG::typecheck
 
       if (annoType)
       {
-        if (typeMatch(*annoType, *valType))
+        if (typeMatches(*annoType, *valType))
         {
           locals.insert_or_assign(valDefStatement->name, annoType);
         }
@@ -1637,6 +2662,10 @@ namespace NG::typecheck
         {
           throw TypeCheckingException("Reference operator requires an lvalue.");
         }
+        if (std::dynamic_pointer_cast<ReferenceType>(unwrap(operandType)))
+        {
+          throw TypeCheckingException("Reference operator cannot take a reference value.");
+        }
         result = makecheck<ReferenceType>(widenVariantToUnionType(locals, operandType));
         return;
       }
@@ -1906,6 +2935,10 @@ namespace NG::typecheck
           {
             throw TypeCheckingException("Unknown referenced type for ref");
           }
+          if (auto trait = std::dynamic_pointer_cast<TraitType>(unwrap(innerType)); trait && !isObjectSafeTrait(*trait))
+          {
+            throw TypeCheckingException("Trait is not object-safe for ref<" + innerType->repr() + ">");
+          }
           result = makecheck<ReferenceType>(innerType);
           return;
         }
@@ -2026,7 +3059,7 @@ namespace NG::typecheck
       {
         throw TypeCheckingException("Invalid assignment expression: " + assignmentExpr->repr(), assignmentExpr->pos);
       }
-      if (!typeMatch(*targetType, *valueType))
+      if (!typeMatches(*targetType, *valueType))
       {
         throw TypeCheckingException("Invalid assignment type: " + valueType->repr() + " to " + targetType->repr(),
                                     assignmentExpr->pos);
@@ -2234,13 +3267,58 @@ namespace NG::typecheck
 
       if (auto customType = std::dynamic_pointer_cast<CustomizedType>(primaryType))
       {
-        if (customType->memberFunctions.contains(memberName))
+        if (customType->properties.contains(memberName))
+        {
+          memberType = customType->properties[memberName];
+        }
+        else if (customType->memberFunctions.contains(memberName))
         {
           memberType = customType->memberFunctions[memberName];
         }
-        else if (customType->properties.contains(memberName))
+        if (!customType->properties.contains(memberName))
         {
-          memberType = customType->properties[memberName];
+          Vec<Str> traitCandidates;
+          for (auto &[traitName, methods] : customType->traitMemberFunctions)
+          {
+            if (methods.contains(memberName))
+            {
+              traitCandidates.push_back(traitName);
+            }
+          }
+          if (traitCandidates.size() > 1 && !customType->memberFunctions.contains(memberName))
+          {
+            Str candidates;
+            for (size_t i = 0; i < traitCandidates.size(); ++i)
+            {
+              if (i > 0) candidates += ", ";
+              candidates += traitCandidates[i] + "::" + memberName;
+            }
+            throw TypeCheckingException("Ambiguous trait method call " + memberName + ": candidates " + candidates,
+                                        idAccExpr->pos);
+          }
+          if (traitCandidates.size() == 1 && !customType->memberFunctions.contains(memberName))
+          {
+            memberType = customType->traitMemberFunctions[traitCandidates.front()][memberName];
+          }
+        }
+      }
+      else if (auto genericType = std::dynamic_pointer_cast<GenericParamType>(primaryType))
+      {
+        if (!genericType->bound.empty())
+        {
+          auto traitIt = locals.find(genericType->bound);
+          auto traitType = traitIt == locals.end() ? nullptr : std::dynamic_pointer_cast<TraitType>(traitIt->second);
+          auto &methods = traitType && !traitType->allMethods.empty() ? traitType->allMethods : traitType->methods;
+          if (traitType && methods.contains(memberName))
+          {
+            memberType = methods[memberName];
+          }
+        }
+        if (genericType->name == "Self" && !std::dynamic_pointer_cast<FunctionType>(memberType))
+        {
+          throw TypeCheckingException("Trait default method cannot access member '" + memberName +
+                                          "' on abstract Self",
+                                      idAccExpr->pos);
         }
       }
 
@@ -2280,6 +3358,70 @@ namespace NG::typecheck
       }
 
       result = memberType;
+    }
+
+    void visit(QualifiedTraitCallExpression *qualifiedCall) override
+    {
+      auto traitIt = locals.find(qualifiedCall->traitName);
+      auto trait = traitIt == locals.end() ? nullptr : std::dynamic_pointer_cast<TraitType>(traitIt->second);
+      if (!trait)
+      {
+        throw TypeCheckingException("Unknown trait: " + qualifiedCall->traitName, qualifiedCall->pos);
+      }
+      auto &methods = trait->allMethods.empty() ? trait->methods : trait->allMethods;
+      if (!methods.contains(qualifiedCall->methodName))
+      {
+        throw TypeCheckingException("Trait " + trait->name + " has no method " + qualifiedCall->methodName,
+                                    qualifiedCall->pos);
+      }
+
+      TypeChecker checker{locals, {}, nullptr, movedBindings};
+      CheckingRef<TypeInfo> receiverType;
+      size_t firstRegularArg = 0;
+      if (qualifiedCall->receiver)
+      {
+        qualifiedCall->receiver->accept(&checker);
+        receiverType = checker.result;
+      }
+      else
+      {
+        if (qualifiedCall->arguments.empty())
+        {
+          throw TypeCheckingException("Trait-qualified call requires a receiver argument", qualifiedCall->pos);
+        }
+        qualifiedCall->arguments.front()->accept(&checker);
+        receiverType = checker.result;
+        firstRegularArg = 1;
+      }
+      receiverType = deref_reference_type(receiverType);
+      if (!typeSatisfiesTrait(receiverType, *trait))
+      {
+        throw TypeCheckingException("Type " + (receiverType ? receiverType->repr() : Str{"?"}) +
+                                        " does not implement trait " + trait->name,
+                                    qualifiedCall->pos);
+      }
+
+      Vec<CheckingRef<TypeInfo>> argumentTypes;
+      for (size_t i = firstRegularArg; i < qualifiedCall->arguments.size(); ++i)
+      {
+        qualifiedCall->arguments[i]->accept(&checker);
+        argumentTypes.push_back(checker.result);
+      }
+      movedBindings = checker.movedBindings;
+
+      auto funcType = methods[qualifiedCall->methodName];
+      Vec<CheckingRef<TypeInfo>> expectedArgs;
+      for (size_t i = 1; i < funcType->parametersType.size(); ++i)
+      {
+        expectedArgs.push_back(funcType->parametersType[i]);
+      }
+      auto expectedFunction = makecheck<FunctionType>(funcType->returnType, expectedArgs);
+      if (!functionApplyWithCoercions(*expectedFunction, argumentTypes))
+      {
+        throw TypeCheckingException("Invalid argument types for trait-qualified call: " + qualifiedCall->repr(),
+                                    qualifiedCall->pos);
+      }
+      result = funcType->returnType;
     }
 
     void visit(NewObjectExpression *newObj) override
@@ -2327,6 +3469,11 @@ namespace NG::typecheck
       auto customType = std::dynamic_pointer_cast<CustomizedType>(objectType);
       if (customType)
       {
+        if (customType->nativeOpaque)
+        {
+          throw TypeCheckingException("Native opaque type cannot be constructed with new: " + customType->name,
+                                      newObj->pos);
+        }
         TypeChecker checker{locals, {}, nullptr, movedBindings};
         for (auto &&[name, expr] : newObj->properties)
         {
@@ -2334,6 +3481,7 @@ namespace NG::typecheck
           {
             throw TypeCheckingException("Unknown property '" + name + "' for type " + customType->name, expr->pos);
           }
+          checker.expectedType = customType->properties[name];
           expr->accept(&checker);
           if (checker.result->tag() != typeinfo_tag::UNTYPED &&
               !typeMatch(*customType->properties[name], *checker.result))
@@ -2905,6 +4053,23 @@ namespace NG::typecheck
       if (primaryType->tag() == typeinfo_tag::GENERIC_DEF)
       {
         auto &genericDef = static_cast<GenericDefType &>(*primaryType);
+        for (size_t i = 0; i < funCall->arguments.size() && i < genericDef.funcDef->params.size(); ++i)
+        {
+          auto param = genericDef.funcDef->params[i].get();
+          if (!param || !param->annotatedType)
+          {
+            continue;
+          }
+          if (!isUniquePtrAnnotation(param->annotatedType.get()))
+          {
+            continue;
+          }
+          auto movedArg = dynamic_cast<UnaryExpression *>(funCall->arguments[i].get());
+          if (!movedArg || !movedArg->optr || movedArg->optr->type != TokenType::KEYWORD_MOVE)
+          {
+            throw TypeCheckingException("UniquePtr value must be passed with move", funCall->arguments[i]->pos);
+          }
+        }
         result = monomorphizeGenericCall(genericDef, funCall);
         return;
       }
@@ -2919,12 +4084,21 @@ namespace NG::typecheck
       Vec<CheckingRef<TypeInfo>> argumentTypes;
       for (auto arg : funCall->arguments)
       {
+        if (funcType && argumentTypes.size() < funcType->parametersType.size() &&
+            isUniquePtrType(funcType->parametersType[argumentTypes.size()]))
+        {
+          auto movedArg = dynamic_cast<UnaryExpression *>(arg.get());
+          if (!movedArg || !movedArg->optr || movedArg->optr->type != TokenType::KEYWORD_MOVE)
+          {
+            throw TypeCheckingException("UniquePtr value must be passed with move", arg->pos);
+          }
+        }
         arg->accept(&checker);
         argumentTypes.push_back(checker.result);
       }
       movedBindings = checker.movedBindings;
 
-      if (!funcType->applyWith(argumentTypes))
+      if (!functionApplyWithCoercions(*funcType, argumentTypes))
       {
         // Check if any argument is untyped, if so, allow it
         bool hasUntyped = std::any_of(argumentTypes.begin(), argumentTypes.end(),
@@ -2988,7 +4162,17 @@ namespace NG::typecheck
       if (paramType->tag() == typeinfo_tag::GENERIC_PARAM)
       {
         auto &gp = static_cast<GenericParamType &>(*paramType);
-        substitution[gp.name] = argType;
+        if (auto existing = substitution.contains(gp.name) ? substitution[gp.name] : nullptr)
+        {
+          if (existing->tag() == typeinfo_tag::GENERIC_PARAM)
+          {
+            substitution[gp.name] = argType;
+          }
+        }
+        else
+        {
+          substitution[gp.name] = argType;
+        }
         return;
       }
 
@@ -3016,6 +4200,39 @@ namespace NG::typecheck
         auto &paramRef = static_cast<ReferenceType &>(*paramType);
         auto &argRef = static_cast<ReferenceType &>(*argType);
         extractGenericBindingsImpl(paramRef.referencedType, argRef.referencedType, substitution, seen);
+        return;
+      }
+
+      if (paramType->tag() == typeinfo_tag::CUSTOMIZED && argType->tag() == typeinfo_tag::CUSTOMIZED)
+      {
+        auto &paramCustom = static_cast<CustomizedType &>(*paramType);
+        auto &argCustom = static_cast<CustomizedType &>(*argType);
+        auto paramBase = stripTypeInstanceSuffix(paramCustom.name);
+        auto argBase = stripTypeInstanceSuffix(argCustom.name);
+        if (paramBase != argBase || paramCustom.name == argCustom.name)
+        {
+          return;
+        }
+
+        auto paramArgs = parseTypeInstanceArgs(paramCustom.name);
+        auto argArgs = parseTypeInstanceArgs(argCustom.name);
+        for (size_t i = 0; i < paramArgs.size() && i < argArgs.size(); ++i)
+        {
+          auto paramIt = substitution.find(paramArgs[i]);
+          CheckingRef<TypeInfo> argConcrete;
+          if (auto argIt = locals.find(argArgs[i]); argIt != locals.end())
+          {
+            argConcrete = argIt->second;
+          }
+          else
+          {
+            argConcrete = PrimitiveType::from(argArgs[i]);
+          }
+          if (paramIt != substitution.end() && argConcrete)
+          {
+            extractGenericBindingsImpl(paramIt->second, argConcrete, substitution, seen);
+          }
+        }
         return;
       }
 
@@ -3133,8 +4350,14 @@ namespace NG::typecheck
       for (size_t pi = 0; pi < typeParamNames.size(); ++pi)
       {
         bool isPack = (pi < typeParamIsPack.size()) ? typeParamIsPack[pi] : false;
-        substitution[typeParamNames[pi]] = makecheck<GenericParamType>(typeParamNames[pi], "", isPack);
+        Str bound;
+        if (pi < funcDef->genericParams.size())
+        {
+          bound = typeParamBoundName(*funcDef->genericParams[pi]);
+        }
+        substitution[typeParamNames[pi]] = makecheck<GenericParamType>(typeParamNames[pi], bound, isPack);
       }
+      addWhereBoundsToScope(substitution, funcDef->whereBounds);
 
       // 3. Arity check: verify argument count matches parameter expectations
       {
@@ -3197,6 +4420,22 @@ namespace NG::typecheck
           }
         }
       }
+      for (auto &bound : funcDef->whereBounds)
+      {
+        if (!bound || !bound->subject || !bound->trait)
+        {
+          continue;
+        }
+        auto subIt = substitution.find(bound->subject->name);
+        auto traitIt = locals.find(bound->trait->repr());
+        auto trait = traitIt == locals.end() ? nullptr : std::dynamic_pointer_cast<TraitType>(traitIt->second);
+        if (subIt != substitution.end() && trait && !typeSatisfiesTrait(subIt->second, *trait))
+        {
+          throw TypeCheckingException("Type '" + subIt->second->repr() + "' does not implement trait '" +
+                                          trait->name + "'",
+                                      funCall->pos);
+        }
+      }
 
       // 4. Build substitution map by unifying parameter annotations with argument types.
       //    Pack parameters collect all remaining arguments into a VarargsType.
@@ -3253,6 +4492,20 @@ namespace NG::typecheck
         }
       }
 
+      if (expectedType && funcDef->returnType)
+      {
+        TypeChecker retPatternChecker{locals};
+        for (auto &[name, type] : substitution)
+        {
+          retPatternChecker.locals[name] = type;
+        }
+        funcDef->returnType->accept(&retPatternChecker);
+        if (retPatternChecker.result)
+        {
+          extractGenericBindings(retPatternChecker.result, expectedType, substitution);
+        }
+      }
+
       // Fill in any unsubstituted type params with Untyped
       for (auto &name : typeParamNames)
       {
@@ -3267,6 +4520,33 @@ namespace NG::typecheck
       for (const auto &name : typeParamNames)
       {
         instantiatedArgs.push_back(substitution[name]);
+      }
+      for (size_t pi = 0; pi < typeParamNames.size(); ++pi)
+      {
+        const auto &name = typeParamNames[pi];
+        Str bound;
+        if (pi < funcDef->genericParams.size())
+        {
+          bound = typeParamBoundName(*funcDef->genericParams[pi]);
+        }
+        if (bound.empty())
+        {
+          if (auto generic = std::dynamic_pointer_cast<GenericParamType>(substitution[name]))
+          {
+            bound = generic->bound;
+          }
+        }
+        if (!bound.empty())
+        {
+          auto traitIt = locals.find(bound);
+          auto trait = traitIt == locals.end() ? nullptr : std::dynamic_pointer_cast<TraitType>(traitIt->second);
+          if (trait && pi < instantiatedArgs.size() && !typeSatisfiesTrait(instantiatedArgs[pi], *trait))
+          {
+            throw TypeCheckingException("Type '" + instantiatedArgs[pi]->repr() + "' does not implement trait '" +
+                                            trait->name + "'",
+                                        funCall->pos);
+          }
+        }
       }
       Str instanceName = formatTypeInstanceName(genericDef.name, instantiatedArgs);
       if (genericDef.instances.contains(instanceName))

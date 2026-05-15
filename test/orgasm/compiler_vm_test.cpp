@@ -333,9 +333,9 @@ TEST_CASE("compiler and vm should invoke member functions through slot-backed ca
         type Counter {
             property value;
 
-            fun bump(delta) {
-                value := value + delta;
-                return value;
+            fun bump(self: ref<Self>, delta) {
+                self.value := self.value + delta;
+                return self.value;
             }
         }
 
@@ -769,7 +769,7 @@ TEST_CASE("compiler and vm should handle spread unpack property updates and memb
         type Box {
             value: i32;
 
-            fun bump(delta: i32) -> i32 {
+            fun bump(self: ref<Self>, delta: i32) -> i32 {
                 self.value := self.value + delta;
                 return self.value;
             }

@@ -36,6 +36,7 @@ namespace NG::orgasm
         MAKE_PROPERTY_REF,
         MAKE_PROPERTY_STR_REF,
         MAKE_INDEX_REF,
+        MAKE_TRAIT_REF,
         LOAD_REF,
         STORE_REF,
         MOVE_LOCAL,
