@@ -379,6 +379,32 @@ namespace NG::parsing
         auto param = createNode<GenericParam>(state->repr);
         accept(TokenType::ID);
 
+        // Higher-kinded type constructor parameter: F<_>, F<_, _>, ...
+        if (expect(TokenType::LT))
+        {
+          accept(TokenType::LT);
+          size_t arity = 0;
+          while (!expect(TokenType::GT) && !state.eof() && !expect(TokenType::RSHIFT))
+          {
+            if (!expect(TokenType::ID) || state->repr != "_")
+            {
+              unexpected("Expected '_' placeholder in generic type constructor parameter");
+            }
+            accept(TokenType::ID);
+            ++arity;
+            if (expect(TokenType::COMMA))
+            {
+              accept(TokenType::COMMA);
+            }
+          }
+          if (arity == 0)
+          {
+            unexpected("Generic type constructor parameter must declare at least one '_' placeholder");
+          }
+          param->kindArity = arity;
+          acceptGT();
+        }
+
         // Check for parameter pack: T...
         if (expect(TokenType::SPREAD))
         {
@@ -1240,6 +1266,10 @@ namespace NG::parsing
       }
       if (maybeBuiltin == TokenType::ID)
       {
+        if (state->repr == "_")
+        {
+          unexpected("Type placeholder '_' is only allowed in generic parameter kind declarations");
+        }
         ASTRef<TypeAnnotation> anno = createNode<TypeAnnotation>(state->repr);
         accept(TokenType::ID);
         anno->type = TypeAnnotationType::CUSTOMIZED;

@@ -463,6 +463,74 @@ namespace NG::typecheck
 
     bool hasWildcardImportFlag() const { return locals.contains(WILDCARD_IMPORT_KEY); }
 
+    static auto typeKindArity(const CheckingRef<TypeInfo> &type) -> size_t
+    {
+      if (!type)
+      {
+        return 0;
+      }
+      if (auto genericParam = std::dynamic_pointer_cast<GenericParamType>(type))
+      {
+        return genericParam->kindArity;
+      }
+      if (auto genericType = std::dynamic_pointer_cast<GenericTypeDef>(type))
+      {
+        return genericTypeConstructorArity(*genericType);
+      }
+      return 0;
+    }
+
+    static void validateTypeArgumentKind(const Str &paramName, size_t expectedArity,
+                                         const CheckingRef<TypeInfo> &actual, const TokenPosition &pos)
+    {
+      const size_t actualArity = typeKindArity(actual);
+      if (expectedArity == actualArity)
+      {
+        return;
+      }
+      if (expectedArity == 0)
+      {
+        throw TypeCheckingException("Generic parameter '" + paramName + "' expects a concrete type, got type constructor '" +
+                                        (actual ? actual->repr() : "?") + "'",
+                                    pos);
+      }
+      throw TypeCheckingException("Generic parameter '" + paramName + "' expects a type constructor with " +
+                                      std::to_string(expectedArity) + " argument(s), got " +
+                                      std::to_string(actualArity),
+                                  pos);
+    }
+
+    auto resolveGenericTypeArgument(TypeAnnotation *annotation, size_t expectedArity,
+                                    const Str &paramName) const -> CheckingRef<TypeInfo>
+    {
+      if (!annotation)
+      {
+        throw TypeCheckingException("Missing generic type argument");
+      }
+      if (expectedArity == 0)
+      {
+        TypeChecker checker{locals};
+        annotation->accept(&checker);
+        validateTypeArgumentKind(paramName, expectedArity, checker.result, annotation->pos);
+        return checker.result;
+      }
+
+      if (!annotation->genericArgs.empty())
+      {
+        throw TypeCheckingException("Generic parameter '" + paramName +
+                                        "' expects a type constructor, not an instantiated type: " +
+                                        annotation->repr(),
+                                    annotation->pos);
+      }
+      auto it = locals.find(annotation->name);
+      if (it == locals.end())
+      {
+        throw TypeCheckingException("Unknown type constructor: " + annotation->name, annotation->pos);
+      }
+      validateTypeArgumentKind(paramName, expectedArity, it->second, annotation->pos);
+      return it->second;
+    }
+
     static auto isBuiltinLifecycleTraitName(const Str &name) -> bool
     {
       return name == COPY_TRAIT_NAME || name == CLONE_TRAIT_NAME || name == DROP_TRAIT_NAME;
@@ -654,6 +722,22 @@ namespace NG::typecheck
     static auto typeParamBoundName(const GenericParam &param) -> Str
     {
       return param.bound ? param.bound->repr() : "";
+    }
+
+    static auto genericParamKindArities(const Vec<ASTRef<GenericParam>> &genericParams) -> Vec<size_t>
+    {
+      Vec<size_t> kindArities;
+      kindArities.reserve(genericParams.size());
+      for (auto &param : genericParams)
+      {
+        kindArities.push_back(param->kindArity);
+      }
+      return kindArities;
+    }
+
+    static auto genericTypeConstructorArity(const GenericTypeDef &genericType) -> size_t
+    {
+      return genericType.typeParamNames.size();
     }
 
     static auto genericParamNameSet(const Vec<ASTRef<GenericParam>> &genericParams) -> Set<Str>
@@ -1135,7 +1219,8 @@ namespace NG::typecheck
     {
       for (auto &gp : genericParams)
       {
-        scope[gp->name] = makecheck<GenericParamType>(gp->name, typeParamBoundName(*gp), gp->isPack);
+        scope[gp->name] = makecheck<GenericParamType>(gp->name, typeParamBoundName(*gp), gp->isPack,
+                                                      gp->kindArity);
       }
     }
 
@@ -1598,6 +1683,12 @@ namespace NG::typecheck
         throw TypeCheckingException("Generic type '" + genericDef.name + "' expects " +
                                     std::to_string(genericDef.typeParamNames.size()) + " type arguments, got " +
                                     std::to_string(typeArgs.size()));
+      }
+      for (size_t i = 0; i < typeArgs.size(); ++i)
+      {
+        const size_t expectedArity =
+            i < genericDef.typeParamKindArities.size() ? genericDef.typeParamKindArities[i] : 0;
+        validateTypeArgumentKind(genericDef.typeParamNames[i], expectedArity, typeArgs[i], TokenPosition{});
       }
 
       Str instanceName = formatTypeInstanceName(genericDef.name, typeArgs);
@@ -2071,6 +2162,7 @@ namespace NG::typecheck
             }
             auto genericDef = makecheck<GenericDefType>(
                 funDef->funName, typeParamNames, typeParamIsPack, funDef, locals, currentModuleId);
+            genericDef->typeParamKindArities = genericParamKindArities(funDef->genericParams);
             locals[funDef->funName] = genericDef;
 
             // Register generic type params in a temporary scope so parameter
@@ -2137,6 +2229,8 @@ namespace NG::typecheck
             }
             locals[typeAlias->aliasName] =
                 makecheck<GenericTypeDef>(typeAlias->aliasName, typeParamNames, typeParamIsPack, typeAlias, locals, currentModuleId);
+            std::static_pointer_cast<GenericTypeDef>(locals[typeAlias->aliasName])->typeParamKindArities =
+                genericParamKindArities(typeAlias->genericParams);
           }
           else
           {
@@ -2169,6 +2263,8 @@ namespace NG::typecheck
             }
             locals[newTypeDef->typeName] =
                 makecheck<GenericTypeDef>(newTypeDef->typeName, typeParamNames, typeParamIsPack, newTypeDef, locals, currentModuleId);
+            std::static_pointer_cast<GenericTypeDef>(locals[newTypeDef->typeName])->typeParamKindArities =
+                genericParamKindArities(newTypeDef->genericParams);
           }
           else
           {
@@ -2191,6 +2287,8 @@ namespace NG::typecheck
             }
             locals[typeDef->typeName] =
                 makecheck<GenericTypeDef>(typeDef->typeName, typeParamNames, typeParamIsPack, typeDef, locals, currentModuleId);
+            std::static_pointer_cast<GenericTypeDef>(locals[typeDef->typeName])->typeParamKindArities =
+                genericParamKindArities(typeDef->genericParams);
           }
           else
           {
@@ -2211,6 +2309,7 @@ namespace NG::typecheck
             }
             auto genericDef = makecheck<GenericTypeDef>(taggedUnion->typeName, typeParamNames,
                                                         typeParamIsPack, taggedUnion, locals, currentModuleId);
+            genericDef->typeParamKindArities = genericParamKindArities(taggedUnion->genericParams);
             locals[taggedUnion->typeName] = genericDef;
             genericDef->capturedLocals = locals;
           }
@@ -3713,18 +3812,37 @@ namespace NG::typecheck
         {
           if (!annotation->genericArgs.empty())
           {
-            auto *genericType = dynamic_cast<GenericTypeDef *>(&(*it->second));
-            if (!genericType)
-            {
-              throw TypeCheckingException("Type '" + annotation->name + "' is not generic");
-            }
-
             Vec<CheckingRef<TypeInfo>> typeArgs;
             TypeChecker checker{locals};
             for (auto &arg : annotation->genericArgs)
             {
               arg->accept(&checker);
               typeArgs.push_back(checker.result);
+            }
+
+            if (auto genericParam = std::dynamic_pointer_cast<GenericParamType>(it->second))
+            {
+              if (genericParam->kindArity == 0)
+              {
+                throw TypeCheckingException("Type parameter '" + annotation->name +
+                                                "' is not a type constructor",
+                                            annotation->pos);
+              }
+              if (genericParam->kindArity != typeArgs.size())
+              {
+                throw TypeCheckingException("Type constructor parameter '" + annotation->name + "' expects " +
+                                                std::to_string(genericParam->kindArity) +
+                                                " type argument(s), got " + std::to_string(typeArgs.size()),
+                                            annotation->pos);
+              }
+              result = makecheck<TypeConstructorApplicationType>(it->second, typeArgs);
+              return;
+            }
+
+            auto *genericType = dynamic_cast<GenericTypeDef *>(&(*it->second));
+            if (!genericType)
+            {
+              throw TypeCheckingException("Type '" + annotation->name + "' is not generic");
             }
             result = instantiateGenericType(*genericType, typeArgs);
             return;
@@ -3733,6 +3851,13 @@ namespace NG::typecheck
           if (it->second->tag() == typeinfo_tag::GENERIC_TYPE_DEF)
           {
             throw TypeCheckingException("Generic type '" + annotation->name + "' requires type arguments");
+          }
+          if (auto genericParam = std::dynamic_pointer_cast<GenericParamType>(it->second);
+              genericParam && genericParam->kindArity > 0)
+          {
+            throw TypeCheckingException("Type constructor parameter '" + annotation->name +
+                                            "' requires type arguments",
+                                        annotation->pos);
           }
           result = it->second;
         }
@@ -4689,7 +4814,9 @@ namespace NG::typecheck
             for (size_t i = 0; i < genericType->typeParamNames.size(); ++i)
             {
               instChecker.locals[genericType->typeParamNames[i]] =
-                  makecheck<GenericParamType>(genericType->typeParamNames[i], "", genericType->typeParamIsPack[i]);
+                  makecheck<GenericParamType>(
+                      genericType->typeParamNames[i], "", genericType->typeParamIsPack[i],
+                      i < genericType->typeParamKindArities.size() ? genericType->typeParamKindArities[i] : 0);
             }
 
             for (auto &variant : genericType->taggedUnionDef->variants)
@@ -4932,6 +5059,73 @@ namespace NG::typecheck
         return;
       }
 
+      if (paramType->tag() == typeinfo_tag::TYPE_CONSTRUCTOR_APPLICATION)
+      {
+        auto &paramApp = static_cast<TypeConstructorApplicationType &>(*paramType);
+        Str argBase;
+        Vec<Str> argArgs;
+        if (auto argCustom = std::dynamic_pointer_cast<CustomizedType>(argType))
+        {
+          argBase = stripTypeInstanceSuffix(argCustom->name);
+          argArgs = parseTypeInstanceArgs(argCustom->name);
+        }
+        else if (auto argAlias = std::dynamic_pointer_cast<TypeAliasType>(argType))
+        {
+          argBase = stripTypeInstanceSuffix(argAlias->name);
+          argArgs = parseTypeInstanceArgs(argAlias->name);
+        }
+        else if (auto argNewType = std::dynamic_pointer_cast<NewTypeType>(argType))
+        {
+          argBase = stripTypeInstanceSuffix(argNewType->name);
+          argArgs = parseTypeInstanceArgs(argNewType->name);
+        }
+        else if (auto argTagged = std::dynamic_pointer_cast<TaggedUnionType>(argType))
+        {
+          argBase = stripTypeInstanceSuffix(argTagged->name);
+          argArgs = parseTypeInstanceArgs(argTagged->name);
+        }
+
+        if (argBase.empty() || argArgs.size() != paramApp.typeArgs.size())
+        {
+          return;
+        }
+
+        if (auto constructorParam = std::dynamic_pointer_cast<GenericParamType>(paramApp.constructorType))
+        {
+          if (auto constructorIt = locals.find(argBase); constructorIt != locals.end())
+          {
+            const size_t actualArity = typeKindArity(constructorIt->second);
+            if (actualArity == constructorParam->kindArity)
+            {
+              if (auto existing = substitution.contains(constructorParam->name) ? substitution[constructorParam->name] : nullptr;
+                  !existing || existing->tag() == typeinfo_tag::GENERIC_PARAM)
+              {
+                substitution[constructorParam->name] = constructorIt->second;
+              }
+            }
+          }
+        }
+
+        for (size_t i = 0; i < paramApp.typeArgs.size() && i < argArgs.size(); ++i)
+        {
+          CheckingRef<TypeInfo> argConcrete;
+          if (auto argIt = locals.find(argArgs[i]); argIt != locals.end())
+          {
+            argConcrete = argIt->second;
+          }
+          else if (auto primitive = PrimitiveType::from(argArgs[i]))
+          {
+            argConcrete = primitive;
+          }
+          else
+          {
+            argConcrete = makecheck<CustomizedType>(argArgs[i]);
+          }
+          extractGenericBindingsImpl(paramApp.typeArgs[i], argConcrete, substitution, seen);
+        }
+        return;
+      }
+
       if (paramType->tag() == typeinfo_tag::CUSTOMIZED && argType->tag() == typeinfo_tag::CUSTOMIZED)
       {
         auto &paramCustom = static_cast<CustomizedType &>(*paramType);
@@ -5079,14 +5273,33 @@ namespace NG::typecheck
       for (size_t pi = 0; pi < typeParamNames.size(); ++pi)
       {
         bool isPack = (pi < typeParamIsPack.size()) ? typeParamIsPack[pi] : false;
+        size_t kindArity = (pi < genericDef.typeParamKindArities.size()) ? genericDef.typeParamKindArities[pi] : 0;
         Str bound;
         if (pi < funcDef->genericParams.size())
         {
           bound = typeParamBoundName(*funcDef->genericParams[pi]);
         }
-        substitution[typeParamNames[pi]] = makecheck<GenericParamType>(typeParamNames[pi], bound, isPack);
+        substitution[typeParamNames[pi]] = makecheck<GenericParamType>(typeParamNames[pi], bound, isPack,
+                                                                       kindArity);
       }
       addWhereBoundsToScope(substitution, funcDef->whereBounds);
+      if (!funCall->genericArgs.empty())
+      {
+        if (funCall->genericArgs.size() != typeParamNames.size())
+        {
+          throw TypeCheckingException("Generic function '" + genericDef.name + "' expects " +
+                                          std::to_string(typeParamNames.size()) + " type argument(s), got " +
+                                          std::to_string(funCall->genericArgs.size()),
+                                      funCall->pos);
+        }
+        for (size_t pi = 0; pi < funCall->genericArgs.size(); ++pi)
+        {
+          const size_t expectedArity =
+              pi < genericDef.typeParamKindArities.size() ? genericDef.typeParamKindArities[pi] : 0;
+          substitution[typeParamNames[pi]] =
+              resolveGenericTypeArgument(funCall->genericArgs[pi].get(), expectedArity, typeParamNames[pi]);
+        }
+      }
 
       // 3. Arity check: verify argument count matches parameter expectations
       {
@@ -5232,6 +5445,73 @@ namespace NG::typecheck
         if (retPatternChecker.result)
         {
           extractGenericBindings(retPatternChecker.result, expectedType, substitution);
+        }
+      }
+
+      for (size_t i = 0; i < funcDef->params.size() && i < argumentTypes.size(); ++i)
+      {
+        auto &param = funcDef->params[i];
+        if (!param->annotatedType)
+        {
+          continue;
+        }
+        auto usesHigherKindedParam = [&](const TypeAnnotation *annotation, const auto &self) -> bool {
+          if (!annotation)
+          {
+            return false;
+          }
+          auto paramIt = std::find(typeParamNames.begin(), typeParamNames.end(), annotation->name);
+          if (paramIt != typeParamNames.end())
+          {
+            auto index = static_cast<size_t>(std::distance(typeParamNames.begin(), paramIt));
+            auto kindArity = index < genericDef.typeParamKindArities.size()
+                                 ? genericDef.typeParamKindArities[index]
+                                 : 0;
+            if (kindArity > 0 && !annotation->genericArgs.empty())
+            {
+              return true;
+            }
+          }
+          for (auto &arg : annotation->genericArgs)
+          {
+            if (self(arg.get(), self))
+            {
+              return true;
+            }
+          }
+          for (auto &arg : annotation->arguments)
+          {
+            if (auto nested = dynamic_ast_cast<TypeAnnotation>(arg); nested && self(nested.get(), self))
+            {
+              return true;
+            }
+          }
+          return false;
+        };
+        if (!usesHigherKindedParam(param->annotatedType.get(), usesHigherKindedParam))
+        {
+          continue;
+        }
+        TypeChecker finalParamChecker{locals};
+        for (auto &[name, type] : substitution)
+        {
+          finalParamChecker.locals[name] = type;
+        }
+        param->annotatedType->accept(&finalParamChecker);
+        auto paramType = finalParamChecker.result;
+        if (!paramType || paramType->tag() == typeinfo_tag::UNTYPED || argumentTypes[i]->tag() == typeinfo_tag::UNTYPED)
+        {
+          continue;
+        }
+        if (paramType->tag() == typeinfo_tag::VARARGS)
+        {
+          continue;
+        }
+        if (!typeMatches(*paramType, *argumentTypes[i]))
+        {
+          throw TypeCheckingException("Invalid argument type for generic function '" + genericDef.name + "': " +
+                                          argumentTypes[i]->repr() + " to " + paramType->repr(),
+                                      funCall->arguments[i]->pos);
         }
       }
 

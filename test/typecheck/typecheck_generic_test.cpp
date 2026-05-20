@@ -989,3 +989,122 @@ TEST_CASE("const predicate specialization should reject unsatisfied where clause
     val invalid = accept_box_ref(ref value);
   )", "Where predicate is not satisfied");
 }
+
+TEST_CASE("higher-kinded generic function should accept explicit unary type constructor",
+          "[TypeCheck][Generic][HKT]")
+{
+  auto ast = parse(R"(
+    type Box<T> {
+      property value: T;
+    }
+
+    fun use<F<_>, T>(value: ref<F<T>>) -> unit = unit;
+
+    val box = new Box<i32> { value: 42 };
+    val result = use<Box, i32>(box);
+  )");
+
+  REQUIRE(ast != nullptr);
+  auto index = type_check(ast);
+  REQUIRE(index.contains("result"));
+  check_type_tag(*index["result"], typeinfo_tag::UNIT);
+
+  destroyast(ast);
+}
+
+TEST_CASE("higher-kinded generic function should infer constructor and inner type from argument",
+          "[TypeCheck][Generic][HKT]")
+{
+  auto ast = parse(R"(
+    type Box<T> {
+      property value: T;
+    }
+
+    fun use<F<_>, T>(value: ref<F<T>>) -> unit = unit;
+
+    val box = new Box<i32> { value: 42 };
+    val result = use(box);
+  )");
+
+  REQUIRE(ast != nullptr);
+  auto index = type_check(ast);
+  REQUIRE(index.contains("result"));
+  check_type_tag(*index["result"], typeinfo_tag::UNIT);
+
+  destroyast(ast);
+}
+
+TEST_CASE("higher-kinded trait declaration should type check method signatures",
+          "[TypeCheck][Generic][HKT]")
+{
+  auto ast = parse(R"(
+    trait Uses<F<_>, T> {
+      fun use(self: ref<Self>, value: F<T>) -> unit;
+    }
+  )");
+
+  REQUIRE(ast != nullptr);
+  auto index = type_check(ast);
+  REQUIRE(index.contains("Uses"));
+  check_type_tag(*index["Uses"], typeinfo_tag::TRAIT);
+
+  destroyast(ast);
+}
+
+TEST_CASE("higher-kinded generic should reject applying first-order type parameter",
+          "[TypeCheck][Generic][HKT][Failure]")
+{
+  typecheck_failure(R"(
+    fun bad<T, U>(value: T<U>) -> unit = unit;
+  )", "Type parameter 'T' is not a type constructor");
+}
+
+TEST_CASE("higher-kinded generic should reject instantiated type where constructor is expected",
+          "[TypeCheck][Generic][HKT][Failure]")
+{
+  typecheck_failure(R"(
+    type Box<T> {
+      property value: T;
+    }
+
+    fun use<F<_>, T>(value: ref<F<T>>) -> unit = unit;
+
+    val box = new Box<i32> { value: 42 };
+    val result = use<Box<i32>, i32>(box);
+  )", "expects a type constructor, not an instantiated type");
+}
+
+TEST_CASE("higher-kinded generic should reject constructor arity mismatch",
+          "[TypeCheck][Generic][HKT][Failure]")
+{
+  typecheck_failure(R"(
+    type Pair<A, B> {
+      property left: A;
+      property right: B;
+    }
+
+    fun use<F<_>, T>(value: ref<F<T>>) -> unit = unit;
+
+    val pair = new Pair<i32, string> { left: 42, right: "x" };
+    val result = use<Pair, i32>(pair);
+  )", "expects a type constructor with 1 argument(s), got 2");
+}
+
+TEST_CASE("higher-kinded generic should reject argument that does not match explicit constructor",
+          "[TypeCheck][Generic][HKT][Failure]")
+{
+  typecheck_failure(R"(
+    type Box<T> {
+      property value: T;
+    }
+
+    type Other<T> {
+      property value: T;
+    }
+
+    fun use<F<_>, T>(value: ref<F<T>>) -> unit = unit;
+
+    val other = new Other<i32> { value: 42 };
+    val result = use<Box, i32>(other);
+  )", "Invalid argument type for generic function");
+}

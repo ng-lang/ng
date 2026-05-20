@@ -1399,3 +1399,49 @@ TEST_CASE("parser should recognize ref as nested generic argument starter", "[Pa
 
   destroyast(ast);
 }
+
+TEST_CASE("parser should parse higher-kinded generic parameter placeholders", "[Parser][Generics][HKT]")
+{
+  auto ast = parse("fun use<F<_>, T>(value: F<T>) -> unit { return unit; }");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto funDef = dynamic_ast_cast<FunctionDef>(compileUnit->module->definitions[0]);
+  REQUIRE(funDef != nullptr);
+  REQUIRE(funDef->genericParams.size() == 2);
+  REQUIRE(funDef->genericParams[0]->name == "F");
+  REQUIRE(funDef->genericParams[0]->kindArity == 1);
+  REQUIRE(funDef->genericParams[1]->name == "T");
+  REQUIRE(funDef->genericParams[1]->kindArity == 0);
+  REQUIRE(funDef->params[0]->annotatedType->name == "F");
+  REQUIRE(funDef->params[0]->annotatedType->genericArgs.size() == 1);
+  REQUIRE(funDef->params[0]->annotatedType->genericArgs[0]->name == "T");
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse higher-kinded trait parameters", "[Parser][Generics][HKT]")
+{
+  auto ast = parse("trait Uses<F<_>, T> { fun use(self: ref<Self>, value: F<T>) -> unit; }");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto traitDef = dynamic_ast_cast<TraitDef>(compileUnit->module->definitions[0]);
+  REQUIRE(traitDef != nullptr);
+  REQUIRE(traitDef->genericParams.size() == 2);
+  REQUIRE(traitDef->genericParams[0]->name == "F");
+  REQUIRE(traitDef->genericParams[0]->kindArity == 1);
+  REQUIRE(traitDef->genericParams[1]->name == "T");
+  REQUIRE(traitDef->genericParams[1]->kindArity == 0);
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should reject bare kind placeholder as a normal type annotation", "[Parser][Generics][HKT][Failure]")
+{
+  auto ast = parseInvalid("fun bad(value: _) -> unit { return unit; }",
+                          "Type placeholder '_' is only allowed in generic parameter kind declarations");
+  REQUIRE(ast == nullptr);
+}

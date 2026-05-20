@@ -92,3 +92,4 @@ TEST_CASE("Orgasm example 44.type_specialization.ng", "[OrgasmExample]") { runOr
 TEST_CASE("Orgasm example 45.native_constraints.ng", "[OrgasmExample]") { runOrgasmExample("example/45.native_constraints.ng"); }
 TEST_CASE("Orgasm example 46.const_trait_constraints.ng", "[OrgasmExample]") { runOrgasmExample("example/46.const_trait_constraints.ng"); }
 TEST_CASE("Orgasm example 47.const_generic_instances.ng", "[OrgasmExample]") { runOrgasmExample("example/47.const_generic_instances.ng"); }
+TEST_CASE("Orgasm example 48.higher_kinded_generics.ng", "[OrgasmExample]") { runOrgasmExample("example/48.higher_kinded_generics.ng"); }

@@ -64,6 +64,7 @@ namespace NG::typecheck
         GENERIC_DEF = 0xC2,
         VARARGS = 0xC3,
         GENERIC_TYPE_DEF = 0xC4,
+        TYPE_CONSTRUCTOR_APPLICATION = 0xC5,
     };
 
     /**
@@ -389,9 +390,10 @@ namespace NG::typecheck
         Str name;                           ///< The name of the type parameter (e.g. "T")
         Str bound;                          ///< Optional trait/bound constraint (empty if none)
         bool isPack = false;                ///< Whether this is a parameter pack (T...)
+        size_t kindArity = 0;               ///< 0 for *, N for type constructor params.
 
-        explicit GenericParamType(Str name, Str bound = "", bool isPack = false)
-            : name(std::move(name)), bound(std::move(bound)), isPack(isPack) {}
+        explicit GenericParamType(Str name, Str bound = "", bool isPack = false, size_t kindArity = 0)
+            : name(std::move(name)), bound(std::move(bound)), isPack(isPack), kindArity(kindArity) {}
 
         auto tag() const -> typeinfo_tag override { return GENERIC_PARAM; }
         auto repr() const -> Str override;
@@ -412,6 +414,7 @@ namespace NG::typecheck
         Str moduleId;                               ///< Canonical module that owns this generic definition.
         Vec<Str> typeParamNames;                    ///< Names of type parameters (e.g. ["T", "U"])
         Vec<bool> typeParamIsPack;                  ///< Which type params are packs (parallel to typeParamNames)
+        Vec<size_t> typeParamKindArities;            ///< 0 for *, N for type constructor params.
         NG::ast::ASTRef<NG::ast::FunctionDef> funcDef; ///< The original AST node (for generic functions)
         TypeEnv capturedLocals;                     ///< Local type environment at definition site
         Map<Str, CheckingRef<TypeInfo>> instances; ///< Monomorphized return types keyed by instantiated name.
@@ -444,6 +447,7 @@ namespace NG::typecheck
         GenericTypeKind kind;
         Vec<Str> typeParamNames;
         Vec<bool> typeParamIsPack;
+        Vec<size_t> typeParamKindArities;
         NG::ast::ASTRef<NG::ast::TypeDef> typeDef = nullptr;
         NG::ast::ASTRef<NG::ast::TypeAliasDef> typeAliasDef = nullptr;
         Vec<NG::ast::TypeAliasDef *> specializations;
@@ -477,6 +481,20 @@ namespace NG::typecheck
               capturedLocals(std::move(capturedLocals)) {}
 
         auto tag() const -> typeinfo_tag override { return GENERIC_TYPE_DEF; }
+        auto repr() const -> Str override;
+        auto match(const TypeInfo &other) const -> bool override;
+    };
+
+    struct TypeConstructorApplicationType : TypeInfo
+    {
+        CheckingRef<TypeInfo> constructorType;
+        Vec<CheckingRef<TypeInfo>> typeArgs;
+
+        TypeConstructorApplicationType(CheckingRef<TypeInfo> constructorType,
+                                       Vec<CheckingRef<TypeInfo>> typeArgs)
+            : constructorType(std::move(constructorType)), typeArgs(std::move(typeArgs)) {}
+
+        auto tag() const -> typeinfo_tag override { return TYPE_CONSTRUCTOR_APPLICATION; }
         auto repr() const -> Str override;
         auto match(const TypeInfo &other) const -> bool override;
     };

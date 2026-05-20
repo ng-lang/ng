@@ -127,6 +127,16 @@ namespace NG::ast
   auto GenericParam::repr() const -> Str
   {
     Str result = name;
+    if (kindArity > 0)
+    {
+      result += "<";
+      for (size_t i = 0; i < kindArity; ++i)
+      {
+        if (i > 0) result += ", ";
+        result += "_";
+      }
+      result += ">";
+    }
     if (isPack) result += "...";
     if (bound) result += ": " + bound->repr();
     return result;

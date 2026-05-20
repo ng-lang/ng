@@ -135,6 +135,10 @@ namespace NG::typecheck
     {
       return qualified_nominal_name(genericTypeDef->moduleId, genericTypeDef->repr());
     }
+    if (auto app = dynamic_cast<const TypeConstructorApplicationType *>(&type))
+    {
+      return canonical_type_name(app->constructorType) + "<" + join_canonical_types(app->typeArgs, ",") + ">";
+    }
     return type.repr();
   }
 

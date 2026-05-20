@@ -1,0 +1,12 @@
+type Box<T> {
+  property value: T;
+}
+
+fun accept<F<_>, T>(value: ref<F<T>>) -> unit {
+  print("accepted higher-kinded value");
+}
+
+val box = new Box<i32> { value: 42 };
+
+accept<Box, i32>(box);
+accept(box);
