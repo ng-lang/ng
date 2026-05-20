@@ -839,6 +839,47 @@ namespace NG::intp
     void visit(IdExpression *idExpr) override { this->path = idExpr->id; }
   };
 
+  static constexpr const char *ACTIVE_GENERIC_INSTANCE_ENV_KEY = "ng.stupid.active_generic_instance";
+
+  struct ResolvedFunctionCall
+  {
+    Str basePath;
+    Str targetPath;
+  };
+
+  static auto resolve_function_call(FunCallExpression *funCallExpr, const Str &activeGenericInstanceName)
+      -> ResolvedFunctionCall
+  {
+    FunctionPathVisitor fpVis{};
+    funCallExpr->primaryExpression->accept(&fpVis);
+
+    Str targetPath = fpVis.path;
+    if (!activeGenericInstanceName.empty())
+    {
+      if (auto it = funCallExpr->mangledCalleeNameByInstance.find(activeGenericInstanceName);
+          it != funCallExpr->mangledCalleeNameByInstance.end())
+      {
+        targetPath = it->second;
+      }
+    }
+    else if (!funCallExpr->mangledCalleeName.empty())
+    {
+      targetPath = funCallExpr->mangledCalleeName;
+    }
+
+    return {.basePath = fpVis.path, .targetPath = targetPath};
+  }
+
+  static auto infer_active_generic_instance(const RuntimeRef<Vec<CallFrame>> &frames) -> Str
+  {
+    if (!frames || frames->empty())
+    {
+      return {};
+    }
+    const auto &functionName = frames->back().functionName;
+    return functionName.starts_with("$NG") ? functionName : Str{};
+  }
+
   struct ExpressionVisitor : public DummyVisitor
   {
 
@@ -850,14 +891,25 @@ namespace NG::intp
     RuntimeRef<Vec<CallFrame>> activeFrames = nullptr;
     RuntimeRef<Vec<uint64_t>> activeScopes = nullptr;
     bool publishGlobals = false;
+    Str activeGenericInstanceName;
 
     bool moved = false;
 
     explicit ExpressionVisitor(NGSymbols symbols, RuntimeRef<Vec<CallFrame>> activeFrames = nullptr,
-                               RuntimeRef<Vec<uint64_t>> activeScopes = nullptr, bool publishGlobals = false)
+                               RuntimeRef<Vec<uint64_t>> activeScopes = nullptr, bool publishGlobals = false,
+                               Str activeGenericInstanceName = {})
         : symbols(std::move(symbols)), activeFrames(std::move(activeFrames)), activeScopes(std::move(activeScopes)),
-          publishGlobals(publishGlobals)
+          publishGlobals(publishGlobals), activeGenericInstanceName(std::move(activeGenericInstanceName))
     {
+      if (this->activeGenericInstanceName.empty())
+      {
+        this->activeGenericInstanceName = infer_active_generic_instance(this->activeFrames);
+      }
+    }
+
+    [[nodiscard]] auto child_expression_visitor() const -> ExpressionVisitor
+    {
+      return ExpressionVisitor{symbols, activeFrames, activeScopes, publishGlobals, activeGenericInstanceName};
     }
 
     void set_result(const RuntimeRef<StorageCell> &value, bool isMoved = false)
@@ -1106,13 +1158,12 @@ namespace NG::intp
 
     void visit(FunCallExpression *funCallExpr) override
     {
-      FunctionPathVisitor fpVis{};
-      funCallExpr->primaryExpression->accept(&fpVis);
+      auto resolvedCall = resolve_function_call(funCallExpr, activeGenericInstanceName);
       NGArgs callArgs;
 
       for (auto &param : funCallExpr->arguments)
       {
-        ExpressionVisitor vis{symbols, activeFrames, activeScopes, publishGlobals};
+        auto vis = child_expression_visitor();
         param->accept(&vis);
         if (auto spread = dynamic_ast_cast<SpreadExpression>(param))
         {
@@ -1130,12 +1181,25 @@ namespace NG::intp
 
       auto dummy = unit_cell();
 
-      if (!symbols || !symbols->functions.contains(fpVis.path))
+      if (!symbols)
       {
-        throw RuntimeException("No such function: " + fpVis.path, funCallExpr->pos);
+        throw RuntimeException("No such function: " + resolvedCall.targetPath, funCallExpr->pos);
       }
 
-      set_result(symbols->functions.at(fpVis.path)(dummy, make_runtime_env(symbols), callArgs));
+      auto target = resolvedCall.targetPath;
+      if (symbols->functions.contains(target))
+      {
+        set_result(symbols->functions.at(target)(dummy, make_runtime_env(symbols), callArgs));
+        return;
+      }
+      if (!target.empty() && target.starts_with("$NG") && symbols->functions.contains(resolvedCall.basePath))
+      {
+        auto env = make_runtime_env(symbols);
+        runtime_env_set_state(env, ACTIVE_GENERIC_INSTANCE_ENV_KEY, std::make_shared<Str>(target));
+        set_result(symbols->functions.at(resolvedCall.basePath)(dummy, env, callArgs));
+        return;
+      }
+      throw RuntimeException("No such function: " + target, funCallExpr->pos);
     }
 
     void visit(UnaryExpression *unoExpr) override
@@ -1700,15 +1764,43 @@ namespace NG::intp
     bool publishGlobals = false;
     Str currentFunctionName;
     size_t currentFunctionParamCount = 0;
+    Str activeGenericInstanceName;
 
     explicit StatementVisitor(NGSymbols symbols, RuntimeRef<StorageCell> returnSlot = nullptr,
                               RuntimeRef<Vec<CallFrame>> activeFrames = nullptr,
                               RuntimeRef<Vec<uint64_t>> activeScopes = nullptr, bool publishGlobals = false,
-                              Str currentFunctionName = {}, size_t currentFunctionParamCount = 0)
+                              Str currentFunctionName = {}, size_t currentFunctionParamCount = 0,
+                              Str activeGenericInstanceName = {})
         : symbols(std::move(symbols)), returnSlot(std::move(returnSlot)), activeFrames(std::move(activeFrames)),
           activeScopes(std::move(activeScopes)), publishGlobals(publishGlobals),
-          currentFunctionName(std::move(currentFunctionName)), currentFunctionParamCount(currentFunctionParamCount)
+          currentFunctionName(std::move(currentFunctionName)), currentFunctionParamCount(currentFunctionParamCount),
+          activeGenericInstanceName(std::move(activeGenericInstanceName))
     {
+      if (this->activeGenericInstanceName.empty())
+      {
+        this->activeGenericInstanceName = infer_active_generic_instance(this->activeFrames);
+      }
+    }
+
+    [[nodiscard]] auto child_statement_visitor(RuntimeRef<Vec<uint64_t>> scopes = nullptr) const -> StatementVisitor
+    {
+      return StatementVisitor{symbols,
+                              returnSlot,
+                              activeFrames,
+                              scopes ? std::move(scopes) : activeScopes,
+                              publishGlobals,
+                              currentFunctionName,
+                              currentFunctionParamCount,
+                              activeGenericInstanceName};
+    }
+
+    [[nodiscard]] auto expression_visitor(RuntimeRef<Vec<uint64_t>> scopes = nullptr) const -> ExpressionVisitor
+    {
+      return ExpressionVisitor{symbols,
+                               activeFrames,
+                               scopes ? std::move(scopes) : activeScopes,
+                               publishGlobals,
+                               activeGenericInstanceName};
     }
 
     void capture_binding(const Str &name, const RuntimeRef<StorageCell> &value, bool defineNew)
@@ -1792,14 +1884,13 @@ namespace NG::intp
         {
           if (auto tailCall = dynamic_ast_cast<FunCallExpression>(returnStatement->expression))
           {
-            FunctionPathVisitor fpVis{};
-            tailCall->primaryExpression->accept(&fpVis);
-            if (fpVis.path == currentFunctionName)
+            auto resolvedCall = resolve_function_call(tailCall.get(), activeGenericInstanceName);
+            if (resolvedCall.targetPath == currentFunctionName || resolvedCall.basePath == currentFunctionName)
             {
               Vec<RuntimeRef<StorageCell>> slotValues;
               for (auto &&arg : tailCall->arguments)
               {
-                ExpressionVisitor argVis{symbols, activeFrames, activeScopes, publishGlobals};
+                auto argVis = expression_visitor();
                 arg->accept(&argVis);
                 if (auto spread = dynamic_ast_cast<SpreadExpression>(arg); spread)
                 {
@@ -1818,7 +1909,7 @@ namespace NG::intp
             }
           }
         }
-        ExpressionVisitor vis{symbols, activeFrames, activeScopes, publishGlobals};
+        auto vis = expression_visitor();
         returnStatement->expression->accept(&vis);
         sync_storage_cell(returnSlot, vis.result_slot());
       }
@@ -1830,11 +1921,19 @@ namespace NG::intp
 
     void visit(IfStatement *ifStmt) override
     {
-      StatementVisitor stmtVis{symbols, returnSlot, activeFrames, activeScopes, publishGlobals, currentFunctionName,
-                               currentFunctionParamCount};
-      if (ifStmt->evaluatedCondition.has_value())
+      auto stmtVis = child_statement_visitor();
+      std::optional<bool> evaluatedCondition = ifStmt->evaluatedCondition;
+      if (!activeGenericInstanceName.empty())
       {
-        if (ifStmt->evaluatedCondition.value())
+        if (auto it = ifStmt->evaluatedConditionByInstance.find(activeGenericInstanceName);
+            it != ifStmt->evaluatedConditionByInstance.end())
+        {
+          evaluatedCondition = it->second;
+        }
+      }
+      if (evaluatedCondition.has_value())
+      {
+        if (evaluatedCondition.value())
         {
           ifStmt->consequence->accept(&stmtVis);
         }
@@ -1845,7 +1944,7 @@ namespace NG::intp
         return;
       }
 
-      ExpressionVisitor vis{symbols, activeFrames, activeScopes, publishGlobals};
+      auto vis = expression_visitor();
       ifStmt->testing->accept(&vis);
       if (runtime_value_bool(vis.result_slot()))
       {
@@ -2427,9 +2526,14 @@ namespace NG::intp
           }
         }
         auto callSymbols = runtime_symbols_from_env(env);
+        auto activeGenericInstance = Str{};
+        if (auto state = std::static_pointer_cast<Str>(runtime_env_get_state(env, ACTIVE_GENERIC_INSTANCE_ENV_KEY)))
+        {
+          activeGenericInstance = *state;
+        }
         auto scopeIds = make_scope_chain();
         CallFrame callFrame{};
-        callFrame.functionName = funDef->funName;
+        callFrame.functionName = activeGenericInstance.empty() ? funDef->funName : activeGenericInstance;
         callFrame.receiver = dummy;
         if (callFrame.receiver)
         {
@@ -2479,7 +2583,7 @@ namespace NG::intp
           }
           else if (funDef->params[i]->value != nullptr)
           {
-            ExpressionVisitor vis{callSymbols, frames, scopeIds};
+            ExpressionVisitor vis{callSymbols, frames, scopeIds, false, activeGenericInstance};
             funDef->params[i]->value->accept(&vis);
             auto slot = make_named_storage_cell(funDef->params[i]->paramName,
                                                 vis.result_slot(funDef->params[i]->paramName), StorageClass::FRAME);
@@ -2498,8 +2602,8 @@ namespace NG::intp
           clear_storage_cell(frames->back().returnSlot);
           try
           {
-          StatementVisitor vis{callSymbols, frames->back().returnSlot, frames, scopeIds, false, funDef->funName,
-                               funDef->params.size()};
+            StatementVisitor vis{callSymbols, frames->back().returnSlot, frames, scopeIds, false,
+                                 frames->back().functionName, funDef->params.size(), activeGenericInstance};
             funDef->body->accept(&vis);
             tailRecur = false;
           }
@@ -2772,8 +2876,14 @@ namespace NG::intp
       }
     }
 
+    void visit(ConstDef * /*constDef*/) override {}
+
     void visit(TypeAliasDef *typeAliasDef) override
     {
+      if (typeAliasDef->specializationPattern || typeAliasDef->deleted || typeAliasDef->abstract)
+      {
+        return;
+      }
       if (typeAliasDef->nativeOpaque)
       {
         auto nativeType = makert<NGType>();

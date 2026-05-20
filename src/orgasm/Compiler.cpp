@@ -147,10 +147,14 @@ namespace NG::orgasm
         globalValueTypes.clear();
         imported_symbols.clear();
         functionDefs.clear();
+        genericFunctionDefs.clear();
+        genericFunctionInstances.clear();
+        genericFunctionInstanceSet.clear();
         traitDefs.clear();
         runtimeTraits.clear();
         loop_stack.clear();
         current_type_name.clear();
+        activeGenericInstanceName.clear();
         variant_map.clear();
         module = BytecodeModule{};
         module.name = compileUnit->fileName;
@@ -197,6 +201,11 @@ namespace NG::orgasm
         {
             if (auto funDef = dynamic_ast_cast<FunctionDef>(def))
             {
+                if (!funDef->genericParams.empty())
+                {
+                    genericFunctionDefs[funDef->funName] = funDef.get();
+                    continue;
+                }
                 Function fun;
                 fun.name = funDef->funName;
                 fun.num_params = static_cast<int32_t>(funDef->params.size());
@@ -275,6 +284,10 @@ namespace NG::orgasm
             }
             else if (auto aliasDef = dynamic_ast_cast<TypeAliasDef>(def))
             {
+                if (aliasDef->specializationPattern || aliasDef->deleted || aliasDef->abstract)
+                {
+                    continue;
+                }
                 // Native opaque aliases are nominal runtime types; transparent aliases are registered without fields.
                 Type type;
                 type.name = aliasDef->aliasName;
@@ -313,6 +326,24 @@ namespace NG::orgasm
                     };
                 }
                 module.types.push_back(std::move(type));
+            }
+        }
+
+        for (auto &&def : mod->definitions)
+        {
+            collect_generic_function_instances(def);
+        }
+        for (auto &&stmt : mod->statements)
+        {
+            collect_generic_function_instances(stmt);
+        }
+        for (size_t i = 0; i < genericFunctionInstances.size(); ++i)
+        {
+            const auto &instanceName = genericFunctionInstances[i];
+            auto *genericDef = functionDefs.contains(instanceName) ? functionDefs[instanceName] : nullptr;
+            if (genericDef)
+            {
+                collect_generic_function_instances(genericDef->body, instanceName);
             }
         }
 
@@ -386,6 +417,10 @@ namespace NG::orgasm
         {
             if (auto funDef = dynamic_ast_cast<FunctionDef>(def))
             {
+                if (!funDef->genericParams.empty())
+                {
+                    continue;
+                }
                 current_function = &module.functions[funIndex++];
                 last_emit_was_return = false;
                 locals.clear();
@@ -551,6 +586,18 @@ namespace NG::orgasm
                 }
             }
         }
+        for (const auto &instanceName : genericFunctionInstances)
+        {
+            auto *funDef = functionDefs.contains(instanceName) ? functionDefs[instanceName] : nullptr;
+            auto *targetFunction = find_function(instanceName);
+            if (!funDef || !targetFunction)
+            {
+                continue;
+            }
+            activeGenericInstanceName = instanceName;
+            compile_function_body(funDef, *targetFunction, false);
+            activeGenericInstanceName.clear();
+        }
         current_function = nullptr;
     }
 
@@ -559,6 +606,309 @@ namespace NG::orgasm
     void Compiler::visit(ast::ImplDef *implDef) {}
     void Compiler::visit(ast::TypeAliasDef *typeAliasDef) {}
     void Compiler::visit(ast::NewTypeDef *newTypeDef) {}
+
+    auto Compiler::find_function(const Str &name) -> Function *
+    {
+        for (auto &function : module.functions)
+        {
+            if (function.name == name)
+            {
+                return &function;
+            }
+        }
+        return nullptr;
+    }
+
+    auto Compiler::find_function_index(const Str &name) const -> int32_t
+    {
+        for (size_t i = 0; i < module.functions.size(); ++i)
+        {
+            if (module.functions[i].name == name)
+            {
+                return static_cast<int32_t>(i);
+            }
+        }
+        return -1;
+    }
+
+    void Compiler::register_generic_function_instance(const Str &symbolName, FunctionDef *funDef)
+    {
+        if (symbolName.empty() || !funDef)
+        {
+            return;
+        }
+        if (!genericFunctionInstanceSet.insert(symbolName).second)
+        {
+            return;
+        }
+        Function fun;
+        fun.name = symbolName;
+        fun.num_params = static_cast<int32_t>(funDef->params.size());
+        fun.explicit_receiver = false;
+        module.functions.push_back(std::move(fun));
+        functionDefs[symbolName] = funDef;
+        genericFunctionInstances.push_back(symbolName);
+    }
+
+    void Compiler::compile_function_body(FunctionDef *funDef, Function &targetFunction, bool allowImplicitSelf)
+    {
+        current_function = &targetFunction;
+        last_emit_was_return = false;
+        locals.clear();
+        localTraitObjectTypes.clear();
+        localValueTypes.clear();
+        loop_stack.clear();
+
+        const bool explicitReceiver =
+            !funDef->params.empty() && is_explicit_receiver_param(funDef->params.front().get());
+        LoopInfo info;
+        info.startIp = 0;
+        int32_t paramBase = 0;
+        if (allowImplicitSelf && !explicitReceiver)
+        {
+            locals["self"] = 0;
+            info.bindingSlots.push_back(0);
+            paramBase = 1;
+        }
+        for (int32_t i = 0; i < static_cast<int32_t>(funDef->params.size()); ++i)
+        {
+            locals[funDef->params[i]->paramName] = i + paramBase;
+            if (funDef->params[i]->annotatedType)
+            {
+                localValueTypes[funDef->params[i]->paramName] = funDef->params[i]->annotatedType->repr();
+            }
+            if (auto traitName = trait_ref_name(funDef->params[i]->annotatedType.get()); !traitName.empty())
+            {
+                localTraitObjectTypes[funDef->params[i]->paramName] = traitName;
+            }
+            info.bindingSlots.push_back(i + paramBase);
+        }
+        loop_stack.push_back(std::move(info));
+
+        if (funDef->body)
+        {
+            funDef->body->accept(this);
+        }
+
+        loop_stack.pop_back();
+        current_function->num_locals = static_cast<int32_t>(locals.size());
+        if (!last_emit_was_return)
+        {
+            emit(OpCode::PUSH_UNIT);
+            emit(OpCode::RETURN);
+        }
+    }
+
+    void Compiler::collect_generic_function_instances(ASTRef<Definition> def, const Str &instanceContext)
+    {
+        if (!def)
+        {
+            return;
+        }
+        if (auto funDef = dynamic_ast_cast<FunctionDef>(def))
+        {
+            collect_generic_function_instances(funDef->body, instanceContext);
+        }
+        else if (auto valDef = dynamic_ast_cast<ValDef>(def))
+        {
+            collect_generic_function_instances(valDef->body, instanceContext);
+        }
+        else if (auto typeDef = dynamic_ast_cast<TypeDef>(def))
+        {
+            for (auto &method : typeDef->memberFunctions)
+            {
+                collect_generic_function_instances(method->body, instanceContext);
+            }
+        }
+        else if (auto implDef = dynamic_ast_cast<ImplDef>(def))
+        {
+            for (auto &method : implDef->methods)
+            {
+                collect_generic_function_instances(method->body, instanceContext);
+            }
+        }
+    }
+
+    void Compiler::collect_generic_function_instances(ASTRef<Statement> stmt, const Str &instanceContext)
+    {
+        if (!stmt)
+        {
+            return;
+        }
+        if (auto compound = dynamic_ast_cast<CompoundStatement>(stmt))
+        {
+            for (auto &child : compound->statements)
+            {
+                collect_generic_function_instances(child, instanceContext);
+            }
+        }
+        else if (auto simple = dynamic_ast_cast<SimpleStatement>(stmt))
+        {
+            collect_generic_function_instances(simple->expression, instanceContext);
+        }
+        else if (auto ret = dynamic_ast_cast<ReturnStatement>(stmt))
+        {
+            collect_generic_function_instances(ret->expression, instanceContext);
+        }
+        else if (auto ifStmt = dynamic_ast_cast<IfStatement>(stmt))
+        {
+            collect_generic_function_instances(ifStmt->testing, instanceContext);
+            collect_generic_function_instances(ifStmt->consequence, instanceContext);
+            collect_generic_function_instances(ifStmt->alternative, instanceContext);
+        }
+        else if (auto val = dynamic_ast_cast<ValDefStatement>(stmt))
+        {
+            collect_generic_function_instances(val->value, instanceContext);
+        }
+        else if (auto bind = dynamic_ast_cast<ValueBindingStatement>(stmt))
+        {
+            collect_generic_function_instances(bind->value, instanceContext);
+        }
+        else if (auto loop = dynamic_ast_cast<LoopStatement>(stmt))
+        {
+            for (auto &binding : loop->bindings)
+            {
+                collect_generic_function_instances(binding.target, instanceContext);
+            }
+            collect_generic_function_instances(loop->loopBody, instanceContext);
+        }
+        else if (auto next = dynamic_ast_cast<NextStatement>(stmt))
+        {
+            for (auto &expr : next->expressions)
+            {
+                collect_generic_function_instances(expr, instanceContext);
+            }
+        }
+        else if (auto switchStmt = dynamic_ast_cast<SwitchStatement>(stmt))
+        {
+            collect_generic_function_instances(switchStmt->scrutinee, instanceContext);
+            for (auto &caseClause : switchStmt->cases)
+            {
+                collect_generic_function_instances(caseClause.body, instanceContext);
+            }
+        }
+    }
+
+    void Compiler::collect_generic_function_instances(ASTRef<Expression> expr, const Str &instanceContext)
+    {
+        if (!expr)
+        {
+            return;
+        }
+        if (auto call = dynamic_ast_cast<FunCallExpression>(expr))
+        {
+            Str symbol = call->mangledCalleeName;
+            if (!instanceContext.empty())
+            {
+                if (auto it = call->mangledCalleeNameByInstance.find(instanceContext);
+                    it != call->mangledCalleeNameByInstance.end())
+                {
+                    symbol = it->second;
+                }
+            }
+            if (!symbol.empty())
+            {
+                if (auto id = dynamic_ast_cast<IdExpression>(call->primaryExpression))
+                {
+                    if (auto defIt = genericFunctionDefs.find(id->id); defIt != genericFunctionDefs.end())
+                    {
+                        register_generic_function_instance(symbol, defIt->second);
+                    }
+                }
+            }
+            collect_generic_function_instances(call->primaryExpression, instanceContext);
+            for (auto &arg : call->arguments)
+            {
+                collect_generic_function_instances(arg, instanceContext);
+            }
+        }
+        else if (auto accessor = dynamic_ast_cast<IdAccessorExpression>(expr))
+        {
+            collect_generic_function_instances(accessor->primaryExpression, instanceContext);
+            collect_generic_function_instances(accessor->accessor, instanceContext);
+            for (auto &arg : accessor->arguments)
+            {
+                collect_generic_function_instances(arg, instanceContext);
+            }
+        }
+        else if (auto qualified = dynamic_ast_cast<QualifiedTraitCallExpression>(expr))
+        {
+            collect_generic_function_instances(qualified->receiver, instanceContext);
+            for (auto &arg : qualified->arguments)
+            {
+                collect_generic_function_instances(arg, instanceContext);
+            }
+        }
+        else if (auto index = dynamic_ast_cast<IndexAccessorExpression>(expr))
+        {
+            collect_generic_function_instances(index->primary, instanceContext);
+            collect_generic_function_instances(index->accessor, instanceContext);
+        }
+        else if (auto indexAssign = dynamic_ast_cast<IndexAssignmentExpression>(expr))
+        {
+            collect_generic_function_instances(indexAssign->primary, instanceContext);
+            collect_generic_function_instances(indexAssign->accessor, instanceContext);
+            collect_generic_function_instances(indexAssign->value, instanceContext);
+        }
+        else if (auto typeCheck = dynamic_ast_cast<TypeCheckingExpression>(expr))
+        {
+            collect_generic_function_instances(typeCheck->value, instanceContext);
+        }
+        else if (auto assign = dynamic_ast_cast<AssignmentExpression>(expr))
+        {
+            collect_generic_function_instances(assign->target, instanceContext);
+            collect_generic_function_instances(assign->value, instanceContext);
+        }
+        else if (auto unary = dynamic_ast_cast<UnaryExpression>(expr))
+        {
+            collect_generic_function_instances(unary->operand, instanceContext);
+        }
+        else if (auto binary = dynamic_ast_cast<BinaryExpression>(expr))
+        {
+            collect_generic_function_instances(binary->left, instanceContext);
+            collect_generic_function_instances(binary->right, instanceContext);
+        }
+        else if (auto array = dynamic_ast_cast<ArrayLiteral>(expr))
+        {
+            for (auto &element : array->elements)
+            {
+                collect_generic_function_instances(element, instanceContext);
+            }
+        }
+        else if (auto tuple = dynamic_ast_cast<TupleLiteral>(expr))
+        {
+            for (auto &element : tuple->elements)
+            {
+                collect_generic_function_instances(element, instanceContext);
+            }
+        }
+        else if (auto typeofExpr = dynamic_ast_cast<TypeOfExpression>(expr))
+        {
+            collect_generic_function_instances(typeofExpr->expression, instanceContext);
+        }
+        else if (auto spread = dynamic_ast_cast<SpreadExpression>(expr))
+        {
+            collect_generic_function_instances(spread->expression, instanceContext);
+        }
+        else if (auto cast = dynamic_ast_cast<CastExpression>(expr))
+        {
+            collect_generic_function_instances(cast->expression, instanceContext);
+        }
+        else if (auto newObj = dynamic_ast_cast<NewObjectExpression>(expr))
+        {
+            for (auto &[_, value] : newObj->properties)
+            {
+                collect_generic_function_instances(value, instanceContext);
+            }
+        }
+        else if (auto tagged = dynamic_ast_cast<TaggedValueExpression>(expr))
+        {
+            for (auto &payload : tagged->payload)
+            {
+                collect_generic_function_instances(payload, instanceContext);
+            }
+        }
+    }
 
     void Compiler::visit(ast::CastExpression *castExpr)
     {
@@ -669,9 +1019,22 @@ namespace NG::orgasm
 
             // Check if function has a pack parameter — if so, pack extra args into a tuple
             int32_t funIndex = -1;
+            Str targetFunctionName = idExpr->id;
+            if (!activeGenericInstanceName.empty())
+            {
+                if (auto it = funCallExpr->mangledCalleeNameByInstance.find(activeGenericInstanceName);
+                    it != funCallExpr->mangledCalleeNameByInstance.end())
+                {
+                    targetFunctionName = it->second;
+                }
+            }
+            else if (!funCallExpr->mangledCalleeName.empty())
+            {
+                targetFunctionName = funCallExpr->mangledCalleeName;
+            }
             for (size_t i = 0; i < module.functions.size(); ++i)
             {
-                if (module.functions[i].name == idExpr->id) { funIndex = static_cast<int32_t>(i); break; }
+                if (module.functions[i].name == targetFunctionName) { funIndex = static_cast<int32_t>(i); break; }
             }
 
             if (funIndex != -1)
@@ -995,9 +1358,20 @@ namespace NG::orgasm
         if (ifStmt->isConst)
         {
             // Compile-time branch elimination: only compile the active branch
-            bool condValue = ifStmt->evaluatedCondition.has_value()
-                                 ? ifStmt->evaluatedCondition.value()
-                                 : evaluate_const_bool(ifStmt->testing);
+            std::optional<bool> instanceCondition;
+            if (!activeGenericInstanceName.empty())
+            {
+                if (auto it = ifStmt->evaluatedConditionByInstance.find(activeGenericInstanceName);
+                    it != ifStmt->evaluatedConditionByInstance.end())
+                {
+                    instanceCondition = it->second;
+                }
+            }
+            bool condValue = instanceCondition.has_value()
+                                 ? instanceCondition.value()
+                                 : (ifStmt->evaluatedCondition.has_value()
+                                        ? ifStmt->evaluatedCondition.value()
+                                        : evaluate_const_bool(ifStmt->testing));
             if (condValue)
             {
                 ifStmt->consequence->accept(this);

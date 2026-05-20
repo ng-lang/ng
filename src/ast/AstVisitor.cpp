@@ -91,6 +91,7 @@ namespace NG::ast
   void AstVisitor::visit(NewObjectExpression *newObj) {}
 
   void AstVisitor::visit(ImportDecl *importDecl) {}
+  void AstVisitor::visit(ConstDef *constDef) {}
 
   void AstVisitor::visit(CompileUnit *compileUnit) {}
 

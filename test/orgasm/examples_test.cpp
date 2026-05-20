@@ -86,3 +86,9 @@ TEST_CASE("Orgasm example 38.clone_trait.ng", "[OrgasmExample]") { runOrgasmExam
 TEST_CASE("Orgasm example 39.drop_raii.ng", "[OrgasmExample]") { runOrgasmExample("example/39.drop_raii.ng"); }
 TEST_CASE("Orgasm example 40.trait_object_list.ng", "[OrgasmExample]") { runOrgasmExample("example/40.trait_object_list.ng"); }
 TEST_CASE("Orgasm example 41.drop_smart_pointer.ng", "[OrgasmExample]") { runOrgasmExample("example/41.drop_smart_pointer.ng"); }
+TEST_CASE("Orgasm example 42.const_type_predicate.ng", "[OrgasmExample]") { runOrgasmExample("example/42.const_type_predicate.ng"); }
+TEST_CASE("Orgasm example 43.const_specialization.ng", "[OrgasmExample]") { runOrgasmExample("example/43.const_specialization.ng"); }
+TEST_CASE("Orgasm example 44.type_specialization.ng", "[OrgasmExample]") { runOrgasmExample("example/44.type_specialization.ng"); }
+TEST_CASE("Orgasm example 45.native_constraints.ng", "[OrgasmExample]") { runOrgasmExample("example/45.native_constraints.ng"); }
+TEST_CASE("Orgasm example 46.const_trait_constraints.ng", "[OrgasmExample]") { runOrgasmExample("example/46.const_trait_constraints.ng"); }
+TEST_CASE("Orgasm example 47.const_generic_instances.ng", "[OrgasmExample]") { runOrgasmExample("example/47.const_generic_instances.ng"); }

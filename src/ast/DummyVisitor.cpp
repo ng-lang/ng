@@ -90,6 +90,7 @@ namespace NG::ast
 
   void DummyVisitor::visit(ImportDecl *importDecl) {}
   void DummyVisitor::visit(TypeAliasDef *typeAliasDef) {}
+  void DummyVisitor::visit(ConstDef *constDef) {}
   void DummyVisitor::visit(NewTypeDef *newTypeDef) {}
   void DummyVisitor::visit(CastExpression *castExpr) {}
   void DummyVisitor::visit(TaggedUnionDef *taggedUnionDef) {}

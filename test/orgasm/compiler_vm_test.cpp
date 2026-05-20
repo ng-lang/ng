@@ -613,6 +613,120 @@ TEST_CASE("compiler and vm should fold const if from typeof query", "[const_if][
   destroyast(ast);
 }
 
+TEST_CASE("compiler and vm should fold const if from prelude is_ref predicate", "[const_if][OrgasmTest][Generics]")
+{
+  auto ast = parse(R"(
+        fun value_kind<T>(value: T) -> i32 {
+          const if (is_ref<T>) {
+            return 100;
+          } else {
+            return 0;
+          }
+        }
+
+        fun ref_kind<T>(value: T) -> i32 {
+          const if (is_ref<T>) {
+            return 10;
+          } else {
+            return 1;
+          }
+        }
+
+        fun main() -> i32 {
+          val value = 1;
+          return value_kind(value) + ref_kind(ref value);
+        }
+    )");
+  REQUIRE(ast != nullptr);
+
+  Compiler compiler{{}, NG::library::prelude::native_function_names()};
+  auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+  REQUIRE(std::count_if(bytecode.functions.begin(), bytecode.functions.end(),
+                        [](const Function &function) { return function.name.starts_with("$NG"); }) == 2);
+
+  VM vm;
+  NG::library::prelude::register_vm_natives(vm);
+  auto result = vm.run(bytecode);
+
+  REQUIRE(result_i32(result) == 10);
+
+  destroyast(ast);
+}
+
+TEST_CASE("compiler and vm should keep const if decisions per generic instance",
+          "[const_if][OrgasmTest][Generics]")
+{
+  auto ast = parse(R"(
+        fun classify<T>(value: T) -> i32 {
+          const if (is_ref<T>) {
+            return 1;
+          } else {
+            return 0;
+          }
+        }
+
+        fun main() -> i32 {
+          val value = 1;
+          return classify(value) + classify(ref value);
+        }
+    )");
+  REQUIRE(ast != nullptr);
+
+  Compiler compiler{{}, NG::library::prelude::native_function_names()};
+  auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+  REQUIRE(std::none_of(bytecode.functions.begin(), bytecode.functions.end(),
+                       [](const Function &function) { return function.name == "classify"; }));
+  REQUIRE(std::count_if(bytecode.functions.begin(), bytecode.functions.end(),
+                        [](const Function &function) { return function.name.starts_with("$NG"); }) == 2);
+
+  VM vm;
+  NG::library::prelude::register_vm_natives(vm);
+  auto result = vm.run(bytecode);
+
+  REQUIRE(result_i32(result) == 1);
+
+  destroyast(ast);
+}
+
+TEST_CASE("compiler and vm should collect nested generic function instances",
+          "[const_if][OrgasmTest][Generics]")
+{
+  auto ast = parse(R"(
+        fun inner<T>(value: T) -> i32 {
+          const if (is_ref<T>) {
+            return 2;
+          } else {
+            return 3;
+          }
+        }
+
+        fun outer<T>(value: T) -> i32 {
+          return inner(value);
+        }
+
+        fun main() -> i32 {
+          val value = 1;
+          return outer(value) + outer(ref value);
+        }
+    )");
+  REQUIRE(ast != nullptr);
+
+  Compiler compiler{{}, NG::library::prelude::native_function_names()};
+  auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+  REQUIRE(std::none_of(bytecode.functions.begin(), bytecode.functions.end(),
+                       [](const Function &function) { return function.name == "inner" || function.name == "outer"; }));
+  REQUIRE(std::count_if(bytecode.functions.begin(), bytecode.functions.end(),
+                        [](const Function &function) { return function.name.starts_with("$NG"); }) == 4);
+
+  VM vm;
+  NG::library::prelude::register_vm_natives(vm);
+  auto result = vm.run(bytecode);
+
+  REQUIRE(result_i32(result) == 5);
+
+  destroyast(ast);
+}
+
 TEST_CASE("compiler and vm should pass arguments to imported functions", "[OrgasmTest]")
 {
   auto &registry = NG::module::get_module_registry();

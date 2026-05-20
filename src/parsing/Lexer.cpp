@@ -110,6 +110,7 @@ namespace NG::parsing
     {"impl", TokenType::KEYWORD_IMPL},
     {"for", TokenType::KEYWORD_FOR},
     {"where", TokenType::KEYWORD_WHERE},
+    {"delete", TokenType::KEYWORD_DELETE},
 
     {"true", TokenType::KEYWORD_TRUE},
     {"false", TokenType::KEYWORD_FALSE},

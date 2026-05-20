@@ -522,6 +522,216 @@ TEST_CASE("parser should parse type alias with single generic param", "[Parser][
   destroyast(ast);
 }
 
+TEST_CASE("parser should parse generic type partial specialization", "[Parser][Generics][TypeAlias]")
+{
+  auto ast = parse("type<T> deref<ref<T>> = T;");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto aliasDef = dynamic_ast_cast<TypeAliasDef>(compileUnit->module->definitions[0]);
+  REQUIRE(aliasDef != nullptr);
+  REQUIRE(aliasDef->aliasName == "deref");
+  REQUIRE(aliasDef->genericParams.size() == 1);
+  REQUIRE(aliasDef->specializationPattern != nullptr);
+  REQUIRE(aliasDef->specializationPattern->name == "deref");
+  REQUIRE(aliasDef->underlyingType != nullptr);
+  REQUIRE(aliasDef->underlyingType->name == "T");
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse abstract generic type alias declarations", "[Parser][Generics][TypeAlias]")
+{
+  auto ast = parse("type deref<T>;");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto aliasDef = dynamic_ast_cast<TypeAliasDef>(compileUnit->module->definitions[0]);
+  REQUIRE(aliasDef != nullptr);
+  REQUIRE(aliasDef->aliasName == "deref");
+  REQUIRE(aliasDef->genericParams.size() == 1);
+  REQUIRE(aliasDef->abstract);
+  REQUIRE(aliasDef->underlyingType == nullptr);
+  REQUIRE(aliasDef->repr() == "type deref<T>;");
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse deleted ref specialization", "[Parser][Generics][TypeAlias]")
+{
+  auto ast = parse("type<T> ref<ref<T>> = delete;");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto aliasDef = dynamic_ast_cast<TypeAliasDef>(compileUnit->module->definitions[0]);
+  REQUIRE(aliasDef != nullptr);
+  REQUIRE(aliasDef->aliasName == "ref");
+  REQUIRE(aliasDef->genericParams.size() == 1);
+  REQUIRE(aliasDef->specializationPattern != nullptr);
+  REQUIRE(aliasDef->deleted);
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse type specialization where predicates", "[Parser][Generics][TypeAlias]")
+{
+  auto ast = parse("type<T> deref<ref<T>>: where is_ref<T> = T;");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto aliasDef = dynamic_ast_cast<TypeAliasDef>(compileUnit->module->definitions[0]);
+  REQUIRE(aliasDef != nullptr);
+  REQUIRE(aliasDef->aliasName == "deref");
+  REQUIRE(aliasDef->specializationPattern != nullptr);
+  REQUIRE(aliasDef->whereBounds.size() == 1);
+  REQUIRE(aliasDef->whereBounds[0]->predicate != nullptr);
+  REQUIRE(aliasDef->whereBounds[0]->predicate->repr() == "is_ref<T>");
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse type specialization trait constraints", "[Parser][Generics][TypeAlias]")
+{
+  auto ast = parse("type<T> wrapper<T>: where T: Show + Debug && is_ref<T> = T;");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto aliasDef = dynamic_ast_cast<TypeAliasDef>(compileUnit->module->definitions[0]);
+  REQUIRE(aliasDef != nullptr);
+  REQUIRE(aliasDef->whereBounds.size() == 3);
+  REQUIRE(aliasDef->whereBounds[0]->repr() == "T: Show");
+  REQUIRE(aliasDef->whereBounds[1]->repr() == "T: Debug");
+  REQUIRE(aliasDef->whereBounds[2]->repr() == "is_ref<T>");
+  REQUIRE(aliasDef->repr() == "type <T> wrapper<T>: where T: Show && T: Debug && is_ref<T> = T;");
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should reject type alias trait list constraints", "[Parser][Generics][TypeAlias][Error]")
+{
+  parseInvalid("type<T> wrapper<T>: Show + Debug where is_ref<T> = T;",
+               "Type alias constraint section only supports `: where ...`");
+}
+
+TEST_CASE("parser should parse native const predicate declarations", "[Parser][Generics][ConstPredicate]")
+{
+  auto ast = parse("const is_ref<T>: bool = native;");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto constDef = dynamic_ast_cast<ConstDef>(compileUnit->module->definitions[0]);
+  REQUIRE(constDef != nullptr);
+  REQUIRE(constDef->constName == "is_ref");
+  REQUIRE(constDef->genericParams.size() == 1);
+  REQUIRE(constDef->returnType != nullptr);
+  REQUIRE(constDef->returnType->repr() == "bool");
+  REQUIRE(constDef->native);
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse const predicate specializations", "[Parser][Generics][ConstPredicate]")
+{
+  auto ast = parse("const<T> is_ref<ref<T>>: bool = true;");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto constDef = dynamic_ast_cast<ConstDef>(compileUnit->module->definitions[0]);
+  REQUIRE(constDef != nullptr);
+  REQUIRE(constDef->constName == "is_ref");
+  REQUIRE(constDef->genericParams.size() == 1);
+  REQUIRE(constDef->specializationPattern != nullptr);
+  REQUIRE(constDef->specializationPattern->repr() == "is_ref<ref<T>>");
+  REQUIRE(constDef->returnType != nullptr);
+  REQUIRE(constDef->returnType->repr() == "bool");
+  REQUIRE_FALSE(constDef->native);
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse const specialization where predicates", "[Parser][Generics][ConstPredicate]")
+{
+  auto ast = parse("const<T> is_box<ref<T>> where is_ref<T>: bool = true;");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto constDef = dynamic_ast_cast<ConstDef>(compileUnit->module->definitions[0]);
+  REQUIRE(constDef != nullptr);
+  REQUIRE(constDef->constName == "is_box");
+  REQUIRE(constDef->specializationPattern != nullptr);
+  REQUIRE(constDef->whereBounds.size() == 1);
+  REQUIRE(constDef->whereBounds[0]->predicate != nullptr);
+  REQUIRE(constDef->whereBounds[0]->predicate->repr() == "is_ref<T>");
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse const specialization where trait constraints", "[Parser][Generics][ConstPredicate]")
+{
+  auto ast = parse("const<T> is_show_ref<ref<T>> where T: Show + Debug && is_ref<ref<T>>: bool = true;");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto constDef = dynamic_ast_cast<ConstDef>(compileUnit->module->definitions[0]);
+  REQUIRE(constDef != nullptr);
+  REQUIRE(constDef->constName == "is_show_ref");
+  REQUIRE(constDef->specializationPattern != nullptr);
+  REQUIRE(constDef->whereBounds.size() == 3);
+  REQUIRE(constDef->whereBounds[0]->repr() == "T: Show");
+  REQUIRE(constDef->whereBounds[1]->repr() == "T: Debug");
+  REQUIRE(constDef->whereBounds[2]->repr() == "is_ref<ref<T>>");
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse generic const predicate where clauses", "[Parser][Generics][ConstPredicate]")
+{
+  auto ast = parse(R"(
+    fun accept<T>(value: T) -> T where !is_ref<T> = value;
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto funDef = dynamic_ast_cast<FunctionDef>(compileUnit->module->definitions[0]);
+  REQUIRE(funDef != nullptr);
+  REQUIRE(funDef->whereBounds.size() == 1);
+  REQUIRE(funDef->whereBounds[0]->predicate != nullptr);
+  REQUIRE(funDef->whereBounds[0]->predicate->repr() == "!is_ref<T>");
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse const predicate where clauses before block bodies",
+          "[Parser][Generics][ConstPredicate]")
+{
+  auto ast = parse(R"(
+    fun accept<T>(value: T) -> unit where is_ref<T> {
+      return;
+    }
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto funDef = dynamic_ast_cast<FunctionDef>(compileUnit->module->definitions[0]);
+  REQUIRE(funDef != nullptr);
+  REQUIRE(funDef->whereBounds.size() == 1);
+  REQUIRE(funDef->whereBounds[0]->predicate != nullptr);
+  REQUIRE(funDef->whereBounds[0]->predicate->repr() == "is_ref<T>");
+
+  destroyast(ast);
+}
+
 // ============================================================================
 // NewType with Generics
 // ============================================================================

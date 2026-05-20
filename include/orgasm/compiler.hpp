@@ -100,12 +100,16 @@ namespace NG::orgasm
         Map<Str, Str> globalValueTypes;
         Map<Str, ImportedSymbol> imported_symbols;
         Map<Str, ast::FunctionDef*> functionDefs;
+        Map<Str, ast::FunctionDef*> genericFunctionDefs;
+        Vec<Str> genericFunctionInstances;
+        Set<Str> genericFunctionInstanceSet;
         Map<Str, ast::TraitDef*> traitDefs;
         Map<Str, RuntimeTraitInfo> runtimeTraits;
         Vec<LoopInfo> loop_stack;
         Vec<Str> modulePaths;
         Set<Str> nativeFnNames;
         Str current_type_name;  // Current type being compiled (for member functions)
+        Str activeGenericInstanceName;
         bool last_emit_was_return = false;
 
         // Tagged union tracking: variant name -> (union type name, variant index)
@@ -128,6 +132,13 @@ namespace NG::orgasm
         auto infer_expression_type_name(ast::ASTRef<ast::Expression> expr) const -> Str;
         void emit_trait_ref_if_needed(const ast::TypeAnnotation *annotation);
         void emit_move_place(ast::ASTRef<ast::Expression> expr);
+        void register_generic_function_instance(const Str &symbolName, ast::FunctionDef *funDef);
+        void collect_generic_function_instances(ast::ASTRef<ast::Definition> def, const Str &instanceContext = "");
+        void collect_generic_function_instances(ast::ASTRef<ast::Statement> stmt, const Str &instanceContext = "");
+        void collect_generic_function_instances(ast::ASTRef<ast::Expression> expr, const Str &instanceContext = "");
+        void compile_function_body(ast::FunctionDef *funDef, Function &targetFunction, bool allowImplicitSelf);
+        auto find_function(const Str &name) -> Function *;
+        auto find_function_index(const Str &name) const -> int32_t;
 
         // Find the field index of a property in the current type. Returns -1 if not found.
         auto find_field_index(const Str &propertyName) const -> int32_t;

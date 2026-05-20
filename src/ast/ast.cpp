@@ -139,6 +139,10 @@ namespace NG::ast
 
   auto TraitBound::repr() const -> Str
   {
+    if (predicate)
+    {
+      return predicate->repr();
+    }
     return (subject ? subject->repr() : "?") + ": " + (trait ? trait->repr() : "?");
   }
 
@@ -146,6 +150,36 @@ namespace NG::ast
   {
     destroyast(subject);
     destroyast(trait);
+    destroyast(predicate);
+  }
+
+  void ConstDef::accept(AstVisitor *visitor)
+  {
+    visitor->visit(this);
+  }
+
+  auto ConstDef::repr() const -> Str
+  {
+    auto target = specializationPattern ? specializationPattern->repr() : constName + genericParamsRepr(genericParams);
+    auto whereRepr = whereBounds.empty() ? "" : " where " + strOfNodeList(whereBounds, " && ");
+    auto body = native ? Str{"native"} : (value ? value->repr() : "?");
+    return "const " + (specializationPattern ? genericParamsRepr(genericParams) + " " : "") + target + whereRepr + ": " +
+           (returnType ? returnType->repr() : "?") + " = " + body + ";";
+  }
+
+  ConstDef::~ConstDef()
+  {
+    for (const auto &genericParam : genericParams)
+    {
+      destroyast(genericParam);
+    }
+    destroyast(specializationPattern);
+    for (auto &bound : whereBounds)
+    {
+      destroyast(bound);
+    }
+    destroyast(returnType);
+    destroyast(value);
   }
 
 
@@ -304,6 +338,10 @@ namespace NG::ast
   FunCallExpression::~FunCallExpression()
   {
     destroyast(primaryExpression);
+    for (const auto &arg : genericArgs)
+    {
+      destroyast(arg);
+    }
     for (const auto &arg : arguments)
     {
       destroyast(arg);
@@ -312,7 +350,22 @@ namespace NG::ast
 
   auto FunCallExpression::repr() const -> Str
   {
-    return this->primaryExpression->repr() + "(" + strOfNodeList(this->arguments) + ")";
+    Str genericRepr{};
+    if (!genericArgs.empty())
+    {
+      genericRepr = "<";
+      for (size_t i = 0; i < genericArgs.size(); ++i)
+      {
+        if (i > 0) genericRepr += ", ";
+        genericRepr += genericArgs[i]->repr();
+      }
+      genericRepr += ">";
+    }
+    if (!genericArgs.empty() && arguments.empty())
+    {
+      return this->primaryExpression->repr() + genericRepr;
+    }
+    return this->primaryExpression->repr() + genericRepr + "(" + strOfNodeList(this->arguments) + ")";
   }
 
   void AssignmentExpression::accept(AstVisitor *visitor)
@@ -763,12 +816,29 @@ namespace NG::ast
 
   auto TypeAliasDef::repr() const -> Str
   {
-    return "type " + aliasName + genericParamsRepr(genericParams) + " = " +
-           (nativeOpaque ? "native" : (underlyingType ? underlyingType->repr() : "?")) + ";";
+    auto target = specializationPattern ? specializationPattern->repr() : aliasName + genericParamsRepr(genericParams);
+    auto whereRepr = whereBounds.empty() ? "" : "where " + strOfNodeList(whereBounds, " && ");
+    auto constraintsRepr = Str{};
+    if (!whereRepr.empty())
+    {
+      constraintsRepr = ": " + whereRepr;
+    }
+    if (abstract)
+    {
+      return "type " + target + constraintsRepr + ";";
+    }
+    auto body = deleted ? Str{"delete"} : (nativeOpaque ? Str{"native"} : (underlyingType ? underlyingType->repr() : "?"));
+    return "type " + (specializationPattern ? genericParamsRepr(genericParams) + " " : "") + target + constraintsRepr +
+           " = " + body + ";";
   }
 
   TypeAliasDef::~TypeAliasDef()
   {
+    destroyast(specializationPattern);
+    for (auto &bound : whereBounds)
+    {
+      destroyast(bound);
+    }
     destroyast(underlyingType);
   }
 

@@ -1,0 +1,21 @@
+// Compile-time type predicates over reified generic parameters.
+
+fun showType<T>(value: T) -> unit {
+    const if (is_ref<T>) {
+        print("T is reference");
+    } else {
+        print("T is value type");
+    }
+}
+
+fun showReferenceType<T>(value: T) -> unit {
+    const if (is_ref<T>) {
+        print("T is reference");
+    } else {
+        print("T is value type");
+    }
+}
+
+val value = 1;
+showType(value);
+showReferenceType(ref value);

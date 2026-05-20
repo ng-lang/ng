@@ -35,6 +35,65 @@ TEST_CASE("generic function call should infer types", "[TypeCheck][Generic]")
   destroyast(ast);
 }
 
+TEST_CASE("generic function call should record canonical and mangled instance names",
+          "[TypeCheck][Generic][Mangling]")
+{
+  auto ast = parse(R"(
+    fun id<T>(x: T) -> T = x;
+    val result = id(42);
+  )");
+
+  REQUIRE(ast != nullptr);
+  auto index = type_check(ast);
+  REQUIRE(index.contains("result"));
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto valDef = dynamic_ast_cast<ValDef>(compileUnit->module->definitions[1]);
+  REQUIRE(valDef != nullptr);
+  auto valStmt = dynamic_ast_cast<ValDefStatement>(valDef->body);
+  REQUIRE(valStmt != nullptr);
+  auto call = dynamic_ast_cast<FunCallExpression>(valStmt->value);
+  REQUIRE(call != nullptr);
+  REQUIRE(call->genericInstanceName == "id<i32>");
+  REQUIRE(call->mangledCalleeName == "$NG2:v11:F7:default2:id1:13:i32");
+  REQUIRE(call->resolvedCalleeName == call->mangledCalleeName);
+
+  destroyast(ast);
+}
+
+TEST_CASE("generic function mangling uses definition module and module-qualified nominal args",
+          "[TypeCheck][Generic][Mangling]")
+{
+  auto ast = parse(R"(
+    type User {
+      property id: i32;
+    }
+
+    fun id<T>(x: T) -> T = x;
+
+    val user = new User { id: 1 };
+    val result = id(user);
+  )", "app.main");
+
+  REQUIRE(ast != nullptr);
+  auto index = type_check(ast);
+  REQUIRE(index.contains("result"));
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto valDef = dynamic_ast_cast<ValDef>(compileUnit->module->definitions[3]);
+  REQUIRE(valDef != nullptr);
+  auto valStmt = dynamic_ast_cast<ValDefStatement>(valDef->body);
+  REQUIRE(valStmt != nullptr);
+  auto call = dynamic_ast_cast<FunCallExpression>(valStmt->value);
+  REQUIRE(call != nullptr);
+  REQUIRE(call->genericInstanceName == "id<ref<User>>");
+  REQUIRE(call->mangledCalleeName == "$NG2:v11:F8:app.main2:id1:119:ref<app.main::User>");
+
+  destroyast(ast);
+}
+
 TEST_CASE("generic function with multiple type params", "[TypeCheck][Generic]")
 {
   auto ast = parse(R"(
@@ -399,4 +458,534 @@ TEST_CASE("generic instantiated types should compose in function signatures", "[
   check_type_tag(*funType->returnType, typeinfo_tag::I32);
 
   destroyast(ast);
+}
+
+TEST_CASE("generic type partial specialization should resolve alias body", "[TypeCheck][Generic][Specialization]")
+{
+  auto ast = parse(R"(
+    type deref<T>;
+    type<T> deref<ref<T>> = T;
+
+    val value: deref<ref<i32>> = 1;
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast);
+  REQUIRE(index.contains("value"));
+  check_type_tag(*index["value"], typeinfo_tag::I32);
+
+  destroyast(ast);
+}
+
+TEST_CASE("abstract generic type alias should reject unmatched instantiations",
+          "[TypeCheck][Generic][Specialization][Failure]")
+{
+  typecheck_failure(R"(
+    type deref<T>;
+
+    val value: deref<i32> = 1;
+  )", "Abstract type alias");
+}
+
+TEST_CASE("generic type partial specialization should choose the most specific matching pattern",
+          "[TypeCheck][Generic][Specialization]")
+{
+  auto ast = parse(R"(
+    type Box<T> {
+      property value: T;
+    }
+
+    type unwrap<T> = string;
+    type<T> unwrap<ref<T>> = T;
+    type<T> unwrap<ref<Box<T>>> = T;
+
+    val value: unwrap<ref<Box<i32>>> = 1;
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast);
+  REQUIRE(index.contains("value"));
+  check_type_tag(*index["value"], typeinfo_tag::I32);
+
+  destroyast(ast);
+}
+
+TEST_CASE("deleted ref specialization should reject nested references", "[TypeCheck][Generic][Specialization][Failure]")
+{
+  typecheck_failure(R"(
+    type<T> ref<ref<T>> = delete;
+
+    type Box {
+      property value: i32;
+    }
+
+    val box = new Box { value: 1 };
+    val invalid: ref<ref<Box>> = ref box;
+  )", "deleted");
+}
+
+TEST_CASE("native const predicate where clause should accept matching generic calls",
+          "[TypeCheck][Generic][ConstPredicate]")
+{
+  auto ast = parse(R"(
+    const is_ref<T>: bool = native;
+
+    fun accept_value<T>(value: T) -> T where !is_ref<T> = value;
+    val result = accept_value(1);
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast);
+  REQUIRE(index.contains("result"));
+  check_type_tag(*index["result"], typeinfo_tag::I32);
+
+  destroyast(ast);
+}
+
+TEST_CASE("native const predicate where clause should reject ref generic calls",
+          "[TypeCheck][Generic][ConstPredicate][Failure]")
+{
+  typecheck_failure(R"(
+    const is_ref<T>: bool = native;
+
+    fun accept_value<T>(value: T) -> T where !is_ref<T> = value;
+    val value = 1;
+    val invalid = accept_value(ref value);
+  )", "Where predicate is not satisfied");
+}
+
+TEST_CASE("const predicate definitions should reject non-bool native return types",
+          "[TypeCheck][Generic][ConstPredicate][Failure]")
+{
+  typecheck_failure(R"(
+    const is_ref<T>: i32 = native;
+  )", "Native const predicate must return bool");
+}
+
+TEST_CASE("const predicate definitions should reject value type mismatches",
+          "[TypeCheck][Generic][ConstPredicate][Failure]")
+{
+  typecheck_failure(R"(
+    const is_ref<T>: bool = 1;
+  )", "Const definition type mismatch");
+}
+
+TEST_CASE("const definitions should accept typed compile-time scalar values",
+          "[TypeCheck][Generic][ConstPredicate]")
+{
+  auto ast = parse(R"(
+    const always<T>: bool = true;
+    const one<T>: i32 = 1;
+    const label<T>: string = "value";
+  )");
+  REQUIRE(ast != nullptr);
+
+  REQUIRE_NOTHROW(type_check(ast));
+
+  destroyast(ast);
+}
+
+TEST_CASE("prelude is_ref const predicate should fold const if by generic type",
+          "[TypeCheck][Generic][ConstPredicate]")
+{
+  auto ast = parse(R"(
+    fun value_kind<T>(value: T) -> i32 {
+      const if (is_ref<T>) {
+        val impossible: i32 = false;
+        return 1;
+      } else {
+        return 0;
+      }
+    }
+
+    fun ref_kind<T>(value: T) -> i32 {
+      const if (is_ref<T>) {
+        return 1;
+      } else {
+        val impossible: i32 = false;
+        return 0;
+      }
+    }
+
+    val value = 1;
+    val value_result = value_kind(value);
+    val ref_result = ref_kind(ref value);
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast, build_prelude_type_index());
+  REQUIRE(index.contains("value_result"));
+  REQUIRE(index.contains("ref_result"));
+  check_type_tag(*index["value_result"], typeinfo_tag::I32);
+  check_type_tag(*index["ref_result"], typeinfo_tag::I32);
+
+  destroyast(ast);
+}
+
+TEST_CASE("const predicate specialization should choose the most specific matching pattern",
+          "[TypeCheck][Generic][ConstPredicate][Specialization]")
+{
+  auto ast = parse(R"(
+    type Box<T> {
+      property value: T;
+    }
+
+    const is_box_ref<T>: bool = false;
+    const<T> is_box_ref<ref<T>>: bool = false;
+    const<T> is_box_ref<ref<Box<T>>>: bool = true;
+
+    fun accept_box_ref<T>(value: T) -> i32 where is_box_ref<T> = 7;
+
+    fun marker<T>(value: T) -> i32 {
+      const if (is_box_ref<T>) {
+        return 11;
+      } else {
+        val impossible: i32 = false;
+        return 0;
+      }
+    }
+
+    val boxed = new Box<i32> { value: 1 };
+    val accepted = accept_box_ref(boxed);
+    val marked = marker(boxed);
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast);
+  REQUIRE(index.contains("accepted"));
+  REQUIRE(index.contains("marked"));
+  check_type_tag(*index["accepted"], typeinfo_tag::I32);
+  check_type_tag(*index["marked"], typeinfo_tag::I32);
+
+  destroyast(ast);
+}
+
+TEST_CASE("const predicate specialization should honor where predicates",
+          "[TypeCheck][Generic][ConstPredicate][Specialization]")
+{
+  auto ast = parse(R"(
+    type Box<T> {
+      property value: T;
+    }
+
+    const is_box<T>: bool = false;
+    const<T> is_box<Box<T>>: bool = true;
+
+    const is_box_ref<T>: bool = false;
+    const<T> is_box_ref<ref<T>> where is_box<T>: bool = true;
+
+    const is_plain_ref<T>: bool = false;
+    const<T> is_plain_ref<ref<T>>: bool = true;
+    const<T> is_plain_ref<ref<T>> where is_box<T>: bool = false;
+
+    val box_category: i32 = 0;
+    const if (is_box_ref<ref<Box<i32>>>) {
+      box_category := 2;
+    } else {
+      val impossible: i32 = false;
+    }
+
+    val ref_category: i32 = 0;
+    const if (is_plain_ref<ref<i32>>) {
+      ref_category := 1;
+    } else {
+      val impossible: i32 = false;
+    }
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast);
+  REQUIRE(index.contains("box_category"));
+  REQUIRE(index.contains("ref_category"));
+  check_type_tag(*index["box_category"], typeinfo_tag::I32);
+  check_type_tag(*index["ref_category"], typeinfo_tag::I32);
+
+  destroyast(ast);
+}
+
+TEST_CASE("const predicate specialization should honor where trait bounds",
+          "[TypeCheck][Generic][ConstPredicate][Specialization]")
+{
+  auto ast = parse(R"(
+    trait Show {
+      fun show(self: ref<Self>) -> string;
+    }
+
+    trait Debug {
+      fun inspect(self: ref<Self>) -> string;
+    }
+
+    type Visible {
+      property value: i32;
+    }
+
+    impl Show for Visible {
+      fun show(self: ref<Self>) -> string {
+        return "visible";
+      }
+    }
+
+    impl Debug for Visible {
+      fun inspect(self: ref<Self>) -> string {
+        return "visible";
+      }
+    }
+
+    type Silent {
+      property value: i32;
+    }
+
+    impl Show for Silent {
+      fun show(self: ref<Self>) -> string {
+        return "silent";
+      }
+    }
+
+    const is_show_debug_ref<T>: bool = false;
+    const<T> is_show_debug_ref<ref<T>> where T: Show + Debug && is_ref<ref<T>>: bool = true;
+
+    fun classify<T>(value: T) -> i32 {
+      const if (is_show_debug_ref<T>) {
+        return 1;
+      } else {
+        return 0;
+      }
+    }
+
+    val visible = new Visible { value: 1 };
+    val silent = new Silent { value: 2 };
+    val matched = classify(visible);
+    val fallback = classify(silent);
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast, build_prelude_type_index());
+  REQUIRE(index.contains("matched"));
+  REQUIRE(index.contains("fallback"));
+  check_type_tag(*index["matched"], typeinfo_tag::I32);
+  check_type_tag(*index["fallback"], typeinfo_tag::I32);
+
+  destroyast(ast);
+}
+
+TEST_CASE("native const predicates should classify trait abstract and concrete types",
+          "[TypeCheck][Generic][ConstPredicate]")
+{
+  auto ast = parse(R"(
+    trait Show {
+      fun show(self: ref<Self>) -> string;
+    }
+
+    type NativeHandle = native;
+    type AbstractHandle;
+
+    type Widget {
+      property value: i32;
+    }
+
+    const if (is_trait<Show>) {
+      val trait_result = 1;
+    } else {
+      val impossible: i32 = false;
+    }
+
+    const if (!is_abstract<NativeHandle>) {
+      val native_result = 1;
+    } else {
+      val impossible: i32 = false;
+    }
+
+    const if (is_abstract<AbstractHandle>) {
+      val abstract_result = 1;
+    } else {
+      val impossible: i32 = false;
+    }
+
+    const if (!is_abstract<Widget>) {
+      val concrete_result = 1;
+    } else {
+      val impossible: i32 = false;
+    }
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast, build_prelude_type_index());
+  REQUIRE(index.contains("Show"));
+  REQUIRE(index.contains("NativeHandle"));
+  REQUIRE(index.contains("AbstractHandle"));
+  REQUIRE(index.contains("Widget"));
+
+  destroyast(ast);
+}
+
+TEST_CASE("native const predicates should participate in type specialization where clauses",
+          "[TypeCheck][Generic][ConstPredicate][Specialization]")
+{
+  auto ast = parse(R"(
+    trait Show {
+      fun show(self: ref<Self>) -> string;
+    }
+
+    type NativeHandle = native;
+    type AbstractHandle;
+    type Widget {
+      property value: i32;
+    }
+
+    type classify<T>;
+    type<T> classify<T>: where is_trait<T> = bool;
+    type<T> classify<T>: where is_abstract<T> = string;
+    type<T> classify<T> = i32;
+
+    val trait_value: classify<Show> = true;
+    val abstract_value: classify<AbstractHandle> = "abstract";
+    val native_value: classify<NativeHandle> = 7;
+    val concrete_value: classify<Widget> = 1;
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast, build_prelude_type_index());
+  REQUIRE(index.contains("trait_value"));
+  REQUIRE(index.contains("abstract_value"));
+  REQUIRE(index.contains("native_value"));
+  REQUIRE(index.contains("concrete_value"));
+  check_type_tag(*index["trait_value"], typeinfo_tag::BOOL);
+  check_type_tag(*index["abstract_value"], typeinfo_tag::STRING);
+  check_type_tag(*index["native_value"], typeinfo_tag::I32);
+  check_type_tag(*index["concrete_value"], typeinfo_tag::I32);
+
+  destroyast(ast);
+}
+
+TEST_CASE("generic type partial specialization should honor where predicates",
+          "[TypeCheck][Generic][Specialization]")
+{
+  auto ast = parse(R"(
+    type Box<T> {
+      property value: T;
+    }
+
+    const is_box<T>: bool = false;
+    const<T> is_box<Box<T>>: bool = true;
+
+    type unwrap<T>;
+    type<T> unwrap<ref<T>>: where is_box<T> = bool;
+    type<T> unwrap<ref<T>> = T;
+
+    val boxed = new Box<i32> { value: 1 };
+    val box_result: unwrap<ref<Box<i32>>> = true;
+    val value = 1;
+    val value_result: unwrap<ref<i32>> = 1;
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast);
+  REQUIRE(index.contains("box_result"));
+  REQUIRE(index.contains("value_result"));
+  check_type_tag(*index["box_result"], typeinfo_tag::BOOL);
+  check_type_tag(*index["value_result"], typeinfo_tag::I32);
+
+  destroyast(ast);
+}
+
+TEST_CASE("generic type partial specialization should honor where trait bounds",
+          "[TypeCheck][Generic][Specialization]")
+{
+  auto ast = parse(R"(
+    trait Show {
+      fun show(self: ref<Self>) -> string;
+    }
+
+    trait Debug {
+      fun inspect(self: ref<Self>) -> string;
+    }
+
+    type Visible {
+      property value: i32;
+    }
+
+    impl Show for Visible {
+      fun show(self: ref<Self>) -> string {
+        return "visible";
+      }
+    }
+
+    impl Debug for Visible {
+      fun inspect(self: ref<Self>) -> string {
+        return "visible";
+      }
+    }
+
+    type<T> classify<T>: where T: Show + Debug && is_ref<T> = bool;
+    type<T> classify<T> = i32;
+
+    val visible = new Visible { value: 1 };
+    val matched: classify<ref<Visible>> = true;
+    val fallback: classify<Visible> = 1;
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast, build_prelude_type_index());
+  REQUIRE(index.contains("matched"));
+  REQUIRE(index.contains("fallback"));
+  check_type_tag(*index["matched"], typeinfo_tag::BOOL);
+  check_type_tag(*index["fallback"], typeinfo_tag::I32);
+
+  destroyast(ast);
+}
+
+TEST_CASE("generic type partial specialization should reject unsatisfied where trait bounds",
+          "[TypeCheck][Generic][Specialization]")
+{
+  auto ast = parse(R"(
+    trait Show {
+      fun show(self: ref<Self>) -> string;
+    }
+
+    trait Debug {
+      fun inspect(self: ref<Self>) -> string;
+    }
+
+    type Visible {
+      property value: i32;
+    }
+
+    impl Show for Visible {
+      fun show(self: ref<Self>) -> string {
+        return "visible";
+      }
+    }
+
+    type<T> classify<T>: where T: Show + Debug && is_ref<T> = bool;
+    type<T> classify<T> = i32;
+
+    val visible = new Visible { value: 1 };
+    val fallback: classify<ref<Visible>> = 1;
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast, build_prelude_type_index());
+  REQUIRE(index.contains("fallback"));
+  check_type_tag(*index["fallback"], typeinfo_tag::I32);
+
+  destroyast(ast);
+}
+
+TEST_CASE("const predicate specialization should reject unsatisfied where clauses",
+          "[TypeCheck][Generic][ConstPredicate][Specialization][Failure]")
+{
+  typecheck_failure(R"(
+    type Box<T> {
+      property value: T;
+    }
+
+    const is_box_ref<T>: bool = false;
+    const<T> is_box_ref<ref<T>>: bool = false;
+    const<T> is_box_ref<ref<Box<T>>>: bool = true;
+
+    fun accept_box_ref<T>(value: T) -> i32 where is_box_ref<T> = 7;
+
+    val value = 1;
+    val invalid = accept_box_ref(ref value);
+  )", "Where predicate is not satisfied");
 }

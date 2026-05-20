@@ -57,6 +57,7 @@ set(NG_LIB_SRC
         src/module/ModuleLoader.cpp
         src/module/ModuleRegistry.cpp
         src/typecheck/typecheck.cpp
+        src/typecheck/mangling.cpp
         src/typecheck/typeinfo.cpp
         src/typecheck/PrimitiveType.cpp
         src/typecheck/FunctionType.cpp

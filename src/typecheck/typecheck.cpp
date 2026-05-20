@@ -1,6 +1,7 @@
 
 #include <debug.hpp>
 #include <token.hpp>
+#include <typecheck/mangling.hpp>
 #include <typecheck/typecheck.hpp>
 #include <parser.hpp>
 #include <algorithm>
@@ -427,6 +428,10 @@ namespace NG::typecheck
     bool allowMovedLvalueRead = false;
     Map<Str, Vec<Str>> trait_impls_by_type;
     Str currentModuleId = "default";
+    Str activeGenericInstanceName;
+    inline static Map<Str, Vec<TypeAliasDef *>> activeTypeAliasSpecializations{};
+    inline static Map<Str, Vec<ConstDef *>> activeConstPredicates{};
+    inline static Map<Str, Vec<ConstDef *>> preludeConstPredicates{};
     struct TraitImplRecord
     {
       Str traitName;
@@ -449,9 +454,10 @@ namespace NG::typecheck
 
     explicit TypeChecker(Map<Str, CheckingRef<TypeInfo>> locals, Vec<CheckingRef<TypeInfo>> contextRequirement = {},
                          CheckingRef<TypeInfo> expectedType = nullptr, Set<Str> movedBindings = {},
-                         bool allowMovedLvalueRead = false)
+                         bool allowMovedLvalueRead = false, Str activeGenericInstanceName = "")
         : locals(std::move(locals)), contextRequirement(std::move(contextRequirement)), expectedType(std::move(expectedType)),
-          movedBindings(std::move(movedBindings)), allowMovedLvalueRead(allowMovedLvalueRead)
+          movedBindings(std::move(movedBindings)), allowMovedLvalueRead(allowMovedLvalueRead),
+          activeGenericInstanceName(std::move(activeGenericInstanceName))
     {
     }
 
@@ -490,7 +496,7 @@ namespace NG::typecheck
 
     static auto builtinLifecycleTrait(Str name) -> CheckingRef<TraitType>
     {
-      auto trait = makecheck<TraitType>(std::move(name));
+      auto trait = makecheck<TraitType>(std::move(name), Vec<Str>{}, "std.prelude");
       if (trait->name == CLONE_TRAIT_NAME)
       {
         trait->methods["clone"] = makecheck<FunctionType>(selfType(), Vec<CheckingRef<TypeInfo>>{refSelfType()});
@@ -660,6 +666,263 @@ namespace NG::typecheck
       return names;
     }
 
+    static auto typePatternMatch(const TypeAnnotation *pattern, const CheckingRef<TypeInfo> &actual,
+                                 const Set<Str> &genericParamNames,
+                                 Map<Str, CheckingRef<TypeInfo>> &bindings) -> bool
+    {
+      auto typeFromInstanceArg = [](const Str &name,
+                                    const Map<Str, CheckingRef<TypeInfo>> &currentBindings) -> CheckingRef<TypeInfo> {
+        if (auto it = currentBindings.find(name); it != currentBindings.end())
+        {
+          return it->second;
+        }
+        if (auto primitive = PrimitiveType::from(name))
+        {
+          return primitive;
+        }
+        if (name.contains('<') && name.ends_with(">"))
+        {
+          return makecheck<CustomizedType>(name);
+        }
+        if (name.starts_with("ref<") && name.ends_with(">"))
+        {
+          auto inner = name.substr(4, name.size() - 5);
+          if (auto innerPrimitive = PrimitiveType::from(inner))
+          {
+            return makecheck<ReferenceType>(innerPrimitive);
+          }
+        }
+        return makecheck<CustomizedType>(name);
+      };
+
+      if (!pattern || !actual)
+      {
+        return false;
+      }
+      if (genericParamNames.contains(pattern->name) && pattern->genericArgs.empty() && pattern->arguments.empty())
+      {
+        if (auto it = bindings.find(pattern->name); it != bindings.end())
+        {
+          return typeMatch(*it->second, *actual);
+        }
+        bindings[pattern->name] = actual;
+        return true;
+      }
+      if (pattern->name == "ref")
+      {
+        auto ref = std::dynamic_pointer_cast<ReferenceType>(unwrap(actual));
+        return ref && pattern->genericArgs.size() == 1 &&
+               typePatternMatch(pattern->genericArgs[0].get(), ref->referencedType, genericParamNames, bindings);
+      }
+      auto actualName = actual->repr();
+      if (auto custom = std::dynamic_pointer_cast<CustomizedType>(unwrap(actual)))
+      {
+        actualName = stripTypeInstanceSuffix(custom->name);
+      }
+      else if (auto alias = std::dynamic_pointer_cast<TypeAliasType>(unwrap(actual)))
+      {
+        actualName = stripTypeInstanceSuffix(alias->name);
+      }
+      else if (auto tagged = std::dynamic_pointer_cast<TaggedUnionType>(unwrap(actual)))
+      {
+        actualName = stripTypeInstanceSuffix(tagged->name);
+      }
+      if (pattern->name != actualName)
+      {
+        return false;
+      }
+      auto args = parseTypeInstanceArgs(actual->repr());
+      if (auto custom = std::dynamic_pointer_cast<CustomizedType>(unwrap(actual)))
+      {
+        args = parseTypeInstanceArgs(custom->name);
+      }
+      else if (auto alias = std::dynamic_pointer_cast<TypeAliasType>(unwrap(actual)))
+      {
+        args = parseTypeInstanceArgs(alias->name);
+      }
+      else if (auto tagged = std::dynamic_pointer_cast<TaggedUnionType>(unwrap(actual)))
+      {
+        args = parseTypeInstanceArgs(tagged->name);
+      }
+      if (pattern->genericArgs.size() != args.size())
+      {
+        return pattern->genericArgs.empty();
+      }
+      for (size_t i = 0; i < pattern->genericArgs.size(); ++i)
+      {
+        CheckingRef<TypeInfo> actualArg = typeFromInstanceArg(args[i], bindings);
+        if (!typePatternMatch(pattern->genericArgs[i].get(), actualArg, genericParamNames, bindings))
+        {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    static auto typeSpecializationMatches(const TypeAliasDef &specialization,
+                                          const Vec<CheckingRef<TypeInfo>> &typeArgs,
+                                          Map<Str, CheckingRef<TypeInfo>> &bindings) -> bool
+    {
+      if (!specialization.specializationPattern)
+      {
+        return false;
+      }
+      auto genericNames = genericParamNameSet(specialization.genericParams);
+      if (specialization.specializationPattern->genericArgs.size() != typeArgs.size())
+      {
+        return false;
+      }
+      for (size_t i = 0; i < typeArgs.size(); ++i)
+      {
+        if (!typePatternMatch(specialization.specializationPattern->genericArgs[i].get(), typeArgs[i],
+                              genericNames, bindings))
+        {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    auto typeAliasSpecializationWhereMatches(const TypeAliasDef &specialization,
+                                             const Map<Str, CheckingRef<TypeInfo>> &bindings) -> bool
+    {
+      if (specialization.whereBounds.empty())
+      {
+        return true;
+      }
+      TypeChecker whereChecker{locals};
+      whereChecker.trait_impls_by_type = trait_impls_by_type;
+      for (auto &[name, type] : bindings)
+      {
+        whereChecker.locals[name] = type;
+      }
+      for (auto &bound : specialization.whereBounds)
+      {
+        if (!bound)
+        {
+          return false;
+        }
+        if (bound->predicate)
+        {
+          auto value = whereChecker.tryEvalWherePredicate(bound->predicate.get());
+          if (!value.has_value() || !*value)
+          {
+            return false;
+          }
+          continue;
+        }
+        if (!bound->subject || !bound->trait || !bound->subject->genericArgs.empty())
+        {
+          return false;
+        }
+        auto subIt = whereChecker.locals.find(bound->subject->name);
+        auto traitIt = whereChecker.locals.find(bound->trait->repr());
+        auto trait = traitIt == whereChecker.locals.end() ? nullptr : std::dynamic_pointer_cast<TraitType>(traitIt->second);
+        if (subIt == whereChecker.locals.end() || !trait || !whereChecker.typeSatisfiesTrait(subIt->second, *trait))
+        {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    static auto constSpecializationMatches(const ConstDef &specialization,
+                                           const Vec<CheckingRef<TypeInfo>> &typeArgs,
+                                           Map<Str, CheckingRef<TypeInfo>> &bindings) -> bool
+    {
+      if (!specialization.specializationPattern)
+      {
+        return false;
+      }
+      auto genericNames = genericParamNameSet(specialization.genericParams);
+      if (specialization.specializationPattern->genericArgs.size() != typeArgs.size())
+      {
+        return false;
+      }
+      for (size_t i = 0; i < typeArgs.size(); ++i)
+      {
+        if (!typePatternMatch(specialization.specializationPattern->genericArgs[i].get(), typeArgs[i],
+                              genericNames, bindings))
+        {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    auto constSpecializationWhereMatches(const ConstDef &specialization,
+                                         const Map<Str, CheckingRef<TypeInfo>> &bindings) -> bool
+    {
+      if (specialization.whereBounds.empty())
+      {
+        return true;
+      }
+      TypeChecker whereChecker{locals};
+      whereChecker.trait_impls_by_type = trait_impls_by_type;
+      for (auto &[name, type] : bindings)
+      {
+        whereChecker.locals[name] = type;
+      }
+      for (auto &bound : specialization.whereBounds)
+      {
+        if (!bound)
+        {
+          return false;
+        }
+        if (bound->predicate)
+        {
+          auto value = whereChecker.tryEvalWherePredicate(bound->predicate.get());
+          if (!value.has_value() || !*value)
+          {
+            return false;
+          }
+          continue;
+        }
+        if (!bound->subject || !bound->trait || !bound->subject->genericArgs.empty())
+        {
+          return false;
+        }
+        auto subIt = whereChecker.locals.find(bound->subject->name);
+        auto traitIt = whereChecker.locals.find(bound->trait->repr());
+        auto trait = traitIt == whereChecker.locals.end() ? nullptr : std::dynamic_pointer_cast<TraitType>(traitIt->second);
+        if (subIt == whereChecker.locals.end() || !trait || !whereChecker.typeSatisfiesTrait(subIt->second, *trait))
+        {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    auto resolveAliasSpecializationBody(const TypeAliasDef &specialization,
+                                        const Map<Str, CheckingRef<TypeInfo>> &bindings,
+                                        const Map<Str, CheckingRef<TypeInfo>> &scope,
+                                        const Str &instanceName) -> CheckingRef<TypeInfo>
+    {
+      if (specialization.deleted)
+      {
+        throw TypeCheckingException("Type specialization is deleted: " + specialization.repr(),
+                                    specialization.pos);
+      }
+      if (specialization.abstract)
+      {
+        throw TypeCheckingException("Abstract type alias cannot be instantiated without a matching specialization: " +
+                                        specialization.repr(),
+                                    specialization.pos);
+      }
+      if (specialization.nativeOpaque)
+      {
+        return makecheck<CustomizedType>(instanceName, true, false, currentModuleId);
+      }
+      auto specializedScope = scope;
+      for (auto &[name, type] : bindings)
+      {
+        specializedScope[name] = type;
+      }
+      TypeChecker checker{specializedScope};
+      specialization.underlyingType->accept(&checker);
+      return checker.result;
+    }
+
     static auto whereBoundPatterns(const Vec<ASTRef<TraitBound>> &bounds) -> Vec<Str>
     {
       Vec<Str> patterns;
@@ -668,6 +931,10 @@ namespace NG::typecheck
         if (bound && bound->subject && bound->trait)
         {
           patterns.push_back(bound->subject->repr() + ": " + bound->trait->repr());
+        }
+        else if (bound && bound->predicate)
+        {
+          patterns.push_back(bound->predicate->repr());
         }
       }
       return patterns;
@@ -708,6 +975,88 @@ namespace NG::typecheck
         }
       }
       return children;
+    }
+
+    static auto typePatternSpecificity(const TypeAnnotation *annotation,
+                                       const Set<Str> &genericParamNames) -> size_t
+    {
+      if (!annotation || isGenericPatternWildcard(annotation, genericParamNames))
+      {
+        return 0;
+      }
+      size_t score = 1;
+      for (auto *child : typePatternChildren(annotation))
+      {
+        score += typePatternSpecificity(child, genericParamNames);
+      }
+      return score;
+    }
+
+    static auto constSpecializationSpecificity(const ConstDef &specialization) -> size_t
+    {
+      if (!specialization.specializationPattern)
+      {
+        return 0;
+      }
+      auto genericNames = genericParamNameSet(specialization.genericParams);
+      size_t score = 0;
+      for (auto &arg : specialization.specializationPattern->genericArgs)
+      {
+        score += typePatternSpecificity(arg.get(), genericNames);
+      }
+      return score;
+    }
+
+    static auto typeAliasSpecializationSpecificity(const TypeAliasDef &specialization) -> size_t
+    {
+      if (!specialization.specializationPattern)
+      {
+        return 0;
+      }
+      auto genericNames = genericParamNameSet(specialization.genericParams);
+      size_t score = 0;
+      for (auto &arg : specialization.specializationPattern->genericArgs)
+      {
+        score += typePatternSpecificity(arg.get(), genericNames);
+      }
+      return score;
+    }
+
+    auto selectTypeAliasSpecialization(const Str &name,
+                                       const Vec<CheckingRef<TypeInfo>> &typeArgs)
+        -> std::optional<std::pair<TypeAliasDef *, Map<Str, CheckingRef<TypeInfo>>>>
+    {
+      auto it = activeTypeAliasSpecializations.find(name);
+      if (it == activeTypeAliasSpecializations.end())
+      {
+        return std::nullopt;
+      }
+
+      TypeAliasDef *bestSpecialization = nullptr;
+      Map<Str, CheckingRef<TypeInfo>> bestBindings;
+      size_t bestSpecificity = 0;
+      for (auto *candidate : it->second)
+      {
+        Map<Str, CheckingRef<TypeInfo>> bindings;
+        if (!candidate || !typeSpecializationMatches(*candidate, typeArgs, bindings) ||
+            !typeAliasSpecializationWhereMatches(*candidate, bindings))
+        {
+          continue;
+        }
+        auto specificity = typeAliasSpecializationSpecificity(*candidate);
+        if (!bestSpecialization || specificity > bestSpecificity)
+        {
+          bestSpecialization = candidate;
+          bestBindings = std::move(bindings);
+          bestSpecificity = specificity;
+        }
+      }
+
+      if (!bestSpecialization)
+      {
+        return std::nullopt;
+      }
+      return std::make_pair(bestSpecialization, std::move(bestBindings));
     }
 
     static auto typePatternsMayOverlap(const TypeAnnotation *left, const Set<Str> &leftGenericParams,
@@ -795,6 +1144,10 @@ namespace NG::typecheck
     {
       for (auto &bound : bounds)
       {
+        if (bound && bound->predicate)
+        {
+          continue;
+        }
         if (!bound || !bound->subject || !bound->trait || !bound->subject->genericArgs.empty())
         {
           throw TypeCheckingException("Phase 1 where clauses only support `T: Trait` bounds");
@@ -812,6 +1165,198 @@ namespace NG::typecheck
                                       bound->subject->repr(), bound->pos);
         }
         generic->bound = bound->trait->repr();
+      }
+    }
+
+    auto resolveConstPredicateTypeArg(TypeAnnotation *annotation,
+                                      const Map<Str, CheckingRef<TypeInfo>> &scope) -> CheckingRef<TypeInfo>
+    {
+      if (!annotation)
+      {
+        return nullptr;
+      }
+      TypeChecker checker{scope};
+      annotation->accept(&checker);
+      return checker.result;
+    }
+
+    auto tryEvalNativeConstPredicate(const Str &name, const Vec<CheckingRef<TypeInfo>> &typeArgs)
+        -> std::optional<ConstValue>
+    {
+      if (typeArgs.size() != 1 || !typeArgs[0])
+      {
+        return std::nullopt;
+      }
+      auto type = unwrap(typeArgs[0]);
+      if (name == "is_ref")
+      {
+        return std::dynamic_pointer_cast<ReferenceType>(type) != nullptr;
+      }
+      if (name == "is_trait")
+      {
+        return std::dynamic_pointer_cast<TraitType>(type) != nullptr;
+      }
+      if (name == "is_abstract")
+      {
+        if (std::dynamic_pointer_cast<TraitType>(type))
+        {
+          return true;
+        }
+        if (auto custom = std::dynamic_pointer_cast<CustomizedType>(type))
+        {
+          return custom->abstract;
+        }
+        return false;
+      }
+      return std::nullopt;
+    }
+
+    auto tryEvalConstPredicateCall(const FunCallExpression *funCall) -> std::optional<ConstValue>
+    {
+      auto idExpr = dynamic_ast_cast<IdExpression>(funCall->primaryExpression);
+      if (!idExpr || !activeConstPredicates.contains(idExpr->id))
+      {
+        return std::nullopt;
+      }
+
+      Vec<CheckingRef<TypeInfo>> typeArgs;
+      if (funCall->genericArgs.empty())
+      {
+        return std::nullopt;
+      }
+      typeArgs.reserve(funCall->genericArgs.size());
+      for (auto &arg : funCall->genericArgs)
+      {
+        auto resolved = resolveConstPredicateTypeArg(arg.get(), locals);
+        if (!resolved)
+        {
+          return std::nullopt;
+        }
+        typeArgs.push_back(resolved);
+      }
+
+      ConstDef *primary = nullptr;
+      ConstDef *bestSpecialization = nullptr;
+      Map<Str, CheckingRef<TypeInfo>> bestBindings;
+      size_t bestSpecificity = 0;
+      if (auto it = activeConstPredicates.find(idExpr->id); it != activeConstPredicates.end())
+      {
+        for (auto *candidate : it->second)
+        {
+          if (!candidate)
+          {
+            continue;
+          }
+          if (!candidate->specializationPattern)
+          {
+            primary = candidate;
+            continue;
+          }
+          Map<Str, CheckingRef<TypeInfo>> bindings;
+          if (constSpecializationMatches(*candidate, typeArgs, bindings) &&
+              constSpecializationWhereMatches(*candidate, bindings))
+          {
+            auto specificity = constSpecializationSpecificity(*candidate);
+            if (!bestSpecialization || specificity > bestSpecificity)
+            {
+              bestSpecialization = candidate;
+              bestBindings = std::move(bindings);
+              bestSpecificity = specificity;
+            }
+          }
+        }
+      }
+
+      if (bestSpecialization)
+      {
+        TypeChecker valueChecker{locals};
+        valueChecker.trait_impls_by_type = trait_impls_by_type;
+        for (auto &[name, type] : bestBindings)
+        {
+          valueChecker.locals[name] = type;
+        }
+        if (bestSpecialization->native)
+        {
+          return tryEvalNativeConstPredicate(bestSpecialization->constName, typeArgs);
+        }
+        return valueChecker.tryEvalConstValue(bestSpecialization->value.get());
+      }
+
+      if (primary)
+      {
+        TypeChecker valueChecker{locals};
+        valueChecker.trait_impls_by_type = trait_impls_by_type;
+        for (size_t i = 0; i < primary->genericParams.size() && i < typeArgs.size(); ++i)
+        {
+          valueChecker.locals[primary->genericParams[i]->name] = typeArgs[i];
+        }
+        if (primary->native)
+        {
+          return tryEvalNativeConstPredicate(primary->constName, typeArgs);
+        }
+        return valueChecker.tryEvalConstValue(primary->value.get());
+      }
+      return std::nullopt;
+    }
+
+    auto tryEvalWherePredicate(Expression *expr) -> std::optional<bool>
+    {
+      if (auto *funCall = dynamic_cast<FunCallExpression *>(expr))
+      {
+        auto value = tryEvalConstPredicateCall(funCall);
+        if (value.has_value() && std::holds_alternative<bool>(*value))
+        {
+          return std::get<bool>(*value);
+        }
+        return std::nullopt;
+      }
+      if (auto *unaryExpr = dynamic_cast<UnaryExpression *>(expr))
+      {
+        auto operand = tryEvalWherePredicate(unaryExpr->operand.get());
+        if (operand.has_value() && unaryExpr->optr && unaryExpr->optr->type == TokenType::NOT)
+        {
+          return !*operand;
+        }
+        return std::nullopt;
+      }
+      if (auto *binaryExpr = dynamic_cast<BinaryExpression *>(expr))
+      {
+        auto left = tryEvalWherePredicate(binaryExpr->left.get());
+        auto right = tryEvalWherePredicate(binaryExpr->right.get());
+        if (!left.has_value() || !right.has_value())
+        {
+          return std::nullopt;
+        }
+        if (binaryExpr->optr->type == TokenType::AND)
+        {
+          return *left && *right;
+        }
+        if (binaryExpr->optr->type == TokenType::OR)
+        {
+          return *left || *right;
+        }
+      }
+      return tryEvalConstCondition(expr);
+    }
+
+    void validateWherePredicates(const Vec<ASTRef<TraitBound>> &bounds, const TokenPosition &pos)
+    {
+      for (auto &bound : bounds)
+      {
+        if (!bound || !bound->predicate)
+        {
+          continue;
+        }
+        auto value = tryEvalWherePredicate(bound->predicate.get());
+        if (!value.has_value())
+        {
+          throw TypeCheckingException("Unable to evaluate where predicate: " + bound->predicate->repr(),
+                                      bound->pos);
+        }
+        if (!*value)
+        {
+          throw TypeCheckingException("Where predicate is not satisfied: " + bound->predicate->repr(), pos);
+        }
       }
     }
 
@@ -1061,6 +1606,15 @@ namespace NG::typecheck
         return genericDef.instances.at(instanceName);
       }
 
+      if (auto selected = selectTypeAliasSpecialization(genericDef.name, typeArgs); selected.has_value())
+      {
+        auto [specialization, bindings] = std::move(*selected);
+        auto resultType = resolveAliasSpecializationBody(*specialization, bindings, genericDef.capturedLocals,
+                                                         instanceName);
+        genericDef.instances[instanceName] = resultType;
+        return resultType;
+      }
+
       Map<Str, CheckingRef<TypeInfo>> instLocals = genericDef.capturedLocals;
       for (size_t i = 0; i < genericDef.typeParamNames.size(); ++i)
       {
@@ -1071,7 +1625,7 @@ namespace NG::typecheck
       {
       case GenericTypeKind::TYPE_DEF:
       {
-        auto customType = makecheck<CustomizedType>(instanceName);
+        auto customType = makecheck<CustomizedType>(instanceName, false, false, genericDef.moduleId);
         genericDef.instances[instanceName] = customType;
 
         TypeChecker checker{instLocals};
@@ -1146,13 +1700,18 @@ namespace NG::typecheck
       }
       case GenericTypeKind::TYPE_ALIAS:
       {
+        if (genericDef.typeAliasDef->abstract)
+        {
+          throw TypeCheckingException("Abstract type alias cannot be instantiated without a matching specialization: " +
+                                      genericDef.name);
+        }
         if (genericDef.typeAliasDef->nativeOpaque)
         {
-          auto nativeType = makecheck<CustomizedType>(instanceName, true);
+          auto nativeType = makecheck<CustomizedType>(instanceName, true, false, genericDef.moduleId);
           genericDef.instances[instanceName] = nativeType;
           return nativeType;
         }
-        auto aliasType = makecheck<TypeAliasType>(instanceName, makecheck<Untyped>());
+        auto aliasType = makecheck<TypeAliasType>(instanceName, makecheck<Untyped>(), genericDef.moduleId);
         genericDef.instances[instanceName] = aliasType;
         TypeChecker checker{instLocals};
         genericDef.typeAliasDef->underlyingType->accept(&checker);
@@ -1161,7 +1720,7 @@ namespace NG::typecheck
       }
       case GenericTypeKind::NEW_TYPE:
       {
-        auto newType = makecheck<NewTypeType>(instanceName, makecheck<Untyped>());
+        auto newType = makecheck<NewTypeType>(instanceName, makecheck<Untyped>(), genericDef.moduleId);
         genericDef.instances[instanceName] = newType;
         TypeChecker checker{instLocals};
         genericDef.newTypeDef->wrappedType->accept(&checker);
@@ -1170,7 +1729,7 @@ namespace NG::typecheck
       }
       case GenericTypeKind::TAGGED_UNION:
       {
-        auto unionType = makecheck<TaggedUnionType>(instanceName);
+        auto unionType = makecheck<TaggedUnionType>(instanceName, genericDef.moduleId);
         genericDef.instances[instanceName] = unionType;
         TypeChecker checker{instLocals};
         for (auto &variant : genericDef.taggedUnionDef->variants)
@@ -1296,6 +1855,13 @@ namespace NG::typecheck
 
     auto tryEvalConstValue(Expression *expr) -> std::optional<ConstValue>
     {
+      if (auto *funCall = dynamic_cast<FunCallExpression *>(expr))
+      {
+        if (auto predicate = tryEvalConstPredicateCall(funCall); predicate.has_value())
+        {
+          return *predicate;
+        }
+      }
       if (auto *boolVal = dynamic_cast<BooleanValue *>(expr))
       {
         return boolVal->value;
@@ -1361,6 +1927,13 @@ namespace NG::typecheck
       if (auto *unaryExpr = dynamic_cast<UnaryExpression *>(expr))
       {
         auto operand = tryEvalConstValue(unaryExpr->operand.get());
+        if (!operand.has_value())
+        {
+          if (auto predicate = tryEvalWherePredicate(unaryExpr->operand.get()); predicate.has_value())
+          {
+            operand = *predicate;
+          }
+        }
         if (operand.has_value() && unaryExpr->optr && unaryExpr->optr->type == TokenType::NOT &&
             std::holds_alternative<bool>(*operand))
         {
@@ -1372,6 +1945,20 @@ namespace NG::typecheck
       {
         auto left = tryEvalConstValue(binaryExpr->left.get());
         auto right = tryEvalConstValue(binaryExpr->right.get());
+        if (!left.has_value())
+        {
+          if (auto predicate = tryEvalWherePredicate(binaryExpr->left.get()); predicate.has_value())
+          {
+            left = *predicate;
+          }
+        }
+        if (!right.has_value())
+        {
+          if (auto predicate = tryEvalWherePredicate(binaryExpr->right.get()); predicate.has_value())
+          {
+            right = *predicate;
+          }
+        }
         if (!left.has_value() || !right.has_value())
         {
           return std::nullopt;
@@ -1420,6 +2007,30 @@ namespace NG::typecheck
       return std::nullopt;
     }
 
+    static auto constValueMatchesType(const ConstValue &value, const CheckingRef<TypeInfo> &type) -> bool
+    {
+      auto unwrapped = unwrap(type);
+      if (!unwrapped)
+      {
+        return false;
+      }
+      if (std::holds_alternative<bool>(value))
+      {
+        return unwrapped->tag() == typeinfo_tag::BOOL;
+      }
+      if (std::holds_alternative<Str>(value))
+      {
+        return unwrapped->tag() == typeinfo_tag::STRING;
+      }
+      if (std::holds_alternative<int64_t>(value))
+      {
+        auto tag = unwrapped->tag();
+        return (tag >= typeinfo_tag::I8 && tag <= typeinfo_tag::I128) ||
+               (tag >= typeinfo_tag::U8 && tag <= typeinfo_tag::U128);
+      }
+      return false;
+    }
+
     void visit(CompileUnit *compileUnit) override { compileUnit->module->accept(this); }
 
     void visit(Module *module) override
@@ -1440,7 +2051,11 @@ namespace NG::typecheck
           {
             typeParamNames.push_back(gp->name);
           }
-          locals[traitDef->traitName] = makecheck<TraitType>(traitDef->traitName, typeParamNames);
+          locals[traitDef->traitName] = makecheck<TraitType>(traitDef->traitName, typeParamNames, currentModuleId);
+        }
+        else if (auto constDef = dynamic_ast_cast<ConstDef>(def))
+        {
+          activeConstPredicates[constDef->constName].push_back(constDef.get());
         }
         else if (auto funDef = dynamic_ast_cast<FunctionDef>(def))
         {
@@ -1455,7 +2070,7 @@ namespace NG::typecheck
               typeParamIsPack.push_back(gp->isPack);
             }
             auto genericDef = makecheck<GenericDefType>(
-                funDef->funName, typeParamNames, typeParamIsPack, funDef, locals);
+                funDef->funName, typeParamNames, typeParamIsPack, funDef, locals, currentModuleId);
             locals[funDef->funName] = genericDef;
 
             // Register generic type params in a temporary scope so parameter
@@ -1501,6 +2116,16 @@ namespace NG::typecheck
         }
         else if (auto typeAlias = dynamic_ast_cast<TypeAliasDef>(def))
         {
+          if (typeAlias->specializationPattern)
+          {
+            activeTypeAliasSpecializations[typeAlias->aliasName].push_back(typeAlias.get());
+            continue;
+          }
+          if (typeAlias->abstract && typeAlias->genericParams.empty())
+          {
+            locals.insert_or_assign(typeAlias->aliasName, makecheck<CustomizedType>(typeAlias->aliasName, false, true, currentModuleId));
+            continue;
+          }
           if (!typeAlias->genericParams.empty())
           {
             Vec<Str> typeParamNames;
@@ -1511,18 +2136,23 @@ namespace NG::typecheck
               typeParamIsPack.push_back(gp->isPack);
             }
             locals[typeAlias->aliasName] =
-                makecheck<GenericTypeDef>(typeAlias->aliasName, typeParamNames, typeParamIsPack, typeAlias, locals);
+                makecheck<GenericTypeDef>(typeAlias->aliasName, typeParamNames, typeParamIsPack, typeAlias, locals, currentModuleId);
           }
           else
           {
+            if (typeAlias->abstract)
+            {
+              locals.insert_or_assign(typeAlias->aliasName, makecheck<CustomizedType>(typeAlias->aliasName, false, true, currentModuleId));
+              continue;
+            }
             if (typeAlias->nativeOpaque)
             {
-              locals.insert_or_assign(typeAlias->aliasName, makecheck<CustomizedType>(typeAlias->aliasName, true));
+              locals.insert_or_assign(typeAlias->aliasName, makecheck<CustomizedType>(typeAlias->aliasName, true, false, currentModuleId));
               continue;
             }
             TypeChecker checker{locals};
             typeAlias->underlyingType->accept(&checker);
-            auto aliasType = makecheck<TypeAliasType>(typeAlias->aliasName, checker.result);
+            auto aliasType = makecheck<TypeAliasType>(typeAlias->aliasName, checker.result, currentModuleId);
             locals.insert_or_assign(typeAlias->aliasName, aliasType);
           }
         }
@@ -1538,13 +2168,13 @@ namespace NG::typecheck
               typeParamIsPack.push_back(gp->isPack);
             }
             locals[newTypeDef->typeName] =
-                makecheck<GenericTypeDef>(newTypeDef->typeName, typeParamNames, typeParamIsPack, newTypeDef, locals);
+                makecheck<GenericTypeDef>(newTypeDef->typeName, typeParamNames, typeParamIsPack, newTypeDef, locals, currentModuleId);
           }
           else
           {
             TypeChecker checker{locals};
             newTypeDef->wrappedType->accept(&checker);
-            auto ntType = makecheck<NewTypeType>(newTypeDef->typeName, checker.result);
+            auto ntType = makecheck<NewTypeType>(newTypeDef->typeName, checker.result, currentModuleId);
             locals.insert_or_assign(newTypeDef->typeName, ntType);
           }
         }
@@ -1560,11 +2190,11 @@ namespace NG::typecheck
               typeParamIsPack.push_back(gp->isPack);
             }
             locals[typeDef->typeName] =
-                makecheck<GenericTypeDef>(typeDef->typeName, typeParamNames, typeParamIsPack, typeDef, locals);
+                makecheck<GenericTypeDef>(typeDef->typeName, typeParamNames, typeParamIsPack, typeDef, locals, currentModuleId);
           }
           else
           {
-            auto customType = makecheck<CustomizedType>(typeDef->typeName);
+            auto customType = makecheck<CustomizedType>(typeDef->typeName, false, false, currentModuleId);
             locals.insert_or_assign(typeDef->typeName, customType);
           }
         }
@@ -1580,13 +2210,13 @@ namespace NG::typecheck
               typeParamIsPack.push_back(gp->isPack);
             }
             auto genericDef = makecheck<GenericTypeDef>(taggedUnion->typeName, typeParamNames,
-                                                        typeParamIsPack, taggedUnion, locals);
+                                                        typeParamIsPack, taggedUnion, locals, currentModuleId);
             locals[taggedUnion->typeName] = genericDef;
             genericDef->capturedLocals = locals;
           }
           else
           {
-            auto tuType = makecheck<TaggedUnionType>(taggedUnion->typeName);
+            auto tuType = makecheck<TaggedUnionType>(taggedUnion->typeName, currentModuleId);
             locals.insert_or_assign(taggedUnion->typeName, tuType);
             TypeChecker checker{locals};
             for (int32_t i = 0; i < static_cast<int32_t>(taggedUnion->variants.size()); ++i)
@@ -1721,6 +2351,46 @@ namespace NG::typecheck
       }
     }
 
+    void visit(ConstDef *constDef) override
+    {
+      Map<Str, CheckingRef<TypeInfo>> constScope = locals;
+      addGenericParamsToScope(constScope, constDef->genericParams);
+
+      TypeChecker returnChecker{constScope};
+      constDef->returnType->accept(&returnChecker);
+      auto returnType = returnChecker.result;
+
+      if (constDef->native)
+      {
+        if (!returnType || unwrap(returnType)->tag() != typeinfo_tag::BOOL)
+        {
+          throw TypeCheckingException("Native const predicate must return bool: " + constDef->constName,
+                                      constDef->pos);
+        }
+        return;
+      }
+
+      if (!constDef->value)
+      {
+        throw TypeCheckingException("Const definition requires a compile-time value: " + constDef->constName,
+                                    constDef->pos);
+      }
+
+      TypeChecker valueChecker{constScope};
+      valueChecker.trait_impls_by_type = trait_impls_by_type;
+      auto value = valueChecker.tryEvalConstValue(constDef->value.get());
+      if (!value.has_value())
+      {
+        throw TypeCheckingException("Const definition is not compile-time evaluable: " + constDef->constName,
+                                    constDef->value->pos);
+      }
+      if (!constValueMatchesType(*value, returnType))
+      {
+        throw TypeCheckingException("Const definition type mismatch: " + constDef->constName,
+                                    constDef->value->pos);
+      }
+    }
+
     void visit(TraitDef *traitDef) override
     {
       if (isBuiltinLifecycleTraitName(traitDef->traitName))
@@ -1766,7 +2436,7 @@ namespace NG::typecheck
       auto trait = std::dynamic_pointer_cast<TraitType>(locals[traitDef->traitName]);
       if (!trait)
       {
-        trait = makecheck<TraitType>(traitDef->traitName);
+        trait = makecheck<TraitType>(traitDef->traitName, Vec<Str>{}, currentModuleId);
         locals[traitDef->traitName] = trait;
       }
 
@@ -1843,6 +2513,10 @@ namespace NG::typecheck
       Map<Str, CheckingRef<TypeInfo>> implScope = locals;
       addGenericParamsToScope(implScope, implDef->genericParams);
       addWhereBoundsToScope(implScope, implDef->whereBounds);
+      {
+        TypeChecker whereChecker{implScope};
+        whereChecker.validateWherePredicates(implDef->whereBounds, implDef->pos);
+      }
 
       TypeChecker traitChecker{implScope};
       implDef->trait->accept(&traitChecker);
@@ -2076,7 +2750,7 @@ namespace NG::typecheck
 
     void visit(SimpleStatement *simpleStatement) override
     {
-      TypeChecker checker{locals, {}, nullptr, movedBindings};
+      TypeChecker checker{locals, {}, nullptr, movedBindings, allowMovedLvalueRead, activeGenericInstanceName};
       simpleStatement->expression->accept(&checker);
       movedBindings = checker.movedBindings;
       if (auto *assignmentExpr = dynamic_cast<AssignmentExpression *>(simpleStatement->expression.get()))
@@ -2091,7 +2765,8 @@ namespace NG::typecheck
     void visit(CompoundStatement *compoundStatement) override
     {
       auto outerNames = scopeNames(locals);
-      TypeChecker checker{locals, contextRequirement, expectedType, movedBindings};
+      TypeChecker checker{locals, contextRequirement, expectedType, movedBindings, allowMovedLvalueRead,
+                          activeGenericInstanceName};
       CheckingRef<TypeInfo> returnType = nullptr;
       for (auto stmt : compoundStatement->statements)
       {
@@ -2129,7 +2804,7 @@ namespace NG::typecheck
     {
       if (returnStatement->expression)
       {
-        TypeChecker checker{locals, {}, expectedType, movedBindings};
+        TypeChecker checker{locals, {}, expectedType, movedBindings, allowMovedLvalueRead, activeGenericInstanceName};
         returnStatement->expression->accept(&checker);
         movedBindings = checker.movedBindings;
         result = checker.result;
@@ -2144,7 +2819,7 @@ namespace NG::typecheck
     {
       // Resolve argument types, expanding spreads
       Vec<CheckingRef<TypeInfo>> resolvedTypes;
-      TypeChecker checker{locals, {}, nullptr, movedBindings};
+      TypeChecker checker{locals, {}, nullptr, movedBindings, allowMovedLvalueRead, activeGenericInstanceName};
       for (auto &expr : nextStatement->expressions)
       {
         checker.spreadResult.clear();
@@ -2216,17 +2891,26 @@ namespace NG::typecheck
 
     void visit(IfStatement *ifStatement) override
     {
-      ifStatement->evaluatedCondition.reset();
+      if (activeGenericInstanceName.empty())
+      {
+        ifStatement->evaluatedCondition.reset();
+      }
       if (ifStatement->isConst)
       {
         auto condResult = tryEvalConstCondition(ifStatement->testing.get());
         if (condResult.has_value())
         {
           ifStatement->evaluatedCondition = condResult.value();
+          if (!activeGenericInstanceName.empty())
+          {
+            ifStatement->evaluatedConditionByInstance[activeGenericInstanceName] = condResult.value();
+          }
           if (condResult.value())
           {
             auto outerNames = scopeNames(locals);
-            TypeChecker thenChecker{locals, contextRequirement, expectedType, movedBindings};
+            TypeChecker thenChecker{locals, contextRequirement, expectedType, movedBindings, allowMovedLvalueRead,
+                                    activeGenericInstanceName};
+            thenChecker.trait_impls_by_type = trait_impls_by_type;
             ifStatement->consequence->accept(&thenChecker);
             movedBindings = filterMovedBindings(thenChecker.movedBindings, outerNames);
             result = thenChecker.result;
@@ -2234,7 +2918,9 @@ namespace NG::typecheck
           else if (ifStatement->alternative)
           {
             auto outerNames = scopeNames(locals);
-            TypeChecker elseChecker{locals, contextRequirement, expectedType, movedBindings};
+            TypeChecker elseChecker{locals, contextRequirement, expectedType, movedBindings, allowMovedLvalueRead,
+                                    activeGenericInstanceName};
+            elseChecker.trait_impls_by_type = trait_impls_by_type;
             ifStatement->alternative->accept(&elseChecker);
             movedBindings = filterMovedBindings(elseChecker.movedBindings, outerNames);
             result = elseChecker.result;
@@ -2248,7 +2934,8 @@ namespace NG::typecheck
         // If we can't resolve at compile time, fall through to runtime if behavior
       }
 
-      TypeChecker condChecker{locals, contextRequirement, expectedType, movedBindings};
+      TypeChecker condChecker{locals, contextRequirement, expectedType, movedBindings, allowMovedLvalueRead,
+                              activeGenericInstanceName};
       ifStatement->testing->accept(&condChecker);
       auto condType = condChecker.result;
       if (!condType || (condType->tag() != typeinfo_tag::BOOL && condType->tag() != typeinfo_tag::UNTYPED))
@@ -2261,7 +2948,8 @@ namespace NG::typecheck
       CheckingRef<TypeInfo> returnType = nullptr;
       if (ifStatement->consequence)
       {
-        TypeChecker thenChecker{locals, contextRequirement, expectedType, entryMovedBindings};
+        TypeChecker thenChecker{locals, contextRequirement, expectedType, entryMovedBindings, allowMovedLvalueRead,
+                                activeGenericInstanceName};
         ifStatement->consequence->accept(&thenChecker);
         returnType = thenChecker.result;
         result = returnType;
@@ -2269,7 +2957,8 @@ namespace NG::typecheck
       }
       if (ifStatement->alternative)
       {
-        TypeChecker elseChecker{locals, contextRequirement, expectedType, entryMovedBindings};
+        TypeChecker elseChecker{locals, contextRequirement, expectedType, entryMovedBindings, allowMovedLvalueRead,
+                                activeGenericInstanceName};
         ifStatement->alternative->accept(&elseChecker);
         auto consequenceType = elseChecker.result;
         if (returnType && consequenceType)
@@ -2306,7 +2995,7 @@ namespace NG::typecheck
     void visit(LoopStatement *loopStatement) override
     {
       auto outerNames = scopeNames(locals);
-      TypeChecker checker{locals, {}, nullptr, movedBindings};
+      TypeChecker checker{locals, {}, nullptr, movedBindings, allowMovedLvalueRead, activeGenericInstanceName};
       Vec<CheckingRef<TypeInfo>> paramTypes;
       for (auto binding : loopStatement->bindings)
       {
@@ -2338,13 +3027,13 @@ namespace NG::typecheck
       CheckingRef<TypeInfo> annoType = nullptr;
       if (valDefStatement->typeAnnotation)
       {
-        TypeChecker annoChecker{locals, {}, nullptr, movedBindings};
+        TypeChecker annoChecker{locals, {}, nullptr, movedBindings, allowMovedLvalueRead, activeGenericInstanceName};
         valDefStatement->typeAnnotation->accept(&annoChecker);
         annoType = annoChecker.result;
       }
 
       // Bidirectional inference: pass annotation type as expectedType to value expression
-      TypeChecker valChecker{locals, {}, annoType, movedBindings};
+      TypeChecker valChecker{locals, {}, annoType, movedBindings, allowMovedLvalueRead, activeGenericInstanceName};
       valDefStatement->value->accept(&valChecker);
       auto valType = valChecker.result;
       movedBindings = valChecker.movedBindings;
@@ -2626,7 +3315,7 @@ namespace NG::typecheck
 
     void visit(UnaryExpression *unoExpr) override
     {
-      TypeChecker checker{locals, {}, nullptr, movedBindings};
+      TypeChecker checker{locals, {}, nullptr, movedBindings, allowMovedLvalueRead, activeGenericInstanceName};
       unoExpr->operand->accept(&checker);
       auto operandType = checker.result;
       movedBindings = checker.movedBindings;
@@ -2935,6 +3624,14 @@ namespace NG::typecheck
           {
             throw TypeCheckingException("Unknown referenced type for ref");
           }
+          if (auto selected = selectTypeAliasSpecialization("ref", Vec<CheckingRef<TypeInfo>>{innerType});
+              selected.has_value())
+          {
+            auto [specialization, bindings] = std::move(*selected);
+            result = resolveAliasSpecializationBody(*specialization, bindings, locals,
+                                                    "ref<" + innerType->repr() + ">");
+            return;
+          }
           if (auto trait = std::dynamic_pointer_cast<TraitType>(unwrap(innerType)); trait && !isObjectSafeTrait(*trait))
           {
             throw TypeCheckingException("Trait is not object-safe for ref<" + innerType->repr() + ">");
@@ -2995,6 +3692,23 @@ namespace NG::typecheck
           throw TypeCheckingException("Unknown type: " + innerName);
         }
         auto it = locals.find(annotation->name);
+        if (!annotation->genericArgs.empty())
+        {
+          Vec<CheckingRef<TypeInfo>> typeArgs;
+          TypeChecker checker{locals};
+          for (auto &arg : annotation->genericArgs)
+          {
+            arg->accept(&checker);
+            typeArgs.push_back(checker.result);
+          }
+          if (auto selected = selectTypeAliasSpecialization(annotation->name, typeArgs); selected.has_value())
+          {
+            auto [specialization, bindings] = std::move(*selected);
+            result = resolveAliasSpecializationBody(*specialization, bindings, locals,
+                                                    formatTypeInstanceName(annotation->name, typeArgs));
+            return;
+          }
+        }
         if (it != locals.end())
         {
           if (!annotation->genericArgs.empty())
@@ -3044,13 +3758,14 @@ namespace NG::typecheck
       }
       else
       {
-        TypeChecker targetChecker{locals, {}, nullptr, movedBindings, true};
+        TypeChecker targetChecker{locals, {}, nullptr, movedBindings, true, activeGenericInstanceName};
         assignmentExpr->target->accept(&targetChecker);
         targetType = targetChecker.result;
         targetMovedBindings = targetChecker.movedBindings;
       }
 
-      TypeChecker valueChecker{locals, {}, nullptr, targetMovedBindings};
+      TypeChecker valueChecker{locals, {}, nullptr, targetMovedBindings, allowMovedLvalueRead,
+                               activeGenericInstanceName};
       assignmentExpr->value->accept(&valueChecker);
       auto valueType = valueChecker.result;
       movedBindings = valueChecker.movedBindings;
@@ -3469,6 +4184,11 @@ namespace NG::typecheck
       auto customType = std::dynamic_pointer_cast<CustomizedType>(objectType);
       if (customType)
       {
+        if (customType->abstract)
+        {
+          throw TypeCheckingException("Abstract type cannot be constructed with new: " + customType->name,
+                                      newObj->pos);
+        }
         if (customType->nativeOpaque)
         {
           throw TypeCheckingException("Native opaque type cannot be constructed with new: " + customType->name,
@@ -3551,7 +4271,7 @@ namespace NG::typecheck
       movedBindings = checker.movedBindings;
       result = makecheck<ReferenceType>(
           makecheck<VariantType>(variantInfo->unionType->name, newObj->typeName, 0, variantInfo->payloadTypes,
-                                 variantInfo->payloadNames));
+                                 variantInfo->payloadNames, variantInfo->unionType->moduleId));
     }
 
     void visit(IndexAssignmentExpression *indexAssign) override
@@ -3715,7 +4435,8 @@ namespace NG::typecheck
         Set<Str> mergedMovedBindings = entryMovedBindings;
         for (auto &c : switchStmt->cases)
         {
-          TypeChecker caseChecker{locals, {}, nullptr, entryMovedBindings};
+          TypeChecker caseChecker{locals, {}, nullptr, entryMovedBindings, allowMovedLvalueRead,
+                                  activeGenericInstanceName};
           c.body->accept(&caseChecker);
           auto caseMovedBindings = filterMovedBindings(caseChecker.movedBindings, outerNames);
           mergedMovedBindings.insert(caseMovedBindings.begin(), caseMovedBindings.end());
@@ -3752,7 +4473,8 @@ namespace NG::typecheck
 
       for (auto &c : switchStmt->cases)
       {
-        TypeChecker caseChecker{locals, {}, nullptr, entryMovedBindings};
+        TypeChecker caseChecker{locals, {}, nullptr, entryMovedBindings, allowMovedLvalueRead,
+                                activeGenericInstanceName};
 
         if (c.isOtherwise)
         {
@@ -3806,6 +4528,11 @@ namespace NG::typecheck
 
     void visit(FunCallExpression *funCall) override
     {
+      if (auto predicate = tryEvalConstPredicateCall(funCall); predicate.has_value())
+      {
+        result = makecheck<PrimitiveType>(typeinfo_tag::BOOL);
+        return;
+      }
       // Check if this is a tagged value construction (e.g. Ok(42))
       if (auto idExpr = dynamic_ast_cast<IdExpression>(funCall->primaryExpression))
       {
@@ -3851,7 +4578,8 @@ namespace NG::typecheck
               {
                 payloadNames = tuType->variantPayloadNames[idExpr->id];
               }
-              result = makecheck<VariantType>(tuType->name, idExpr->id, 0, payloadTypes, payloadNames);
+              result = makecheck<VariantType>(tuType->name, idExpr->id, 0, payloadTypes, payloadNames,
+                                              tuType->moduleId);
               return;
             }
           }
@@ -4011,7 +4739,8 @@ namespace NG::typecheck
                       continue;
                     }
                     result = makecheck<VariantType>(expectedUnion->name, idExpr->id, 0,
-                                                    expectedUnion->variants[idExpr->id], payloadNames);
+                                                    expectedUnion->variants[idExpr->id], payloadNames,
+                                                    expectedUnion->moduleId);
                     return;
                   }
                 }
@@ -4032,7 +4761,7 @@ namespace NG::typecheck
                 payloadNames = tuType->variantPayloadNames[idExpr->id];
               }
               result = makecheck<VariantType>(tuType->name, idExpr->id, 0, tuType->variants[idExpr->id],
-                                              payloadNames);
+                                              payloadNames, tuType->moduleId);
               return;
             }
           }
@@ -4336,7 +5065,7 @@ namespace NG::typecheck
       auto &typeParamIsPack = genericDef.typeParamIsPack;
 
       // 1. Type-check arguments
-      TypeChecker argChecker{locals, {}, nullptr, movedBindings};
+      TypeChecker argChecker{locals, {}, nullptr, movedBindings, allowMovedLvalueRead, activeGenericInstanceName};
       Vec<CheckingRef<TypeInfo>> argumentTypes;
       for (auto arg : funCall->arguments)
       {
@@ -4514,6 +5243,15 @@ namespace NG::typecheck
           substitution[name] = makecheck<Untyped>();
         }
       }
+      {
+        TypeChecker whereChecker{locals};
+        whereChecker.trait_impls_by_type = trait_impls_by_type;
+        for (auto &[name, type] : substitution)
+        {
+          whereChecker.locals[name] = type;
+        }
+        whereChecker.validateWherePredicates(funcDef->whereBounds, funCall->pos);
+      }
 
       Vec<CheckingRef<TypeInfo>> instantiatedArgs;
       instantiatedArgs.reserve(typeParamNames.size());
@@ -4549,6 +5287,14 @@ namespace NG::typecheck
         }
       }
       Str instanceName = formatTypeInstanceName(genericDef.name, instantiatedArgs);
+      funCall->genericInstanceName = instanceName;
+      funCall->mangledCalleeName =
+          mangle_symbol(MangledSymbolKind::Function, genericDef.moduleId, genericDef.name, instantiatedArgs);
+      funCall->resolvedCalleeName = funCall->mangledCalleeName;
+      if (!activeGenericInstanceName.empty())
+      {
+        funCall->mangledCalleeNameByInstance[activeGenericInstanceName] = funCall->mangledCalleeName;
+      }
       if (genericDef.instances.contains(instanceName))
       {
         return genericDef.instances.at(instanceName);
@@ -4572,6 +5318,8 @@ namespace NG::typecheck
 
       // 5. Type-check the function body with substituted types
       TypeChecker bodyChecker{locals};
+      bodyChecker.trait_impls_by_type = trait_impls_by_type;
+      bodyChecker.activeGenericInstanceName = funCall->mangledCalleeName;
       for (auto &[name, type] : substitution)
       {
         bodyChecker.locals[name] = type;
@@ -4704,6 +5452,12 @@ namespace NG::typecheck
 
   TypeIndex type_check(ASTRef<ASTNode> ast, TypeIndex initial_index)
   {
+    TypeChecker::activeTypeAliasSpecializations.clear();
+    TypeChecker::activeConstPredicates.clear();
+    if (!initial_index.empty())
+    {
+      TypeChecker::activeConstPredicates = TypeChecker::preludeConstPredicates;
+    }
     TypeChecker checker{initial_index};
     checker.type_index = initial_index;
     ast->accept(&checker);
@@ -4713,6 +5467,15 @@ namespace NG::typecheck
 
   TypeIndex build_prelude_type_index()
   {
+    static bool cached = false;
+    static TypeIndex cachedResult;
+    static ASTRef<ASTNode> retainedPreludeAst = nullptr;
+
+    if (cached)
+    {
+      return cachedResult;
+    }
+
     TypeIndex result;
 
     // Try to locate and load the prelude source file from known lib paths.
@@ -4750,7 +5513,8 @@ namespace NG::typecheck
       if (ast)
       {
         result = type_check(ast);
-        destroyast(ast);
+        TypeChecker::preludeConstPredicates = TypeChecker::activeConstPredicates;
+        retainedPreludeAst = ast;
       }
     }
     catch (...)
@@ -4759,6 +5523,8 @@ namespace NG::typecheck
       // This keeps the rest of the program functional.
     }
 
+    cachedResult = result;
+    cached = true;
     return result;
   }
 } // namespace NG::typecheck

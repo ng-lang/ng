@@ -9,6 +9,11 @@ fun print<T...>(value: T...) -> unit = native;
 
 fun assert<T...>(assertion: T...) -> unit = native;
 
+const is_ref<T>: bool = false;
+const<T> is_ref<ref<T>>: bool = true;
+const is_trait<T>: bool = native;
+const is_abstract<T>: bool = native;
+
 fun len<T>(xs: string | T array) -> u32 = native;
 
 // C1: Basic I/O

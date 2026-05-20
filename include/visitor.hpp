@@ -286,6 +286,7 @@ namespace NG::ast
         virtual void visit(ImportDecl *importDecl) = 0;
 
         virtual void visit(TypeAliasDef *typeAliasDef) = 0;
+        virtual void visit(ConstDef *constDef) = 0;
         virtual void visit(NewTypeDef *newTypeDef) = 0;
         virtual void visit(CastExpression *castExpr) = 0;
         virtual void visit(TaggedUnionDef *taggedUnionDef) = 0;
@@ -410,6 +411,7 @@ namespace NG::ast
 
         void visit(ImportDecl *importDecl) override;
         void visit(TypeAliasDef *typeAliasDef) override;
+        void visit(ConstDef *constDef) override;
         void visit(NewTypeDef *newTypeDef) override;
         void visit(CastExpression *castExpr) override;
         void visit(TaggedUnionDef *taggedUnionDef) override;
