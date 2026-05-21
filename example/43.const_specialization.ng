@@ -1,0 +1,34 @@
+// User-defined compile-time const specialization over reified generic types.
+
+type Box<T> {
+    property value: T;
+}
+
+const is_box_ref<T>: bool = false;
+const<T> is_box_ref<ref<T>>: bool = false;
+const<T> is_box_ref<ref<Box<T>>>: bool = true;
+
+fun describeBoxRef<T>(value: T) -> unit where is_box_ref<T> {
+    const if (is_box_ref<T>) {
+        print("T is ref<Box<_>>");
+    } else {
+        assert(false);
+    }
+}
+
+fun describeOther<T>(value: T) -> unit where !is_box_ref<T> {
+    const if (is_box_ref<T>) {
+        assert(false);
+    } else {
+        print("T is not ref<Box<_>>");
+    }
+}
+
+fun requireBoxRef<T>(value: T) -> i32 where is_box_ref<T> = 42;
+
+val boxed = new Box<i32> { value: 1 };
+val plain = 7;
+
+describeBoxRef(boxed);
+describeOther(ref plain);
+assert(requireBoxRef(boxed) == 42);

@@ -6,9 +6,27 @@ namespace NG::typecheck
 
     auto GenericParamType::repr() const -> Str
     {
+        Str base = name;
+        if (kindArity > 0 || kindVariadicTail)
+        {
+            base += "<";
+            for (size_t i = 0; i < kindArity; ++i)
+            {
+                if (i > 0)
+                    base += ", ";
+                base += "_";
+            }
+            if (kindVariadicTail)
+            {
+                if (kindArity > 0)
+                    base += ", ";
+                base += "...";
+            }
+            base += ">";
+        }
         if (bound.empty())
-            return name;
-        return name + ": " + bound;
+            return base;
+        return base + ": " + bound;
     }
 
     auto GenericParamType::match(const TypeInfo &other) const -> bool
@@ -16,7 +34,9 @@ namespace NG::typecheck
         // A generic param matches another generic param with the same name
         if (other.tag() == GENERIC_PARAM)
         {
-            return name == static_cast<const GenericParamType &>(other).name;
+            auto &otherGeneric = static_cast<const GenericParamType &>(other);
+            return name == otherGeneric.name && kindArity == otherGeneric.kindArity &&
+                   kindVariadicTail == otherGeneric.kindVariadicTail;
         }
         // A generic param also matches ANY (unconstrained)
         return other.tag() == ANY;
@@ -64,6 +84,37 @@ namespace NG::typecheck
             return false;
         auto &otherGeneric = static_cast<const GenericTypeDef &>(other);
         return name == otherGeneric.name && typeParamNames == otherGeneric.typeParamNames && kind == otherGeneric.kind;
+    }
+
+    auto TypeConstructorApplicationType::repr() const -> Str
+    {
+        Str result = constructorType ? constructorType->repr() : "?";
+        result += "<";
+        for (size_t i = 0; i < typeArgs.size(); ++i)
+        {
+            if (i > 0)
+                result += ", ";
+            result += typeArgs[i] ? typeArgs[i]->repr() : "?";
+        }
+        result += ">";
+        return result;
+    }
+
+    auto TypeConstructorApplicationType::match(const TypeInfo &other) const -> bool
+    {
+        if (other.tag() != TYPE_CONSTRUCTOR_APPLICATION)
+            return false;
+        auto &otherApp = static_cast<const TypeConstructorApplicationType &>(other);
+        if (!constructorType || !otherApp.constructorType || !constructorType->match(*otherApp.constructorType))
+            return false;
+        if (typeArgs.size() != otherApp.typeArgs.size())
+            return false;
+        for (size_t i = 0; i < typeArgs.size(); ++i)
+        {
+            if (!typeArgs[i] || !otherApp.typeArgs[i] || !typeArgs[i]->match(*otherApp.typeArgs[i]))
+                return false;
+        }
+        return true;
     }
 
     // --- VarargsType ---

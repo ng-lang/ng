@@ -30,6 +30,7 @@ namespace NG::ast
         MODULE = 0x101,
         VAL_DEFINITION = 0x102,
         FUN_DEFINITION = 0x103,
+        CONST_DEFINITION = 0x104,
 
         PARAM = 0x110,
         TYPE_DEFINITION = 0x111,
@@ -38,6 +39,10 @@ namespace NG::ast
         BINDING = 0x114,
         TYPE_ALIAS_DEFINITION = 0x115,
         NEW_TYPE_DEFINITION = 0x116,
+        TRAIT_DEFINITION = 0x119,
+        IMPL_DEFINITION = 0x11A,
+        TRAIT_BOUND = 0x11B,
+        USE_IMPL_DECLARATION = 0x11C,
 
         CAST_EXPRESSION = 0x214,
 
@@ -55,6 +60,7 @@ namespace NG::ast
         TUPLE_UNPACKING_EXPRESSION = 0x211,
         TYPEOF_EXPRESSION = 0x212,
         SPREAD_EXPRESSION = 0x213,
+        QUALIFIED_TRAIT_CALL_EXPRESSION = 0x217,
 
         LITERAL = 0x300,
         INTEGER_VALUE = 0x301,
@@ -278,6 +284,8 @@ namespace NG::ast
     {
         Str name;                              ///< The name of the type parameter (e.g. "T").
         bool isPack = false;                   ///< Whether this is a parameter pack (T...).
+        size_t kindArity = 0;                  ///< 0 for *, N for a type constructor with N type slots.
+        bool kindVariadicTail = false;         ///< Whether the type constructor kind has a variadic tail.
         ASTRef<TypeAnnotation> bound = nullptr; ///< Optional type bound (T: Comparable).
 
         explicit GenericParam(Str _name) : name(std::move(_name)) {}
@@ -290,6 +298,53 @@ namespace NG::ast
 
         ~GenericParam() override = default;
     };
+
+    struct TraitBound : ASTNode
+    {
+        ASTRef<TypeAnnotation> subject = nullptr;
+        ASTRef<TypeAnnotation> trait = nullptr;
+        ASTRef<Expression> predicate = nullptr;
+
+        TraitBound(ASTRef<TypeAnnotation> subject, ASTRef<TypeAnnotation> trait)
+            : subject(std::move(subject)), trait(std::move(trait))
+        {
+        }
+
+        explicit TraitBound(ASTRef<Expression> predicate) : predicate(std::move(predicate)) {}
+
+        void accept(AstVisitor *visitor) override;
+        auto astNodeType() const -> ASTNodeType override { return ASTNodeType::TRAIT_BOUND; }
+
+        [[nodiscard]]
+        auto repr() const -> Str override;
+
+        ~TraitBound() override;
+    };
+
+    struct ConstDef : Definition
+    {
+        Str constName;
+        Vec<ASTRef<GenericParam>> genericParams;
+        ASTRef<TypeAnnotation> specializationPattern = nullptr;
+        Vec<ASTRef<TraitBound>> whereBounds;
+        ASTRef<TypeAnnotation> returnType = nullptr;
+        ASTRef<Expression> value = nullptr;
+        bool native = false;
+
+        explicit ConstDef(Str name) : constName(std::move(name)) {}
+
+        auto astNodeType() const -> ASTNodeType override { return ASTNodeType::CONST_DEFINITION; }
+
+        [[nodiscard]] auto names() const -> Vec<Str> override { return Vec<Str>{constName}; }
+
+        void accept(AstVisitor *visitor) override;
+
+        [[nodiscard]]
+        auto repr() const -> Str override;
+
+        ~ConstDef() override;
+    };
+
     /**
      * @brief A parameter.
      */
@@ -328,6 +383,7 @@ namespace NG::ast
         Vec<ASTRef<GenericParam>> genericParams;     ///< The generic type parameters (e.g. <T, U>).
         Vec<ASTRef<Param>> params;                   ///< The parameters of the function.
         ASTRef<TypeAnnotation> returnType = nullptr; ///< The return type of the function.
+        Vec<ASTRef<TraitBound>> whereBounds;         ///< Narrow Phase-1 trait bounds from `where`.
         ASTRef<Statement> body = nullptr;            ///< The body of the function.
         bool native = false;                         ///< Whether the function is a native function.
 
@@ -385,6 +441,7 @@ namespace NG::ast
     {
         bool isConst = false;                    ///< Whether this is a `const if` (compile-time evaluated).
         std::optional<bool> evaluatedCondition; ///< Resolved condition chosen by the type checker for `const if`.
+        Map<Str, bool> evaluatedConditionByInstance; ///< Per-instantiation const-if resolution for generic bodies.
         ASTRef<Expression> testing = nullptr;    ///< The condition of the if statement.
         ASTRef<Statement> consequence = nullptr; ///< The consequence of the if statement.
         ASTRef<Statement> alternative = nullptr; ///< The alternative of the if statement.
@@ -526,7 +583,12 @@ namespace NG::ast
     struct FunCallExpression : Expression
     {
         ASTRef<Expression> primaryExpression; ///< The primary expression of the function call.
+        Vec<std::shared_ptr<TypeAnnotation>> genericArgs; ///< Type-level arguments for const predicates.
         Vec<ASTRef<Expression>> arguments;    ///< The arguments of the function call.
+        Str resolvedCalleeName;               ///< Fully resolved callable symbol after type checking, if any.
+        Str genericInstanceName;              ///< Canonical generic instance key, if this call monomorphized a generic.
+        Str mangledCalleeName;                ///< ORGASM-safe mangled callee symbol, if this call targets an instance.
+        Map<Str, Str> mangledCalleeNameByInstance; ///< Per-instantiation callee symbol for calls inside generic bodies.
 
         void accept(AstVisitor *visitor) override;
 
@@ -572,6 +634,23 @@ namespace NG::ast
         auto repr() const -> Str override;
 
         ~IdAccessorExpression() override;
+    };
+
+    struct QualifiedTraitCallExpression : Expression
+    {
+        ASTRef<Expression> receiver = nullptr; ///< Receiver for `value.Trait::method`; null for UFCS.
+        Str traitName;
+        Str methodName;
+        Vec<ASTRef<Expression>> arguments;
+
+        void accept(AstVisitor *visitor) override;
+
+        auto astNodeType() const -> ASTNodeType override { return ASTNodeType::QUALIFIED_TRAIT_CALL_EXPRESSION; }
+
+        [[nodiscard]]
+        auto repr() const -> Str override;
+
+        ~QualifiedTraitCallExpression() override;
     };
 
     /**
@@ -1011,6 +1090,63 @@ namespace NG::ast
         ~TypeDef() override;
     };
 
+    struct TraitDef : Definition
+    {
+        Str traitName;
+        Vec<ASTRef<GenericParam>> genericParams;
+        Vec<ASTRef<TypeAnnotation>> superTraits;
+        Vec<ASTRef<FunctionDef>> methods;
+
+        auto astNodeType() const -> ASTNodeType override { return ASTNodeType::TRAIT_DEFINITION; }
+
+        [[nodiscard]] auto names() const -> Vec<Str> override;
+
+        void accept(AstVisitor *visitor) override;
+
+        [[nodiscard]]
+        auto repr() const -> Str override;
+
+        ~TraitDef() override;
+    };
+
+    struct ImplDef : Definition
+    {
+        Vec<ASTRef<GenericParam>> genericParams;
+        ASTRef<TypeAnnotation> trait = nullptr;
+        ASTRef<TypeAnnotation> targetType = nullptr;
+        Vec<ASTRef<TraitBound>> whereBounds;
+        Vec<ASTRef<FunctionDef>> methods;
+
+        auto astNodeType() const -> ASTNodeType override { return ASTNodeType::IMPL_DEFINITION; }
+
+        [[nodiscard]] auto names() const -> Vec<Str> override;
+
+        void accept(AstVisitor *visitor) override;
+
+        [[nodiscard]]
+        auto repr() const -> Str override;
+
+        ~ImplDef() override;
+    };
+
+    struct UseImplDecl : Definition
+    {
+        Str moduleQualifier;
+        ASTRef<TypeAnnotation> trait = nullptr;
+        ASTRef<TypeAnnotation> targetType = nullptr;
+
+        auto astNodeType() const -> ASTNodeType override { return ASTNodeType::USE_IMPL_DECLARATION; }
+
+        [[nodiscard]] auto names() const -> Vec<Str> override;
+
+        void accept(AstVisitor *visitor) override;
+
+        [[nodiscard]]
+        auto repr() const -> Str override;
+
+        ~UseImplDecl() override;
+    };
+
     /**
      * @brief A type alias definition (typealias Meters = f64;).
      */
@@ -1018,7 +1154,12 @@ namespace NG::ast
     {
         Str aliasName;                          ///< The name of the alias.
         Vec<ASTRef<GenericParam>> genericParams;///< The generic type parameters (e.g. <T>).
+        ASTRef<TypeAnnotation> specializationPattern = nullptr; ///< Optional specialized target pattern.
+        Vec<ASTRef<TraitBound>> whereBounds;    ///< Optional specialization constraints.
         ASTRef<TypeAnnotation> underlyingType;  ///< The underlying type.
+        bool nativeOpaque = false;              ///< Whether this alias declares an opaque native runtime type.
+        bool deleted = false;                   ///< Whether this specialization is invalid.
+        bool abstract = false;                  ///< Whether this declares an abstract primary template.
 
         explicit TypeAliasDef(Str name) : aliasName(std::move(name)) {}
 

@@ -1,4 +1,5 @@
 #include "typecheck_utils.hpp"
+#include <typecheck/mangling.hpp>
 
 using namespace NG::typecheck;
 
@@ -34,6 +35,37 @@ TEST_CASE("GenericTypeDef repr and match includes kind", "[TypeCheck][GenericTyp
   REQUIRE(objectDef.repr() == "Box<T>");
   REQUIRE(objectDef.match(sameObjectDef));
   REQUIRE(!objectDef.match(aliasDef));
+}
+
+TEST_CASE("generic instance symbol mangling is module-scoped and unambiguous", "[TypeCheck][GenericTypeInfo][Mangling]")
+{
+  auto refVisible = makecheck<ReferenceType>(makecheck<CustomizedType>("Visible", false, false, "app.models"));
+  auto boxedI32 = makecheck<CustomizedType>("Box<i32>", false, false, "app.models");
+  Vec<CheckingRef<TypeInfo>> args{refVisible, boxedI32};
+
+  auto mangled = mangle_symbol(MangledSymbolKind::Function, "app.main", "classify", args);
+  REQUIRE(mangled == "$NG2:v11:F8:app.main8:classify1:224:ref<app.models::Visible>20:app.models::Box<i32>");
+  REQUIRE(mangle_symbol(MangledSymbolKind::Function, "other.main", "classify", args) != mangled);
+  REQUIRE(mangle_symbol(MangledSymbolKind::Type, "app.main", "classify", args) != mangled);
+  REQUIRE(mangle_symbol(MangledSymbolKind::Function, "app.main", "classify.ref", {"Visible"}) !=
+          mangle_symbol(MangledSymbolKind::Function, "app.main.classify", "ref", {"Visible"}));
+}
+
+TEST_CASE("canonical type names distinguish nominal modules and erase transparent aliases",
+          "[TypeCheck][GenericTypeInfo][Mangling]")
+{
+  auto coreUser = makecheck<CustomizedType>("User", false, false, "core.model");
+  auto appUser = makecheck<CustomizedType>("User", false, false, "app.model");
+  auto alias = makecheck<TypeAliasType>("UserAlias", coreUser, "app.model");
+  auto nativeHandle = makecheck<CustomizedType>("Handle", true, false, "native.io");
+  auto userId = makecheck<NewTypeType>("UserId", makecheck<PrimitiveType>(typeinfo_tag::I32), "core.model");
+
+  REQUIRE(canonical_type_name(coreUser) == "core.model::User");
+  REQUIRE(canonical_type_name(appUser) == "app.model::User");
+  REQUIRE(canonical_type_name(coreUser) != canonical_type_name(appUser));
+  REQUIRE(canonical_type_name(alias) == canonical_type_name(coreUser));
+  REQUIRE(canonical_type_name(nativeHandle) == "native.io::Handle");
+  REQUIRE(canonical_type_name(userId) == "core.model::UserId");
 }
 
 TEST_CASE("VarargsType repr and match compare element types", "[TypeCheck][GenericTypeInfo]")

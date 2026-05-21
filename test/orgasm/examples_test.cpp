@@ -37,10 +37,12 @@ static inline void runOrgasmExample(const std::string &filename)
     modulePaths.push_back((project_root / "lib").string());
     modulePaths.push_back((project_root / "example").string());
 
-    Compiler compiler(modulePaths);
+    auto nativeNames = NG::library::prelude::native_function_names();
+    Compiler compiler(modulePaths, nativeNames);
     auto bytecode = compiler.compile(dynamic_ast_cast<ast::CompileUnit>(ast));
 
     VM vm(modulePaths);
+    NG::library::prelude::register_vm_natives(vm);
     vm.run(bytecode);
 
     destroyast(ast);
@@ -67,3 +69,28 @@ TEST_CASE("Orgasm example 21.recursive_tagged_union_ref.ng", "[OrgasmExample]") 
 TEST_CASE("Orgasm example 22.ref_move_swap.ng", "[OrgasmExample]") { runOrgasmExample("example/22.ref_move_swap.ng"); }
 TEST_CASE("Orgasm example 23.ref_places.ng", "[OrgasmExample]") { runOrgasmExample("example/23.ref_places.ng"); }
 TEST_CASE("Orgasm example 24.move_value_semantics.ng", "[OrgasmExample]") { runOrgasmExample("example/24.move_value_semantics.ng"); }
+TEST_CASE("Orgasm example 25.trait_show.ng", "[OrgasmExample]") { runOrgasmExample("example/25.trait_show.ng"); }
+TEST_CASE("Orgasm example 26.trait_generic_bound.ng", "[OrgasmExample]") { runOrgasmExample("example/26.trait_generic_bound.ng"); }
+TEST_CASE("Orgasm example 27.trait_receiver_ref.ng", "[OrgasmExample]") { runOrgasmExample("example/27.trait_receiver_ref.ng"); }
+TEST_CASE("Orgasm example 28.trait_supertraits.ng", "[OrgasmExample]") { runOrgasmExample("example/28.trait_supertraits.ng"); }
+TEST_CASE("Orgasm example 29.trait_qualified_call.ng", "[OrgasmExample]") { runOrgasmExample("example/29.trait_qualified_call.ng"); }
+TEST_CASE("Orgasm example 30.trait_inherent_precedence.ng", "[OrgasmExample]") { runOrgasmExample("example/30.trait_inherent_precedence.ng"); }
+TEST_CASE("Orgasm example 31.trait_default_methods.ng", "[OrgasmExample]") { runOrgasmExample("example/31.trait_default_methods.ng"); }
+TEST_CASE("Orgasm example 32.trait_default_override.ng", "[OrgasmExample]") { runOrgasmExample("example/32.trait_default_override.ng"); }
+TEST_CASE("Orgasm example 33.trait_default_supertraits.ng", "[OrgasmExample]") { runOrgasmExample("example/33.trait_default_supertraits.ng"); }
+TEST_CASE("Orgasm example 34.trait_object_show.ng", "[OrgasmExample]") { runOrgasmExample("example/34.trait_object_show.ng"); }
+TEST_CASE("Orgasm example 35.trait_object_default.ng", "[OrgasmExample]") { runOrgasmExample("example/35.trait_object_default.ng"); }
+TEST_CASE("Orgasm example 36.trait_object_mutation.ng", "[OrgasmExample]") { runOrgasmExample("example/36.trait_object_mutation.ng"); }
+TEST_CASE("Orgasm example 37.copy_marker.ng", "[OrgasmExample]") { runOrgasmExample("example/37.copy_marker.ng"); }
+TEST_CASE("Orgasm example 38.clone_trait.ng", "[OrgasmExample]") { runOrgasmExample("example/38.clone_trait.ng"); }
+TEST_CASE("Orgasm example 39.drop_raii.ng", "[OrgasmExample]") { runOrgasmExample("example/39.drop_raii.ng"); }
+TEST_CASE("Orgasm example 40.trait_object_list.ng", "[OrgasmExample]") { runOrgasmExample("example/40.trait_object_list.ng"); }
+TEST_CASE("Orgasm example 41.drop_smart_pointer.ng", "[OrgasmExample]") { runOrgasmExample("example/41.drop_smart_pointer.ng"); }
+TEST_CASE("Orgasm example 42.const_type_predicate.ng", "[OrgasmExample]") { runOrgasmExample("example/42.const_type_predicate.ng"); }
+TEST_CASE("Orgasm example 43.const_specialization.ng", "[OrgasmExample]") { runOrgasmExample("example/43.const_specialization.ng"); }
+TEST_CASE("Orgasm example 44.type_specialization.ng", "[OrgasmExample]") { runOrgasmExample("example/44.type_specialization.ng"); }
+TEST_CASE("Orgasm example 45.native_constraints.ng", "[OrgasmExample]") { runOrgasmExample("example/45.native_constraints.ng"); }
+TEST_CASE("Orgasm example 46.const_trait_constraints.ng", "[OrgasmExample]") { runOrgasmExample("example/46.const_trait_constraints.ng"); }
+TEST_CASE("Orgasm example 47.const_generic_instances.ng", "[OrgasmExample]") { runOrgasmExample("example/47.const_generic_instances.ng"); }
+TEST_CASE("Orgasm example 48.higher_kinded_generics.ng", "[OrgasmExample]") { runOrgasmExample("example/48.higher_kinded_generics.ng"); }
+TEST_CASE("Orgasm example 49.variadic_hkt_kind.ng", "[OrgasmExample]") { runOrgasmExample("example/49.variadic_hkt_kind.ng"); }

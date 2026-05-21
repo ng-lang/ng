@@ -1,0 +1,17 @@
+type Counter {
+    value: i32;
+}
+
+impl Clone for Counter {
+    fun clone(self: ref<Self>) -> Self {
+        return *self;
+    }
+}
+
+val counter = new Counter { value: 41 };
+val cloned = counter.clone();
+
+cloned.value := cloned.value + 1;
+
+assert(counter.value == 41);
+assert(cloned.value == 42);

@@ -6,9 +6,11 @@
 #include <runtime/value_access.hpp>
 #include <runtime/string_layout_access.hpp>
 #include <algorithm>
+#include <bit>
 #include <cctype>
 #include <fstream>
 #include <iostream>
+#include <cstdlib>
 
 namespace NG::library::prelude
 {
@@ -95,6 +97,35 @@ namespace NG::library::prelude
     std::transform(result.begin(), result.end(), result.begin(),
                    [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
     return result;
+  }
+
+  static auto native_allocation_count() -> int32_t &
+  {
+    static int32_t count = 0;
+    return count;
+  }
+
+  static void release_unique_ptr_cell(const RuntimeRef<StorageCell> &slot)
+  {
+    auto handle = runtime_native_handle_value(slot);
+    if (handle.address == 0)
+    {
+      if (slot)
+      {
+        slot->dropArmed = false;
+        slot->lifecycleDropped = true;
+      }
+      return;
+    }
+    std::free(reinterpret_cast<void *>(handle.address));
+    --native_allocation_count();
+    slot->nativeHandles.insert_or_assign(0, NativeHandle{
+                                                .typeName = handle.typeName,
+                                                .address = 0,
+                                                .owning = false,
+                                            });
+    slot->dropArmed = false;
+    slot->lifecycleDropped = true;
   }
 
   static Map<Str, NGCallable> handlers{
@@ -238,6 +269,47 @@ namespace NG::library::prelude
        }
        return make_runtime_array_cell(*items);
      }},
+    {"nativeMalloc",
+     [](const NGSelf &, const NGEnv &context, const NGArgs &args) -> RuntimeRef<StorageCell> {
+       auto size = require_numeric_arg<int32_t>("nativeMalloc", native_args_view(context, args), 0, "an allocation size");
+       if (size < 0)
+       {
+         throw RuntimeException("nativeMalloc() requires a non-negative allocation size");
+       }
+       auto *ptr = std::malloc(static_cast<size_t>(size));
+       if (!ptr && size != 0)
+       {
+         throw RuntimeException("nativeMalloc() failed");
+       }
+       ++native_allocation_count();
+       auto cell = make_runtime_native_handle_cell("UniquePtr", reinterpret_cast<uintptr_t>(ptr), true);
+       cell->runtimeType->dropCellHandler = release_unique_ptr_cell;
+       if (context && context->symbols)
+       {
+         if (auto it = context->symbols->types.find("UniquePtr"); it != context->symbols->types.end())
+         {
+           cell->runtimeType = it->second;
+           cell->layout = it->second->layout;
+           cell->runtimeType->dropCellHandler = release_unique_ptr_cell;
+         }
+       }
+       return cell;
+     }},
+    {"nativeFree",
+     [](const NGSelf &, const NGEnv &context, const NGArgs &args) -> RuntimeRef<StorageCell> {
+       auto slot = require_arg_slot("nativeFree", native_args_view(context, args), 0, "a native pointer");
+       release_unique_ptr_cell(slot);
+       return unit_cell();
+     }},
+    {"nativeOutstandingAllocations",
+     [](const NGSelf &, const NGEnv &, const NGArgs &) -> RuntimeRef<StorageCell> {
+       return numeral_cell_from_value<int32_t>(native_allocation_count());
+     }},
+    {"gcFree",
+     [](const NGSelf &, const NGEnv &, const NGArgs &) -> RuntimeRef<StorageCell> {
+       collect_managed_heap();
+       return unit_cell();
+     }},
   };
 
   void do_register()
@@ -249,8 +321,8 @@ namespace NG::library::prelude
   {
     for (auto &[name, handler] : handlers)
     {
-      vm.register_native_raw(name, [handler](const Vec<RuntimeRef<StorageCell>> &args) -> RuntimeRef<StorageCell> {
-        auto env = make_runtime_env();
+      vm.register_native_raw(name, [&vm, handler](const Vec<RuntimeRef<StorageCell>> &args) -> RuntimeRef<StorageCell> {
+        auto env = make_runtime_env(vm.symbols());
         bind_native_arg_slots(env, args);
         return handler(unit_cell(), env, args);
       });

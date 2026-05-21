@@ -1,0 +1,28 @@
+type Person {
+    name: string;
+}
+
+trait Display {
+    fun text(self: ref<Self>) -> string;
+}
+
+trait Debug {
+    fun text(self: ref<Self>) -> string;
+}
+
+impl Display for Person {
+    fun text(self: ref<Self>) -> string {
+        return self.name;
+    }
+}
+
+impl Debug for Person {
+    fun text(self: ref<Self>) -> string {
+        return "Person(" + self.name + ")";
+    }
+}
+
+val ada = new Person { name: "Ada" };
+
+assert(ada.Display::text() == "Ada");
+assert(Debug::text(ada) == "Person(Ada)");

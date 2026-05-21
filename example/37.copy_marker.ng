@@ -1,0 +1,14 @@
+type Pair {
+    first: i32;
+    second: i32;
+}
+
+impl Copy for Pair {}
+
+fun sum(self: Pair) -> i32 {
+    return self.first + self.second;
+}
+
+val pair = new Pair { first: 20, second: 22 };
+
+assert(sum(*pair) == 42);

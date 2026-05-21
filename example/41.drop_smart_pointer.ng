@@ -1,0 +1,23 @@
+type HeapResource {
+    ptr: UniquePtr<i32>;
+}
+
+impl Drop for HeapResource {
+    fun drop(self: ref<Self>) -> unit {
+        nativeFree(move self.ptr);
+    }
+}
+
+fun leak_until_gc() -> ref<HeapResource> {
+    return new HeapResource { ptr: nativeMalloc(32) };
+}
+
+assert(nativeOutstandingAllocations() == 0);
+
+leak_until_gc();
+
+assert(nativeOutstandingAllocations() == 1);
+
+gcFree();
+
+assert(nativeOutstandingAllocations() == 0);

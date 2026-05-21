@@ -1,0 +1,22 @@
+// Type alias partial specialization chooses the most specific pattern.
+
+type Box<T> {
+    property value: T;
+}
+
+type unwrap<T>;
+const is_box<T>: bool = false;
+const<T> is_box<Box<T>>: bool = true;
+
+type<T> unwrap<ref<T>>: where is_box<T> = bool;
+type<T> unwrap<ref<T>> = T;
+type<T> unwrap<ref<Box<T>>> = T;
+
+val boxed = new Box<i32> { value: 42 };
+val unwrapped: unwrap<ref<Box<i32>>> = boxed.value;
+val value = 1;
+val plain: unwrap<ref<i32>> = value;
+
+assert(unwrapped == 42);
+assert(plain == 1);
+print("type specialization selected ref<Box<T>>");

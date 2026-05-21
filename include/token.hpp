@@ -52,6 +52,11 @@ namespace NG
         KEYWORD_CAST,
         KEYWORD_REF,
         KEYWORD_MOVE,
+        KEYWORD_TRAIT,
+        KEYWORD_IMPL,
+        KEYWORD_FOR,
+        KEYWORD_WHERE,
+        KEYWORD_DELETE,
 
         KEYWORD_TRUE = 0x0400,
         KEYWORD_FALSE,

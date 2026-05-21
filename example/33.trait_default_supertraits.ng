@@ -1,0 +1,39 @@
+type Counter {
+    value: i32;
+}
+
+trait Eq {
+    fun same(self: ref<Self>, other: ref<Self>) -> bool;
+
+    fun not_same(self: ref<Self>, other: ref<Self>) -> bool {
+        return !self.same(other);
+    }
+}
+
+trait Ord: Eq {
+    fun less(self: ref<Self>, other: ref<Self>) -> bool;
+
+    fun less_or_same(self: ref<Self>, other: ref<Self>) -> bool {
+        if (self.less(other)) {
+            return true;
+        }
+        return self.same(other);
+    }
+}
+
+impl Ord for Counter {
+    fun same(self: ref<Self>, other: ref<Self>) -> bool {
+        return self.value == other.value;
+    }
+
+    fun less(self: ref<Self>, other: ref<Self>) -> bool {
+        return self.value < other.value;
+    }
+}
+
+val one = new Counter { value: 1 };
+val two = new Counter { value: 2 };
+
+assert(one.not_same(two));
+assert(one.less_or_same(two));
+assert(!two.less_or_same(one));

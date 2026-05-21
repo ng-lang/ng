@@ -148,8 +148,8 @@ type Person {
     property lastName;
     property kid;
 
-    fun name() {
-        return self.firstName + " " + lastName;
+    fun name(self: ref<Self>) {
+        return self.firstName + " " + self.lastName;
     }
 }
 
@@ -176,9 +176,9 @@ TEST_CASE("should resolve unqualified member properties via frame receiver", "[I
 type Counter {
     property value;
 
-    fun bump(delta) {
-        value := value + delta;
-        return value;
+    fun bump(self: ref<Self>, delta) {
+        self.value := self.value + delta;
+        return self.value;
     }
 }
 
@@ -793,6 +793,56 @@ TEST_CASE("interpreter should handle concrete recursive helper over instantiated
         }
 
         printNode(first);
+	        )");
+}
+
+TEST_CASE("interpreter should dispatch inherited defaults through implemented trait names",
+          "[InterpreterTest][Traits]")
+{
+  interpret(R"(
+        type Box {}
+
+        trait Parent {
+            fun label(self: ref<Self>) -> string {
+                return "parent";
+            }
+        }
+
+        trait Child: Parent {}
+
+        impl Child for Box {}
+
+        val box = new Box {};
+        assert(box.Child::label() == "parent");
+        assert(box.Parent::label() == "parent");
+        )");
+}
+
+TEST_CASE("interpreter should evaluate default parameters for member and impl methods",
+          "[InterpreterTest][Traits]")
+{
+  interpret(R"(
+        type Counter {
+            property value;
+
+            fun plus(self: ref<Self>, amount: i32 = 5) -> i32 {
+                return self.value + amount;
+            }
+        }
+
+        trait Scale {
+            fun scaled(self: ref<Self>, factor: i32 = 2) -> i32;
+        }
+
+        impl Scale for Counter {
+            fun scaled(self: ref<Self>, factor: i32 = 2) -> i32 {
+                return self.value * factor;
+            }
+        }
+
+        val counter = new Counter { value: 10 };
+        assert(counter.plus() == 15);
+        assert(counter.scaled() == 20);
         )");
 }
 
@@ -922,6 +972,95 @@ TEST_CASE("interpreter const if should use typeof query result", "[const_if][Int
         } else {
             assert(false);
         }
+        )");
+  REQUIRE(ast != nullptr);
+  auto prelude_types = NG::typecheck::build_prelude_type_index();
+  NG::typecheck::type_check(ast, prelude_types);
+
+  Interpreter *intp = NG::intp::stupid();
+  ast->accept(intp);
+  delete intp;
+  destroyast(ast);
+}
+
+TEST_CASE("interpreter const if should use prelude is_ref predicate", "[const_if][InterpreterTest][Generics]")
+{
+  auto ast = parse(R"(
+        fun value_kind<T>(value: T) -> i32 {
+          const if (is_ref<T>) {
+            assert(false);
+            return 1;
+          } else {
+            return 0;
+          }
+        }
+
+        fun ref_kind<T>(value: T) -> i32 {
+          const if (is_ref<T>) {
+            return 1;
+          } else {
+            assert(false);
+            return 0;
+          }
+        }
+
+        val value = 1;
+        assert(value_kind(value) == 0);
+        assert(ref_kind(ref value) == 1);
+        )");
+  REQUIRE(ast != nullptr);
+  auto prelude_types = NG::typecheck::build_prelude_type_index();
+  NG::typecheck::type_check(ast, prelude_types);
+
+  Interpreter *intp = NG::intp::stupid();
+  ast->accept(intp);
+  delete intp;
+  destroyast(ast);
+}
+
+TEST_CASE("interpreter const if should keep decisions per generic instance",
+          "[const_if][InterpreterTest][Generics]")
+{
+  auto ast = parse(R"(
+        fun classify<T>(value: T) -> i32 {
+          const if (is_ref<T>) {
+            return 1;
+          } else {
+            return 0;
+          }
+        }
+
+        val value = 1;
+        assert((classify(value) + classify(ref value)) == 1);
+        )");
+  REQUIRE(ast != nullptr);
+  auto prelude_types = NG::typecheck::build_prelude_type_index();
+  NG::typecheck::type_check(ast, prelude_types);
+
+  Interpreter *intp = NG::intp::stupid();
+  ast->accept(intp);
+  delete intp;
+  destroyast(ast);
+}
+
+TEST_CASE("interpreter const if should keep decisions through nested generic calls",
+          "[const_if][InterpreterTest][Generics]")
+{
+  auto ast = parse(R"(
+        fun inner<T>(value: T) -> i32 {
+          const if (is_ref<T>) {
+            return 2;
+          } else {
+            return 3;
+          }
+        }
+
+        fun outer<T>(value: T) -> i32 {
+          return inner(value);
+        }
+
+        val value = 1;
+        assert((outer(value) + outer(ref value)) == 5);
         )");
   REQUIRE(ast != nullptr);
   auto prelude_types = NG::typecheck::build_prelude_type_index();

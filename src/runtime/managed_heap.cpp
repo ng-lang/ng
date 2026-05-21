@@ -8,8 +8,10 @@ namespace NG::runtime
     struct ManagedHeapState
     {
       size_t nextProviderId = 1;
+      size_t nextFinalizerId = 1;
       Vec<RuntimeRef<StorageCell>> cells;
       Map<size_t, GCRootProvider> rootProviders;
+      Map<size_t, GCFinalizer> finalizers;
     };
 
     auto heap_state() -> ManagedHeapState &
@@ -48,7 +50,7 @@ namespace NG::runtime
     auto cell = clone_runtime_storage_cell(value, StorageClass::HEAP, debugName);
     cell->name = debugName;
     heap_state().cells.push_back(cell);
-    return make_runtime_reference_cell(cell, debugName);
+    return make_runtime_reference_cell(cell, debugName, StorageClass::TEMPORARY);
   }
 
   auto enumerate_symbol_roots(const NGSymbols &symbols) -> GCRootSet
@@ -89,6 +91,19 @@ namespace NG::runtime
     heap_state().rootProviders.erase(providerId);
   }
 
+  auto register_gc_finalizer(GCFinalizer finalizer) -> size_t
+  {
+    auto &state = heap_state();
+    size_t id = state.nextFinalizerId++;
+    state.finalizers[id] = std::move(finalizer);
+    return id;
+  }
+
+  void unregister_gc_finalizer(size_t finalizerId)
+  {
+    heap_state().finalizers.erase(finalizerId);
+  }
+
   void collect_managed_heap()
   {
     auto &state = heap_state();
@@ -116,6 +131,16 @@ namespace NG::runtime
       if (cell->marked)
       {
         return false;
+      }
+      auto finalizers = Vec<GCFinalizer>{};
+      finalizers.reserve(heap_state().finalizers.size());
+      for (const auto &[_, finalizer] : heap_state().finalizers)
+      {
+        finalizers.push_back(finalizer);
+      }
+      for (const auto &finalizer : finalizers)
+      {
+        finalizer(cell);
       }
       clear_storage_cell(cell);
       return true;

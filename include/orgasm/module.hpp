@@ -15,6 +15,7 @@ namespace NG::orgasm
         Vec<uint8_t> code;   ///< The bytecode of the function.
         int32_t num_locals;  ///< The number of local variables.
         int32_t num_params;  ///< The number of parameters.
+        bool explicit_receiver = false; ///< Whether member dispatch already passes receiver as param 0.
     };
 
     /**

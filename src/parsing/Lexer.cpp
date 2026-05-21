@@ -83,6 +83,7 @@ namespace NG::parsing
     {"export", TokenType::KEYWORD_EXPORT},
     {"exports", TokenType::KEYWORD_EXPORTS},
     {"import", TokenType::KEYWORD_IMPORT},
+    {"use", TokenType::KEYWORD_USE},
     {"new", TokenType::KEYWORD_NEW},
     {"native", TokenType::KEYWORD_NATIVE},
 
@@ -106,6 +107,11 @@ namespace NG::parsing
     {"cast", TokenType::KEYWORD_CAST},
     {"ref", TokenType::KEYWORD_REF},
     {"move", TokenType::KEYWORD_MOVE},
+    {"trait", TokenType::KEYWORD_TRAIT},
+    {"impl", TokenType::KEYWORD_IMPL},
+    {"for", TokenType::KEYWORD_FOR},
+    {"where", TokenType::KEYWORD_WHERE},
+    {"delete", TokenType::KEYWORD_DELETE},
 
     {"true", TokenType::KEYWORD_TRUE},
     {"false", TokenType::KEYWORD_FALSE},

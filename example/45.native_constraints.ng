@@ -1,0 +1,38 @@
+// Native compile-time constraints can inspect abstract and trait types.
+
+trait Show {
+    fun show(self: ref<Self>) -> string;
+}
+
+type NativeHandle = native;
+type AbstractHandle;
+
+type Widget {
+    property value: i32;
+}
+
+const if (is_trait<Show>) {
+    print("Show is a trait");
+} else {
+    assert(false);
+}
+
+const if (!is_abstract<NativeHandle>) {
+    print("NativeHandle is native opaque");
+} else {
+    assert(false);
+}
+
+const if (is_abstract<AbstractHandle>) {
+    print("AbstractHandle is abstract");
+} else {
+    assert(false);
+}
+
+const if (!is_abstract<Widget>) {
+    print("Widget is concrete");
+} else {
+    assert(false);
+}
+
+print("native constraints classified types");

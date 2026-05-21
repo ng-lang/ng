@@ -112,6 +112,191 @@ TEST_CASE("compiler and vm should handle const if false branch", "[const_if][Org
   destroyast(ast);
 }
 
+TEST_CASE("compiler should use bare type names for generic impl methods", "[OrgasmTest][Traits]")
+{
+  auto ast = parse(R"(
+    type Box<T> {
+      property value: i32;
+    }
+
+    trait Value {
+      fun get(self: ref<Self>) -> i32;
+    }
+
+    impl<T> Value for Box<T> {
+      fun get(self: ref<Self>) -> i32 {
+        return self.value;
+      }
+    }
+  )");
+  REQUIRE(ast != nullptr);
+
+  Compiler compiler;
+  auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+
+  REQUIRE(std::ranges::any_of(bytecode.functions,
+                              [](const Function &function) { return function.name == "Box.Value::get"; }));
+  REQUIRE_FALSE(std::ranges::any_of(bytecode.functions,
+                                    [](const Function &function) { return function.name == "Box<T>.Value::get"; }));
+
+  destroyast(ast);
+}
+
+TEST_CASE("compiler should register inherited defaults under implemented trait names", "[OrgasmTest][Traits]")
+{
+  auto ast = parse(R"(
+    type Box {}
+
+    trait Parent {
+      fun label(self: ref<Self>) -> string {
+        return "parent";
+      }
+    }
+
+    trait Child: Parent {}
+
+    impl Child for Box {}
+  )");
+  REQUIRE(ast != nullptr);
+
+  NG::typecheck::type_check(ast);
+
+  Compiler compiler;
+  auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+
+  REQUIRE(std::ranges::any_of(bytecode.functions,
+                              [](const Function &function) { return function.name == "Box.Parent::label"; }));
+  REQUIRE(std::ranges::any_of(bytecode.functions,
+                              [](const Function &function) { return function.name == "Box.Child::label"; }));
+  REQUIRE(std::ranges::any_of(bytecode.functions,
+                              [](const Function &function) { return function.name == "Box.label"; }));
+
+  destroyast(ast);
+}
+
+TEST_CASE("compiler should qualify calls inside inherited trait default bodies", "[OrgasmTest][Traits]")
+{
+  auto ast = parse(R"(
+    type Box {}
+
+    trait Parent {
+      fun prefix(self: ref<Self>) -> string {
+        return "parent";
+      }
+
+      fun labelViaSelf(self: ref<Self>) -> string {
+        return self.prefix();
+      }
+    }
+
+    trait Child: Parent {}
+
+    impl Child for Box {}
+  )");
+  REQUIRE(ast != nullptr);
+
+  NG::typecheck::type_check(ast);
+
+  Compiler compiler;
+  auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+
+  REQUIRE(std::ranges::find(bytecode.strings, "prefix") != bytecode.strings.end());
+
+  destroyast(ast);
+}
+
+TEST_CASE("compiler should emit supertrait aliases for provided impl methods", "[OrgasmTest][Traits]")
+{
+  auto ast = parse(R"(
+    type Counter {
+      value: i32;
+    }
+
+    trait Eq {
+      fun same(self: ref<Self>, other: ref<Self>) -> bool;
+
+      fun not_same(self: ref<Self>, other: ref<Self>) -> bool {
+        return !self.same(other);
+      }
+    }
+
+    trait Ord: Eq {}
+
+    impl Ord for Counter {
+      fun same(self: ref<Self>, other: ref<Self>) -> bool {
+        return self.value == other.value;
+      }
+    }
+
+    fun main() -> bool {
+      val one = new Counter { value: 1 };
+      val two = new Counter { value: 2 };
+      return one.not_same(two);
+    }
+  )");
+  REQUIRE(ast != nullptr);
+
+  NG::typecheck::type_check(ast);
+
+  Compiler compiler;
+  auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+  auto hasFunction = [&bytecode](const Str &name) {
+    return std::ranges::any_of(bytecode.functions, [&name](const Function &function) { return function.name == name; });
+  };
+
+  REQUIRE(hasFunction("Counter.Eq::same"));
+  REQUIRE(hasFunction("Counter.Ord::same"));
+  REQUIRE(hasFunction("Counter.same"));
+  REQUIRE(hasFunction("Counter.Eq::not_same"));
+  REQUIRE(hasFunction("Counter.Ord::not_same"));
+
+  VM vm;
+  auto result = vm.run(bytecode);
+  REQUIRE(runtime_value_bool(result));
+
+  destroyast(ast);
+}
+
+TEST_CASE("compiler should emit one trait ref wrapper for direct trait-ref parameters", "[OrgasmTest][Traits]")
+{
+  auto ast = parse(R"(
+    type Box {}
+
+    trait Show {
+      fun show(self: ref<Self>) -> string;
+    }
+
+    impl Show for Box {
+      fun show(self: ref<Self>) -> string {
+        return "box";
+      }
+    }
+
+    fun take(value: ref<Show>) -> string {
+      return value.show();
+    }
+
+    fun main() -> string {
+      val box = new Box {};
+      return take(box);
+    }
+  )");
+  REQUIRE(ast != nullptr);
+
+  NG::typecheck::type_check(ast);
+
+  Compiler compiler;
+  auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+
+  auto mainIt = std::ranges::find_if(bytecode.functions, [](const Function &function) { return function.name == "main"; });
+  REQUIRE(mainIt != bytecode.functions.end());
+  auto makeTraitRefCount = static_cast<size_t>(
+      std::ranges::count(mainIt->code, static_cast<uint8_t>(OpCode::MAKE_TRAIT_REF)));
+  REQUIRE(makeTraitRefCount == 1);
+
+  destroyast(ast);
+}
+
 TEST_CASE("compiler and vm should handle const if with negation", "[const_if][OrgasmTest]")
 {
   auto ast = parse(R"(
@@ -333,9 +518,9 @@ TEST_CASE("compiler and vm should invoke member functions through slot-backed ca
         type Counter {
             property value;
 
-            fun bump(delta) {
-                value := value + delta;
-                return value;
+            fun bump(self: ref<Self>, delta) {
+                self.value := self.value + delta;
+                return self.value;
             }
         }
 
@@ -613,6 +798,120 @@ TEST_CASE("compiler and vm should fold const if from typeof query", "[const_if][
   destroyast(ast);
 }
 
+TEST_CASE("compiler and vm should fold const if from prelude is_ref predicate", "[const_if][OrgasmTest][Generics]")
+{
+  auto ast = parse(R"(
+        fun value_kind<T>(value: T) -> i32 {
+          const if (is_ref<T>) {
+            return 100;
+          } else {
+            return 0;
+          }
+        }
+
+        fun ref_kind<T>(value: T) -> i32 {
+          const if (is_ref<T>) {
+            return 10;
+          } else {
+            return 1;
+          }
+        }
+
+        fun main() -> i32 {
+          val value = 1;
+          return value_kind(value) + ref_kind(ref value);
+        }
+    )");
+  REQUIRE(ast != nullptr);
+
+  Compiler compiler{{}, NG::library::prelude::native_function_names()};
+  auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+  REQUIRE(std::count_if(bytecode.functions.begin(), bytecode.functions.end(),
+                        [](const Function &function) { return function.name.starts_with("$NG"); }) == 2);
+
+  VM vm;
+  NG::library::prelude::register_vm_natives(vm);
+  auto result = vm.run(bytecode);
+
+  REQUIRE(result_i32(result) == 10);
+
+  destroyast(ast);
+}
+
+TEST_CASE("compiler and vm should keep const if decisions per generic instance",
+          "[const_if][OrgasmTest][Generics]")
+{
+  auto ast = parse(R"(
+        fun classify<T>(value: T) -> i32 {
+          const if (is_ref<T>) {
+            return 1;
+          } else {
+            return 0;
+          }
+        }
+
+        fun main() -> i32 {
+          val value = 1;
+          return classify(value) + classify(ref value);
+        }
+    )");
+  REQUIRE(ast != nullptr);
+
+  Compiler compiler{{}, NG::library::prelude::native_function_names()};
+  auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+  REQUIRE(std::none_of(bytecode.functions.begin(), bytecode.functions.end(),
+                       [](const Function &function) { return function.name == "classify"; }));
+  REQUIRE(std::count_if(bytecode.functions.begin(), bytecode.functions.end(),
+                        [](const Function &function) { return function.name.starts_with("$NG"); }) == 2);
+
+  VM vm;
+  NG::library::prelude::register_vm_natives(vm);
+  auto result = vm.run(bytecode);
+
+  REQUIRE(result_i32(result) == 1);
+
+  destroyast(ast);
+}
+
+TEST_CASE("compiler and vm should collect nested generic function instances",
+          "[const_if][OrgasmTest][Generics]")
+{
+  auto ast = parse(R"(
+        fun inner<T>(value: T) -> i32 {
+          const if (is_ref<T>) {
+            return 2;
+          } else {
+            return 3;
+          }
+        }
+
+        fun outer<T>(value: T) -> i32 {
+          return inner(value);
+        }
+
+        fun main() -> i32 {
+          val value = 1;
+          return outer(value) + outer(ref value);
+        }
+    )");
+  REQUIRE(ast != nullptr);
+
+  Compiler compiler{{}, NG::library::prelude::native_function_names()};
+  auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+  REQUIRE(std::none_of(bytecode.functions.begin(), bytecode.functions.end(),
+                       [](const Function &function) { return function.name == "inner" || function.name == "outer"; }));
+  REQUIRE(std::count_if(bytecode.functions.begin(), bytecode.functions.end(),
+                        [](const Function &function) { return function.name.starts_with("$NG"); }) == 4);
+
+  VM vm;
+  NG::library::prelude::register_vm_natives(vm);
+  auto result = vm.run(bytecode);
+
+  REQUIRE(result_i32(result) == 5);
+
+  destroyast(ast);
+}
+
 TEST_CASE("compiler and vm should pass arguments to imported functions", "[OrgasmTest]")
 {
   auto &registry = NG::module::get_module_registry();
@@ -769,7 +1068,7 @@ TEST_CASE("compiler and vm should handle spread unpack property updates and memb
         type Box {
             value: i32;
 
-            fun bump(delta: i32) -> i32 {
+            fun bump(self: ref<Self>, delta: i32) -> i32 {
                 self.value := self.value + delta;
                 return self.value;
             }
@@ -968,6 +1267,110 @@ TEST_CASE("vm should dispatch imported symbols to registered native fallback", "
 
   registry.clear();
   NG::module::clear_module_loader_cache();
+}
+
+TEST_CASE("vm should retag existing trait refs for destination trait coercions", "[OrgasmTest][VM][Traits]")
+{
+  BytecodeModule module;
+  module.name = "trait-retag";
+  module.strings = {"Ord", "Eq", "check_trait"};
+
+  Function main;
+  main.name = "main";
+  main.num_locals = 1;
+  main.num_params = 0;
+  main.code.push_back(static_cast<uint8_t>(OpCode::PUSH_I32));
+  main.code.push_back(7);
+  main.code.push_back(0);
+  main.code.push_back(0);
+  main.code.push_back(0);
+  emit_u16(main.code, OpCode::STORE_LOCAL, 0);
+  main.code.push_back(static_cast<uint8_t>(OpCode::POP));
+  emit_u16(main.code, OpCode::MAKE_LOCAL_REF, 0);
+  emit_u16(main.code, OpCode::MAKE_TRAIT_REF, 0);
+  emit_u16(main.code, OpCode::MAKE_TRAIT_REF, 1);
+  emit_u16_u16(main.code, OpCode::NATIVE_CALL, 2, 1);
+  main.code.push_back(static_cast<uint8_t>(OpCode::RETURN));
+  module.functions.push_back(std::move(main));
+
+  bool sawEq = false;
+  VM vm;
+  vm.register_native_raw("check_trait", [&sawEq](const Vec<RuntimeRef<StorageCell>> &args) -> RuntimeRef<StorageCell> {
+    sawEq = args.size() == 1 && runtime_is_trait_object_ref(args[0]) && runtime_trait_object_name(args[0]) == "Eq";
+    return unit_cell();
+  });
+
+  auto result = vm.run(module);
+
+  REQUIRE(sawEq);
+  REQUIRE(runtime_value_show(result) == "unit");
+}
+
+TEST_CASE("vm should run drop hooks when overwriting object properties", "[OrgasmTest][VM][Drop]")
+{
+  BytecodeModule module;
+  module.name = "drop-property";
+  module.strings = {"Droppable", "Holder", "Dynamic", "extra", "record_drop", "make_drop"};
+  module.types.push_back(Type{.name = "Droppable"});
+  module.types.push_back(Type{.name = "Holder", .properties = {"item"}});
+  module.types.push_back(Type{.name = "Dynamic"});
+
+  Function main;
+  main.name = "main";
+  main.num_locals = 3;
+  main.num_params = 0;
+
+  emit_u16_u16(main.code, OpCode::NATIVE_CALL, 5, 0);
+  emit_u16_u16(main.code, OpCode::NEW_OBJECT, 1, 1);
+  emit_u16(main.code, OpCode::STORE_LOCAL, 0);
+  main.code.push_back(static_cast<uint8_t>(OpCode::POP));
+  emit_u16(main.code, OpCode::LOAD_LOCAL, 0);
+  emit_u16_u16(main.code, OpCode::NATIVE_CALL, 5, 0);
+  emit_u16(main.code, OpCode::SET_PROPERTY, 0);
+  main.code.push_back(static_cast<uint8_t>(OpCode::POP));
+
+  emit_u16_u16(main.code, OpCode::NEW_OBJECT, 2, 0);
+  emit_u16(main.code, OpCode::STORE_LOCAL, 1);
+  main.code.push_back(static_cast<uint8_t>(OpCode::POP));
+  emit_u16(main.code, OpCode::LOAD_LOCAL, 1);
+  emit_u16_u16(main.code, OpCode::NATIVE_CALL, 5, 0);
+  emit_u16(main.code, OpCode::SET_PROPERTY_STR, 3);
+  main.code.push_back(static_cast<uint8_t>(OpCode::POP));
+  emit_u16(main.code, OpCode::LOAD_LOCAL, 1);
+  emit_u16_u16(main.code, OpCode::NATIVE_CALL, 5, 0);
+  emit_u16(main.code, OpCode::SET_PROPERTY_STR, 3);
+  main.code.push_back(static_cast<uint8_t>(OpCode::POP));
+  main.code.push_back(static_cast<uint8_t>(OpCode::PUSH_UNIT));
+  main.code.push_back(static_cast<uint8_t>(OpCode::RETURN));
+
+  Function drop;
+  drop.name = "Droppable.Drop::drop";
+  drop.num_locals = 1;
+  drop.num_params = 1;
+  emit_u16_u16(drop.code, OpCode::NATIVE_CALL, 4, 0);
+  drop.code.push_back(static_cast<uint8_t>(OpCode::RETURN));
+
+  module.functions.push_back(std::move(main));
+  module.functions.push_back(std::move(drop));
+
+  int dropCount = 0;
+  auto droppableType = makert<NGType>();
+  droppableType->name = "Droppable";
+  droppableType->layout = TypeLayout{.name = "Droppable"};
+
+  VM vm;
+  vm.register_native_raw("make_drop", [droppableType](const Vec<RuntimeRef<StorageCell>> &) -> RuntimeRef<StorageCell> {
+    return make_runtime_structural_cell(droppableType, {});
+  });
+  vm.register_native_raw("record_drop", [&dropCount](const Vec<RuntimeRef<StorageCell>> &) -> RuntimeRef<StorageCell> {
+    ++dropCount;
+    return unit_cell();
+  });
+
+  auto result = vm.run(module);
+
+  REQUIRE(runtime_value_show(result) == "unit");
+  REQUIRE(dropCount >= 2);
 }
 
 TEST_CASE("compiler and vm should register imgui natives without initialized state", "[OrgasmTest][ImGui]")

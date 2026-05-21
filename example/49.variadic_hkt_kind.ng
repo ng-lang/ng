@@ -1,0 +1,7 @@
+type Variadic<Head, Tail...> = native;
+
+fun accept_variadic_constructor<F<_, ...>>() -> unit {
+  print("accepted variadic HKT constructor");
+}
+
+accept_variadic_constructor<Variadic>();

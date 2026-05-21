@@ -57,12 +57,14 @@ namespace NG::typecheck
         TAGGED_UNION = 0xB3,
         VARIANT = 0xB4,
         UNION = 0xB5,
+        TRAIT = 0xB6,
 
         GENERICS = 0xC0,
         GENERIC_PARAM = 0xC1,
         GENERIC_DEF = 0xC2,
         VARARGS = 0xC3,
         GENERIC_TYPE_DEF = 0xC4,
+        TYPE_CONSTRUCTOR_APPLICATION = 0xC5,
     };
 
     /**
@@ -254,12 +256,40 @@ namespace NG::typecheck
     struct CustomizedType : TypeInfo
     {
         Str name;
+        Str moduleId;
+        bool nativeOpaque = false;
+        bool abstract = false;
         Map<Str, CheckingRef<TypeInfo>> properties;
         Map<Str, CheckingRef<FunctionType>> memberFunctions;
+        Map<Str, Map<Str, CheckingRef<FunctionType>>> traitMemberFunctions;
 
-        explicit CustomizedType(Str name) : name(std::move(name)) {}
+        explicit CustomizedType(Str name, bool nativeOpaque = false, bool abstract = false, Str moduleId = "")
+            : name(std::move(name)), moduleId(std::move(moduleId)), nativeOpaque(nativeOpaque), abstract(abstract) {}
 
         auto tag() const -> typeinfo_tag override;
+        auto repr() const -> Str override;
+        auto match(const TypeInfo &other) const -> bool override;
+    };
+
+    struct TraitType : TypeInfo
+    {
+        Str name;
+        Str moduleId;
+        Vec<Str> typeParamNames;
+        Vec<CheckingRef<TraitType>> superTraits;
+        Map<Str, CheckingRef<FunctionType>> methods;
+        Map<Str, CheckingRef<FunctionType>> allMethods;
+        Map<Str, ast::FunctionDef *> defaultMethods;
+        Map<Str, ast::FunctionDef *> allDefaultMethods;
+        Map<Str, Str> allMethodOrigins;
+        Map<Str, Str> allDefaultOrigins;
+
+        explicit TraitType(Str name, Vec<Str> typeParamNames = {}, Str moduleId = "")
+            : name(std::move(name)), moduleId(std::move(moduleId)), typeParamNames(std::move(typeParamNames))
+        {
+        }
+
+        auto tag() const -> typeinfo_tag override { return typeinfo_tag::TRAIT; }
         auto repr() const -> Str override;
         auto match(const TypeInfo &other) const -> bool override;
     };
@@ -270,10 +300,11 @@ namespace NG::typecheck
     struct TypeAliasType : TypeInfo
     {
         Str name;
+        Str moduleId;
         CheckingRef<TypeInfo> underlyingType;
 
-        TypeAliasType(Str name, CheckingRef<TypeInfo> underlying)
-            : name(std::move(name)), underlyingType(std::move(underlying)) {}
+        TypeAliasType(Str name, CheckingRef<TypeInfo> underlying, Str moduleId = "")
+            : name(std::move(name)), moduleId(std::move(moduleId)), underlyingType(std::move(underlying)) {}
 
         auto tag() const -> typeinfo_tag override;
         auto repr() const -> Str override;
@@ -286,10 +317,11 @@ namespace NG::typecheck
     struct NewTypeType : TypeInfo
     {
         Str name;
+        Str moduleId;
         CheckingRef<TypeInfo> wrappedType;
 
-        NewTypeType(Str name, CheckingRef<TypeInfo> wrapped)
-            : name(std::move(name)), wrappedType(std::move(wrapped)) {}
+        NewTypeType(Str name, CheckingRef<TypeInfo> wrapped, Str moduleId = "")
+            : name(std::move(name)), moduleId(std::move(moduleId)), wrappedType(std::move(wrapped)) {}
 
         auto tag() const -> typeinfo_tag override;
         auto repr() const -> Str override;
@@ -302,10 +334,11 @@ namespace NG::typecheck
     struct TaggedUnionType : TypeInfo
     {
         Str name;
+        Str moduleId;
         Map<Str, Vec<CheckingRef<TypeInfo>>> variants;  // variant name -> payload types
         Map<Str, Vec<Str>> variantPayloadNames;          // variant name -> payload field names (if named)
 
-        explicit TaggedUnionType(Str name) : name(std::move(name)) {}
+        explicit TaggedUnionType(Str name, Str moduleId = "") : name(std::move(name)), moduleId(std::move(moduleId)) {}
 
         auto tag() const -> typeinfo_tag override { return TAGGED_UNION; }
         auto repr() const -> Str override;
@@ -318,13 +351,14 @@ namespace NG::typecheck
     struct VariantType : TypeInfo
     {
         Str unionName;
+        Str moduleId;
         Str variantName;
         int32_t variantIndex;
         Vec<CheckingRef<TypeInfo>> payloadTypes;
         Vec<Str> payloadNames;  ///< Named fields (e.g. Ok(value: i32))
 
-        VariantType(Str unionName, Str variantName, int32_t variantIndex, Vec<CheckingRef<TypeInfo>> payloadTypes, Vec<Str> payloadNames = {})
-            : unionName(std::move(unionName)), variantName(std::move(variantName)),
+        VariantType(Str unionName, Str variantName, int32_t variantIndex, Vec<CheckingRef<TypeInfo>> payloadTypes, Vec<Str> payloadNames = {}, Str moduleId = "")
+            : unionName(std::move(unionName)), moduleId(std::move(moduleId)), variantName(std::move(variantName)),
               variantIndex(variantIndex), payloadTypes(std::move(payloadTypes)), payloadNames(std::move(payloadNames)) {}
 
         auto tag() const -> typeinfo_tag override { return VARIANT; }
@@ -356,9 +390,13 @@ namespace NG::typecheck
         Str name;                           ///< The name of the type parameter (e.g. "T")
         Str bound;                          ///< Optional trait/bound constraint (empty if none)
         bool isPack = false;                ///< Whether this is a parameter pack (T...)
+        size_t kindArity = 0;               ///< 0 for *, N for type constructor params.
+        bool kindVariadicTail = false;      ///< Whether this type constructor param has a variadic tail.
 
-        explicit GenericParamType(Str name, Str bound = "", bool isPack = false)
-            : name(std::move(name)), bound(std::move(bound)), isPack(isPack) {}
+        explicit GenericParamType(Str name, Str bound = "", bool isPack = false, size_t kindArity = 0,
+                                  bool kindVariadicTail = false)
+            : name(std::move(name)), bound(std::move(bound)), isPack(isPack), kindArity(kindArity),
+              kindVariadicTail(kindVariadicTail) {}
 
         auto tag() const -> typeinfo_tag override { return GENERIC_PARAM; }
         auto repr() const -> Str override;
@@ -376,15 +414,18 @@ namespace NG::typecheck
         using TypeEnv = Map<Str, CheckingRef<TypeInfo>>;
 
         Str name;                                   ///< The name of the generic definition
+        Str moduleId;                               ///< Canonical module that owns this generic definition.
         Vec<Str> typeParamNames;                    ///< Names of type parameters (e.g. ["T", "U"])
         Vec<bool> typeParamIsPack;                  ///< Which type params are packs (parallel to typeParamNames)
+        Vec<size_t> typeParamKindArities;            ///< 0 for *, N for type constructor params.
+        Vec<bool> typeParamKindVariadicTails;        ///< Which type params are variadic constructor kinds.
         NG::ast::ASTRef<NG::ast::FunctionDef> funcDef; ///< The original AST node (for generic functions)
         TypeEnv capturedLocals;                     ///< Local type environment at definition site
         Map<Str, CheckingRef<TypeInfo>> instances; ///< Monomorphized return types keyed by instantiated name.
 
         GenericDefType(Str name, Vec<Str> typeParamNames, Vec<bool> typeParamIsPack,
-                       NG::ast::ASTRef<NG::ast::FunctionDef> funcDef, TypeEnv capturedLocals)
-            : name(std::move(name)), typeParamNames(std::move(typeParamNames)),
+                       NG::ast::ASTRef<NG::ast::FunctionDef> funcDef, TypeEnv capturedLocals, Str moduleId = "")
+            : name(std::move(name)), moduleId(std::move(moduleId)), typeParamNames(std::move(typeParamNames)),
               typeParamIsPack(std::move(typeParamIsPack)),
               funcDef(std::move(funcDef)), capturedLocals(std::move(capturedLocals)) {}
 
@@ -406,41 +447,59 @@ namespace NG::typecheck
         using TypeEnv = Map<Str, CheckingRef<TypeInfo>>;
 
         Str name;
+        Str moduleId;
         GenericTypeKind kind;
         Vec<Str> typeParamNames;
         Vec<bool> typeParamIsPack;
+        Vec<size_t> typeParamKindArities;
+        Vec<bool> typeParamKindVariadicTails;
         NG::ast::ASTRef<NG::ast::TypeDef> typeDef = nullptr;
         NG::ast::ASTRef<NG::ast::TypeAliasDef> typeAliasDef = nullptr;
+        Vec<NG::ast::TypeAliasDef *> specializations;
         NG::ast::ASTRef<NG::ast::NewTypeDef> newTypeDef = nullptr;
         NG::ast::ASTRef<NG::ast::TaggedUnionDef> taggedUnionDef = nullptr;
         TypeEnv capturedLocals;
         Map<Str, CheckingRef<TypeInfo>> instances;
 
         GenericTypeDef(Str name, Vec<Str> typeParamNames, Vec<bool> typeParamIsPack,
-                       NG::ast::ASTRef<NG::ast::TypeDef> typeDef, TypeEnv capturedLocals)
-            : name(std::move(name)), kind(GenericTypeKind::TYPE_DEF), typeParamNames(std::move(typeParamNames)),
+                       NG::ast::ASTRef<NG::ast::TypeDef> typeDef, TypeEnv capturedLocals, Str moduleId = "")
+            : name(std::move(name)), moduleId(std::move(moduleId)), kind(GenericTypeKind::TYPE_DEF), typeParamNames(std::move(typeParamNames)),
               typeParamIsPack(std::move(typeParamIsPack)), typeDef(std::move(typeDef)),
               capturedLocals(std::move(capturedLocals)) {}
 
         GenericTypeDef(Str name, Vec<Str> typeParamNames, Vec<bool> typeParamIsPack,
-                       NG::ast::ASTRef<NG::ast::TypeAliasDef> typeAliasDef, TypeEnv capturedLocals)
-            : name(std::move(name)), kind(GenericTypeKind::TYPE_ALIAS), typeParamNames(std::move(typeParamNames)),
+                       NG::ast::ASTRef<NG::ast::TypeAliasDef> typeAliasDef, TypeEnv capturedLocals, Str moduleId = "")
+            : name(std::move(name)), moduleId(std::move(moduleId)), kind(GenericTypeKind::TYPE_ALIAS), typeParamNames(std::move(typeParamNames)),
               typeParamIsPack(std::move(typeParamIsPack)), typeAliasDef(std::move(typeAliasDef)),
               capturedLocals(std::move(capturedLocals)) {}
 
         GenericTypeDef(Str name, Vec<Str> typeParamNames, Vec<bool> typeParamIsPack,
-                       NG::ast::ASTRef<NG::ast::NewTypeDef> newTypeDef, TypeEnv capturedLocals)
-            : name(std::move(name)), kind(GenericTypeKind::NEW_TYPE), typeParamNames(std::move(typeParamNames)),
+                       NG::ast::ASTRef<NG::ast::NewTypeDef> newTypeDef, TypeEnv capturedLocals, Str moduleId = "")
+            : name(std::move(name)), moduleId(std::move(moduleId)), kind(GenericTypeKind::NEW_TYPE), typeParamNames(std::move(typeParamNames)),
               typeParamIsPack(std::move(typeParamIsPack)), newTypeDef(std::move(newTypeDef)),
               capturedLocals(std::move(capturedLocals)) {}
 
         GenericTypeDef(Str name, Vec<Str> typeParamNames, Vec<bool> typeParamIsPack,
-                       NG::ast::ASTRef<NG::ast::TaggedUnionDef> taggedUnionDef, TypeEnv capturedLocals)
-            : name(std::move(name)), kind(GenericTypeKind::TAGGED_UNION), typeParamNames(std::move(typeParamNames)),
+                       NG::ast::ASTRef<NG::ast::TaggedUnionDef> taggedUnionDef, TypeEnv capturedLocals, Str moduleId = "")
+            : name(std::move(name)), moduleId(std::move(moduleId)), kind(GenericTypeKind::TAGGED_UNION), typeParamNames(std::move(typeParamNames)),
               typeParamIsPack(std::move(typeParamIsPack)), taggedUnionDef(std::move(taggedUnionDef)),
               capturedLocals(std::move(capturedLocals)) {}
 
         auto tag() const -> typeinfo_tag override { return GENERIC_TYPE_DEF; }
+        auto repr() const -> Str override;
+        auto match(const TypeInfo &other) const -> bool override;
+    };
+
+    struct TypeConstructorApplicationType : TypeInfo
+    {
+        CheckingRef<TypeInfo> constructorType;
+        Vec<CheckingRef<TypeInfo>> typeArgs;
+
+        TypeConstructorApplicationType(CheckingRef<TypeInfo> constructorType,
+                                       Vec<CheckingRef<TypeInfo>> typeArgs)
+            : constructorType(std::move(constructorType)), typeArgs(std::move(typeArgs)) {}
+
+        auto tag() const -> typeinfo_tag override { return TYPE_CONSTRUCTOR_APPLICATION; }
         auto repr() const -> Str override;
         auto match(const TypeInfo &other) const -> bool override;
     };

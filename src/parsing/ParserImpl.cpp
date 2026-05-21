@@ -128,6 +128,24 @@ namespace NG::parsing
           current_mod->definitions.push_back(std::move(value));
           break;
         }
+        case TokenType::KEYWORD_CONST:
+        {
+          if (peekTokenType(1) == TokenType::KEYWORD_IF)
+          {
+            current_mod->statements.push_back(statement());
+            break;
+          }
+          auto constant = constDef();
+          if (exported)
+          {
+            for (auto &&name : constant->names())
+            {
+              mod->exports.push_back(name);
+            }
+          }
+          current_mod->definitions.push_back(std::move(constant));
+          break;
+        }
         case TokenType::KEYWORD_TYPE:
         {
           auto type = typeDef();
@@ -139,6 +157,37 @@ namespace NG::parsing
             }
           }
           current_mod->definitions.push_back(std::move(type));
+          break;
+        }
+        case TokenType::KEYWORD_TRAIT:
+        {
+          auto trait = traitDef();
+          if (exported)
+          {
+            for (auto &&name : trait->names())
+            {
+              mod->exports.push_back(name);
+            }
+          }
+          current_mod->definitions.push_back(std::move(trait));
+          break;
+        }
+        case TokenType::KEYWORD_IMPL:
+        {
+          auto impl = implDef();
+          if (exported)
+          {
+            for (auto &&name : impl->names())
+            {
+              mod->exports.push_back(name);
+            }
+          }
+          current_mod->definitions.push_back(std::move(impl));
+          break;
+        }
+        case TokenType::KEYWORD_USE:
+        {
+          current_mod->definitions.push_back(useImplDecl());
           break;
         }
         case TokenType::KEYWORD_MODULE:
@@ -189,13 +238,78 @@ namespace NG::parsing
       return unaryExpr != nullptr && unaryExpr->optr != nullptr && unaryExpr->optr->type == TokenType::TIMES;
     }
 
+    auto expressionTerminatorAfterGenericArgs(TokenType type) -> bool
+    {
+      return type == TokenType::LEFT_PAREN || type == TokenType::RIGHT_PAREN || type == TokenType::LEFT_CURLY ||
+             type == TokenType::RIGHT_CURLY || type == TokenType::RIGHT_SQUARE || type == TokenType::SEMICOLON ||
+             type == TokenType::COMMA || type == TokenType::COLON || type == TokenType::BIND ||
+             type == TokenType::AND || type == TokenType::OR;
+    }
+
+    auto genericExpressionArgsAhead() -> bool
+    {
+      if (!expect(TokenType::LT))
+      {
+        return false;
+      }
+      int depth = 0;
+      for (size_t i = state.index; i < state.size; ++i)
+      {
+        auto tokenType = state.tokens[i].type;
+        if (tokenType == TokenType::LT)
+        {
+          ++depth;
+        }
+        else if (tokenType == TokenType::GT)
+        {
+          --depth;
+        }
+        else if (tokenType == TokenType::RSHIFT)
+        {
+          depth -= 2;
+        }
+        if (depth == 0)
+        {
+          auto nextIndex = i + 1;
+          return nextIndex >= state.size || expressionTerminatorAfterGenericArgs(state.tokens[nextIndex].type);
+        }
+        if (depth < 0)
+        {
+          return false;
+        }
+      }
+      return false;
+    }
+
+    auto genericConstExpression(ASTRef<Expression> primaryExpression,
+                                Vec<std::shared_ptr<TypeAnnotation>> genericArgs) -> ASTRef<FunCallExpression>
+    {
+      auto expr = createNode<FunCallExpression>();
+      expr->primaryExpression = std::move(primaryExpression);
+      expr->genericArgs = std::move(genericArgs);
+      return expr;
+    }
+
     auto postfixExpression(ASTRef<Expression> expr) -> ASTRef<Expression>
     {
-      while (expect(TokenType::LEFT_PAREN) || expect(TokenType::DOT) || expect(TokenType::LEFT_SQUARE))
+      while (expect(TokenType::LEFT_PAREN) || expect(TokenType::LT) || expect(TokenType::DOT) || expect(TokenType::LEFT_SQUARE) ||
+             expect(TokenType::SEPARATOR))
       {
         if (expect(TokenType::LEFT_PAREN))
         {
           expr = std::move(funCallExpression(std::move(expr)));
+        }
+        else if (expect(TokenType::LT) && dynamic_ast_cast<IdExpression>(expr) && genericExpressionArgsAhead())
+        {
+          auto genericTypeArgs = genericArgs();
+          if (expect(TokenType::LEFT_PAREN))
+          {
+            expr = std::move(funCallExpression(std::move(expr), std::move(genericTypeArgs)));
+          }
+          else
+          {
+            expr = std::move(genericConstExpression(std::move(expr), std::move(genericTypeArgs)));
+          }
         }
         else if (expect(TokenType::DOT))
         {
@@ -204,6 +318,14 @@ namespace NG::parsing
         else if (expect(TokenType::LEFT_SQUARE))
         {
           expr = std::move(indexAccessorExpression(std::move(expr)));
+        }
+        else if (expect(TokenType::SEPARATOR))
+        {
+          expr = std::move(staticQualifiedTraitCallExpression(std::move(expr)));
+        }
+        else
+        {
+          break;
         }
       }
       return expr;
@@ -270,6 +392,48 @@ namespace NG::parsing
         auto param = createNode<GenericParam>(state->repr);
         accept(TokenType::ID);
 
+        // Higher-kinded type constructor parameter: F<_>, F<_, _>, ...
+        if (expect(TokenType::LT))
+        {
+          accept(TokenType::LT);
+          size_t arity = 0;
+          bool variadicTail = false;
+          while (!expect(TokenType::GT) && !state.eof() && !expect(TokenType::RSHIFT))
+          {
+            if (expect(TokenType::SPREAD))
+            {
+              if (variadicTail)
+              {
+                unexpected("Duplicate variadic kind placeholder");
+              }
+              accept(TokenType::SPREAD);
+              variadicTail = true;
+              if (!expect(TokenType::GT) && !expect(TokenType::RSHIFT))
+              {
+                unexpected("Variadic kind placeholder must be the final placeholder");
+              }
+              break;
+            }
+            if (!expect(TokenType::ID) || state->repr != "_")
+            {
+              unexpected("Expected '_' placeholder in generic type constructor parameter");
+            }
+            accept(TokenType::ID);
+            ++arity;
+            if (expect(TokenType::COMMA))
+            {
+              accept(TokenType::COMMA);
+            }
+          }
+          if (arity == 0 && !variadicTail)
+          {
+            unexpected("Generic type constructor parameter must declare at least one '_' placeholder");
+          }
+          param->kindArity = arity;
+          param->kindVariadicTail = variadicTail;
+          acceptGT();
+        }
+
         // Check for parameter pack: T...
         if (expect(TokenType::SPREAD))
         {
@@ -317,7 +481,50 @@ namespace NG::parsing
       return args;
     }
 
-    auto funDef() -> ASTRef<FunctionDef>
+    auto cloneSimpleTypeAnnotation(const TypeAnnotation &annotation) -> ASTRef<TypeAnnotation>
+    {
+      if (!annotation.genericArgs.empty() || !annotation.arguments.empty())
+      {
+        unexpected("Repeated trait bounds only support a simple generic parameter subject");
+      }
+      auto clone = createNode<TypeAnnotation>(annotation.name);
+      clone->type = annotation.type;
+      return clone;
+    }
+
+    auto whereBounds() -> Vec<ASTRef<TraitBound>>
+    {
+      Vec<ASTRef<TraitBound>> bounds;
+      accept(TokenType::KEYWORD_WHERE);
+      while (!state.eof())
+      {
+        if (expect(TokenType::ID) && peekTokenType(1) == TokenType::COLON)
+        {
+          auto subject = typeAnnotation();
+          accept(TokenType::COLON);
+          auto trait = typeAnnotation();
+          bounds.push_back(createNode<TraitBound>(std::move(subject), std::move(trait)));
+          while (expect(TokenType::PLUS))
+          {
+            accept(TokenType::PLUS);
+            auto repeatedSubject = cloneSimpleTypeAnnotation(*bounds.back()->subject);
+            bounds.push_back(createNode<TraitBound>(std::move(repeatedSubject), typeAnnotation()));
+          }
+        }
+        else
+        {
+          bounds.push_back(createNode<TraitBound>(expression(true)));
+        }
+        if (!expect(TokenType::AND))
+        {
+          break;
+        }
+        accept(TokenType::AND);
+      }
+      return bounds;
+    }
+
+    auto funDef(bool allowSignatureOnly = false) -> ASTRef<FunctionDef>
     {
       accept(TokenType::KEYWORD_FUN);
 
@@ -350,6 +557,17 @@ namespace NG::parsing
           def->returnType = std::move(typeAnnotation());
         }
 
+        if (expect(TokenType::KEYWORD_WHERE))
+        {
+          def->whereBounds = whereBounds();
+        }
+
+        if (allowSignatureOnly && expect(TokenType::SEMICOLON))
+        {
+          accept(TokenType::SEMICOLON);
+          return def;
+        }
+
         if (expect(TokenType::BIND))
         {
           accept(TokenType::BIND);
@@ -378,6 +596,57 @@ namespace NG::parsing
         return def;
       }
       unexpected("Expected function name");
+    }
+
+    auto constDef() -> ASTRef<ConstDef>
+    {
+      accept(TokenType::KEYWORD_CONST);
+      Vec<ASTRef<GenericParam>> constGenericParams;
+      if (expect(TokenType::LT))
+      {
+        constGenericParams = std::move(genericParams());
+      }
+      if (!expect(TokenType::ID))
+      {
+        unexpected("Expected const name");
+      }
+      auto constName = state->repr;
+      accept(TokenType::ID);
+      ASTRef<TypeAnnotation> specializationPattern = nullptr;
+      if (expect(TokenType::LT))
+      {
+        if (constGenericParams.empty())
+        {
+          constGenericParams = std::move(genericParams());
+        }
+        else
+        {
+          specializationPattern = createNode<TypeAnnotation>(constName);
+          specializationPattern->type = TypeAnnotationType::CUSTOMIZED;
+          specializationPattern->genericArgs = std::move(genericArgs());
+        }
+      }
+      auto def = createNode<ConstDef>(constName);
+      def->genericParams = std::move(constGenericParams);
+      def->specializationPattern = std::move(specializationPattern);
+      if (expect(TokenType::KEYWORD_WHERE))
+      {
+        def->whereBounds = whereBounds();
+      }
+      accept(TokenType::COLON);
+      def->returnType = std::move(typeAnnotation());
+      accept(TokenType::BIND);
+      if (expect(TokenType::KEYWORD_NATIVE))
+      {
+        accept(TokenType::KEYWORD_NATIVE);
+        def->native = true;
+      }
+      else
+      {
+        def->value = std::move(expression());
+      }
+      accept(TokenType::SEMICOLON);
+      return def;
     }
 
     /**
@@ -489,20 +758,154 @@ namespace NG::parsing
       return createNode<PropertyDef>((name)->repr(), std::move(type));
     }
 
+    auto traitDef() -> ASTRef<TraitDef>
+    {
+      accept(TokenType::KEYWORD_TRAIT);
+      auto trait = createNode<TraitDef>();
+      trait->traitName = idExpression()->repr();
+
+      if (expect(TokenType::LT))
+      {
+        trait->genericParams = genericParams();
+      }
+
+      if (expect(TokenType::COLON))
+      {
+        accept(TokenType::COLON);
+        while (!state.eof())
+        {
+          trait->superTraits.push_back(typeAnnotation());
+          if (!expect(TokenType::PLUS))
+          {
+            break;
+          }
+          accept(TokenType::PLUS);
+        }
+      }
+
+      accept(TokenType::LEFT_CURLY);
+      while (!expect(TokenType::RIGHT_CURLY))
+      {
+        if (!expect(TokenType::KEYWORD_FUN))
+        {
+          unexpected("Expected trait method declaration");
+        }
+        auto method = funDef(true);
+        trait->methods.push_back(std::move(method));
+      }
+      accept(TokenType::RIGHT_CURLY);
+      return trait;
+    }
+
+    auto implDef() -> ASTRef<ImplDef>
+    {
+      accept(TokenType::KEYWORD_IMPL);
+      auto impl = createNode<ImplDef>();
+
+      if (expect(TokenType::LT))
+      {
+        impl->genericParams = genericParams();
+      }
+
+      impl->trait = typeAnnotation();
+      accept(TokenType::KEYWORD_FOR);
+      impl->targetType = typeAnnotation();
+
+      if (expect(TokenType::KEYWORD_WHERE))
+      {
+        impl->whereBounds = whereBounds();
+      }
+
+      accept(TokenType::LEFT_CURLY);
+      while (!expect(TokenType::RIGHT_CURLY))
+      {
+        if (!expect(TokenType::KEYWORD_FUN))
+        {
+          unexpected("Expected impl method definition");
+        }
+        impl->methods.push_back(funDef());
+      }
+      accept(TokenType::RIGHT_CURLY);
+      return impl;
+    }
+
+    auto useImplDecl() -> ASTRef<UseImplDecl>
+    {
+      accept(TokenType::KEYWORD_USE);
+      if (!expect(TokenType::KEYWORD_IMPL))
+      {
+        unexpected("Expected impl after use");
+      }
+      accept(TokenType::KEYWORD_IMPL);
+      auto useImpl = createNode<UseImplDecl>();
+      if (expect(TokenType::ID) && peekTokenType(1) == TokenType::SEPARATOR)
+      {
+        useImpl->moduleQualifier = state->repr;
+        accept(TokenType::ID);
+        accept(TokenType::SEPARATOR);
+      }
+      useImpl->trait = typeAnnotation();
+      accept(TokenType::KEYWORD_FOR);
+      useImpl->targetType = typeAnnotation();
+      accept(TokenType::SEMICOLON);
+      return useImpl;
+    }
+
+    void parseTypeAliasConstraintSection(Vec<ASTRef<TraitBound>> &whereBoundsOut)
+    {
+      if (!expect(TokenType::COLON))
+      {
+        return;
+      }
+      accept(TokenType::COLON);
+      if (!expect(TokenType::KEYWORD_WHERE))
+      {
+        unexpected("Type alias constraint section only supports `: where ...`");
+      }
+      whereBoundsOut = whereBounds();
+    }
+
     auto typeDef() -> ASTRef<Definition>
     {
       accept(TokenType::KEYWORD_TYPE);
 
-      auto typeName = idExpression();
-      auto nameStr = typeName->repr();
-
-      // Parse generic parameters on type name: type Option<T> { ... }
-      // We store them temporarily and apply them to whichever kind of type definition follows
       Vec<ASTRef<GenericParam>> typeGenericParams;
       if (expect(TokenType::LT))
       {
         typeGenericParams = std::move(genericParams());
       }
+
+      Str nameStr;
+      if (expect(TokenType::KEYWORD_REF))
+      {
+        nameStr = "ref";
+        accept(TokenType::KEYWORD_REF);
+      }
+      else
+      {
+        auto typeName = idExpression();
+        nameStr = typeName->repr();
+      }
+      ASTRef<TypeAnnotation> specializationPattern = nullptr;
+
+      // Parse generic parameters on type name: type Option<T> { ... }
+      // For `type<T> Name<Pattern> = ...`, the annotation is a specialization pattern.
+      if (expect(TokenType::LT))
+      {
+        if (typeGenericParams.empty())
+        {
+          typeGenericParams = std::move(genericParams());
+        }
+        else
+        {
+          specializationPattern = createNode<TypeAnnotation>(nameStr);
+          specializationPattern->type = TypeAnnotationType::CUSTOMIZED;
+          specializationPattern->genericArgs = std::move(genericArgs());
+        }
+      }
+
+      Vec<ASTRef<TraitBound>> aliasWhereBounds;
+      parseTypeAliasConstraintSection(aliasWhereBounds);
 
       // Check for type alias or tagged union syntax: type A = B; or type A = V1(T) | V2(T);
       if (expect(TokenType::BIND))
@@ -575,7 +978,33 @@ namespace NG::parsing
         // Otherwise it's a type alias
         auto aliasDef = createNode<TypeAliasDef>(nameStr);
         aliasDef->genericParams = std::move(typeGenericParams);
-        aliasDef->underlyingType = std::move(typeAnnotation());
+        aliasDef->specializationPattern = std::move(specializationPattern);
+        aliasDef->whereBounds = std::move(aliasWhereBounds);
+        if (expect(TokenType::KEYWORD_NATIVE))
+        {
+          accept(TokenType::KEYWORD_NATIVE);
+          aliasDef->nativeOpaque = true;
+        }
+        else if (expect(TokenType::KEYWORD_DELETE))
+        {
+          accept(TokenType::KEYWORD_DELETE);
+          aliasDef->deleted = true;
+        }
+        else
+        {
+          aliasDef->underlyingType = std::move(typeAnnotation());
+        }
+        accept(TokenType::SEMICOLON);
+        return aliasDef;
+      }
+
+      if (expect(TokenType::SEMICOLON))
+      {
+        auto aliasDef = createNode<TypeAliasDef>(nameStr);
+        aliasDef->genericParams = std::move(typeGenericParams);
+        aliasDef->specializationPattern = std::move(specializationPattern);
+        aliasDef->whereBounds = std::move(aliasWhereBounds);
+        aliasDef->abstract = true;
         accept(TokenType::SEMICOLON);
         return aliasDef;
       }
@@ -888,6 +1317,10 @@ namespace NG::parsing
       }
       if (maybeBuiltin == TokenType::ID)
       {
+        if (state->repr == "_")
+        {
+          unexpected("Type placeholder '_' is only allowed in generic parameter kind declarations");
+        }
         ASTRef<TypeAnnotation> anno = createNode<TypeAnnotation>(state->repr);
         accept(TokenType::ID);
         anno->type = TypeAnnotationType::CUSTOMIZED;
@@ -1259,19 +1692,35 @@ namespace NG::parsing
       return createNode<TypeCheckingExpression>(expr, type);
     }
 
-    auto expression() -> ASTRef<Expression>
+    auto expression(bool stopAtBind = false) -> ASTRef<Expression>
     {
       auto expr = std::move(primaryExpression());
 
-      while (!expectExpressionTerminator() || is_operator(state->type))
+      while (!expectExpressionTerminator(stopAtBind))
       {
         if (expect(TokenType::LEFT_PAREN))
         {
           expr = std::move(funCallExpression(std::move(expr)));
         }
+        else if (expect(TokenType::LT) && dynamic_ast_cast<IdExpression>(expr) && genericExpressionArgsAhead())
+        {
+          auto genericTypeArgs = genericArgs();
+          if (expect(TokenType::LEFT_PAREN))
+          {
+            expr = std::move(funCallExpression(std::move(expr), std::move(genericTypeArgs)));
+          }
+          else
+          {
+            expr = std::move(genericConstExpression(std::move(expr), std::move(genericTypeArgs)));
+          }
+        }
         else if (expect(TokenType::DOT))
         {
           expr = std::move(idAccessorExpression(std::move(expr)));
+        }
+        else if (expect(TokenType::SEPARATOR))
+        {
+          expr = std::move(staticQualifiedTraitCallExpression(std::move(expr)));
         }
         else if (expect(TokenType::KEYWORD_IS))
         {
@@ -1289,6 +1738,10 @@ namespace NG::parsing
         else if (expect(TokenType::LEFT_SQUARE))
         {
           expr = std::move(indexAccessorExpression(std::move(expr)));
+        }
+        else
+        {
+          unexpected("Unexpected token " + state->repr);
         }
       }
 
@@ -1316,9 +1769,10 @@ namespace NG::parsing
       return assignmentExpr;
     }
 
-    auto expectExpressionTerminator() -> bool
+    auto expectExpressionTerminator(bool stopAtBind = false) -> bool
     {
       return expect(TokenType::COLON) ||        // :
+             (stopAtBind && expect(TokenType::BIND)) || // =
              expect(TokenType::COMMA) ||        // ,
              expect(TokenType::DUAL_ARROW) ||   // =>
              expect(TokenType::SINGLE_ARROW) || // ->
@@ -1327,7 +1781,7 @@ namespace NG::parsing
              expect(TokenType::RIGHT_SQUARE) || // ]
              expect(TokenType::SEMICOLON) ||    // ;
              expect(TokenType::LEFT_CURLY) ||   // {
-             is_operator(state->type) || state.eof();
+             state.eof();
     }
 
     auto binaryExpression(ASTRef<Expression> expr) -> ASTRef<BinaryExpression>
@@ -1345,7 +1799,8 @@ namespace NG::parsing
       return binexpr;
     }
 
-    auto funCallExpression(ASTRef<Expression> primaryExpression) -> ASTRef<FunCallExpression>
+    auto funCallExpression(ASTRef<Expression> primaryExpression,
+                           Vec<std::shared_ptr<TypeAnnotation>> genericArgs = {}) -> ASTRef<FunCallExpression>
     {
       accept(TokenType::LEFT_PAREN);
       Vec<ASTRef<Expression>> args{};
@@ -1361,13 +1816,41 @@ namespace NG::parsing
       accept(TokenType::RIGHT_PAREN);
       auto funcall = createNode<FunCallExpression>();
       funcall->primaryExpression = std::move(primaryExpression);
+      funcall->genericArgs = std::move(genericArgs);
       funcall->arguments = std::move(args);
       return funcall;
     }
 
-    auto idAccessorExpression(ASTRef<Expression> expr) -> ASTRef<IdAccessorExpression>
+    auto idAccessorExpression(ASTRef<Expression> expr) -> ASTRef<Expression>
     {
       accept(TokenType::DOT);
+      if (expect(TokenType::ID) && peekTokenType(1) == TokenType::SEPARATOR)
+      {
+        auto qualified = createNode<QualifiedTraitCallExpression>();
+        qualified->receiver = std::move(expr);
+        qualified->traitName = state->repr;
+        accept(TokenType::ID);
+        accept(TokenType::SEPARATOR);
+        if (!expect(TokenType::ID))
+        {
+          unexpected("Expect method identifier after trait qualifier");
+        }
+        qualified->methodName = state->repr;
+        accept(TokenType::ID);
+        accept(TokenType::LEFT_PAREN);
+        while (!expect(TokenType::RIGHT_PAREN))
+        {
+          qualified->arguments.push_back(std::move(expression()));
+          if (!expect(TokenType::COMMA))
+          {
+            break;
+          }
+          accept(TokenType::COMMA);
+        }
+        accept(TokenType::RIGHT_PAREN);
+        return qualified;
+      }
+
       auto idacc = createNode<IdAccessorExpression>();
       idacc->primaryExpression = std::move(expr);
 
@@ -1409,6 +1892,37 @@ namespace NG::parsing
         idacc->arguments = std::move(args);
       }
       return idacc;
+    }
+
+    auto staticQualifiedTraitCallExpression(ASTRef<Expression> expr) -> ASTRef<QualifiedTraitCallExpression>
+    {
+      auto traitExpr = dynamic_ast_cast<IdExpression>(expr);
+      if (!traitExpr)
+      {
+        unexpected("Trait-qualified call must start with a trait identifier");
+      }
+      auto qualified = createNode<QualifiedTraitCallExpression>();
+      qualified->traitName = traitExpr->id;
+      accept(TokenType::SEPARATOR);
+      if (!expect(TokenType::ID))
+      {
+        unexpected("Expect method identifier after trait qualifier");
+      }
+      qualified->methodName = state->repr;
+      accept(TokenType::ID);
+      accept(TokenType::LEFT_PAREN);
+      while (!expect(TokenType::RIGHT_PAREN))
+      {
+        qualified->arguments.push_back(std::move(expression()));
+        if (!expect(TokenType::COMMA))
+        {
+          break;
+        }
+        accept(TokenType::COMMA);
+      }
+      accept(TokenType::RIGHT_PAREN);
+      destroyast(expr);
+      return qualified;
     }
 
     auto indexAccessorExpression(ASTRef<Expression> primary) -> ASTRef<Expression>

@@ -1,0 +1,23 @@
+type Counter {
+    label: string;
+}
+
+trait Show {
+    fun show(self: ref<Self>) -> string;
+}
+
+impl Show for Counter {
+    fun show(self: ref<Self>) -> string {
+        return self.label;
+    }
+}
+
+fun render(item: ref<Show>) -> string {
+    return item.show();
+}
+
+val counter = new Counter { label: "seven" };
+val view: ref<Show> = counter;
+
+assert(render(counter) == "seven");
+assert(view.show() == "seven");

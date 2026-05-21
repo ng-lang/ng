@@ -1,0 +1,16 @@
+type Counter {
+    label: string;
+}
+
+trait Show {
+    fun show(self: ref<Self>) -> string;
+}
+
+impl Show for Counter {
+    fun show(self: ref<Self>) -> string {
+        return self.label;
+    }
+}
+
+val counter = new Counter { label: "seven" };
+print(counter.show());

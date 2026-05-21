@@ -1,0 +1,50 @@
+// Const specialization can combine trait bounds and const predicates.
+
+trait Show {
+    fun show(self: ref<Self>) -> string;
+}
+
+trait Debug {
+    fun inspect(self: ref<Self>) -> string;
+}
+
+type Visible {
+    property value: i32;
+}
+
+impl Show for Visible {
+    fun show(self: ref<Self>) -> string {
+        return "visible";
+    }
+}
+
+impl Debug for Visible {
+    fun inspect(self: ref<Self>) -> string {
+        return "visible";
+    }
+}
+
+type Silent {
+    property value: i32;
+}
+
+impl Show for Silent {
+    fun show(self: ref<Self>) -> string {
+        return "silent";
+    }
+}
+
+const is_show_debug_ref<T>: bool = false;
+const<T> is_show_debug_ref<ref<T>> where T: Show + Debug && is_ref<ref<T>>: bool = true;
+
+const if (is_show_debug_ref<ref<Visible>>) {
+    print("ref target implements Show + Debug");
+} else {
+    assert(false);
+}
+
+const if (!is_show_debug_ref<ref<Silent>>) {
+    print("ref target misses required traits");
+} else {
+    assert(false);
+}

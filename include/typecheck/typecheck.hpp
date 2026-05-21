@@ -23,7 +23,7 @@ namespace NG::typecheck
      * @param initial_index Initial type information.
      * @return A map from names to type information.
      */
-    TypeIndex type_check(ASTRef<ASTNode> ast, TypeIndex initial_index = {});
+    TypeIndex type_check(ASTRef<ASTNode> ast, TypeIndex initial_index = {}, Vec<Str> module_paths = {});
 
     /**
      * @brief Loads and type-checks the standard library prelude module,

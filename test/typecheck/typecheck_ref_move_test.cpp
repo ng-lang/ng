@@ -50,6 +50,15 @@ TEST_CASE("should reject ref on rvalue", "[TypeCheck][RefMove][Failure]")
   typecheck_failure("val x = ref 1;", "Reference operator requires an lvalue");
 }
 
+TEST_CASE("should reject ref on reference value", "[TypeCheck][RefMove][Failure]")
+{
+  typecheck_failure(R"(
+    type Box { value: i32; }
+    val box = new Box { value: 1 };
+    val ptr = ref box;
+  )", "cannot take a reference value");
+}
+
 TEST_CASE("should reject deref on non-reference", "[TypeCheck][RefMove][Failure]")
 {
   typecheck_failure("val x: i32 = *1;", "Cannot dereference non-reference type");

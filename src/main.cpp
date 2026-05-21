@@ -184,7 +184,18 @@ auto main(int argc, char *argv[]) -> int
     using namespace NG::typecheck;
     TypeIndex prelude_types = build_prelude_type_index();
 
-    NG::typecheck::type_check(ast, prelude_types);
+    Vec<Str> modulePaths;
+    namespace fs = std::filesystem;
+    fs::path inputPath{filename};
+    auto parentDir = inputPath.parent_path();
+    if (!parentDir.empty())
+    {
+      modulePaths.push_back(parentDir.string());
+    }
+    modulePaths.push_back("lib");
+    modulePaths.push_back("../lib");
+
+    NG::typecheck::type_check(ast, prelude_types, modulePaths);
 
     if (use_stupid)
     {
@@ -193,19 +204,6 @@ auto main(int argc, char *argv[]) -> int
     }
     else
     {
-      // Derive module search paths from the input file's directory
-      Vec<Str> modulePaths;
-      namespace fs = std::filesystem;
-      fs::path inputPath{filename};
-      auto parentDir = inputPath.parent_path();
-      if (!parentDir.empty())
-      {
-        modulePaths.push_back(parentDir.string());
-      }
-      // Also add standard lib paths
-      modulePaths.push_back("lib");
-      modulePaths.push_back("../lib");
-
       auto nativeNames = NG::library::prelude::native_function_names();
       auto imguiNativeNames = NG::library::imgui::native_function_names();
       nativeNames.insert(nativeNames.end(), imguiNativeNames.begin(), imguiNativeNames.end());

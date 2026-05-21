@@ -130,6 +130,7 @@ namespace NG::ast
          * @param idAccExpr The ID accessor expression to visit.
          */
         virtual void visit(IdAccessorExpression *idAccExpr) = 0;
+        virtual void visit(QualifiedTraitCallExpression *qualifiedCall) = 0;
 
         /**
          * @brief Visits an index accessor expression.
@@ -285,12 +286,17 @@ namespace NG::ast
         virtual void visit(ImportDecl *importDecl) = 0;
 
         virtual void visit(TypeAliasDef *typeAliasDef) = 0;
+        virtual void visit(ConstDef *constDef) = 0;
         virtual void visit(NewTypeDef *newTypeDef) = 0;
         virtual void visit(CastExpression *castExpr) = 0;
         virtual void visit(TaggedUnionDef *taggedUnionDef) = 0;
         virtual void visit(TaggedValueExpression *taggedVal) = 0;
         virtual void visit(SwitchStatement *switchStmt) = 0;
         virtual void visit(GenericParam *genericParam) = 0;
+        virtual void visit(TraitBound *traitBound) = 0;
+        virtual void visit(TraitDef *traitDef) = 0;
+        virtual void visit(ImplDef *implDef) = 0;
+        virtual void visit(UseImplDecl *useImplDecl) = 0;
 
         /**
          * @brief Visits a compile unit.
@@ -355,6 +361,7 @@ namespace NG::ast
         void visit(FunCallExpression *funCallExpr) override;
 
         void visit(IdAccessorExpression *idAccExpr) override;
+        void visit(QualifiedTraitCallExpression *qualifiedCall) override;
 
         void visit(IndexAccessorExpression *index) override;
 
@@ -405,12 +412,17 @@ namespace NG::ast
 
         void visit(ImportDecl *importDecl) override;
         void visit(TypeAliasDef *typeAliasDef) override;
+        void visit(ConstDef *constDef) override;
         void visit(NewTypeDef *newTypeDef) override;
         void visit(CastExpression *castExpr) override;
         void visit(TaggedUnionDef *taggedUnionDef) override;
         void visit(TaggedValueExpression *taggedVal) override;
         void visit(SwitchStatement *switchStmt) override;
         void visit(GenericParam *genericParam) override;
+        void visit(TraitBound *traitBound) override;
+        void visit(TraitDef *traitDef) override;
+        void visit(ImplDef *implDef) override;
+        void visit(UseImplDecl *useImplDecl) override;
 
         void visit(CompileUnit *compileUnit) override;
 

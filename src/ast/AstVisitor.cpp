@@ -13,6 +13,7 @@ namespace NG::ast
   void AstVisitor::visit(FunCallExpression *funCallExpr) {}
 
   void AstVisitor::visit(IdAccessorExpression *idAccExpr) {}
+  void AstVisitor::visit(QualifiedTraitCallExpression *qualifiedCall) {}
 
   void AstVisitor::visit(UnaryExpression *unoExpr) {}
 
@@ -81,12 +82,17 @@ namespace NG::ast
   void AstVisitor::visit(TypeCheckingExpression *typeCheck) {}
 
   void AstVisitor::visit(TypeDef *typeDef) {}
+  void AstVisitor::visit(TraitBound *traitBound) {}
+  void AstVisitor::visit(TraitDef *traitDef) {}
+  void AstVisitor::visit(ImplDef *implDef) {}
+  void AstVisitor::visit(UseImplDecl *useImplDecl) {}
 
   void AstVisitor::visit(PropertyDef *propertyDef) {}
 
   void AstVisitor::visit(NewObjectExpression *newObj) {}
 
   void AstVisitor::visit(ImportDecl *importDecl) {}
+  void AstVisitor::visit(ConstDef *constDef) {}
 
   void AstVisitor::visit(CompileUnit *compileUnit) {}
 

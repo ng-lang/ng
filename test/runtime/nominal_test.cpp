@@ -69,7 +69,7 @@ TEST_CASE("interpreter: generic object instances should behave nominally", "[Int
         type Box<T> {
           property value;
 
-          fun get() {
+          fun get(self: ref<Self>) {
             return self.value;
           }
         }

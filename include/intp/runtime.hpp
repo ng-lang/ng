@@ -91,9 +91,13 @@ namespace NG::runtime
         Map<Str, RuntimeRef<StorageCell>> namedRefs;
         std::shared_ptr<RuntimeModuleCellState> moduleState;
         RuntimeRef<NGType> runtimeType;
+        Str traitObjectName;
         uint64_t ownerScopeId = 0;
         bool initialized = false;
         bool marked = false;
+        bool dropArmed = true;
+        bool lifecycleDropped = false;
+        bool dropInProgress = false;
     };
 
     struct CallFrame
@@ -140,6 +144,7 @@ namespace NG::runtime
         std::function<RuntimeRef<StorageCell>(const RuntimeRef<StorageCell> &self, const RuntimeRef<StorageCell> &other)>;
     using NGCellOrderOperatorHandler =
         std::function<Orders(const RuntimeRef<StorageCell> &self, const RuntimeRef<StorageCell> &other)>;
+    using NGCellDropHandler = std::function<void(const RuntimeRef<StorageCell> &cell)>;
 
     /**
      * @brief Represents a type in the runtime.
@@ -161,6 +166,7 @@ namespace NG::runtime
         NGCellRespondHandler respondCellHandler; ///< Optional cell-native member resolution before materialization.
         Map<RuntimeBinaryOperator, NGCellBinaryOperatorHandler> cellBinaryOperators; ///< Optional cell-native binary ops.
         NGCellOrderOperatorHandler cellOrderHandler; ///< Optional cell-native ordering/equality handler.
+        NGCellDropHandler dropCellHandler; ///< Optional native Drop implementation.
 
         auto operator==(const NGType &other) const -> bool
         {
@@ -223,6 +229,7 @@ namespace NG::runtime
         Map<Str, RuntimeRef<NGType>> types;
         Map<Str, RuntimeRef<NGType>> variantTypes;
         Map<Str, RuntimeRef<StorageCell>> modules;
+        Set<Str> traitNames;
         Vec<Str> exports;
         Vec<Str> imported;
     };
@@ -318,6 +325,10 @@ namespace NG::runtime
     [[nodiscard]] auto make_runtime_newtype_cell(const RuntimeRef<NGType> &type, const RuntimeRef<StorageCell> &wrapped,
                                                  StorageClass storageClass = StorageClass::TEMPORARY)
         -> RuntimeRef<StorageCell>;
+    [[nodiscard]] auto make_runtime_native_handle_cell(Str typeName, uintptr_t address, bool owning = true,
+                                                       StorageClass storageClass = StorageClass::TEMPORARY)
+        -> RuntimeRef<StorageCell>;
+    [[nodiscard]] auto runtime_native_handle_value(const RuntimeRef<StorageCell> &cell) -> NativeHandle;
 
     [[nodiscard]] auto make_runtime_tagged_cell(const RuntimeRef<NGType> &type,
                                                 const Vec<RuntimeRef<StorageCell>> &payloadSlots,
@@ -374,6 +385,15 @@ namespace NG::runtime
     [[nodiscard]] auto runtime_reference_target(const RuntimeRef<StorageCell> &cell) -> RuntimeRef<StorageCell>;
     [[nodiscard]] auto runtime_read_reference(const RuntimeRef<StorageCell> &cell) -> RuntimeRef<StorageCell>;
     void runtime_write_reference(const RuntimeRef<StorageCell> &cell, const RuntimeRef<StorageCell> &nextValue);
+    [[nodiscard]] auto trait_object_ref_runtime_type() -> RuntimeRef<NGType>;
+    [[nodiscard]] auto make_runtime_trait_object_ref(const RuntimeRef<StorageCell> &targetRef, Str traitName,
+                                                     Str debugName = {},
+                                                     StorageClass storageClass = StorageClass::TEMPORARY)
+        -> RuntimeRef<StorageCell>;
+    [[nodiscard]] auto runtime_is_trait_object_ref(const RuntimeRef<StorageCell> &cell) -> bool;
+    [[nodiscard]] auto runtime_trait_object_target_ref(const RuntimeRef<StorageCell> &cell) -> RuntimeRef<StorageCell>;
+    [[nodiscard]] auto runtime_trait_object_target(const RuntimeRef<StorageCell> &cell) -> RuntimeRef<StorageCell>;
+    [[nodiscard]] auto runtime_trait_object_name(const RuntimeRef<StorageCell> &cell) -> Str;
     [[nodiscard]] auto allocate_heap_cell(const RuntimeRef<StorageCell> &value, const Str &debugName) -> RuntimeRef<StorageCell>;
     [[nodiscard]] auto make_runtime_module(const NGSymbols &symbols = nullptr) -> RuntimeRef<StorageCell>;
     [[nodiscard]] auto runtime_is_module_value(const RuntimeRef<StorageCell> &value) -> bool;
@@ -384,6 +404,7 @@ namespace NG::runtime
         -> RuntimeRef<StorageCell>;
     [[nodiscard]] auto runtime_module_functions(const RuntimeRef<StorageCell> &value) -> Map<Str, NGCallable>;
     [[nodiscard]] auto runtime_module_types(const RuntimeRef<StorageCell> &value) -> Map<Str, RuntimeRef<NGType>>;
+    [[nodiscard]] auto runtime_module_trait_names(const RuntimeRef<StorageCell> &value) -> Set<Str>;
     [[nodiscard]] auto runtime_module_native_functions(const RuntimeRef<StorageCell> &value) -> Map<Str, NGCallable>;
     [[nodiscard]] auto runtime_module_imports(const RuntimeRef<StorageCell> &value) -> Set<Str>;
     [[nodiscard]] auto runtime_module_exports(const RuntimeRef<StorageCell> &value) -> Set<Str>;
@@ -396,6 +417,9 @@ namespace NG::runtime
     [[nodiscard]] auto enumerate_symbol_roots(const NGSymbols &symbols) -> GCRootSet;
     [[nodiscard]] auto register_gc_root_provider(GCRootProvider provider) -> size_t;
     void unregister_gc_root_provider(size_t providerId);
+    using GCFinalizer = std::function<void(const RuntimeRef<StorageCell> &)>;
+    [[nodiscard]] auto register_gc_finalizer(GCFinalizer finalizer) -> size_t;
+    void unregister_gc_finalizer(size_t finalizerId);
     void collect_managed_heap();
     [[nodiscard]] auto managed_heap_size() -> size_t;
 } // namespace NG::runtime
