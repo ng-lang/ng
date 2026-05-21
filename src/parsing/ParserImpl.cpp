@@ -177,6 +177,11 @@ namespace NG::parsing
           current_mod->definitions.push_back(implDef());
           break;
         }
+        case TokenType::KEYWORD_USE:
+        {
+          current_mod->definitions.push_back(useImplDecl());
+          break;
+        }
         case TokenType::KEYWORD_MODULE:
         {
           if (moduleDeclared)
@@ -814,6 +819,22 @@ namespace NG::parsing
       }
       accept(TokenType::RIGHT_CURLY);
       return impl;
+    }
+
+    auto useImplDecl() -> ASTRef<UseImplDecl>
+    {
+      accept(TokenType::KEYWORD_USE);
+      if (!expect(TokenType::KEYWORD_IMPL))
+      {
+        unexpected("Expected impl after use");
+      }
+      accept(TokenType::KEYWORD_IMPL);
+      auto useImpl = createNode<UseImplDecl>();
+      useImpl->trait = typeAnnotation();
+      accept(TokenType::KEYWORD_FOR);
+      useImpl->targetType = typeAnnotation();
+      accept(TokenType::SEMICOLON);
+      return useImpl;
     }
 
     void parseTypeAliasConstraintSection(Vec<ASTRef<TraitBound>> &whereBoundsOut)

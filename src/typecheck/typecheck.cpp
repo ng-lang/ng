@@ -444,6 +444,8 @@ namespace NG::typecheck
       TokenPosition pos;
     };
     Vec<TraitImplRecord> localTraitImpls;
+    Map<Str, Vec<UseImplDecl *>> selectedTraitImpls;
+    Set<Str> matchedSelectedTraitImpls;
 
     // Sentinel key stored in locals to indicate wildcard imports are active.
     // This propagates automatically when locals are copied to child checkers.
@@ -462,6 +464,35 @@ namespace NG::typecheck
     }
 
     bool hasWildcardImportFlag() const { return locals.contains(WILDCARD_IMPORT_KEY); }
+
+    static auto implSelectionKey(const Str &traitName, const Str &targetPattern) -> Str
+    {
+      return traitName + " for " + targetPattern;
+    }
+
+    static auto byValueAbstractReason(const CheckingRef<TypeInfo> &type) -> Str
+    {
+      auto unwrapped = unwrap(type);
+      if (auto custom = std::dynamic_pointer_cast<CustomizedType>(unwrapped); custom && custom->abstract)
+      {
+        return "abstract type '" + custom->name + "'";
+      }
+      if (auto trait = std::dynamic_pointer_cast<TraitType>(unwrapped))
+      {
+        return "trait type '" + trait->name + "'";
+      }
+      return "";
+    }
+
+    static void rejectInvalidByValueType(const CheckingRef<TypeInfo> &type, const Str &context,
+                                         const TokenPosition &pos)
+    {
+      auto reason = byValueAbstractReason(type);
+      if (!reason.empty())
+      {
+        throw TypeCheckingException(reason + " cannot be used by value in " + context, pos);
+      }
+    }
 
     static auto typeKindArity(const CheckingRef<TypeInfo> &type) -> size_t
     {
@@ -1223,7 +1254,7 @@ namespace NG::typecheck
       return true;
     }
 
-    void registerLocalTraitImpl(ImplDef *implDef, const TraitType &trait)
+    auto registerLocalTraitImpl(ImplDef *implDef, const TraitType &trait) -> bool
     {
       TraitImplRecord candidate{
           .traitName = trait.name,
@@ -1235,6 +1266,11 @@ namespace NG::typecheck
           .definition = implDef,
           .pos = implDef->pos,
       };
+      const auto candidateKey = implSelectionKey(candidate.traitName, candidate.targetPattern);
+      const bool candidateSelected =
+          std::ranges::any_of(selectedTraitImpls[candidate.traitName], [&](auto *selection) {
+            return selection && selection->targetType && selection->targetType->repr() == candidate.targetPattern;
+          });
 
       for (const auto &existing : localTraitImpls)
       {
@@ -1253,13 +1289,49 @@ namespace NG::typecheck
                                           "' and type '" + candidate.targetPattern + "'",
                                       implDef->pos);
         }
+        const bool existingSelected =
+            std::ranges::any_of(selectedTraitImpls[candidate.traitName], [&](auto *selection) {
+              return selection && selection->targetType && selection->targetType->repr() == existing.targetPattern;
+            });
+        if (candidateSelected && !existingSelected)
+        {
+          matchedSelectedTraitImpls.insert(candidateKey);
+          continue;
+        }
+        if (!candidateSelected && existingSelected)
+        {
+          return false;
+        }
         throw TypeCheckingException("Overlapping impl for trait '" + candidate.traitName +
                                         "' between '" + existing.targetPattern + "' and '" +
                                         candidate.targetPattern + "'",
                                     implDef->pos);
       }
 
+      if (!candidateSelected)
+      {
+        for (auto *selection : selectedTraitImpls[candidate.traitName])
+        {
+          if (!selection || !selection->targetType ||
+              selection->targetType->repr() == candidate.targetPattern)
+          {
+            continue;
+          }
+          Set<Str> emptyGenericParams;
+          if (typePatternsMayOverlap(implDef->targetType.get(), candidate.genericParamNames,
+                                     selection->targetType.get(), emptyGenericParams))
+          {
+            return false;
+          }
+        }
+      }
+
       localTraitImpls.push_back(std::move(candidate));
+      if (candidateSelected)
+      {
+        matchedSelectedTraitImpls.insert(candidateKey);
+      }
+      return true;
     }
 
     void addGenericParamsToScope(Map<Str, CheckingRef<TypeInfo>> &scope,
@@ -1500,6 +1572,7 @@ namespace NG::typecheck
       for (auto param : funDef->params)
       {
         param->accept(&checker);
+        rejectInvalidByValueType(checker.result, "function parameter '" + param->paramName + "'", param->pos);
         paramTypes.push_back(checker.result);
       }
 
@@ -1508,6 +1581,7 @@ namespace NG::typecheck
       {
         funDef->returnType->accept(&checker);
         returnType = checker.result;
+        rejectInvalidByValueType(returnType, "function return type", funDef->returnType->pos);
       }
       return makecheck<FunctionType>(returnType, paramTypes);
     }
@@ -2406,6 +2480,13 @@ namespace NG::typecheck
       }
       for (auto def : module->definitions)
       {
+        if (auto useImpl = dynamic_ast_cast<UseImplDecl>(def))
+        {
+          useImpl->accept(this);
+        }
+      }
+      for (auto def : module->definitions)
+      {
         if (auto traitDef = dynamic_ast_cast<TraitDef>(def))
         {
           traitDef->accept(this);
@@ -2413,11 +2494,26 @@ namespace NG::typecheck
       }
       for (auto def : module->definitions)
       {
-        if (dynamic_ast_cast<TraitDef>(def))
+        if (dynamic_ast_cast<TraitDef>(def) || dynamic_ast_cast<UseImplDecl>(def))
         {
           continue;
         }
         def->accept(this);
+      }
+      for (const auto &[traitName, selections] : selectedTraitImpls)
+      {
+        for (auto *selection : selections)
+        {
+          if (!selection || !selection->targetType)
+          {
+            continue;
+          }
+          auto key = implSelectionKey(traitName, selection->targetType->repr());
+          if (!matchedSelectedTraitImpls.contains(key))
+          {
+            throw TypeCheckingException("Selected impl does not exist: " + key, selection->pos);
+          }
+        }
       }
       for (auto stmt : module->statements)
       {
@@ -2696,7 +2792,10 @@ namespace NG::typecheck
         throw TypeCheckingException("Impl target must be a structural or native opaque type: " +
                                     implDef->targetType->repr(), implDef->pos);
       }
-      registerLocalTraitImpl(implDef, *trait);
+      if (!registerLocalTraitImpl(implDef, *trait))
+      {
+        return;
+      }
 
       implScope["Self"] = customType;
       Map<Str, FunctionDef *> methods;
@@ -2816,6 +2915,29 @@ namespace NG::typecheck
       }
     }
 
+    void visit(UseImplDecl *useImplDecl) override
+    {
+      TypeChecker traitChecker{locals};
+      useImplDecl->trait->accept(&traitChecker);
+      auto trait = std::dynamic_pointer_cast<TraitType>(traitChecker.result);
+      if (!trait)
+      {
+        throw TypeCheckingException("Selected impl trait is not a trait: " + useImplDecl->trait->repr(),
+                                    useImplDecl->pos);
+      }
+      TypeChecker targetChecker{locals};
+      useImplDecl->targetType->accept(&targetChecker);
+      auto target = unwrap(targetChecker.result);
+      auto custom = std::dynamic_pointer_cast<CustomizedType>(target);
+      if (!custom)
+      {
+        throw TypeCheckingException("Selected impl target must be a structural or native opaque type: " +
+                                        useImplDecl->targetType->repr(),
+                                    useImplDecl->pos);
+      }
+      selectedTraitImpls[trait->name].push_back(useImplDecl);
+    }
+
     void visit(PropertyDef *prop) override
     {
       if (prop->typeAnnotation)
@@ -2852,6 +2974,7 @@ namespace NG::typecheck
         for (auto param : funDef->params)
         {
           param->accept(&checker);
+          rejectInvalidByValueType(checker.result, "function parameter '" + param->paramName + "'", param->pos);
           paramTypes.push_back(checker.result);
         }
         CheckingRef<TypeInfo> returnType;
@@ -2859,6 +2982,7 @@ namespace NG::typecheck
         {
           funDef->returnType->accept(&checker);
           returnType = checker.result;
+          rejectInvalidByValueType(returnType, "function return type", funDef->returnType->pos);
         }
         else
         {
@@ -3191,6 +3315,8 @@ namespace NG::typecheck
         TypeChecker annoChecker{locals, {}, nullptr, movedBindings, allowMovedLvalueRead, activeGenericInstanceName};
         valDefStatement->typeAnnotation->accept(&annoChecker);
         annoType = annoChecker.result;
+        rejectInvalidByValueType(annoType, "value annotation '" + valDefStatement->name + "'",
+                                 valDefStatement->typeAnnotation->pos);
       }
 
       // Bidirectional inference: pass annotation type as expectedType to value expression
@@ -3686,6 +3812,7 @@ namespace NG::typecheck
           throw TypeCheckingException("Unknown type annotation for parameter: " + param->paramName);
         }
         result = checker.result;
+        rejectInvalidByValueType(result, "parameter '" + param->paramName + "'", param->pos);
       }
       if (param->value)
       {

@@ -1402,7 +1402,7 @@ TEST_CASE("parser should recognize ref as nested generic argument starter", "[Pa
 
 TEST_CASE("parser should parse higher-kinded generic parameter placeholders", "[Parser][Generics][HKT]")
 {
-  auto ast = parse("fun use<F<_>, T>(value: F<T>) -> unit { return unit; }");
+  auto ast = parse("fun accept_hkt<F<_>, T>(value: F<T>) -> unit { return unit; }");
   REQUIRE(ast != nullptr);
 
   auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
@@ -1423,7 +1423,7 @@ TEST_CASE("parser should parse higher-kinded generic parameter placeholders", "[
 
 TEST_CASE("parser should parse higher-kinded trait parameters", "[Parser][Generics][HKT]")
 {
-  auto ast = parse("trait Uses<F<_>, T> { fun use(self: ref<Self>, value: F<T>) -> unit; }");
+  auto ast = parse("trait Uses<F<_>, T> { fun accept(self: ref<Self>, value: F<T>) -> unit; }");
   REQUIRE(ast != nullptr);
 
   auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
@@ -1441,7 +1441,7 @@ TEST_CASE("parser should parse higher-kinded trait parameters", "[Parser][Generi
 
 TEST_CASE("parser should parse variadic higher-kinded parameter placeholders", "[Parser][Generics][HKT][Pack]")
 {
-  auto ast = parse("fun use<F<_, ...>, T>(value: F<T>) -> unit = unit;");
+  auto ast = parse("fun accept_hkt<F<_, ...>, T>(value: F<T>) -> unit = unit;");
   REQUIRE(ast != nullptr);
 
   auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
@@ -1458,7 +1458,7 @@ TEST_CASE("parser should parse variadic higher-kinded parameter placeholders", "
 
 TEST_CASE("parser should parse pack-only higher-kinded parameter placeholders", "[Parser][Generics][HKT][Pack]")
 {
-  auto ast = parse("fun use<F<...>>() -> unit = unit;");
+  auto ast = parse("fun accept_hkt<F<...>>() -> unit = unit;");
   REQUIRE(ast != nullptr);
 
   auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);

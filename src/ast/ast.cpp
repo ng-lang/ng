@@ -824,6 +824,28 @@ namespace NG::ast
     }
   }
 
+  auto UseImplDecl::names() const -> Vec<Str>
+  {
+    return {};
+  }
+
+  void UseImplDecl::accept(AstVisitor *visitor)
+  {
+    visitor->visit(this);
+  }
+
+  auto UseImplDecl::repr() const -> Str
+  {
+    return "use impl " + (trait ? trait->repr() : "?") + " for " +
+           (targetType ? targetType->repr() : "?") + ";";
+  }
+
+  UseImplDecl::~UseImplDecl()
+  {
+    destroyast(trait);
+    destroyast(targetType);
+  }
+
   void TypeAliasDef::accept(AstVisitor *visitor)
   {
     visitor->visit(this);

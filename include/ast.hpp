@@ -42,6 +42,7 @@ namespace NG::ast
         TRAIT_DEFINITION = 0x119,
         IMPL_DEFINITION = 0x11A,
         TRAIT_BOUND = 0x11B,
+        USE_IMPL_DECLARATION = 0x11C,
 
         CAST_EXPRESSION = 0x214,
 
@@ -1126,6 +1127,23 @@ namespace NG::ast
         auto repr() const -> Str override;
 
         ~ImplDef() override;
+    };
+
+    struct UseImplDecl : Definition
+    {
+        ASTRef<TypeAnnotation> trait = nullptr;
+        ASTRef<TypeAnnotation> targetType = nullptr;
+
+        auto astNodeType() const -> ASTNodeType override { return ASTNodeType::USE_IMPL_DECLARATION; }
+
+        [[nodiscard]] auto names() const -> Vec<Str> override;
+
+        void accept(AstVisitor *visitor) override;
+
+        [[nodiscard]]
+        auto repr() const -> Str override;
+
+        ~UseImplDecl() override;
     };
 
     /**

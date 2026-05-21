@@ -998,10 +998,10 @@ TEST_CASE("higher-kinded generic function should accept explicit unary type cons
       property value: T;
     }
 
-    fun use<F<_>, T>(value: ref<F<T>>) -> unit = unit;
+    fun accept_hkt<F<_>, T>(value: ref<F<T>>) -> unit = unit;
 
     val box = new Box<i32> { value: 42 };
-    val result = use<Box, i32>(box);
+    val result = accept_hkt<Box, i32>(box);
   )");
 
   REQUIRE(ast != nullptr);
@@ -1020,10 +1020,10 @@ TEST_CASE("higher-kinded generic function should infer constructor and inner typ
       property value: T;
     }
 
-    fun use<F<_>, T>(value: ref<F<T>>) -> unit = unit;
+    fun accept_hkt<F<_>, T>(value: ref<F<T>>) -> unit = unit;
 
     val box = new Box<i32> { value: 42 };
-    val result = use(box);
+    val result = accept_hkt(box);
   )");
 
   REQUIRE(ast != nullptr);
@@ -1039,7 +1039,7 @@ TEST_CASE("higher-kinded trait declaration should type check method signatures",
 {
   auto ast = parse(R"(
     trait Uses<F<_>, T> {
-      fun use(self: ref<Self>, value: F<T>) -> unit;
+      fun accept(self: ref<Self>, value: F<T>) -> unit;
     }
   )");
 
@@ -1108,10 +1108,10 @@ TEST_CASE("higher-kinded generic should reject instantiated type where construct
       property value: T;
     }
 
-    fun use<F<_>, T>(value: ref<F<T>>) -> unit = unit;
+    fun accept_hkt<F<_>, T>(value: ref<F<T>>) -> unit = unit;
 
     val box = new Box<i32> { value: 42 };
-    val result = use<Box<i32>, i32>(box);
+    val result = accept_hkt<Box<i32>, i32>(box);
   )", "expects a type constructor, not an instantiated type");
 }
 
@@ -1124,10 +1124,10 @@ TEST_CASE("higher-kinded generic should reject constructor arity mismatch",
       property right: B;
     }
 
-    fun use<F<_>, T>(value: ref<F<T>>) -> unit = unit;
+    fun accept_hkt<F<_>, T>(value: ref<F<T>>) -> unit = unit;
 
     val pair = new Pair<i32, string> { left: 42, right: "x" };
-    val result = use<Pair, i32>(pair);
+    val result = accept_hkt<Pair, i32>(pair);
   )", "expects a type constructor with 1 fixed argument(s), got 2 fixed argument(s)");
 }
 
@@ -1143,9 +1143,9 @@ TEST_CASE("higher-kinded generic should reject argument that does not match expl
       property value: T;
     }
 
-    fun use<F<_>, T>(value: ref<F<T>>) -> unit = unit;
+    fun accept_hkt<F<_>, T>(value: ref<F<T>>) -> unit = unit;
 
     val other = new Other<i32> { value: 42 };
-    val result = use<Box, i32>(other);
+    val result = accept_hkt<Box, i32>(other);
   )", "Invalid argument type for generic function");
 }

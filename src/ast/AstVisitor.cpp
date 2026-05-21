@@ -85,6 +85,7 @@ namespace NG::ast
   void AstVisitor::visit(TraitBound *traitBound) {}
   void AstVisitor::visit(TraitDef *traitDef) {}
   void AstVisitor::visit(ImplDef *implDef) {}
+  void AstVisitor::visit(UseImplDecl *useImplDecl) {}
 
   void AstVisitor::visit(PropertyDef *propertyDef) {}
 

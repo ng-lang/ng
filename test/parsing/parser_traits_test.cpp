@@ -115,3 +115,19 @@ TEST_CASE("parser should parse trait default method bodies", "[Parser][Traits]")
 
   destroyast(ast);
 }
+
+TEST_CASE("parser should parse explicit impl selection", "[Parser][Traits][UseImpl]")
+{
+  auto ast = parse("use impl Show for Box<i32>;");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  REQUIRE(compileUnit->module->definitions.size() == 1);
+  auto useImpl = dynamic_ast_cast<UseImplDecl>(compileUnit->module->definitions[0]);
+  REQUIRE(useImpl != nullptr);
+  REQUIRE(useImpl->trait->repr() == "Show");
+  REQUIRE(useImpl->targetType->repr() == "Box<i32>");
+
+  destroyast(ast);
+}

@@ -296,6 +296,7 @@ namespace NG::ast
         virtual void visit(TraitBound *traitBound) = 0;
         virtual void visit(TraitDef *traitDef) = 0;
         virtual void visit(ImplDef *implDef) = 0;
+        virtual void visit(UseImplDecl *useImplDecl) = 0;
 
         /**
          * @brief Visits a compile unit.
@@ -421,6 +422,7 @@ namespace NG::ast
         void visit(TraitBound *traitBound) override;
         void visit(TraitDef *traitDef) override;
         void visit(ImplDef *implDef) override;
+        void visit(UseImplDecl *useImplDecl) override;
 
         void visit(CompileUnit *compileUnit) override;
 

@@ -553,3 +553,107 @@ TEST_CASE("equivalent generic trait impl patterns should fail", "[TypeCheck][Tra
     }
   )", "Overlapping impl");
 }
+
+TEST_CASE("explicit impl selection should allow selected concrete overlap",
+          "[TypeCheck][Traits][Coherence][UseImpl]")
+{
+  auto ast = parse(R"(
+    trait Show {
+      fun show(self: ref<Self>) -> string;
+    }
+
+    type Box<T> {
+      property value: T;
+    }
+
+    use impl Show for Box<i32>;
+
+    impl<T> Show for Box<T> {
+      fun show(self: ref<Self>) -> string {
+        return "generic";
+      }
+    }
+
+    impl Show for Box<i32> {
+      fun show(self: ref<Self>) -> string {
+        return "i32";
+      }
+    }
+
+    val box = new Box<i32> { value: 1 };
+    val shown = box.show();
+  )");
+
+  REQUIRE(ast != nullptr);
+  auto index = type_check(ast);
+  REQUIRE(index.contains("shown"));
+  check_type_tag(*index["shown"], typeinfo_tag::STRING);
+
+  destroyast(ast);
+}
+
+TEST_CASE("explicit impl selection should reject missing impl",
+          "[TypeCheck][Traits][Coherence][UseImpl][Failure]")
+{
+  typecheck_failure(R"(
+    trait Show {
+      fun show(self: ref<Self>) -> string;
+    }
+
+    type Box<T> {
+      property value: T;
+    }
+
+    use impl Show for Box<i32>;
+  )", "Selected impl does not exist");
+}
+
+TEST_CASE("abstract type should reject by-value function parameter",
+          "[TypeCheck][Traits][Abstract][Failure]")
+{
+  typecheck_failure(R"(
+    type Handle;
+    fun consume(value: Handle) -> unit = unit;
+  )", "abstract type 'Handle' cannot be used by value");
+}
+
+TEST_CASE("abstract type should allow reference function parameter",
+          "[TypeCheck][Traits][Abstract]")
+{
+  auto ast = parse(R"(
+    type Handle;
+    fun consume(value: ref<Handle>) -> unit = unit;
+  )");
+
+  REQUIRE(ast != nullptr);
+  auto index = type_check(ast);
+  REQUIRE(index.contains("consume"));
+
+  destroyast(ast);
+}
+
+TEST_CASE("native opaque type should allow by-value native signatures",
+          "[TypeCheck][Traits][Abstract]")
+{
+  auto ast = parse(R"(
+    type NativeHandle = native;
+    fun consume(value: NativeHandle) -> unit = native;
+  )");
+
+  REQUIRE(ast != nullptr);
+  auto index = type_check(ast);
+  REQUIRE(index.contains("consume"));
+
+  destroyast(ast);
+}
+
+TEST_CASE("trait type should reject by-value function parameter",
+          "[TypeCheck][Traits][Abstract][Failure]")
+{
+  typecheck_failure(R"(
+    trait Show {
+      fun show(self: ref<Self>) -> string;
+    }
+    fun consume(value: Show) -> unit = unit;
+  )", "trait type 'Show' cannot be used by value");
+}
