@@ -818,6 +818,34 @@ TEST_CASE("interpreter should dispatch inherited defaults through implemented tr
         )");
 }
 
+TEST_CASE("interpreter should evaluate default parameters for member and impl methods",
+          "[InterpreterTest][Traits]")
+{
+  interpret(R"(
+        type Counter {
+            property value;
+
+            fun plus(self: ref<Self>, amount: i32 = 5) -> i32 {
+                return self.value + amount;
+            }
+        }
+
+        trait Scale {
+            fun scaled(self: ref<Self>, factor: i32 = 2) -> i32;
+        }
+
+        impl Scale for Counter {
+            fun scaled(self: ref<Self>, factor: i32 = 2) -> i32 {
+                return self.value * factor;
+            }
+        }
+
+        val counter = new Counter { value: 10 };
+        assert(counter.plus() == 15);
+        assert(counter.scaled() == 20);
+        )");
+}
+
 TEST_CASE("generic function call (interpreter)", "[InterpreterTest]")
 {
   interpret(R"(

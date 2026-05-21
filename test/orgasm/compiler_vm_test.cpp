@@ -131,8 +131,6 @@ TEST_CASE("compiler should use bare type names for generic impl methods", "[Orga
   )");
   REQUIRE(ast != nullptr);
 
-  NG::typecheck::type_check(ast);
-
   Compiler compiler;
   auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
 
@@ -172,6 +170,37 @@ TEST_CASE("compiler should register inherited defaults under implemented trait n
                               [](const Function &function) { return function.name == "Box.Child::label"; }));
   REQUIRE(std::ranges::any_of(bytecode.functions,
                               [](const Function &function) { return function.name == "Box.label"; }));
+
+  destroyast(ast);
+}
+
+TEST_CASE("compiler should qualify calls inside inherited trait default bodies", "[OrgasmTest][Traits]")
+{
+  auto ast = parse(R"(
+    type Box {}
+
+    trait Parent {
+      fun prefix(self: ref<Self>) -> string {
+        return "parent";
+      }
+
+      fun labelViaSelf(self: ref<Self>) -> string {
+        return self.prefix();
+      }
+    }
+
+    trait Child: Parent {}
+
+    impl Child for Box {}
+  )");
+  REQUIRE(ast != nullptr);
+
+  NG::typecheck::type_check(ast);
+
+  Compiler compiler;
+  auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+
+  REQUIRE(std::ranges::find(bytecode.strings, "prefix") != bytecode.strings.end());
 
   destroyast(ast);
 }
@@ -1223,6 +1252,73 @@ TEST_CASE("vm should retag existing trait refs for destination trait coercions",
 
   REQUIRE(sawEq);
   REQUIRE(runtime_value_show(result) == "unit");
+}
+
+TEST_CASE("vm should run drop hooks when overwriting object properties", "[OrgasmTest][VM][Drop]")
+{
+  BytecodeModule module;
+  module.name = "drop-property";
+  module.strings = {"Droppable", "Holder", "Dynamic", "extra", "record_drop", "make_drop"};
+  module.types.push_back(Type{.name = "Droppable"});
+  module.types.push_back(Type{.name = "Holder", .properties = {"item"}});
+  module.types.push_back(Type{.name = "Dynamic"});
+
+  Function main;
+  main.name = "main";
+  main.num_locals = 3;
+  main.num_params = 0;
+
+  emit_u16_u16(main.code, OpCode::NATIVE_CALL, 5, 0);
+  emit_u16_u16(main.code, OpCode::NEW_OBJECT, 1, 1);
+  emit_u16(main.code, OpCode::STORE_LOCAL, 0);
+  main.code.push_back(static_cast<uint8_t>(OpCode::POP));
+  emit_u16(main.code, OpCode::LOAD_LOCAL, 0);
+  emit_u16_u16(main.code, OpCode::NATIVE_CALL, 5, 0);
+  emit_u16(main.code, OpCode::SET_PROPERTY, 0);
+  main.code.push_back(static_cast<uint8_t>(OpCode::POP));
+
+  emit_u16_u16(main.code, OpCode::NEW_OBJECT, 2, 0);
+  emit_u16(main.code, OpCode::STORE_LOCAL, 1);
+  main.code.push_back(static_cast<uint8_t>(OpCode::POP));
+  emit_u16(main.code, OpCode::LOAD_LOCAL, 1);
+  emit_u16_u16(main.code, OpCode::NATIVE_CALL, 5, 0);
+  emit_u16(main.code, OpCode::SET_PROPERTY_STR, 3);
+  main.code.push_back(static_cast<uint8_t>(OpCode::POP));
+  emit_u16(main.code, OpCode::LOAD_LOCAL, 1);
+  emit_u16_u16(main.code, OpCode::NATIVE_CALL, 5, 0);
+  emit_u16(main.code, OpCode::SET_PROPERTY_STR, 3);
+  main.code.push_back(static_cast<uint8_t>(OpCode::POP));
+  main.code.push_back(static_cast<uint8_t>(OpCode::PUSH_UNIT));
+  main.code.push_back(static_cast<uint8_t>(OpCode::RETURN));
+
+  Function drop;
+  drop.name = "Droppable.Drop::drop";
+  drop.num_locals = 1;
+  drop.num_params = 1;
+  emit_u16_u16(drop.code, OpCode::NATIVE_CALL, 4, 0);
+  drop.code.push_back(static_cast<uint8_t>(OpCode::RETURN));
+
+  module.functions.push_back(std::move(main));
+  module.functions.push_back(std::move(drop));
+
+  int dropCount = 0;
+  auto droppableType = makert<NGType>();
+  droppableType->name = "Droppable";
+  droppableType->layout = TypeLayout{.name = "Droppable"};
+
+  VM vm;
+  vm.register_native_raw("make_drop", [droppableType](const Vec<RuntimeRef<StorageCell>> &) -> RuntimeRef<StorageCell> {
+    return make_runtime_structural_cell(droppableType, {});
+  });
+  vm.register_native_raw("record_drop", [&dropCount](const Vec<RuntimeRef<StorageCell>> &) -> RuntimeRef<StorageCell> {
+    ++dropCount;
+    return unit_cell();
+  });
+
+  auto result = vm.run(module);
+
+  REQUIRE(runtime_value_show(result) == "unit");
+  REQUIRE(dropCount >= 2);
 }
 
 TEST_CASE("compiler and vm should register imgui natives without initialized state", "[OrgasmTest][ImGui]")

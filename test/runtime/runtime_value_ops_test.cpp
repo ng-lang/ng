@@ -142,6 +142,7 @@ TEST_CASE("string storage cells keep payload bytes without object cache", "[Runt
   REQUIRE(runtime_value_show(left) == "hello");
   REQUIRE(runtime_value_bool(left));
   REQUIRE(value_less_than(left, right));
+  REQUIRE(value_order(left, numeral_cell_from_value<int32_t>(1)) == Orders::UNORDERED);
 
   auto appended = value_add(left, right);
   REQUIRE(runtime_string_value(appended) == "helloworld");
