@@ -35,6 +35,8 @@ TEST_CASE("parser should parse impl and where bounds", "[Parser][Traits]")
 
   auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
   REQUIRE(compileUnit != nullptr);
+  REQUIRE(compileUnit->module != nullptr);
+  REQUIRE(compileUnit->module->definitions.size() == 1);
   auto impl = dynamic_ast_cast<ImplDef>(compileUnit->module->definitions[0]);
   REQUIRE(impl != nullptr);
   REQUIRE(impl->genericParams.size() == 1);
@@ -64,25 +66,29 @@ TEST_CASE("parser should parse supertraits and qualified trait calls", "[Parser]
 
   auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
   REQUIRE(compileUnit != nullptr);
+  REQUIRE(compileUnit->module != nullptr);
+  REQUIRE(compileUnit->module->definitions.size() == 4);
   auto trait = dynamic_ast_cast<TraitDef>(compileUnit->module->definitions[1]);
   REQUIRE(trait != nullptr);
   REQUIRE(trait->traitName == "ReadWrite");
   REQUIRE(trait->superTraits.size() == 1);
   REQUIRE(trait->superTraits[0]->repr() == "Read");
 
-  auto qualifiedReceiver = dynamic_ast_cast<QualifiedTraitCallExpression>(
-      dynamic_ast_cast<ValDefStatement>(
-          dynamic_ast_cast<ValDef>(compileUnit->module->definitions[2])->body)
-          ->value);
+  auto receiverValDef = dynamic_ast_cast<ValDef>(compileUnit->module->definitions[2]);
+  REQUIRE(receiverValDef != nullptr);
+  auto receiverStmt = dynamic_ast_cast<ValDefStatement>(receiverValDef->body);
+  REQUIRE(receiverStmt != nullptr);
+  auto qualifiedReceiver = dynamic_ast_cast<QualifiedTraitCallExpression>(receiverStmt->value);
   REQUIRE(qualifiedReceiver != nullptr);
   REQUIRE(qualifiedReceiver->receiver != nullptr);
   REQUIRE(qualifiedReceiver->traitName == "Read");
   REQUIRE(qualifiedReceiver->methodName == "read");
 
-  auto qualifiedUfcs = dynamic_ast_cast<QualifiedTraitCallExpression>(
-      dynamic_ast_cast<ValDefStatement>(
-          dynamic_ast_cast<ValDef>(compileUnit->module->definitions[3])->body)
-          ->value);
+  auto ufcsValDef = dynamic_ast_cast<ValDef>(compileUnit->module->definitions[3]);
+  REQUIRE(ufcsValDef != nullptr);
+  auto ufcsStmt = dynamic_ast_cast<ValDefStatement>(ufcsValDef->body);
+  REQUIRE(ufcsStmt != nullptr);
+  auto qualifiedUfcs = dynamic_ast_cast<QualifiedTraitCallExpression>(ufcsStmt->value);
   REQUIRE(qualifiedUfcs != nullptr);
   REQUIRE(qualifiedUfcs->receiver == nullptr);
   REQUIRE(qualifiedUfcs->traitName == "Read");

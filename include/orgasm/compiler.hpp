@@ -109,6 +109,7 @@ namespace NG::orgasm
         Vec<Str> modulePaths;
         Set<Str> nativeFnNames;
         Str current_type_name;  // Current type being compiled (for member functions)
+        Str activeTraitMethodOrigin; // Trait whose default method body is currently being lowered.
         Str activeGenericInstanceName;
         bool last_emit_was_return = false;
 
@@ -130,7 +131,7 @@ namespace NG::orgasm
         auto specialize_type_repr(const Str &typeName, const Map<Str, Str> &typeBindings) const -> Str;
         void infer_type_bindings_from_reprs(const Str &pattern, const Str &actual, Map<Str, Str> &typeBindings) const;
         auto infer_expression_type_name(ast::ASTRef<ast::Expression> expr) const -> Str;
-        void emit_trait_ref_if_needed(const ast::TypeAnnotation *annotation);
+        auto emit_trait_ref_if_needed(const ast::TypeAnnotation *annotation) -> bool;
         void emit_move_place(ast::ASTRef<ast::Expression> expr);
         void register_generic_function_instance(const Str &symbolName, ast::FunctionDef *funDef);
         void collect_generic_function_instances(ast::ASTRef<ast::Definition> def, const Str &instanceContext = "");

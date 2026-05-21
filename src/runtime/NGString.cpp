@@ -41,34 +41,6 @@ namespace NG::runtime
     static RuntimeRef<NGType> stringType = makert<NGType>(NGType{
         .name = "String",
         .layout = buffer_runtime::make_string_header_layout(),
-        .showCellHandler =
-            [](const RuntimeRef<StorageCell> &cell) {
-              return string_cell_payload(cell);
-            },
-        .boolCellHandler =
-            [](const RuntimeRef<StorageCell> &cell) {
-              return !string_cell_payload(cell).empty();
-            },
-        .cellBinaryOperators =
-            {
-                {RuntimeBinaryOperator::Add,
-                 [](const RuntimeRef<StorageCell> &self,
-                    const RuntimeRef<StorageCell> &other) -> RuntimeRef<StorageCell> {
-                   return make_runtime_string(string_cell_payload(self) + runtime_value_show(other));
-                 }},
-            },
-        .cellOrderHandler =
-            [](const RuntimeRef<StorageCell> &self, const RuntimeRef<StorageCell> &other) {
-              if (!runtime_is_string_value(other))
-              {
-                return Orders::UNORDERED;
-              }
-              auto left = string_cell_payload(self);
-              auto right = string_cell_payload(other);
-              if (left < right) return Orders::LT;
-              if (left > right) return Orders::GT;
-              return Orders::EQ;
-            },
         .memberFunctions = {
             {"size",
              [](const NGSelf &self, const NGEnv &, const NGArgs &) -> RuntimeRef<StorageCell> {
@@ -101,6 +73,34 @@ namespace NG::runtime
                return make_runtime_string(string_cell_payload(self) + runtime_value_show(args[0]));
              }},
         },
+        .showCellHandler =
+            [](const RuntimeRef<StorageCell> &cell) {
+              return string_cell_payload(cell);
+            },
+        .boolCellHandler =
+            [](const RuntimeRef<StorageCell> &cell) {
+              return !string_cell_payload(cell).empty();
+            },
+        .cellBinaryOperators =
+            {
+                {RuntimeBinaryOperator::Add,
+                 [](const RuntimeRef<StorageCell> &self,
+                    const RuntimeRef<StorageCell> &other) -> RuntimeRef<StorageCell> {
+                   return make_runtime_string(string_cell_payload(self) + runtime_value_show(other));
+                 }},
+            },
+        .cellOrderHandler =
+            [](const RuntimeRef<StorageCell> &self, const RuntimeRef<StorageCell> &other) {
+              if (!runtime_is_string_value(other))
+              {
+                return Orders::UNORDERED;
+              }
+              auto left = string_cell_payload(self);
+              auto right = string_cell_payload(other);
+              if (left < right) return Orders::LT;
+              if (left > right) return Orders::GT;
+              return Orders::EQ;
+            },
     });
     return stringType;
   }

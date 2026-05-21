@@ -20,6 +20,15 @@ namespace NG::orgasm
         constexpr const char *CLONE_TRAIT_NAME = "Clone";
         constexpr const char *DROP_TRAIT_NAME = "Drop";
 
+        auto bare_type_name(Str typeName) -> Str
+        {
+            if (auto genericStart = typeName.find('<'); genericStart != Str::npos)
+            {
+                typeName = typeName.substr(0, genericStart);
+            }
+            return typeName;
+        }
+
         void install_builtin_lifecycle_traits(Map<Str, Compiler::RuntimeTraitInfo> &runtimeTraits)
         {
             runtimeTraits.try_emplace(COPY_TRAIT_NAME);
@@ -190,7 +199,7 @@ namespace NG::orgasm
         Set<Str> visitedTraits;
         for (auto &&[traitName, _traitDef] : traitDefs)
         {
-            if (runtimeTraits.contains(traitName))
+            if (visitedTraits.contains(traitName))
             {
                 continue;
             }
@@ -255,7 +264,7 @@ namespace NG::orgasm
             }
             else if (auto implDef = dynamic_ast_cast<ImplDef>(def))
             {
-                auto targetName = implDef->targetType->repr();
+                auto targetName = bare_type_name(implDef->targetType->repr());
                 auto traitName = implDef->trait->repr();
                 Map<Str, FunctionDef*> providedMethods;
                 for (auto &&method : implDef->methods)
@@ -278,6 +287,11 @@ namespace NG::orgasm
                                                    : traitName;
                         append_function_if_missing(module, functionDefs, targetName + "." + originTraitName + "::" + methodName,
                                                    defaultMethod);
+                        if (originTraitName != traitName)
+                        {
+                            append_function_if_missing(module, functionDefs, targetName + "." + traitName + "::" + methodName,
+                                                       defaultMethod);
+                        }
                         append_function_if_missing(module, functionDefs, targetName + "." + methodName, defaultMethod);
                     }
                 }
@@ -508,19 +522,21 @@ namespace NG::orgasm
             }
             else if (auto implDef = dynamic_ast_cast<ImplDef>(def))
             {
-                current_type_name = implDef->targetType->repr();
+                current_type_name = bare_type_name(implDef->targetType->repr());
                 auto traitName = implDef->trait->repr();
                 Map<Str, FunctionDef*> providedMethods;
                 for (auto &&method : implDef->methods)
                 {
                     providedMethods[method->funName] = method.get();
                 }
-                auto compileMethodFunction = [&](FunctionDef *method, const Str &functionName) {
+                auto compileMethodFunction = [&](FunctionDef *method, const Str &functionName, const Str &traitOrigin = Str{}) {
                     if (funIndex >= static_cast<int>(module.functions.size()) ||
                         module.functions[funIndex].name != functionName)
                     {
                         return;
                     }
+                    auto previousTraitMethodOrigin = activeTraitMethodOrigin;
+                    activeTraitMethodOrigin = traitOrigin;
                     current_function = &module.functions[funIndex++];
                     last_emit_was_return = false;
                     locals.clear();
@@ -555,6 +571,7 @@ namespace NG::orgasm
                     loop_stack.push_back(std::move(info));
 
                     if (method->body) method->body->accept(this);
+                    activeTraitMethodOrigin = previousTraitMethodOrigin;
 
                     loop_stack.pop_back();
                     current_function->num_locals = static_cast<int32_t>(locals.size());
@@ -566,7 +583,8 @@ namespace NG::orgasm
                 };
                 for (auto &&method : implDef->methods)
                 {
-                    compileMethodFunction(method.get(), current_type_name + "." + traitName + "::" + method->funName);
+                    compileMethodFunction(method.get(), current_type_name + "." + traitName + "::" + method->funName,
+                                          traitName);
                     compileMethodFunction(method.get(), current_type_name + "." + method->funName);
                 }
                 if (runtimeTraits.contains(traitName))
@@ -580,7 +598,13 @@ namespace NG::orgasm
                         auto originTraitName = runtimeTraits[traitName].allDefaultOrigins.contains(methodName)
                                                    ? runtimeTraits[traitName].allDefaultOrigins[methodName]
                                                    : traitName;
-                        compileMethodFunction(defaultMethod, current_type_name + "." + originTraitName + "::" + methodName);
+                        compileMethodFunction(defaultMethod, current_type_name + "." + originTraitName + "::" + methodName,
+                                              originTraitName);
+                        if (originTraitName != traitName)
+                        {
+                            compileMethodFunction(defaultMethod, current_type_name + "." + traitName + "::" + methodName,
+                                                  originTraitName);
+                        }
                         compileMethodFunction(defaultMethod, current_type_name + "." + methodName);
                     }
                 }
@@ -1082,8 +1106,8 @@ namespace NG::orgasm
                         funCallExpr->arguments[i]->accept(this);
                         if (i < def->params.size())
                         {
-                            emit_trait_ref_if_needed(def->params[i]->annotatedType.get());
-                            if (def->params[i]->annotatedType)
+                            auto emittedTraitRef = emit_trait_ref_if_needed(def->params[i]->annotatedType.get());
+                            if (!emittedTraitRef && def->params[i]->annotatedType)
                             {
                                 auto specialized = specialize_type_repr(def->params[i]->annotatedType->repr(), typeBindings);
                                 if (auto traitName = trait_ref_name_from_type_repr(specialized); !traitName.empty())
@@ -1144,7 +1168,13 @@ namespace NG::orgasm
                 emit(OpCode::LOAD_LOCAL);
                 emit_u16(static_cast<uint16_t>(locals["self"]));
                 uint16_t nameIdx = static_cast<uint16_t>(module.strings.size());
-                module.strings.push_back(idExpr->id);
+                auto memberName = idExpr->id;
+                if (!activeTraitMethodOrigin.empty() && runtimeTraits.contains(activeTraitMethodOrigin) &&
+                    runtimeTraits[activeTraitMethodOrigin].methods.contains(memberName))
+                {
+                    memberName = activeTraitMethodOrigin + "::" + memberName;
+                }
+                module.strings.push_back(memberName);
                 emit(OpCode::INVOKE_MEMBER);
                 emit_u16(nameIdx);
                 emit_u16(static_cast<uint16_t>(funCallExpr->arguments.size()));
@@ -1158,7 +1188,13 @@ namespace NG::orgasm
             for (auto &&arg : funCallExpr->arguments) arg->accept(this);
             idAcc->primaryExpression->accept(this);
             uint16_t nameIndex = static_cast<uint16_t>(module.strings.size());
-            module.strings.push_back(idAcc->accessor->repr());
+            auto memberName = idAcc->accessor->repr();
+            if (!activeTraitMethodOrigin.empty() && runtimeTraits.contains(activeTraitMethodOrigin) &&
+                runtimeTraits[activeTraitMethodOrigin].methods.contains(memberName))
+            {
+                memberName = activeTraitMethodOrigin + "::" + memberName;
+            }
+            module.strings.push_back(memberName);
             emit(OpCode::INVOKE_MEMBER);
             emit_u16(nameIndex);
             emit_u16(static_cast<uint16_t>(funCallExpr->arguments.size()));
@@ -1739,17 +1775,18 @@ namespace NG::orgasm
         return {};
     }
 
-    void Compiler::emit_trait_ref_if_needed(const ast::TypeAnnotation *annotation)
+    auto Compiler::emit_trait_ref_if_needed(const ast::TypeAnnotation *annotation) -> bool
     {
         auto traitName = trait_ref_name(annotation);
         if (traitName.empty())
         {
-            return;
+            return false;
         }
         uint16_t traitIndex = static_cast<uint16_t>(module.strings.size());
         module.strings.push_back(traitName);
         emit(OpCode::MAKE_TRAIT_REF);
         emit_u16(traitIndex);
+        return true;
     }
 
     void Compiler::emit_move_place(ast::ASTRef<ast::Expression> expr)

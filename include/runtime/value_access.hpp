@@ -78,6 +78,21 @@ namespace NG::runtime
     return it == cell->nativeHandles.end() ? NativeHandle{} : it->second;
   }
 
+  inline auto native_handles_contain_owner(const Map<size_t, NativeHandle> &handles) -> bool
+  {
+    return std::ranges::any_of(handles, [](const auto &entry) { return entry.second.owning; });
+  }
+
+  inline auto clone_native_handles_as_borrowed(const Map<size_t, NativeHandle> &handles) -> Map<size_t, NativeHandle>
+  {
+    auto borrowed = handles;
+    for (auto &[_, handle] : borrowed)
+    {
+      handle.owning = false;
+    }
+    return borrowed;
+  }
+
   struct RuntimeModuleCellState
   {
     Map<Str, NGCallable> functions;
@@ -502,16 +517,19 @@ namespace NG::runtime
     {
       auto slot = make_storage_cell(source->layout, storageClass, std::move(name), source->runtimeType);
       slot->bytes = source->bytes;
-      slot->nativeHandles = source->nativeHandles;
+      auto sourceHasOwningNativeHandle = native_handles_contain_owner(source->nativeHandles);
+      auto borrowOwningNativeHandle = sourceHasOwningNativeHandle && source->storageClass != StorageClass::TEMPORARY;
+      slot->nativeHandles = borrowOwningNativeHandle ? clone_native_handles_as_borrowed(source->nativeHandles)
+                                                     : source->nativeHandles;
       slot->initialized = source->initialized;
       slot->marked = false;
       slot->ownerScopeId = source->ownerScopeId;
-      slot->dropArmed = source->dropArmed;
+      slot->dropArmed = borrowOwningNativeHandle ? false : source->dropArmed;
       slot->opaqueRefs = source->opaqueRefs;
       slot->namedRefs = source->namedRefs;
       slot->moduleState = source->moduleState;
       slot->traitObjectName = source->traitObjectName;
-      slot->lifecycleDropped = source->lifecycleDropped;
+      slot->lifecycleDropped = borrowOwningNativeHandle ? true : source->lifecycleDropped;
       slot->dropInProgress = false;
       return slot;
     }
@@ -521,14 +539,17 @@ namespace NG::runtime
     }
     auto slot = make_storage_cell(source->layout, storageClass, std::move(name), source->runtimeType);
     slot->bytes = source->bytes;
-    slot->nativeHandles = source->nativeHandles;
+    auto sourceHasOwningNativeHandle = native_handles_contain_owner(source->nativeHandles);
+    auto borrowOwningNativeHandle = sourceHasOwningNativeHandle && source->storageClass != StorageClass::TEMPORARY;
+    slot->nativeHandles = borrowOwningNativeHandle ? clone_native_handles_as_borrowed(source->nativeHandles)
+                                                   : source->nativeHandles;
     slot->initialized = source->initialized;
     slot->marked = false;
     slot->ownerScopeId = source->ownerScopeId;
-    slot->dropArmed = source->dropArmed;
+    slot->dropArmed = borrowOwningNativeHandle ? false : source->dropArmed;
     slot->moduleState = source->moduleState;
     slot->traitObjectName = source->traitObjectName;
-    slot->lifecycleDropped = source->lifecycleDropped;
+    slot->lifecycleDropped = borrowOwningNativeHandle ? true : source->lifecycleDropped;
     slot->dropInProgress = false;
     slot->opaqueRefs.clear();
     slot->opaqueRefs.reserve(source->opaqueRefs.size());

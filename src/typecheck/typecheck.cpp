@@ -4460,10 +4460,13 @@ namespace NG::typecheck
         {
           auto traitIt = locals.find(genericType->bound);
           auto traitType = traitIt == locals.end() ? nullptr : std::dynamic_pointer_cast<TraitType>(traitIt->second);
-          auto &methods = traitType && !traitType->allMethods.empty() ? traitType->allMethods : traitType->methods;
-          if (traitType && methods.contains(memberName))
+          if (traitType)
           {
-            memberType = methods[memberName];
+            auto &methods = !traitType->allMethods.empty() ? traitType->allMethods : traitType->methods;
+            if (methods.contains(memberName))
+            {
+              memberType = methods[memberName];
+            }
           }
         }
         if (genericType->name == "Self" && !std::dynamic_pointer_cast<FunctionType>(memberType))
@@ -4844,8 +4847,12 @@ namespace NG::typecheck
         }
       } guard{moduleId};
 
-      NG::module::FileBasedExternalModuleLoader loader{modulePaths};
-      auto moduleInfo = loader.load(importDecl.modulePath);
+      auto moduleInfo = NG::module::get_module_registry().queryModuleById(moduleId);
+      if (!moduleInfo)
+      {
+        NG::module::FileBasedExternalModuleLoader loader{modulePaths};
+        moduleInfo = loader.load(importDecl.modulePath);
+      }
       if (!moduleInfo || !moduleInfo->moduleAst)
       {
         return {};
@@ -5482,6 +5489,11 @@ namespace NG::typecheck
           if (existing->tag() == typeinfo_tag::GENERIC_PARAM)
           {
             substitution[gp.name] = argType;
+          }
+          else if (argType && argType->tag() != typeinfo_tag::GENERIC_PARAM && !typeMatch(*existing, *argType))
+          {
+            throw TypeCheckingException("Inconsistent bindings for generic parameter '" + gp.name + "': " +
+                                        existing->repr() + " vs " + argType->repr());
           }
         }
         else

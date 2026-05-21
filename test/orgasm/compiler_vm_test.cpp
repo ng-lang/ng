@@ -112,6 +112,110 @@ TEST_CASE("compiler and vm should handle const if false branch", "[const_if][Org
   destroyast(ast);
 }
 
+TEST_CASE("compiler should use bare type names for generic impl methods", "[OrgasmTest][Traits]")
+{
+  auto ast = parse(R"(
+    type Box<T> {
+      property value: i32;
+    }
+
+    trait Value {
+      fun get(self: ref<Self>) -> i32;
+    }
+
+    impl<T> Value for Box<T> {
+      fun get(self: ref<Self>) -> i32 {
+        return self.value;
+      }
+    }
+  )");
+  REQUIRE(ast != nullptr);
+
+  NG::typecheck::type_check(ast);
+
+  Compiler compiler;
+  auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+
+  REQUIRE(std::ranges::any_of(bytecode.functions,
+                              [](const Function &function) { return function.name == "Box.Value::get"; }));
+  REQUIRE_FALSE(std::ranges::any_of(bytecode.functions,
+                                    [](const Function &function) { return function.name == "Box<T>.Value::get"; }));
+
+  destroyast(ast);
+}
+
+TEST_CASE("compiler should register inherited defaults under implemented trait names", "[OrgasmTest][Traits]")
+{
+  auto ast = parse(R"(
+    type Box {}
+
+    trait Parent {
+      fun label(self: ref<Self>) -> string {
+        return "parent";
+      }
+    }
+
+    trait Child: Parent {}
+
+    impl Child for Box {}
+  )");
+  REQUIRE(ast != nullptr);
+
+  NG::typecheck::type_check(ast);
+
+  Compiler compiler;
+  auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+
+  REQUIRE(std::ranges::any_of(bytecode.functions,
+                              [](const Function &function) { return function.name == "Box.Parent::label"; }));
+  REQUIRE(std::ranges::any_of(bytecode.functions,
+                              [](const Function &function) { return function.name == "Box.Child::label"; }));
+  REQUIRE(std::ranges::any_of(bytecode.functions,
+                              [](const Function &function) { return function.name == "Box.label"; }));
+
+  destroyast(ast);
+}
+
+TEST_CASE("compiler should emit one trait ref wrapper for direct trait-ref parameters", "[OrgasmTest][Traits]")
+{
+  auto ast = parse(R"(
+    type Box {}
+
+    trait Show {
+      fun show(self: ref<Self>) -> string;
+    }
+
+    impl Show for Box {
+      fun show(self: ref<Self>) -> string {
+        return "box";
+      }
+    }
+
+    fun take(value: ref<Show>) -> string {
+      return value.show();
+    }
+
+    fun main() -> string {
+      val box = new Box {};
+      return take(box);
+    }
+  )");
+  REQUIRE(ast != nullptr);
+
+  NG::typecheck::type_check(ast);
+
+  Compiler compiler;
+  auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+
+  auto mainIt = std::ranges::find_if(bytecode.functions, [](const Function &function) { return function.name == "main"; });
+  REQUIRE(mainIt != bytecode.functions.end());
+  auto makeTraitRefCount = static_cast<size_t>(
+      std::ranges::count(mainIt->code, static_cast<uint8_t>(OpCode::MAKE_TRAIT_REF)));
+  REQUIRE(makeTraitRefCount == 1);
+
+  destroyast(ast);
+}
+
 TEST_CASE("compiler and vm should handle const if with negation", "[const_if][OrgasmTest]")
 {
   auto ast = parse(R"(
@@ -1082,6 +1186,43 @@ TEST_CASE("vm should dispatch imported symbols to registered native fallback", "
 
   registry.clear();
   NG::module::clear_module_loader_cache();
+}
+
+TEST_CASE("vm should retag existing trait refs for destination trait coercions", "[OrgasmTest][VM][Traits]")
+{
+  BytecodeModule module;
+  module.name = "trait-retag";
+  module.strings = {"Ord", "Eq", "check_trait"};
+
+  Function main;
+  main.name = "main";
+  main.num_locals = 1;
+  main.num_params = 0;
+  main.code.push_back(static_cast<uint8_t>(OpCode::PUSH_I32));
+  main.code.push_back(7);
+  main.code.push_back(0);
+  main.code.push_back(0);
+  main.code.push_back(0);
+  emit_u16(main.code, OpCode::STORE_LOCAL, 0);
+  main.code.push_back(static_cast<uint8_t>(OpCode::POP));
+  emit_u16(main.code, OpCode::MAKE_LOCAL_REF, 0);
+  emit_u16(main.code, OpCode::MAKE_TRAIT_REF, 0);
+  emit_u16(main.code, OpCode::MAKE_TRAIT_REF, 1);
+  emit_u16_u16(main.code, OpCode::NATIVE_CALL, 2, 1);
+  main.code.push_back(static_cast<uint8_t>(OpCode::RETURN));
+  module.functions.push_back(std::move(main));
+
+  bool sawEq = false;
+  VM vm;
+  vm.register_native_raw("check_trait", [&sawEq](const Vec<RuntimeRef<StorageCell>> &args) -> RuntimeRef<StorageCell> {
+    sawEq = args.size() == 1 && runtime_is_trait_object_ref(args[0]) && runtime_trait_object_name(args[0]) == "Eq";
+    return unit_cell();
+  });
+
+  auto result = vm.run(module);
+
+  REQUIRE(sawEq);
+  REQUIRE(runtime_value_show(result) == "unit");
 }
 
 TEST_CASE("compiler and vm should register imgui natives without initialized state", "[OrgasmTest][ImGui]")

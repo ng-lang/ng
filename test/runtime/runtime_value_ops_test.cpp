@@ -573,6 +573,50 @@ TEST_CASE("managed heap traces reference roots through storage cells", "[Runtime
   REQUIRE(managed_heap_size() == 0);
 }
 
+TEST_CASE("managed heap finalizers can unregister during collection", "[RuntimeTest][GC]")
+{
+  collect_managed_heap();
+  REQUIRE(managed_heap_size() == 0);
+
+  auto ref = allocate_heap_cell(numeral_cell_from_value<int32_t>(5), "heap:finalizer-unregister");
+  REQUIRE(runtime_reference_target(ref) != nullptr);
+
+  size_t finalizerId = 0;
+  int finalized = 0;
+  finalizerId = register_gc_finalizer([&](const RuntimeRef<StorageCell> &) {
+    ++finalized;
+    unregister_gc_finalizer(finalizerId);
+  });
+
+  collect_managed_heap();
+
+  REQUIRE(finalized == 1);
+  REQUIRE(managed_heap_size() == 0);
+}
+
+TEST_CASE("cloning owning native handles creates borrowed runtime cells", "[RuntimeTest][Native]")
+{
+  auto owning = make_runtime_native_handle_cell("NativeHandle", 0xCAFE, true, StorageClass::FRAME);
+
+  auto cloned = clone_runtime_storage_cell(owning);
+  auto clonedHandle = runtime_native_handle_value(cloned);
+  REQUIRE(clonedHandle.address == 0xCAFE);
+  REQUIRE_FALSE(clonedHandle.owning);
+  REQUIRE_FALSE(cloned->dropArmed);
+  REQUIRE(cloned->lifecycleDropped);
+
+  auto owningHandle = runtime_native_handle_value(owning);
+  REQUIRE(owningHandle.owning);
+  REQUIRE(owning->dropArmed);
+
+  auto temporaryOwner = make_runtime_native_handle_cell("NativeHandle", 0xBEEF, true, StorageClass::TEMPORARY);
+  auto transferred = clone_runtime_storage_cell(temporaryOwner, StorageClass::FRAME);
+  auto transferredHandle = runtime_native_handle_value(transferred);
+  REQUIRE(transferredHandle.address == 0xBEEF);
+  REQUIRE(transferredHandle.owning);
+  REQUIRE(transferred->dropArmed);
+}
+
 TEST_CASE("struct layout access reads and writes typed fields", "[RuntimeTest][LayoutObjects]")
 {
   auto objectType = makert<NGType>();

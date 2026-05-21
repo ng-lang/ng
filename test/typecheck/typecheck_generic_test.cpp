@@ -1149,3 +1149,15 @@ TEST_CASE("higher-kinded generic should reject argument that does not match expl
     val result = accept_hkt<Box, i32>(other);
   )", "Invalid argument type for generic function");
 }
+
+TEST_CASE("generic inference should reject inconsistent repeated parameter bindings",
+          "[TypeCheck][Generic][Failure]")
+{
+  typecheck_failure(R"(
+    fun choose<T>(pair: (T, T)) -> T {
+      return pair.0;
+    }
+
+    val result = choose((1, "x"));
+  )", "Inconsistent bindings for generic parameter 'T'");
+}

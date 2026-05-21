@@ -132,7 +132,13 @@ namespace NG::runtime
       {
         return false;
       }
-      for (const auto &[id, finalizer] : heap_state().finalizers)
+      auto finalizers = Vec<GCFinalizer>{};
+      finalizers.reserve(heap_state().finalizers.size());
+      for (const auto &[_, finalizer] : heap_state().finalizers)
+      {
+        finalizers.push_back(finalizer);
+      }
+      for (const auto &finalizer : finalizers)
       {
         finalizer(cell);
       }

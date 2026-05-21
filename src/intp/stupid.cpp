@@ -765,6 +765,49 @@ namespace NG::intp
     }
   }
 
+  static void drop_current_frame_cells_and_pop(const NGSymbols &symbols, const RuntimeRef<Vec<CallFrame>> &frames)
+  {
+    if (!frames || frames->empty())
+    {
+      return;
+    }
+    try
+    {
+      drop_frame_cells(symbols, frames->back());
+    }
+    catch (...)
+    {
+      frames->pop_back();
+      throw;
+    }
+    frames->pop_back();
+  }
+
+  static void drop_scope_cells_noexcept(const NGSymbols &symbols, const RuntimeRef<Vec<CallFrame>> &frames,
+                                        uint64_t scopeId) noexcept
+  {
+    try
+    {
+      drop_scope_cells(symbols, frames, scopeId);
+    }
+    catch (...)
+    {
+      // Destructors cannot propagate Drop failures safely during stack unwinding.
+    }
+  }
+
+  static void drop_frame_cells_noexcept(const NGSymbols &symbols, const RuntimeRef<Vec<CallFrame>> &frames) noexcept
+  {
+    try
+    {
+      drop_current_frame_cells_and_pop(symbols, frames);
+    }
+    catch (...)
+    {
+      // Destructors cannot propagate Drop failures safely during stack unwinding.
+    }
+  }
+
   static auto has_returned(const RuntimeRef<StorageCell> &returnSlot) -> bool
   {
     return returnSlot && runtime_cell_has_value(returnSlot);
@@ -1965,8 +2008,21 @@ namespace NG::intp
         NGSymbols symbols;
         RuntimeRef<Vec<CallFrame>> frames;
         uint64_t scopeId = 0;
-        ~ScopeDropGuard()
+        bool active = true;
+        ~ScopeDropGuard() noexcept
         {
+          if (active)
+          {
+            drop_scope_cells_noexcept(symbols, frames, scopeId);
+          }
+        }
+        void drop_now()
+        {
+          if (!active)
+          {
+            return;
+          }
+          active = false;
           drop_scope_cells(symbols, frames, scopeId);
         }
       } scopeDropGuard{symbols, activeFrames, blockScopeId};
@@ -1980,6 +2036,7 @@ namespace NG::intp
           break;
         }
       }
+      scopeDropGuard.drop_now();
     }
 
     void visit(ValDefStatement *valDef) override
@@ -2564,13 +2621,22 @@ namespace NG::intp
         {
           NGSymbols symbols;
           RuntimeRef<Vec<CallFrame>> frames;
-          ~FrameGuard()
+          bool active = true;
+          ~FrameGuard() noexcept
           {
-            if (frames && !frames->empty())
+            if (active)
             {
-              drop_frame_cells(symbols, frames->back());
-              frames->pop_back();
+              drop_frame_cells_noexcept(symbols, frames);
             }
+          }
+          void drop_now()
+          {
+            if (!active)
+            {
+              return;
+            }
+            active = false;
+            drop_current_frame_cells_and_pop(symbols, frames);
           }
         } frameGuard{callSymbols, frames};
         for (size_t i = 0; i < funDef->params.size(); ++i)
@@ -2656,7 +2722,9 @@ namespace NG::intp
              }
           }
         }
-        return clone_runtime_storage_cell(frames->back().returnSlot, StorageClass::TEMPORARY);
+        auto result = clone_runtime_storage_cell(frames->back().returnSlot, StorageClass::TEMPORARY);
+        frameGuard.drop_now();
+        return result;
       };
 
       define_global_function(symbols, funDef->funName, functionInvoker);
@@ -2714,13 +2782,22 @@ namespace NG::intp
           {
             NGSymbols symbols;
             RuntimeRef<Vec<CallFrame>> frames;
-            ~FrameGuard()
+            bool active = true;
+            ~FrameGuard() noexcept
             {
-              if (frames && !frames->empty())
+              if (active)
               {
-                drop_frame_cells(symbols, frames->back());
-                frames->pop_back();
+                drop_frame_cells_noexcept(symbols, frames);
               }
+            }
+            void drop_now()
+            {
+              if (!active)
+              {
+                return;
+              }
+              active = false;
+              drop_current_frame_cells_and_pop(symbols, frames);
             }
           } frameGuard{callSymbols, frames};
           NGArgs effectiveArgs = args;
@@ -2762,7 +2839,9 @@ namespace NG::intp
           StatementVisitor vis{callSymbols, frames->back().returnSlot, frames, scopeIds, false, memFn->funName,
                                memFn->params.size()};
           memFn->body->accept(&vis);
-          return clone_runtime_storage_cell(frames->back().returnSlot, StorageClass::TEMPORARY);
+          auto result = clone_runtime_storage_cell(frames->back().returnSlot, StorageClass::TEMPORARY);
+          frameGuard.drop_now();
+          return result;
         };
       }
 
@@ -2827,13 +2906,22 @@ namespace NG::intp
         {
           NGSymbols symbols;
           RuntimeRef<Vec<CallFrame>> frames;
-          ~FrameGuard()
+          bool active = true;
+          ~FrameGuard() noexcept
           {
-            if (frames && !frames->empty())
+            if (active)
             {
-              drop_frame_cells(symbols, frames->back());
-              frames->pop_back();
+              drop_frame_cells_noexcept(symbols, frames);
             }
+          }
+          void drop_now()
+          {
+            if (!active)
+            {
+              return;
+            }
+            active = false;
+            drop_current_frame_cells_and_pop(symbols, frames);
           }
         } frameGuard{callSymbols, frames};
 
@@ -2851,12 +2939,23 @@ namespace NG::intp
         }
         for (size_t i = 0; i < method->params.size(); ++i)
         {
-          if (effectiveArgs.size() <= i)
+          RuntimeRef<StorageCell> paramSlot;
+          if (effectiveArgs.size() > i)
+          {
+            paramSlot = effectiveArgs[i];
+          }
+          else if (method->params[i]->value != nullptr)
+          {
+            ExpressionVisitor vis{callSymbols, frames, scopeIds};
+            method->params[i]->value->accept(&vis);
+            paramSlot = vis.result_slot(method->params[i]->paramName);
+          }
+          else
           {
             throw RuntimeException("Missing argument for parameter '" + method->params[i]->paramName +
                                    "' in impl method '" + method->funName + "'");
           }
-          auto slot = clone_parameter_slot(method->params[i].get(), effectiveArgs[i], callSymbols, StorageClass::FRAME);
+          auto slot = clone_parameter_slot(method->params[i].get(), paramSlot, callSymbols, StorageClass::FRAME);
           slot->ownerScopeId = current_scope_id(scopeIds);
           frames->back().params.push_back(slot);
         }
@@ -2865,7 +2964,9 @@ namespace NG::intp
         StatementVisitor vis{callSymbols, frames->back().returnSlot, frames, scopeIds, false, method->funName,
                              method->params.size()};
         method->body->accept(&vis);
-        return clone_runtime_storage_cell(frames->back().returnSlot, StorageClass::TEMPORARY);
+        auto result = clone_runtime_storage_cell(frames->back().returnSlot, StorageClass::TEMPORARY);
+        frameGuard.drop_now();
+        return result;
       };
     };
 
@@ -2887,6 +2988,10 @@ namespace NG::intp
         auto originTraitName =
             traitInfo.allDefaultOrigins.contains(methodName) ? traitInfo.allDefaultOrigins.at(methodName) : traitName;
         registerImplMethod(originTraitName + "::" + methodName, defaultMethod);
+        if (originTraitName != traitName)
+        {
+          registerImplMethod(traitName + "::" + methodName, defaultMethod);
+        }
         if (!type->memberFunctions.contains(methodName))
         {
           registerImplMethod(methodName, defaultMethod);

@@ -293,17 +293,18 @@ namespace NG::orgasm
             }
             stack.push_back(result);
         };
-        auto function_index_by_name = [&module](const Str &name) -> int32_t {
-            for (size_t i = 0; i < module.functions.size(); ++i)
+        auto function_index_by_name = [](const BytecodeModule &lookupModule, const Str &name) -> int32_t {
+            for (size_t i = 0; i < lookupModule.functions.size(); ++i)
             {
-                if (module.functions[i].name == name)
+                if (lookupModule.functions[i].name == name)
                 {
                     return static_cast<int32_t>(i);
                 }
             }
             return -1;
         };
-        auto drop_cell_if_needed = [this, &module, &function_index_by_name](const RuntimeRef<StorageCell> &cell) {
+        auto drop_cell_if_needed = [this, &function_index_by_name](const BytecodeModule &dropModule,
+                                                                   const RuntimeRef<StorageCell> &cell) {
             auto target = drop_target_for_cell(cell);
             if (!target || runtime_cell_is_moved(target) || !runtime_cell_has_value(target) ||
                 !target->dropArmed || target->lifecycleDropped || target->dropInProgress)
@@ -322,7 +323,7 @@ namespace NG::orgasm
                 target->dropArmed = false;
                 return;
             }
-            auto dropIndex = function_index_by_name(type->name + ".Drop::drop");
+            auto dropIndex = function_index_by_name(dropModule, type->name + ".Drop::drop");
             if (dropIndex < 0)
             {
                 if (!type->memberFunctions.contains("Drop::drop"))
@@ -347,7 +348,7 @@ namespace NG::orgasm
             target->dropInProgress = true;
             try
             {
-                execute_slots(module, module.functions[static_cast<size_t>(dropIndex)],
+                execute_slots(dropModule, dropModule.functions[static_cast<size_t>(dropIndex)],
                               {make_runtime_reference_cell(target, "arg:self")});
                 target->lifecycleDropped = true;
                 target->dropArmed = false;
@@ -360,9 +361,13 @@ namespace NG::orgasm
             }
         };
         auto drop_frame_slots = [&drop_cell_if_needed](const Frame &frameToDrop) {
+            if (!frameToDrop.module)
+            {
+                return;
+            }
             for (auto it = frameToDrop.locals.rbegin(); it != frameToDrop.locals.rend(); ++it)
             {
-                drop_cell_if_needed(*it);
+                drop_cell_if_needed(*frameToDrop.module, *it);
             }
         };
 
@@ -529,7 +534,7 @@ namespace NG::orgasm
                 {
                     uint16_t idx = read_u16();
                     auto target = ensure_slot(frame.locals, idx, "local:");
-                    drop_cell_if_needed(target);
+                    drop_cell_if_needed(activeModule, target);
                     runtime_copy_storage_cell(target, stack.back());
                     break;
                 }
@@ -538,7 +543,7 @@ namespace NG::orgasm
                 {
                     uint16_t idx = read_u16();
                     auto target = ensure_slot(globals, idx, "global:", StorageClass::GLOBAL);
-                    drop_cell_if_needed(target);
+                    drop_cell_if_needed(activeModule, target);
                     runtime_copy_storage_cell(target, stack.back());
                     break;
                 }
@@ -624,7 +629,8 @@ namespace NG::orgasm
                     auto targetRef = pop_slot();
                     if (runtime_is_trait_object_ref(targetRef))
                     {
-                        push_slot_copy(targetRef);
+                        push_slot_copy(make_runtime_trait_object_ref(runtime_trait_object_target_ref(targetRef),
+                                                                     current_module->strings[traitIdx], "trait-ref"));
                         break;
                     }
                     if (!runtime_is_reference_value(targetRef))
@@ -651,7 +657,7 @@ namespace NG::orgasm
                     if (!runtime_is_reference_value(reference)) throw RuntimeException("Cannot assign through non-reference value");
                     auto target = runtime_reference_target(reference);
                     if (!target) throw RuntimeException("Cannot assign through non-reference value");
-                    drop_cell_if_needed(target);
+                    drop_cell_if_needed(activeModule, target);
                     runtime_copy_storage_cell(target, value);
                     push_slot_copy(value);
                     break;
@@ -780,7 +786,7 @@ namespace NG::orgasm
                 auto target = access_target_slot(pop_slot());
                 if (runtime_is_structural_value(target)) {
                     if (auto slot = runtime_structural_field_slot(target, fieldIdx)) {
-                        drop_cell_if_needed(slot);
+                        drop_cell_if_needed(activeModule, slot);
                         runtime_copy_storage_cell(slot, val);
                     } else {
                         throw RuntimeException("Field index out of bounds: " + std::to_string(fieldIdx));
@@ -832,11 +838,11 @@ namespace NG::orgasm
                 if (runtime_is_structural_value(target)) {
                     if (auto index = runtime_structural_field_index(target, propName)) {
                         auto slot = runtime_structural_field_slot(target, *index);
-                        drop_cell_if_needed(slot);
+                        drop_cell_if_needed(activeModule, slot);
                         runtime_copy_storage_cell(slot, val);
                     } else {
                         auto slot = runtime_structural_property_slot_or_create(target, propName);
-                        drop_cell_if_needed(slot);
+                        drop_cell_if_needed(activeModule, slot);
                         runtime_copy_storage_cell(slot, val);
                     }
                 } else {

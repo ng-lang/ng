@@ -793,6 +793,28 @@ TEST_CASE("interpreter should handle concrete recursive helper over instantiated
         }
 
         printNode(first);
+	        )");
+}
+
+TEST_CASE("interpreter should dispatch inherited defaults through implemented trait names",
+          "[InterpreterTest][Traits]")
+{
+  interpret(R"(
+        type Box {}
+
+        trait Parent {
+            fun label(self: ref<Self>) -> string {
+                return "parent";
+            }
+        }
+
+        trait Child: Parent {}
+
+        impl Child for Box {}
+
+        val box = new Box {};
+        assert(box.Child::label() == "parent");
+        assert(box.Parent::label() == "parent");
         )");
 }
 

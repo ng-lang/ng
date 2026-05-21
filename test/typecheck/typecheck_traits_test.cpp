@@ -1,20 +1,12 @@
 #include "typecheck_utils.hpp"
-#include <chrono>
-#include <filesystem>
-#include <fstream>
 #include <module.hpp>
 
 namespace
 {
   struct TraitModuleFixture
   {
-    std::filesystem::path dir;
-
     TraitModuleFixture()
-        : dir(std::filesystem::temp_directory_path() /
-              ("ng_trait_modules_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())))
     {
-      std::filesystem::create_directories(dir);
       NG::module::clear_module_loader_cache();
       NG::module::get_module_registry().clear();
     }
@@ -23,18 +15,25 @@ namespace
     {
       NG::module::clear_module_loader_cache();
       NG::module::get_module_registry().clear();
-      std::filesystem::remove_all(dir);
     }
 
-    void write(const Str &name, const Str &source) const
+    void write(const Str &name, const Str &source)
     {
-      std::ofstream out{dir / (name + ".ng")};
-      out << source;
+      auto ast = parse(source, name);
+      REQUIRE(ast != nullptr);
+      NG::module::get_module_registry().addModuleInfo(runtime::makert<NG::module::ModuleInfo>(NG::module::ModuleInfo{
+          .moduleId = name,
+          .moduleName = name,
+          .moduleSource = source,
+          .moduleAst = ast,
+          .moduleAbsolutePath = name,
+          .moduleLoadingLocation = "memory",
+      }));
     }
 
     auto paths() const -> Vec<Str>
     {
-      return {dir.string()};
+      return {"[memory]"};
     }
   };
 }
@@ -95,6 +94,19 @@ TEST_CASE("generic trait bound should allow bounded method calls", "[TypeCheck][
   REQUIRE(index.contains("s"));
   check_type_tag(*index["s"], typeinfo_tag::STRING);
 
+  destroyast(ast);
+}
+
+TEST_CASE("unknown generic trait bound member lookup should not crash",
+          "[TypeCheck][Traits]")
+{
+  auto ast = parse(R"(
+    fun call<T: Missing>(value: ref<T>) -> unit {
+      value.show();
+    }
+  )");
+  REQUIRE(ast != nullptr);
+  REQUIRE_NOTHROW(type_check(ast));
   destroyast(ast);
 }
 
