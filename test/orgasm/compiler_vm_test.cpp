@@ -205,6 +205,58 @@ TEST_CASE("compiler should qualify calls inside inherited trait default bodies",
   destroyast(ast);
 }
 
+TEST_CASE("compiler should emit supertrait aliases for provided impl methods", "[OrgasmTest][Traits]")
+{
+  auto ast = parse(R"(
+    type Counter {
+      value: i32;
+    }
+
+    trait Eq {
+      fun same(self: ref<Self>, other: ref<Self>) -> bool;
+
+      fun not_same(self: ref<Self>, other: ref<Self>) -> bool {
+        return !self.same(other);
+      }
+    }
+
+    trait Ord: Eq {}
+
+    impl Ord for Counter {
+      fun same(self: ref<Self>, other: ref<Self>) -> bool {
+        return self.value == other.value;
+      }
+    }
+
+    fun main() -> bool {
+      val one = new Counter { value: 1 };
+      val two = new Counter { value: 2 };
+      return one.not_same(two);
+    }
+  )");
+  REQUIRE(ast != nullptr);
+
+  NG::typecheck::type_check(ast);
+
+  Compiler compiler;
+  auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+  auto hasFunction = [&bytecode](const Str &name) {
+    return std::ranges::any_of(bytecode.functions, [&name](const Function &function) { return function.name == name; });
+  };
+
+  REQUIRE(hasFunction("Counter.Eq::same"));
+  REQUIRE(hasFunction("Counter.Ord::same"));
+  REQUIRE(hasFunction("Counter.same"));
+  REQUIRE(hasFunction("Counter.Eq::not_same"));
+  REQUIRE(hasFunction("Counter.Ord::not_same"));
+
+  VM vm;
+  auto result = vm.run(bytecode);
+  REQUIRE(runtime_value_bool(result));
+
+  destroyast(ast);
+}
+
 TEST_CASE("compiler should emit one trait ref wrapper for direct trait-ref parameters", "[OrgasmTest][Traits]")
 {
   auto ast = parse(R"(

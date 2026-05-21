@@ -270,8 +270,19 @@ namespace NG::orgasm
                 for (auto &&method : implDef->methods)
                 {
                     providedMethods[method->funName] = method.get();
-                    append_function_if_missing(module, functionDefs, targetName + "." + traitName + "::" + method->funName,
-                                               method.get());
+                    auto originTraitName = traitName;
+                    if (runtimeTraits.contains(traitName) &&
+                        runtimeTraits[traitName].allMethodOrigins.contains(method->funName))
+                    {
+                        originTraitName = runtimeTraits[traitName].allMethodOrigins[method->funName];
+                    }
+                    append_function_if_missing(module, functionDefs,
+                                               targetName + "." + originTraitName + "::" + method->funName, method.get());
+                    if (originTraitName != traitName)
+                    {
+                        append_function_if_missing(module, functionDefs,
+                                                   targetName + "." + traitName + "::" + method->funName, method.get());
+                    }
                     append_function_if_missing(module, functionDefs, targetName + "." + method->funName, method.get());
                 }
                 if (runtimeTraits.contains(traitName))
@@ -583,8 +594,19 @@ namespace NG::orgasm
                 };
                 for (auto &&method : implDef->methods)
                 {
-                    compileMethodFunction(method.get(), current_type_name + "." + traitName + "::" + method->funName,
-                                          traitName);
+                    auto originTraitName = traitName;
+                    if (runtimeTraits.contains(traitName) &&
+                        runtimeTraits[traitName].allMethodOrigins.contains(method->funName))
+                    {
+                        originTraitName = runtimeTraits[traitName].allMethodOrigins[method->funName];
+                    }
+                    compileMethodFunction(method.get(), current_type_name + "." + originTraitName + "::" + method->funName,
+                                          originTraitName);
+                    if (originTraitName != traitName)
+                    {
+                        compileMethodFunction(method.get(),
+                                              current_type_name + "." + traitName + "::" + method->funName, traitName);
+                    }
                     compileMethodFunction(method.get(), current_type_name + "." + method->funName);
                 }
                 if (runtimeTraits.contains(traitName))
