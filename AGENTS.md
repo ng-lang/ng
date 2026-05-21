@@ -14,12 +14,11 @@
 - `src/runtime/` — StorageCell/slot-based NG runtime values and layout helpers (`NGArray.cpp`, `runtime_env.cpp`, `NGString.cpp`, `NGTuple.cpp`)
 - `src/typecheck/` — Type info and checker (`PrimitiveType.cpp`, `FunctionType.cpp`, `typecheck.cpp`)
 - `src/module/` — Module loading/registry; `src/stdlib/` — built-ins (e.g., `prelude.cpp`, `imgui.cpp`)
-- `src/orgasm/` — ORGASM Level-2 assembly parser and interpreter (`lexer.cpp`, `parser.cpp`, `interpreter.cpp`)
+- `src/orgasm/` — ORGASM bytecode compiler and VM (`Compiler.cpp`, `VM.cpp`, `module.cpp`)
 - `src/main.cpp` — Builds the `ngi` interpreter
 - `include/` — Public headers mirror modules (e.g., `ast.hpp`, `parser.hpp`, `token.hpp`, `visitor.hpp`)
-- `include/orgasm/` — ORGASM Level-2 headers (`types.hpp`, `instruction.hpp`, `module.hpp`, `lexer.hpp`, `parser.hpp`, `interpreter.hpp`)
+- `include/orgasm/` — ORGASM bytecode headers (`opcode.hpp`, `module.hpp`, `compiler.hpp`, `vm.hpp`, `native_bridge.hpp`)
 - `example/*.ng` — Runnable language examples (e.g., `14.tuple.ng`)
-- `example/orgasm/*.l2.asm` — ORGASM Level-2 assembly examples
 - `test/` — Catch2 v3 tests grouped by `parsing/`, `runtime/`, `typecheck/`, `orgasm/` + helpers (`test.hpp`)
 - `lib/` — Standard library in NG
 - `docs/` — Language and internals documentation
@@ -31,13 +30,11 @@
 - **AST:** Visitor pattern (`AstVisitor`), base class `ASTNode` (`include/ast.hpp`, `src/ast/`)
 - **Type Checking:** `src/typecheck/` — traverses AST for type inference/validation
 - **Interpreter:** `src/intp/` — executes AST directly (see `Interpreter` class)
-- **ORGASM:** `src/orgasm/` — Level-2 assembly intermediate representation
-  - **ORGASM Lexer:** `src/orgasm/lexer.cpp` — tokenizes ORGASM directives and instructions
-  - **ORGASM Parser:** `src/orgasm/parser.cpp` — parses module structure, data sections, functions
-  - **ORGASM Interpreter:** `src/orgasm/interpreter.cpp` — stack-based VM for executing ORGASM bytecode
-  - **Type System:** Supports i8-i128, u8-u128, f16-f128, bool, addr, vectors, atomics
-  - **Operations:** Arithmetic, logic, control flow, function calls, tuple operations
-  - **Security:** Platform-specific secure memory initialization for sensitive data
+- **ORGASM:** `src/orgasm/` — bytecode backend for typed AST
+  - **Compiler:** `src/orgasm/Compiler.cpp` — lowers checked AST into `BytecodeModule`
+  - **VM:** `src/orgasm/VM.cpp` — executes StorageCell-based bytecode
+  - **Module model:** `include/orgasm/module.hpp` + `src/orgasm/module.cpp` — bytecode functions, types, imports, exports, and merge/remap logic
+  - **Opcode set:** `include/orgasm/opcode.hpp` — the single active ORGASM opcode enum
 - **Modules:** Each `.ng` file is a module. Use `export`/`import` for visibility (see `docs/guide/language_guide.md`)
 - **Standard Library:** Minimal, in `lib/std.ng` and `lib/std/`
 - **Native functions:** NG supports native (C++) functions via `= native;` in NG code. Register with the interpreter (`register_native_library`).
