@@ -1439,6 +1439,54 @@ TEST_CASE("parser should parse higher-kinded trait parameters", "[Parser][Generi
   destroyast(ast);
 }
 
+TEST_CASE("parser should parse variadic higher-kinded parameter placeholders", "[Parser][Generics][HKT][Pack]")
+{
+  auto ast = parse("fun use<F<_, ...>, T>(value: F<T>) -> unit = unit;");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto funDef = dynamic_ast_cast<FunctionDef>(compileUnit->module->definitions[0]);
+  REQUIRE(funDef != nullptr);
+  REQUIRE(funDef->genericParams.size() == 2);
+  REQUIRE(funDef->genericParams[0]->name == "F");
+  REQUIRE(funDef->genericParams[0]->kindArity == 1);
+  REQUIRE(funDef->genericParams[0]->kindVariadicTail);
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse pack-only higher-kinded parameter placeholders", "[Parser][Generics][HKT][Pack]")
+{
+  auto ast = parse("fun use<F<...>>() -> unit = unit;");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto funDef = dynamic_ast_cast<FunctionDef>(compileUnit->module->definitions[0]);
+  REQUIRE(funDef != nullptr);
+  REQUIRE(funDef->genericParams.size() == 1);
+  REQUIRE(funDef->genericParams[0]->name == "F");
+  REQUIRE(funDef->genericParams[0]->kindArity == 0);
+  REQUIRE(funDef->genericParams[0]->kindVariadicTail);
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should reject non-final variadic kind placeholder", "[Parser][Generics][HKT][Pack][Failure]")
+{
+  auto ast = parseInvalid("fun bad<F<..., _>>() -> unit = unit;",
+                          "Variadic kind placeholder must be the final placeholder");
+  REQUIRE(ast == nullptr);
+}
+
+TEST_CASE("parser should reject duplicate variadic kind placeholders", "[Parser][Generics][HKT][Pack][Failure]")
+{
+  auto ast = parseInvalid("fun bad<F<_, ..., ...>>() -> unit = unit;",
+                          "Variadic kind placeholder must be the final placeholder");
+  REQUIRE(ast == nullptr);
+}
+
 TEST_CASE("parser should reject bare kind placeholder as a normal type annotation", "[Parser][Generics][HKT][Failure]")
 {
   auto ast = parseInvalid("fun bad(value: _) -> unit { return unit; }",

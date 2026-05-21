@@ -475,43 +475,68 @@ namespace NG::typecheck
       }
       if (auto genericType = std::dynamic_pointer_cast<GenericTypeDef>(type))
       {
-        return genericTypeConstructorArity(*genericType);
+        return genericTypeConstructorFixedArity(*genericType);
       }
       return 0;
     }
 
-    static void validateTypeArgumentKind(const Str &paramName, size_t expectedArity,
+    static auto typeKindVariadicTail(const CheckingRef<TypeInfo> &type) -> bool
+    {
+      if (!type)
+      {
+        return false;
+      }
+      if (auto genericParam = std::dynamic_pointer_cast<GenericParamType>(type))
+      {
+        return genericParam->kindVariadicTail;
+      }
+      if (auto genericType = std::dynamic_pointer_cast<GenericTypeDef>(type))
+      {
+        return genericTypeConstructorVariadicTail(*genericType);
+      }
+      return false;
+    }
+
+    static void validateTypeArgumentKind(const Str &paramName, size_t expectedArity, bool expectedVariadicTail,
                                          const CheckingRef<TypeInfo> &actual, const TokenPosition &pos)
     {
       const size_t actualArity = typeKindArity(actual);
-      if (expectedArity == actualArity)
+      const bool actualVariadicTail = typeKindVariadicTail(actual);
+      if (expectedArity == actualArity && expectedVariadicTail == actualVariadicTail)
       {
         return;
       }
-      if (expectedArity == 0)
+      if (expectedArity == 0 && !expectedVariadicTail)
       {
         throw TypeCheckingException("Generic parameter '" + paramName + "' expects a concrete type, got type constructor '" +
                                         (actual ? actual->repr() : "?") + "'",
                                     pos);
       }
       throw TypeCheckingException("Generic parameter '" + paramName + "' expects a type constructor with " +
-                                      std::to_string(expectedArity) + " argument(s), got " +
-                                      std::to_string(actualArity),
+                                      std::to_string(expectedArity) + " fixed argument(s)" +
+                                      (expectedVariadicTail ? " and a variadic tail" : "") + ", got " +
+                                      std::to_string(actualArity) + " fixed argument(s)" +
+                                      (actualVariadicTail ? " and a variadic tail" : ""),
                                   pos);
     }
 
-    auto resolveGenericTypeArgument(TypeAnnotation *annotation, size_t expectedArity,
+    static auto typeConstructorApplicationArityValid(size_t fixedArity, bool variadicTail, size_t actualArity) -> bool
+    {
+      return variadicTail ? actualArity >= fixedArity : actualArity == fixedArity;
+    }
+
+    auto resolveGenericTypeArgument(TypeAnnotation *annotation, size_t expectedArity, bool expectedVariadicTail,
                                     const Str &paramName) const -> CheckingRef<TypeInfo>
     {
       if (!annotation)
       {
         throw TypeCheckingException("Missing generic type argument");
       }
-      if (expectedArity == 0)
+      if (expectedArity == 0 && !expectedVariadicTail)
       {
         TypeChecker checker{locals};
         annotation->accept(&checker);
-        validateTypeArgumentKind(paramName, expectedArity, checker.result, annotation->pos);
+        validateTypeArgumentKind(paramName, expectedArity, expectedVariadicTail, checker.result, annotation->pos);
         return checker.result;
       }
 
@@ -527,7 +552,7 @@ namespace NG::typecheck
       {
         throw TypeCheckingException("Unknown type constructor: " + annotation->name, annotation->pos);
       }
-      validateTypeArgumentKind(paramName, expectedArity, it->second, annotation->pos);
+      validateTypeArgumentKind(paramName, expectedArity, expectedVariadicTail, it->second, annotation->pos);
       return it->second;
     }
 
@@ -735,9 +760,32 @@ namespace NG::typecheck
       return kindArities;
     }
 
-    static auto genericTypeConstructorArity(const GenericTypeDef &genericType) -> size_t
+    static auto genericParamKindVariadicTails(const Vec<ASTRef<GenericParam>> &genericParams) -> Vec<bool>
     {
-      return genericType.typeParamNames.size();
+      Vec<bool> tails;
+      tails.reserve(genericParams.size());
+      for (auto &param : genericParams)
+      {
+        tails.push_back(param->kindVariadicTail);
+      }
+      return tails;
+    }
+
+    static auto genericTypeConstructorFixedArity(const GenericTypeDef &genericType) -> size_t
+    {
+      auto packIt = std::find(genericType.typeParamIsPack.begin(), genericType.typeParamIsPack.end(), true);
+      if (packIt == genericType.typeParamIsPack.end())
+      {
+        return genericType.typeParamNames.size();
+      }
+      return static_cast<size_t>(std::distance(genericType.typeParamIsPack.begin(), packIt));
+    }
+
+    static auto genericTypeConstructorVariadicTail(const GenericTypeDef &genericType) -> bool
+    {
+      return std::any_of(genericType.typeParamIsPack.begin(), genericType.typeParamIsPack.end(), [](bool isPack) {
+        return isPack;
+      });
     }
 
     static auto genericParamNameSet(const Vec<ASTRef<GenericParam>> &genericParams) -> Set<Str>
@@ -1220,7 +1268,7 @@ namespace NG::typecheck
       for (auto &gp : genericParams)
       {
         scope[gp->name] = makecheck<GenericParamType>(gp->name, typeParamBoundName(*gp), gp->isPack,
-                                                      gp->kindArity);
+                                                      gp->kindArity, gp->kindVariadicTail);
       }
     }
 
@@ -1688,7 +1736,11 @@ namespace NG::typecheck
       {
         const size_t expectedArity =
             i < genericDef.typeParamKindArities.size() ? genericDef.typeParamKindArities[i] : 0;
-        validateTypeArgumentKind(genericDef.typeParamNames[i], expectedArity, typeArgs[i], TokenPosition{});
+        const bool expectedVariadicTail = i < genericDef.typeParamKindVariadicTails.size()
+                                              ? genericDef.typeParamKindVariadicTails[i]
+                                              : false;
+        validateTypeArgumentKind(genericDef.typeParamNames[i], expectedArity, expectedVariadicTail,
+                                 typeArgs[i], TokenPosition{});
       }
 
       Str instanceName = formatTypeInstanceName(genericDef.name, typeArgs);
@@ -2163,6 +2215,8 @@ namespace NG::typecheck
             auto genericDef = makecheck<GenericDefType>(
                 funDef->funName, typeParamNames, typeParamIsPack, funDef, locals, currentModuleId);
             genericDef->typeParamKindArities = genericParamKindArities(funDef->genericParams);
+            genericDef->typeParamKindVariadicTails =
+                genericParamKindVariadicTails(funDef->genericParams);
             locals[funDef->funName] = genericDef;
 
             // Register generic type params in a temporary scope so parameter
@@ -2231,6 +2285,8 @@ namespace NG::typecheck
                 makecheck<GenericTypeDef>(typeAlias->aliasName, typeParamNames, typeParamIsPack, typeAlias, locals, currentModuleId);
             std::static_pointer_cast<GenericTypeDef>(locals[typeAlias->aliasName])->typeParamKindArities =
                 genericParamKindArities(typeAlias->genericParams);
+            std::static_pointer_cast<GenericTypeDef>(locals[typeAlias->aliasName])->typeParamKindVariadicTails =
+                genericParamKindVariadicTails(typeAlias->genericParams);
           }
           else
           {
@@ -2265,6 +2321,8 @@ namespace NG::typecheck
                 makecheck<GenericTypeDef>(newTypeDef->typeName, typeParamNames, typeParamIsPack, newTypeDef, locals, currentModuleId);
             std::static_pointer_cast<GenericTypeDef>(locals[newTypeDef->typeName])->typeParamKindArities =
                 genericParamKindArities(newTypeDef->genericParams);
+            std::static_pointer_cast<GenericTypeDef>(locals[newTypeDef->typeName])->typeParamKindVariadicTails =
+                genericParamKindVariadicTails(newTypeDef->genericParams);
           }
           else
           {
@@ -2289,6 +2347,8 @@ namespace NG::typecheck
                 makecheck<GenericTypeDef>(typeDef->typeName, typeParamNames, typeParamIsPack, typeDef, locals, currentModuleId);
             std::static_pointer_cast<GenericTypeDef>(locals[typeDef->typeName])->typeParamKindArities =
                 genericParamKindArities(typeDef->genericParams);
+            std::static_pointer_cast<GenericTypeDef>(locals[typeDef->typeName])->typeParamKindVariadicTails =
+                genericParamKindVariadicTails(typeDef->genericParams);
           }
           else
           {
@@ -2310,6 +2370,8 @@ namespace NG::typecheck
             auto genericDef = makecheck<GenericTypeDef>(taggedUnion->typeName, typeParamNames,
                                                         typeParamIsPack, taggedUnion, locals, currentModuleId);
             genericDef->typeParamKindArities = genericParamKindArities(taggedUnion->genericParams);
+            genericDef->typeParamKindVariadicTails =
+                genericParamKindVariadicTails(taggedUnion->genericParams);
             locals[taggedUnion->typeName] = genericDef;
             genericDef->capturedLocals = locals;
           }
@@ -3822,17 +3884,20 @@ namespace NG::typecheck
 
             if (auto genericParam = std::dynamic_pointer_cast<GenericParamType>(it->second))
             {
-              if (genericParam->kindArity == 0)
+              if (genericParam->kindArity == 0 && !genericParam->kindVariadicTail)
               {
                 throw TypeCheckingException("Type parameter '" + annotation->name +
                                                 "' is not a type constructor",
                                             annotation->pos);
               }
-              if (genericParam->kindArity != typeArgs.size())
+              if (!typeConstructorApplicationArityValid(genericParam->kindArity,
+                                                        genericParam->kindVariadicTail, typeArgs.size()))
               {
                 throw TypeCheckingException("Type constructor parameter '" + annotation->name + "' expects " +
                                                 std::to_string(genericParam->kindArity) +
-                                                " type argument(s), got " + std::to_string(typeArgs.size()),
+                                                " fixed type argument(s)" +
+                                                (genericParam->kindVariadicTail ? " and a variadic tail" : "") +
+                                                ", got " + std::to_string(typeArgs.size()),
                                             annotation->pos);
               }
               result = makecheck<TypeConstructorApplicationType>(it->second, typeArgs);
@@ -3853,7 +3918,7 @@ namespace NG::typecheck
             throw TypeCheckingException("Generic type '" + annotation->name + "' requires type arguments");
           }
           if (auto genericParam = std::dynamic_pointer_cast<GenericParamType>(it->second);
-              genericParam && genericParam->kindArity > 0)
+              genericParam && (genericParam->kindArity > 0 || genericParam->kindVariadicTail))
           {
             throw TypeCheckingException("Type constructor parameter '" + annotation->name +
                                             "' requires type arguments",
@@ -4816,7 +4881,10 @@ namespace NG::typecheck
               instChecker.locals[genericType->typeParamNames[i]] =
                   makecheck<GenericParamType>(
                       genericType->typeParamNames[i], "", genericType->typeParamIsPack[i],
-                      i < genericType->typeParamKindArities.size() ? genericType->typeParamKindArities[i] : 0);
+                      i < genericType->typeParamKindArities.size() ? genericType->typeParamKindArities[i] : 0,
+                      i < genericType->typeParamKindVariadicTails.size()
+                          ? genericType->typeParamKindVariadicTails[i]
+                          : false);
             }
 
             for (auto &variant : genericType->taggedUnionDef->variants)
@@ -5095,7 +5163,9 @@ namespace NG::typecheck
           if (auto constructorIt = locals.find(argBase); constructorIt != locals.end())
           {
             const size_t actualArity = typeKindArity(constructorIt->second);
-            if (actualArity == constructorParam->kindArity)
+            const bool actualVariadicTail = typeKindVariadicTail(constructorIt->second);
+            if (actualArity == constructorParam->kindArity &&
+                actualVariadicTail == constructorParam->kindVariadicTail)
             {
               if (auto existing = substitution.contains(constructorParam->name) ? substitution[constructorParam->name] : nullptr;
                   !existing || existing->tag() == typeinfo_tag::GENERIC_PARAM)
@@ -5274,13 +5344,16 @@ namespace NG::typecheck
       {
         bool isPack = (pi < typeParamIsPack.size()) ? typeParamIsPack[pi] : false;
         size_t kindArity = (pi < genericDef.typeParamKindArities.size()) ? genericDef.typeParamKindArities[pi] : 0;
+        bool kindVariadicTail = pi < genericDef.typeParamKindVariadicTails.size()
+                                    ? genericDef.typeParamKindVariadicTails[pi]
+                                    : false;
         Str bound;
         if (pi < funcDef->genericParams.size())
         {
           bound = typeParamBoundName(*funcDef->genericParams[pi]);
         }
         substitution[typeParamNames[pi]] = makecheck<GenericParamType>(typeParamNames[pi], bound, isPack,
-                                                                       kindArity);
+                                                                       kindArity, kindVariadicTail);
       }
       addWhereBoundsToScope(substitution, funcDef->whereBounds);
       if (!funCall->genericArgs.empty())
@@ -5296,8 +5369,12 @@ namespace NG::typecheck
         {
           const size_t expectedArity =
               pi < genericDef.typeParamKindArities.size() ? genericDef.typeParamKindArities[pi] : 0;
+          const bool expectedVariadicTail = pi < genericDef.typeParamKindVariadicTails.size()
+                                                ? genericDef.typeParamKindVariadicTails[pi]
+                                                : false;
           substitution[typeParamNames[pi]] =
-              resolveGenericTypeArgument(funCall->genericArgs[pi].get(), expectedArity, typeParamNames[pi]);
+              resolveGenericTypeArgument(funCall->genericArgs[pi].get(), expectedArity, expectedVariadicTail,
+                                         typeParamNames[pi]);
         }
       }
 
@@ -5467,7 +5544,10 @@ namespace NG::typecheck
             auto kindArity = index < genericDef.typeParamKindArities.size()
                                  ? genericDef.typeParamKindArities[index]
                                  : 0;
-            if (kindArity > 0 && !annotation->genericArgs.empty())
+            auto kindVariadicTail = index < genericDef.typeParamKindVariadicTails.size()
+                                        ? genericDef.typeParamKindVariadicTails[index]
+                                        : false;
+            if ((kindArity > 0 || kindVariadicTail) && !annotation->genericArgs.empty())
             {
               return true;
             }

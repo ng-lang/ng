@@ -384,8 +384,23 @@ namespace NG::parsing
         {
           accept(TokenType::LT);
           size_t arity = 0;
+          bool variadicTail = false;
           while (!expect(TokenType::GT) && !state.eof() && !expect(TokenType::RSHIFT))
           {
+            if (expect(TokenType::SPREAD))
+            {
+              if (variadicTail)
+              {
+                unexpected("Duplicate variadic kind placeholder");
+              }
+              accept(TokenType::SPREAD);
+              variadicTail = true;
+              if (!expect(TokenType::GT) && !expect(TokenType::RSHIFT))
+              {
+                unexpected("Variadic kind placeholder must be the final placeholder");
+              }
+              break;
+            }
             if (!expect(TokenType::ID) || state->repr != "_")
             {
               unexpected("Expected '_' placeholder in generic type constructor parameter");
@@ -397,11 +412,12 @@ namespace NG::parsing
               accept(TokenType::COMMA);
             }
           }
-          if (arity == 0)
+          if (arity == 0 && !variadicTail)
           {
             unexpected("Generic type constructor parameter must declare at least one '_' placeholder");
           }
           param->kindArity = arity;
+          param->kindVariadicTail = variadicTail;
           acceptGT();
         }
 

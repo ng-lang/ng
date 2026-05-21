@@ -1051,6 +1051,47 @@ TEST_CASE("higher-kinded trait declaration should type check method signatures",
   destroyast(ast);
 }
 
+TEST_CASE("variadic higher-kinded generic should accept matching pack constructor",
+          "[TypeCheck][Generic][HKT][Pack]")
+{
+  auto ast = parse(R"(
+    type Variadic<Head, Tail...> = native;
+
+    fun accept<F<_, ...>>() -> unit = unit;
+
+    val result = accept<Variadic>();
+  )");
+
+  REQUIRE(ast != nullptr);
+  auto index = type_check(ast);
+  REQUIRE(index.contains("result"));
+  check_type_tag(*index["result"], typeinfo_tag::UNIT);
+
+  destroyast(ast);
+}
+
+TEST_CASE("variadic higher-kinded generic should reject fixed constructor",
+          "[TypeCheck][Generic][HKT][Pack][Failure]")
+{
+  typecheck_failure(R"(
+    type Box<T> {
+      property value: T;
+    }
+
+    fun accept<F<_, ...>>() -> unit = unit;
+
+    val result = accept<Box>();
+  )", "expects a type constructor with 1 fixed argument(s) and a variadic tail");
+}
+
+TEST_CASE("variadic higher-kinded application should reject too few type arguments",
+          "[TypeCheck][Generic][HKT][Pack][Failure]")
+{
+  typecheck_failure(R"(
+    fun accept<F<_, ...>>(value: F<>) -> unit = unit;
+  )", "requires type arguments");
+}
+
 TEST_CASE("higher-kinded generic should reject applying first-order type parameter",
           "[TypeCheck][Generic][HKT][Failure]")
 {
@@ -1087,7 +1128,7 @@ TEST_CASE("higher-kinded generic should reject constructor arity mismatch",
 
     val pair = new Pair<i32, string> { left: 42, right: "x" };
     val result = use<Pair, i32>(pair);
-  )", "expects a type constructor with 1 argument(s), got 2");
+  )", "expects a type constructor with 1 fixed argument(s), got 2 fixed argument(s)");
 }
 
 TEST_CASE("higher-kinded generic should reject argument that does not match explicit constructor",

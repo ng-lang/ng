@@ -155,3 +155,8 @@ TEST_CASE("should run higher-kinded generic example with STUPID", "[Integration]
 {
   runTypecheckedIntegrationTest("example/48.higher_kinded_generics.ng");
 }
+
+TEST_CASE("should run variadic higher-kinded generic example with STUPID", "[Integration][HKT][Pack]")
+{
+  runTypecheckedIntegrationTest("example/49.variadic_hkt_kind.ng");
+}

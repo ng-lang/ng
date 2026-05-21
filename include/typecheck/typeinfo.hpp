@@ -391,9 +391,12 @@ namespace NG::typecheck
         Str bound;                          ///< Optional trait/bound constraint (empty if none)
         bool isPack = false;                ///< Whether this is a parameter pack (T...)
         size_t kindArity = 0;               ///< 0 for *, N for type constructor params.
+        bool kindVariadicTail = false;      ///< Whether this type constructor param has a variadic tail.
 
-        explicit GenericParamType(Str name, Str bound = "", bool isPack = false, size_t kindArity = 0)
-            : name(std::move(name)), bound(std::move(bound)), isPack(isPack), kindArity(kindArity) {}
+        explicit GenericParamType(Str name, Str bound = "", bool isPack = false, size_t kindArity = 0,
+                                  bool kindVariadicTail = false)
+            : name(std::move(name)), bound(std::move(bound)), isPack(isPack), kindArity(kindArity),
+              kindVariadicTail(kindVariadicTail) {}
 
         auto tag() const -> typeinfo_tag override { return GENERIC_PARAM; }
         auto repr() const -> Str override;
@@ -415,6 +418,7 @@ namespace NG::typecheck
         Vec<Str> typeParamNames;                    ///< Names of type parameters (e.g. ["T", "U"])
         Vec<bool> typeParamIsPack;                  ///< Which type params are packs (parallel to typeParamNames)
         Vec<size_t> typeParamKindArities;            ///< 0 for *, N for type constructor params.
+        Vec<bool> typeParamKindVariadicTails;        ///< Which type params are variadic constructor kinds.
         NG::ast::ASTRef<NG::ast::FunctionDef> funcDef; ///< The original AST node (for generic functions)
         TypeEnv capturedLocals;                     ///< Local type environment at definition site
         Map<Str, CheckingRef<TypeInfo>> instances; ///< Monomorphized return types keyed by instantiated name.
@@ -448,6 +452,7 @@ namespace NG::typecheck
         Vec<Str> typeParamNames;
         Vec<bool> typeParamIsPack;
         Vec<size_t> typeParamKindArities;
+        Vec<bool> typeParamKindVariadicTails;
         NG::ast::ASTRef<NG::ast::TypeDef> typeDef = nullptr;
         NG::ast::ASTRef<NG::ast::TypeAliasDef> typeAliasDef = nullptr;
         Vec<NG::ast::TypeAliasDef *> specializations;

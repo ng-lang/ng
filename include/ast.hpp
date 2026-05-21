@@ -284,6 +284,7 @@ namespace NG::ast
         Str name;                              ///< The name of the type parameter (e.g. "T").
         bool isPack = false;                   ///< Whether this is a parameter pack (T...).
         size_t kindArity = 0;                  ///< 0 for *, N for a type constructor with N type slots.
+        bool kindVariadicTail = false;         ///< Whether the type constructor kind has a variadic tail.
         ASTRef<TypeAnnotation> bound = nullptr; ///< Optional type bound (T: Comparable).
 
         explicit GenericParam(Str _name) : name(std::move(_name)) {}

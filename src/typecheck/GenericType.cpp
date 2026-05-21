@@ -7,7 +7,7 @@ namespace NG::typecheck
     auto GenericParamType::repr() const -> Str
     {
         Str base = name;
-        if (kindArity > 0)
+        if (kindArity > 0 || kindVariadicTail)
         {
             base += "<";
             for (size_t i = 0; i < kindArity; ++i)
@@ -15,6 +15,12 @@ namespace NG::typecheck
                 if (i > 0)
                     base += ", ";
                 base += "_";
+            }
+            if (kindVariadicTail)
+            {
+                if (kindArity > 0)
+                    base += ", ";
+                base += "...";
             }
             base += ">";
         }
@@ -29,7 +35,8 @@ namespace NG::typecheck
         if (other.tag() == GENERIC_PARAM)
         {
             auto &otherGeneric = static_cast<const GenericParamType &>(other);
-            return name == otherGeneric.name && kindArity == otherGeneric.kindArity;
+            return name == otherGeneric.name && kindArity == otherGeneric.kindArity &&
+                   kindVariadicTail == otherGeneric.kindVariadicTail;
         }
         // A generic param also matches ANY (unconstrained)
         return other.tag() == ANY;

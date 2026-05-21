@@ -127,13 +127,18 @@ namespace NG::ast
   auto GenericParam::repr() const -> Str
   {
     Str result = name;
-    if (kindArity > 0)
+    if (kindArity > 0 || kindVariadicTail)
     {
       result += "<";
       for (size_t i = 0; i < kindArity; ++i)
       {
         if (i > 0) result += ", ";
         result += "_";
+      }
+      if (kindVariadicTail)
+      {
+        if (kindArity > 0) result += ", ";
+        result += "...";
       }
       result += ">";
     }
