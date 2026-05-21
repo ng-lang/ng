@@ -3,6 +3,7 @@
 #include <token.hpp>
 #include <typecheck/mangling.hpp>
 #include <typecheck/typecheck.hpp>
+#include <module.hpp>
 #include <parser.hpp>
 #include <algorithm>
 #include <cctype>
@@ -443,9 +444,21 @@ namespace NG::typecheck
       ImplDef *definition = nullptr;
       TokenPosition pos;
     };
+    struct ModuleArtifacts
+    {
+      TypeIndex exportedTypes;
+      Vec<TraitImplRecord> exportedImpls;
+      Set<Str> exports;
+    };
     Vec<TraitImplRecord> localTraitImpls;
     Map<Str, Vec<UseImplDecl *>> selectedTraitImpls;
     Set<Str> matchedSelectedTraitImpls;
+    Set<Str> importedSymbolNames;
+    Set<Str> importedImplNames;
+    Map<Str, Str> importAliases;
+    Vec<Str> modulePaths;
+    inline static Map<Str, ModuleArtifacts> moduleArtifactsById{};
+    inline static Set<Str> activeModuleChecks{};
 
     // Sentinel key stored in locals to indicate wildcard imports are active.
     // This propagates automatically when locals are copied to child checkers.
@@ -456,10 +469,11 @@ namespace NG::typecheck
 
     explicit TypeChecker(Map<Str, CheckingRef<TypeInfo>> locals, Vec<CheckingRef<TypeInfo>> contextRequirement = {},
                          CheckingRef<TypeInfo> expectedType = nullptr, Set<Str> movedBindings = {},
-                         bool allowMovedLvalueRead = false, Str activeGenericInstanceName = "")
+                         bool allowMovedLvalueRead = false, Str activeGenericInstanceName = "",
+                         Vec<Str> modulePaths = {})
         : locals(std::move(locals)), contextRequirement(std::move(contextRequirement)), expectedType(std::move(expectedType)),
           movedBindings(std::move(movedBindings)), allowMovedLvalueRead(allowMovedLvalueRead),
-          activeGenericInstanceName(std::move(activeGenericInstanceName))
+          activeGenericInstanceName(std::move(activeGenericInstanceName)), modulePaths(std::move(modulePaths))
     {
     }
 
@@ -468,6 +482,61 @@ namespace NG::typecheck
     static auto implSelectionKey(const Str &traitName, const Str &targetPattern) -> Str
     {
       return traitName + " for " + targetPattern;
+    }
+
+    static auto moduleIdFromPath(const Vec<Str> &modulePath) -> Str
+    {
+      Str moduleId;
+      for (const auto &segment : modulePath)
+      {
+        if (!moduleId.empty())
+        {
+          moduleId += ".";
+        }
+        moduleId += segment;
+      }
+      return moduleId;
+    }
+
+    static auto moduleIdTail(const Str &moduleId) -> Str
+    {
+      auto pos = moduleId.rfind('.');
+      return pos == Str::npos ? moduleId : moduleId.substr(pos + 1);
+    }
+
+    auto selectionMatchesRecord(const UseImplDecl *selection, const TraitImplRecord &record) const -> bool
+    {
+      if (!selection || !selection->targetType || selection->targetType->repr() != record.targetPattern)
+      {
+        return false;
+      }
+      if (selection->moduleQualifier.empty())
+      {
+        return true;
+      }
+      auto qualifier = selection->moduleQualifier;
+      if (auto alias = importAliases.find(qualifier); alias != importAliases.end())
+      {
+        qualifier = alias->second;
+      }
+      return qualifier == record.moduleId || qualifier == moduleIdTail(record.moduleId);
+    }
+
+    auto recordIsSelected(const TraitImplRecord &record) const -> bool
+    {
+      auto it = selectedTraitImpls.find(record.traitName);
+      if (it == selectedTraitImpls.end())
+      {
+        return false;
+      }
+      return std::ranges::any_of(it->second, [&](auto *selection) {
+        return selectionMatchesRecord(selection, record);
+      });
+    }
+
+    auto selectedRecordKey(const TraitImplRecord &record) const -> Str
+    {
+      return record.moduleId + "::" + implSelectionKey(record.traitName, record.targetPattern);
     }
 
     static auto byValueAbstractReason(const CheckingRef<TypeInfo> &type) -> Str
@@ -1254,23 +1323,9 @@ namespace NG::typecheck
       return true;
     }
 
-    auto registerLocalTraitImpl(ImplDef *implDef, const TraitType &trait) -> bool
+    auto registerTraitImplRecord(TraitImplRecord candidate, const TokenPosition &pos) -> bool
     {
-      TraitImplRecord candidate{
-          .traitName = trait.name,
-          .targetPattern = implDef->targetType ? implDef->targetType->repr() : "",
-          .moduleId = currentModuleId,
-          .genericParamNames = genericParamNameSet(implDef->genericParams),
-          .whereBounds = whereBoundPatterns(implDef->whereBounds),
-          .methods = implMethodMap(*implDef, trait),
-          .definition = implDef,
-          .pos = implDef->pos,
-      };
-      const auto candidateKey = implSelectionKey(candidate.traitName, candidate.targetPattern);
-      const bool candidateSelected =
-          std::ranges::any_of(selectedTraitImpls[candidate.traitName], [&](auto *selection) {
-            return selection && selection->targetType && selection->targetType->repr() == candidate.targetPattern;
-          });
+      const bool candidateSelected = recordIsSelected(candidate);
 
       for (const auto &existing : localTraitImpls)
       {
@@ -1283,29 +1338,26 @@ namespace NG::typecheck
         {
           continue;
         }
-        if (existing.targetPattern == candidate.targetPattern)
-        {
-          throw TypeCheckingException("Duplicate impl for trait '" + candidate.traitName +
-                                          "' and type '" + candidate.targetPattern + "'",
-                                      implDef->pos);
-        }
-        const bool existingSelected =
-            std::ranges::any_of(selectedTraitImpls[candidate.traitName], [&](auto *selection) {
-              return selection && selection->targetType && selection->targetType->repr() == existing.targetPattern;
-            });
+        const bool existingSelected = recordIsSelected(existing);
         if (candidateSelected && !existingSelected)
         {
-          matchedSelectedTraitImpls.insert(candidateKey);
+          matchedSelectedTraitImpls.insert(selectedRecordKey(candidate));
           continue;
         }
         if (!candidateSelected && existingSelected)
         {
           return false;
         }
+        if (existing.targetPattern == candidate.targetPattern)
+        {
+          throw TypeCheckingException("Duplicate impl for trait '" + candidate.traitName +
+                                          "' and type '" + candidate.targetPattern + "'",
+                                      pos);
+        }
         throw TypeCheckingException("Overlapping impl for trait '" + candidate.traitName +
                                         "' between '" + existing.targetPattern + "' and '" +
                                         candidate.targetPattern + "'",
-                                    implDef->pos);
+                                    pos);
       }
 
       if (!candidateSelected)
@@ -1318,7 +1370,7 @@ namespace NG::typecheck
             continue;
           }
           Set<Str> emptyGenericParams;
-          if (typePatternsMayOverlap(implDef->targetType.get(), candidate.genericParamNames,
+          if (typePatternsMayOverlap(candidate.definition->targetType.get(), candidate.genericParamNames,
                                      selection->targetType.get(), emptyGenericParams))
           {
             return false;
@@ -1329,9 +1381,24 @@ namespace NG::typecheck
       localTraitImpls.push_back(std::move(candidate));
       if (candidateSelected)
       {
-        matchedSelectedTraitImpls.insert(candidateKey);
+        matchedSelectedTraitImpls.insert(selectedRecordKey(localTraitImpls.back()));
       }
       return true;
+    }
+
+    auto registerLocalTraitImpl(ImplDef *implDef, const TraitType &trait) -> bool
+    {
+      return registerTraitImplRecord(TraitImplRecord{
+                                         .traitName = trait.name,
+                                         .targetPattern = implDef->targetType ? implDef->targetType->repr() : "",
+                                         .moduleId = currentModuleId,
+                                         .genericParamNames = genericParamNameSet(implDef->genericParams),
+                                         .whereBounds = whereBoundPatterns(implDef->whereBounds),
+                                         .methods = implMethodMap(*implDef, trait),
+                                         .definition = implDef,
+                                         .pos = implDef->pos,
+                                     },
+                                     implDef->pos);
     }
 
     void addGenericParamsToScope(Map<Str, CheckingRef<TypeInfo>> &scope,
@@ -2248,12 +2315,48 @@ namespace NG::typecheck
       return false;
     }
 
+    void publishModuleArtifacts(Module *module)
+    {
+      ModuleArtifacts artifacts;
+      artifacts.exports.insert(module->exports.begin(), module->exports.end());
+      const bool exportsAll = artifacts.exports.contains("*");
+      for (const auto &[name, type] : locals)
+      {
+        if (name == WILDCARD_IMPORT_KEY)
+        {
+          continue;
+        }
+        const bool explicitlyExported = artifacts.exports.contains(name);
+        if (isBuiltinLifecycleTraitName(name) && !explicitlyExported)
+        {
+          continue;
+        }
+        if ((exportsAll && !importedSymbolNames.contains(name)) || explicitlyExported)
+        {
+          artifacts.exportedTypes.insert_or_assign(name, type);
+        }
+      }
+      for (const auto &impl : localTraitImpls)
+      {
+        auto implName = "impl " + impl.traitName + " for " + impl.targetPattern;
+        const bool explicitlyExported = artifacts.exports.contains(implName);
+        if ((exportsAll && !importedImplNames.contains(implName)) || explicitlyExported)
+        {
+          artifacts.exportedImpls.push_back(impl);
+        }
+      }
+      moduleArtifactsById[currentModuleId] = std::move(artifacts);
+    }
+
     void visit(CompileUnit *compileUnit) override { compileUnit->module->accept(this); }
 
     void visit(Module *module) override
     {
       installBuiltinLifecycleTraits();
-      currentModuleId = module->name;
+      if (currentModuleId == "default")
+      {
+        currentModuleId = module->name;
+      }
       // First pass: collect function signatures and type definitions
       for (auto def : module->definitions)
       {
@@ -2473,11 +2576,6 @@ namespace NG::typecheck
         }
       }
 
-      // Process import declarations first
-      for (auto imp : module->imports)
-      {
-        imp->accept(this);
-      }
       for (auto def : module->definitions)
       {
         if (auto useImpl = dynamic_ast_cast<UseImplDecl>(def))
@@ -2485,11 +2583,24 @@ namespace NG::typecheck
           useImpl->accept(this);
         }
       }
+      // Process imports after recording use-impl selections so imported impl
+      // conflicts can be resolved deterministically.
+      for (auto imp : module->imports)
+      {
+        imp->accept(this);
+      }
       for (auto def : module->definitions)
       {
         if (auto traitDef = dynamic_ast_cast<TraitDef>(def))
         {
           traitDef->accept(this);
+        }
+      }
+      for (auto def : module->definitions)
+      {
+        if (auto useImpl = dynamic_ast_cast<UseImplDecl>(def))
+        {
+          validateUseImplDecl(useImpl.get());
         }
       }
       for (auto def : module->definitions)
@@ -2508,10 +2619,13 @@ namespace NG::typecheck
           {
             continue;
           }
-          auto key = implSelectionKey(traitName, selection->targetType->repr());
-          if (!matchedSelectedTraitImpls.contains(key))
+          auto unqualifiedKey = implSelectionKey(traitName, selection->targetType->repr());
+          const bool matched = std::ranges::any_of(matchedSelectedTraitImpls, [&](const Str &key) {
+            return key.ends_with("::" + unqualifiedKey);
+          });
+          if (!matched)
           {
-            throw TypeCheckingException("Selected impl does not exist: " + key, selection->pos);
+            throw TypeCheckingException("Selected impl does not exist: " + unqualifiedKey, selection->pos);
           }
         }
       }
@@ -2519,6 +2633,7 @@ namespace NG::typecheck
       {
         stmt->accept(this);
       }
+      publishModuleArtifacts(module);
       type_index.merge(locals);
       result = makecheck<Untyped>();
     }
@@ -2917,6 +3032,12 @@ namespace NG::typecheck
 
     void visit(UseImplDecl *useImplDecl) override
     {
+      auto traitName = useImplDecl->trait ? useImplDecl->trait->repr() : Str{};
+      selectedTraitImpls[traitName].push_back(useImplDecl);
+    }
+
+    void validateUseImplDecl(UseImplDecl *useImplDecl)
+    {
       TypeChecker traitChecker{locals};
       useImplDecl->trait->accept(&traitChecker);
       auto trait = std::dynamic_pointer_cast<TraitType>(traitChecker.result);
@@ -2935,7 +3056,6 @@ namespace NG::typecheck
                                         useImplDecl->targetType->repr(),
                                     useImplDecl->pos);
       }
-      selectedTraitImpls[trait->name].push_back(useImplDecl);
     }
 
     void visit(PropertyDef *prop) override
@@ -4705,17 +4825,161 @@ namespace NG::typecheck
       throw TypeCheckingException("Invalid cast from " + exprType->repr() + " to " + targetType->repr(), castExpr->pos);
     }
 
+    auto loadModuleArtifacts(const ImportDecl &importDecl, const Str &moduleId) -> ModuleArtifacts
+    {
+      if (auto cached = moduleArtifactsById.find(moduleId); cached != moduleArtifactsById.end())
+      {
+        return cached->second;
+      }
+      if (!activeModuleChecks.insert(moduleId).second)
+      {
+        return {};
+      }
+      struct ActiveGuard
+      {
+        Str moduleId;
+        ~ActiveGuard()
+        {
+          TypeChecker::activeModuleChecks.erase(moduleId);
+        }
+      } guard{moduleId};
+
+      NG::module::FileBasedExternalModuleLoader loader{modulePaths};
+      auto moduleInfo = loader.load(importDecl.modulePath);
+      if (!moduleInfo || !moduleInfo->moduleAst)
+      {
+        return {};
+      }
+
+      TypeChecker checker{locals, {}, nullptr, {}, false, "", modulePaths};
+      checker.currentModuleId = moduleInfo->moduleId.empty() ? moduleId : moduleInfo->moduleId;
+      moduleInfo->moduleAst->accept(&checker);
+      moduleInfo->moduleTypeIndex = checker.type_index;
+
+      if (auto cached = moduleArtifactsById.find(checker.currentModuleId); cached != moduleArtifactsById.end())
+      {
+        if (checker.currentModuleId != moduleId)
+        {
+          moduleArtifactsById[moduleId] = cached->second;
+        }
+        return cached->second;
+      }
+      return {};
+    }
+
+    void importCheckedModuleArtifacts(const ImportDecl &importDecl, const Str & /*moduleId*/,
+                                      const ModuleArtifacts &artifacts)
+    {
+      if (!importDecl.alias.empty())
+      {
+        locals.insert_or_assign(importDecl.alias, makecheck<Untyped>());
+        importedSymbolNames.insert(importDecl.alias);
+      }
+      else
+      {
+        locals.insert_or_assign(importDecl.module, makecheck<Untyped>());
+        importedSymbolNames.insert(importDecl.module);
+      }
+
+      const bool importAll = std::ranges::find(importDecl.imports, "*") != importDecl.imports.end();
+      Set<Str> namesToImport;
+      if (importAll)
+      {
+        for (const auto &[name, _type] : artifacts.exportedTypes)
+        {
+          namesToImport.insert(name);
+        }
+      }
+      else
+      {
+        namesToImport.insert(importDecl.imports.begin(), importDecl.imports.end());
+      }
+
+      for (const auto &name : namesToImport)
+      {
+        if (auto it = artifacts.exportedTypes.find(name); it != artifacts.exportedTypes.end())
+        {
+          locals.insert_or_assign(name, it->second);
+        }
+        else
+        {
+          locals.insert_or_assign(name, makecheck<Untyped>());
+        }
+        importedSymbolNames.insert(name);
+      }
+
+      if (!importAll)
+      {
+        return;
+      }
+
+      for (const auto &impl : artifacts.exportedImpls)
+      {
+        auto implName = "impl " + impl.traitName + " for " + impl.targetPattern;
+        importedImplNames.insert(implName);
+        auto registered = registerTraitImplRecord(impl, importDecl.pos);
+        if (!registered)
+        {
+          continue;
+        }
+        TypeChecker targetChecker{locals, {}, nullptr, {}, false, "", modulePaths};
+        impl.definition->targetType->accept(&targetChecker);
+        auto custom = std::dynamic_pointer_cast<CustomizedType>(unwrap(targetChecker.result));
+        if (!custom)
+        {
+          continue;
+        }
+        auto &implTraits = trait_impls_by_type[custom->name];
+        if (std::ranges::find(implTraits, impl.traitName) == implTraits.end())
+        {
+          implTraits.push_back(impl.traitName);
+        }
+      }
+    }
+
     void visit(ImportDecl *importDecl) override
     {
-      // Basic support for imports in type checker: 
+      auto moduleId = moduleIdFromPath(importDecl->modulePath);
+      if (moduleId.empty())
+      {
+        moduleId = importDecl->module;
+      }
+      if (!importDecl->alias.empty())
+      {
+        importAliases[importDecl->alias] = moduleId;
+      }
+      importAliases[importDecl->module] = moduleId;
+
+      if (!modulePaths.empty())
+      {
+        try
+        {
+          auto artifacts = loadModuleArtifacts(*importDecl, moduleId);
+          importCheckedModuleArtifacts(*importDecl, moduleId, artifacts);
+          return;
+        }
+        catch (const TypeCheckingException &)
+        {
+          throw;
+        }
+        catch (const std::exception &)
+        {
+          // Preserve the historical loose import behavior for modules that are
+          // intentionally provided by native/compiler test harnesses.
+        }
+      }
+
+      // Basic support for imports in type checker:
       // Mark the module or its alias as Untyped for now
       if (!importDecl->alias.empty())
       {
         locals.insert_or_assign(importDecl->alias, makecheck<Untyped>());
+        importedSymbolNames.insert(importDecl->alias);
       }
       else
       {
         locals.insert_or_assign(importDecl->module, makecheck<Untyped>());
+        importedSymbolNames.insert(importDecl->module);
       }
       
       // If importing specific symbols, mark them as Untyped too
@@ -5937,15 +6201,17 @@ namespace NG::typecheck
     }
   };
 
-  TypeIndex type_check(ASTRef<ASTNode> ast, TypeIndex initial_index)
+  TypeIndex type_check(ASTRef<ASTNode> ast, TypeIndex initial_index, Vec<Str> module_paths)
   {
     TypeChecker::activeTypeAliasSpecializations.clear();
     TypeChecker::activeConstPredicates.clear();
+    TypeChecker::moduleArtifactsById.clear();
+    TypeChecker::activeModuleChecks.clear();
     if (!initial_index.empty())
     {
       TypeChecker::activeConstPredicates = TypeChecker::preludeConstPredicates;
     }
-    TypeChecker checker{initial_index};
+    TypeChecker checker{initial_index, {}, nullptr, {}, false, "", std::move(module_paths)};
     checker.type_index = initial_index;
     ast->accept(&checker);
 

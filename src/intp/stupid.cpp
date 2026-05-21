@@ -2414,8 +2414,10 @@ namespace NG::intp
       std::copy(imports.begin(), imports.end(), std::back_inserter(symbols->imported));
       auto functions = runtime_module_functions(fromModule);
       auto types = runtime_module_types(fromModule);
+      auto traitNames = runtime_module_trait_names(fromModule);
       auto objectSlots = runtime_module_object_slots(fromModule);
       auto nativeFunctions = runtime_module_native_functions(fromModule);
+      symbols->traitNames.insert(traitNames.begin(), traitNames.end());
 
       for (auto &&imp : imports)
       {
@@ -2426,6 +2428,10 @@ namespace NG::intp
         if (types.contains(imp))
         {
           define_global_type(symbols, imp, types[imp]);
+        }
+        if (traitNames.contains(imp))
+        {
+          symbols->traitNames.insert(imp);
         }
         if (objectSlots.contains(imp))
         {
@@ -2446,6 +2452,7 @@ namespace NG::intp
       auto imported = runtime_module_imports(targetModule);
       auto functions = runtime_module_functions(targetModule);
       auto types = runtime_module_types(targetModule);
+      auto traitNames = runtime_module_trait_names(targetModule);
       auto objectSlots = runtime_module_object_slots(targetModule);
       auto nativeFunctions = runtime_module_native_functions(targetModule);
 
@@ -2465,6 +2472,13 @@ namespace NG::intp
           if (!imported.contains(typeName) || exports.contains(typeName))
           {
             exported.insert(typeName);
+          }
+        }
+        for (auto &&traitName : traitNames)
+        {
+          if (!imported.contains(traitName) || exports.contains(traitName))
+          {
+            exported.insert(traitName);
           }
         }
         for (auto &&[objName, _ignored] : objectSlots)
@@ -2774,7 +2788,11 @@ namespace NG::intp
       auto traitIt = runtimeTraits.find(traitName);
       if (traitIt == runtimeTraits.end())
       {
-        throw RuntimeException("Cannot implement unknown trait: " + traitName, implDef->pos);
+        if (!symbols || !symbols->traitNames.contains(traitName))
+        {
+          throw RuntimeException("Cannot implement unknown trait: " + traitName, implDef->pos);
+        }
+        traitIt = runtimeTraits.try_emplace(traitName).first;
       }
       const auto &traitInfo = traitIt->second;
 

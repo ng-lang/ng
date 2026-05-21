@@ -83,6 +83,7 @@ namespace NG::runtime
     Map<Str, NGCallable> functions;
     Map<Str, RuntimeRef<NGType>> types;
     Map<Str, NGCallable> nativeFunctions;
+    Set<Str> traitNames;
     Set<Str> imports;
     Set<Str> exports;
     Map<Str, std::shared_ptr<void>> nativeState;
@@ -109,6 +110,7 @@ namespace NG::runtime
       }
       state->functions = symbols->functions;
       state->types = symbols->types;
+      state->traitNames = symbols->traitNames;
       state->exports.insert(symbols->exports.begin(), symbols->exports.end());
       state->imports.insert(symbols->imported.begin(), symbols->imported.end());
     }
@@ -171,6 +173,13 @@ namespace NG::runtime
     auto state = runtime_module_state(value);
     if (!state) throw RuntimeException("Expected module runtime value");
     return state->types;
+  }
+
+  inline auto runtime_module_trait_names(const RuntimeRef<StorageCell> &value) -> Set<Str>
+  {
+    auto state = runtime_module_state(value);
+    if (!state) throw RuntimeException("Expected module runtime value");
+    return state->traitNames;
   }
 
   inline auto runtime_module_imports(const RuntimeRef<StorageCell> &value) -> Set<Str>

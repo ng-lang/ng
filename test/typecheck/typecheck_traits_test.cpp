@@ -1,4 +1,43 @@
 #include "typecheck_utils.hpp"
+#include <chrono>
+#include <filesystem>
+#include <fstream>
+#include <module.hpp>
+
+namespace
+{
+  struct TraitModuleFixture
+  {
+    std::filesystem::path dir;
+
+    TraitModuleFixture()
+        : dir(std::filesystem::temp_directory_path() /
+              ("ng_trait_modules_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())))
+    {
+      std::filesystem::create_directories(dir);
+      NG::module::clear_module_loader_cache();
+      NG::module::get_module_registry().clear();
+    }
+
+    ~TraitModuleFixture()
+    {
+      NG::module::clear_module_loader_cache();
+      NG::module::get_module_registry().clear();
+      std::filesystem::remove_all(dir);
+    }
+
+    void write(const Str &name, const Str &source) const
+    {
+      std::ofstream out{dir / (name + ".ng")};
+      out << source;
+    }
+
+    auto paths() const -> Vec<Str>
+    {
+      return {dir.string()};
+    }
+  };
+}
 
 TEST_CASE("trait definition and concrete impl should type check", "[TypeCheck][Traits]")
 {
@@ -656,4 +695,138 @@ TEST_CASE("trait type should reject by-value function parameter",
     }
     fun consume(value: Show) -> unit = unit;
   )", "trait type 'Show' cannot be used by value");
+}
+
+TEST_CASE("exported module impl should be visible through wildcard import",
+          "[TypeCheck][Traits][ModuleImpl]")
+{
+  TraitModuleFixture fixture;
+  fixture.write("base", R"(
+    module base exports *;
+    type Box {
+      property value: i32;
+    }
+    trait Show {
+      fun show(self: ref<Self>) -> string;
+    }
+  )");
+  fixture.write("impl_a", R"(
+    module impl_a exports *;
+    import base (*);
+    export impl Show for Box {
+      fun show(self: ref<Self>) -> string {
+        return "a";
+      }
+    }
+  )");
+
+  auto ast = parse(R"(
+    import base (*);
+    import impl_a (*);
+    val box = new Box { value: 1 };
+    val shown = box.show();
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast, {}, fixture.paths());
+  REQUIRE(index.contains("shown"));
+  check_type_tag(*index["shown"], typeinfo_tag::STRING);
+
+  destroyast(ast);
+}
+
+TEST_CASE("duplicate exported module impls should fail without explicit selection",
+          "[TypeCheck][Traits][ModuleImpl][Failure]")
+{
+  TraitModuleFixture fixture;
+  fixture.write("base", R"(
+    module base exports *;
+    type Box {
+      property value: i32;
+    }
+    trait Show {
+      fun show(self: ref<Self>) -> string;
+    }
+  )");
+  fixture.write("impl_a", R"(
+    module impl_a exports *;
+    import base (*);
+    export impl Show for Box {
+      fun show(self: ref<Self>) -> string {
+        return "a";
+      }
+    }
+  )");
+  fixture.write("impl_b", R"(
+    module impl_b exports *;
+    import base (*);
+    export impl Show for Box {
+      fun show(self: ref<Self>) -> string {
+        return "b";
+      }
+    }
+  )");
+
+  auto ast = parse(R"(
+    import base (*);
+    import impl_a (*);
+    import impl_b (*);
+    val box = new Box { value: 1 };
+    val shown = box.show();
+  )");
+  REQUIRE(ast != nullptr);
+
+  REQUIRE_THROWS_WITH(type_check(ast, {}, fixture.paths()),
+                      Catch::Matchers::ContainsSubstring("Duplicate impl"));
+
+  destroyast(ast);
+}
+
+TEST_CASE("module-qualified use impl should select one duplicate exported impl",
+          "[TypeCheck][Traits][ModuleImpl][UseImpl]")
+{
+  TraitModuleFixture fixture;
+  fixture.write("base", R"(
+    module base exports *;
+    type Box {
+      property value: i32;
+    }
+    trait Show {
+      fun show(self: ref<Self>) -> string;
+    }
+  )");
+  fixture.write("impl_a", R"(
+    module impl_a exports *;
+    import base (*);
+    export impl Show for Box {
+      fun show(self: ref<Self>) -> string {
+        return "a";
+      }
+    }
+  )");
+  fixture.write("impl_b", R"(
+    module impl_b exports *;
+    import base (*);
+    export impl Show for Box {
+      fun show(self: ref<Self>) -> string {
+        return "b";
+      }
+    }
+  )");
+
+  auto ast = parse(R"(
+    use impl impl_a::Show for Box;
+    import base (*);
+    import impl_a (*);
+    import impl_b (*);
+    val box = new Box { value: 1 };
+    val shown = box.show();
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast, {}, fixture.paths());
+  REQUIRE(index.contains("shown"));
+  check_type_tag(*index["shown"], typeinfo_tag::STRING);
+
+  destroyast(ast);
 }

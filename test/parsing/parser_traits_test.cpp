@@ -131,3 +131,38 @@ TEST_CASE("parser should parse explicit impl selection", "[Parser][Traits][UseIm
 
   destroyast(ast);
 }
+
+TEST_CASE("parser should parse module-qualified explicit impl selection", "[Parser][Traits][UseImpl]")
+{
+  auto ast = parse("use impl impls::Show for Box<i32>;");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto useImpl = dynamic_ast_cast<UseImplDecl>(compileUnit->module->definitions[0]);
+  REQUIRE(useImpl != nullptr);
+  REQUIRE(useImpl->moduleQualifier == "impls");
+  REQUIRE(useImpl->trait->repr() == "Show");
+  REQUIRE(useImpl->targetType->repr() == "Box<i32>");
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should export impl declarations", "[Parser][Traits][Export]")
+{
+  auto ast = parse(R"(
+    export impl Show for Box {
+      fun show(self: ref<Self>) -> string {
+        return "box";
+      }
+    }
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  REQUIRE(compileUnit->module->exports.size() == 1);
+  REQUIRE(compileUnit->module->exports[0] == "impl Show for Box");
+
+  destroyast(ast);
+}

@@ -138,7 +138,7 @@ namespace NG::orgasm
     auto Compiler::compile(ASTRef<CompileUnit> compileUnit) -> BytecodeModule
     {
         auto preludeTypes = NG::typecheck::build_prelude_type_index();
-        NG::typecheck::type_check(compileUnit, preludeTypes);
+        NG::typecheck::type_check(compileUnit, preludeTypes, modulePaths);
         current_function = nullptr;
         last_emit_was_return = false;
         locals.clear();

@@ -1131,6 +1131,7 @@ namespace NG::ast
 
     struct UseImplDecl : Definition
     {
+        Str moduleQualifier;
         ASTRef<TypeAnnotation> trait = nullptr;
         ASTRef<TypeAnnotation> targetType = nullptr;
 

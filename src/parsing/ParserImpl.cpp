@@ -174,7 +174,15 @@ namespace NG::parsing
         }
         case TokenType::KEYWORD_IMPL:
         {
-          current_mod->definitions.push_back(implDef());
+          auto impl = implDef();
+          if (exported)
+          {
+            for (auto &&name : impl->names())
+            {
+              mod->exports.push_back(name);
+            }
+          }
+          current_mod->definitions.push_back(std::move(impl));
           break;
         }
         case TokenType::KEYWORD_USE:
@@ -830,6 +838,12 @@ namespace NG::parsing
       }
       accept(TokenType::KEYWORD_IMPL);
       auto useImpl = createNode<UseImplDecl>();
+      if (expect(TokenType::ID) && peekTokenType(1) == TokenType::SEPARATOR)
+      {
+        useImpl->moduleQualifier = state->repr;
+        accept(TokenType::ID);
+        accept(TokenType::SEPARATOR);
+      }
       useImpl->trait = typeAnnotation();
       accept(TokenType::KEYWORD_FOR);
       useImpl->targetType = typeAnnotation();

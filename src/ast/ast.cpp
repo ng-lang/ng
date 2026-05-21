@@ -836,7 +836,9 @@ namespace NG::ast
 
   auto UseImplDecl::repr() const -> Str
   {
-    return "use impl " + (trait ? trait->repr() : "?") + " for " +
+    auto traitName = (moduleQualifier.empty() ? Str{} : moduleQualifier + "::") +
+                     (trait ? trait->repr() : "?");
+    return "use impl " + traitName + " for " +
            (targetType ? targetType->repr() : "?") + ";";
   }
 
