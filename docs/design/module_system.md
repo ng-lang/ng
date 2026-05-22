@@ -4,7 +4,7 @@ The module system work is intentionally split into several implementation-sized 
 
 ## Split Documents
 
-Implement in this order:
+Implement the module-system-specific work in this local dependency order. These local numbers are not global issue-order numbers:
 
 1. [Module Artifact And Typechecker Integration](module_artifact_typechecker.md)
 2. [Native Module Artifacts](native_module_artifacts.md)

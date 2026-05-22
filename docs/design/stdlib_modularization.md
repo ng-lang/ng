@@ -3,6 +3,7 @@
 ## Order
 
 Recommended Issue order: 9.
+Module-system-local order: 4.
 
 ## Goal
 

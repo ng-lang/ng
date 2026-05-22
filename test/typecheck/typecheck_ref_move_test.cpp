@@ -210,6 +210,31 @@ TEST_CASE("should let method writes restore partially moved receiver fields", "[
   destroyast(ast);
 }
 
+TEST_CASE("should apply trait-qualified receiver effects", "[TypeCheck][RefMove][PartialMove][Failure]")
+{
+  typecheck_failure(
+      R"(
+        type Box { left: i32; right: i32; }
+
+        trait Total {
+          fun total(self: ref<Self>) -> i32;
+        }
+
+        impl Total for Box {
+          fun total(self: ref<Self>) -> i32 {
+            return self.left + self.right;
+          }
+        }
+
+        {
+          val box = new Box { left: 1, right: 2 };
+          val moved = move box.left;
+          val total = Total::total(box);
+        }
+      )",
+      "Use after partial move: box");
+}
+
 TEST_CASE("should track nested object and tuple partial moves", "[TypeCheck][RefMove][PartialMove]")
 {
   auto ast = parse(R"(
@@ -272,6 +297,37 @@ TEST_CASE("should reject moves and writes through active direct ref aliases", "[
         }
       )",
       "Cannot move borrowed place through ref alias");
+
+  typecheck_failure(
+      R"(
+        {
+          val tuple = (1, 2);
+          val borrowed = ref tuple[0];
+          tuple[0] := 3;
+        }
+      )",
+      "Cannot assign borrowed place");
+}
+
+TEST_CASE("should reject unknown-effect method calls on borrowed receivers", "[TypeCheck][RefMove][PartialMove][Failure]")
+{
+  typecheck_failure(
+      R"(
+        type Box {
+          value: i32;
+
+          fun borrowField(self: ref<Self>) -> unit {
+            val borrowed = ref self.value;
+          }
+        }
+
+        {
+          val box = new Box { value: 1 };
+          val borrowed = ref box.value;
+          box.borrowField();
+        }
+      )",
+      "Cannot call borrowed place");
 }
 
 TEST_CASE("should end direct ref borrows at lexical scope boundaries", "[TypeCheck][RefMove][PartialMove]")
@@ -388,11 +444,12 @@ TEST_CASE("should allow whole-place overwrite after branch partial moves", "[Typ
 
     {
       val box = new Box { left: 1, right: 2 };
-      val moved = move box.left;
       if (1 == 1) {
-        box.left := moved;
+        val moved = move box.left;
+        box := new Box { left: moved, right: 2 };
       } else {
-        box.left := 0;
+        val moved = move box.right;
+        box := new Box { left: 1, right: moved };
       }
       val total: i32 = box.total();
     }

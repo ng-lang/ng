@@ -114,11 +114,11 @@ namespace NG::orgasm
                     return;
                 }
                 auto dropChildren = [&]() {
-                    for (auto &slot : runtime_cell_slot_refs(targetCell))
+                    for (const auto &slot : runtime_cell_slot_refs(targetCell))
                     {
                         finalizeCell(slot);
                     }
-                    for (auto &[_, slot] : runtime_cell_named_slot_refs(targetCell))
+                    for (const auto &[_, slot] : runtime_cell_named_slot_refs(targetCell))
                     {
                         finalizeCell(slot);
                     }
@@ -126,9 +126,9 @@ namespace NG::orgasm
                 if (type->dropCellHandler)
                 {
                     type->dropCellHandler(targetCell);
-                    dropChildren();
                     targetCell->lifecycleDropped = true;
                     targetCell->dropArmed = false;
+                    dropChildren();
                     return;
                 }
                 auto dropIt = std::find_if(module.functions.begin(), module.functions.end(), [&](const Function &fun) {
@@ -136,18 +136,18 @@ namespace NG::orgasm
                 });
                 if (dropIt == module.functions.end())
                 {
-                    dropChildren();
                     targetCell->lifecycleDropped = true;
                     targetCell->dropArmed = false;
+                    dropChildren();
                     return;
                 }
                 targetCell->dropInProgress = true;
                 try
                 {
                     execute_slots(module, *dropIt, {make_runtime_reference_cell(targetCell, "arg:self")});
-                    dropChildren();
                     targetCell->lifecycleDropped = true;
                     targetCell->dropArmed = false;
+                    dropChildren();
                     targetCell->dropInProgress = false;
                 }
                 catch (...)
@@ -338,11 +338,11 @@ namespace NG::orgasm
                 return;
             }
             auto dropChildren = [&]() {
-                for (auto &slot : runtime_cell_slot_refs(target))
+                for (const auto &slot : runtime_cell_slot_refs(target))
                 {
                     drop_cell_if_needed(dropModule, slot);
                 }
-                for (auto &[_, slot] : runtime_cell_named_slot_refs(target))
+                for (const auto &[_, slot] : runtime_cell_named_slot_refs(target))
                 {
                     drop_cell_if_needed(dropModule, slot);
                 }
@@ -350,9 +350,9 @@ namespace NG::orgasm
             if (type->dropCellHandler)
             {
                 type->dropCellHandler(target);
-                dropChildren();
                 target->lifecycleDropped = true;
                 target->dropArmed = false;
+                dropChildren();
                 return;
             }
             auto dropIndex = function_index_by_name(dropModule, type->name + ".Drop::drop");
@@ -360,18 +360,18 @@ namespace NG::orgasm
             {
                 if (!type->memberFunctions.contains("Drop::drop"))
                 {
-                    dropChildren();
                     target->lifecycleDropped = true;
                     target->dropArmed = false;
+                    dropChildren();
                     return;
                 }
                 target->dropInProgress = true;
                 try
                 {
                     (void)runtime_value_respond_slot(target, "Drop::drop", make_runtime_env(root_symbols), {});
-                    dropChildren();
                     target->lifecycleDropped = true;
                     target->dropArmed = false;
+                    dropChildren();
                     target->dropInProgress = false;
                 }
                 catch (...)
@@ -386,9 +386,9 @@ namespace NG::orgasm
             {
                 execute_slots(dropModule, dropModule.functions[static_cast<size_t>(dropIndex)],
                               {make_runtime_reference_cell(target, "arg:self")});
-                dropChildren();
                 target->lifecycleDropped = true;
                 target->dropArmed = false;
+                dropChildren();
                 target->dropInProgress = false;
             }
             catch (...)

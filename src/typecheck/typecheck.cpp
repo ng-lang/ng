@@ -1031,6 +1031,7 @@ namespace NG::typecheck
       }
       if (funcType.unknownPlaceEffects)
       {
+        rejectBorrowConflict("call", receiverPlace, pos);
         if (movedBindings.contains(receiverPlace) || hasMovedDescendant(movedBindings, receiverPlace))
         {
           throw TypeCheckingException("Use after partial move: " + receiverPlace, pos);
@@ -5247,6 +5248,12 @@ namespace NG::typecheck
         throw TypeCheckingException("Invalid argument types for trait-qualified call: " + qualifiedCall->repr(),
                                     qualifiedCall->pos);
       }
+      const Expression *receiverExpr = qualifiedCall->receiver ? qualifiedCall->receiver.get()
+                                                               : qualifiedCall->arguments.front().get();
+      if (auto receiverPlace = staticPlaceKey(receiverExpr); receiverPlace.has_value() && !allowMovedLvalueRead)
+      {
+        validateAndApplyMethodEffects(*funcType, *receiverPlace, qualifiedCall->pos);
+      }
       result = funcType->returnType;
     }
 
@@ -5436,6 +5443,7 @@ namespace NG::typecheck
       movedBindings = checker.movedBindings;
       if (auto place = staticPlaceKey(indexAssign); place.has_value())
       {
+        rejectBorrowConflict("assign", *place, indexAssign->pos);
         clearMovedPlace(movedBindings, *place);
       }
       result = expectedElementType;

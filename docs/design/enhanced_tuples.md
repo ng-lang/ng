@@ -80,10 +80,9 @@ The canonical type identity is ordered and arity-sensitive:
 ```text
 (i32, string) != (string, i32)
 (i32) != i32
-() is not unit
 ```
 
-`unit` remains its own primitive type. If zero-length tuple syntax is ever introduced, it must be explicitly distinct from `unit`; this design does not require adding `()`.
+`unit` remains its own primitive type. Zero-length tuple syntax is not part of NG today; if it is ever introduced, `()` must be explicitly distinct from `unit`.
 
 ### Built-In Compile-Time Predicates And Projections
 
