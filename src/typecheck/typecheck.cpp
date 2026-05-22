@@ -170,6 +170,11 @@ namespace NG::typecheck
 
   static auto movedPlaceRoot(const Str &place) -> Str
   {
+    auto borrowSeparator = place.find("->");
+    if (place.starts_with("$borrow:") && borrowSeparator != Str::npos)
+    {
+      return place.substr(std::string_view{"$borrow:"}.size(), borrowSeparator - std::string_view{"$borrow:"}.size());
+    }
     auto dot = place.find('.');
     auto bracket = place.find('[');
     auto end = std::min(dot == Str::npos ? place.size() : dot,
@@ -177,8 +182,43 @@ namespace NG::typecheck
     return place.substr(0, end);
   }
 
+  static auto isBorrowEntry(const Str &entry) -> bool
+  {
+    return entry.starts_with("$borrow:");
+  }
+
+  static auto borrowedAliasName(const Str &entry) -> Str
+  {
+    if (!isBorrowEntry(entry))
+    {
+      return {};
+    }
+    auto start = std::string_view{"$borrow:"}.size();
+    auto separator = entry.find("->", start);
+    return separator == Str::npos ? Str{} : entry.substr(start, separator - start);
+  }
+
+  static auto borrowedTargetPlace(const Str &entry) -> Str
+  {
+    if (!isBorrowEntry(entry))
+    {
+      return {};
+    }
+    auto separator = entry.find("->");
+    return separator == Str::npos ? Str{} : entry.substr(separator + 2);
+  }
+
+  static auto borrowEntry(Str alias, Str place) -> Str
+  {
+    return "$borrow:" + std::move(alias) + "->" + std::move(place);
+  }
+
   static auto isMovedDescendantOf(const Str &moved, const Str &place) -> bool
   {
+    if (isBorrowEntry(moved))
+    {
+      return false;
+    }
     return moved.size() > place.size() && moved.starts_with(place) &&
            (moved[place.size()] == '.' || moved[place.size()] == '[');
   }
@@ -215,11 +255,46 @@ namespace NG::typecheck
     return std::ranges::any_of(moved, [&](const auto &entry) { return isMovedDescendantOf(entry, place); });
   }
 
+  static auto placesConflict(const Str &lhs, const Str &rhs) -> bool
+  {
+    return lhs == rhs || isMovedDescendantOf(lhs, rhs) || isMovedDescendantOf(rhs, lhs);
+  }
+
+  static auto borrowedConflict(const Set<Str> &state, const Str &place) -> std::optional<Str>
+  {
+    for (const auto &entry : state)
+    {
+      if (!isBorrowEntry(entry))
+      {
+        continue;
+      }
+      auto target = borrowedTargetPlace(entry);
+      if (!target.empty() && placesConflict(target, place))
+      {
+        return target;
+      }
+    }
+    return std::nullopt;
+  }
+
+  static auto borrowedAliasTarget(const Set<Str> &state, const Str &alias) -> std::optional<Str>
+  {
+    for (const auto &entry : state)
+    {
+      if (isBorrowEntry(entry) && borrowedAliasName(entry) == alias)
+      {
+        return borrowedTargetPlace(entry);
+      }
+    }
+    return std::nullopt;
+  }
+
   static void clearMovedPlace(Set<Str> &moved, const Str &place)
   {
     for (auto it = moved.begin(); it != moved.end();)
     {
-      if (*it == place || isMovedDescendantOf(*it, place))
+      if (*it == place || isMovedDescendantOf(*it, place) ||
+          (isBorrowEntry(*it) && borrowedAliasName(*it) == place))
       {
         it = moved.erase(it);
       }
@@ -278,6 +353,49 @@ namespace NG::typecheck
     return std::nullopt;
   }
 
+  static auto borrowedPlaceFromRefExpression(const Expression *expr) -> std::optional<Str>
+  {
+    auto unary = dynamic_cast<const UnaryExpression *>(expr);
+    if (!unary || !unary->optr ||
+        (unary->optr->type != TokenType::KEYWORD_REF && unary->optr->type != TokenType::AMPERSAND))
+    {
+      return std::nullopt;
+    }
+    return staticPlaceKey(unary->operand.get());
+  }
+
+  static auto relativeReceiverPlace(const Expression *expr, const Str &receiverName) -> std::optional<Str>
+  {
+    auto place = staticPlaceKey(expr);
+    if (!place.has_value() || movedPlaceRoot(*place) != receiverName)
+    {
+      return std::nullopt;
+    }
+    if (*place == receiverName)
+    {
+      return Str{};
+    }
+    auto relative = place->substr(receiverName.size());
+    if (!relative.empty() && (relative.front() == '.' || relative.front() == '['))
+    {
+      relative.erase(relative.begin());
+    }
+    return relative;
+  }
+
+  static auto absoluteReceiverPlace(const Str &receiverPlace, const Str &relativePlace) -> Str
+  {
+    if (relativePlace.empty())
+    {
+      return receiverPlace;
+    }
+    if (relativePlace.front() == '[')
+    {
+      return receiverPlace + relativePlace;
+    }
+    return receiverPlace + "." + relativePlace;
+  }
+
   static auto scopeNames(const Map<Str, CheckingRef<TypeInfo>> &scope) -> Set<Str>
   {
     Set<Str> names;
@@ -293,13 +411,297 @@ namespace NG::typecheck
     Set<Str> filtered;
     for (const auto &name : moved)
     {
-      if (allowed.contains(name) || allowed.contains(movedPlaceRoot(name)))
+      if (isBorrowEntry(name))
+      {
+        if (allowed.contains(borrowedAliasName(name)))
+        {
+          filtered.insert(name);
+        }
+      }
+      else if (allowed.contains(name) || allowed.contains(movedPlaceRoot(name)))
       {
         filtered.insert(name);
       }
     }
     return filtered;
   }
+
+  struct ReceiverEffectCollector : DummyVisitor
+  {
+    Str receiverName;
+    Vec<PlaceEffect> effects;
+    bool unknown = false;
+
+    explicit ReceiverEffectCollector(Str receiverName) : receiverName(std::move(receiverName)) {}
+
+    void recordRead(Expression *expr)
+    {
+      if (auto place = relativeReceiverPlace(expr, receiverName); place.has_value())
+      {
+        effects.push_back(PlaceEffect{PlaceEffectKind::Read, *place});
+      }
+    }
+
+    void recordWrite(Expression *expr)
+    {
+      if (auto place = relativeReceiverPlace(expr, receiverName); place.has_value())
+      {
+        effects.push_back(PlaceEffect{PlaceEffectKind::Write, *place});
+      }
+    }
+
+    void recordMove(Expression *expr)
+    {
+      if (auto place = relativeReceiverPlace(expr, receiverName); place.has_value())
+      {
+        effects.push_back(PlaceEffect{PlaceEffectKind::Move, *place});
+      }
+    }
+
+    void visit(SimpleStatement *stmt) override
+    {
+      if (stmt->expression)
+      {
+        stmt->expression->accept(this);
+      }
+    }
+
+    void visit(CompoundStatement *stmt) override
+    {
+      for (auto &child : stmt->statements)
+      {
+        child->accept(this);
+      }
+    }
+
+    void visit(ReturnStatement *stmt) override
+    {
+      if (stmt->expression)
+      {
+        stmt->expression->accept(this);
+      }
+    }
+
+    void visit(IfStatement *stmt) override
+    {
+      if (stmt->testing)
+      {
+        stmt->testing->accept(this);
+      }
+      if (stmt->consequence)
+      {
+        stmt->consequence->accept(this);
+      }
+      if (stmt->alternative)
+      {
+        stmt->alternative->accept(this);
+      }
+    }
+
+    void visit(LoopStatement *stmt) override
+    {
+      for (auto &binding : stmt->bindings)
+      {
+        if (binding.target)
+        {
+          binding.target->accept(this);
+        }
+      }
+      if (stmt->loopBody)
+      {
+        stmt->loopBody->accept(this);
+      }
+    }
+
+    void visit(NextStatement *stmt) override
+    {
+      for (auto &expr : stmt->expressions)
+      {
+        expr->accept(this);
+      }
+    }
+
+    void visit(ValDefStatement *stmt) override
+    {
+      if (stmt->value)
+      {
+        stmt->value->accept(this);
+      }
+    }
+
+    void visit(ValueBindingStatement *stmt) override
+    {
+      if (stmt->value)
+      {
+        stmt->value->accept(this);
+      }
+    }
+
+    void visit(UnaryExpression *expr) override
+    {
+      if (!expr->optr)
+      {
+        return;
+      }
+      if (expr->optr->type == TokenType::KEYWORD_MOVE)
+      {
+        recordMove(expr->operand.get());
+        return;
+      }
+      if (expr->optr->type == TokenType::KEYWORD_REF || expr->optr->type == TokenType::AMPERSAND)
+      {
+        if (relativeReceiverPlace(expr->operand.get(), receiverName).has_value())
+        {
+          unknown = true;
+        }
+        return;
+      }
+      if (expr->operand)
+      {
+        expr->operand->accept(this);
+      }
+    }
+
+    void visit(BinaryExpression *expr) override
+    {
+      if (expr->left)
+      {
+        expr->left->accept(this);
+      }
+      if (expr->right)
+      {
+        expr->right->accept(this);
+      }
+    }
+
+    void visit(AssignmentExpression *expr) override
+    {
+      if (expr->value)
+      {
+        expr->value->accept(this);
+      }
+      recordWrite(expr->target.get());
+    }
+
+    void visit(IndexAssignmentExpression *expr) override
+    {
+      if (expr->value)
+      {
+        expr->value->accept(this);
+      }
+      recordWrite(expr);
+    }
+
+    void visit(IdExpression *expr) override { recordRead(expr); }
+
+    void visit(IdAccessorExpression *expr) override
+    {
+      const bool receiverPlace = relativeReceiverPlace(expr, receiverName).has_value();
+      recordRead(expr);
+      if (!receiverPlace && expr->primaryExpression)
+      {
+        expr->primaryExpression->accept(this);
+      }
+      for (auto &arg : expr->arguments)
+      {
+        arg->accept(this);
+      }
+    }
+
+    void visit(IndexAccessorExpression *expr) override
+    {
+      const bool receiverPlace = relativeReceiverPlace(expr, receiverName).has_value();
+      recordRead(expr);
+      if (!receiverPlace && expr->primary)
+      {
+        expr->primary->accept(this);
+      }
+      if (expr->accessor)
+      {
+        expr->accessor->accept(this);
+      }
+    }
+
+    void visit(FunCallExpression *expr) override
+    {
+      if (relativeReceiverPlace(expr->primaryExpression.get(), receiverName).has_value())
+      {
+        unknown = true;
+      }
+      else if (expr->primaryExpression)
+      {
+        expr->primaryExpression->accept(this);
+      }
+      for (auto &arg : expr->arguments)
+      {
+        arg->accept(this);
+      }
+    }
+
+    void visit(QualifiedTraitCallExpression *expr) override
+    {
+      if (expr->receiver && relativeReceiverPlace(expr->receiver.get(), receiverName).has_value())
+      {
+        unknown = true;
+      }
+      if (expr->receiver)
+      {
+        expr->receiver->accept(this);
+      }
+      for (auto &arg : expr->arguments)
+      {
+        arg->accept(this);
+      }
+    }
+
+    void visit(NewObjectExpression *expr) override
+    {
+      for (auto &[_, value] : expr->properties)
+      {
+        value->accept(this);
+      }
+    }
+
+    void visit(ArrayLiteral *expr) override
+    {
+      for (auto &element : expr->elements)
+      {
+        element->accept(this);
+      }
+    }
+
+    void visit(TupleLiteral *expr) override
+    {
+      for (auto &element : expr->elements)
+      {
+        element->accept(this);
+      }
+    }
+
+    void visit(SpreadExpression *expr) override
+    {
+      if (expr->expression)
+      {
+        expr->expression->accept(this);
+      }
+    }
+
+    void visit(TypeCheckingExpression *expr) override
+    {
+      if (expr->value)
+      {
+        expr->value->accept(this);
+      }
+    }
+
+    void visit(CastExpression *expr) override
+    {
+      if (expr->expression)
+      {
+        expr->expression->accept(this);
+      }
+    }
+  };
 
   struct TaggedVariantLookup
   {
@@ -588,6 +990,90 @@ namespace NG::typecheck
     }
 
     bool hasWildcardImportFlag() const { return locals.contains(WILDCARD_IMPORT_KEY); }
+
+    void rejectBorrowConflict(const Str &operation, const Str &place, TokenPosition pos) const
+    {
+      if (auto borrowed = borrowedConflict(movedBindings, place); borrowed.has_value())
+      {
+        throw TypeCheckingException("Cannot " + operation + " borrowed place: " + place +
+                                        " conflicts with active ref " + *borrowed,
+                                    pos);
+      }
+    }
+
+    void recordBorrowAlias(const Str &alias, const std::optional<Str> &place)
+    {
+      clearMovedPlace(movedBindings, alias);
+      if (place.has_value())
+      {
+        movedBindings.insert(borrowEntry(alias, *place));
+      }
+    }
+
+    static void attachReceiverEffects(FunctionType &funType, FunctionDef *method, const Str &receiverName)
+    {
+      if (!method || !method->body || receiverName.empty())
+      {
+        funType.unknownPlaceEffects = true;
+        return;
+      }
+      ReceiverEffectCollector collector{receiverName};
+      method->body->accept(&collector);
+      funType.placeEffects = std::move(collector.effects);
+      funType.unknownPlaceEffects = collector.unknown;
+    }
+
+    void validateAndApplyMethodEffects(const FunctionType &funcType, const Str &receiverPlace, TokenPosition pos)
+    {
+      if (receiverPlace.empty())
+      {
+        return;
+      }
+      if (funcType.unknownPlaceEffects)
+      {
+        if (movedBindings.contains(receiverPlace) || hasMovedDescendant(movedBindings, receiverPlace))
+        {
+          throw TypeCheckingException("Use after partial move: " + receiverPlace, pos);
+        }
+        return;
+      }
+
+      if (movedBindings.contains(receiverPlace))
+      {
+        throw TypeCheckingException("Use after move: " + receiverPlace, pos);
+      }
+
+      auto rejectMovedConflict = [&](const Str &absolute) {
+        if (auto moved = movedAncestorOrSelf(movedBindings, absolute); moved.has_value())
+        {
+          throw TypeCheckingException("Use after move: " + *moved, pos);
+        }
+        if (hasMovedDescendant(movedBindings, absolute))
+        {
+          throw TypeCheckingException("Use after partial move: " + absolute, pos);
+        }
+      };
+
+      for (const auto &effect : funcType.placeEffects)
+      {
+        auto absolute = absoluteReceiverPlace(receiverPlace, effect.place);
+        switch (effect.kind)
+        {
+        case PlaceEffectKind::Read:
+          rejectMovedConflict(absolute);
+          break;
+        case PlaceEffectKind::Move:
+          rejectMovedConflict(absolute);
+          rejectBorrowConflict("move", absolute, pos);
+          movedBindings.insert(absolute);
+          break;
+        case PlaceEffectKind::Write:
+          rejectBorrowConflict("assign", absolute, pos);
+          clearMovedPlace(movedBindings, absolute);
+          break;
+        }
+      }
+    }
 
     static auto implSelectionKey(const Str &traitName, const Str &targetPattern) -> Str
     {
@@ -1760,7 +2246,12 @@ namespace NG::typecheck
         returnType = checker.result;
         rejectInvalidByValueType(returnType, "function return type", funDef->returnType->pos);
       }
-      return makecheck<FunctionType>(returnType, paramTypes);
+      auto funType = makecheck<FunctionType>(returnType, paramTypes);
+      if (!funDef->params.empty() && isReceiverParam(funDef->params.front().get()))
+      {
+        attachReceiverEffects(*funType, funDef, funDef->params.front()->paramName);
+      }
+      return funType;
     }
 
     static auto functionSignaturesMatch(const FunctionType &expected, const FunctionType &actual) -> bool
@@ -2058,6 +2549,7 @@ namespace NG::typecheck
           }
 
           auto funType = makecheck<FunctionType>(returnType, paramTypes);
+          attachReceiverEffects(*funType, memFn.get(), hasExplicitReceiver ? memFn->params.front()->paramName : "self");
           customType->memberFunctions[memFn->funName] = funType;
 
           TypeChecker bodyChecker{methodScope};
@@ -2793,6 +3285,7 @@ namespace NG::typecheck
         }
 
         auto funType = makecheck<FunctionType>(returnType, paramTypes);
+        attachReceiverEffects(*funType, memFn.get(), hasExplicitReceiver ? memFn->params.front()->paramName : "self");
         customType->memberFunctions[memFn->funName] = funType;
 
         // Check member function body
@@ -3571,6 +4064,7 @@ namespace NG::typecheck
         locals.insert_or_assign(valDefStatement->name, valType);
       }
       clearMovedPlace(movedBindings, valDefStatement->name);
+      recordBorrowAlias(valDefStatement->name, borrowedPlaceFromRefExpression(valDefStatement->value.get()));
     }
 
     void visit(ValueBindingStatement *valBind) override
@@ -3891,6 +4385,19 @@ namespace NG::typecheck
         {
           throw TypeCheckingException("Move operator requires a movable place.");
         }
+        if (auto *deref = dynamic_cast<UnaryExpression *>(unoExpr->operand.get());
+            deref && deref->optr && deref->optr->type == TokenType::TIMES)
+        {
+          if (auto *id = dynamic_cast<IdExpression *>(deref->operand.get()))
+          {
+            if (auto target = borrowedAliasTarget(movedBindings, id->id); target.has_value())
+            {
+              throw TypeCheckingException("Cannot move borrowed place through ref alias: " + id->id +
+                                              " aliases " + *target,
+                                          unoExpr->pos);
+            }
+          }
+        }
         if (auto *index = dynamic_cast<IndexAccessorExpression *>(unoExpr->operand.get()))
         {
           TypeChecker primaryChecker{locals, {}, nullptr, movedBindings, true, activeGenericInstanceName};
@@ -3904,6 +4411,7 @@ namespace NG::typecheck
         }
         if (auto place = staticPlaceKey(unoExpr->operand.get()); place.has_value())
         {
+          rejectBorrowConflict("move", *place, unoExpr->pos);
           movedBindings.insert(*place);
         }
         result = operandType;
@@ -4339,10 +4847,13 @@ namespace NG::typecheck
       }
       if (auto *id = dynamic_cast<IdExpression *>(assignmentExpr->target.get()))
       {
+        rejectBorrowConflict("assign", id->id, assignmentExpr->pos);
         clearMovedPlace(movedBindings, id->id);
+        recordBorrowAlias(id->id, borrowedPlaceFromRefExpression(assignmentExpr->value.get()));
       }
       else if (auto place = staticPlaceKey(assignmentExpr->target.get()); place.has_value())
       {
+        rejectBorrowConflict("assign", *place, assignmentExpr->pos);
         clearMovedPlace(movedBindings, *place);
       }
       result = targetType;
@@ -4653,14 +5164,7 @@ namespace NG::typecheck
           if (auto receiverPlace = staticPlaceKey(idAccExpr->primaryExpression.get());
               receiverPlace.has_value() && !allowMovedLvalueRead)
           {
-            if (auto moved = movedAncestorOrSelf(movedBindings, *receiverPlace); moved.has_value())
-            {
-              throw TypeCheckingException("Use after move: " + *moved, idAccExpr->pos);
-            }
-            if (hasMovedDescendant(movedBindings, *receiverPlace))
-            {
-              throw TypeCheckingException("Use after partial move: " + *receiverPlace, idAccExpr->pos);
-            }
+            validateAndApplyMethodEffects(*funcType, *receiverPlace, idAccExpr->pos);
           }
           result = funcType->returnType;
           return;

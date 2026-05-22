@@ -1,75 +1,98 @@
 # Partial Move Semantics
 
-This document tracks Issue #38. The goal is to make `move obj.field` and `move tuple[0]` statically meaningful without turning StorageCell move flags into the long-term language semantics.
+This document tracks Issue #38. The goal is to make `move obj.field` and `move tuple[0]` statically meaningful, with StorageCell moved sentinels kept as a runtime safety net rather than the long-term source of language semantics.
 
 ## Dependencies
 
-Partial moves depend on the existing value/reference/move model, StorageCell moved sentinels, and `Drop`. They should land before generalized `= delete`, enhanced tuples, and auto-derived traits because those features need stable initialization and destruction rules.
+Partial moves depend on the value/reference/move model, `Drop`, and the StorageCell moved sentinel. They should remain earlier than generalized `= delete`, enhanced tuples, auto-derived traits, and fixed-size arrays because those features need stable initialization and destruction rules.
 
-## Phase A Scope
+Array element partial move is still out of scope until constant generic parameters provide fixed-size arrays. Dynamic arrays should use explicit extraction APIs such as `take`, `replace`, or `swap_remove`; `move array[index]` is rejected today.
 
-Phase A implements structural place tracking for:
+## Place Model
 
-- local/global bindings: `move value`
-- object fields: `move obj.field`
-- fields through references: `move self.field`
-- tuple constant indexes: `move tuple[0]`
-- reassignment that restores a moved place: `obj.field := value`, `tuple[0] := value`
+A tracked place is a lexical root plus structural components:
 
-Dynamic array element moves are intentionally excluded. Arrays need either fixed-size constant-generic indexing or explicit APIs such as `take`, `replace`, and `swap_remove`.
-
-## Static Rules
-
-A place is represented by a root binding plus structural components. Examples:
-
-- `obj`
+- `value`
 - `obj.field`
-- `self.ptr`
+- `obj.inner.field`
 - `tuple[0]`
+- `tuple[0][1]`
+- `self.resource`
 
-Moving a whole binding marks the binding moved. Moving a field or tuple slot marks only that structural place moved.
+Object fields and tuple constant indexes are tracked recursively. Field access through a `ref<T>` receiver uses the same place key, so `move box.inner.left` can track a nested field even when `box` or `inner` is a reference.
 
-After a partial move:
+Moving a whole binding marks the binding moved. Moving a field or tuple slot marks only that subplace moved. Reading the moved subplace is rejected, reading disjoint sibling places is allowed, and reading the containing whole place is rejected until all moved subplaces are restored.
 
-- reading the moved place is rejected
-- reading sibling fields or tuple slots is allowed
-- reading the containing object as a whole is rejected until all moved subplaces are reassigned
-- method calls on the partially moved object are rejected because the receiver is a whole-object use
-- taking `ref obj` is rejected while `obj` is partially moved
-- reassigning the exact moved place restores that place
+Assignments restore initialization state:
 
-Assignments clear the assigned place and any tracked subplaces below it. This lets `obj.field := value` restore `obj.field`, and `obj := value` restore the whole object.
+- `obj.field := value` clears the moved state for `obj.field`.
+- `tuple[0] := value` clears the moved state for `tuple[0]`.
+- `obj := value` clears all moved child state below `obj`.
+- `obj.inner := value` clears all moved child state below `obj.inner`.
+
+## Control Flow
+
+Partial-move state is propagated through compound scopes, branches, loops, and switches.
+
+Branch and switch exits merge moved state conservatively: if a place may be moved on any path, it is treated as moved after the control-flow construct. If every path restores the same moved place, the restored state is visible after the branch.
+
+Loop bodies propagate moved state to the loop exit. This is intentionally conservative because the current checker does not prove loop iteration counts or path reachability.
+
+Lexical scope filtering removes places and direct borrow aliases whose roots leave scope.
+
+## Direct Borrow Tracking
+
+The checker tracks direct lexical aliases created by `ref place` and `&place`.
+
+While a direct alias is live:
+
+- moving the borrowed place is rejected
+- assigning the borrowed place is rejected
+- moving through the alias, such as `move *borrowed`, is rejected
+- moving or assigning disjoint sibling places is allowed
+- leaving the alias scope releases the borrow
+
+This is not a full lifetime or arbitrary alias graph. It is a direct-place borrow check for the current `ref` surface and prevents the main unsound cases introduced by partial move.
+
+## Method Effects
+
+Receiver methods carry inferred structural effects relative to the receiver parameter, conventionally `self`.
+
+The type checker records ordered receiver effects:
+
+- reads: `self.field`, `self.tuple[0]`
+- writes: `self.field := value`
+- moves: `move self.field`
+- unknown effects: taking a ref to receiver state or calling through receiver state when effects cannot be resolved
+
+Calling a method on a partially moved receiver is allowed only when the ordered effects do not read or move a moved place. Writes restore the written place, so a method that only assigns `self.left` can reinitialize `box.left` after `move box.left`. Whole-receiver or unknown-effect methods remain conservative and require the receiver to be fully initialized.
+
+Method moves update the caller's place state. This is required for `Drop::drop(self: ref<Self>)` implementations that consume resource fields with `move self.ptr`.
 
 ## Drop Rules
 
-Drop is field-aware:
+Drop is field-aware and deterministic across STUPID and ORGASM:
 
 - initialized fields are dropped normally
 - moved-out fields are skipped
-- a parent object with moved fields cannot be used as a complete value by user code
-- custom `Drop::drop(self: ref<Self>)` may move resource fields, for example `nativeFree(move self.ptr)`
+- remaining initialized child fields are dropped after a custom/native `Drop` handler
+- custom `Drop::drop(self: ref<Self>)` may move resource fields
+- a field moved inside `Drop::drop` is not double-dropped by recursive child cleanup
 
-The StorageCell moved sentinel remains a STUPID/ORGASM safety net and debugger-visible runtime assertion. It is not intended to be required by a future native backend after static place checking has enough coverage.
+The runtime still checks moved sentinels before dropping a cell. This is a safety net and debugging assertion for STUPID/ORGASM. A future native backend should rely on static place checking and should not need a dynamic moved check for well-typed code.
 
-## Conservative Alias Rule
+## Acceptance Coverage
 
-Phase A does not implement a full borrow checker or arbitrary alias graph. Direct operations are still checked by place state. Existing references are protected by runtime moved sentinels, and a later static place-and-borrow pass can reject moves while a known live reference to the same root exists.
+Current tests cover:
 
-## Later Phases
-
-- Add lexical borrow tracking for direct `ref` aliases.
-- Add fixed-size array partial move after constant generic parameters.
-- Add explicit dynamic array extraction APIs.
-- Add richer method effect information if method calls on partially initialized receivers become necessary.
-
-## Acceptance Tests
-
-- `move obj.field` allows reading `obj.other`.
-- reading `obj.field` after the move fails.
-- reading `obj` after the move fails.
-- calling `obj.method()` after the move fails.
-- `obj.field := value` restores whole-object use.
-- `move tuple[0]` allows reading `tuple[1]`.
-- reading `tuple[0]` or `tuple` after the move fails.
-- `tuple[0] := value` restores whole-tuple use.
-- `move array[0]` is rejected until arrays have explicit extraction semantics.
+- `move obj.field` allows reading sibling fields.
+- reading the moved field fails.
+- reading the whole object after a partial move fails.
+- method calls on partially moved receivers use inferred read/write/move effects.
+- method writes can restore moved receiver fields.
+- nested field moves and whole-place overwrites clear child state.
+- `move tuple[0]` and nested tuple constant-index moves.
+- branch, switch, loop, and scope moved-state propagation.
+- direct `ref` aliases reject conflicting move/assignment and release at lexical scope exit.
+- `move array[0]` is rejected.
+- STUPID and ORGASM both run partial-move and Drop regression examples.

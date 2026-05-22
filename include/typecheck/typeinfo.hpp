@@ -164,10 +164,25 @@ namespace NG::typecheck
     /**
      * @brief A function type.
      */
+    enum class PlaceEffectKind
+    {
+        Read,
+        Write,
+        Move,
+    };
+
+    struct PlaceEffect
+    {
+        PlaceEffectKind kind;
+        Str place;
+    };
+
     struct FunctionType : TypeInfo
     {
         CheckingRef<TypeInfo> returnType;          ///< The return type of the function.
         Vec<CheckingRef<TypeInfo>> parametersType; ///< The parameter types of the function.
+        Vec<PlaceEffect> placeEffects;             ///< Ordered receiver effects used to update partial-move state.
+        bool unknownPlaceEffects = false;          ///< True when receiver effects cannot be inferred conservatively.
 
         FunctionType(CheckingRef<TypeInfo> returnType, Vec<CheckingRef<TypeInfo>> parametersType)
             : returnType(returnType), parametersType(parametersType)
