@@ -537,6 +537,7 @@ namespace NG::ast
     struct Module : ASTNode
     {
         Str name; ///< The name of the module.
+        bool nameDeclared = false; ///< True when source contains an explicit module declaration.
 
         Vec<ASTRef<Definition>> definitions; ///< The definitions in the module.
 

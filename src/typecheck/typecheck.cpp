@@ -968,6 +968,7 @@ namespace NG::typecheck
     Set<Str> importedSymbolNames;
     Set<Str> importedImplNames;
     Map<Str, Str> importAliases;
+    Vec<Str> importedModuleIds;
     Vec<Str> modulePaths;
     inline static Map<Str, ModuleArtifacts> moduleArtifactsById{};
     inline static Set<Str> activeModuleChecks{};
@@ -1083,16 +1084,7 @@ namespace NG::typecheck
 
     static auto moduleIdFromPath(const Vec<Str> &modulePath) -> Str
     {
-      Str moduleId;
-      for (const auto &segment : modulePath)
-      {
-        if (!moduleId.empty())
-        {
-          moduleId += ".";
-        }
-        moduleId += segment;
-      }
-      return moduleId;
+      return NG::module::canonical_module_id(modulePath);
     }
 
     static auto moduleIdTail(const Str &moduleId) -> Str
@@ -1134,6 +1126,52 @@ namespace NG::typecheck
     auto selectedRecordKey(const TraitImplRecord &record) const -> Str
     {
       return record.moduleId + "::" + implSelectionKey(record.traitName, record.targetPattern);
+    }
+
+    static auto toModuleImplEvidence(const TraitImplRecord &record) -> NG::module::ModuleImplEvidence
+    {
+      return NG::module::ModuleImplEvidence{
+          .traitName = record.traitName,
+          .targetPattern = record.targetPattern,
+          .moduleId = record.moduleId,
+          .genericParamNames = record.genericParamNames,
+          .whereBounds = record.whereBounds,
+          .methods = record.methods,
+          .definition = record.definition,
+          .pos = record.pos,
+      };
+    }
+
+    static auto toTraitImplRecord(const NG::module::ModuleImplEvidence &evidence) -> TraitImplRecord
+    {
+      return TraitImplRecord{
+          .traitName = evidence.traitName,
+          .targetPattern = evidence.targetPattern,
+          .moduleId = evidence.moduleId,
+          .genericParamNames = evidence.genericParamNames,
+          .whereBounds = evidence.whereBounds,
+          .methods = evidence.methods,
+          .definition = evidence.definition,
+          .pos = evidence.pos,
+      };
+    }
+
+    static auto hasPublishedTypeMetadata(const NG::module::ModuleArtifact &artifact) -> bool
+    {
+      return !artifact.typeIndex.empty() || !artifact.exports.types.empty() || !artifact.impls.empty() ||
+             !artifact.traits.empty();
+    }
+
+    static auto toLocalModuleArtifacts(const NG::module::ModuleArtifact &artifact) -> ModuleArtifacts
+    {
+      ModuleArtifacts artifacts;
+      artifacts.exportedTypes = artifact.exports.types;
+      artifacts.exports = artifact.exports.declared;
+      for (const auto &impl : artifact.impls)
+      {
+        artifacts.exportedImpls.push_back(toTraitImplRecord(impl));
+      }
+      return artifacts;
     }
 
     static auto byValueAbstractReason(const CheckingRef<TypeInfo> &type) -> Str
@@ -1948,12 +1986,14 @@ namespace NG::typecheck
         if (existing.targetPattern == candidate.targetPattern)
         {
           throw TypeCheckingException("Duplicate impl for trait '" + candidate.traitName +
-                                          "' and type '" + candidate.targetPattern + "'",
+                                          "' and type '" + candidate.targetPattern + "' from modules '" +
+                                          existing.moduleId + "' and '" + candidate.moduleId + "'",
                                       pos);
         }
         throw TypeCheckingException("Overlapping impl for trait '" + candidate.traitName +
                                         "' between '" + existing.targetPattern + "' and '" +
-                                        candidate.targetPattern + "'",
+                                        candidate.targetPattern + "' from modules '" + existing.moduleId +
+                                        "' and '" + candidate.moduleId + "'",
                                     pos);
       }
 
@@ -2947,6 +2987,53 @@ namespace NG::typecheck
         {
           artifacts.exportedImpls.push_back(impl);
         }
+      }
+
+      const bool shouldPublishSharedArtifact =
+          !currentModuleId.empty() && currentModuleId != "default" && currentModuleId != "[noname]" &&
+          currentModuleId != "[interpreter]";
+      auto sharedArtifact = runtime::makert<NG::module::ModuleArtifact>();
+      if (shouldPublishSharedArtifact)
+      {
+        if (auto moduleInfo = NG::module::get_module_registry().queryModuleById(currentModuleId))
+        {
+          if (moduleInfo->artifact)
+          {
+            sharedArtifact = moduleInfo->artifact;
+          }
+          else
+          {
+            moduleInfo->artifact = sharedArtifact;
+          }
+          if (!moduleInfo->moduleAst && sharedArtifact->ast)
+          {
+            moduleInfo->moduleAst = sharedArtifact->ast;
+          }
+        }
+      }
+
+      if (shouldPublishSharedArtifact)
+      {
+        sharedArtifact->id = NG::module::module_id_from_name(currentModuleId);
+        sharedArtifact->format = NG::module::ModuleFormat::SourceNg;
+        sharedArtifact->typeIndex = type_index;
+        sharedArtifact->exports.declared = artifacts.exports;
+        sharedArtifact->exports.types = artifacts.exportedTypes;
+        sharedArtifact->imports.moduleIds = importedModuleIds;
+        sharedArtifact->traits.clear();
+        for (const auto &[name, type] : artifacts.exportedTypes)
+        {
+          if (type && unwrap(type)->tag() == typeinfo_tag::TRAIT)
+          {
+            sharedArtifact->traits.insert_or_assign(name, type);
+          }
+        }
+        sharedArtifact->impls.clear();
+        for (const auto &impl : artifacts.exportedImpls)
+        {
+          sharedArtifact->impls.push_back(toModuleImplEvidence(impl));
+        }
+        NG::module::get_module_registry().addModuleArtifact(sharedArtifact);
       }
       moduleArtifactsById[currentModuleId] = std::move(artifacts);
     }
@@ -5546,6 +5633,13 @@ namespace NG::typecheck
       {
         return cached->second;
       }
+      auto &registry = NG::module::get_module_registry();
+      if (auto artifact = registry.queryArtifactById(moduleId); artifact && hasPublishedTypeMetadata(*artifact))
+      {
+        auto artifacts = toLocalModuleArtifacts(*artifact);
+        moduleArtifactsById[moduleId] = artifacts;
+        return artifacts;
+      }
       if (!activeModuleChecks.insert(moduleId).second)
       {
         return {};
@@ -5559,11 +5653,15 @@ namespace NG::typecheck
         }
       } guard{moduleId};
 
-      auto moduleInfo = NG::module::get_module_registry().queryModuleById(moduleId);
+      auto moduleInfo = registry.queryModuleById(moduleId);
       if (!moduleInfo)
       {
         NG::module::FileBasedExternalModuleLoader loader{modulePaths};
         moduleInfo = loader.load(importDecl.modulePath);
+        if (moduleInfo)
+        {
+          registry.addModuleInfo(moduleInfo);
+        }
       }
       if (!moduleInfo || !moduleInfo->moduleAst)
       {
@@ -5574,6 +5672,17 @@ namespace NG::typecheck
       checker.currentModuleId = moduleInfo->moduleId.empty() ? moduleId : moduleInfo->moduleId;
       moduleInfo->moduleAst->accept(&checker);
       moduleInfo->moduleTypeIndex = checker.type_index;
+
+      if (auto artifact = registry.queryArtifactById(checker.currentModuleId); artifact && hasPublishedTypeMetadata(*artifact))
+      {
+        auto artifacts = toLocalModuleArtifacts(*artifact);
+        moduleArtifactsById[checker.currentModuleId] = artifacts;
+        if (checker.currentModuleId != moduleId)
+        {
+          moduleArtifactsById[moduleId] = artifacts;
+        }
+        return artifacts;
+      }
 
       if (auto cached = moduleArtifactsById.find(checker.currentModuleId); cached != moduleArtifactsById.end())
       {
@@ -5641,6 +5750,10 @@ namespace NG::typecheck
         {
           continue;
         }
+        if (!impl.definition)
+        {
+          continue;
+        }
         TypeChecker targetChecker{locals, {}, nullptr, {}, false, "", modulePaths};
         impl.definition->targetType->accept(&targetChecker);
         auto custom = std::dynamic_pointer_cast<CustomizedType>(unwrap(targetChecker.result));
@@ -5668,6 +5781,10 @@ namespace NG::typecheck
         importAliases[importDecl->alias] = moduleId;
       }
       importAliases[importDecl->module] = moduleId;
+      if (!moduleId.empty() && std::ranges::find(importedModuleIds, moduleId) == importedModuleIds.end())
+      {
+        importedModuleIds.push_back(moduleId);
+      }
 
       if (!modulePaths.empty())
       {

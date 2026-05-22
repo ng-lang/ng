@@ -372,8 +372,22 @@ namespace NG::orgasm
             }
         }
 
+        if (std::ranges::find(mod->exports, "*") != mod->exports.end())
+        {
+            for (size_t i = 0; i < module.functions.size(); ++i)
+            {
+                if (module.functions[i].name != "__start__")
+                {
+                    module.exports[module.functions[i].name] = static_cast<int32_t>(i);
+                }
+            }
+        }
         for (auto &&exportedName : mod->exports)
         {
+            if (exportedName == "*")
+            {
+                continue;
+            }
             for (size_t i = 0; i < module.functions.size(); ++i)
             {
                 if (module.functions[i].name == exportedName)
@@ -979,21 +993,24 @@ namespace NG::orgasm
     void Compiler::visit(ast::ImportDecl *importDecl)
     {
         auto &registry = NG::module::get_module_registry();
-        auto moduleInfo = registry.queryModuleById(importDecl->module);
+        auto moduleId = NG::module::canonical_module_id(importDecl->modulePath);
+        if (moduleId.empty()) moduleId = importDecl->module;
+        auto moduleInfo = registry.queryModuleById(moduleId);
         
         if (!moduleInfo) {
             NG::module::FileBasedExternalModuleLoader loader{modulePaths};
             moduleInfo = loader.load(importDecl->modulePath);
             if (!moduleInfo) {
-                throw RuntimeException("Failed to load module " + importDecl->module);
+                throw RuntimeException("Failed to load module " + moduleId);
             }
-            if (!moduleInfo->bytecodeModule) {
-                Compiler inner(modulePaths);
-                auto cu = dynamic_ast_cast<CompileUnit>(moduleInfo->moduleAst);
-                if (!cu) throw RuntimeException("Failed to cast AST to CompileUnit for module " + importDecl->module);
-                auto bc = inner.compile(cu);
-                moduleInfo->bytecodeModule = std::make_shared<BytecodeModule>(std::move(bc));
-            }
+            registry.addModuleInfo(moduleInfo);
+        }
+        if (!moduleInfo->bytecodeModule) {
+            Compiler inner(modulePaths);
+            auto cu = dynamic_ast_cast<CompileUnit>(moduleInfo->moduleAst);
+            if (!cu) throw RuntimeException("Failed to cast AST to CompileUnit for module " + moduleId);
+            auto bc = inner.compile(cu);
+            moduleInfo->bytecodeModule = std::make_shared<BytecodeModule>(std::move(bc));
             registry.addModuleInfo(moduleInfo);
         }
 
@@ -1002,13 +1019,13 @@ namespace NG::orgasm
             if (imp == "*") {
                 for (auto &&[name, index] : bc->exports) {
                     int32_t importIdx = static_cast<int32_t>(module.imports.size());
-                    module.imports.push_back({importDecl->module, name});
-                    imported_symbols[name] = {importDecl->module, importIdx};
+                    module.imports.push_back({moduleId, name});
+                    imported_symbols[name] = {moduleId, importIdx};
                 }
             } else {
                 int32_t importIdx = static_cast<int32_t>(module.imports.size());
-                module.imports.push_back({importDecl->module, imp});
-                imported_symbols[imp] = {importDecl->module, importIdx};
+                module.imports.push_back({moduleId, imp});
+                imported_symbols[imp] = {moduleId, importIdx};
             }
         }
     }

@@ -1,14 +1,90 @@
 
 #include "test.hpp"
+#include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <intp/intp.hpp>
+#include <module.hpp>
 #include <typecheck/typecheck.hpp>
 #include <vector>
 
 using namespace NG::intp;
 
 namespace fs = std::filesystem;
+
+namespace
+{
+struct ScopedEnvVar
+{
+  Str name;
+  Str previous;
+  bool hadPrevious = false;
+
+  ScopedEnvVar(Str name, const Str &value) : name(std::move(name))
+  {
+    if (const char *existing = std::getenv(this->name.c_str()))
+    {
+      previous = existing;
+      hadPrevious = true;
+    }
+#ifdef _WIN32
+    _putenv_s(this->name.c_str(), value.c_str());
+#else
+    setenv(this->name.c_str(), value.c_str(), 1);
+#endif
+  }
+
+  ~ScopedEnvVar()
+  {
+#ifdef _WIN32
+    _putenv_s(name.c_str(), hadPrevious ? previous.c_str() : "");
+#else
+    if (hadPrevious)
+    {
+      setenv(name.c_str(), previous.c_str(), 1);
+    }
+    else
+    {
+      unsetenv(name.c_str());
+    }
+#endif
+  }
+};
+
+struct SourceModuleFixture
+{
+  fs::path root;
+  ScopedEnvVar modulePath;
+
+  SourceModuleFixture()
+      : root(fs::temp_directory_path() /
+             ("ng_stupid_module_artifact_" +
+              std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()))),
+        modulePath("NG_MODULE_PATH", root.string())
+  {
+    NG::module::clear_module_loader_cache();
+    NG::module::get_module_registry().clear();
+    fs::create_directories(root);
+  }
+
+  ~SourceModuleFixture()
+  {
+    NG::module::clear_module_loader_cache();
+    NG::module::get_module_registry().clear();
+    fs::remove_all(root);
+  }
+
+  void write(const fs::path &relative, const Str &source) const
+  {
+    auto target = root / relative;
+    fs::create_directories(target.parent_path());
+    std::ofstream out{target};
+    REQUIRE(out.good());
+    out << source;
+  }
+};
+} // namespace
 
 static inline void runIntegrationTest(const std::string &filename)
 {
@@ -126,6 +202,33 @@ TEST_CASE("should parse and run shebang example source", "[Integration][Shebang]
 TEST_CASE("should run const type predicate example with STUPID", "[Integration][ConstPredicate]")
 {
   runTypecheckedIntegrationTest("example/42.const_type_predicate.ng");
+}
+
+TEST_CASE("STUPID should import source module through canonical module id",
+          "[Integration][ModuleArtifact]")
+{
+  SourceModuleFixture fixture;
+  fixture.write("pkg/math.ng", R"(
+    module pkg.math exports *;
+    fun answer() -> i32 {
+      return 42;
+    }
+  )");
+
+  auto ast = parse(R"(
+    import pkg.math (*);
+    assert(answer() == 42);
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto preludeTypes = NG::typecheck::build_prelude_type_index();
+  NG::typecheck::type_check(ast, preludeTypes, {"[force-module-loader]"});
+
+  Interpreter *intp = NG::intp::stupid();
+  ast->accept(intp);
+
+  delete intp;
+  destroyast(ast);
 }
 
 TEST_CASE("should run const specialization example with STUPID", "[Integration][ConstPredicate]")

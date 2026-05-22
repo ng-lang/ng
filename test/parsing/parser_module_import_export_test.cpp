@@ -17,6 +17,21 @@ TEST_CASE("parser should parse modules", "[Parser][Module]")
   destroyast(ast);
 }
 
+TEST_CASE("parser should parse canonical dotted module names", "[Parser][Module]")
+{
+  auto ast = parse(R"(
+        module std.prelude exports *;
+    )");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  REQUIRE(compileUnit->module->name == "std.prelude");
+  REQUIRE(compileUnit->module->nameDeclared);
+
+  destroyast(ast);
+}
+
 TEST_CASE("parser should parse exports", "[Parser][Module][Export]")
 {
   auto ast = parse(R"(
@@ -77,4 +92,23 @@ TEST_CASE("Should not export statement", "[Parser][Export]")
         }
     )",
       "Invalid export");
+}
+
+TEST_CASE("parser should parse import as alias syntax", "[Parser][Module][Import]")
+{
+  auto ast = parse(R"(
+        import vendor.math as math;
+    )");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  REQUIRE(compileUnit->module->imports.size() == 1);
+  auto importDecl = compileUnit->module->imports.front();
+  REQUIRE(importDecl != nullptr);
+  REQUIRE(importDecl->module == "math");
+  REQUIRE(importDecl->alias == "math");
+  REQUIRE(importDecl->modulePath == Vec<Str>{"vendor", "math"});
+
+  destroyast(ast);
 }

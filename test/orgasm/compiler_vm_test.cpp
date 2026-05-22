@@ -1,5 +1,8 @@
 #include "../test.hpp"
 #include <algorithm>
+#include <chrono>
+#include <filesystem>
+#include <fstream>
 #include <module.hpp>
 #include <orgasm/compiler.hpp>
 #include <orgasm/vm.hpp>
@@ -31,6 +34,42 @@ void emit_u16_u16(Vec<uint8_t> &code, OpCode op, uint16_t first, uint16_t second
   append_u16(code, first);
   append_u16(code, second);
 }
+
+struct SourceModuleFixture
+{
+  std::filesystem::path root =
+      std::filesystem::temp_directory_path() /
+      ("ng_orgasm_module_artifact_" +
+       std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+
+  SourceModuleFixture()
+  {
+    NG::module::clear_module_loader_cache();
+    NG::module::get_module_registry().clear();
+    std::filesystem::create_directories(root);
+  }
+
+  ~SourceModuleFixture()
+  {
+    NG::module::clear_module_loader_cache();
+    NG::module::get_module_registry().clear();
+    std::filesystem::remove_all(root);
+  }
+
+  void write(const std::filesystem::path &relative, const Str &source) const
+  {
+    auto target = root / relative;
+    std::filesystem::create_directories(target.parent_path());
+    std::ofstream out{target};
+    REQUIRE(out.good());
+    out << source;
+  }
+
+  auto paths() const -> Vec<Str>
+  {
+    return {root.string()};
+  }
+};
 } // namespace
 
 static auto result_i32(const RuntimeRef<StorageCell> &result) -> int32_t
@@ -56,6 +95,38 @@ TEST_CASE("compiler and vm should handle basic arithmetic", "[OrgasmTest]")
   auto result = vm.run(bytecode);
 
   REQUIRE(result_i32(result) == 7);
+
+  destroyast(ast);
+}
+
+TEST_CASE("compiler and vm should call imported source module through canonical id",
+          "[OrgasmTest][ModuleArtifact]")
+{
+  SourceModuleFixture fixture;
+  fixture.write("pkg/math.ng", R"(
+    module pkg.math exports *;
+    fun answer() -> i32 {
+      return 41;
+    }
+  )");
+  auto ast = parse(R"(
+    import pkg.math (*);
+    fun main() -> i32 {
+      return answer() + 1;
+    }
+  )");
+  REQUIRE(ast != nullptr);
+
+  NG::typecheck::type_check(ast, {}, fixture.paths());
+
+  Compiler compiler{fixture.paths()};
+  auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+  REQUIRE(bytecode.imports.size() == 1);
+  REQUIRE(bytecode.imports.front().moduleName == "pkg.math");
+
+  VM vm{fixture.paths()};
+  auto result = vm.run(bytecode);
+  REQUIRE(result_i32(result) == 42);
 
   destroyast(ast);
 }

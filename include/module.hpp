@@ -48,9 +48,65 @@ namespace NG::library::imgui
 namespace NG::module
 {
     using NG::ast::ASTNode;
+    using NG::ast::ImplDef;
     using NG::ast::ASTRef;
     using NG::runtime::RuntimeRef;
     using NG::typecheck::TypeIndex;
+
+    enum class ModuleFormat
+    {
+        SourceNg,
+        BytecodeNgo,
+        Native,
+    };
+
+    struct ModuleId
+    {
+        Str canonicalName;
+        Vec<Str> pathSegments;
+    };
+
+    struct ModuleImplEvidence
+    {
+        Str traitName;
+        Str targetPattern;
+        Str moduleId;
+        Set<Str> genericParamNames;
+        Vec<Str> whereBounds;
+        Map<Str, Str> methods;
+        ImplDef *definition = nullptr;
+        TokenPosition pos;
+    };
+
+    struct ModuleExportIndex
+    {
+        Set<Str> declared;
+        TypeIndex types;
+    };
+
+    struct ModuleImportIndex
+    {
+        Vec<Str> moduleIds;
+    };
+
+    using ModuleTraitIndex = TypeIndex;
+    using ModuleImplIndex = Vec<ModuleImplEvidence>;
+
+    struct ModuleArtifact
+    {
+        ModuleId id;
+        ModuleFormat format = ModuleFormat::SourceNg;
+        Str originPath;
+        Str version;
+        ASTRef<NG::ast::ASTNode> ast;
+        TypeIndex typeIndex{};
+        std::shared_ptr<NG::orgasm::BytecodeModule> bytecodeModule;
+        RuntimeRef<NG::runtime::StorageCell> runtimeModule;
+        ModuleExportIndex exports;
+        ModuleImportIndex imports;
+        ModuleTraitIndex traits;
+        ModuleImplIndex impls;
+    };
 
     /**
      * @brief Contains information about a module.
@@ -66,6 +122,7 @@ namespace NG::module
         RuntimeRef<NG::runtime::StorageCell> runtimeModule; ///< The runtime representation of the module.
         TypeIndex moduleTypeIndex{};                     ///< The type index of the module.
         std::shared_ptr<NG::orgasm::BytecodeModule> bytecodeModule; ///< The bytecode representation.
+        RuntimeRef<ModuleArtifact> artifact;             ///< Shared artifact metadata for all compiler stages.
     };
 
     /**
@@ -74,6 +131,7 @@ namespace NG::module
     class ModuleRegistry : NonCopyable
     {
         Map<Str, RuntimeRef<ModuleInfo>> modules; ///< The modules in the registry.
+        Map<Str, RuntimeRef<ModuleArtifact>> artifacts; ///< Shared module artifacts by canonical ID.
         Vec<Str> basePaths;                       ///< The base paths for module resolution.
 
       public:
@@ -88,6 +146,7 @@ namespace NG::module
          * @param moduleInfo The module to add.
          */
         void addModuleInfo(RuntimeRef<ModuleInfo> moduleInfo);
+        void addModuleArtifact(RuntimeRef<ModuleArtifact> artifact);
         /**
          * @brief Queries a module by its ID.
          *
@@ -95,6 +154,7 @@ namespace NG::module
          * @return The module info.
          */
         RuntimeRef<ModuleInfo> queryModuleById(Str moduleId) const;
+        RuntimeRef<ModuleArtifact> queryArtifactById(Str moduleId) const;
 
         /**
          * @brief Clears all registered modules.
@@ -141,6 +201,9 @@ namespace NG::module
      * @return The base path of the standard library.
      */
     Str standard_library_base_path();
+    auto canonical_module_id(const Vec<Str> &modulePath) -> Str;
+    auto module_id_from_name(Str moduleName) -> ModuleId;
+    auto module_search_roots(const Vec<Str> &explicitPaths) -> Vec<Str>;
     /**
      * @brief Returns the global module registry.
      *

@@ -1,4 +1,4 @@
-module prelude exports *;
+module std.prelude exports *;
 
 
 fun not(value: bool) -> bool {

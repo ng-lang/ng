@@ -695,8 +695,22 @@ namespace NG::parsing
       // alias import
       if (expect(TokenType::ID))
       {
-        Str alias = state->repr;
-        accept(TokenType::ID);
+        Str alias;
+        if (state->repr == "as")
+        {
+          accept(TokenType::ID);
+          if (!expect(TokenType::ID))
+          {
+            unexpected("Expected import alias after `as`.");
+          }
+          alias = state->repr;
+          accept(TokenType::ID);
+        }
+        else
+        {
+          alias = state->repr;
+          accept(TokenType::ID);
+        }
         imp->alias = alias;
       }
 
@@ -1064,12 +1078,31 @@ namespace NG::parsing
       accept(TokenType::KEYWORD_MODULE);
       if (expect(TokenType::ID))
       {
-        auto moduleName = state->repr;
-        accept(TokenType::ID);
+        Vec<Str> moduleSegments;
+        while (expect(TokenType::ID))
+        {
+          moduleSegments.push_back(state->repr);
+          accept(TokenType::ID);
+          if (!expect(TokenType::DOT))
+          {
+            break;
+          }
+          accept(TokenType::DOT);
+        }
+        Str moduleName;
+        for (const auto &segment : moduleSegments)
+        {
+          if (!moduleName.empty())
+          {
+            moduleName += ".";
+          }
+          moduleName += segment;
+        }
+        auto moduleTail = moduleSegments.empty() ? Str{} : moduleSegments.back();
         if (mod->name == moduleName)
         {
         }
-        else if (mod->name == "[noname]" || mod->name == "[interpreter]")
+        else if (mod->name == moduleTail || mod->name == "[noname]" || mod->name == "[interpreter]")
         {
           mod->name = moduleName;
         }
@@ -1077,6 +1110,7 @@ namespace NG::parsing
         {
           unexpected("Invalid module name for module: " + moduleName + ", expected: " + mod->name);
         }
+        mod->nameDeclared = true;
       }
       if (expect(TokenType::KEYWORD_EXPORTS))
       {

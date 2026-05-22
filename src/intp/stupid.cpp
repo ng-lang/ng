@@ -2445,7 +2445,7 @@ namespace NG::intp
         // load module
         NG::module::FileBasedExternalModuleLoader loader{this->modulePaths};
         auto &&moduleInfo = loader.load(importDecl->modulePath);
-        if (auto target = get_module_registry().queryModuleById(moduleInfo->moduleId); target)
+        if (auto target = get_module_registry().queryModuleById(moduleInfo->moduleId); target && target->runtimeModule)
         {
           define_global_module(symbols, importDecl->module, target->runtimeModule);
         }

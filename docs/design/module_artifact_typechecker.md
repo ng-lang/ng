@@ -188,3 +188,24 @@ Rules:
 - Imported impl evidence participates in trait satisfaction.
 - Duplicate visible impls from different modules fail deterministically.
 - STUPID and ORGASM agree on import/export visibility for source modules.
+
+## Implementation Status
+
+Implemented in this phase:
+
+- `ModuleId`, `ModuleFormat`, `ModuleArtifact`, export/import/trait/impl indexes, and canonical module-id helpers.
+- Source module loading through ordered roots, including explicit module paths, `NG_MODULE_PATH`, current directory, and stdlib root.
+- Source probes for both `a/b/c.ng` and `a/b/c/module.ng`.
+- Explicit dotted module declarations, including `module std.prelude exports *;`.
+- `import vendor.math as math;` syntax while preserving the older alias form.
+- Typechecker publication of exported type metadata, traits, and exported impl evidence into `ModuleRegistry`.
+- Typechecker import consumption through published `ModuleArtifact` metadata, including duplicate visible impl diagnostics with candidate module IDs.
+- STUPID and ORGASM reuse of registry module entries only when the stage-specific payload exists, avoiding empty runtime/bytecode artifacts.
+- ORGASM import tables now store canonical module IDs, and `exports *` publishes module functions for bytecode imports.
+
+Still intentionally deferred to later module-system issues:
+
+- Native module descriptors and native artifact publication.
+- `.ngo` bytecode serialization/deserialization and bytecode-first probing.
+- Physical stdlib modularization beyond the canonical `std.prelude` declaration.
+- Cross-module re-export semantics beyond local `exports *`.
