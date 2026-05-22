@@ -1,0 +1,27 @@
+type ResourcePair {
+    left: UniquePtr<i32>;
+    right: UniquePtr<i32>;
+}
+
+impl Drop for ResourcePair {
+    fun drop(self: ref<Self>) -> unit {
+        nativeFree(move self.left);
+    }
+}
+
+fun leak_until_gc() -> ref<ResourcePair> {
+    return new ResourcePair {
+        left: nativeMalloc(16),
+        right: nativeMalloc(16),
+    };
+}
+
+assert(nativeOutstandingAllocations() == 0);
+
+leak_until_gc();
+
+assert(nativeOutstandingAllocations() == 2);
+
+gcFree();
+
+assert(nativeOutstandingAllocations() == 0);

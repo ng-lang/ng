@@ -1,6 +1,7 @@
 #include <orgasm/vm.hpp>
 #include <algorithm>
 #include <bit>
+#include <functional>
 #include <iostream>
 #include <intp/runtime_numerals.hpp>
 #include <cstring>
@@ -100,43 +101,62 @@ namespace NG::orgasm
             ~RootProviderGuard() { unregister_gc_root_provider(id); }
         } rootProviderGuard{gcRootProviderId};
         gcFinalizerId = register_gc_finalizer([this, &module](const RuntimeRef<StorageCell> &cell) {
-            if (!cell || runtime_cell_is_moved(cell) || !runtime_cell_has_value(cell) ||
-                !cell->dropArmed || cell->lifecycleDropped || cell->dropInProgress)
-            {
-                return;
-            }
-            auto type = runtime_value_type(cell);
-            if (!type)
-            {
-                return;
-            }
-            if (type->dropCellHandler)
-            {
-                type->dropCellHandler(cell);
-                cell->lifecycleDropped = true;
-                cell->dropArmed = false;
-                return;
-            }
-            auto dropIt = std::find_if(module.functions.begin(), module.functions.end(), [&](const Function &fun) {
-                return fun.name == type->name + ".Drop::drop";
-            });
-            if (dropIt == module.functions.end())
-            {
-                return;
-            }
-            cell->dropInProgress = true;
-            try
-            {
-                execute_slots(module, *dropIt, {make_runtime_reference_cell(cell, "arg:self")});
-                cell->lifecycleDropped = true;
-                cell->dropArmed = false;
-                cell->dropInProgress = false;
-            }
-            catch (...)
-            {
-                cell->dropInProgress = false;
-                throw;
-            }
+            std::function<void(const RuntimeRef<StorageCell> &)> finalizeCell;
+            finalizeCell = [this, &module, &finalizeCell](const RuntimeRef<StorageCell> &targetCell) {
+                if (!targetCell || runtime_cell_is_moved(targetCell) || !runtime_cell_has_value(targetCell) ||
+                    !targetCell->dropArmed || targetCell->lifecycleDropped || targetCell->dropInProgress)
+                {
+                    return;
+                }
+                auto type = runtime_value_type(targetCell);
+                if (!type)
+                {
+                    return;
+                }
+                auto dropChildren = [&]() {
+                    for (const auto &slot : runtime_cell_slot_refs(targetCell))
+                    {
+                        finalizeCell(slot);
+                    }
+                    for (const auto &[_, slot] : runtime_cell_named_slot_refs(targetCell))
+                    {
+                        finalizeCell(slot);
+                    }
+                };
+                if (type->dropCellHandler)
+                {
+                    type->dropCellHandler(targetCell);
+                    targetCell->lifecycleDropped = true;
+                    targetCell->dropArmed = false;
+                    dropChildren();
+                    return;
+                }
+                auto dropIt = std::find_if(module.functions.begin(), module.functions.end(), [&](const Function &fun) {
+                    return fun.name == type->name + ".Drop::drop";
+                });
+                if (dropIt == module.functions.end())
+                {
+                    targetCell->lifecycleDropped = true;
+                    targetCell->dropArmed = false;
+                    dropChildren();
+                    return;
+                }
+                targetCell->dropInProgress = true;
+                try
+                {
+                    execute_slots(module, *dropIt, {make_runtime_reference_cell(targetCell, "arg:self")});
+                    targetCell->lifecycleDropped = true;
+                    targetCell->dropArmed = false;
+                    dropChildren();
+                    targetCell->dropInProgress = false;
+                }
+                catch (...)
+                {
+                    targetCell->dropInProgress = false;
+                    throw;
+                }
+            };
+            finalizeCell(cell);
         });
         struct FinalizerGuard
         {
@@ -303,8 +323,9 @@ namespace NG::orgasm
             }
             return -1;
         };
-        auto drop_cell_if_needed = [this, &function_index_by_name](const BytecodeModule &dropModule,
-                                                                   const RuntimeRef<StorageCell> &cell) {
+        std::function<void(const BytecodeModule &, const RuntimeRef<StorageCell> &)> drop_cell_if_needed;
+        drop_cell_if_needed = [this, &function_index_by_name, &drop_cell_if_needed](
+                                  const BytecodeModule &dropModule, const RuntimeRef<StorageCell> &cell) {
             auto target = drop_target_for_cell(cell);
             if (!target || runtime_cell_is_moved(target) || !runtime_cell_has_value(target) ||
                 !target->dropArmed || target->lifecycleDropped || target->dropInProgress)
@@ -316,11 +337,22 @@ namespace NG::orgasm
             {
                 return;
             }
+            auto dropChildren = [&]() {
+                for (const auto &slot : runtime_cell_slot_refs(target))
+                {
+                    drop_cell_if_needed(dropModule, slot);
+                }
+                for (const auto &[_, slot] : runtime_cell_named_slot_refs(target))
+                {
+                    drop_cell_if_needed(dropModule, slot);
+                }
+            };
             if (type->dropCellHandler)
             {
                 type->dropCellHandler(target);
                 target->lifecycleDropped = true;
                 target->dropArmed = false;
+                dropChildren();
                 return;
             }
             auto dropIndex = function_index_by_name(dropModule, type->name + ".Drop::drop");
@@ -328,6 +360,9 @@ namespace NG::orgasm
             {
                 if (!type->memberFunctions.contains("Drop::drop"))
                 {
+                    target->lifecycleDropped = true;
+                    target->dropArmed = false;
+                    dropChildren();
                     return;
                 }
                 target->dropInProgress = true;
@@ -336,6 +371,7 @@ namespace NG::orgasm
                     (void)runtime_value_respond_slot(target, "Drop::drop", make_runtime_env(root_symbols), {});
                     target->lifecycleDropped = true;
                     target->dropArmed = false;
+                    dropChildren();
                     target->dropInProgress = false;
                 }
                 catch (...)
@@ -352,6 +388,7 @@ namespace NG::orgasm
                               {make_runtime_reference_cell(target, "arg:self")});
                 target->lifecycleDropped = true;
                 target->dropArmed = false;
+                dropChildren();
                 target->dropInProgress = false;
             }
             catch (...)

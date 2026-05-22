@@ -108,6 +108,8 @@ TEST_CASE("should run numbered examples", "[Integration]")
       "example/39.drop_raii.ng",
       "example/40.trait_object_list.ng",
       "example/41.drop_smart_pointer.ng",
+      "example/50.partial_move.ng",
+      "example/51.partial_move_drop.ng",
   };
 
   for (const auto &example : examples)

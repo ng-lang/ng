@@ -1,0 +1,22 @@
+type PairBox {
+    left: i32;
+    right: i32;
+
+    fun sum(self: ref<Self>) -> i32 {
+        return self.left + self.right;
+    }
+}
+
+val box = new PairBox { left: 10, right: 32 };
+val movedLeft = move box.left;
+assert(movedLeft == 10);
+assert(box.right == 32);
+box.left := 8;
+assert(box.sum() == 40);
+
+val tuple = (3, "kept");
+val movedHead = move tuple[0];
+assert(movedHead == 3);
+assert(tuple[1] == "kept");
+tuple[0] := 5;
+assert(tuple[0] == 5);

@@ -1,5 +1,9 @@
 # Constant Generic Parameters
 
+## Order
+
+Recommended Issue order: 3.
+
 ## Goal
 
 Add scalar compile-time values as generic parameters, separate from type parameters.
@@ -11,6 +15,19 @@ type Array<T, const N: u32> = native;
 
 fun repeat<const N: u32>(value: i32) -> Array<i32, N> = native;
 ```
+
+## Dependencies
+
+Prerequisites:
+
+- Existing enhanced generics, specialization, and mangling.
+- [Generalized `= delete` Declarations](generalized_delete.md) is recommended first so invalid const-generic specializations can use one consistent negative declaration mechanism.
+
+Unblocks:
+
+- [`const fun` And Compile-Time Computation](const_fun.md)
+- [Enhanced Tuple Types](enhanced_tuples.md), for `tuple_element<T, I>` and tuple slice bounds.
+- Stable `.ngo` symbol persistence in [Bytecode Module Loading](bytecode_module_loading.md).
 
 ## Scope
 

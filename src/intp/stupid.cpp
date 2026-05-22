@@ -710,14 +710,25 @@ namespace NG::intp
       return;
     }
     auto type = runtime_value_type(target);
+    auto dropChildren = [&symbols](const RuntimeRef<StorageCell> &parent) {
+      for (const auto &slot : runtime_cell_slot_refs(parent))
+      {
+        drop_storage_cell_if_needed(symbols, slot);
+      }
+      for (const auto &[_, slot] : runtime_cell_named_slot_refs(parent))
+      {
+        drop_storage_cell_if_needed(symbols, slot);
+      }
+    };
     if (!type || !type->memberFunctions.contains("Drop::drop"))
     {
       if (type && type->dropCellHandler)
       {
         type->dropCellHandler(target);
-        target->lifecycleDropped = true;
-        target->dropArmed = false;
       }
+      target->lifecycleDropped = true;
+      target->dropArmed = false;
+      dropChildren(target);
       return;
     }
 
@@ -727,6 +738,7 @@ namespace NG::intp
       (void)runtime_value_respond_slot(target, "Drop::drop", make_runtime_env(symbols), {});
       target->lifecycleDropped = true;
       target->dropArmed = false;
+      dropChildren(target);
       target->dropInProgress = false;
     }
     catch (...)
