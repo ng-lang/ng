@@ -1237,3 +1237,55 @@ TEST_CASE("generic inference should reject inconsistent repeated parameter bindi
     val result = choose((1, "x"));
   )", "Inconsistent bindings for generic parameter 'T'");
 }
+
+TEST_CASE("const generic parameters should instantiate distinct native types", "[TypeCheck][Generic][Const]")
+{
+  auto ast = parse(R"(
+    type Buffer<T, const N: u32> = native;
+
+    val a: Buffer<i32, 4> = unit;
+    val b: Buffer<i32, 8> = unit;
+  )");
+
+  REQUIRE(ast != nullptr);
+  auto index = type_check(ast);
+  REQUIRE(index["a"]->repr() == "Buffer<i32, 4:i64>");
+  REQUIRE(index["b"]->repr() == "Buffer<i32, 8:i64>");
+  REQUIRE_FALSE(index["a"]->match(*index["b"]));
+  destroyast(ast);
+}
+
+TEST_CASE("const generic function should accept explicit const arguments", "[TypeCheck][Generic][Const]")
+{
+  auto ast = parse(R"(
+    fun<const N: u32> id_len(value: array<i32, N>) -> array<i32, N> {
+      return value;
+    }
+
+    val xs: array<i32, 3> = [1, 2, 3];
+    val ys = id_len<3>(xs);
+  )");
+
+  REQUIRE(ast != nullptr);
+  auto index = type_check(ast);
+  check_type_tag(*index["ys"], typeinfo_tag::ARRAY);
+  destroyast(ast);
+}
+
+TEST_CASE("const generic arguments should reject type values and missing array length",
+          "[TypeCheck][Generic][Const][Failure]")
+{
+  typecheck_failure(R"(
+    type Buffer<T, const N: u32> = native;
+    val bad: Buffer<i32, i32> = unit;
+  )", "expects a compile-time constant argument");
+
+  typecheck_failure(R"(
+    type Buffer<T> = native;
+    val bad: Buffer<4> = unit;
+  )", "expects a type argument");
+
+  typecheck_failure(R"(
+    val bad: array<i32> = [1];
+  )", "Fixed array type expects 2 generic arguments");
+}

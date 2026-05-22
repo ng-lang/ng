@@ -58,6 +58,7 @@ namespace NG::typecheck
         VARIANT = 0xB4,
         UNION = 0xB5,
         TRAIT = 0xB6,
+        SPAN = 0xB7,
 
         GENERICS = 0xC0,
         GENERIC_PARAM = 0xC1,
@@ -65,6 +66,7 @@ namespace NG::typecheck
         VARARGS = 0xC3,
         GENERIC_TYPE_DEF = 0xC4,
         TYPE_CONSTRUCTOR_APPLICATION = 0xC5,
+        CONST_VALUE = 0xC6,
     };
 
     /**
@@ -219,13 +221,15 @@ namespace NG::typecheck
     };
 
     /**
-     * @brief A array type.
+     * @brief A fixed-size array type.
      */
     struct ArrayType : TypeInfo
     {
         CheckingRef<TypeInfo> elementType; ///< The element type of the array.
+        CheckingRef<TypeInfo> length; ///< Const generic length for array<T, N>. Null means legacy/unknown length.
 
-        ArrayType(CheckingRef<TypeInfo> elementType) : elementType(elementType) {}
+        explicit ArrayType(CheckingRef<TypeInfo> elementType, CheckingRef<TypeInfo> length = nullptr)
+            : elementType(std::move(elementType)), length(std::move(length)) {}
         /**
          * @brief Applies the function with the given types.
          *
@@ -235,6 +239,38 @@ namespace NG::typecheck
         [[nodiscard]] auto containing(const TypeInfo &other) const -> bool;
 
         auto tag() const -> typeinfo_tag override;
+        auto repr() const -> Str override;
+        auto match(const TypeInfo &other) const -> bool override;
+    };
+
+    /**
+     * @brief A dynamic owning contiguous container.
+     */
+    struct VectorType : TypeInfo
+    {
+        CheckingRef<TypeInfo> elementType;
+
+        explicit VectorType(CheckingRef<TypeInfo> elementType) : elementType(std::move(elementType)) {}
+
+        [[nodiscard]] auto containing(const TypeInfo &other) const -> bool;
+
+        auto tag() const -> typeinfo_tag override { return typeinfo_tag::VECTOR; }
+        auto repr() const -> Str override;
+        auto match(const TypeInfo &other) const -> bool override;
+    };
+
+    /**
+     * @brief A non-owning contiguous memory view.
+     */
+    struct SpanType : TypeInfo
+    {
+        CheckingRef<TypeInfo> elementType;
+
+        explicit SpanType(CheckingRef<TypeInfo> elementType) : elementType(std::move(elementType)) {}
+
+        [[nodiscard]] auto containing(const TypeInfo &other) const -> bool;
+
+        auto tag() const -> typeinfo_tag override { return typeinfo_tag::SPAN; }
         auto repr() const -> Str override;
         auto match(const TypeInfo &other) const -> bool override;
     };
@@ -420,6 +456,20 @@ namespace NG::typecheck
         auto match(const TypeInfo &other) const -> bool override;
     };
 
+    struct ConstValueType : TypeInfo
+    {
+        Str value;
+        Str valueType;
+        bool isParam = false;
+
+        ConstValueType(Str value, Str valueType = "", bool isParam = false)
+            : value(std::move(value)), valueType(std::move(valueType)), isParam(isParam) {}
+
+        auto tag() const -> typeinfo_tag override { return CONST_VALUE; }
+        auto repr() const -> Str override;
+        auto match(const TypeInfo &other) const -> bool override;
+    };
+
     /**
      * @brief A generic function or type definition that has not yet been monomorphized.
      *
@@ -434,6 +484,7 @@ namespace NG::typecheck
         Str moduleId;                               ///< Canonical module that owns this generic definition.
         Vec<Str> typeParamNames;                    ///< Names of type parameters (e.g. ["T", "U"])
         Vec<bool> typeParamIsPack;                  ///< Which type params are packs (parallel to typeParamNames)
+        Vec<bool> typeParamIsConst;                 ///< Which generic params are scalar const params.
         Vec<size_t> typeParamKindArities;            ///< 0 for *, N for type constructor params.
         Vec<bool> typeParamKindVariadicTails;        ///< Which type params are variadic constructor kinds.
         NG::ast::ASTRef<NG::ast::FunctionDef> funcDef; ///< The original AST node (for generic functions)
@@ -472,6 +523,7 @@ namespace NG::typecheck
         GenericTypeKind kind;
         Vec<Str> typeParamNames;
         Vec<bool> typeParamIsPack;
+        Vec<bool> typeParamIsConst;
         Vec<size_t> typeParamKindArities;
         Vec<bool> typeParamKindVariadicTails;
         NG::ast::ASTRef<NG::ast::TypeDef> typeDef = nullptr;

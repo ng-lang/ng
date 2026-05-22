@@ -385,12 +385,34 @@ namespace NG::parsing
       accept(TokenType::LT);
       while (!expect(TokenType::GT) && !state.eof())
       {
+        const bool isConstParam = expect(TokenType::KEYWORD_CONST);
+        if (isConstParam)
+        {
+          accept(TokenType::KEYWORD_CONST);
+        }
         if (!expect(TokenType::ID))
         {
           unexpected("Expected generic type parameter name");
         }
         auto param = createNode<GenericParam>(state->repr);
         accept(TokenType::ID);
+
+        if (isConstParam)
+        {
+          param->isConst = true;
+          if (!expect(TokenType::COLON))
+          {
+            unexpected("Expected ':' after const generic parameter name");
+          }
+          accept(TokenType::COLON);
+          param->constType = typeAnnotation();
+          params.push_back(std::move(param));
+          if (expect(TokenType::COMMA))
+          {
+            accept(TokenType::COMMA);
+          }
+          continue;
+        }
 
         // Higher-kinded type constructor parameter: F<_>, F<_, _>, ...
         if (expect(TokenType::LT))
@@ -468,9 +490,34 @@ namespace NG::parsing
       accept(TokenType::LT);
       while (!expect(TokenType::GT) && !state.eof() && !expect(TokenType::RSHIFT))
       {
-        auto arg = typeAnnotation();
+        std::shared_ptr<TypeAnnotation> arg;
+        if (expect(TokenType::NUMBER) || expect(TokenType::STRING) || expect(TokenType::KEYWORD_TRUE) ||
+            expect(TokenType::KEYWORD_FALSE))
+        {
+          auto literal = createNode<TypeAnnotation>(state->repr);
+          literal->type = TypeAnnotationType::CUSTOMIZED;
+          literal->constLiteral = true;
+          if (expect(TokenType::STRING))
+          {
+            literal->constLiteralType = "string";
+          }
+          else if (expect(TokenType::KEYWORD_TRUE) || expect(TokenType::KEYWORD_FALSE))
+          {
+            literal->constLiteralType = "bool";
+          }
+          else
+          {
+            literal->constLiteralType = "i64";
+          }
+          accept(state->type);
+          arg = std::shared_ptr<TypeAnnotation>(std::move(literal));
+        }
+        else
+        {
+          arg = std::shared_ptr<TypeAnnotation>(std::move(typeAnnotation()));
+        }
         // Convert ASTRef to shared_ptr for genericArgs field
-        args.push_back(std::shared_ptr<TypeAnnotation>(std::move(arg)));
+        args.push_back(std::move(arg));
 
         if (expect(TokenType::COMMA))
         {
@@ -1269,9 +1316,9 @@ namespace NG::parsing
     {
       ASTRef<TypeAnnotation> result = typeAnnotationBase();
       // Apply suffix generic syntax for all type bases:
-      // `i32 array` => array<i32>, `bool Optional` => Optional<bool>
+      // `i32 array` => vector<i32>, `bool Optional` => Optional<bool>
       // `(string, i32) Map` => Map<string, i32>
-      // Left-associative: `i32 array Optional` => Optional<array<i32>>
+      // Left-associative: `i32 array Optional` => Optional<vector<i32>>
       result = parseSuffixGeneric(std::move(result));
 
       // Parse union type annotations: `i32 | string | bool`
@@ -1320,9 +1367,9 @@ namespace NG::parsing
       }
       if (maybeBuiltin == TokenType::LEFT_SQUARE)
       {
-        auto array = createNode<TypeAnnotation>("array");
+        auto array = createNode<TypeAnnotation>("vector");
         accept(TokenType::LEFT_SQUARE);
-        array->type = TypeAnnotationType::ARRAY;
+        array->type = TypeAnnotationType::VECTOR;
         auto argumentRst = typeAnnotation();
         array->arguments.push_back(argumentRst);
         accept(TokenType::RIGHT_SQUARE);
@@ -1389,7 +1436,8 @@ namespace NG::parsing
             if (next == TokenType::ID ||
                 (code(TokenType::KEYWORD_INT) <= code(next) && code(TokenType::KEYWORD_F128) >= code(next)) ||
                 next == TokenType::KEYWORD_UNIT || next == TokenType::KEYWORD_REF || next == TokenType::LEFT_SQUARE ||
-                next == TokenType::LEFT_PAREN)
+                next == TokenType::LEFT_PAREN || next == TokenType::NUMBER || next == TokenType::STRING ||
+                next == TokenType::KEYWORD_TRUE || next == TokenType::KEYWORD_FALSE)
             {
               isGenericArgs = true;
             }
@@ -1420,6 +1468,10 @@ namespace NG::parsing
       while (expectTypeSuffixKeyword())
       {
         auto suffixName = expect(TokenType::KEYWORD_REF) ? Str{"ref"} : state->repr;
+        if (suffixName == "array")
+        {
+          suffixName = "vector";
+        }
         accept(state->type);
 
         auto wrapper = createNode<TypeAnnotation>(suffixName);
@@ -1437,7 +1489,7 @@ namespace NG::parsing
         }
         else
         {
-          // Single-param suffix: `i32 array` => array<i32>
+          // Single-param suffix: `i32 array` => vector<i32>
           wrapper->genericArgs.push_back(std::shared_ptr<TypeAnnotation>(std::move(base)));
         }
         base = std::move(wrapper);

@@ -98,6 +98,46 @@ namespace NG::typecheck
     return type;
   }
 
+  static auto sequence_element_type(const CheckingRef<TypeInfo> &type) -> CheckingRef<TypeInfo>
+  {
+    auto unwrapped = unwrap(type);
+    if (auto array = std::dynamic_pointer_cast<ArrayType>(unwrapped))
+    {
+      return array->elementType;
+    }
+    if (auto vector = std::dynamic_pointer_cast<VectorType>(unwrapped))
+    {
+      return vector->elementType;
+    }
+    if (auto span = std::dynamic_pointer_cast<SpanType>(unwrapped))
+    {
+      return span->elementType;
+    }
+    return nullptr;
+  }
+
+  static auto is_sequence_type(const CheckingRef<TypeInfo> &type) -> bool
+  {
+    return sequence_element_type(type) != nullptr;
+  }
+
+  static auto const_value_equals_size(const CheckingRef<TypeInfo> &type, size_t value) -> bool
+  {
+    auto constValue = std::dynamic_pointer_cast<ConstValueType>(unwrap(type));
+    if (!constValue || constValue->isParam)
+    {
+      return true;
+    }
+    try
+    {
+      return std::stoull(constValue->value) == value;
+    }
+    catch (...)
+    {
+      return false;
+    }
+  }
+
   static auto is_self_type(const CheckingRef<TypeInfo> &type) -> bool
   {
     auto generic = std::dynamic_pointer_cast<GenericParamType>(unwrap(type));
@@ -128,6 +168,14 @@ namespace NG::typecheck
     if (auto array = std::dynamic_pointer_cast<ArrayType>(unwrapped))
     {
       return contains_non_receiver_self(array->elementType);
+    }
+    if (auto vector = std::dynamic_pointer_cast<VectorType>(unwrapped))
+    {
+      return contains_non_receiver_self(vector->elementType);
+    }
+    if (auto span = std::dynamic_pointer_cast<SpanType>(unwrapped))
+    {
+      return contains_non_receiver_self(span->elementType);
     }
     if (auto tuple = std::dynamic_pointer_cast<TupleType>(unwrapped))
     {
@@ -789,7 +837,23 @@ namespace NG::typecheck
       }
       if (auto array = std::dynamic_pointer_cast<ArrayType>(type))
       {
-        return self(array->elementType, self) + " array";
+        if (array->length)
+        {
+          return "array<" + self(array->elementType, self) + ", " + self(array->length, self) + ">";
+        }
+        return "array<" + self(array->elementType, self) + ", ?>";
+      }
+      if (auto vector = std::dynamic_pointer_cast<VectorType>(type))
+      {
+        return "vector<" + self(vector->elementType, self) + ">";
+      }
+      if (auto span = std::dynamic_pointer_cast<SpanType>(type))
+      {
+        return "span<" + self(span->elementType, self) + ">";
+      }
+      if (auto constValue = std::dynamic_pointer_cast<ConstValueType>(type))
+      {
+        return constValue->repr();
       }
       if (auto tuple = std::dynamic_pointer_cast<TupleType>(type))
       {
@@ -895,6 +959,10 @@ namespace NG::typecheck
       return "string";
     case typeinfo_tag::ARRAY:
       return "array";
+    case typeinfo_tag::VECTOR:
+      return "vector";
+    case typeinfo_tag::SPAN:
+      return "span";
     case typeinfo_tag::TUPLE:
       return "tuple";
     case typeinfo_tag::FUNCTION:
@@ -1291,6 +1359,24 @@ namespace NG::typecheck
       return it->second;
     }
 
+    auto resolveGenericArgument(TypeAnnotation *annotation, bool expectedConst, size_t expectedArity,
+                                bool expectedVariadicTail, const Str &paramName) const -> CheckingRef<TypeInfo>
+    {
+      auto resolved = resolveGenericTypeArgument(annotation, expectedArity, expectedVariadicTail, paramName);
+      const bool isConstValue = resolved && resolved->tag() == typeinfo_tag::CONST_VALUE;
+      if (expectedConst && !isConstValue)
+      {
+        throw TypeCheckingException("Generic parameter '" + paramName + "' expects a compile-time constant argument",
+                                    annotation ? annotation->pos : TokenPosition{});
+      }
+      if (!expectedConst && isConstValue)
+      {
+        throw TypeCheckingException("Generic parameter '" + paramName + "' expects a type argument",
+                                    annotation ? annotation->pos : TokenPosition{});
+      }
+      return resolved;
+    }
+
     static auto isBuiltinLifecycleTraitName(const Str &name) -> bool
     {
       return name == COPY_TRAIT_NAME || name == CLONE_TRAIT_NAME || name == DROP_TRAIT_NAME;
@@ -1419,6 +1505,16 @@ namespace NG::typecheck
         validateObjectSafeTraitRefs(array->elementType);
         return;
       }
+      if (auto vector = std::dynamic_pointer_cast<VectorType>(unwrapped))
+      {
+        validateObjectSafeTraitRefs(vector->elementType);
+        return;
+      }
+      if (auto span = std::dynamic_pointer_cast<SpanType>(unwrapped))
+      {
+        validateObjectSafeTraitRefs(span->elementType);
+        return;
+      }
       if (auto tuple = std::dynamic_pointer_cast<TupleType>(unwrapped))
       {
         for (auto &element : tuple->elementTypes)
@@ -1506,6 +1602,17 @@ namespace NG::typecheck
       return tails;
     }
 
+    static auto genericParamIsConst(const Vec<ASTRef<GenericParam>> &genericParams) -> Vec<bool>
+    {
+      Vec<bool> flags;
+      flags.reserve(genericParams.size());
+      for (auto &param : genericParams)
+      {
+        flags.push_back(param->isConst);
+      }
+      return flags;
+    }
+
     static auto genericTypeConstructorFixedArity(const GenericTypeDef &genericType) -> size_t
     {
       auto packIt = std::find(genericType.typeParamIsPack.begin(), genericType.typeParamIsPack.end(), true);
@@ -1585,6 +1692,29 @@ namespace NG::typecheck
         auto ref = std::dynamic_pointer_cast<ReferenceType>(unwrap(actual));
         return ref && pattern->genericArgs.size() == 1 &&
                typePatternMatch(pattern->genericArgs[0].get(), ref->referencedType, genericParamNames, bindings);
+      }
+      if (pattern->name == "array")
+      {
+        auto array = std::dynamic_pointer_cast<ArrayType>(unwrap(actual));
+        if (!array || pattern->genericArgs.size() != 2)
+        {
+          return false;
+        }
+        return typePatternMatch(pattern->genericArgs[0].get(), array->elementType, genericParamNames, bindings) &&
+               array->length &&
+               typePatternMatch(pattern->genericArgs[1].get(), array->length, genericParamNames, bindings);
+      }
+      if (pattern->name == "vector")
+      {
+        auto vector = std::dynamic_pointer_cast<VectorType>(unwrap(actual));
+        return vector && pattern->genericArgs.size() == 1 &&
+               typePatternMatch(pattern->genericArgs[0].get(), vector->elementType, genericParamNames, bindings);
+      }
+      if (pattern->name == "span")
+      {
+        auto span = std::dynamic_pointer_cast<SpanType>(unwrap(actual));
+        return span && pattern->genericArgs.size() == 1 &&
+               typePatternMatch(pattern->genericArgs[0].get(), span->elementType, genericParamNames, bindings);
       }
       auto actualName = actual->repr();
       if (auto custom = std::dynamic_pointer_cast<CustomizedType>(unwrap(actual)))
@@ -1820,9 +1950,17 @@ namespace NG::typecheck
       {
         if (genericParam)
         {
-          bindings[genericParam->name] = makecheck<GenericParamType>(
-              genericParam->name, typeParamBoundName(*genericParam), genericParam->isPack,
-              genericParam->kindArity, genericParam->kindVariadicTail);
+          if (genericParam->isConst)
+          {
+            bindings[genericParam->name] = makecheck<ConstValueType>(
+                genericParam->name, genericParam->constType ? genericParam->constType->repr() : "", true);
+          }
+          else
+          {
+            bindings[genericParam->name] = makecheck<GenericParamType>(
+                genericParam->name, typeParamBoundName(*genericParam), genericParam->isPack,
+                genericParam->kindArity, genericParam->kindVariadicTail);
+          }
         }
       }
       for (size_t i = 0; i < candidate.params.size(); ++i)
@@ -2171,8 +2309,15 @@ namespace NG::typecheck
     {
       for (auto &gp : genericParams)
       {
-        scope[gp->name] = makecheck<GenericParamType>(gp->name, typeParamBoundName(*gp), gp->isPack,
-                                                      gp->kindArity, gp->kindVariadicTail);
+        if (gp->isConst)
+        {
+          scope[gp->name] = makecheck<ConstValueType>(gp->name, gp->constType ? gp->constType->repr() : "", true);
+        }
+        else
+        {
+          scope[gp->name] = makecheck<GenericParamType>(gp->name, typeParamBoundName(*gp), gp->isPack,
+                                                        gp->kindArity, gp->kindVariadicTail);
+        }
       }
     }
 
@@ -2659,6 +2804,22 @@ namespace NG::typecheck
       }
       for (size_t i = 0; i < typeArgs.size(); ++i)
       {
+        const bool expectedConst = i < genericDef.typeParamIsConst.size() && genericDef.typeParamIsConst[i];
+        const bool actualConst = typeArgs[i] && typeArgs[i]->tag() == typeinfo_tag::CONST_VALUE;
+        if (expectedConst)
+        {
+          if (!actualConst)
+          {
+            throw TypeCheckingException("Generic parameter '" + genericDef.typeParamNames[i] +
+                                        "' expects a compile-time constant argument");
+          }
+          continue;
+        }
+        if (actualConst)
+        {
+          throw TypeCheckingException("Generic parameter '" + genericDef.typeParamNames[i] +
+                                      "' expects a type argument");
+        }
         const size_t expectedArity =
             i < genericDef.typeParamKindArities.size() ? genericDef.typeParamKindArities[i] : 0;
         const bool expectedVariadicTail = i < genericDef.typeParamKindVariadicTails.size()
@@ -3233,6 +3394,7 @@ namespace NG::typecheck
             }
             auto genericDef = makecheck<GenericDefType>(
                 funDef->funName, typeParamNames, typeParamIsPack, funDef, locals, currentModuleId);
+            genericDef->typeParamIsConst = genericParamIsConst(funDef->genericParams);
             genericDef->typeParamKindArities = genericParamKindArities(funDef->genericParams);
             genericDef->typeParamKindVariadicTails =
                 genericParamKindVariadicTails(funDef->genericParams);
@@ -3302,6 +3464,8 @@ namespace NG::typecheck
             }
             locals[typeAlias->aliasName] =
                 makecheck<GenericTypeDef>(typeAlias->aliasName, typeParamNames, typeParamIsPack, typeAlias, locals, currentModuleId);
+            std::static_pointer_cast<GenericTypeDef>(locals[typeAlias->aliasName])->typeParamIsConst =
+                genericParamIsConst(typeAlias->genericParams);
             std::static_pointer_cast<GenericTypeDef>(locals[typeAlias->aliasName])->typeParamKindArities =
                 genericParamKindArities(typeAlias->genericParams);
             std::static_pointer_cast<GenericTypeDef>(locals[typeAlias->aliasName])->typeParamKindVariadicTails =
@@ -3338,6 +3502,8 @@ namespace NG::typecheck
             }
             locals[newTypeDef->typeName] =
                 makecheck<GenericTypeDef>(newTypeDef->typeName, typeParamNames, typeParamIsPack, newTypeDef, locals, currentModuleId);
+            std::static_pointer_cast<GenericTypeDef>(locals[newTypeDef->typeName])->typeParamIsConst =
+                genericParamIsConst(newTypeDef->genericParams);
             std::static_pointer_cast<GenericTypeDef>(locals[newTypeDef->typeName])->typeParamKindArities =
                 genericParamKindArities(newTypeDef->genericParams);
             std::static_pointer_cast<GenericTypeDef>(locals[newTypeDef->typeName])->typeParamKindVariadicTails =
@@ -3364,6 +3530,8 @@ namespace NG::typecheck
             }
             locals[typeDef->typeName] =
                 makecheck<GenericTypeDef>(typeDef->typeName, typeParamNames, typeParamIsPack, typeDef, locals, currentModuleId);
+            std::static_pointer_cast<GenericTypeDef>(locals[typeDef->typeName])->typeParamIsConst =
+                genericParamIsConst(typeDef->genericParams);
             std::static_pointer_cast<GenericTypeDef>(locals[typeDef->typeName])->typeParamKindArities =
                 genericParamKindArities(typeDef->genericParams);
             std::static_pointer_cast<GenericTypeDef>(locals[typeDef->typeName])->typeParamKindVariadicTails =
@@ -3388,6 +3556,7 @@ namespace NG::typecheck
             }
             auto genericDef = makecheck<GenericTypeDef>(taggedUnion->typeName, typeParamNames,
                                                         typeParamIsPack, taggedUnion, locals, currentModuleId);
+            genericDef->typeParamIsConst = genericParamIsConst(taggedUnion->genericParams);
             genericDef->typeParamKindArities = genericParamKindArities(taggedUnion->genericParams);
             genericDef->typeParamKindVariadicTails =
                 genericParamKindVariadicTails(taggedUnion->genericParams);
@@ -4459,7 +4628,7 @@ namespace NG::typecheck
         valBind->value->accept(&checker);
         auto valType = checker.result;
         movedBindings = checker.movedBindings;
-        if (auto arrayType = std::dynamic_pointer_cast<ArrayType>(valType); arrayType)
+        if (auto elementType = sequence_element_type(valType); elementType)
         {
           for (size_t i = 0; i < valBind->bindings.size(); ++i)
           {
@@ -4470,7 +4639,7 @@ namespace NG::typecheck
               {
                 throw TypeCheckingException("Spread receiver must be the last binding in array unpack.");
               }
-              auto restArrayType = makecheck<ArrayType>(arrayType->elementType);
+              auto restArrayType = makecheck<VectorType>(elementType);
               if (binding->annotation)
               {
                 binding->annotation->accept(&checker);
@@ -4498,20 +4667,20 @@ namespace NG::typecheck
             {
               binding->annotation->accept(&checker);
               auto annoType = checker.result;
-              if (typeMatch(*annoType, *arrayType->elementType))
+              if (typeMatch(*annoType, *elementType))
               {
                 locals.insert_or_assign(binding->name, annoType);
                 clearMovedPlace(movedBindings, binding->name);
               }
               else
               {
-                throw TypeCheckingException("Value Binding Type Mismatch: " + arrayType->elementType->repr() + " to " +
+                throw TypeCheckingException("Value Binding Type Mismatch: " + elementType->repr() + " to " +
                                             annoType->repr());
               }
             }
             else
             {
-              locals.insert_or_assign(binding->name, arrayType->elementType);
+              locals.insert_or_assign(binding->name, elementType);
               clearMovedPlace(movedBindings, binding->name);
             }
           }
@@ -4776,13 +4945,13 @@ namespace NG::typecheck
           throw TypeCheckingException("Unsupported operator for primitive types", expression->pos);
         }
       }
-      else if (leftType->tag() == typeinfo_tag::ARRAY)
+      else if (leftType->tag() == typeinfo_tag::VECTOR)
       {
-        ArrayType &arrayType = static_cast<ArrayType &>(*leftType);
+        VectorType &vectorType = static_cast<VectorType &>(*leftType);
         switch (expression->optr->type)
         {
-        case TokenType::LSHIFT: // push to array
-          if (typeMatch(*arrayType.elementType, *rightType) || rightType->tag() == typeinfo_tag::UNTYPED)
+        case TokenType::LSHIFT:
+          if (typeMatch(*vectorType.elementType, *rightType) || rightType->tag() == typeinfo_tag::UNTYPED)
           {
             result = leftType;
             return;
@@ -4792,8 +4961,13 @@ namespace NG::typecheck
             throw TypeCheckingException("Invalid element type for array push: " + rightType->repr(), expression->pos);
           }
         default:
-          throw TypeCheckingException("Unsupported operator for array types", expression->pos);
+          throw TypeCheckingException("Unsupported operator for vector types", expression->pos);
         }
+      }
+      else if (leftType->tag() == typeinfo_tag::ARRAY || leftType->tag() == typeinfo_tag::SPAN)
+      {
+        throw TypeCheckingException("Unsupported operator for " + typeKindName(*leftType) + " types",
+                                    expression->pos);
       }
       else
       {
@@ -4846,6 +5020,11 @@ namespace NG::typecheck
 
     void visit(TypeAnnotation *annotation) override
     {
+      if (annotation->constLiteral)
+      {
+        result = makecheck<ConstValueType>(annotation->name, annotation->constLiteralType, false);
+        return;
+      }
       auto typecode = code(annotation->type);
       if (typecode > code(TypeAnnotationType::BUILTIN) && typecode < code(TypeAnnotationType::END_OF_BUILTIN))
       {
@@ -4869,7 +5048,27 @@ namespace NG::typecheck
         }
         else
         {
-          throw TypeCheckingException("Array type expects exactly 1 type argument");
+          throw TypeCheckingException("Legacy array type expects exactly 1 element type argument");
+        }
+      }
+      else if (annotation->type == TypeAnnotationType::VECTOR)
+      {
+        if (annotation->arguments.size() == 1)
+        {
+          auto arg = annotation->arguments[0];
+          TypeChecker checker{locals};
+          arg->accept(&checker);
+          auto argType = checker.result;
+          if (argType)
+          {
+            result = makecheck<VectorType>(argType);
+            return;
+          }
+          throw TypeCheckingException("Unknown element type for vector");
+        }
+        else
+        {
+          throw TypeCheckingException("Vector type expects exactly 1 type argument");
         }
       }
       else if (annotation->type == TypeAnnotationType::TUPLE)
@@ -4932,9 +5131,35 @@ namespace NG::typecheck
           return;
         }
 
-        // Handle suffix generic "array" syntax: T array => ArrayType<T>
-        // This can come from bracket syntax [T] (arguments) or suffix syntax T array (genericArgs)
+        // Fixed array type: array<T, N>
         if (annotation->name == "array")
+        {
+          if (annotation->genericArgs.size() == 2)
+          {
+            TypeChecker checker{locals};
+            annotation->genericArgs[0]->accept(&checker);
+            auto argType = checker.result;
+            annotation->genericArgs[1]->accept(&checker);
+            auto lengthType = checker.result;
+            if (!argType)
+            {
+              throw TypeCheckingException("Unknown element type for array");
+            }
+            if (!lengthType || lengthType->tag() != typeinfo_tag::CONST_VALUE)
+            {
+              throw TypeCheckingException("Array length expects a compile-time constant argument", annotation->pos);
+            }
+            result = makecheck<ArrayType>(argType, lengthType);
+            return;
+          }
+          if (annotation->genericArgs.size() == 1)
+          {
+            throw TypeCheckingException("Fixed array type expects 2 generic arguments: array<T, N>; use vector<T> for dynamic arrays",
+                                        annotation->pos);
+          }
+        }
+
+        if (annotation->name == "vector")
         {
           if (annotation->arguments.size() == 1)
           {
@@ -4943,10 +5168,10 @@ namespace NG::typecheck
             auto argType = checker.result;
             if (argType)
             {
-              result = makecheck<ArrayType>(argType);
+              result = makecheck<VectorType>(argType);
               return;
             }
-            throw TypeCheckingException("Unknown element type for array");
+            throw TypeCheckingException("Unknown element type for vector");
           }
           if (annotation->genericArgs.size() == 1)
           {
@@ -4955,10 +5180,26 @@ namespace NG::typecheck
             auto argType = checker.result;
             if (argType)
             {
-              result = makecheck<ArrayType>(argType);
+              result = makecheck<VectorType>(argType);
               return;
             }
-            throw TypeCheckingException("Unknown element type for array");
+            throw TypeCheckingException("Unknown element type for vector");
+          }
+        }
+
+        if (annotation->name == "span")
+        {
+          if (annotation->genericArgs.size() == 1)
+          {
+            TypeChecker checker{locals};
+            annotation->genericArgs[0]->accept(&checker);
+            auto argType = checker.result;
+            if (argType)
+            {
+              result = makecheck<SpanType>(argType);
+              return;
+            }
+            throw TypeCheckingException("Unknown element type for span");
           }
         }
 
@@ -5118,22 +5359,31 @@ namespace NG::typecheck
     {
       if (arrayLit->elements.empty())
       {
-        // Bidirectional inference: use expectedType if it's an array type
-        if (expectedType && expectedType->tag() == typeinfo_tag::ARRAY)
+        if (expectedType && is_sequence_type(expectedType))
         {
+          if (auto expectedArray = std::dynamic_pointer_cast<ArrayType>(unwrap(expectedType));
+              expectedArray && expectedArray->length && !const_value_equals_size(expectedArray->length, 0))
+          {
+            throw TypeCheckingException("Array literal length mismatch: expected " + expectedArray->length->repr() +
+                                            ", got 0",
+                                        arrayLit->pos);
+          }
           result = expectedType;
         }
         else
         {
-          result = makecheck<ArrayType>(makecheck<Untyped>());
+          result = makecheck<VectorType>(makecheck<Untyped>());
         }
         return;
       }
+      auto expectedElementType = sequence_element_type(expectedType);
       TypeChecker checker{locals, {}, nullptr, movedBindings};
+      checker.expectedType = expectedElementType;
       arrayLit->elements[0]->accept(&checker);
       auto elemType = checker.result;
       for (size_t i = 1; i < arrayLit->elements.size(); ++i)
       {
+        checker.expectedType = expectedElementType;
         arrayLit->elements[i]->accept(&checker);
         auto nextType = checker.result;
         if (!typeMatch(*elemType, *nextType))
@@ -5150,7 +5400,23 @@ namespace NG::typecheck
         }
       }
       movedBindings = checker.movedBindings;
-      result = makecheck<ArrayType>(elemType);
+      if (auto expectedArray = std::dynamic_pointer_cast<ArrayType>(unwrap(expectedType)); expectedArray)
+      {
+        if (expectedArray->length && !const_value_equals_size(expectedArray->length, arrayLit->elements.size()))
+        {
+          throw TypeCheckingException("Array literal length mismatch: expected " + expectedArray->length->repr() +
+                                          ", got " + std::to_string(arrayLit->elements.size()),
+                                      arrayLit->pos);
+        }
+        result = expectedType;
+        return;
+      }
+      if (expectedType && expectedType->tag() == typeinfo_tag::VECTOR)
+      {
+        result = expectedType;
+        return;
+      }
+      result = makecheck<VectorType>(elemType);
     }
 
     void visit(TupleLiteral *tuple) override
@@ -5207,14 +5473,14 @@ namespace NG::typecheck
           spreadResult.push_back(elemType);
         }
       }
-      else if (auto arr = std::dynamic_pointer_cast<ArrayType>(type); arr)
+      else if (auto elementType = sequence_element_type(type); elementType)
       {
-        // Array spread does not expand compile-time arity.
-        result = arr->elementType;
+        // Contiguous sequence spread does not expand compile-time arity.
+        result = elementType;
       }
       else
       {
-        throw TypeCheckingException("Invalid spread expression on type, expect tuple, varargs, or array, got " + type->repr());
+        throw TypeCheckingException("Invalid spread expression on type, expect tuple, varargs, array, vector, or span, got " + type->repr());
       }
     }
 
@@ -5264,17 +5530,17 @@ namespace NG::typecheck
         result = makecheck<Untyped>();
         return;
       }
-      if (primaryType->tag() != typeinfo_tag::ARRAY)
+      auto elementType = sequence_element_type(primaryType);
+      if (!elementType)
       {
-        throw TypeCheckingException("Index accessor on non-array type: " + primaryType->repr());
+        throw TypeCheckingException("Index accessor on non-contiguous sequence type: " + primaryType->repr());
       }
       indexAccess->accessor->accept(&checker);
       auto indexType = checker.result;
       if (!indexType || (!isIntegralType(indexType->tag()) && indexType->tag() != typeinfo_tag::UNTYPED))
       {
-        throw TypeCheckingException("Invalid index type for array: " + indexAccess->accessor->repr());
+        throw TypeCheckingException("Invalid index type for " + typeKindName(*primaryType) + ": " + indexAccess->accessor->repr());
       }
-      ArrayType &arrayType = static_cast<ArrayType &>(*primaryType);
       movedBindings = checker.movedBindings;
       if (auto place = staticPlaceKey(indexAccess); place.has_value() && !allowMovedLvalueRead)
       {
@@ -5283,7 +5549,7 @@ namespace NG::typecheck
           throw TypeCheckingException("Use after move: " + *moved, indexAccess->pos);
         }
       }
-      result = arrayType.elementType;
+      result = elementType;
     }
 
     void visit(IdAccessorExpression *idAccExpr) override
@@ -5314,10 +5580,10 @@ namespace NG::typecheck
       CheckingRef<TypeInfo> memberType = makecheck<Untyped>();
 
       // Adhoc polymorphic member access on built-in collection types
-      // (TupleType, VarargsType, ArrayType) support common members like .size
+      // Tuple, varargs, and contiguous sequence types support common members like .size.
       auto tag = primaryType->tag();
       bool isCollectionType = (tag == typeinfo_tag::TUPLE || tag == typeinfo_tag::VARARGS ||
-                               tag == typeinfo_tag::ARRAY);
+                               is_sequence_type(primaryType));
       if (isCollectionType)
       {
         if (memberName == "size")
@@ -5655,23 +5921,24 @@ namespace NG::typecheck
       {
         throw TypeCheckingException("Invalid index assignment expression: " + indexAssign->primary->repr());
       }
-      if (primaryType->tag() != typeinfo_tag::ARRAY && primaryType->tag() != typeinfo_tag::TUPLE)
+      auto sequenceElementType = sequence_element_type(primaryType);
+      if (!sequenceElementType && primaryType->tag() != typeinfo_tag::TUPLE)
       {
-        throw TypeCheckingException("Index assignment on non-array type: " + primaryType->repr());
+        throw TypeCheckingException("Index assignment on non-contiguous sequence type: " + primaryType->repr());
       }
       indexAssign->accessor->accept(&checker);
       auto indexType = checker.result;
       if (!indexType || !isIntegralType(indexType->tag()))
       {
-        const auto targetName = primaryType->tag() == typeinfo_tag::ARRAY ? Str{"array"} : Str{"tuple"};
+        const auto targetName = sequenceElementType ? typeKindName(*primaryType) : Str{"tuple"};
         throw TypeCheckingException("Invalid index type for " + targetName + ": " + indexAssign->accessor->repr());
       }
       indexAssign->value->accept(&checker);
       auto valueType = checker.result;
       CheckingRef<TypeInfo> expectedElementType;
-      if (primaryType->tag() == typeinfo_tag::ARRAY)
+      if (sequenceElementType)
       {
-        expectedElementType = static_cast<ArrayType &>(*primaryType).elementType;
+        expectedElementType = sequenceElementType;
       }
       else
       {
@@ -5691,7 +5958,7 @@ namespace NG::typecheck
       }
       if (!typeMatch(*expectedElementType, *valueType))
       {
-        const auto targetName = primaryType->tag() == typeinfo_tag::ARRAY ? Str{"array"} : Str{"tuple"};
+        const auto targetName = sequenceElementType ? typeKindName(*primaryType) : Str{"tuple"};
         throw TypeCheckingException("Invalid value type for " + targetName + " assignment: " + valueType->repr());
       }
       movedBindings = checker.movedBindings;
@@ -6272,13 +6539,22 @@ namespace NG::typecheck
             TypeChecker instChecker{genericType->capturedLocals};
             for (size_t i = 0; i < genericType->typeParamNames.size(); ++i)
             {
-              instChecker.locals[genericType->typeParamNames[i]] =
-                  makecheck<GenericParamType>(
-                      genericType->typeParamNames[i], "", genericType->typeParamIsPack[i],
-                      i < genericType->typeParamKindArities.size() ? genericType->typeParamKindArities[i] : 0,
-                      i < genericType->typeParamKindVariadicTails.size()
-                          ? genericType->typeParamKindVariadicTails[i]
-                          : false);
+              if (i < genericType->typeParamIsConst.size() && genericType->typeParamIsConst[i])
+              {
+                instChecker.locals[genericType->typeParamNames[i]] =
+                    makecheck<ConstValueType>(genericType->typeParamNames[i], "", true);
+              }
+              else
+              {
+                instChecker.locals[genericType->typeParamNames[i]] =
+                    makecheck<GenericParamType>(
+                        genericType->typeParamNames[i], "",
+                        i < genericType->typeParamIsPack.size() ? genericType->typeParamIsPack[i] : false,
+                        i < genericType->typeParamKindArities.size() ? genericType->typeParamKindArities[i] : 0,
+                        i < genericType->typeParamKindVariadicTails.size()
+                            ? genericType->typeParamKindVariadicTails[i]
+                            : false);
+              }
             }
 
             for (auto &variant : genericType->taggedUnionDef->variants)
@@ -6483,6 +6759,36 @@ namespace NG::typecheck
         return;
       }
 
+      if (paramType->tag() == typeinfo_tag::CONST_VALUE)
+      {
+        auto &constParam = static_cast<ConstValueType &>(*paramType);
+        if (!constParam.isParam)
+        {
+          return;
+        }
+        if (auto existing = substitution.contains(constParam.value) ? substitution[constParam.value] : nullptr)
+        {
+          if (existing->tag() == typeinfo_tag::CONST_VALUE)
+          {
+            auto existingConst = std::static_pointer_cast<ConstValueType>(existing);
+            if (existingConst->isParam)
+            {
+              substitution[constParam.value] = argType;
+            }
+            else if (!existing->match(*argType))
+            {
+              throw TypeCheckingException("Inconsistent bindings for const generic parameter '" + constParam.value +
+                                          "': " + existing->repr() + " vs " + argType->repr());
+            }
+          }
+        }
+        else
+        {
+          substitution[constParam.value] = argType;
+        }
+        return;
+      }
+
       if (paramType->tag() == typeinfo_tag::GENERIC_PARAM)
       {
         auto &gp = static_cast<GenericParamType &>(*paramType);
@@ -6510,6 +6816,26 @@ namespace NG::typecheck
         auto &paramArr = static_cast<ArrayType &>(*paramType);
         auto &argArr = static_cast<ArrayType &>(*argType);
         extractGenericBindingsImpl(paramArr.elementType, argArr.elementType, substitution, seen);
+        if (paramArr.length && argArr.length)
+        {
+          extractGenericBindingsImpl(paramArr.length, argArr.length, substitution, seen);
+        }
+        return;
+      }
+
+      if (paramType->tag() == typeinfo_tag::VECTOR && argType->tag() == typeinfo_tag::VECTOR)
+      {
+        auto &paramVec = static_cast<VectorType &>(*paramType);
+        auto &argVec = static_cast<VectorType &>(*argType);
+        extractGenericBindingsImpl(paramVec.elementType, argVec.elementType, substitution, seen);
+        return;
+      }
+
+      if (paramType->tag() == typeinfo_tag::SPAN && argType->tag() == typeinfo_tag::SPAN)
+      {
+        auto &paramSpan = static_cast<SpanType &>(*paramType);
+        auto &argSpan = static_cast<SpanType &>(*argType);
+        extractGenericBindingsImpl(paramSpan.elementType, argSpan.elementType, substitution, seen);
         return;
       }
 
@@ -6751,10 +7077,12 @@ namespace NG::typecheck
 
       Vec<Str> typeParamNames;
       Vec<bool> typeParamIsPack;
+      Vec<bool> typeParamIsConst;
       for (auto &genericParam : funcDef->genericParams)
       {
         typeParamNames.push_back(genericParam->name);
         typeParamIsPack.push_back(genericParam->isPack);
+        typeParamIsConst.push_back(genericParam->isConst);
       }
       auto typeParamKindArities = genericParamKindArities(funcDef->genericParams);
       auto typeParamKindVariadicTails = genericParamKindVariadicTails(funcDef->genericParams);
@@ -6773,8 +7101,20 @@ namespace NG::typecheck
         {
           bound = typeParamBoundName(*funcDef->genericParams[pi]);
         }
-        substitution[typeParamNames[pi]] = makecheck<GenericParamType>(typeParamNames[pi], bound, isPack,
-                                                                       kindArity, kindVariadicTail);
+        if (pi < typeParamIsConst.size() && typeParamIsConst[pi])
+        {
+          substitution[typeParamNames[pi]] = makecheck<ConstValueType>(
+              typeParamNames[pi],
+              pi < funcDef->genericParams.size() && funcDef->genericParams[pi]->constType
+                  ? funcDef->genericParams[pi]->constType->repr()
+                  : "",
+              true);
+        }
+        else
+        {
+          substitution[typeParamNames[pi]] = makecheck<GenericParamType>(typeParamNames[pi], bound, isPack,
+                                                                         kindArity, kindVariadicTail);
+        }
       }
       addWhereBoundsToScope(substitution, funcDef->whereBounds);
       if (!funCall->genericArgs.empty())
@@ -6793,9 +7133,10 @@ namespace NG::typecheck
           const bool expectedVariadicTail = pi < typeParamKindVariadicTails.size()
                                                 ? typeParamKindVariadicTails[pi]
                                                 : false;
+          const bool expectedConst = pi < typeParamIsConst.size() && typeParamIsConst[pi];
           substitution[typeParamNames[pi]] =
-              resolveGenericTypeArgument(funCall->genericArgs[pi].get(), expectedArity, expectedVariadicTail,
-                                         typeParamNames[pi]);
+              resolveGenericArgument(funCall->genericArgs[pi].get(), expectedConst, expectedArity,
+                                     expectedVariadicTail, typeParamNames[pi]);
         }
       }
 
@@ -7019,6 +7360,15 @@ namespace NG::typecheck
       // Fill in any unsubstituted type params with Untyped
       for (auto &name : typeParamNames)
       {
+        auto subIt = substitution.find(name);
+        if (subIt != substitution.end() && subIt->second && subIt->second->tag() == typeinfo_tag::CONST_VALUE)
+        {
+          auto constParam = std::static_pointer_cast<ConstValueType>(subIt->second);
+          if (constParam->isParam)
+          {
+            throw TypeCheckingException("Could not infer const generic parameter '" + name + "'", funCall->pos);
+          }
+        }
         if (!substitution.contains(name))
         {
           substitution[name] = makecheck<Untyped>();

@@ -265,6 +265,8 @@ namespace NG::ast
         TypeAnnotationType type{}; ///< The type of the annotation.
         Vec<ASTRef<ASTNode>> arguments;             ///< Array/tuple type arguments.
         Vec<std::shared_ptr<TypeAnnotation>> genericArgs;    ///< Generic type arguments (e.g. <int, string>).
+        bool constLiteral = false;                  ///< Whether this generic argument is a scalar const literal.
+        Str constLiteralType;                       ///< Optional scalar type for const generic literals.
         // Note: uses shared_ptr directly instead of ASTRef to avoid circular concept dependency
 
         explicit TypeAnnotation(Str _name) : name(std::move(_name)) {}
@@ -287,6 +289,8 @@ namespace NG::ast
         size_t kindArity = 0;                  ///< 0 for *, N for a type constructor with N type slots.
         bool kindVariadicTail = false;         ///< Whether the type constructor kind has a variadic tail.
         ASTRef<TypeAnnotation> bound = nullptr; ///< Optional type bound (T: Comparable).
+        bool isConst = false;                  ///< Whether this is a const generic parameter.
+        ASTRef<TypeAnnotation> constType = nullptr; ///< Scalar type for const generic parameters.
 
         explicit GenericParam(Str _name) : name(std::move(_name)) {}
 

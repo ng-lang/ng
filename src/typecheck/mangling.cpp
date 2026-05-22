@@ -80,7 +80,16 @@ namespace NG::typecheck
     }
     if (auto array = dynamic_cast<const ArrayType *>(&type))
     {
-      return "[" + canonical_type_name(array->elementType) + "]";
+      return "array<" + canonical_type_name(array->elementType) + "," +
+             (array->length ? canonical_type_name(array->length) : Str{"?"}) + ">";
+    }
+    if (auto vector = dynamic_cast<const VectorType *>(&type))
+    {
+      return "vector<" + canonical_type_name(vector->elementType) + ">";
+    }
+    if (auto span = dynamic_cast<const SpanType *>(&type))
+    {
+      return "span<" + canonical_type_name(span->elementType) + ">";
     }
     if (auto tuple = dynamic_cast<const TupleType *>(&type))
     {
@@ -122,6 +131,10 @@ namespace NG::typecheck
     if (auto generic = dynamic_cast<const GenericParamType *>(&type))
     {
       return generic->repr();
+    }
+    if (auto constValue = dynamic_cast<const ConstValueType *>(&type))
+    {
+      return "const<" + constValue->valueType + ":" + constValue->value + ">";
     }
     if (auto varargs = dynamic_cast<const VarargsType *>(&type))
     {

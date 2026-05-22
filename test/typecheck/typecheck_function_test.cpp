@@ -127,7 +127,7 @@ TEST_CASE("should be able to check function with body", "[Function][TypeCheck]")
   REQUIRE(typeIndex["id"]->repr() == "fun (i32) -> i32");
   REQUIRE(typeIndex["add"]->repr() == "fun (i32, i32) -> i32");
   REQUIRE(typeIndex["sum"]->repr() == "fun (i32, i32 = default) -> i32");
-  REQUIRE(typeIndex["repeat_n"]->repr() == "fun (i32, [i32]) -> [i32]");
+  REQUIRE(typeIndex["repeat_n"]->repr() == "fun (i32, vector<i32>) -> vector<i32>");
   REQUIRE(typeIndex["sum_loop"]->repr() == "fun (i32) -> i32");
   REQUIRE(typeIndex["do_nothing"]->repr() == "fun () -> unit");
   REQUIRE(typeIndex["greater_than"]->repr() == "fun (i32, i32) -> bool");

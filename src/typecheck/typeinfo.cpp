@@ -34,7 +34,19 @@ namespace NG::typecheck
       }
       if (auto array = dynamic_cast<const ArrayType *>(&type))
       {
-        return "[" + nestedTypeRepr(array->elementType) + "]";
+        if (array->length)
+        {
+          return "array<" + nestedTypeRepr(array->elementType) + ", " + nestedTypeRepr(array->length) + ">";
+        }
+        return "array<" + nestedTypeRepr(array->elementType) + ", ?>";
+      }
+      if (auto vector = dynamic_cast<const VectorType *>(&type))
+      {
+        return "vector<" + nestedTypeRepr(vector->elementType) + ">";
+      }
+      if (auto span = dynamic_cast<const SpanType *>(&type))
+      {
+        return "span<" + nestedTypeRepr(span->elementType) + ">";
       }
       if (auto tuple = dynamic_cast<const TupleType *>(&type))
       {

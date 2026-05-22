@@ -97,6 +97,10 @@ namespace NG::ast
 
   auto TypeAnnotation::repr() const -> Str
   {
+    if (constLiteral)
+    {
+      return this->name;
+    }
     if (genericArgs.empty())
     {
       return this->name;
@@ -126,6 +130,10 @@ namespace NG::ast
 
   auto GenericParam::repr() const -> Str
   {
+    if (isConst)
+    {
+      return "const " + name + ": " + (constType ? constType->repr() : "?");
+    }
     Str result = name;
     if (kindArity > 0 || kindVariadicTail)
     {
