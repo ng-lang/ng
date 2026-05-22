@@ -91,6 +91,123 @@ TEST_CASE("should allow reassignment after move", "[TypeCheck][RefMove]")
   destroyast(ast);
 }
 
+TEST_CASE("should track partial moves from object fields", "[TypeCheck][RefMove][PartialMove]")
+{
+  auto ast = parse(R"(
+    type Box {
+      left: i32;
+      right: i32;
+
+      fun total(self: ref<Self>) -> i32 {
+        return self.left + self.right;
+      }
+    }
+
+    {
+      val box = new Box { left: 1, right: 2 };
+      val moved = move box.left;
+      val sibling: i32 = box.right;
+      box.left := moved;
+      val total: i32 = box.total();
+    }
+  )");
+
+  REQUIRE(ast != nullptr);
+  REQUIRE_NOTHROW(type_check(ast));
+
+  destroyast(ast);
+}
+
+TEST_CASE("should reject reads and method calls on partially moved objects", "[TypeCheck][RefMove][PartialMove][Failure]")
+{
+  typecheck_failure(
+      R"(
+        type Box { left: i32; right: i32; }
+        {
+          val box = new Box { left: 1, right: 2 };
+          val moved = move box.left;
+          val again = box.left;
+        }
+      )",
+      "Use after move: box.left");
+
+  typecheck_failure(
+      R"(
+        type Box { left: i32; right: i32; }
+        {
+          val box = new Box { left: 1, right: 2 };
+          val moved = move box.left;
+          val whole = box;
+        }
+      )",
+      "Use after partial move: box");
+
+  typecheck_failure(
+      R"(
+        type Box {
+          left: i32;
+          right: i32;
+          fun total(self: ref<Self>) -> i32 { return self.left + self.right; }
+        }
+        {
+          val box = new Box { left: 1, right: 2 };
+          val moved = move box.left;
+          val total = box.total();
+        }
+      )",
+      "Use after partial move: box");
+}
+
+TEST_CASE("should track partial moves from tuple constant indexes", "[TypeCheck][RefMove][PartialMove]")
+{
+  auto ast = parse(R"(
+    {
+      val tuple = (1, "right");
+      val moved = move tuple[0];
+      val sibling: string = tuple[1];
+      tuple[0] := 2;
+      val restored: (i32, string) = tuple;
+    }
+  )");
+
+  REQUIRE(ast != nullptr);
+  REQUIRE_NOTHROW(type_check(ast));
+
+  destroyast(ast);
+}
+
+TEST_CASE("should reject invalid tuple and array partial moves", "[TypeCheck][RefMove][PartialMove][Failure]")
+{
+  typecheck_failure(
+      R"(
+        {
+          val tuple = (1, "right");
+          val moved = move tuple[0];
+          val again = tuple[0];
+        }
+      )",
+      "Use after move: tuple[0]");
+
+  typecheck_failure(
+      R"(
+        {
+          val tuple = (1, "right");
+          val moved = move tuple[0];
+          val whole = tuple;
+        }
+      )",
+      "Use after partial move: tuple");
+
+  typecheck_failure(
+      R"(
+        {
+          val arr = [1, 2, 3];
+          val moved = move arr[0];
+        }
+      )",
+      "Move from indexed place only supports tuple constant indexes");
+}
+
 TEST_CASE("should reject read after branch-local move", "[TypeCheck][RefMove][Failure]")
 {
   typecheck_failure(

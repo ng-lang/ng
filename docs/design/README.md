@@ -5,19 +5,21 @@ This directory is organized as implementation-sized design topics. The order bel
 ## Recommended Order
 
 1. [Module Artifact And Typechecker Integration](module_artifact_typechecker.md)
-2. [Generalized `= delete` Declarations](generalized_delete.md)
-3. [Constant Generic Parameters](constant_generic_parameters.md)
-4. [Native Module Artifacts](native_module_artifacts.md)
-5. [`const fun` And Compile-Time Computation](const_fun.md)
-6. [Enhanced Tuple Types](enhanced_tuples.md)
-7. [Auto Traits And Derive Traits](auto_derive_traits.md)
-8. [Bytecode Module Loading](bytecode_module_loading.md)
-9. [Standard Library Modularization](stdlib_modularization.md)
-10. [Ranges, Slicing, Fold, And Pipeline Syntax](ranges_slicing_pipeline.md)
+2. [Partial Move Semantics](partial_move_semantics.md)
+3. [Generalized `= delete` Declarations](generalized_delete.md)
+4. [Constant Generic Parameters](constant_generic_parameters.md)
+5. [Native Module Artifacts](native_module_artifacts.md)
+6. [`const fun` And Compile-Time Computation](const_fun.md)
+7. [Enhanced Tuple Types](enhanced_tuples.md)
+8. [Auto Traits And Derive Traits](auto_derive_traits.md)
+9. [Bytecode Module Loading](bytecode_module_loading.md)
+10. [Standard Library Modularization](stdlib_modularization.md)
+11. [Ranges, Slicing, Fold, And Pipeline Syntax](ranges_slicing_pipeline.md)
 
 ## Dependency Summary
 
 - Module artifact/typechecker integration is the root dependency for cross-module exports, trait impl evidence, native module descriptors, bytecode metadata, and standard library modularization.
+- Partial move semantics should be implemented before generalized delete and enhanced tuples because both need deterministic initialized/uninitialized place rules.
 - Generalized `= delete` is needed before designs rely on negative specialization or blocked declarations.
 - Constant generic parameters are needed before type-level tuple element projection and tuple slicing bounds can be represented cleanly.
 - Native module artifacts should follow the artifact model and precede stdlib modularization.

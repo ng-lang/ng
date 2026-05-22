@@ -168,6 +168,116 @@ namespace NG::typecheck
     return unaryExpr != nullptr && unaryExpr->optr != nullptr && unaryExpr->optr->type == TokenType::TIMES;
   }
 
+  static auto movedPlaceRoot(const Str &place) -> Str
+  {
+    auto dot = place.find('.');
+    auto bracket = place.find('[');
+    auto end = std::min(dot == Str::npos ? place.size() : dot,
+                        bracket == Str::npos ? place.size() : bracket);
+    return place.substr(0, end);
+  }
+
+  static auto isMovedDescendantOf(const Str &moved, const Str &place) -> bool
+  {
+    return moved.size() > place.size() && moved.starts_with(place) &&
+           (moved[place.size()] == '.' || moved[place.size()] == '[');
+  }
+
+  static auto previousPlaceComponent(const Str &place) -> std::optional<Str>
+  {
+    auto dot = place.rfind('.');
+    auto bracket = place.rfind('[');
+    if (dot == Str::npos && bracket == Str::npos)
+    {
+      return std::nullopt;
+    }
+    auto pos = std::max(dot == Str::npos ? size_t{0} : dot,
+                        bracket == Str::npos ? size_t{0} : bracket);
+    return place.substr(0, pos);
+  }
+
+  static auto movedAncestorOrSelf(const Set<Str> &moved, const Str &place) -> std::optional<Str>
+  {
+    auto current = std::optional<Str>{place};
+    while (current.has_value() && !current->empty())
+    {
+      if (moved.contains(*current))
+      {
+        return current;
+      }
+      current = previousPlaceComponent(*current);
+    }
+    return std::nullopt;
+  }
+
+  static auto hasMovedDescendant(const Set<Str> &moved, const Str &place) -> bool
+  {
+    return std::ranges::any_of(moved, [&](const auto &entry) { return isMovedDescendantOf(entry, place); });
+  }
+
+  static void clearMovedPlace(Set<Str> &moved, const Str &place)
+  {
+    for (auto it = moved.begin(); it != moved.end();)
+    {
+      if (*it == place || isMovedDescendantOf(*it, place))
+      {
+        it = moved.erase(it);
+      }
+      else
+      {
+        ++it;
+      }
+    }
+  }
+
+  static auto staticPlaceKey(const Expression *expr) -> std::optional<Str>
+  {
+    if (auto id = dynamic_cast<const IdExpression *>(expr))
+    {
+      return id->id;
+    }
+    if (auto idAcc = dynamic_cast<const IdAccessorExpression *>(expr))
+    {
+      if (!idAcc->arguments.empty())
+      {
+        return std::nullopt;
+      }
+      auto primary = staticPlaceKey(idAcc->primaryExpression.get());
+      if (!primary.has_value())
+      {
+        return std::nullopt;
+      }
+      return *primary + "." + idAcc->accessor->repr();
+    }
+    if (auto index = dynamic_cast<const IndexAccessorExpression *>(expr))
+    {
+      auto primary = staticPlaceKey(index->primary.get());
+      if (!primary.has_value())
+      {
+        return std::nullopt;
+      }
+      if (auto intLit = dynamic_cast<const IntegralValue<int32_t> *>(index->accessor.get()))
+      {
+        return *primary + "[" + std::to_string(intLit->value) + "]";
+      }
+      return std::nullopt;
+    }
+    if (auto index = dynamic_cast<const IndexAssignmentExpression *>(expr))
+    {
+      auto primary = staticPlaceKey(index->primary.get());
+      if (!primary.has_value())
+      {
+        return std::nullopt;
+      }
+      if (auto intLit = dynamic_cast<const IntegralValue<int32_t> *>(index->accessor.get()))
+      {
+        return *primary + "[" + std::to_string(intLit->value) + "]";
+      }
+      return std::nullopt;
+    }
+    return std::nullopt;
+  }
+
   static auto scopeNames(const Map<Str, CheckingRef<TypeInfo>> &scope) -> Set<Str>
   {
     Set<Str> names;
@@ -183,7 +293,7 @@ namespace NG::typecheck
     Set<Str> filtered;
     for (const auto &name : moved)
     {
-      if (allowed.contains(name))
+      if (allowed.contains(name) || allowed.contains(movedPlaceRoot(name)))
       {
         filtered.insert(name);
       }
@@ -3162,7 +3272,7 @@ namespace NG::typecheck
       {
         if (auto *idTarget = dynamic_cast<IdExpression *>(assignmentExpr->target.get()))
         {
-          movedBindings.erase(idTarget->id);
+          clearMovedPlace(movedBindings, idTarget->id);
         }
       }
     }
@@ -3460,7 +3570,7 @@ namespace NG::typecheck
       {
         locals.insert_or_assign(valDefStatement->name, valType);
       }
-      movedBindings.erase(valDefStatement->name);
+      clearMovedPlace(movedBindings, valDefStatement->name);
     }
 
     void visit(ValueBindingStatement *valBind) override
@@ -3551,7 +3661,7 @@ namespace NG::typecheck
                 if (typeMatch(*annoType, *restTupleType))
                 {
                   locals.insert_or_assign(binding->name, annoType);
-                  movedBindings.erase(binding->name);
+                  clearMovedPlace(movedBindings, binding->name);
                 }
                 else
                 {
@@ -3562,7 +3672,7 @@ namespace NG::typecheck
               else if (!binding->name.empty())
               {
                 locals.insert_or_assign(binding->name, restTupleType);
-                movedBindings.erase(binding->name);
+                clearMovedPlace(movedBindings, binding->name);
               }
               break;
             }
@@ -3573,7 +3683,7 @@ namespace NG::typecheck
               if (typeMatch(*annoType, *elementTypes[i]))
               {
                 locals.insert_or_assign(binding->name, annoType);
-                movedBindings.erase(binding->name);
+                clearMovedPlace(movedBindings, binding->name);
               }
               else
               {
@@ -3584,7 +3694,7 @@ namespace NG::typecheck
             else
             {
               locals.insert_or_assign(binding->name, (elementTypes[i]));
-              movedBindings.erase(binding->name);
+              clearMovedPlace(movedBindings, binding->name);
             }
           }
         }
@@ -3619,7 +3729,7 @@ namespace NG::typecheck
                 if (typeMatch(*annoType, *restArrayType))
                 {
                   locals.insert_or_assign(binding->name, annoType);
-                  movedBindings.erase(binding->name);
+                  clearMovedPlace(movedBindings, binding->name);
                 }
                 else
                 {
@@ -3630,7 +3740,7 @@ namespace NG::typecheck
               else if (!binding->name.empty())
               {
                 locals.insert_or_assign(binding->name, restArrayType);
-                movedBindings.erase(binding->name);
+                clearMovedPlace(movedBindings, binding->name);
               }
 
               break;
@@ -3642,7 +3752,7 @@ namespace NG::typecheck
               if (typeMatch(*annoType, *arrayType->elementType))
               {
                 locals.insert_or_assign(binding->name, annoType);
-                movedBindings.erase(binding->name);
+                clearMovedPlace(movedBindings, binding->name);
               }
               else
               {
@@ -3653,7 +3763,7 @@ namespace NG::typecheck
             else
             {
               locals.insert_or_assign(binding->name, arrayType->elementType);
-              movedBindings.erase(binding->name);
+              clearMovedPlace(movedBindings, binding->name);
             }
           }
         }
@@ -3781,12 +3891,23 @@ namespace NG::typecheck
         {
           throw TypeCheckingException("Move operator requires a movable place.");
         }
-      if (auto *id = dynamic_cast<IdExpression *>(unoExpr->operand.get()))
-      {
-          movedBindings.insert(id->id);
-      }
-      result = operandType;
-      return;
+        if (auto *index = dynamic_cast<IndexAccessorExpression *>(unoExpr->operand.get()))
+        {
+          TypeChecker primaryChecker{locals, {}, nullptr, movedBindings, true, activeGenericInstanceName};
+          index->primary->accept(&primaryChecker);
+          auto primaryType = deref_reference_type(primaryChecker.result);
+          if (!primaryType || primaryType->tag() != typeinfo_tag::TUPLE ||
+              !dynamic_cast<IntegralValue<int32_t> *>(index->accessor.get()))
+          {
+            throw TypeCheckingException("Move from indexed place only supports tuple constant indexes.");
+          }
+        }
+        if (auto place = staticPlaceKey(unoExpr->operand.get()); place.has_value())
+        {
+          movedBindings.insert(*place);
+        }
+        result = operandType;
+        return;
       }
       default:
         throw TypeCheckingException("Unsupported unary operator.");
@@ -4218,7 +4339,11 @@ namespace NG::typecheck
       }
       if (auto *id = dynamic_cast<IdExpression *>(assignmentExpr->target.get()))
       {
-        movedBindings.erase(id->id);
+        clearMovedPlace(movedBindings, id->id);
+      }
+      else if (auto place = staticPlaceKey(assignmentExpr->target.get()); place.has_value())
+      {
+        clearMovedPlace(movedBindings, *place);
       }
       result = targetType;
     }
@@ -4329,7 +4454,7 @@ namespace NG::typecheck
 
     void visit(IndexAccessorExpression *indexAccess) override
     {
-      TypeChecker checker{locals, {}, nullptr, movedBindings};
+      TypeChecker checker{locals, {}, nullptr, movedBindings, true, activeGenericInstanceName};
       indexAccess->primary->accept(&checker);
       auto primaryType = checker.result;
       primaryType = deref_reference_type(primaryType);
@@ -4353,6 +4478,17 @@ namespace NG::typecheck
           size_t idx = static_cast<size_t>(intLit->value);
           if (idx < tupleType.elementTypes.size())
           {
+            if (auto place = staticPlaceKey(indexAccess); place.has_value() && !allowMovedLvalueRead)
+            {
+              if (auto moved = movedAncestorOrSelf(movedBindings, *place); moved.has_value())
+              {
+                throw TypeCheckingException("Use after move: " + *moved, indexAccess->pos);
+              }
+              if (hasMovedDescendant(movedBindings, *place))
+              {
+                throw TypeCheckingException("Use after partial move: " + *place, indexAccess->pos);
+              }
+            }
             result = tupleType.elementTypes[idx];
             return;
           }
@@ -4374,6 +4510,13 @@ namespace NG::typecheck
       }
       ArrayType &arrayType = static_cast<ArrayType &>(*primaryType);
       movedBindings = checker.movedBindings;
+      if (auto place = staticPlaceKey(indexAccess); place.has_value() && !allowMovedLvalueRead)
+      {
+        if (auto moved = movedAncestorOrSelf(movedBindings, *place); moved.has_value())
+        {
+          throw TypeCheckingException("Use after move: " + *moved, indexAccess->pos);
+        }
+      }
       result = arrayType.elementType;
     }
 
@@ -4388,7 +4531,7 @@ namespace NG::typecheck
         return;
       }
 
-      TypeChecker checker{locals, {}, nullptr, movedBindings};
+      TypeChecker checker{locals, {}, nullptr, movedBindings, true, activeGenericInstanceName};
       idAccExpr->primaryExpression->accept(&checker);
       auto primaryType = checker.result;
       primaryType = deref_reference_type(primaryType);
@@ -4507,8 +4650,32 @@ namespace NG::typecheck
       {
         if (auto funcType = std::dynamic_pointer_cast<FunctionType>(memberType))
         {
+          if (auto receiverPlace = staticPlaceKey(idAccExpr->primaryExpression.get());
+              receiverPlace.has_value() && !allowMovedLvalueRead)
+          {
+            if (auto moved = movedAncestorOrSelf(movedBindings, *receiverPlace); moved.has_value())
+            {
+              throw TypeCheckingException("Use after move: " + *moved, idAccExpr->pos);
+            }
+            if (hasMovedDescendant(movedBindings, *receiverPlace))
+            {
+              throw TypeCheckingException("Use after partial move: " + *receiverPlace, idAccExpr->pos);
+            }
+          }
           result = funcType->returnType;
           return;
+        }
+      }
+
+      if (auto place = staticPlaceKey(idAccExpr); place.has_value() && !allowMovedLvalueRead)
+      {
+        if (auto moved = movedAncestorOrSelf(movedBindings, *place); moved.has_value())
+        {
+          throw TypeCheckingException("Use after move: " + *moved, idAccExpr->pos);
+        }
+        if (hasMovedDescendant(movedBindings, *place))
+        {
+          throw TypeCheckingException("Use after partial move: " + *place, idAccExpr->pos);
         }
       }
 
@@ -4716,14 +4883,14 @@ namespace NG::typecheck
 
     void visit(IndexAssignmentExpression *indexAssign) override
     {
-      TypeChecker checker{locals, {}, nullptr, movedBindings};
+      TypeChecker checker{locals, {}, nullptr, movedBindings, true, activeGenericInstanceName};
       indexAssign->primary->accept(&checker);
       auto primaryType = deref_reference_type(checker.result);
       if (!primaryType)
       {
         throw TypeCheckingException("Invalid index assignment expression: " + indexAssign->primary->repr());
       }
-      if (primaryType->tag() != typeinfo_tag::ARRAY)
+      if (primaryType->tag() != typeinfo_tag::ARRAY && primaryType->tag() != typeinfo_tag::TUPLE)
       {
         throw TypeCheckingException("Index assignment on non-array type: " + primaryType->repr());
       }
@@ -4731,17 +4898,43 @@ namespace NG::typecheck
       auto indexType = checker.result;
       if (!indexType || !isIntegralType(indexType->tag()))
       {
-        throw TypeCheckingException("Invalid index type for array: " + indexAssign->accessor->repr());
+        const auto targetName = primaryType->tag() == typeinfo_tag::ARRAY ? Str{"array"} : Str{"tuple"};
+        throw TypeCheckingException("Invalid index type for " + targetName + ": " + indexAssign->accessor->repr());
       }
       indexAssign->value->accept(&checker);
       auto valueType = checker.result;
-      ArrayType &arrayType = static_cast<ArrayType &>(*primaryType);
-      if (!typeMatch(*arrayType.elementType, *valueType))
+      CheckingRef<TypeInfo> expectedElementType;
+      if (primaryType->tag() == typeinfo_tag::ARRAY)
       {
-        throw TypeCheckingException("Invalid value type for array assignment: " + valueType->repr());
+        expectedElementType = static_cast<ArrayType &>(*primaryType).elementType;
+      }
+      else
+      {
+        auto &tupleType = static_cast<TupleType &>(*primaryType);
+        auto intLit = dynamic_ast_cast<IntegralValue<int32_t>>(indexAssign->accessor);
+        if (!intLit)
+        {
+          throw TypeCheckingException("Tuple index assignment requires a constant integer index.",
+                                      indexAssign->accessor->pos);
+        }
+        auto idx = static_cast<size_t>(intLit->value);
+        if (idx >= tupleType.elementTypes.size())
+        {
+          throw TypeCheckingException("Tuple index out of range: " + std::to_string(idx), indexAssign->accessor->pos);
+        }
+        expectedElementType = tupleType.elementTypes[idx];
+      }
+      if (!typeMatch(*expectedElementType, *valueType))
+      {
+        const auto targetName = primaryType->tag() == typeinfo_tag::ARRAY ? Str{"array"} : Str{"tuple"};
+        throw TypeCheckingException("Invalid value type for " + targetName + " assignment: " + valueType->repr());
       }
       movedBindings = checker.movedBindings;
-      result = arrayType.elementType;
+      if (auto place = staticPlaceKey(indexAssign); place.has_value())
+      {
+        clearMovedPlace(movedBindings, *place);
+      }
+      result = expectedElementType;
     }
 
     void visit(IdExpression *id) override
@@ -4749,9 +4942,16 @@ namespace NG::typecheck
       auto it = locals.find(id->id);
       if (it != locals.end())
       {
-        if (movedBindings.contains(id->id) && !allowMovedLvalueRead)
+        if (!allowMovedLvalueRead)
         {
-          throw TypeCheckingException("Use after move: " + id->id, id->pos);
+          if (movedBindings.contains(id->id))
+          {
+            throw TypeCheckingException("Use after move: " + id->id, id->pos);
+          }
+          if (hasMovedDescendant(movedBindings, id->id))
+          {
+            throw TypeCheckingException("Use after partial move: " + id->id, id->pos);
+          }
         }
         result = it->second;
       }
