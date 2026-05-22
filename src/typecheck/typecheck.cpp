@@ -1570,6 +1570,11 @@ namespace NG::typecheck
       {
         if (auto it = bindings.find(pattern->name); it != bindings.end())
         {
+          if (it->second && it->second->tag() == typeinfo_tag::GENERIC_PARAM)
+          {
+            it->second = actual;
+            return true;
+          }
           return typeMatch(*it->second, *actual);
         }
         bindings[pattern->name] = actual;
@@ -1760,6 +1765,118 @@ namespace NG::typecheck
       return true;
     }
 
+    auto functionCandidateWhereMatches(const FunctionDef &candidate,
+                                       const Map<Str, CheckingRef<TypeInfo>> &bindings) -> bool
+    {
+      if (candidate.whereBounds.empty())
+      {
+        return true;
+      }
+      TypeChecker whereChecker{locals};
+      whereChecker.trait_impls_by_type = trait_impls_by_type;
+      for (auto &[name, type] : bindings)
+      {
+        whereChecker.locals[name] = type;
+      }
+      for (auto &bound : candidate.whereBounds)
+      {
+        if (!bound)
+        {
+          return false;
+        }
+        if (bound->predicate)
+        {
+          auto value = whereChecker.tryEvalWherePredicate(bound->predicate.get());
+          if (!value.has_value() || !*value)
+          {
+            return false;
+          }
+          continue;
+        }
+        if (!bound->subject || !bound->trait || !bound->subject->genericArgs.empty())
+        {
+          return false;
+        }
+        auto subIt = whereChecker.locals.find(bound->subject->name);
+        auto traitIt = whereChecker.locals.find(bound->trait->repr());
+        auto trait = traitIt == whereChecker.locals.end() ? nullptr : std::dynamic_pointer_cast<TraitType>(traitIt->second);
+        if (subIt == whereChecker.locals.end() || !trait || !whereChecker.typeSatisfiesTrait(subIt->second, *trait))
+        {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    auto functionCandidateMatches(FunctionDef &candidate, const Vec<CheckingRef<TypeInfo>> &argumentTypes,
+                                  Map<Str, CheckingRef<TypeInfo>> &bindings) -> bool
+    {
+      if (candidate.params.size() != argumentTypes.size())
+      {
+        return false;
+      }
+      auto genericNames = genericParamNameSet(candidate.genericParams);
+      for (auto &genericParam : candidate.genericParams)
+      {
+        if (genericParam)
+        {
+          bindings[genericParam->name] = makecheck<GenericParamType>(
+              genericParam->name, typeParamBoundName(*genericParam), genericParam->isPack,
+              genericParam->kindArity, genericParam->kindVariadicTail);
+        }
+      }
+      for (size_t i = 0; i < candidate.params.size(); ++i)
+      {
+        auto &param = candidate.params[i];
+        if (!param || !param->annotatedType)
+        {
+          continue;
+        }
+        if (!typePatternMatch(param->annotatedType.get(), argumentTypes[i], genericNames, bindings))
+        {
+          return false;
+        }
+      }
+      return functionCandidateWhereMatches(candidate, bindings);
+    }
+
+    auto selectGenericFunctionCandidate(GenericDefType &genericDef,
+                                        const Vec<CheckingRef<TypeInfo>> &argumentTypes) -> FunctionDef *
+    {
+      FunctionDef *best = genericDef.funcDef.get();
+      size_t bestSpecificity = 0;
+      bool found = false;
+      for (auto &candidateRef : genericDef.overloads)
+      {
+        auto *candidate = candidateRef.get();
+        if (!candidate)
+        {
+          continue;
+        }
+        Map<Str, CheckingRef<TypeInfo>> bindings;
+        if (!functionCandidateMatches(*candidate, argumentTypes, bindings))
+        {
+          continue;
+        }
+        auto specificity = functionPatternSpecificity(*candidate);
+        if (!found || specificity > bestSpecificity)
+        {
+          best = candidate;
+          bestSpecificity = specificity;
+          found = true;
+        }
+      }
+      if (found)
+      {
+        return best;
+      }
+      if (genericDef.overloads.size() == 1 && genericDef.funcDef && !genericDef.funcDef->deleted)
+      {
+        return genericDef.funcDef.get();
+      }
+      return nullptr;
+    }
+
     auto resolveAliasSpecializationBody(const TypeAliasDef &specialization,
                                         const Map<Str, CheckingRef<TypeInfo>> &bindings,
                                         const Map<Str, CheckingRef<TypeInfo>> &scope,
@@ -1885,6 +2002,17 @@ namespace NG::typecheck
       for (auto &arg : specialization.specializationPattern->genericArgs)
       {
         score += typePatternSpecificity(arg.get(), genericNames);
+      }
+      return score;
+    }
+
+    static auto functionPatternSpecificity(const FunctionDef &candidate) -> size_t
+    {
+      auto genericNames = genericParamNameSet(candidate.genericParams);
+      size_t score = 0;
+      for (auto &param : candidate.params)
+      {
+        score += typePatternSpecificity(param ? param->annotatedType.get() : nullptr, genericNames);
       }
       return score;
     }
@@ -2178,6 +2306,11 @@ namespace NG::typecheck
 
       if (bestSpecialization)
       {
+        if (bestSpecialization->deleted)
+        {
+          throw TypeCheckingException("Const specialization is deleted: " + bestSpecialization->repr(),
+                                      bestSpecialization->pos);
+        }
         TypeChecker valueChecker{locals};
         valueChecker.trait_impls_by_type = trait_impls_by_type;
         for (auto &[name, type] : bestBindings)
@@ -2193,6 +2326,10 @@ namespace NG::typecheck
 
       if (primary)
       {
+        if (primary->deleted)
+        {
+          throw TypeCheckingException("Const predicate is deleted: " + primary->repr(), primary->pos);
+        }
         TypeChecker valueChecker{locals};
         valueChecker.trait_impls_by_type = trait_impls_by_type;
         for (size_t i = 0; i < primary->genericParams.size() && i < typeArgs.size(); ++i)
@@ -2288,6 +2425,11 @@ namespace NG::typecheck
         rejectInvalidByValueType(returnType, "function return type", funDef->returnType->pos);
       }
       auto funType = makecheck<FunctionType>(returnType, paramTypes);
+      funType->deleted = funDef->deleted;
+      if (funDef->deleted)
+      {
+        funType->deletedRepr = funDef->repr();
+      }
       if (!funDef->params.empty() && isReceiverParam(funDef->params.front().get()))
       {
         attachReceiverEffects(*funType, funDef, funDef->params.front()->paramName);
@@ -2627,6 +2769,11 @@ namespace NG::typecheck
       }
       case GenericTypeKind::TYPE_ALIAS:
       {
+        if (genericDef.typeAliasDef->deleted)
+        {
+          throw TypeCheckingException("Type alias is deleted: " + genericDef.typeAliasDef->repr(),
+                                      genericDef.typeAliasDef->pos);
+        }
         if (genericDef.typeAliasDef->abstract)
         {
           throw TypeCheckingException("Abstract type alias cannot be instantiated without a matching specialization: " +
@@ -3072,6 +3219,11 @@ namespace NG::typecheck
           // Check if this is a generic function (has type parameters)
           if (!funDef->genericParams.empty())
           {
+            if (auto existing = std::dynamic_pointer_cast<GenericDefType>(locals[funDef->funName]))
+            {
+              existing->overloads.push_back(funDef);
+              continue;
+            }
             Vec<Str> typeParamNames;
             Vec<bool> typeParamIsPack;
             for (auto &gp : funDef->genericParams)
@@ -3422,6 +3574,11 @@ namespace NG::typecheck
       TypeChecker returnChecker{constScope};
       constDef->returnType->accept(&returnChecker);
       auto returnType = returnChecker.result;
+
+      if (constDef->deleted)
+      {
+        return;
+      }
 
       if (constDef->native)
       {
@@ -3800,6 +3957,12 @@ namespace NG::typecheck
           returnType = makecheck<Untyped>();
         }
         funType = makecheck<FunctionType>(returnType, paramTypes);
+        auto &createdFunctionType = static_cast<FunctionType &>(*funType);
+        createdFunctionType.deleted = funDef->deleted;
+        if (funDef->deleted)
+        {
+          createdFunctionType.deletedRepr = funDef->repr();
+        }
         if (!funDef->funName.empty())
         {
           locals.insert_or_assign(funDef->funName, funType);
@@ -3807,6 +3970,10 @@ namespace NG::typecheck
       }
 
       auto &funcInfo = static_cast<FunctionType &>(*funType);
+      if (funcInfo.deleted)
+      {
+        return;
+      }
       for (auto &paramType : funcInfo.parametersType)
       {
         validateObjectSafeTraitRefs(paramType);
@@ -6231,6 +6398,12 @@ namespace NG::typecheck
       {
         throw TypeCheckingException("Invalid function type: " + primaryType->repr(), funCall->pos);
       }
+      if (funcType->deleted)
+      {
+        throw TypeCheckingException("Function overload is deleted: " +
+                                        (funcType->deletedRepr.empty() ? funcType->repr() : funcType->deletedRepr),
+                                    funCall->pos);
+      }
 
       Vec<CheckingRef<TypeInfo>> argumentTypes;
       for (auto arg : funCall->arguments)
@@ -6556,10 +6729,6 @@ namespace NG::typecheck
      */
     CheckingRef<TypeInfo> monomorphizeGenericCall(GenericDefType &genericDef, FunCallExpression *funCall)
     {
-      auto &funcDef = genericDef.funcDef;
-      auto &typeParamNames = genericDef.typeParamNames;
-      auto &typeParamIsPack = genericDef.typeParamIsPack;
-
       // 1. Type-check arguments
       TypeChecker argChecker{locals, {}, nullptr, movedBindings, allowMovedLvalueRead, activeGenericInstanceName};
       Vec<CheckingRef<TypeInfo>> argumentTypes;
@@ -6570,14 +6739,34 @@ namespace NG::typecheck
       }
       movedBindings = argChecker.movedBindings;
 
+      auto *funcDef = selectGenericFunctionCandidate(genericDef, argumentTypes);
+      if (!funcDef)
+      {
+        throw TypeCheckingException("No matching generic function overload: " + genericDef.name, funCall->pos);
+      }
+      if (funcDef->deleted)
+      {
+        throw TypeCheckingException("Function overload is deleted: " + funcDef->repr(), funCall->pos);
+      }
+
+      Vec<Str> typeParamNames;
+      Vec<bool> typeParamIsPack;
+      for (auto &genericParam : funcDef->genericParams)
+      {
+        typeParamNames.push_back(genericParam->name);
+        typeParamIsPack.push_back(genericParam->isPack);
+      }
+      auto typeParamKindArities = genericParamKindArities(funcDef->genericParams);
+      auto typeParamKindVariadicTails = genericParamKindVariadicTails(funcDef->genericParams);
+
       // 2. Inject GenericParamType entries (with pack flags) into a working scope
       Map<Str, CheckingRef<TypeInfo>> substitution;
       for (size_t pi = 0; pi < typeParamNames.size(); ++pi)
       {
         bool isPack = (pi < typeParamIsPack.size()) ? typeParamIsPack[pi] : false;
-        size_t kindArity = (pi < genericDef.typeParamKindArities.size()) ? genericDef.typeParamKindArities[pi] : 0;
-        bool kindVariadicTail = pi < genericDef.typeParamKindVariadicTails.size()
-                                    ? genericDef.typeParamKindVariadicTails[pi]
+        size_t kindArity = (pi < typeParamKindArities.size()) ? typeParamKindArities[pi] : 0;
+        bool kindVariadicTail = pi < typeParamKindVariadicTails.size()
+                                    ? typeParamKindVariadicTails[pi]
                                     : false;
         Str bound;
         if (pi < funcDef->genericParams.size())
@@ -6600,9 +6789,9 @@ namespace NG::typecheck
         for (size_t pi = 0; pi < funCall->genericArgs.size(); ++pi)
         {
           const size_t expectedArity =
-              pi < genericDef.typeParamKindArities.size() ? genericDef.typeParamKindArities[pi] : 0;
-          const bool expectedVariadicTail = pi < genericDef.typeParamKindVariadicTails.size()
-                                                ? genericDef.typeParamKindVariadicTails[pi]
+              pi < typeParamKindArities.size() ? typeParamKindArities[pi] : 0;
+          const bool expectedVariadicTail = pi < typeParamKindVariadicTails.size()
+                                                ? typeParamKindVariadicTails[pi]
                                                 : false;
           substitution[typeParamNames[pi]] =
               resolveGenericTypeArgument(funCall->genericArgs[pi].get(), expectedArity, expectedVariadicTail,
@@ -6773,11 +6962,11 @@ namespace NG::typecheck
           if (paramIt != typeParamNames.end())
           {
             auto index = static_cast<size_t>(std::distance(typeParamNames.begin(), paramIt));
-            auto kindArity = index < genericDef.typeParamKindArities.size()
-                                 ? genericDef.typeParamKindArities[index]
+            auto kindArity = index < typeParamKindArities.size()
+                                 ? typeParamKindArities[index]
                                  : 0;
-            auto kindVariadicTail = index < genericDef.typeParamKindVariadicTails.size()
-                                        ? genericDef.typeParamKindVariadicTails[index]
+            auto kindVariadicTail = index < typeParamKindVariadicTails.size()
+                                        ? typeParamKindVariadicTails[index]
                                         : false;
             if ((kindArity > 0 || kindVariadicTail) && !annotation->genericArgs.empty())
             {

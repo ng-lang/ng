@@ -524,6 +524,82 @@ TEST_CASE("deleted ref specialization should reject nested references", "[TypeCh
   )", "deleted");
 }
 
+TEST_CASE("deleted primary type alias should reject matching type use",
+          "[TypeCheck][Generic][Delete][Failure]")
+{
+  typecheck_failure(R"(
+    type Blocked<T> = delete;
+    val value: Blocked<i32> = 1;
+  )", "deleted");
+}
+
+TEST_CASE("deleted generic function overload should reject exact matching calls",
+          "[TypeCheck][Generic][Delete][Failure]")
+{
+  typecheck_failure(R"(
+    type Box<T> {
+      property value: T;
+    }
+
+    fun<T> take_box(value: Box<T>) = delete;
+
+    val box: Box<i32> = unit;
+    take_box(box);
+  )", "Function overload is deleted");
+}
+
+TEST_CASE("more specific deleted generic function overload should beat valid fallback",
+          "[TypeCheck][Generic][Delete][Failure]")
+{
+  typecheck_failure(R"(
+    type Box<T> {
+      property value: T;
+    }
+
+    fun<T> accept(value: T) -> T = value;
+    fun<T> accept(value: Box<T>) = delete;
+
+    val box: Box<i32> = unit;
+    val invalid = accept(box);
+  )", "Function overload is deleted");
+}
+
+TEST_CASE("non matching deleted generic function overload should not block valid fallback",
+          "[TypeCheck][Generic][Delete]")
+{
+  auto ast = parse(R"(
+    fun<T> accept(value: T) -> T = value;
+    fun<T> accept(value: ref<T>) = delete;
+
+    val valid = accept(1);
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast);
+  REQUIRE(index.contains("valid"));
+  check_type_tag(*index["valid"], typeinfo_tag::I32);
+
+  destroyast(ast);
+}
+
+TEST_CASE("deleted const specialization should reject matching predicate use",
+          "[TypeCheck][Generic][Delete][Failure]")
+{
+  typecheck_failure(R"(
+    type Box {
+      property value: i32;
+    }
+
+    const is_bad<T>: bool = native;
+    const<T> is_bad<ref<T>>: bool = delete;
+
+    fun<T> reject_ref(value: T) -> unit where !is_bad<T> = unit;
+
+    val box = new Box { value: 1 };
+    reject_ref(box);
+  )", "Const specialization is deleted");
+}
+
 TEST_CASE("native const predicate where clause should accept matching generic calls",
           "[TypeCheck][Generic][ConstPredicate]")
 {

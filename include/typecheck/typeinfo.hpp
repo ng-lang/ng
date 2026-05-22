@@ -183,6 +183,8 @@ namespace NG::typecheck
         Vec<CheckingRef<TypeInfo>> parametersType; ///< The parameter types of the function.
         Vec<PlaceEffect> placeEffects;             ///< Ordered receiver effects used to update partial-move state.
         bool unknownPlaceEffects = false;          ///< True when receiver effects cannot be inferred conservatively.
+        bool deleted = false;                      ///< True when this signature is a deleted overload.
+        Str deletedRepr;                           ///< Source-like declaration used in deleted overload diagnostics.
 
         FunctionType(CheckingRef<TypeInfo> returnType, Vec<CheckingRef<TypeInfo>> parametersType)
             : returnType(returnType), parametersType(parametersType)
@@ -435,6 +437,7 @@ namespace NG::typecheck
         Vec<size_t> typeParamKindArities;            ///< 0 for *, N for type constructor params.
         Vec<bool> typeParamKindVariadicTails;        ///< Which type params are variadic constructor kinds.
         NG::ast::ASTRef<NG::ast::FunctionDef> funcDef; ///< The original AST node (for generic functions)
+        Vec<NG::ast::ASTRef<NG::ast::FunctionDef>> overloads; ///< Same-name generic overload candidates.
         TypeEnv capturedLocals;                     ///< Local type environment at definition site
         Map<Str, CheckingRef<TypeInfo>> instances; ///< Monomorphized return types keyed by instantiated name.
 
@@ -442,7 +445,10 @@ namespace NG::typecheck
                        NG::ast::ASTRef<NG::ast::FunctionDef> funcDef, TypeEnv capturedLocals, Str moduleId = "")
             : name(std::move(name)), moduleId(std::move(moduleId)), typeParamNames(std::move(typeParamNames)),
               typeParamIsPack(std::move(typeParamIsPack)),
-              funcDef(std::move(funcDef)), capturedLocals(std::move(capturedLocals)) {}
+              funcDef(std::move(funcDef)), capturedLocals(std::move(capturedLocals))
+        {
+            overloads.push_back(this->funcDef);
+        }
 
         auto tag() const -> typeinfo_tag override { return GENERIC_DEF; }
         auto repr() const -> Str override;

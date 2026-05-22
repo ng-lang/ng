@@ -576,6 +576,40 @@ TEST_CASE("parser should parse deleted ref specialization", "[Parser][Generics][
   destroyast(ast);
 }
 
+TEST_CASE("parser should parse deleted generic function declarations", "[Parser][Generics][Delete]")
+{
+  auto ast = parse("fun<T> accept(value: ref<T>) = delete;");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto funDef = dynamic_ast_cast<FunctionDef>(compileUnit->module->definitions[0]);
+  REQUIRE(funDef != nullptr);
+  REQUIRE(funDef->funName == "accept");
+  REQUIRE(funDef->genericParams.size() == 1);
+  REQUIRE(funDef->deleted);
+  REQUIRE(funDef->body == nullptr);
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse deleted const specializations", "[Parser][Generics][Delete]")
+{
+  auto ast = parse("const<T> is_bad<ref<T>>: bool = delete;");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto constDef = dynamic_ast_cast<ConstDef>(compileUnit->module->definitions[0]);
+  REQUIRE(constDef != nullptr);
+  REQUIRE(constDef->constName == "is_bad");
+  REQUIRE(constDef->genericParams.size() == 1);
+  REQUIRE(constDef->specializationPattern != nullptr);
+  REQUIRE(constDef->deleted);
+
+  destroyast(ast);
+}
+
 TEST_CASE("parser should parse type specialization where predicates", "[Parser][Generics][TypeAlias]")
 {
   auto ast = parse("type<T> deref<ref<T>>: where is_ref<T> = T;");

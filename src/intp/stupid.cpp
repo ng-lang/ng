@@ -2589,7 +2589,7 @@ namespace NG::intp
     // virtual void visit(Param *param);
     void visit(FunctionDef *funDef) override
     {
-      if (funDef->native)
+      if (funDef->native || funDef->deleted)
       {
         return;
       }

@@ -210,6 +210,10 @@ namespace NG::orgasm
         {
             if (auto funDef = dynamic_ast_cast<FunctionDef>(def))
             {
+                if (funDef->deleted)
+                {
+                    continue;
+                }
                 if (!funDef->genericParams.empty())
                 {
                     genericFunctionDefs[funDef->funName] = funDef.get();
@@ -456,6 +460,10 @@ namespace NG::orgasm
         {
             if (auto funDef = dynamic_ast_cast<FunctionDef>(def))
             {
+                if (funDef->deleted)
+                {
+                    continue;
+                }
                 if (!funDef->genericParams.empty())
                 {
                     continue;

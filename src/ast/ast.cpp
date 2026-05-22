@@ -177,7 +177,7 @@ namespace NG::ast
   {
     auto target = specializationPattern ? specializationPattern->repr() : constName + genericParamsRepr(genericParams);
     auto whereRepr = whereBounds.empty() ? "" : " where " + strOfNodeList(whereBounds, " && ");
-    auto body = native ? Str{"native"} : (value ? value->repr() : "?");
+    auto body = deleted ? Str{"delete"} : (native ? Str{"native"} : (value ? value->repr() : "?"));
     return "const " + (specializationPattern ? genericParamsRepr(genericParams) + " " : "") + target + whereRepr + ": " +
            (returnType ? returnType->repr() : "?") + " = " + body + ";";
   }
@@ -606,7 +606,8 @@ namespace NG::ast
   {
     auto whereRepr = whereBounds.empty() ? "" : " where " + strOfNodeList(whereBounds, " && ");
     return "fun " + funName + genericParamsRepr(genericParams) + "(" + strOfNodeList(params) + ")" +
-           (returnType ? " -> " + returnType->repr() : "") + whereRepr + (body ? body->repr() : ";");
+           (returnType ? " -> " + returnType->repr() : "") + whereRepr +
+           (deleted ? " = delete;" : (body ? body->repr() : ";"));
   }
 
   void UnaryExpression::accept(AstVisitor *visitor)

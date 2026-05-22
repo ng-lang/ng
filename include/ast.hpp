@@ -330,6 +330,7 @@ namespace NG::ast
         ASTRef<TypeAnnotation> returnType = nullptr;
         ASTRef<Expression> value = nullptr;
         bool native = false;
+        bool deleted = false;
 
         explicit ConstDef(Str name) : constName(std::move(name)) {}
 
@@ -386,6 +387,7 @@ namespace NG::ast
         Vec<ASTRef<TraitBound>> whereBounds;         ///< Narrow Phase-1 trait bounds from `where`.
         ASTRef<Statement> body = nullptr;            ///< The body of the function.
         bool native = false;                         ///< Whether the function is a native function.
+        bool deleted = false;                        ///< Whether this declaration is a forbidden overload.
 
         [[nodiscard]] auto names() const -> Vec<Str> override;
 

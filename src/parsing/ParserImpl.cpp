@@ -582,6 +582,13 @@ namespace NG::parsing
             accept(TokenType::SEMICOLON);
             return def;
           }
+          if (expect(TokenType::KEYWORD_DELETE))
+          {
+            accept(TokenType::KEYWORD_DELETE);
+            def->deleted = true;
+            accept(TokenType::SEMICOLON);
+            return def;
+          }
           else
           {
             auto expressionBody = expression();
@@ -640,6 +647,11 @@ namespace NG::parsing
       {
         accept(TokenType::KEYWORD_NATIVE);
         def->native = true;
+      }
+      else if (expect(TokenType::KEYWORD_DELETE))
+      {
+        accept(TokenType::KEYWORD_DELETE);
+        def->deleted = true;
       }
       else
       {
