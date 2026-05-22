@@ -1,5 +1,9 @@
 # `const fun` And Compile-Time Computation
 
+## Order
+
+Recommended Issue order: 5.
+
 ## Goal
 
 Introduce compile-time executable functions for use in `const` definitions, `where` predicates, const generic arguments, and `const if`.
@@ -15,6 +19,18 @@ fun foo<const N: u32>() where is_power_of_two(N) {
   ...
 }
 ```
+
+## Dependencies
+
+Prerequisites:
+
+- [Constant Generic Parameters](constant_generic_parameters.md), for const values in generic signatures and mangling.
+- Existing const predicates and `const if`.
+
+Unblocks:
+
+- Full [Enhanced Tuple Types](enhanced_tuples.md), especially recursive `tuple_element` and const arithmetic over tuple indexes.
+- More expressive type/const constraints.
 
 ## Scope
 

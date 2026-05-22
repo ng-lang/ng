@@ -1,5 +1,9 @@
 # Auto Traits And Derive Traits
 
+## Order
+
+Recommended Issue order: 7.
+
 ## Goal
 
 Add compiler-assisted trait implementation mechanisms for common marker and structural traits.
@@ -14,6 +18,18 @@ type Point: derive(Clone + Debug) {
 
 auto trait Send;
 ```
+
+## Dependencies
+
+Prerequisites:
+
+- [Module Artifact And Typechecker Integration](module_artifact_typechecker.md), for cross-module trait impl visibility and coherence.
+- [Generalized `= delete` Declarations](generalized_delete.md), for negative or blocked auto-trait behavior.
+- Existing trait dispatch, trait bounds, and impl coherence.
+
+Related:
+
+- [Standard Library Modularization](stdlib_modularization.md), if core marker traits live in `std`.
 
 ## Scope
 
