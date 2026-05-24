@@ -3322,8 +3322,10 @@ namespace NG::typecheck
 
       if (shouldPublishSharedArtifact)
       {
+        const bool wasNativeArtifact = sharedArtifact->format == NG::module::ModuleFormat::Native;
         sharedArtifact->id = NG::module::module_id_from_name(currentModuleId);
-        sharedArtifact->format = NG::module::ModuleFormat::SourceNg;
+        sharedArtifact->format = wasNativeArtifact ? NG::module::ModuleFormat::Native
+                                                   : NG::module::ModuleFormat::SourceNg;
         sharedArtifact->typeIndex = type_index;
         sharedArtifact->exports.declared = artifacts.exports;
         sharedArtifact->exports.types = artifacts.exportedTypes;
@@ -6068,12 +6070,6 @@ namespace NG::typecheck
         return cached->second;
       }
       auto &registry = NG::module::get_module_registry();
-      if (auto artifact = registry.queryArtifactById(moduleId); artifact && hasPublishedTypeMetadata(*artifact))
-      {
-        auto artifacts = toLocalModuleArtifacts(*artifact);
-        moduleArtifactsById[moduleId] = artifacts;
-        return artifacts;
-      }
       if (!activeModuleChecks.insert(moduleId).second)
       {
         return {};
@@ -6088,7 +6084,7 @@ namespace NG::typecheck
       } guard{moduleId};
 
       auto moduleInfo = registry.queryModuleById(moduleId);
-      if (!moduleInfo)
+      if (!moduleInfo || !moduleInfo->moduleAst)
       {
         NG::module::FileBasedExternalModuleLoader loader{modulePaths};
         moduleInfo = loader.load(importDecl.modulePath);
@@ -6099,6 +6095,12 @@ namespace NG::typecheck
       }
       if (!moduleInfo || !moduleInfo->moduleAst)
       {
+        if (auto artifact = registry.queryArtifactById(moduleId); artifact && hasPublishedTypeMetadata(*artifact))
+        {
+          auto artifacts = toLocalModuleArtifacts(*artifact);
+          moduleArtifactsById[moduleId] = artifacts;
+          return artifacts;
+        }
         return {};
       }
 
@@ -6237,6 +6239,15 @@ namespace NG::typecheck
           // Preserve the historical loose import behavior for modules that are
           // intentionally provided by native/compiler test harnesses.
         }
+      }
+
+      if (auto artifact = NG::module::get_module_registry().queryArtifactById(moduleId);
+          artifact && hasPublishedTypeMetadata(*artifact))
+      {
+        auto artifacts = toLocalModuleArtifacts(*artifact);
+        moduleArtifactsById[moduleId] = artifacts;
+        importCheckedModuleArtifacts(*importDecl, moduleId, artifacts);
+        return;
       }
 
       // Basic support for imports in type checker:

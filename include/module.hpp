@@ -108,6 +108,19 @@ namespace NG::module
         ModuleImplIndex impls;
     };
 
+    struct NativeModuleDescriptor
+    {
+        Str moduleId;
+        Map<Str, NG::runtime::NGCallable> functions;
+        TypeIndex typeIndex{};
+        ModuleExportIndex exports;
+        ModuleTraitIndex traits;
+        ModuleImplIndex impls;
+        Str origin;
+        Str version;
+        bool requireSignatures = false;
+    };
+
     /**
      * @brief Contains information about a module.
      */
@@ -132,6 +145,7 @@ namespace NG::module
     {
         Map<Str, RuntimeRef<ModuleInfo>> modules; ///< The modules in the registry.
         Map<Str, RuntimeRef<ModuleArtifact>> artifacts; ///< Shared module artifacts by canonical ID.
+        Map<Str, RuntimeRef<NativeModuleDescriptor>> nativeDescriptors; ///< Native modules by canonical ID.
         Vec<Str> basePaths;                       ///< The base paths for module resolution.
 
       public:
@@ -147,6 +161,7 @@ namespace NG::module
          */
         void addModuleInfo(RuntimeRef<ModuleInfo> moduleInfo);
         void addModuleArtifact(RuntimeRef<ModuleArtifact> artifact);
+        void registerNativeModuleDescriptor(RuntimeRef<NativeModuleDescriptor> descriptor);
         /**
          * @brief Queries a module by its ID.
          *
@@ -155,6 +170,7 @@ namespace NG::module
          */
         RuntimeRef<ModuleInfo> queryModuleById(Str moduleId) const;
         RuntimeRef<ModuleArtifact> queryArtifactById(Str moduleId) const;
+        RuntimeRef<NativeModuleDescriptor> queryNativeModuleDescriptor(Str moduleId) const;
 
         /**
          * @brief Clears all registered modules.

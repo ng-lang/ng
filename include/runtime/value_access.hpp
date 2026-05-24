@@ -211,6 +211,13 @@ namespace NG::runtime
     return state->exports;
   }
 
+  inline void runtime_module_add_export(const RuntimeRef<StorageCell> &value, const Str &name)
+  {
+    auto state = runtime_module_state(value);
+    if (!state) throw RuntimeException("Expected module runtime value");
+    state->exports.insert(name);
+  }
+
   inline void runtime_module_set_native_function(const RuntimeRef<StorageCell> &value, const Str &name, NGCallable handler)
   {
     auto state = runtime_module_state(value);

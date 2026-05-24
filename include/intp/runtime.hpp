@@ -408,6 +408,7 @@ namespace NG::runtime
     [[nodiscard]] auto runtime_module_native_functions(const RuntimeRef<StorageCell> &value) -> Map<Str, NGCallable>;
     [[nodiscard]] auto runtime_module_imports(const RuntimeRef<StorageCell> &value) -> Set<Str>;
     [[nodiscard]] auto runtime_module_exports(const RuntimeRef<StorageCell> &value) -> Set<Str>;
+    void runtime_module_add_export(const RuntimeRef<StorageCell> &value, const Str &name);
     void runtime_module_set_native_function(const RuntimeRef<StorageCell> &value, const Str &name, NGCallable handler);
     [[nodiscard]] auto runtime_module_type_named(const RuntimeRef<StorageCell> &value, const Str &name) -> RuntimeRef<NGType>;
     void runtime_module_set_native_state(const RuntimeRef<StorageCell> &value, Str name, std::shared_ptr<void> state);

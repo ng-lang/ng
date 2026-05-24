@@ -3,6 +3,7 @@
 #include <imgui_impl_sdl3.h>
 #include <imgui_impl_sdlgpu3.h>
 #include <intp/runtime.hpp>
+#include <module.hpp>
 #include <orgasm/vm.hpp>
 #include <runtime/native_marshaling.hpp>
 #include <filesystem>
@@ -355,6 +356,23 @@ namespace NG::library::imgui
   void do_register()
   {
     register_native_library("std.imgui", handlers);
+    using namespace NG::typecheck;
+    auto unitType = makecheck<PrimitiveType>(typeinfo_tag::UNIT);
+    auto boolType = makecheck<PrimitiveType>(typeinfo_tag::BOOL);
+    auto stringType = makecheck<PrimitiveType>(typeinfo_tag::STRING);
+
+    auto descriptor = makert<NG::module::NativeModuleDescriptor>();
+    descriptor->moduleId = "std.imgui";
+    descriptor->functions = handlers;
+    descriptor->exports.declared.insert("*");
+    for (const auto &[name, _handler] : handlers)
+    {
+      descriptor->typeIndex.insert_or_assign(name, makecheck<FunctionType>(unitType, Vec<CheckingRef<TypeInfo>>{}));
+    }
+    descriptor->typeIndex.insert_or_assign("Begin", makecheck<FunctionType>(unitType, Vec<CheckingRef<TypeInfo>>{stringType}));
+    descriptor->typeIndex.insert_or_assign("Text", makecheck<FunctionType>(unitType, Vec<CheckingRef<TypeInfo>>{stringType}));
+    descriptor->typeIndex.insert_or_assign("Aborted", makecheck<FunctionType>(boolType, Vec<CheckingRef<TypeInfo>>{}));
+    NG::module::get_module_registry().registerNativeModuleDescriptor(descriptor);
   };
 
   void register_vm_natives(NG::orgasm::VM &vm)

@@ -1,4 +1,4 @@
-module imgui exports *;
+module std.imgui exports *;
 
 fun init() -> unit = native;
 

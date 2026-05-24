@@ -1,4 +1,5 @@
 #include <orgasm/compiler.hpp>
+#include <algorithm>
 #include <bit>
 #include <array>
 #include <limits>
@@ -1003,6 +1004,32 @@ namespace NG::orgasm
         auto &registry = NG::module::get_module_registry();
         auto moduleId = NG::module::canonical_module_id(importDecl->modulePath);
         if (moduleId.empty()) moduleId = importDecl->module;
+
+        if (auto artifact = registry.queryArtifactById(moduleId);
+            artifact && artifact->format == NG::module::ModuleFormat::Native)
+        {
+            const bool importAll = std::ranges::find(importDecl->imports, "*") != importDecl->imports.end();
+            Vec<Str> names;
+            if (importAll)
+            {
+                for (const auto &[name, _type] : artifact->exports.types)
+                {
+                    names.push_back(name);
+                }
+            }
+            else
+            {
+                names = importDecl->imports;
+            }
+            for (auto &&name : names)
+            {
+                int32_t importIdx = static_cast<int32_t>(module.imports.size());
+                module.imports.push_back({moduleId, name});
+                imported_symbols[name] = {moduleId, importIdx};
+            }
+            return;
+        }
+
         auto moduleInfo = registry.queryModuleById(moduleId);
         
         if (!moduleInfo) {

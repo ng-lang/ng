@@ -1,5 +1,6 @@
 #include <intp/runtime.hpp>
 #include <intp/runtime_numerals.hpp>
+#include <module.hpp>
 #include <orgasm/native_bridge.hpp>
 #include <orgasm/vm.hpp>
 #include <runtime/native_marshaling.hpp>
@@ -315,6 +316,12 @@ namespace NG::library::prelude
   void do_register()
   {
     register_native_library("std.prelude", handlers);
+    auto descriptor = makert<NG::module::NativeModuleDescriptor>();
+    descriptor->moduleId = "std.prelude";
+    descriptor->functions = handlers;
+    descriptor->typeIndex = NG::typecheck::build_prelude_type_index();
+    descriptor->exports.declared.insert("*");
+    NG::module::get_module_registry().registerNativeModuleDescriptor(descriptor);
   };
 
   void register_vm_natives(NG::orgasm::VM &vm)

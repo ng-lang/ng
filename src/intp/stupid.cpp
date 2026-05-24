@@ -2328,22 +2328,12 @@ namespace NG::intp
       {
         return;
       }
-      if (auto target = get_module_registry().queryModuleById("std.prelude"); target)
-      {
-        auto targetModule = target->runtimeModule;
-        define_global_module(symbols, target->moduleName, target->runtimeModule);
-        importInto(symbols, {"*"}, targetModule);
-      }
-      else
-      {
-        // do actual import
-        auto importPrelude = makeast<ImportDecl>();
-        importPrelude->module = "prelude";
-        importPrelude->modulePath.push_back("std");
-        importPrelude->modulePath.push_back("prelude");
-        importPrelude->imports.push_back("*");
-        importPrelude->accept(this);
-      }
+      auto importPrelude = makeast<ImportDecl>();
+      importPrelude->module = "prelude";
+      importPrelude->modulePath.push_back("std");
+      importPrelude->modulePath.push_back("prelude");
+      importPrelude->imports.push_back("*");
+      importPrelude->accept(this);
       // load std.prelude by default.
     }
 
@@ -2442,28 +2432,82 @@ namespace NG::intp
     {
       if (!symbols->modules.contains(importDecl->module))
       {
-        // load module
-        NG::module::FileBasedExternalModuleLoader loader{this->modulePaths};
-        auto &&moduleInfo = loader.load(importDecl->modulePath);
-        if (auto target = get_module_registry().queryModuleById(moduleInfo->moduleId); target && target->runtimeModule)
+        auto moduleId = NG::module::canonical_module_id(importDecl->modulePath);
+        if (moduleId.empty())
         {
-          define_global_module(symbols, importDecl->module, target->runtimeModule);
+          moduleId = importDecl->module;
         }
-        else
+        auto registeredModule = get_module_registry().queryModuleById(moduleId);
+        const bool registeredNativeOnly =
+            registeredModule && registeredModule->artifact &&
+            registeredModule->artifact->format == NG::module::ModuleFormat::Native &&
+            !registeredModule->moduleAst;
+        const bool registeredNativeStubWithoutSourceFunctions =
+            registeredModule && registeredModule->moduleAst && registeredModule->runtimeModule &&
+            registeredModule->artifact && registeredModule->artifact->format == NG::module::ModuleFormat::Native &&
+            runtime_module_functions(registeredModule->runtimeModule).empty();
+        if (registeredModule && registeredModule->runtimeModule && !registeredNativeOnly &&
+            !registeredNativeStubWithoutSourceFunctions)
         {
-          auto &&ast = moduleInfo->moduleAst;
-          bool loadingPrelude = moduleInfo->moduleId == "std.prelude";
-          Stupid stupid{modulePaths, loadingPrelude};
-          ast->accept(&stupid);
-          auto runtimeModule = stupid.asModule();
-          if (get_native_registry().contains(moduleInfo->moduleId))
+          define_global_module(symbols, importDecl->module, registeredModule->runtimeModule);
+        }
+      }
+      if (!symbols->modules.contains(importDecl->module))
+      {
+        auto moduleId = NG::module::canonical_module_id(importDecl->modulePath);
+        if (moduleId.empty())
+        {
+          moduleId = importDecl->module;
+        }
+        try
+        {
+          NG::module::FileBasedExternalModuleLoader loader{this->modulePaths};
+          auto &&moduleInfo = loader.load(importDecl->modulePath);
+          const bool nativeStubWithoutSourceFunctions =
+              moduleInfo->moduleAst && moduleInfo->runtimeModule && moduleInfo->artifact &&
+              moduleInfo->artifact->format == NG::module::ModuleFormat::Native &&
+              runtime_module_functions(moduleInfo->runtimeModule).empty();
+          if (moduleInfo->runtimeModule && !nativeStubWithoutSourceFunctions)
           {
-            auto &n = get_native_registry()[moduleInfo->moduleId];
-            bind_native_library_handlers(runtimeModule, n);
+            define_global_module(symbols, importDecl->module, moduleInfo->runtimeModule);
           }
-          moduleInfo->runtimeModule = runtimeModule;
-          get_module_registry().addModuleInfo(moduleInfo);
-          define_global_module(symbols, importDecl->module, moduleInfo->runtimeModule);
+          else
+          {
+            auto &&ast = moduleInfo->moduleAst;
+            bool loadingPrelude = moduleInfo->moduleId == "std.prelude";
+            Stupid stupid{modulePaths, loadingPrelude};
+            ast->accept(&stupid);
+            auto runtimeModule = stupid.asModule();
+            if (get_native_registry().contains(moduleInfo->moduleId))
+            {
+              auto &n = get_native_registry()[moduleInfo->moduleId];
+              bind_native_library_handlers(runtimeModule, n);
+              auto boundNativeFunctions = runtime_module_native_functions(runtimeModule);
+              for (const auto &[name, handler] : boundNativeFunctions)
+              {
+                if (!stupid.symbols->functions.contains(name))
+                {
+                  define_global_function(stupid.symbols, name, handler);
+                }
+              }
+            }
+            moduleInfo->runtimeModule = runtimeModule;
+            get_module_registry().addModuleInfo(moduleInfo);
+            define_global_module(symbols, importDecl->module, moduleInfo->runtimeModule);
+          }
+        }
+        catch (const RuntimeException &)
+        {
+          if (auto target = get_module_registry().queryModuleById(moduleId);
+              target && target->runtimeModule && target->artifact &&
+              target->artifact->format == NG::module::ModuleFormat::Native && !target->moduleAst)
+          {
+            define_global_module(symbols, importDecl->module, target->runtimeModule);
+          }
+          else
+          {
+            throw;
+          }
         }
       }
       RuntimeRef<StorageCell> targetModule = symbols->modules.at(importDecl->module);
@@ -2487,12 +2531,27 @@ namespace NG::intp
       auto objectSlots = runtime_module_object_slots(fromModule);
       auto nativeFunctions = runtime_module_native_functions(fromModule);
       symbols->traitNames.insert(traitNames.begin(), traitNames.end());
+      auto moduleSymbols = makert<RuntimeSymbolTable>();
+      moduleSymbols->functions = functions;
+      for (const auto &[name, handler] : nativeFunctions)
+      {
+        moduleSymbols->functions.insert_or_assign(name, handler);
+      }
+      moduleSymbols->types = types;
+      moduleSymbols->traitNames = traitNames;
+      moduleSymbols->objectSlots = objectSlots;
 
       for (auto &&imp : imports)
       {
         if (functions.contains(imp))
         {
-          define_global_function(symbols, imp, functions[imp]);
+          auto function = functions[imp];
+          define_global_function(symbols, imp,
+                                 [function = std::move(function), moduleSymbols](const NGSelf &self,
+                                                                                  const NGEnv &,
+                                                                                  const NGArgs &args) {
+                                   return function(self, make_runtime_env(moduleSymbols), args);
+                                 });
         }
         if (types.contains(imp))
         {
