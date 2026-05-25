@@ -44,4 +44,9 @@ namespace NG::intp
      * @return A pointer to the new interpreter instance.
      */
     auto stupid() -> Interpreter *;
+
+    [[nodiscard]] auto eval_const_function(ast::FunctionDef *target,
+                                           const Vec<ast::FunctionDef *> &constFunctions,
+                                           const Vec<RuntimeRef<StorageCell>> &args,
+                                           Vec<Str> modulePaths = {}) -> RuntimeRef<StorageCell>;
 } // namespace NG::intp

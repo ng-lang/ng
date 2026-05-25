@@ -257,6 +257,11 @@ TEST_CASE("should run const generic instances example with STUPID", "[Integratio
   runTypecheckedIntegrationTest("example/47.const_generic_instances.ng");
 }
 
+TEST_CASE("should run const fun example with STUPID", "[Integration][ConstFun]")
+{
+  runTypecheckedIntegrationTest("example/53.const_fun.ng");
+}
+
 TEST_CASE("should run higher-kinded generic example with STUPID", "[Integration][HKT]")
 {
   runTypecheckedIntegrationTest("example/48.higher_kinded_generics.ng");

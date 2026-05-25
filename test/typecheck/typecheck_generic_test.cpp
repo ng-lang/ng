@@ -661,6 +661,110 @@ TEST_CASE("const definitions should accept typed compile-time scalar values",
   destroyast(ast);
 }
 
+TEST_CASE("const functions should compute const definitions through STUPID",
+          "[TypeCheck][Generic][ConstFun]")
+{
+  auto ast = parse(R"(
+    const fun add(a: i32, b: i32) -> i32 {
+      return a + b;
+    }
+
+    const answer: i32 = add(20, 22);
+  )");
+  REQUIRE(ast != nullptr);
+
+  REQUIRE_NOTHROW(type_check(ast));
+
+  destroyast(ast);
+}
+
+TEST_CASE("const functions should fold const if conditions",
+          "[TypeCheck][Generic][ConstFun]")
+{
+  auto ast = parse(R"(
+    const fun large(value: i32) -> bool {
+      return value > 10;
+    }
+
+    const if (large(20)) {
+      val ok: i32 = 1;
+    } else {
+      val impossible: i32 = false;
+    }
+  )");
+  REQUIRE(ast != nullptr);
+
+  REQUIRE_NOTHROW(type_check(ast));
+
+  destroyast(ast);
+}
+
+TEST_CASE("const functions should satisfy where predicates",
+          "[TypeCheck][Generic][ConstFun]")
+{
+  auto ast = parse(R"(
+    const fun positive(value: i32) -> bool {
+      return value > 0;
+    }
+
+    fun id<const N: i32>(value: i32) -> i32 where positive(N) = value;
+
+    val result = id<1>(2);
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast);
+  REQUIRE(index.contains("result"));
+  check_type_tag(*index["result"], typeinfo_tag::I32);
+
+  destroyast(ast);
+}
+
+TEST_CASE("const functions should support recursive STUPID evaluation",
+          "[TypeCheck][Generic][ConstFun]")
+{
+  auto ast = parse(R"(
+    const fun fact(n: i32) -> i32 {
+      if (n == 0) {
+        return 1;
+      } else {
+        return n * fact(n - 1);
+      }
+    }
+
+    const six: i32 = fact(3);
+  )");
+  REQUIRE(ast != nullptr);
+
+  REQUIRE_NOTHROW(type_check(ast));
+
+  destroyast(ast);
+}
+
+TEST_CASE("const functions should reject non-const calls during compile-time execution",
+          "[TypeCheck][Generic][ConstFun][Failure]")
+{
+  typecheck_failure(R"(
+    fun runtime_value() -> i32 {
+      return 1;
+    }
+
+    const fun invalid() -> i32 {
+      return runtime_value();
+    }
+
+    const value: i32 = invalid();
+  )", "Non-const function cannot be called from const function");
+}
+
+TEST_CASE("const functions should reject native declarations",
+          "[TypeCheck][Generic][ConstFun][Failure]")
+{
+  typecheck_failure(R"(
+    const fun invalid() -> i32 = native;
+  )", "Const function cannot be native or deleted");
+}
+
 TEST_CASE("prelude is_ref const predicate should fold const if by generic type",
           "[TypeCheck][Generic][ConstPredicate]")
 {

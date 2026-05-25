@@ -1,8 +1,11 @@
 
 #include <debug.hpp>
+#include <intp/intp.hpp>
+#include <intp/runtime_numerals.hpp>
 #include <token.hpp>
 #include <typecheck/mangling.hpp>
 #include <typecheck/typecheck.hpp>
+#include <runtime/value_access.hpp>
 #include <module.hpp>
 #include <parser.hpp>
 #include <algorithm>
@@ -1013,6 +1016,8 @@ namespace NG::typecheck
     inline static Map<Str, Vec<TypeAliasDef *>> activeTypeAliasSpecializations{};
     inline static Map<Str, Vec<ConstDef *>> activeConstPredicates{};
     inline static Map<Str, Vec<ConstDef *>> preludeConstPredicates{};
+    inline static Map<Str, Vec<FunctionDef *>> activeConstFunctions{};
+    inline static Map<Str, Vec<FunctionDef *>> preludeConstFunctions{};
     struct TraitImplRecord
     {
       Str traitName;
@@ -2499,6 +2504,11 @@ namespace NG::typecheck
         {
           return std::get<bool>(*value);
         }
+        value = tryEvalConstValue(expr);
+        if (value.has_value() && std::holds_alternative<bool>(*value))
+        {
+          return std::get<bool>(*value);
+        }
         return std::nullopt;
       }
       if (auto *unaryExpr = dynamic_cast<UnaryExpression *>(expr))
@@ -2530,6 +2540,188 @@ namespace NG::typecheck
       return tryEvalConstCondition(expr);
     }
 
+    static auto constValueTypeName(const ConstValue &value) -> Str
+    {
+      if (std::holds_alternative<bool>(value))
+      {
+        return "bool";
+      }
+      if (std::holds_alternative<Str>(value))
+      {
+        return "string";
+      }
+      return "i64";
+    }
+
+    static auto primitiveTypeForConstValue(const ConstValue &value) -> CheckingRef<TypeInfo>
+    {
+      if (std::holds_alternative<bool>(value))
+      {
+        return makecheck<PrimitiveType>(typeinfo_tag::BOOL);
+      }
+      if (std::holds_alternative<Str>(value))
+      {
+        return makecheck<PrimitiveType>(typeinfo_tag::STRING);
+      }
+      return makecheck<PrimitiveType>(typeinfo_tag::I64);
+    }
+
+    static auto constValueLiteral(const ConstValue &value) -> Str
+    {
+      if (std::holds_alternative<bool>(value))
+      {
+        return std::get<bool>(value) ? "true" : "false";
+      }
+      if (std::holds_alternative<Str>(value))
+      {
+        return std::get<Str>(value);
+      }
+      return std::to_string(std::get<int64_t>(value));
+    }
+
+    static auto constValueFromType(const CheckingRef<TypeInfo> &type) -> std::optional<ConstValue>
+    {
+      auto constValue = std::dynamic_pointer_cast<ConstValueType>(unwrap(type));
+      if (!constValue || constValue->isParam)
+      {
+        return std::nullopt;
+      }
+      if (constValue->valueType == "bool" || constValue->value == "true" || constValue->value == "false")
+      {
+        if (constValue->value == "true")
+        {
+          return true;
+        }
+        if (constValue->value == "false")
+        {
+          return false;
+        }
+        return std::nullopt;
+      }
+      if (constValue->valueType == "string")
+      {
+        return constValue->value;
+      }
+      try
+      {
+        return static_cast<int64_t>(std::stoll(constValue->value));
+      }
+      catch (const std::exception &)
+      {
+        return std::nullopt;
+      }
+    }
+
+    auto predicateHasUnresolvedGeneric(Expression *expr) const -> bool
+    {
+      if (!expr)
+      {
+        return false;
+      }
+      if (auto *idExpr = dynamic_cast<IdExpression *>(expr))
+      {
+        auto it = locals.find(idExpr->id);
+        if (it == locals.end())
+        {
+          return false;
+        }
+        if (auto constValue = std::dynamic_pointer_cast<ConstValueType>(unwrap(it->second)))
+        {
+          return constValue->isParam;
+        }
+        return unwrap(it->second)->tag() == typeinfo_tag::GENERIC_PARAM;
+      }
+      if (auto *funCall = dynamic_cast<FunCallExpression *>(expr))
+      {
+        for (auto &arg : funCall->arguments)
+        {
+          if (predicateHasUnresolvedGeneric(arg.get()))
+          {
+            return true;
+          }
+        }
+        return false;
+      }
+      if (auto *unary = dynamic_cast<UnaryExpression *>(expr))
+      {
+        return predicateHasUnresolvedGeneric(unary->operand.get());
+      }
+      if (auto *binary = dynamic_cast<BinaryExpression *>(expr))
+      {
+        return predicateHasUnresolvedGeneric(binary->left.get()) ||
+               predicateHasUnresolvedGeneric(binary->right.get());
+      }
+      return false;
+    }
+
+    void validateConstFunctionExpression(Expression *expr)
+    {
+      if (!expr)
+      {
+        return;
+      }
+      if (auto *call = dynamic_cast<FunCallExpression *>(expr))
+      {
+        auto id = dynamic_cast<IdExpression *>(call->primaryExpression.get());
+        if (!id || !activeConstFunctions.contains(id->id))
+        {
+          throw TypeCheckingException("Non-const function cannot be called from const function: " +
+                                          call->primaryExpression->repr(),
+                                      call->pos);
+        }
+        for (auto &arg : call->arguments)
+        {
+          validateConstFunctionExpression(arg.get());
+        }
+        return;
+      }
+      if (auto *unary = dynamic_cast<UnaryExpression *>(expr))
+      {
+        validateConstFunctionExpression(unary->operand.get());
+        return;
+      }
+      if (auto *binary = dynamic_cast<BinaryExpression *>(expr))
+      {
+        validateConstFunctionExpression(binary->left.get());
+        validateConstFunctionExpression(binary->right.get());
+        return;
+      }
+    }
+
+    void validateConstFunctionStatement(Statement *stmt)
+    {
+      if (!stmt)
+      {
+        return;
+      }
+      if (auto *ret = dynamic_cast<ReturnStatement *>(stmt))
+      {
+        validateConstFunctionExpression(ret->expression.get());
+        return;
+      }
+      if (auto *compound = dynamic_cast<CompoundStatement *>(stmt))
+      {
+        for (auto &child : compound->statements)
+        {
+          validateConstFunctionStatement(child.get());
+        }
+        return;
+      }
+      if (auto *val = dynamic_cast<ValDefStatement *>(stmt))
+      {
+        validateConstFunctionExpression(val->value.get());
+        return;
+      }
+      if (auto *ifStmt = dynamic_cast<IfStatement *>(stmt))
+      {
+        validateConstFunctionExpression(ifStmt->testing.get());
+        validateConstFunctionStatement(ifStmt->consequence.get());
+        validateConstFunctionStatement(ifStmt->alternative.get());
+        return;
+      }
+      throw TypeCheckingException("Unsupported statement in const function: " + stmt->repr(), stmt->pos);
+    }
+
     void validateWherePredicates(const Vec<ASTRef<TraitBound>> &bounds, const TokenPosition &pos)
     {
       for (auto &bound : bounds)
@@ -2541,6 +2733,10 @@ namespace NG::typecheck
         auto value = tryEvalWherePredicate(bound->predicate.get());
         if (!value.has_value())
         {
+          if (predicateHasUnresolvedGeneric(bound->predicate.get()))
+          {
+            continue;
+          }
           throw TypeCheckingException("Unable to evaluate where predicate: " + bound->predicate->repr(),
                                       bound->pos);
         }
@@ -3088,6 +3284,123 @@ namespace NG::typecheck
       return std::nullopt;
     }
 
+    auto tryEvalConstFunctionCall(const FunCallExpression *funCall) -> std::optional<ConstValue>
+    {
+      auto idExpr = dynamic_cast<IdExpression *>(funCall->primaryExpression.get());
+      if (!idExpr || !activeConstFunctions.contains(idExpr->id))
+      {
+        return std::nullopt;
+      }
+      auto candidates = activeConstFunctions.at(idExpr->id);
+      if (candidates.empty())
+      {
+        return std::nullopt;
+      }
+      auto *fn = candidates.front();
+      if (!fn)
+      {
+        return std::nullopt;
+      }
+      if (!fn->genericParams.empty())
+      {
+        throw TypeCheckingException("Generic const functions are not supported yet: " + fn->funName, fn->pos);
+      }
+      if (fn->native || fn->deleted)
+      {
+        throw TypeCheckingException("Const function cannot be native or deleted: " + fn->funName, fn->pos);
+      }
+      if (fn->params.size() != funCall->arguments.size())
+      {
+        throw TypeCheckingException("Const function argument count mismatch: " + fn->funName, funCall->pos);
+      }
+
+      Vec<NG::runtime::RuntimeRef<NG::runtime::StorageCell>> runtimeArgs;
+      runtimeArgs.reserve(fn->params.size());
+      for (size_t i = 0; i < fn->params.size(); ++i)
+      {
+        auto argValue = tryEvalConstValue(funCall->arguments[i].get());
+        if (!argValue.has_value())
+        {
+          if (predicateHasUnresolvedGeneric(funCall->arguments[i].get()))
+          {
+            return std::nullopt;
+          }
+          throw TypeCheckingException("Const function argument is not compile-time evaluable: " + fn->funName,
+                                      funCall->arguments[i]->pos);
+        }
+        if (fn->params[i]->annotatedType)
+        {
+          TypeChecker paramChecker{locals};
+          fn->params[i]->annotatedType->accept(&paramChecker);
+          if (!constValueMatchesType(*argValue, paramChecker.result))
+          {
+            throw TypeCheckingException("Const function argument type mismatch: " + fn->funName,
+                                        funCall->arguments[i]->pos);
+          }
+        }
+        if (std::holds_alternative<bool>(*argValue))
+        {
+          runtimeArgs.push_back(NG::runtime::make_runtime_boolean(std::get<bool>(*argValue)));
+        }
+        else if (std::holds_alternative<Str>(*argValue))
+        {
+          runtimeArgs.push_back(NG::runtime::make_runtime_string(std::get<Str>(*argValue)));
+        }
+        else
+        {
+          runtimeArgs.push_back(NG::runtime::numeral_cell_from_value<int64_t>(std::get<int64_t>(*argValue)));
+        }
+      }
+
+      Vec<FunctionDef *> constFunctions;
+      for (const auto &[_, functions] : activeConstFunctions)
+      {
+        constFunctions.insert(constFunctions.end(), functions.begin(), functions.end());
+      }
+      for (auto *constFunction : constFunctions)
+      {
+        if (constFunction)
+        {
+          validateConstFunctionStatement(constFunction->body.get());
+        }
+      }
+      auto resultCell = NG::intp::eval_const_function(fn, constFunctions, runtimeArgs, modulePaths);
+      std::optional<ConstValue> resultValue = std::nullopt;
+      if (auto boolValue = NG::runtime::runtime_boolean_value(resultCell); boolValue.has_value())
+      {
+        resultValue = *boolValue;
+      }
+      else if (NG::runtime::runtime_is_string_value(resultCell))
+      {
+        resultValue = NG::runtime::runtime_string_value(resultCell);
+      }
+      else if (resultCell && resultCell->runtimeType)
+      {
+        try
+        {
+          resultValue = NG::runtime::read_numeric_cell_as<int64_t>(resultCell);
+        }
+        catch (const std::exception &)
+        {
+          resultValue = std::nullopt;
+        }
+      }
+      if (!resultValue.has_value())
+      {
+        throw TypeCheckingException("Const function does not return a compile-time value: " + fn->funName, fn->pos);
+      }
+      if (fn->returnType)
+      {
+        TypeChecker returnChecker{locals};
+        fn->returnType->accept(&returnChecker);
+        if (!constValueMatchesType(*resultValue, returnChecker.result))
+        {
+          throw TypeCheckingException("Const function return type mismatch: " + fn->funName, fn->pos);
+        }
+      }
+      return resultValue;
+    }
+
     auto tryEvalConstValue(Expression *expr) -> std::optional<ConstValue>
     {
       if (auto *funCall = dynamic_cast<FunCallExpression *>(expr))
@@ -3095,6 +3408,17 @@ namespace NG::typecheck
         if (auto predicate = tryEvalConstPredicateCall(funCall); predicate.has_value())
         {
           return *predicate;
+        }
+        if (auto constFun = tryEvalConstFunctionCall(funCall); constFun.has_value())
+        {
+          return *constFun;
+        }
+      }
+      if (auto *idExpr = dynamic_cast<IdExpression *>(expr))
+      {
+        if (auto it = locals.find(idExpr->id); it != locals.end())
+        {
+          return constValueFromType(it->second);
         }
       }
       if (auto *boolVal = dynamic_cast<BooleanValue *>(expr))
@@ -3174,6 +3498,11 @@ namespace NG::typecheck
         {
           return !std::get<bool>(*operand);
         }
+        if (operand.has_value() && unaryExpr->optr && unaryExpr->optr->type == TokenType::MINUS &&
+            std::holds_alternative<int64_t>(*operand))
+        {
+          return -std::get<int64_t>(*operand);
+        }
         return std::nullopt;
       }
       if (auto *binaryExpr = dynamic_cast<BinaryExpression *>(expr))
@@ -3201,6 +3530,38 @@ namespace NG::typecheck
 
         switch (binaryExpr->optr->type)
         {
+        case TokenType::PLUS:
+          if (std::holds_alternative<int64_t>(*left) && std::holds_alternative<int64_t>(*right))
+          {
+            return std::get<int64_t>(*left) + std::get<int64_t>(*right);
+          }
+          break;
+        case TokenType::MINUS:
+          if (std::holds_alternative<int64_t>(*left) && std::holds_alternative<int64_t>(*right))
+          {
+            return std::get<int64_t>(*left) - std::get<int64_t>(*right);
+          }
+          break;
+        case TokenType::TIMES:
+          if (std::holds_alternative<int64_t>(*left) && std::holds_alternative<int64_t>(*right))
+          {
+            return std::get<int64_t>(*left) * std::get<int64_t>(*right);
+          }
+          break;
+        case TokenType::DIVIDE:
+          if (std::holds_alternative<int64_t>(*left) && std::holds_alternative<int64_t>(*right) &&
+              std::get<int64_t>(*right) != 0)
+          {
+            return std::get<int64_t>(*left) / std::get<int64_t>(*right);
+          }
+          break;
+        case TokenType::MODULUS:
+          if (std::holds_alternative<int64_t>(*left) && std::holds_alternative<int64_t>(*right) &&
+              std::get<int64_t>(*right) != 0)
+          {
+            return std::get<int64_t>(*left) % std::get<int64_t>(*right);
+          }
+          break;
         case TokenType::AND:
           if (std::holds_alternative<bool>(*left) && std::holds_alternative<bool>(*right))
           {
@@ -3223,6 +3584,30 @@ namespace NG::typecheck
           if (left->index() == right->index())
           {
             return *left != *right;
+          }
+          break;
+        case TokenType::GT:
+          if (std::holds_alternative<int64_t>(*left) && std::holds_alternative<int64_t>(*right))
+          {
+            return std::get<int64_t>(*left) > std::get<int64_t>(*right);
+          }
+          break;
+        case TokenType::GE:
+          if (std::holds_alternative<int64_t>(*left) && std::holds_alternative<int64_t>(*right))
+          {
+            return std::get<int64_t>(*left) >= std::get<int64_t>(*right);
+          }
+          break;
+        case TokenType::LT:
+          if (std::holds_alternative<int64_t>(*left) && std::holds_alternative<int64_t>(*right))
+          {
+            return std::get<int64_t>(*left) < std::get<int64_t>(*right);
+          }
+          break;
+        case TokenType::LE:
+          if (std::holds_alternative<int64_t>(*left) && std::holds_alternative<int64_t>(*right))
+          {
+            return std::get<int64_t>(*left) <= std::get<int64_t>(*right);
           }
           break;
         default:
@@ -3379,6 +3764,10 @@ namespace NG::typecheck
         }
         else if (auto funDef = dynamic_ast_cast<FunctionDef>(def))
         {
+          if (funDef->constEval)
+          {
+            activeConstFunctions[funDef->funName].push_back(funDef.get());
+          }
           // Check if this is a generic function (has type parameters)
           if (!funDef->genericParams.empty())
           {
@@ -4095,6 +4484,11 @@ namespace NG::typecheck
 
     void visit(FunctionDef *funDef) override
     {
+      if (funDef->constEval && (funDef->native || funDef->deleted))
+      {
+        throw TypeCheckingException("Const function cannot be native or deleted: " + funDef->funName,
+                                    funDef->pos);
+      }
       // Skip generic functions — already registered as GenericDefType in Module first pass
       if (!funDef->genericParams.empty())
       {
@@ -6395,6 +6789,38 @@ namespace NG::typecheck
         result = makecheck<PrimitiveType>(typeinfo_tag::BOOL);
         return;
       }
+      if (auto idExpr = dynamic_cast<IdExpression *>(funCall->primaryExpression.get());
+          idExpr && activeConstFunctions.contains(idExpr->id) && !activeConstFunctions.at(idExpr->id).empty())
+      {
+        auto *fn = activeConstFunctions.at(idExpr->id).front();
+        if (!fn || !fn->returnType)
+        {
+          throw TypeCheckingException("Const function must declare a return type: " + idExpr->id, funCall->pos);
+        }
+        if (fn->params.size() != funCall->arguments.size())
+        {
+          throw TypeCheckingException("Const function argument count mismatch: " + fn->funName, funCall->pos);
+        }
+        for (size_t i = 0; i < funCall->arguments.size(); ++i)
+        {
+          TypeChecker argChecker{locals};
+          funCall->arguments[i]->accept(&argChecker);
+          if (fn->params[i]->annotatedType)
+          {
+            TypeChecker paramChecker{locals};
+            fn->params[i]->annotatedType->accept(&paramChecker);
+            if (!typeMatches(*paramChecker.result, *argChecker.result))
+            {
+              throw TypeCheckingException("Const function argument type mismatch: " + fn->funName,
+                                          funCall->arguments[i]->pos);
+            }
+          }
+        }
+        TypeChecker returnChecker{locals};
+        fn->returnType->accept(&returnChecker);
+        result = returnChecker.result;
+        return;
+      }
       // Check if this is a tagged value construction (e.g. Ok(42))
       if (auto idExpr = dynamic_ast_cast<IdExpression>(funCall->primaryExpression))
       {
@@ -7596,11 +8022,13 @@ namespace NG::typecheck
   {
     TypeChecker::activeTypeAliasSpecializations.clear();
     TypeChecker::activeConstPredicates.clear();
+    TypeChecker::activeConstFunctions.clear();
     TypeChecker::moduleArtifactsById.clear();
     TypeChecker::activeModuleChecks.clear();
     if (!initial_index.empty())
     {
       TypeChecker::activeConstPredicates = TypeChecker::preludeConstPredicates;
+      TypeChecker::activeConstFunctions = TypeChecker::preludeConstFunctions;
     }
     TypeChecker checker{initial_index, {}, nullptr, {}, false, "", std::move(module_paths)};
     checker.type_index = initial_index;
@@ -7658,6 +8086,7 @@ namespace NG::typecheck
       {
         result = type_check(ast);
         TypeChecker::preludeConstPredicates = TypeChecker::activeConstPredicates;
+        TypeChecker::preludeConstFunctions = TypeChecker::activeConstFunctions;
         retainedPreludeAst = ast;
       }
     }

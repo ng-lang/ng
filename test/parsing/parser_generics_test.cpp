@@ -703,6 +703,24 @@ TEST_CASE("parser should parse native const predicate declarations", "[Parser][G
   destroyast(ast);
 }
 
+TEST_CASE("parser should parse const function declarations", "[Parser][Generics][ConstFun]")
+{
+  auto ast = parse("const fun is_even(value: i32) -> bool { return value % 2 == 0; }");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto funDef = dynamic_ast_cast<FunctionDef>(compileUnit->module->definitions[0]);
+  REQUIRE(funDef != nullptr);
+  REQUIRE(funDef->constEval);
+  REQUIRE(funDef->funName == "is_even");
+  REQUIRE(funDef->params.size() == 1);
+  REQUIRE(funDef->returnType != nullptr);
+  REQUIRE(funDef->repr().starts_with("const fun is_even"));
+
+  destroyast(ast);
+}
+
 TEST_CASE("parser should parse const predicate specializations", "[Parser][Generics][ConstPredicate]")
 {
   auto ast = parse("const<T> is_ref<ref<T>>: bool = true;");

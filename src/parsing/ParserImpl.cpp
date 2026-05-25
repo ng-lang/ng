@@ -135,6 +135,20 @@ namespace NG::parsing
             current_mod->statements.push_back(statement());
             break;
           }
+          if (peekTokenType(1) == TokenType::KEYWORD_FUN)
+          {
+            accept(TokenType::KEYWORD_CONST);
+            auto fn = funDef(false, true);
+            if (exported)
+            {
+              for (auto &&name : fn->names())
+              {
+                mod->exports.push_back(name);
+              }
+            }
+            current_mod->definitions.push_back(std::move(fn));
+            break;
+          }
           auto constant = constDef();
           if (exported)
           {
@@ -571,8 +585,10 @@ namespace NG::parsing
       return bounds;
     }
 
-    auto funDef(bool allowSignatureOnly = false) -> ASTRef<FunctionDef>
+    auto funDef(bool allowSignatureOnly = false, bool constEval = false) -> ASTRef<FunctionDef>
     {
+      auto def = createNode<FunctionDef>();
+      def->constEval = constEval;
       accept(TokenType::KEYWORD_FUN);
 
       // Parse generic parameters: fun<T, U> name(...) or fun<T...> name(...)
@@ -584,7 +600,6 @@ namespace NG::parsing
 
       if (expect(TokenType::ID))
       {
-        auto def = createNode<FunctionDef>();
         def->funName = state->repr;
         accept(TokenType::ID);
 

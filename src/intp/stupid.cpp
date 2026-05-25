@@ -3161,4 +3161,37 @@ namespace NG::intp
     }); // NOLINT(cppcoreguidelines-owning-memory)
   }
 
+  auto eval_const_function(ast::FunctionDef *target,
+                           const Vec<ast::FunctionDef *> &constFunctions,
+                           const Vec<RuntimeRef<StorageCell>> &args,
+                           Vec<Str> modulePaths) -> RuntimeRef<StorageCell>
+  {
+    if (!target)
+    {
+      throw RuntimeException("Cannot evaluate null const function");
+    }
+    if (modulePaths.empty())
+    {
+      modulePaths.push_back("");
+      modulePaths.push_back(NG::module::standard_library_base_path());
+    }
+    Stupid runner{std::move(modulePaths)};
+    for (auto *fn : constFunctions)
+    {
+      if (fn && fn->constEval)
+      {
+        fn->accept(&runner);
+      }
+    }
+    if (!runner.symbols->functions.contains(target->funName))
+    {
+      target->accept(&runner);
+    }
+    if (!runner.symbols->functions.contains(target->funName))
+    {
+      throw RuntimeException("Const function is not callable: " + target->funName);
+    }
+    return runner.symbols->functions.at(target->funName)(unit_cell(), make_runtime_env(runner.symbols), args);
+  }
+
 } // namespace NG::intp

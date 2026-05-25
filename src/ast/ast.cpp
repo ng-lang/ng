@@ -613,7 +613,7 @@ namespace NG::ast
   auto FunctionDef::repr() const -> Str
   {
     auto whereRepr = whereBounds.empty() ? "" : " where " + strOfNodeList(whereBounds, " && ");
-    return "fun " + funName + genericParamsRepr(genericParams) + "(" + strOfNodeList(params) + ")" +
+    return (constEval ? "const " : "") + Str{"fun "} + funName + genericParamsRepr(genericParams) + "(" + strOfNodeList(params) + ")" +
            (returnType ? " -> " + returnType->repr() : "") + whereRepr +
            (deleted ? " = delete;" : (body ? body->repr() : ";"));
   }

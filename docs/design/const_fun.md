@@ -2,7 +2,7 @@
 
 ## Order
 
-Recommended Issue order: 5.
+Recommended Issue order: 6.
 
 ## Goal
 
@@ -11,7 +11,7 @@ Introduce compile-time executable functions for use in `const` definitions, `whe
 Example direction:
 
 ```ng
-const fun is_power_of_two(value: u32): bool {
+const fun is_power_of_two(value: u32) -> bool {
   ...
 }
 
@@ -42,6 +42,8 @@ In scope:
 - Scalar return values initially: `bool`, integers, and `string` if needed.
 - Calls from const definitions, `where` predicates, and `const if`.
 - Recursion and loop limits with explicit diagnostics.
+- Function body execution should reuse the STUPID interpreter through a restricted const runner;
+  the type checker owns const-safety checks and scalar value marshalling, not a second evaluator.
 
 Out of scope:
 

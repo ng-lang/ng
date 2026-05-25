@@ -392,6 +392,7 @@ namespace NG::ast
         ASTRef<Statement> body = nullptr;            ///< The body of the function.
         bool native = false;                         ///< Whether the function is a native function.
         bool deleted = false;                        ///< Whether this declaration is a forbidden overload.
+        bool constEval = false;                      ///< Whether this function is executable at compile time.
 
         [[nodiscard]] auto names() const -> Vec<Str> override;
 

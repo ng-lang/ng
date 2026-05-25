@@ -1,0 +1,23 @@
+const fun is_large(value: i32) -> bool {
+  return value > 10;
+}
+
+const fun fact(value: i32) -> i32 {
+  if (value == 0) {
+    return 1;
+  } else {
+    return value * fact(value - 1);
+  }
+}
+
+fun require_large<const N: i32>() -> unit where is_large(N) {
+  print("const fun where predicate accepted");
+}
+
+const if (is_large(fact(4))) {
+  print("const fun folded a recursive computation");
+} else {
+  print("unreachable");
+}
+
+require_large<42>();
