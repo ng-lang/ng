@@ -2345,8 +2345,13 @@ namespace NG::typecheck
         {
           continue;
         }
-        if (!typePatternsMayOverlap(existing.definition->targetType.get(), existing.genericParamNames,
-                                    candidate.definition->targetType.get(), candidate.genericParamNames))
+        const bool overlaps = existing.definition && candidate.definition
+                                  ? typePatternsMayOverlap(existing.definition->targetType.get(),
+                                                           existing.genericParamNames,
+                                                           candidate.definition->targetType.get(),
+                                                           candidate.genericParamNames)
+                                  : existing.targetPattern == candidate.targetPattern;
+        if (!overlaps)
         {
           continue;
         }
@@ -2384,8 +2389,13 @@ namespace NG::typecheck
             continue;
           }
           Set<Str> emptyGenericParams;
-          if (typePatternsMayOverlap(candidate.definition->targetType.get(), candidate.genericParamNames,
-                                     selection->targetType.get(), emptyGenericParams))
+          const bool overlapsSelection = candidate.definition
+                                             ? typePatternsMayOverlap(candidate.definition->targetType.get(),
+                                                                      candidate.genericParamNames,
+                                                                      selection->targetType.get(),
+                                                                      emptyGenericParams)
+                                             : candidate.targetPattern == selection->targetType->repr();
+          if (overlapsSelection)
           {
             return false;
           }
@@ -6456,6 +6466,13 @@ namespace NG::typecheck
 
       if (auto customType = std::dynamic_pointer_cast<CustomizedType>(primaryType))
       {
+        if (auto localType = locals.find(customType->name); localType != locals.end())
+        {
+          if (auto localCustom = std::dynamic_pointer_cast<CustomizedType>(unwrap(localType->second)))
+          {
+            customType = localCustom;
+          }
+        }
         if (customType->properties.contains(memberName))
         {
           memberType = customType->properties[memberName];
@@ -7058,13 +7075,28 @@ namespace NG::typecheck
         {
           continue;
         }
-        if (!impl.definition)
+        CheckingRef<TypeInfo> targetType;
+        if (impl.definition)
         {
-          continue;
+          TypeChecker targetChecker{locals, {}, nullptr, {}, false, "", modulePaths};
+          impl.definition->targetType->accept(&targetChecker);
+          targetType = targetChecker.result;
         }
-        TypeChecker targetChecker{locals, {}, nullptr, {}, false, "", modulePaths};
-        impl.definition->targetType->accept(&targetChecker);
-        auto custom = std::dynamic_pointer_cast<CustomizedType>(unwrap(targetChecker.result));
+        else
+        {
+          targetType = type_from_repr(impl.targetPattern);
+        }
+        auto custom = std::dynamic_pointer_cast<CustomizedType>(unwrap(targetType));
+        if (custom)
+        {
+          if (auto localTarget = locals.find(custom->name); localTarget != locals.end())
+          {
+            if (auto localCustom = std::dynamic_pointer_cast<CustomizedType>(unwrap(localTarget->second)))
+            {
+              custom = localCustom;
+            }
+          }
+        }
         if (!custom)
         {
           continue;
@@ -7073,6 +7105,17 @@ namespace NG::typecheck
         if (std::ranges::find(implTraits, impl.traitName) == implTraits.end())
         {
           implTraits.push_back(impl.traitName);
+        }
+        auto traitIt = locals.find(impl.traitName);
+        auto trait = traitIt == locals.end() ? nullptr : std::dynamic_pointer_cast<TraitType>(traitIt->second);
+        if (trait)
+        {
+          auto &methods = trait->allMethods.empty() ? trait->methods : trait->allMethods;
+          for (const auto &[methodName, methodType] : methods)
+          {
+            custom->traitMemberFunctions[trait->name][methodName] = methodType;
+            custom->memberFunctions[trait->name + "::" + methodName] = methodType;
+          }
         }
       }
     }
@@ -8519,6 +8562,159 @@ namespace NG::typecheck
       }
     }
   };
+
+  namespace
+  {
+    auto trim_copy(Str value) -> Str
+    {
+      auto isNotSpace = [](unsigned char ch) { return !std::isspace(ch); };
+      value.erase(value.begin(), std::find_if(value.begin(), value.end(), isNotSpace));
+      value.erase(std::find_if(value.rbegin(), value.rend(), isNotSpace).base(), value.end());
+      return value;
+    }
+
+    auto split_top_level(const Str &value) -> Vec<Str>
+    {
+      Vec<Str> parts;
+      int depth = 0;
+      size_t start = 0;
+      for (size_t i = 0; i < value.size(); ++i)
+      {
+        char ch = value[i];
+        if (ch == '<' || ch == '(' || ch == '[')
+        {
+          ++depth;
+        }
+        else if (ch == '>' || ch == ')' || ch == ']')
+        {
+          --depth;
+        }
+        else if (ch == ',' && depth == 0)
+        {
+          parts.push_back(trim_copy(value.substr(start, i - start)));
+          start = i + 1;
+        }
+      }
+      auto tail = trim_copy(value.substr(start));
+      if (!tail.empty())
+      {
+        parts.push_back(std::move(tail));
+      }
+      return parts;
+    }
+
+    auto find_top_level_arrow(const Str &value) -> size_t
+    {
+      int depth = 0;
+      for (size_t i = 0; i + 1 < value.size(); ++i)
+      {
+        char ch = value[i];
+        if (ch == '<' || ch == '(' || ch == '[')
+        {
+          ++depth;
+        }
+        else if (ch == '>' || ch == ')' || ch == ']')
+        {
+          --depth;
+        }
+        else if (ch == '-' && value[i + 1] == '>' && depth == 0)
+        {
+          return i;
+        }
+      }
+      return Str::npos;
+    }
+
+    auto type_from_repr_impl(const Str &raw) -> CheckingRef<TypeInfo>
+    {
+      auto repr = trim_copy(raw);
+      if (repr.empty() || repr == "untyped" || repr == "[untyped]")
+      {
+        return makecheck<Untyped>();
+      }
+      if (auto primitive = PrimitiveType::from(repr))
+      {
+        return primitive;
+      }
+      if (repr.starts_with("fun ("))
+      {
+        auto paramsStart = Str{"fun ("}.size();
+        auto paramsEnd = repr.find(") -> ", paramsStart);
+        if (paramsEnd != Str::npos)
+        {
+          Vec<CheckingRef<TypeInfo>> params;
+          auto paramsRepr = repr.substr(paramsStart, paramsEnd - paramsStart);
+          if (!trim_copy(paramsRepr).empty())
+          {
+            for (auto &&part : split_top_level(paramsRepr))
+            {
+              params.push_back(type_from_repr_impl(part));
+            }
+          }
+          auto returnType = type_from_repr_impl(repr.substr(paramsEnd + Str{") -> "}.size()));
+          return makecheck<FunctionType>(returnType, params);
+        }
+      }
+      if (repr.size() >= 2 && repr.front() == '(' && repr.back() == ')')
+      {
+        Vec<CheckingRef<TypeInfo>> elements;
+        auto inner = repr.substr(1, repr.size() - 2);
+        if (!trim_copy(inner).empty())
+        {
+          for (auto &&part : split_top_level(inner))
+          {
+            elements.push_back(type_from_repr_impl(part));
+          }
+        }
+        return makecheck<TupleType>(elements);
+      }
+      auto parseUnaryGeneric = [&](const Str &prefix, auto makeType) -> CheckingRef<TypeInfo> {
+        if (repr.starts_with(prefix) && repr.ends_with(">"))
+        {
+          auto inner = repr.substr(prefix.size(), repr.size() - prefix.size() - 1);
+          return makeType(type_from_repr_impl(inner));
+        }
+        return nullptr;
+      };
+      if (auto ref = parseUnaryGeneric("ref<", [](CheckingRef<TypeInfo> inner) {
+            return makecheck<ReferenceType>(std::move(inner));
+          }))
+      {
+        return ref;
+      }
+      if (auto vector = parseUnaryGeneric("vector<", [](CheckingRef<TypeInfo> inner) {
+            return makecheck<VectorType>(std::move(inner));
+          }))
+      {
+        return vector;
+      }
+      if (auto span = parseUnaryGeneric("span<", [](CheckingRef<TypeInfo> inner) {
+            return makecheck<SpanType>(std::move(inner));
+          }))
+      {
+        return span;
+      }
+      if (repr.starts_with("array<") && repr.ends_with(">"))
+      {
+        auto inner = repr.substr(Str{"array<"}.size(), repr.size() - Str{"array<"}.size() - 1);
+        auto parts = split_top_level(inner);
+        if (parts.size() == 2)
+        {
+          return makecheck<ArrayType>(type_from_repr_impl(parts[0]), makecheck<ConstValueType>(parts[1]));
+        }
+      }
+      if (auto arrow = find_top_level_arrow(repr); arrow != Str::npos)
+      {
+        return makecheck<Untyped>();
+      }
+      return makecheck<CustomizedType>(repr);
+    }
+  } // namespace
+
+  CheckingRef<TypeInfo> type_from_repr(const Str &repr)
+  {
+    return type_from_repr_impl(repr);
+  }
 
   TypeIndex type_check(ASTRef<ASTNode> ast, TypeIndex initial_index, Vec<Str> module_paths)
   {

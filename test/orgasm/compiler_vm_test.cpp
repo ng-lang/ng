@@ -1379,6 +1379,197 @@ TEST_CASE("vm should lazy load imported bytecode modules from ngo artifacts", "[
   REQUIRE(result_i32(result) == 42);
 }
 
+TEST_CASE("typechecker should import exported function metadata from ngo artifacts",
+          "[OrgasmTest][ModuleArtifact][Ngo][TypeCheck]")
+{
+  SourceModuleFixture fixture;
+
+  auto importedAst = parse(R"(
+    module pkg.math exports *;
+    fun answer() -> i32 {
+      return 42;
+    }
+  )", "pkg/math.ng");
+  REQUIRE(importedAst != nullptr);
+  NG::typecheck::type_check(importedAst, {}, fixture.paths());
+  Compiler compiler{fixture.paths()};
+  auto importedBytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(importedAst));
+  auto artifactPath = fixture.root / "pkg" / "math.ngo";
+  std::filesystem::create_directories(artifactPath.parent_path());
+  write_bytecode_module(importedBytecode, artifactPath.string());
+  fixture.write("pkg/math.ng", R"(
+    module pkg.math exports *;
+    fun answer() -> bool {
+      return false;
+    }
+  )");
+
+  NG::module::clear_module_loader_cache();
+  NG::module::get_module_registry().clear();
+
+  auto entryAst = parse(R"(
+    import pkg.math (*);
+    val result: i32 = answer();
+  )");
+  REQUIRE(entryAst != nullptr);
+  auto index = NG::typecheck::type_check(entryAst, {}, fixture.paths());
+  REQUIRE(index.contains("result"));
+  REQUIRE(index["result"]->tag() == NG::typecheck::typeinfo_tag::I32);
+
+  destroyast(importedAst);
+  destroyast(entryAst);
+}
+
+TEST_CASE("module loader should fall back to source when ngo source hash is stale",
+          "[OrgasmTest][ModuleArtifact][Ngo][TypeCheck]")
+{
+  SourceModuleFixture fixture;
+
+  BytecodeModule staleBytecode;
+  staleBytecode.name = "pkg.math";
+  staleBytecode.exports["answer"] = 0;
+  staleBytecode.exportTypeReprs["answer"] = "fun () -> i32";
+  Function staleAnswer;
+  staleAnswer.name = "answer";
+  staleAnswer.code = {static_cast<uint8_t>(OpCode::PUSH_I32), 1, 0, 0, 0, static_cast<uint8_t>(OpCode::RETURN)};
+  staleBytecode.functions.push_back(std::move(staleAnswer));
+  auto artifactPath = fixture.root / "pkg" / "math.ngo";
+  std::filesystem::create_directories(artifactPath.parent_path());
+  write_bytecode_module(staleBytecode, artifactPath.string(), "stale-source-hash");
+  fixture.write("pkg/math.ng", R"(
+    module pkg.math exports *;
+    fun answer() -> bool {
+      return true;
+    }
+  )");
+
+  auto entryAst = parse(R"(
+    import pkg.math (*);
+    val result: bool = answer();
+  )");
+  REQUIRE(entryAst != nullptr);
+  auto index = NG::typecheck::type_check(entryAst, {}, fixture.paths());
+  REQUIRE(index.contains("result"));
+  REQUIRE(index["result"]->tag() == NG::typecheck::typeinfo_tag::BOOL);
+
+  destroyast(entryAst);
+}
+
+TEST_CASE("typechecker should import exported trait metadata from ngo artifacts",
+          "[OrgasmTest][ModuleArtifact][Ngo][TypeCheck][Traits]")
+{
+  SourceModuleFixture fixture;
+
+  auto importedAst = parse(R"(
+    module pkg.show exports *;
+
+    type Counter {
+      label: string;
+    }
+
+    trait Show {
+      fun show(self: ref<Self>) -> string;
+    }
+
+    impl Show for Counter {
+      fun show(self: ref<Self>) -> string {
+        return self.label;
+      }
+    }
+
+    fun make() -> ref<Counter> {
+      return new Counter { label: "ngo" };
+    }
+  )", "pkg/show.ng");
+  REQUIRE(importedAst != nullptr);
+  NG::typecheck::type_check(importedAst, {}, fixture.paths());
+  Compiler compiler{fixture.paths()};
+  auto importedBytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(importedAst));
+  auto artifactPath = fixture.root / "pkg" / "show.ngo";
+  std::filesystem::create_directories(artifactPath.parent_path());
+  write_bytecode_module(importedBytecode, artifactPath.string());
+
+  NG::module::clear_module_loader_cache();
+  NG::module::get_module_registry().clear();
+
+  auto entryAst = parse(R"(
+    import pkg.show (*);
+
+    val counter = make();
+    val text = counter.show();
+  )");
+  REQUIRE(entryAst != nullptr);
+  auto index = NG::typecheck::type_check(entryAst, {}, fixture.paths());
+  REQUIRE(index.contains("text"));
+  REQUIRE(index["text"]->tag() == NG::typecheck::typeinfo_tag::STRING);
+
+  destroyast(importedAst);
+  destroyast(entryAst);
+}
+
+TEST_CASE("module loader should fall back to source when ngo export metadata is incomplete",
+          "[OrgasmTest][ModuleArtifact][Ngo][TypeCheck]")
+{
+  SourceModuleFixture fixture;
+
+  BytecodeModule incompleteBytecode;
+  incompleteBytecode.name = "pkg.math";
+  incompleteBytecode.exports["answer"] = 0;
+  Function answer;
+  answer.name = "answer";
+  answer.code = {static_cast<uint8_t>(OpCode::PUSH_I32), 1, 0, 0, 0, static_cast<uint8_t>(OpCode::RETURN)};
+  incompleteBytecode.functions.push_back(std::move(answer));
+  auto artifactPath = fixture.root / "pkg" / "math.ngo";
+  std::filesystem::create_directories(artifactPath.parent_path());
+  write_bytecode_module(incompleteBytecode, artifactPath.string());
+  fixture.write("pkg/math.ng", R"(
+    module pkg.math exports *;
+    fun answer() -> bool {
+      return true;
+    }
+  )");
+
+  auto entryAst = parse(R"(
+    import pkg.math (*);
+    val result: bool = answer();
+  )");
+  REQUIRE(entryAst != nullptr);
+  auto index = NG::typecheck::type_check(entryAst, {}, fixture.paths());
+  REQUIRE(index.contains("result"));
+  REQUIRE(index["result"]->tag() == NG::typecheck::typeinfo_tag::BOOL);
+
+  destroyast(entryAst);
+}
+
+TEST_CASE("module loader should fall back to source when ngo is incompatible",
+          "[OrgasmTest][ModuleArtifact][Ngo][TypeCheck]")
+{
+  SourceModuleFixture fixture;
+
+  BytecodeModule wrongModule;
+  wrongModule.name = "pkg.other";
+  auto artifactPath = fixture.root / "pkg" / "math.ngo";
+  std::filesystem::create_directories(artifactPath.parent_path());
+  write_bytecode_module(wrongModule, artifactPath.string());
+  fixture.write("pkg/math.ng", R"(
+    module pkg.math exports *;
+    fun answer() -> bool {
+      return true;
+    }
+  )");
+
+  auto entryAst = parse(R"(
+    import pkg.math (*);
+    val result = answer();
+  )");
+  REQUIRE(entryAst != nullptr);
+  auto index = NG::typecheck::type_check(entryAst, {}, fixture.paths());
+  REQUIRE(index.contains("result"));
+  REQUIRE(index["result"]->tag() == NG::typecheck::typeinfo_tag::BOOL);
+
+  destroyast(entryAst);
+}
+
 TEST_CASE("vm should retag existing trait refs for destination trait coercions", "[OrgasmTest][VM][Traits]")
 {
   BytecodeModule module;

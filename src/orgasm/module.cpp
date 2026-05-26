@@ -1,6 +1,7 @@
 #include <orgasm/module.hpp>
 #include <cstring>
 #include <fstream>
+#include <sstream>
 #include <type_traits>
 
 namespace NG::orgasm
@@ -102,6 +103,33 @@ namespace NG::orgasm
             return read_vector<Str>(in, field, [&](const Str &itemField) { return read_string(in, itemField); });
         }
 
+        void write_string_map(std::ostream &out, const Map<Str, Str> &items)
+        {
+            write_scalar<uint32_t>(out, static_cast<uint32_t>(items.size()));
+            for (const auto &[key, value] : items)
+            {
+                write_string(out, key);
+                write_string(out, value);
+            }
+        }
+
+        auto read_string_map(std::istream &in, const Str &field) -> Map<Str, Str>
+        {
+            auto count = read_scalar<uint32_t>(in, field + ".count");
+            if (count > MAX_NGO_VECTOR_SIZE)
+            {
+                throw RuntimeException(".ngo map too large while reading " + field);
+            }
+            Map<Str, Str> items;
+            for (uint32_t i = 0; i < count; ++i)
+            {
+                auto key = read_string(in, field + "[" + std::to_string(i) + "].key");
+                auto value = read_string(in, field + "[" + std::to_string(i) + "].value");
+                items.insert_or_assign(std::move(key), std::move(value));
+            }
+            return items;
+        }
+
         void write_variant(std::ostream &out, const Variant &variant)
         {
             write_string(out, variant.name);
@@ -190,7 +218,64 @@ namespace NG::orgasm
                 .symbolName = read_string(in, field + ".symbolName"),
             };
         }
+
+        void write_impl_metadata(std::ostream &out, const BytecodeImplMetadata &impl)
+        {
+            write_string(out, impl.traitName);
+            write_string(out, impl.targetPattern);
+            write_string(out, impl.moduleId);
+            write_string_vector(out, impl.genericParamNames);
+            write_string_vector(out, impl.whereBounds);
+            write_string_map(out, impl.methods);
+        }
+
+        auto read_impl_metadata(std::istream &in, const Str &field) -> BytecodeImplMetadata
+        {
+            BytecodeImplMetadata impl;
+            impl.traitName = read_string(in, field + ".traitName");
+            impl.targetPattern = read_string(in, field + ".targetPattern");
+            impl.moduleId = read_string(in, field + ".moduleId");
+            impl.genericParamNames = read_string_vector(in, field + ".genericParamNames");
+            impl.whereBounds = read_string_vector(in, field + ".whereBounds");
+            impl.methods = read_string_map(in, field + ".methods");
+            return impl;
+        }
+
+        void write_trait_metadata(std::ostream &out, const BytecodeTraitMetadata &trait)
+        {
+            write_string(out, trait.name);
+            write_string(out, trait.moduleId);
+            write_string_vector(out, trait.typeParamNames);
+            write_string_vector(out, trait.superTraits);
+            write_string_map(out, trait.methods);
+            write_string_map(out, trait.allMethods);
+        }
+
+        auto read_trait_metadata(std::istream &in, const Str &field) -> BytecodeTraitMetadata
+        {
+            BytecodeTraitMetadata trait;
+            trait.name = read_string(in, field + ".name");
+            trait.moduleId = read_string(in, field + ".moduleId");
+            trait.typeParamNames = read_string_vector(in, field + ".typeParamNames");
+            trait.superTraits = read_string_vector(in, field + ".superTraits");
+            trait.methods = read_string_map(in, field + ".methods");
+            trait.allMethods = read_string_map(in, field + ".allMethods");
+            return trait;
+        }
     } // namespace
+
+    auto bytecode_source_hash(const Str &source) -> Str
+    {
+        uint64_t hash = 1469598103934665603ULL;
+        for (unsigned char ch : source)
+        {
+            hash ^= ch;
+            hash *= 1099511628211ULL;
+        }
+        std::ostringstream out;
+        out << std::hex << hash;
+        return out.str();
+    }
 
     void write_bytecode_module(const BytecodeModule &module, const Str &path, const Str &sourceHash)
     {
@@ -203,8 +288,9 @@ namespace NG::orgasm
         out.write(NGO_MAGIC, sizeof(NGO_MAGIC));
         write_scalar<uint32_t>(out, NGO_FORMAT_VERSION);
         write_scalar<uint32_t>(out, NGO_ABI_VERSION);
+        write_scalar<uint32_t>(out, NGO_METADATA_SCHEMA_VERSION);
         write_string(out, module.name);
-        write_string(out, sourceHash);
+        write_string(out, sourceHash.empty() ? module.sourceHash : sourceHash);
 
         write_vector<int64_t>(out, module.constants, [&](int64_t value) { write_scalar<int64_t>(out, value); });
         write_vector<double>(out, module.float_constants, [&](double value) { write_scalar<double>(out, value); });
@@ -218,6 +304,12 @@ namespace NG::orgasm
             write_string(out, name);
             write_scalar<int32_t>(out, index);
         }
+        write_string_map(out, module.exportTypeReprs);
+        write_vector<BytecodeTraitMetadata>(
+            out, module.traitMetadata,
+            [&](const BytecodeTraitMetadata &trait) { write_trait_metadata(out, trait); });
+        write_vector<BytecodeImplMetadata>(out, module.implMetadata,
+                                           [&](const BytecodeImplMetadata &impl) { write_impl_metadata(out, impl); });
     }
 
     auto read_bytecode_module(const Str &path, const Str &expectedModuleId) -> BytecodeModule
@@ -244,10 +336,16 @@ namespace NG::orgasm
         {
             throw RuntimeException("Unsupported .ngo ABI version: " + std::to_string(abiVersion));
         }
+        auto metadataSchemaVersion = read_scalar<uint32_t>(in, "metadataSchemaVersion");
+        if (metadataSchemaVersion != NGO_METADATA_SCHEMA_VERSION)
+        {
+            throw RuntimeException("Unsupported .ngo metadata schema version: " +
+                                   std::to_string(metadataSchemaVersion));
+        }
 
         BytecodeModule module;
         module.name = read_string(in, "module.name");
-        (void)read_string(in, "sourceHash");
+        module.sourceHash = read_string(in, "sourceHash");
         if (!expectedModuleId.empty() && module.name != expectedModuleId)
         {
             throw RuntimeException("Bytecode module id mismatch: " + module.name + ", expected " + expectedModuleId);
@@ -270,6 +368,11 @@ namespace NG::orgasm
             auto index = read_scalar<int32_t>(in, "exports[" + std::to_string(i) + "].index");
             module.exports.insert_or_assign(std::move(name), index);
         }
+        module.exportTypeReprs = read_string_map(in, "exportTypeReprs");
+        module.traitMetadata = read_vector<BytecodeTraitMetadata>(
+            in, "traitMetadata", [&](const Str &field) { return read_trait_metadata(in, field); });
+        module.implMetadata = read_vector<BytecodeImplMetadata>(
+            in, "implMetadata", [&](const Str &field) { return read_impl_metadata(in, field); });
         return module;
     }
 
@@ -466,5 +569,12 @@ namespace NG::orgasm
             Str exportName = prefix.empty() ? name : (prefix + "." + name);
             exports[exportName] = idx + funOffset;
         }
+        for (const auto &[name, repr] : other.exportTypeReprs)
+        {
+            Str exportName = prefix.empty() ? name : (prefix + "." + name);
+            exportTypeReprs[exportName] = repr;
+        }
+        traitMetadata.insert(traitMetadata.end(), other.traitMetadata.begin(), other.traitMetadata.end());
+        implMetadata.insert(implMetadata.end(), other.implMetadata.begin(), other.implMetadata.end());
     }
 } // namespace NG::orgasm

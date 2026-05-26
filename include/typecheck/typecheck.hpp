@@ -25,6 +25,8 @@ namespace NG::typecheck
      */
     TypeIndex type_check(ASTRef<ASTNode> ast, TypeIndex initial_index = {}, Vec<Str> module_paths = {});
 
+    CheckingRef<TypeInfo> type_from_repr(const Str &repr);
+
     /**
      * @brief Loads and type-checks the standard library prelude module,
      *        returning a TypeIndex with all its exported symbols.

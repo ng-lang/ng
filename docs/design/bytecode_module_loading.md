@@ -47,11 +47,11 @@ Out of scope:
 - Implemented: magic/version.
 - Implemented: canonical module ID.
 - Implemented: compiler ABI version.
-- Source hash or build hash.
+- Implemented: source hash or build hash.
 - Implemented: export index.
 - Implemented: import dependency list.
-- Type metadata needed by type checker.
-- Trait metadata and impl evidence.
+- Implemented: type metadata needed by type checker for exported symbols.
+- Implemented: trait shape metadata, impl metadata, and method evidence.
 - Implemented: ORGASM bytecode.
 - Optional debug source mapping.
 
@@ -64,10 +64,11 @@ Out of scope:
 
 Current implementation note:
 
-- Implemented: file loader can load `.ngo` and `module.ngo` artifacts when no source module was found first.
-- Implemented: `.ngo` deserialization checks magic, format version, ABI version, module id, and bounded container sizes.
-- Remaining: bytecode-first preference when both `.ngo` and `.ng` exist should wait until embedded type metadata is complete, otherwise source imports would lose precise typechecker metadata.
-- Remaining: stale/source-hash rebuild policy is not implemented yet.
+- Implemented: file loader can load `.ngo` and `module.ngo` artifacts before source probes when the artifact is compatible.
+- Implemented: `.ngo` deserialization checks magic, format version, ABI version, metadata schema version, module id, and bounded container sizes.
+- Implemented: bytecode-only imports restore exported type/trait metadata into `ModuleArtifact`, so source importers can type check exported function calls and trait-bound code.
+- Implemented: stale/source-hash fallback to source when a matching `.ng` exists.
+- Implemented: fallback to source when `.ngo` is incompatible or an export is missing required type metadata.
 
 Compatibility checks:
 
@@ -99,7 +100,7 @@ ngi --run-bytecode build/foo.ngo
 - Implemented: ORGASM can emit a `.ngo` artifact for a source module.
 - Implemented: ORGASM can execute an entry `.ngo`.
 - Implemented: ORGASM can execute an entry `.ngo` that imports another `.ngo`.
-- `.ngo` and `.ng` modules expose the same exported symbols to importers.
+- Implemented: `.ngo` and `.ng` modules expose the same exported symbols to importers.
 - Implemented: incompatible ABI/schema versions fail before execution.
 - Implemented: native imports from bytecode modules resolve through the native module registry.
 
@@ -116,18 +117,20 @@ ngi --run-bytecode build/foo.ngo
 
 ### Phase 2: Embedded Typechecker Metadata
 
-- Persist `ModuleArtifact` type exports, trait exports, impl evidence, and import metadata.
-- Allow type checking source modules that import bytecode-only modules without falling back to `Untyped`.
-- Validate metadata schema version independently from bytecode ABI version.
+- Implemented: persist exported type reprs, exported trait shape metadata, and exported impl evidence.
+- Implemented: restore exported type and trait metadata into `ModuleArtifact` for source modules importing bytecode-only modules.
+- Implemented: tests cover source type checking against `.ngo` function and trait metadata.
+- Implemented: validate metadata schema version independently from bytecode ABI version.
 
 ### Phase 3: Bytecode-First Loader Policy
 
-- Prefer compatible `.ngo` over `.ng` when both exist.
-- Fall back to source when `.ngo` is stale, incompatible, or missing required metadata.
-- Add source/build hash checks.
+- Implemented: prefer compatible `.ngo` over `.ng` when both exist.
+- Implemented: fall back to source when `.ngo` is stale or incompatible.
+- Implemented: source/build hash checks.
+- Implemented: fall back to source when `.ngo` is missing required metadata.
 
 ### Phase 4: Native And Debug Metadata
 
-- Persist native import descriptors needed for deterministic fallback.
-- Add optional debug source mapping.
-- Expose useful diagnostics for bytecode import failures.
+- Implemented: persist import dependency records and resolve native fallback through the VM native registry.
+- Optional: add debug source mapping.
+- Implemented: expose fail-fast diagnostics for invalid bytecode magic, ABI/schema mismatches, module id mismatches, and missing imports.

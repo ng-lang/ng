@@ -92,6 +92,96 @@ namespace NG::module
     }
   }
 
+  static auto read_text_file(const fs::path &path) -> Str
+  {
+    std::fstream file{path};
+    return Str{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
+  }
+
+  static auto bytecode_artifact_is_stale(const fs::path &base, const fs::path &modulePath,
+                                         const NG::orgasm::BytecodeModule &bytecode) -> bool
+  {
+    if (bytecode.sourceHash.empty())
+    {
+      return false;
+    }
+    Vec<fs::path> sourceProbes;
+    auto sourceProbe = modulePath;
+    sourceProbe += ".ng";
+    sourceProbes.push_back(sourceProbe);
+    sourceProbes.push_back(modulePath / "module.ng");
+    for (const auto &relative : sourceProbes)
+    {
+      fs::path candidate{base};
+      candidate.append(relative.string());
+      if (!fs::exists(candidate))
+      {
+        continue;
+      }
+      return NG::orgasm::bytecode_source_hash(read_text_file(candidate)) != bytecode.sourceHash;
+    }
+    return false;
+  }
+
+  static auto source_module_exists(const fs::path &base, const fs::path &modulePath) -> bool
+  {
+    auto sourceProbe = modulePath;
+    sourceProbe += ".ng";
+    Vec<fs::path> sourceProbes = {sourceProbe, modulePath / "module.ng"};
+    return std::ranges::any_of(sourceProbes, [&](const fs::path &relative) {
+      fs::path candidate{base};
+      candidate.append(relative.string());
+      return fs::exists(candidate);
+    });
+  }
+
+  static auto bytecode_artifact_missing_required_metadata(const NG::orgasm::BytecodeModule &bytecode) -> bool
+  {
+    for (const auto &[name, _index] : bytecode.exports)
+    {
+      if (!bytecode.exportTypeReprs.contains(name))
+      {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  static auto restore_function_type(const Str &repr) -> NG::typecheck::CheckingRef<NG::typecheck::FunctionType>
+  {
+    return std::dynamic_pointer_cast<NG::typecheck::FunctionType>(NG::typecheck::type_from_repr(repr));
+  }
+
+  static auto restore_trait_metadata(const NG::orgasm::BytecodeTraitMetadata &metadata)
+      -> NG::typecheck::CheckingRef<NG::typecheck::TraitType>
+  {
+    auto trait = NG::typecheck::makecheck<NG::typecheck::TraitType>(
+        metadata.name, metadata.typeParamNames, metadata.moduleId);
+    for (const auto &superTraitName : metadata.superTraits)
+    {
+      trait->superTraits.push_back(NG::typecheck::makecheck<NG::typecheck::TraitType>(superTraitName));
+    }
+    for (const auto &[name, repr] : metadata.methods)
+    {
+      if (auto method = restore_function_type(repr))
+      {
+        trait->methods.insert_or_assign(name, method);
+      }
+    }
+    for (const auto &[name, repr] : metadata.allMethods)
+    {
+      if (auto method = restore_function_type(repr))
+      {
+        trait->allMethods.insert_or_assign(name, method);
+      }
+    }
+    if (trait->allMethods.empty())
+    {
+      trait->allMethods = trait->methods;
+    }
+    return trait;
+  }
+
   auto module_search_roots(const Vec<Str> &explicitPaths) -> Vec<Str>
   {
     Vec<Str> roots;
@@ -173,14 +263,14 @@ namespace NG::module
     fs::path modulePath = std::accumulate(module.begin(), module.end(), fs::path{},
                                           [](fs::path acc, const Str &segment) { return acc / segment; });
     Vec<std::pair<fs::path, ModuleFormat>> relativeProbes;
-    auto sourceProbe = modulePath;
-    sourceProbe += ".ng";
-    relativeProbes.push_back({sourceProbe, ModuleFormat::SourceNg});
-    relativeProbes.push_back({modulePath / "module.ng", ModuleFormat::SourceNg});
     auto bytecodeProbe = modulePath;
     bytecodeProbe += ".ngo";
     relativeProbes.push_back({bytecodeProbe, ModuleFormat::BytecodeNgo});
     relativeProbes.push_back({modulePath / "module.ngo", ModuleFormat::BytecodeNgo});
+    auto sourceProbe = modulePath;
+    sourceProbe += ".ng";
+    relativeProbes.push_back({sourceProbe, ModuleFormat::SourceNg});
+    relativeProbes.push_back({modulePath / "module.ng", ModuleFormat::SourceNg});
 
     for (const auto &base : module_search_roots(this->basePaths))
     {
@@ -199,26 +289,84 @@ namespace NG::module
         }
         if (format == ModuleFormat::BytecodeNgo)
         {
-          auto bytecode = NG::orgasm::read_bytecode_module(absolute, requestedModuleId);
+          NG::orgasm::BytecodeModule bytecode;
+          try
+          {
+            bytecode = NG::orgasm::read_bytecode_module(absolute, requestedModuleId);
+          }
+          catch (const std::exception &)
+          {
+            if (source_module_exists(fs::path{base}, modulePath))
+            {
+              continue;
+            }
+            throw;
+          }
+          if (bytecode_artifact_is_stale(fs::path{base}, modulePath, bytecode))
+          {
+            continue;
+          }
+          if (bytecode_artifact_missing_required_metadata(bytecode) &&
+              source_module_exists(fs::path{base}, modulePath))
+          {
+            continue;
+          }
+          TypeIndex typeIndex;
+          ModuleExportIndex exports;
+          for (const auto &[name, _index] : bytecode.exports)
+          {
+            exports.declared.insert(name);
+          }
+          for (const auto &[name, repr] : bytecode.exportTypeReprs)
+          {
+            auto type = NG::typecheck::type_from_repr(repr);
+            typeIndex.insert_or_assign(name, type);
+            exports.types.insert_or_assign(name, type);
+          }
+          ModuleTraitIndex traits;
+          for (const auto &traitMetadata : bytecode.traitMetadata)
+          {
+            auto trait = restore_trait_metadata(traitMetadata);
+            typeIndex.insert_or_assign(traitMetadata.name, trait);
+            exports.types.insert_or_assign(traitMetadata.name, trait);
+            traits.insert_or_assign(traitMetadata.name, trait);
+          }
+          ModuleImplIndex impls;
+          impls.reserve(bytecode.implMetadata.size());
+          for (const auto &impl : bytecode.implMetadata)
+          {
+            impls.push_back(ModuleImplEvidence{
+                .traitName = impl.traitName,
+                .targetPattern = impl.targetPattern,
+                .moduleId = impl.moduleId,
+                .genericParamNames = Set<Str>{impl.genericParamNames.begin(), impl.genericParamNames.end()},
+                .whereBounds = impl.whereBounds,
+                .methods = impl.methods,
+            });
+          }
           auto moduleInfo = runtime::makert<ModuleInfo>(ModuleInfo{
             .moduleId = requestedModuleId,
             .moduleName = module.empty() ? Str{} : module.back(),
             .moduleAbsolutePath = absolute,
             .moduleLoadingLocation = base,
+            .moduleTypeIndex = typeIndex,
             .bytecodeModule = std::make_shared<NG::orgasm::BytecodeModule>(std::move(bytecode)),
           });
           moduleInfo->artifact = runtime::makert<ModuleArtifact>(ModuleArtifact{
             .id = module_id_from_name(requestedModuleId),
             .format = ModuleFormat::BytecodeNgo,
             .originPath = absolute,
+            .typeIndex = typeIndex,
             .bytecodeModule = moduleInfo->bytecodeModule,
+            .exports = std::move(exports),
+            .traits = std::move(traits),
+            .impls = std::move(impls),
           });
           putCached(requestedModuleId, moduleInfo);
           putCached(absolute, moduleInfo);
           return moduleInfo;
         }
-        std::fstream file{candidate};
-        std::string source{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
+        std::string source = read_text_file(candidate);
         auto result = Parser(ParseState(Lexer(LexState{source}).lex())).parse(candidate);
         if (result)
         {

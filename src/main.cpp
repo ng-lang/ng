@@ -250,7 +250,7 @@ auto main(int argc, char *argv[]) -> int
       auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
       if (!emit_ngo_path.empty())
       {
-        NG::orgasm::write_bytecode_module(bytecode, emit_ngo_path);
+        NG::orgasm::write_bytecode_module(bytecode, emit_ngo_path, NG::orgasm::bytecode_source_hash(source));
         destroyast(ast);
         return 0;
       }

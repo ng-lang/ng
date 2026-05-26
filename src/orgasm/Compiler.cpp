@@ -176,6 +176,62 @@ namespace NG::orgasm
         install_builtin_lifecycle_traits(runtimeTraits);
 
         compileUnit->module->accept(this);
+        if (auto artifact = NG::module::get_module_registry().queryArtifactById(module.name))
+        {
+            for (const auto &[name, type] : artifact->exports.types)
+            {
+                if (type)
+                {
+                    module.exportTypeReprs[name] = type->repr();
+                }
+            }
+            for (const auto &[name, type] : artifact->traits)
+            {
+                auto trait = std::dynamic_pointer_cast<NG::typecheck::TraitType>(type);
+                if (!trait)
+                {
+                    continue;
+                }
+                auto methodReprs = [](const Map<Str, NG::typecheck::CheckingRef<NG::typecheck::FunctionType>> &methods) {
+                    Map<Str, Str> reprs;
+                    for (const auto &[methodName, methodType] : methods)
+                    {
+                        if (methodType)
+                        {
+                            reprs.insert_or_assign(methodName, methodType->repr());
+                        }
+                    }
+                    return reprs;
+                };
+                Vec<Str> superTraits;
+                for (const auto &superTrait : trait->superTraits)
+                {
+                    if (superTrait)
+                    {
+                        superTraits.push_back(superTrait->repr());
+                    }
+                }
+                module.traitMetadata.push_back(BytecodeTraitMetadata{
+                    .name = name,
+                    .moduleId = trait->moduleId,
+                    .typeParamNames = trait->typeParamNames,
+                    .superTraits = std::move(superTraits),
+                    .methods = methodReprs(trait->methods),
+                    .allMethods = methodReprs(trait->allMethods),
+                });
+            }
+            for (const auto &impl : artifact->impls)
+            {
+                module.implMetadata.push_back(BytecodeImplMetadata{
+                    .traitName = impl.traitName,
+                    .targetPattern = impl.targetPattern,
+                    .moduleId = impl.moduleId,
+                    .genericParamNames = Vec<Str>{impl.genericParamNames.begin(), impl.genericParamNames.end()},
+                    .whereBounds = impl.whereBounds,
+                    .methods = impl.methods,
+                });
+            }
+        }
         return std::move(module);
     }
 

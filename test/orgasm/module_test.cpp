@@ -39,11 +39,29 @@ TEST_CASE("bytecode module artifacts round trip module metadata", "[OrgasmTest][
 {
   BytecodeModule module;
   module.name = "pkg.sample";
+  module.sourceHash = "source-hash";
   module.constants = {1, 2};
   module.float_constants = {1.5};
   module.strings = {"hello"};
   module.imports.push_back(ExternalSymbol{.moduleName = "pkg.dep", .symbolName = "answer"});
   module.exports["main"] = 0;
+  module.exportTypeReprs["main"] = "fun () -> i32";
+  module.traitMetadata.push_back(BytecodeTraitMetadata{
+      .name = "Show",
+      .moduleId = "pkg.sample",
+      .typeParamNames = {"T"},
+      .superTraits = {"Debug"},
+      .methods = {{"show", "fun (ref<Self>) -> string"}},
+      .allMethods = {{"show", "fun (ref<Self>) -> string"}},
+  });
+  module.implMetadata.push_back(BytecodeImplMetadata{
+      .traitName = "Show",
+      .targetPattern = "Point",
+      .moduleId = "pkg.sample",
+      .genericParamNames = {"T"},
+      .whereBounds = {"T: Debug"},
+      .methods = {{"show", "Point.Show::show"}},
+  });
   module.types.push_back(Type{
       .name = "Point",
       .properties = {"x", "y"},
@@ -66,12 +84,21 @@ TEST_CASE("bytecode module artifacts round trip module metadata", "[OrgasmTest][
 
   auto loaded = read_bytecode_module(path.string(), "pkg.sample");
   REQUIRE(loaded.name == "pkg.sample");
+  REQUIRE(loaded.sourceHash == "hash");
   REQUIRE(loaded.constants == Vec<int64_t>{1, 2});
   REQUIRE(loaded.float_constants == Vec<double>{1.5});
   REQUIRE(loaded.strings == Vec<Str>{"hello"});
   REQUIRE(loaded.imports.size() == 1);
   REQUIRE(loaded.imports[0].moduleName == "pkg.dep");
   REQUIRE(loaded.exports.at("main") == 0);
+  REQUIRE(loaded.exportTypeReprs.at("main") == "fun () -> i32");
+  REQUIRE(loaded.traitMetadata.size() == 1);
+  REQUIRE(loaded.traitMetadata[0].name == "Show");
+  REQUIRE(loaded.traitMetadata[0].superTraits == Vec<Str>{"Debug"});
+  REQUIRE(loaded.traitMetadata[0].methods.at("show") == "fun (ref<Self>) -> string");
+  REQUIRE(loaded.implMetadata.size() == 1);
+  REQUIRE(loaded.implMetadata[0].traitName == "Show");
+  REQUIRE(loaded.implMetadata[0].methods.at("show") == "Point.Show::show");
   REQUIRE(loaded.types.size() == 1);
   REQUIRE(loaded.types[0].derivedTraits == Vec<Str>{"Clone"});
   REQUIRE(loaded.types[0].variants[0].payloadFields == Vec<Str>{"value"});
