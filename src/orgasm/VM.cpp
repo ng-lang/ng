@@ -775,7 +775,18 @@ namespace NG::orgasm
                     uint16_t numArgs = read_u16();
                     auto &imp = current_module->imports[importIdx];
                     
-                    auto moduleInfo = NG::module::get_module_registry().queryModuleById(imp.moduleName);
+                    auto &registry = NG::module::get_module_registry();
+                    auto moduleInfo = registry.queryModuleById(imp.moduleName);
+                    if (!moduleInfo)
+                    {
+                        auto id = NG::module::module_id_from_name(imp.moduleName);
+                        NG::module::FileBasedExternalModuleLoader loader{modulePaths};
+                        moduleInfo = loader.load(id.pathSegments);
+                        if (moduleInfo)
+                        {
+                            registry.addModuleInfo(moduleInfo);
+                        }
+                    }
                     if (!moduleInfo) throw RuntimeException("Module not found: " + imp.moduleName);
                     
                     if (moduleInfo->bytecodeModule) {

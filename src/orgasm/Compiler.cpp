@@ -167,7 +167,9 @@ namespace NG::orgasm
         activeGenericInstanceName.clear();
         variant_map.clear();
         module = BytecodeModule{};
-        module.name = compileUnit->fileName;
+        module.name = compileUnit->module && !compileUnit->module->name.empty()
+                          ? compileUnit->module->name
+                          : compileUnit->fileName;
         
         module.constants.push_back(0);
         module.constants.push_back(1);

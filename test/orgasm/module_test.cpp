@@ -1,4 +1,6 @@
 #include "../test.hpp"
+#include <chrono>
+#include <filesystem>
 #include <orgasm/module.hpp>
 
 using namespace NG::orgasm;
@@ -32,6 +34,55 @@ void append_u64(Vec<uint8_t> &code, uint64_t value)
   }
 }
 } // namespace
+
+TEST_CASE("bytecode module artifacts round trip module metadata", "[OrgasmTest][Module][Ngo]")
+{
+  BytecodeModule module;
+  module.name = "pkg.sample";
+  module.constants = {1, 2};
+  module.float_constants = {1.5};
+  module.strings = {"hello"};
+  module.imports.push_back(ExternalSymbol{.moduleName = "pkg.dep", .symbolName = "answer"});
+  module.exports["main"] = 0;
+  module.types.push_back(Type{
+      .name = "Point",
+      .properties = {"x", "y"},
+      .derivedTraits = {"Clone"},
+      .variants = {Variant{.name = "Some", .payloadFields = {"value"}}},
+  });
+
+  Function main;
+  main.name = "main";
+  main.num_locals = 1;
+  main.num_params = 0;
+  main.explicit_receiver = true;
+  main.code = {static_cast<uint8_t>(OpCode::PUSH_I32), 42, 0, 0, 0, static_cast<uint8_t>(OpCode::RETURN)};
+  module.functions.push_back(std::move(main));
+
+  auto path = std::filesystem::temp_directory_path() /
+              ("ng_roundtrip_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
+               ".ngo");
+  write_bytecode_module(module, path.string(), "hash");
+
+  auto loaded = read_bytecode_module(path.string(), "pkg.sample");
+  REQUIRE(loaded.name == "pkg.sample");
+  REQUIRE(loaded.constants == Vec<int64_t>{1, 2});
+  REQUIRE(loaded.float_constants == Vec<double>{1.5});
+  REQUIRE(loaded.strings == Vec<Str>{"hello"});
+  REQUIRE(loaded.imports.size() == 1);
+  REQUIRE(loaded.imports[0].moduleName == "pkg.dep");
+  REQUIRE(loaded.exports.at("main") == 0);
+  REQUIRE(loaded.types.size() == 1);
+  REQUIRE(loaded.types[0].derivedTraits == Vec<Str>{"Clone"});
+  REQUIRE(loaded.types[0].variants[0].payloadFields == Vec<Str>{"value"});
+  REQUIRE(loaded.functions.size() == 1);
+  REQUIRE(loaded.functions[0].explicit_receiver);
+  REQUIRE(loaded.functions[0].code == module.functions[0].code);
+  REQUIRE_THROWS_WITH(read_bytecode_module(path.string(), "pkg.other"),
+                      Catch::Matchers::ContainsSubstring("Bytecode module id mismatch"));
+
+  std::filesystem::remove(path);
+}
 
 TEST_CASE("bytecode module merge remaps tagged union type operands", "[OrgasmTest][Module]")
 {

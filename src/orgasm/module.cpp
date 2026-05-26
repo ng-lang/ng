@@ -1,8 +1,278 @@
 #include <orgasm/module.hpp>
 #include <cstring>
+#include <fstream>
+#include <type_traits>
 
 namespace NG::orgasm
 {
+    namespace
+    {
+        constexpr char NGO_MAGIC[4] = {'N', 'G', 'O', '\0'};
+        constexpr uint32_t MAX_NGO_STRING_SIZE = 64U * 1024U * 1024U;
+        constexpr uint32_t MAX_NGO_VECTOR_SIZE = 1U * 1024U * 1024U;
+        constexpr uint32_t MAX_NGO_CODE_SIZE = 64U * 1024U * 1024U;
+
+        template <typename T>
+        void write_scalar(std::ostream &out, T value)
+        {
+            static_assert(std::is_integral_v<T> || std::is_floating_point_v<T> || std::is_enum_v<T>);
+            out.write(reinterpret_cast<const char *>(&value), sizeof(T));
+            if (!out)
+            {
+                throw RuntimeException("Failed to write .ngo artifact");
+            }
+        }
+
+        template <typename T>
+        auto read_scalar(std::istream &in, const Str &field) -> T
+        {
+            static_assert(std::is_integral_v<T> || std::is_floating_point_v<T> || std::is_enum_v<T>);
+            T value{};
+            in.read(reinterpret_cast<char *>(&value), sizeof(T));
+            if (!in)
+            {
+                throw RuntimeException("Truncated .ngo artifact while reading " + field);
+            }
+            return value;
+        }
+
+        void write_string(std::ostream &out, const Str &value)
+        {
+            write_scalar<uint32_t>(out, static_cast<uint32_t>(value.size()));
+            out.write(value.data(), static_cast<std::streamsize>(value.size()));
+            if (!out)
+            {
+                throw RuntimeException("Failed to write .ngo string");
+            }
+        }
+
+        auto read_string(std::istream &in, const Str &field) -> Str
+        {
+            auto size = read_scalar<uint32_t>(in, field + ".size");
+            if (size > MAX_NGO_STRING_SIZE)
+            {
+                throw RuntimeException(".ngo string too large while reading " + field);
+            }
+            Str value(size, '\0');
+            if (size > 0)
+            {
+                in.read(value.data(), static_cast<std::streamsize>(size));
+                if (!in)
+                {
+                    throw RuntimeException("Truncated .ngo artifact while reading " + field);
+                }
+            }
+            return value;
+        }
+
+        template <typename T, typename WriteItem>
+        void write_vector(std::ostream &out, const Vec<T> &items, WriteItem writeItem)
+        {
+            write_scalar<uint32_t>(out, static_cast<uint32_t>(items.size()));
+            for (const auto &item : items)
+            {
+                writeItem(item);
+            }
+        }
+
+        template <typename T, typename ReadItem>
+        auto read_vector(std::istream &in, const Str &field, ReadItem readItem) -> Vec<T>
+        {
+            auto count = read_scalar<uint32_t>(in, field + ".count");
+            if (count > MAX_NGO_VECTOR_SIZE)
+            {
+                throw RuntimeException(".ngo vector too large while reading " + field);
+            }
+            Vec<T> items;
+            items.reserve(count);
+            for (uint32_t i = 0; i < count; ++i)
+            {
+                items.push_back(readItem(field + "[" + std::to_string(i) + "]"));
+            }
+            return items;
+        }
+
+        void write_string_vector(std::ostream &out, const Vec<Str> &items)
+        {
+            write_vector<Str>(out, items, [&](const Str &item) { write_string(out, item); });
+        }
+
+        auto read_string_vector(std::istream &in, const Str &field) -> Vec<Str>
+        {
+            return read_vector<Str>(in, field, [&](const Str &itemField) { return read_string(in, itemField); });
+        }
+
+        void write_variant(std::ostream &out, const Variant &variant)
+        {
+            write_string(out, variant.name);
+            write_string_vector(out, variant.payloadFields);
+        }
+
+        auto read_variant(std::istream &in, const Str &field) -> Variant
+        {
+            Variant variant;
+            variant.name = read_string(in, field + ".name");
+            variant.payloadFields = read_string_vector(in, field + ".payloadFields");
+            return variant;
+        }
+
+        void write_type(std::ostream &out, const Type &type)
+        {
+            write_string(out, type.name);
+            write_string_vector(out, type.properties);
+            write_string_vector(out, type.derivedTraits);
+            write_vector<Variant>(out, type.variants, [&](const Variant &variant) { write_variant(out, variant); });
+        }
+
+        auto read_type(std::istream &in, const Str &field) -> Type
+        {
+            Type type;
+            type.name = read_string(in, field + ".name");
+            type.properties = read_string_vector(in, field + ".properties");
+            type.derivedTraits = read_string_vector(in, field + ".derivedTraits");
+            type.variants = read_vector<Variant>(in, field + ".variants",
+                                                 [&](const Str &itemField) { return read_variant(in, itemField); });
+            return type;
+        }
+
+        void write_function(std::ostream &out, const Function &function)
+        {
+            write_string(out, function.name);
+            write_scalar<int32_t>(out, function.num_locals);
+            write_scalar<int32_t>(out, function.num_params);
+            write_scalar<uint8_t>(out, function.explicit_receiver ? 1 : 0);
+            write_scalar<uint32_t>(out, static_cast<uint32_t>(function.code.size()));
+            if (!function.code.empty())
+            {
+                out.write(reinterpret_cast<const char *>(function.code.data()),
+                          static_cast<std::streamsize>(function.code.size()));
+                if (!out)
+                {
+                    throw RuntimeException("Failed to write .ngo function code");
+                }
+            }
+        }
+
+        auto read_function(std::istream &in, const Str &field) -> Function
+        {
+            Function function;
+            function.name = read_string(in, field + ".name");
+            function.num_locals = read_scalar<int32_t>(in, field + ".num_locals");
+            function.num_params = read_scalar<int32_t>(in, field + ".num_params");
+            function.explicit_receiver = read_scalar<uint8_t>(in, field + ".explicit_receiver") != 0;
+            auto codeSize = read_scalar<uint32_t>(in, field + ".code.size");
+            if (codeSize > MAX_NGO_CODE_SIZE)
+            {
+                throw RuntimeException(".ngo function code too large while reading " + field);
+            }
+            function.code.resize(codeSize);
+            if (codeSize > 0)
+            {
+                in.read(reinterpret_cast<char *>(function.code.data()), static_cast<std::streamsize>(codeSize));
+                if (!in)
+                {
+                    throw RuntimeException("Truncated .ngo artifact while reading " + field + ".code");
+                }
+            }
+            return function;
+        }
+
+        void write_import(std::ostream &out, const ExternalSymbol &symbol)
+        {
+            write_string(out, symbol.moduleName);
+            write_string(out, symbol.symbolName);
+        }
+
+        auto read_import(std::istream &in, const Str &field) -> ExternalSymbol
+        {
+            return ExternalSymbol{
+                .moduleName = read_string(in, field + ".moduleName"),
+                .symbolName = read_string(in, field + ".symbolName"),
+            };
+        }
+    } // namespace
+
+    void write_bytecode_module(const BytecodeModule &module, const Str &path, const Str &sourceHash)
+    {
+        std::ofstream out(path, std::ios::binary);
+        if (!out)
+        {
+            throw RuntimeException("Failed to open .ngo artifact for writing: " + path);
+        }
+
+        out.write(NGO_MAGIC, sizeof(NGO_MAGIC));
+        write_scalar<uint32_t>(out, NGO_FORMAT_VERSION);
+        write_scalar<uint32_t>(out, NGO_ABI_VERSION);
+        write_string(out, module.name);
+        write_string(out, sourceHash);
+
+        write_vector<int64_t>(out, module.constants, [&](int64_t value) { write_scalar<int64_t>(out, value); });
+        write_vector<double>(out, module.float_constants, [&](double value) { write_scalar<double>(out, value); });
+        write_string_vector(out, module.strings);
+        write_vector<Function>(out, module.functions, [&](const Function &function) { write_function(out, function); });
+        write_vector<Type>(out, module.types, [&](const Type &type) { write_type(out, type); });
+        write_vector<ExternalSymbol>(out, module.imports, [&](const ExternalSymbol &symbol) { write_import(out, symbol); });
+        write_scalar<uint32_t>(out, static_cast<uint32_t>(module.exports.size()));
+        for (const auto &[name, index] : module.exports)
+        {
+            write_string(out, name);
+            write_scalar<int32_t>(out, index);
+        }
+    }
+
+    auto read_bytecode_module(const Str &path, const Str &expectedModuleId) -> BytecodeModule
+    {
+        std::ifstream in(path, std::ios::binary);
+        if (!in)
+        {
+            throw RuntimeException("Failed to open .ngo artifact for reading: " + path);
+        }
+
+        char magic[4]{};
+        in.read(magic, sizeof(magic));
+        if (!in || std::memcmp(magic, NGO_MAGIC, sizeof(NGO_MAGIC)) != 0)
+        {
+            throw RuntimeException("Invalid .ngo artifact magic: " + path);
+        }
+        auto formatVersion = read_scalar<uint32_t>(in, "formatVersion");
+        if (formatVersion != NGO_FORMAT_VERSION)
+        {
+            throw RuntimeException("Unsupported .ngo format version: " + std::to_string(formatVersion));
+        }
+        auto abiVersion = read_scalar<uint32_t>(in, "abiVersion");
+        if (abiVersion != NGO_ABI_VERSION)
+        {
+            throw RuntimeException("Unsupported .ngo ABI version: " + std::to_string(abiVersion));
+        }
+
+        BytecodeModule module;
+        module.name = read_string(in, "module.name");
+        (void)read_string(in, "sourceHash");
+        if (!expectedModuleId.empty() && module.name != expectedModuleId)
+        {
+            throw RuntimeException("Bytecode module id mismatch: " + module.name + ", expected " + expectedModuleId);
+        }
+
+        module.constants = read_vector<int64_t>(in, "constants",
+                                                [&](const Str &field) { return read_scalar<int64_t>(in, field); });
+        module.float_constants = read_vector<double>(in, "float_constants",
+                                                     [&](const Str &field) { return read_scalar<double>(in, field); });
+        module.strings = read_string_vector(in, "strings");
+        module.functions = read_vector<Function>(in, "functions",
+                                                 [&](const Str &field) { return read_function(in, field); });
+        module.types = read_vector<Type>(in, "types", [&](const Str &field) { return read_type(in, field); });
+        module.imports = read_vector<ExternalSymbol>(in, "imports",
+                                                     [&](const Str &field) { return read_import(in, field); });
+        auto exportCount = read_scalar<uint32_t>(in, "exports.count");
+        for (uint32_t i = 0; i < exportCount; ++i)
+        {
+            auto name = read_string(in, "exports[" + std::to_string(i) + "].name");
+            auto index = read_scalar<int32_t>(in, "exports[" + std::to_string(i) + "].index");
+            module.exports.insert_or_assign(std::move(name), index);
+        }
+        return module;
+    }
+
     void BytecodeModule::merge(const BytecodeModule &other, const Str &prefix)
     {
         int32_t constOffset = static_cast<int32_t>(constants.size());

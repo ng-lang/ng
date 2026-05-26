@@ -1,5 +1,6 @@
 #include <ast.hpp>
 #include <module.hpp>
+#include <orgasm/module.hpp>
 #include <parser.hpp>
 #include <token.hpp>
 
@@ -9,6 +10,7 @@
 #include <fstream>
 #include <iostream>
 #include <numeric>
+#include <utility>
 
 #include <sysdep/process.hpp>
 
@@ -170,15 +172,19 @@ namespace NG::module
 
     fs::path modulePath = std::accumulate(module.begin(), module.end(), fs::path{},
                                           [](fs::path acc, const Str &segment) { return acc / segment; });
-    Vec<fs::path> relativeProbes;
+    Vec<std::pair<fs::path, ModuleFormat>> relativeProbes;
     auto sourceProbe = modulePath;
     sourceProbe += ".ng";
-    relativeProbes.push_back(sourceProbe);
-    relativeProbes.push_back(modulePath / "module.ng");
+    relativeProbes.push_back({sourceProbe, ModuleFormat::SourceNg});
+    relativeProbes.push_back({modulePath / "module.ng", ModuleFormat::SourceNg});
+    auto bytecodeProbe = modulePath;
+    bytecodeProbe += ".ngo";
+    relativeProbes.push_back({bytecodeProbe, ModuleFormat::BytecodeNgo});
+    relativeProbes.push_back({modulePath / "module.ngo", ModuleFormat::BytecodeNgo});
 
     for (const auto &base : module_search_roots(this->basePaths))
     {
-      for (const auto &relative : relativeProbes)
+      for (const auto &[relative, format] : relativeProbes)
       {
         fs::path candidate{base};
         candidate.append(relative.string());
@@ -190,6 +196,26 @@ namespace NG::module
         if (isCached(absolute))
         {
           return getCached(absolute);
+        }
+        if (format == ModuleFormat::BytecodeNgo)
+        {
+          auto bytecode = NG::orgasm::read_bytecode_module(absolute, requestedModuleId);
+          auto moduleInfo = runtime::makert<ModuleInfo>(ModuleInfo{
+            .moduleId = requestedModuleId,
+            .moduleName = module.empty() ? Str{} : module.back(),
+            .moduleAbsolutePath = absolute,
+            .moduleLoadingLocation = base,
+            .bytecodeModule = std::make_shared<NG::orgasm::BytecodeModule>(std::move(bytecode)),
+          });
+          moduleInfo->artifact = runtime::makert<ModuleArtifact>(ModuleArtifact{
+            .id = module_id_from_name(requestedModuleId),
+            .format = ModuleFormat::BytecodeNgo,
+            .originPath = absolute,
+            .bytecodeModule = moduleInfo->bytecodeModule,
+          });
+          putCached(requestedModuleId, moduleInfo);
+          putCached(absolute, moduleInfo);
+          return moduleInfo;
         }
         std::fstream file{candidate};
         std::string source{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};

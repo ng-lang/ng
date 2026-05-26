@@ -6,6 +6,9 @@
 
 namespace NG::orgasm
 {
+    constexpr uint32_t NGO_FORMAT_VERSION = 1;
+    constexpr uint32_t NGO_ABI_VERSION = 1;
+
     /**
      * @brief A function in the ORGASM bytecode.
      */
@@ -73,4 +76,7 @@ namespace NG::orgasm
          */
         void merge(const BytecodeModule &other, const Str &prefix = "");
     };
+
+    void write_bytecode_module(const BytecodeModule &module, const Str &path, const Str &sourceHash = {});
+    auto read_bytecode_module(const Str &path, const Str &expectedModuleId = {}) -> BytecodeModule;
 } // namespace NG::orgasm

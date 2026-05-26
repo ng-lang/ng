@@ -1340,6 +1340,45 @@ TEST_CASE("vm should dispatch imported symbols to registered native fallback", "
   NG::module::clear_module_loader_cache();
 }
 
+TEST_CASE("vm should lazy load imported bytecode modules from ngo artifacts", "[OrgasmTest][VM][Ngo]")
+{
+  SourceModuleFixture fixture;
+
+  BytecodeModule imported;
+  imported.name = "pkg.math";
+  Function answer;
+  answer.name = "answer";
+  answer.num_locals = 0;
+  answer.num_params = 0;
+  answer.code.push_back(static_cast<uint8_t>(OpCode::PUSH_I32));
+  answer.code.push_back(42);
+  answer.code.push_back(0);
+  answer.code.push_back(0);
+  answer.code.push_back(0);
+  answer.code.push_back(static_cast<uint8_t>(OpCode::RETURN));
+  imported.exports["answer"] = 0;
+  imported.functions.push_back(std::move(answer));
+
+  auto artifactPath = fixture.root / "pkg" / "math.ngo";
+  std::filesystem::create_directories(artifactPath.parent_path());
+  write_bytecode_module(imported, artifactPath.string());
+
+  BytecodeModule entry;
+  entry.name = "entry";
+  entry.imports.push_back(ExternalSymbol{.moduleName = "pkg.math", .symbolName = "answer"});
+  Function main;
+  main.name = "main";
+  main.num_locals = 0;
+  main.num_params = 0;
+  emit_u16_u16(main.code, OpCode::CALL_IMPORT, 0, 0);
+  main.code.push_back(static_cast<uint8_t>(OpCode::RETURN));
+  entry.functions.push_back(std::move(main));
+
+  VM vm{fixture.paths()};
+  auto result = vm.run(entry);
+  REQUIRE(result_i32(result) == 42);
+}
+
 TEST_CASE("vm should retag existing trait refs for destination trait coercions", "[OrgasmTest][VM][Traits]")
 {
   BytecodeModule module;
