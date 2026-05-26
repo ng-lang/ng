@@ -67,11 +67,40 @@ lib/std/prelude.ng
 - Imported symbols are not re-exported by `exports *`; re-export is explicit.
 - Standard library modules must be usable from STUPID and ORGASM.
 
+## Native Module Shape
+
+Implemented stdlib native modules:
+
+- `std.prelude`: common language/runtime helpers.
+- `std.imgui`: Dear ImGui wrapper backed by SDL3/GPU state owned by the module.
+
+`std.imgui` exposes opaque NG native handle types for ImGui structures that are not
+owned by NG:
+
+```ng
+type ImGuiContext = native;
+type ImGuiIO = native;
+type ImGuiStyle = native;
+```
+
+The wrapper keeps SDL window/device/event ownership internal. NG code uses ImGui-like
+functions and handle accessors (`GetIO`, `GetStyle`, `ImGuiIO_*`, `ImGuiStyle_*`)
+without directly importing SDL APIs.
+
+Current wrapper coverage includes lifecycle/frame control, context/IO/style handles,
+common flag constants, windows, child windows, cursor/layout, ID stack, disabled
+regions, tooltips, style/color stacks, text, basic widgets, input widgets, combos,
+selectables, tables, trees, tabs, menus, popups, and runtime queries. Mutable ImGui
+pointer-parameter widgets return the updated value in NG, e.g. `InputText(...) ->
+string`, `DragFloat(...) -> f32`, and `Checkbox(...) -> bool`.
+
 ## Acceptance Criteria
 
 - `import std.prelude (*)` works from source modules.
 - `import std.string (join, split)` works after string APIs are moved.
 - Native-backed stdlib functions have NG-visible signatures.
+- Implemented: `std.imgui` exposes NG-visible signatures for context, IO, style,
+  flags, windows, layout, widgets, menus, popups, and runtime query wrappers.
 - Examples pass with source-first stdlib resolution.
 - Examples pass with bytecode-first stdlib resolution when `.ngo` artifacts are present.
 - STUPID and ORGASM agree on exported stdlib symbols.

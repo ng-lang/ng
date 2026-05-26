@@ -204,6 +204,8 @@ auto main(int argc, char *argv[]) -> int
   {
     try
     {
+      NG::library::prelude::do_register();
+      NG::library::imgui::do_register();
       auto bytecode = NG::orgasm::read_bytecode_module(filename);
       NG::orgasm::VM vm{modulePaths};
       NG::library::prelude::register_vm_natives(vm);
@@ -229,6 +231,9 @@ auto main(int argc, char *argv[]) -> int
   try
   {
     auto ast = parse(source, filename);
+
+    NG::library::prelude::do_register();
+    NG::library::imgui::do_register();
 
     using namespace NG::typecheck;
     TypeIndex prelude_types = build_prelude_type_index();

@@ -1084,6 +1084,9 @@ TEST_CASE("compiler and vm should call native prelude helpers", "[OrgasmTest][Pr
             assert(endsWith(content, "world"));
             assert(toUpper("Ng") == "NG");
             assert(toLower("Ng") == "ng");
+            assert(regexMatch("fun main", "fun"));
+            assert(regexMatch("fun main", "^type") == false);
+            assert(len(currentExecutablePath()) > 0);
             assert(len(nums) == 3);
             assert(mid[0] == 2);
             assert(mid[1] == 3);
@@ -1679,19 +1682,141 @@ TEST_CASE("compiler and vm should register imgui natives without initialized sta
   auto names = NG::library::imgui::native_function_names();
   REQUIRE(std::find(names.begin(), names.end(), "init") != names.end());
   REQUIRE(std::find(names.begin(), names.end(), "cleanup") != names.end());
+  REQUIRE(std::find(names.begin(), names.end(), "GetIO") != names.end());
+  REQUIRE(std::find(names.begin(), names.end(), "GetStyle") != names.end());
+  REQUIRE(std::find(names.begin(), names.end(), "Button") != names.end());
+  REQUIRE(std::find(names.begin(), names.end(), "InputText") != names.end());
+  REQUIRE(std::find(names.begin(), names.end(), "InputTextMultiline") != names.end());
+  REQUIRE(std::find(names.begin(), names.end(), "TextNgHighlighted") != names.end());
+  REQUIRE(std::find(names.begin(), names.end(), "BeginTable") != names.end());
+  REQUIRE(std::find(names.begin(), names.end(), "PushStyleColor") != names.end());
+  REQUIRE(std::find(names.begin(), names.end(), "GetWindowWidth") != names.end());
+  REQUIRE(std::find(names.begin(), names.end(), "SetNextWindowBgAlpha") != names.end());
+  REQUIRE(std::find(names.begin(), names.end(), "ImGuiConfigFlags_NavEnableKeyboard") != names.end());
+  REQUIRE(std::find(names.begin(), names.end(), "ImGuiTableFlags_Borders") != names.end());
 
   VM vm;
   REQUIRE_NOTHROW(NG::library::imgui::register_vm_natives(vm));
 }
 
+TEST_CASE("typechecker should expose typed imgui native wrapper API", "[OrgasmTest][ImGui][TypeCheck]")
+{
+  auto ast = parse(R"(
+    import std.imgui (*);
+
+    val imguiVersion: string = GetVersion();
+    val flags: i32 = ImGuiConfigFlags_NavEnableKeyboard();
+
+    val io = GetIO();
+    val style = GetStyle();
+    ImGuiIO_AddConfigFlags(io, flags);
+    ImGuiStyle_SetWindowRounding(style, 4.0f32);
+    val input: string = InputText("name", "ng", ImGuiInputTextFlags_EnterReturnsTrue());
+    val source: string = InputTextMultiline("source", input, 320.0f32, 200.0f32, ImGuiInputTextFlags_None());
+    TextNgHighlighted(source);
+    val selected: bool = Selectable("row", false, ImGuiSelectableFlags_SpanAllColumns(), 0.0f32, 0.0f32);
+    val dragged: f32 = DragFloat("drag", 0.5f32, 0.1f32, 0.0f32, 1.0f32);
+    val tableOpen: bool = BeginTable("table", 2, ImGuiTableFlags_Borders(), 0.0f32, 0.0f32, 0.0f32);
+    TableSetupColumn("name", ImGuiTableColumnFlags_WidthStretch(), 0.0f32);
+    TableNextRow(ImGuiTableFlags_None(), 0.0f32);
+    val columnVisible: bool = TableNextColumn();
+    val columns: i32 = TableGetColumnCount();
+    PushStyleColor(ImGuiCol_Button(), 0.1f32, 0.2f32, 0.3f32, 1.0f32);
+    PopStyleColor(1);
+    PushStyleVarVec2(ImGuiStyleVar_FramePadding(), 6.0f32, 4.0f32);
+    PopStyleVar(1);
+    SetNextWindowBgAlpha(0.9f32);
+    val windowWidth: f32 = GetWindowWidth();
+    val scrollY: f32 = GetScrollY();
+    TextColored(1.0f32, 0.5f32, 0.2f32, 1.0f32, "colored");
+    val edited: bool = IsItemEdited();
+    val anyActive: bool = IsAnyItemActive();
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto index = NG::typecheck::type_check(ast, {}, {NG::module::standard_library_base_path()});
+  REQUIRE(index.contains("io"));
+  REQUIRE(index["io"]->repr() == "ImGuiIO");
+  REQUIRE(index.contains("style"));
+  REQUIRE(index["style"]->repr() == "ImGuiStyle");
+
+  destroyast(ast);
+}
+
+TEST_CASE("compiler should typecheck and compile ng ide imgui example without running it",
+          "[OrgasmTest][ImGui][Example]")
+{
+  auto target = std::filesystem::path{"example/ng_ide.ng"};
+  auto projectRoot = std::filesystem::current_path();
+  if (!std::filesystem::exists(projectRoot / target))
+  {
+    projectRoot = projectRoot.parent_path();
+  }
+
+  std::ifstream file{projectRoot / target};
+  REQUIRE(file.good());
+  std::string source{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
+  auto ast = parse(source, (projectRoot / target).string());
+  REQUIRE(ast != nullptr);
+
+  Vec<Str> modulePaths{(projectRoot / "lib").string(), (projectRoot / "example").string()};
+  REQUIRE_NOTHROW(NG::typecheck::type_check(ast, NG::typecheck::build_prelude_type_index(), modulePaths));
+
+  auto nativeNames = NG::library::prelude::native_function_names();
+  auto imguiNativeNames = NG::library::imgui::native_function_names();
+  nativeNames.insert(nativeNames.end(), imguiNativeNames.begin(), imguiNativeNames.end());
+
+  Compiler compiler{modulePaths, nativeNames};
+  auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+  REQUIRE_FALSE(bytecode.functions.empty());
+  REQUIRE(std::ranges::any_of(bytecode.functions, [](const Function &function) {
+    return std::ranges::find(function.code, static_cast<uint8_t>(OpCode::NATIVE_CALL)) != function.code.end();
+  }));
+
+  destroyast(ast);
+}
+
+TEST_CASE("compiler should emit direct native calls for imported imgui functions", "[OrgasmTest][ImGui]")
+{
+  auto ast = parse(R"(
+    import std.imgui (*);
+
+    init();
+    NewFrame();
+    Render();
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto nativeNames = NG::library::prelude::native_function_names();
+  auto imguiNativeNames = NG::library::imgui::native_function_names();
+  nativeNames.insert(nativeNames.end(), imguiNativeNames.begin(), imguiNativeNames.end());
+  Compiler compiler{{}, nativeNames};
+  auto module = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+  REQUIRE_FALSE(module.functions.empty());
+
+  auto &code = module.functions.front().code;
+  auto countNativeCalls = std::ranges::count(code, static_cast<uint8_t>(OpCode::NATIVE_CALL));
+  auto countImportCalls = std::ranges::count(code, static_cast<uint8_t>(OpCode::CALL_IMPORT));
+  REQUIRE(countNativeCalls >= 3);
+  REQUIRE(countImportCalls == 0);
+
+  destroyast(ast);
+}
+
 TEST_CASE("compiler and vm should reject imgui native calls before init", "[OrgasmTest][ImGui]")
 {
-  for (const auto &name : NG::library::imgui::native_function_names())
+  for (const auto &name : Vec<Str>{
+           "NewFrame",
+           "Begin",
+           "Button",
+           "GetIO",
+           "GetStyle",
+           "StyleColorsDark",
+           "SetNextWindowSize",
+           "Render",
+           "cleanup",
+       })
   {
-    if (name == "init")
-    {
-      continue;
-    }
     BytecodeModule module;
     module.name = "imgui-native-check";
     module.strings.push_back(name);

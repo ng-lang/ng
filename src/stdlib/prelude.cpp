@@ -6,11 +6,15 @@
 #include <runtime/native_marshaling.hpp>
 #include <runtime/value_access.hpp>
 #include <runtime/string_layout_access.hpp>
+#include <sysdep/process.hpp>
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cctype>
+#include <cstdio>
 #include <fstream>
 #include <iostream>
+#include <regex>
 #include <cstdlib>
 
 namespace NG::library::prelude
@@ -98,6 +102,107 @@ namespace NG::library::prelude
     std::transform(result.begin(), result.end(), result.begin(),
                    [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
     return result;
+  }
+
+  static auto current_executable_path_native() -> Str
+  {
+    return NG::System::Process::current_executable_path();
+  }
+
+  static auto shell_quote(Str value) -> Str
+  {
+#ifdef _WIN32
+    Str quoted = "\"";
+    for (char ch : value)
+    {
+      if (ch == '"' || ch == '\\')
+      {
+        quoted += '\\';
+      }
+      quoted += ch;
+    }
+    quoted += "\"";
+    return quoted;
+#else
+    Str quoted = "'";
+    for (char ch : value)
+    {
+      if (ch == '\'')
+      {
+        quoted += "'\\''";
+      }
+      else
+      {
+        quoted += ch;
+      }
+    }
+    quoted += "'";
+    return quoted;
+#endif
+  }
+
+  static auto validate_ngi_script_path(const Str &path) -> bool
+  {
+    if (path.empty() || !path.ends_with(".ng"))
+    {
+      return false;
+    }
+    return std::ranges::all_of(path, [](unsigned char ch) {
+      return std::isalnum(ch) != 0 || ch == '/' || ch == '.' || ch == '_' || ch == '-';
+    });
+  }
+
+  static auto run_ngi_native(Str path) -> Str
+  {
+    if (!validate_ngi_script_path(path))
+    {
+      throw RuntimeException("runNgi() requires a .ng path containing only alnum, '/', '.', '_', or '-'");
+    }
+    auto executable = current_executable_path_native();
+    if (executable.empty())
+    {
+      throw RuntimeException("runNgi() could not resolve current executable path");
+    }
+    auto command = shell_quote(executable) + " " + shell_quote(path);
+#ifdef _WIN32
+    FILE *pipe = _popen(command.c_str(), "r");
+#else
+    FILE *pipe = popen(command.c_str(), "r");
+#endif
+    if (pipe == nullptr)
+    {
+      throw RuntimeException("runNgi() failed to start ngi for: " + path);
+    }
+
+    Str output;
+    std::array<char, 4096> buffer{};
+    while (fgets(buffer.data(), static_cast<int>(buffer.size()), pipe) != nullptr)
+    {
+      output += buffer.data();
+    }
+
+#ifdef _WIN32
+    auto status = _pclose(pipe);
+#else
+    auto status = pclose(pipe);
+#endif
+    if (status != 0)
+    {
+      output += "\n[process exited with status " + std::to_string(status) + "]";
+    }
+    return output;
+  }
+
+  static auto regex_match_native(Str value, Str pattern) -> bool
+  {
+    try
+    {
+      return std::regex_search(value, std::regex(pattern));
+    }
+    catch (const std::regex_error &ex)
+    {
+      throw RuntimeException("regexMatch() invalid regex: " + Str(ex.what()));
+    }
   }
 
   static auto native_allocation_count() -> int32_t &
@@ -228,6 +333,9 @@ namespace NG::library::prelude
     {"endsWith", NG::orgasm::wrap_native_callable(ends_with_native)},
     {"toUpper", NG::orgasm::wrap_native_callable(to_upper_native)},
     {"toLower", NG::orgasm::wrap_native_callable(to_lower_native)},
+    {"currentExecutablePath", NG::orgasm::wrap_native_callable(current_executable_path_native)},
+    {"runNgi", NG::orgasm::wrap_native_callable(run_ngi_native)},
+    {"regexMatch", NG::orgasm::wrap_native_callable(regex_match_native)},
     {"reverse",
      [](const NGSelf &, const NGEnv &context, const NGArgs &args) -> RuntimeRef<StorageCell> {
        auto nativeArgs = native_args_view(context, args);

@@ -1363,6 +1363,17 @@ namespace NG::orgasm
             
             if (imported_symbols.contains(idExpr->id)) {
                 auto &imp = imported_symbols[idExpr->id];
+                if (nativeFnNames.contains(idExpr->id) &&
+                    (imp.moduleName == "std.prelude" || imp.moduleName == "std.imgui"))
+                {
+                    auto emittedArgs = emit_call_arguments(funCallExpr->arguments);
+                    uint16_t nameIdx = static_cast<uint16_t>(module.strings.size());
+                    module.strings.push_back(idExpr->id);
+                    emit(OpCode::NATIVE_CALL);
+                    emit_u16(nameIdx);
+                    emit_u16(emittedArgs);
+                    return;
+                }
                 auto emittedArgs = emit_call_arguments(funCallExpr->arguments);
                 emit(OpCode::CALL_IMPORT);
                 emit_u16(static_cast<uint16_t>(imp.importIndex));

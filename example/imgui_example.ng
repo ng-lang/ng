@@ -1,17 +1,141 @@
 import std.imgui (*);
 
+val showControls: bool = true;
+val slider: f32 = 0.25f32;
+val counter: i32 = 0;
+val name: string = "ng";
+val selectedBackend: i32 = 0;
+
 init();
+
+ImGuiIO_AddConfigFlags(GetIO(), ImGuiConfigFlags_NavEnableKeyboard());
+ImGuiStyle_SetWindowRounding(GetStyle(), 10.0f32);
+ImGuiStyle_SetFrameRounding(GetStyle(), 5.0f32);
+StyleColorsLight();
 
 loop {
     eventLoop();
     checkMinimized();
 
     NewFrame();
-    {
-        Begin("Hello, world!");
-        Text("This is from NG std.imgui module");
-        End();
+
+    SetNextWindowSize(640.0f32, 420.0f32, ImGuiCond_FirstUseEver());
+    SetNextWindowBgAlpha(0.98f32);
+    BeginFlags("NG std.imgui wrapper", ImGuiWindowFlags_MenuBar());
+
+    if (BeginMenuBar()) {
+        if (BeginMenu("Theme")) {
+            if (MenuItem("Light", false)) {
+                StyleColorsLight();
+            }
+            if (MenuItem("Dark", false)) {
+                StyleColorsDark();
+            }
+            EndMenu();
+        }
+        EndMenuBar();
     }
+
+    TextColored(0.08f32, 0.18f32, 0.28f32, 1.0f32, "This demo uses the NG wrapper around Dear ImGui + SDL3/GPU.");
+    TextDisabled(GetVersion());
+    Separator();
+
+    showControls := Checkbox("Show controls", showControls);
+    if (showControls) {
+        slider := SliderFloat("slider", slider, 0.0f32, 1.0f32);
+        counter := SliderInt("counter", counter, 0, 100);
+        name := InputText("name", name, ImGuiInputTextFlags_EnterReturnsTrue());
+        slider := DragFloat("drag slider", slider, 0.01f32, 0.0f32, 1.0f32);
+        counter := DragInt("drag counter", counter, 1.0f32, 0, 100);
+
+        if (Button("Button")) {
+            OpenPopup("button-popup");
+        }
+        if (IsItemHovered()) {
+            SetTooltip("Buttons, popups, and tooltips are native ImGui calls.");
+        }
+
+        SameLine();
+        SmallButton("Small");
+
+        if (BeginPopup("button-popup")) {
+            Text("The button opened this popup.");
+            EndPopup();
+        }
+
+        if (CollapsingHeader("Details")) {
+            PushID("details");
+            SeparatorText("Native wrapper surface");
+            BulletText("ImGuiIO and ImGuiStyle are exposed as native handles.");
+            Bullet();
+            SameLine();
+            BulletText("SDL is still managed inside std.imgui.");
+            AlignTextToFramePadding();
+            GetWindowPosX();
+            GetWindowPosY();
+            GetWindowWidth();
+            GetWindowHeight();
+            GetTextLineHeightWithSpacing();
+            GetFrameHeightWithSpacing();
+            GetScrollX();
+            GetScrollMaxY();
+
+            BeginGroup();
+            Text("Backend");
+            if (BeginCombo("renderer", "SDL3/GPU", ImGuiComboFlags_HeightRegular())) {
+                if (Selectable("SDL3/GPU", selectedBackend == 0, ImGuiSelectableFlags_None(), 0.0f32, 0.0f32)) {
+                    selectedBackend := 0;
+                }
+                if (Selectable("hidden SDL internals", selectedBackend == 1, ImGuiSelectableFlags_None(), 0.0f32, 0.0f32)) {
+                    selectedBackend := 1;
+                }
+                EndCombo();
+            }
+            EndGroup();
+
+            PushStyleColor(ImGuiCol_Button(), 0.2f32, 0.45f32, 0.7f32, 1.0f32);
+            PushStyleVarFloat(ImGuiStyleVar_FrameRounding(), 8.0f32);
+            ButtonSized("Styled button", 160.0f32, 0.0f32);
+            PopStyleVar(1);
+            PopStyleColor(1);
+
+            BeginDisabled(counter < 10);
+            TextDisabled("Disabled section becomes active once counter >= 10.");
+            EndDisabled();
+
+            if (BeginTable("stats", 2, ImGuiTableFlags_Borders() + ImGuiTableFlags_RowBg(), 0.0f32, 0.0f32, 0.0f32)) {
+                TableSetupColumn("metric", ImGuiTableColumnFlags_WidthStretch(), 0.0f32);
+                TableSetupColumn("value", ImGuiTableColumnFlags_WidthFixed(), 120.0f32);
+                TableHeadersRow();
+                TableNextRow(ImGuiTableFlags_None(), 0.0f32);
+                TableSetColumnIndex(0);
+                Text("content width");
+                TableSetColumnIndex(1);
+                GetContentRegionAvailX();
+                TableNextRow(ImGuiTableFlags_None(), 0.0f32);
+                TableNextColumn();
+                Text("row");
+                TableNextColumn();
+                TableGetRowIndex();
+                EndTable();
+            }
+
+            ProgressBar(slider, 240.0f32, 0.0f32, "progress");
+            IsItemActive();
+            IsItemEdited();
+            IsAnyItemHovered();
+            IsWindowAppearing();
+            IsWindowCollapsed();
+            PopID();
+        }
+    }
+
+    TextWrapped("Frame timing and capture flags are available through ImGuiIO_* accessors.");
+    ImGuiIO_GetFramerate(GetIO());
+    ImGuiIO_GetWantCaptureMouse(GetIO());
+    ImGuiIO_GetWantCaptureKeyboard(GetIO());
+
+    End();
     Render();
 
     if (not(Aborted())) {

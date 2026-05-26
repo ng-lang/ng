@@ -43,6 +43,12 @@ fun toUpper(s: string) -> string = native;
 
 fun toLower(s: string) -> string = native;
 
+fun currentExecutablePath() -> string = native;
+
+fun runNgi(path: string) -> string = native;
+
+fun regexMatch(value: string, pattern: string) -> bool = native;
+
 // C3: Collection operations
 fun reverse<T>(xs: T array) -> T array = native;
 

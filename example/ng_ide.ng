@@ -1,0 +1,164 @@
+import std.prelude (*);
+import std.imgui (*);
+
+val path0: string = "ng_ide_scratch0.ng";
+val path1: string = "ng_ide_scratch1.ng";
+val path2: string = "ng_ide_scratch2.ng";
+
+val text0: string = "fun main() -> i32 {
+    return 42;
+}
+";
+val text1: string = "type Person {
+    property name: string;
+}
+";
+val text2: string = "val tuple = (1, 2, true);
+";
+
+val output: string = "NG IDE demo ready.
+Edit a tab, save it, then run the active script through ngi.";
+val showPreview: bool = true;
+
+fun runNg(path: string, source: string) -> string {
+    writeFile(path, source);
+    if (regexMatch(path, ".*[.]ng$")) {
+        return runNgi(path);
+    }
+    return "Refusing to run non-.ng file: " + path;
+}
+
+init();
+StyleColorsLight();
+ImGuiStyle_SetWindowRounding(GetStyle(), 8.0f32);
+ImGuiStyle_SetFrameRounding(GetStyle(), 4.0f32);
+
+loop {
+    eventLoop();
+    checkMinimized();
+    NewFrame();
+
+    SetNextWindowSize(1180.0f32, 760.0f32, ImGuiCond_FirstUseEver());
+    BeginFlags("NG IDE Demo", ImGuiWindowFlags_MenuBar());
+
+    if (BeginMenuBar()) {
+        if (BeginMenu("Theme")) {
+            if (MenuItem("Light", false)) {
+                StyleColorsLight();
+            }
+            if (MenuItem("Dark", false)) {
+                StyleColorsDark();
+            }
+            EndMenu();
+        }
+        EndMenuBar();
+    }
+
+    TextColored(0.05f32, 0.20f32, 0.30f32, 1.0f32, "NG IDE demo: tabs, editing, syntax preview, and ngi execution.");
+    showPreview := Checkbox("Show syntax-highlighted preview", showPreview);
+    Separator();
+
+    if (BeginTabBar("open-files")) {
+        if (BeginTabItem("scratch.ng")) {
+            path0 := InputText("Path##0", path0, ImGuiInputTextFlags_None());
+            if (Button("Load##0")) {
+                text0 := readFile(path0);
+                output := "Loaded " + path0;
+            }
+            SameLine();
+            if (Button("Save##0")) {
+                writeFile(path0, text0);
+                output := "Saved " + path0;
+            }
+            SameLine();
+            if (Button("Run##0")) {
+                output := runNg(path0, text0);
+            }
+
+            BeginChild("editor0", GetContentRegionAvailX(), 330.0f32, true, ImGuiWindowFlags_None());
+            text0 := InputTextMultiline("##source0", text0, GetContentRegionAvailX(), 310.0f32, ImGuiInputTextFlags_None());
+            EndChild();
+
+            if (showPreview) {
+                SeparatorText("Syntax preview");
+                BeginChild("preview0", GetContentRegionAvailX(), 160.0f32, true, ImGuiWindowFlags_None());
+                TextNgHighlighted(text0);
+                EndChild();
+            }
+            EndTabItem();
+        }
+
+        if (BeginTabItem("object.ng")) {
+            path1 := InputText("Path##1", path1, ImGuiInputTextFlags_None());
+            if (Button("Load##1")) {
+                text1 := readFile(path1);
+                output := "Loaded " + path1;
+            }
+            SameLine();
+            if (Button("Save##1")) {
+                writeFile(path1, text1);
+                output := "Saved " + path1;
+            }
+            SameLine();
+            if (Button("Run##1")) {
+                output := runNg(path1, text1);
+            }
+
+            BeginChild("editor1", GetContentRegionAvailX(), 330.0f32, true, ImGuiWindowFlags_None());
+            text1 := InputTextMultiline("##source1", text1, GetContentRegionAvailX(), 310.0f32, ImGuiInputTextFlags_None());
+            EndChild();
+
+            if (showPreview) {
+                SeparatorText("Syntax preview");
+                BeginChild("preview1", GetContentRegionAvailX(), 160.0f32, true, ImGuiWindowFlags_None());
+                TextNgHighlighted(text1);
+                EndChild();
+            }
+            EndTabItem();
+        }
+
+        if (BeginTabItem("tuple.ng")) {
+            path2 := InputText("Path##2", path2, ImGuiInputTextFlags_None());
+            if (Button("Load##2")) {
+                text2 := readFile(path2);
+                output := "Loaded " + path2;
+            }
+            SameLine();
+            if (Button("Save##2")) {
+                writeFile(path2, text2);
+                output := "Saved " + path2;
+            }
+            SameLine();
+            if (Button("Run##2")) {
+                output := runNg(path2, text2);
+            }
+
+            BeginChild("editor2", GetContentRegionAvailX(), 330.0f32, true, ImGuiWindowFlags_None());
+            text2 := InputTextMultiline("##source2", text2, GetContentRegionAvailX(), 310.0f32, ImGuiInputTextFlags_None());
+            EndChild();
+
+            if (showPreview) {
+                SeparatorText("Syntax preview");
+                BeginChild("preview2", GetContentRegionAvailX(), 160.0f32, true, ImGuiWindowFlags_None());
+                TextNgHighlighted(text2);
+                EndChild();
+            }
+            EndTabItem();
+        }
+        EndTabBar();
+    }
+
+    SeparatorText("ngi output");
+    BeginChild("output", GetContentRegionAvailX(), 120.0f32, true, ImGuiWindowFlags_None());
+    TextWrapped(output);
+    EndChild();
+
+    End();
+    Render();
+
+    if (not(Aborted())) {
+        next;
+    }
+}
+
+cleanup();
