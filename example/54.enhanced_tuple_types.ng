@@ -1,0 +1,61 @@
+const if (is_tuple<(i32, string, bool)>) {
+  print("tuple type recognized");
+} else {
+  print("unreachable");
+}
+
+const if (tuple_size<(i32, string, bool)> == 3) {
+  print("tuple size recognized");
+} else {
+  print("unreachable");
+}
+
+const if (sizeof_pack<i32, string, bool> == 3) {
+  print("pack size recognized");
+} else {
+  print("unreachable");
+}
+
+val first: tuple_element<(i32, string, bool), 0> = 7;
+val second: tuple_element<(i32, string, bool), 1> = "tuple";
+val joined: tuple_concat<(i32, string), (bool, i32)> = (1, "joined", true, 9);
+
+fun gather<T...>(args: T...) -> (T...) {
+  return (...args,);
+}
+
+fun pick_middle(left: i32, value: string, ok: bool) -> string {
+  return value;
+}
+
+type Accumulator {
+  base: i32;
+}
+
+trait Combine {
+  fun combine(self: ref<Self>, left: i32, right: i32) -> i32;
+}
+
+impl Combine for Accumulator {
+  fun combine(self: ref<Self>, left: i32, right: i32) -> i32 {
+    return self.base + left + right;
+  }
+}
+
+val packed: (i32, string, bool) = gather(1, "pack", false);
+val spread = pick_middle(...(7, "spread", true));
+val spread_args = (8, "spread-var", false);
+val spread_from_var = pick_middle(...spread_args);
+val accumulator = new Accumulator { base: 1 };
+val combine_args = (2, 3);
+val qualified_spread = Combine::combine(accumulator, ...combine_args);
+val receiver_qualified_spread = accumulator.Combine::combine(...combine_args);
+
+assert(first == 7);
+assert(second == "tuple");
+assert(joined.1 == "joined");
+assert(packed.1 == "pack");
+assert(spread == "spread");
+assert(spread_from_var == "spread-var");
+assert(qualified_spread == 6);
+assert(receiver_qualified_spread == 6);

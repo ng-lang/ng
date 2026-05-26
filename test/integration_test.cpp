@@ -205,6 +205,11 @@ TEST_CASE("should run const type predicate example with STUPID", "[Integration][
   runTypecheckedIntegrationTest("example/42.const_type_predicate.ng");
 }
 
+TEST_CASE("should run auto derive trait example with STUPID", "[Integration][AutoDerive]")
+{
+  runTypecheckedIntegrationTest("example/55.auto_derive_traits.ng");
+}
+
 TEST_CASE("STUPID should import source module through canonical module id",
           "[Integration][ModuleArtifact]")
 {
@@ -260,6 +265,11 @@ TEST_CASE("should run const generic instances example with STUPID", "[Integratio
 TEST_CASE("should run const fun example with STUPID", "[Integration][ConstFun]")
 {
   runTypecheckedIntegrationTest("example/53.const_fun.ng");
+}
+
+TEST_CASE("should run enhanced tuple type example with STUPID", "[Integration][Tuple][EnhancedTuple]")
+{
+  runTypecheckedIntegrationTest("example/54.enhanced_tuple_types.ng");
 }
 
 TEST_CASE("should run higher-kinded generic example with STUPID", "[Integration][HKT]")

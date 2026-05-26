@@ -1032,3 +1032,165 @@ TEST_CASE("duplicate source module artifacts should report canonical module ids"
 
   destroyast(ast);
 }
+
+TEST_CASE("derived Copy should satisfy Copy bounds only when explicitly derived",
+          "[TypeCheck][Traits][Derive]")
+{
+  auto ast = parse(R"(
+    type Point: derive(Copy) {
+      x: i32;
+      y: i32;
+    }
+
+    fun accept_copy<T: Copy>() -> unit {
+    }
+
+    accept_copy<Point>();
+  )");
+  REQUIRE(ast != nullptr);
+
+  REQUIRE_NOTHROW(type_check(ast));
+
+  destroyast(ast);
+}
+
+TEST_CASE("structural types should not satisfy Copy bounds without derive or impl",
+          "[TypeCheck][Traits][Derive][Failure]")
+{
+  typecheck_failure(R"(
+    type Point {
+      x: i32;
+      y: i32;
+    }
+
+    fun accept_copy<T: Copy>() -> unit {
+    }
+
+    accept_copy<Point>();
+  )", "does not implement trait 'Copy'");
+}
+
+TEST_CASE("derived Clone should satisfy Clone bounds", "[TypeCheck][Traits][Derive]")
+{
+  auto ast = parse(R"(
+    type Point: derive(Clone) {
+      x: i32;
+      y: i32;
+    }
+
+    fun accept_clone<T: Clone>() -> unit {
+    }
+
+    accept_clone<Point>();
+  )");
+  REQUIRE(ast != nullptr);
+
+  REQUIRE_NOTHROW(type_check(ast));
+
+  destroyast(ast);
+}
+
+TEST_CASE("derived Clone should expose a callable clone method", "[TypeCheck][Traits][Derive]")
+{
+  auto ast = parse(R"(
+    type Point: derive(Clone) {
+      x: i32;
+      y: i32;
+    }
+
+    val point = new Point { x: 1, y: 2 };
+    val cloned = point.clone();
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast);
+  REQUIRE(index.contains("cloned"));
+  auto clonedType = std::dynamic_pointer_cast<CustomizedType>(index["cloned"]);
+  REQUIRE(clonedType != nullptr);
+  REQUIRE(clonedType->name == "Point");
+
+  destroyast(ast);
+}
+
+TEST_CASE("derive should reject non-derivable fields", "[TypeCheck][Traits][Derive][Failure]")
+{
+  typecheck_failure(R"(
+    type Bag: derive(Copy) {
+      values: vector<i32>;
+    }
+  )", "field 'values' does not satisfy Copy");
+}
+
+TEST_CASE("derive should conflict with explicit impls", "[TypeCheck][Traits][Derive][Failure]")
+{
+  typecheck_failure(R"(
+    type Point: derive(Copy) {
+      x: i32;
+    }
+
+    impl Copy for Point {
+    }
+  )", "Explicit impl conflicts with derived impl");
+}
+
+TEST_CASE("derived Clone should conflict with explicit Clone impls",
+          "[TypeCheck][Traits][Derive][Failure]")
+{
+  typecheck_failure(R"(
+    type Point: derive(Clone) {
+      x: i32;
+    }
+
+    impl Clone for Point {
+      fun clone(self: ref<Self>) -> Self {
+        return *self;
+      }
+    }
+  )", "Explicit impl conflicts with derived impl");
+}
+
+TEST_CASE("Drop impl should conflict with derived Copy", "[TypeCheck][Traits][Derive][Failure]")
+{
+  typecheck_failure(R"(
+    type Resource: derive(Copy) {
+      handle: i32;
+    }
+
+    impl Drop for Resource {
+      fun drop(self: ref<Self>) -> unit {
+      }
+    }
+  )", "Drop impl conflicts with derived Copy");
+}
+
+TEST_CASE("auto traits should structurally satisfy generic bounds", "[TypeCheck][Traits][Auto]")
+{
+  auto ast = parse(R"(
+    auto trait Send;
+
+    type Point {
+      x: i32;
+      y: i32;
+    }
+
+    fun accept_send<T: Send>(value: ref<T>) -> unit {
+    }
+
+    val point = new Point { x: 1, y: 2 };
+    accept_send(point);
+  )");
+  REQUIRE(ast != nullptr);
+
+  REQUIRE_NOTHROW(type_check(ast));
+
+  destroyast(ast);
+}
+
+TEST_CASE("auto traits should reject methods", "[TypeCheck][Traits][Auto][Failure]")
+{
+  typecheck_failure(R"(
+    auto trait Send {
+      fun send(self: ref<Self>) -> unit;
+    }
+  )", "auto trait cannot declare methods");
+}

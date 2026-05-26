@@ -186,6 +186,23 @@ namespace NG::parsing
           current_mod->definitions.push_back(std::move(trait));
           break;
         }
+        case TokenType::KEYWORD_AUTO:
+        {
+          if (peekTokenType(1) != TokenType::KEYWORD_TRAIT)
+          {
+            unexpected("Expected trait after auto");
+          }
+          auto trait = autoTraitDef();
+          if (exported)
+          {
+            for (auto &&name : trait->names())
+            {
+              mod->exports.push_back(name);
+            }
+          }
+          current_mod->definitions.push_back(std::move(trait));
+          break;
+        }
         case TokenType::KEYWORD_IMPL:
         {
           auto impl = implDef();
@@ -257,7 +274,11 @@ namespace NG::parsing
       return type == TokenType::LEFT_PAREN || type == TokenType::RIGHT_PAREN || type == TokenType::LEFT_CURLY ||
              type == TokenType::RIGHT_CURLY || type == TokenType::RIGHT_SQUARE || type == TokenType::SEMICOLON ||
              type == TokenType::COMMA || type == TokenType::COLON || type == TokenType::BIND ||
-             type == TokenType::AND || type == TokenType::OR;
+             type == TokenType::AND || type == TokenType::OR || type == TokenType::EQUAL ||
+             type == TokenType::NOT_EQUAL || type == TokenType::LT || type == TokenType::LE ||
+             type == TokenType::GT || type == TokenType::GE || type == TokenType::PLUS ||
+             type == TokenType::MINUS || type == TokenType::TIMES || type == TokenType::DIVIDE ||
+             type == TokenType::MODULUS;
     }
 
     auto genericExpressionArgsAhead() -> bool
@@ -529,6 +550,17 @@ namespace NG::parsing
         else
         {
           arg = std::shared_ptr<TypeAnnotation>(std::move(typeAnnotation()));
+          if (expect(TokenType::SPREAD))
+          {
+            accept(TokenType::SPREAD);
+            if (!arg->genericArgs.empty())
+            {
+              unexpected("Type argument spread only supports a pack name");
+            }
+            auto spreadArg = createNode<TypeAnnotation>(arg->name + "...");
+            spreadArg->type = TypeAnnotationType::CUSTOMIZED;
+            arg = std::move(spreadArg);
+          }
         }
         // Convert ASTRef to shared_ptr for genericArgs field
         args.push_back(std::move(arg));
@@ -671,8 +703,10 @@ namespace NG::parsing
     {
       accept(TokenType::KEYWORD_CONST);
       Vec<ASTRef<GenericParam>> constGenericParams;
+      bool constGenericParamsDeclared = false;
       if (expect(TokenType::LT))
       {
+        constGenericParamsDeclared = true;
         constGenericParams = std::move(genericParams());
       }
       if (!expect(TokenType::ID))
@@ -684,7 +718,7 @@ namespace NG::parsing
       ASTRef<TypeAnnotation> specializationPattern = nullptr;
       if (expect(TokenType::LT))
       {
-        if (constGenericParams.empty())
+        if (!constGenericParamsDeclared)
         {
           constGenericParams = std::move(genericParams());
         }
@@ -953,13 +987,38 @@ namespace NG::parsing
       whereBoundsOut = whereBounds();
     }
 
+    auto deriveTraitList() -> Vec<ASTRef<TypeAnnotation>>
+    {
+      Vec<ASTRef<TypeAnnotation>> traits;
+      accept(TokenType::COLON);
+      if (!expect(TokenType::ID) || state->repr != "derive")
+      {
+        unexpected("Expected derive(...) after ':' in type declaration");
+      }
+      accept(TokenType::ID);
+      accept(TokenType::LEFT_PAREN);
+      while (!expect(TokenType::RIGHT_PAREN) && !state.eof())
+      {
+        traits.push_back(typeAnnotation());
+        if (!expect(TokenType::PLUS))
+        {
+          break;
+        }
+        accept(TokenType::PLUS);
+      }
+      accept(TokenType::RIGHT_PAREN);
+      return traits;
+    }
+
     auto typeDef() -> ASTRef<Definition>
     {
       accept(TokenType::KEYWORD_TYPE);
 
       Vec<ASTRef<GenericParam>> typeGenericParams;
+      bool typeGenericParamsDeclared = false;
       if (expect(TokenType::LT))
       {
+        typeGenericParamsDeclared = true;
         typeGenericParams = std::move(genericParams());
       }
 
@@ -980,7 +1039,7 @@ namespace NG::parsing
       // For `type<T> Name<Pattern> = ...`, the annotation is a specialization pattern.
       if (expect(TokenType::LT))
       {
-        if (typeGenericParams.empty())
+        if (!typeGenericParamsDeclared)
         {
           typeGenericParams = std::move(genericParams());
         }
@@ -993,7 +1052,18 @@ namespace NG::parsing
       }
 
       Vec<ASTRef<TraitBound>> aliasWhereBounds;
-      parseTypeAliasConstraintSection(aliasWhereBounds);
+      Vec<ASTRef<TypeAnnotation>> derivedTraits;
+      if (expect(TokenType::COLON))
+      {
+        if (peekTokenType(1) == TokenType::ID && state.tokens[state.index + 1].repr == "derive")
+        {
+          derivedTraits = deriveTraitList();
+        }
+        else
+        {
+          parseTypeAliasConstraintSection(aliasWhereBounds);
+        }
+      }
 
       // Check for type alias or tagged union syntax: type A = B; or type A = V1(T) | V2(T);
       if (expect(TokenType::BIND))
@@ -1065,6 +1135,10 @@ namespace NG::parsing
 
         // Otherwise it's a type alias
         auto aliasDef = createNode<TypeAliasDef>(nameStr);
+        if (!derivedTraits.empty())
+        {
+          unexpected("derive(...) is only supported on structural type definitions");
+        }
         aliasDef->genericParams = std::move(typeGenericParams);
         aliasDef->specializationPattern = std::move(specializationPattern);
         aliasDef->whereBounds = std::move(aliasWhereBounds);
@@ -1089,6 +1163,10 @@ namespace NG::parsing
       if (expect(TokenType::SEMICOLON))
       {
         auto aliasDef = createNode<TypeAliasDef>(nameStr);
+        if (!derivedTraits.empty())
+        {
+          unexpected("derive(...) is only supported on structural type definitions");
+        }
         aliasDef->genericParams = std::move(typeGenericParams);
         aliasDef->specializationPattern = std::move(specializationPattern);
         aliasDef->whereBounds = std::move(aliasWhereBounds);
@@ -1100,6 +1178,10 @@ namespace NG::parsing
       // Check for newtype syntax: type A wraps B;
       if (expect(TokenType::KEYWORD_WRAPS))
       {
+        if (!derivedTraits.empty())
+        {
+          unexpected("derive(...) is only supported on structural type definitions");
+        }
         accept(TokenType::KEYWORD_WRAPS);
         auto ntDef = createNode<NewTypeDef>(nameStr);
         ntDef->genericParams = std::move(typeGenericParams);
@@ -1112,6 +1194,7 @@ namespace NG::parsing
       auto typeDef = createNode<TypeDef>();
       typeDef->typeName = nameStr;
       typeDef->genericParams = std::move(typeGenericParams);
+      typeDef->derivedTraits = std::move(derivedTraits);
 
       accept(TokenType::LEFT_CURLY);
 
@@ -1145,6 +1228,49 @@ namespace NG::parsing
       }
       accept(TokenType::RIGHT_CURLY);
       return typeDef;
+    }
+
+    auto autoTraitDef() -> ASTRef<TraitDef>
+    {
+      accept(TokenType::KEYWORD_AUTO);
+      auto trait = createNode<TraitDef>();
+      trait->autoTrait = true;
+      accept(TokenType::KEYWORD_TRAIT);
+      trait->traitName = idExpression()->repr();
+      if (expect(TokenType::LT))
+      {
+        trait->genericParams = genericParams();
+      }
+      if (expect(TokenType::COLON))
+      {
+        accept(TokenType::COLON);
+        while (!state.eof())
+        {
+          trait->superTraits.push_back(typeAnnotation());
+          if (!expect(TokenType::PLUS))
+          {
+            break;
+          }
+          accept(TokenType::PLUS);
+        }
+      }
+      if (expect(TokenType::SEMICOLON))
+      {
+        accept(TokenType::SEMICOLON);
+        return trait;
+      }
+      accept(TokenType::LEFT_CURLY);
+      while (!expect(TokenType::RIGHT_CURLY))
+      {
+        if (!expect(TokenType::KEYWORD_FUN))
+        {
+          unexpected("Expected auto trait method declaration");
+        }
+        auto method = funDef(true);
+        trait->methods.push_back(std::move(method));
+      }
+      accept(TokenType::RIGHT_CURLY);
+      return trait;
     }
 
     auto moduleDecl(ASTRef<Module> mod) -> ASTRef<Module>
@@ -1400,6 +1526,17 @@ namespace NG::parsing
         while (!expect(TokenType::RIGHT_PAREN))
         {
           auto elementType = typeAnnotation();
+          if (expect(TokenType::SPREAD))
+          {
+            accept(TokenType::SPREAD);
+            if (!elementType->genericArgs.empty())
+            {
+              unexpected("Tuple type spread only supports a pack name");
+            }
+            auto spreadElement = createNode<TypeAnnotation>(elementType->name + "...");
+            spreadElement->type = TypeAnnotationType::CUSTOMIZED;
+            elementType = std::move(spreadElement);
+          }
           tuple->arguments.push_back(elementType);
 
           if (!expect(TokenType::COMMA))

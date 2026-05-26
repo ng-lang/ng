@@ -56,13 +56,10 @@ Already implemented:
 - Variadic HKT placeholders: `F<_, ...>`.
 - Type alias specialization and const predicate specialization.
 
-Not yet complete:
+Still open:
 
-- Tuple type arity as a compile-time constant.
-- Tuple type element projection.
-- Tuple type slicing and concatenation.
-- General spread call application for all callable forms.
-- Tuple shape constraints in `where` clauses.
+- Tuple type slicing with range syntax.
+- Recursive `tuple_element` implementation in `std.tuple` after const expressions in type arguments are available.
 - First-class function type construction from tuple types.
 
 ## Design Rules
@@ -84,22 +81,38 @@ The canonical type identity is ordered and arity-sensitive:
 
 `unit` remains its own primitive type. Zero-length tuple syntax is not part of NG today; if it is ever introduced, `()` must be explicitly distinct from `unit`.
 
-### Built-In Compile-Time Predicates And Projections
+### `std.tuple` Compile-Time Predicates And Projections
 
-Add built-in compile-time constants and type aliases, using the same specialization machinery as enhanced generics:
+Expose tuple type-level APIs from `std.tuple`, and import that module from `std.prelude`.
+The compiler should provide only the minimum support needed by the standard-library
+declarations: empty pack specialization, pack type arguments, tuple type patterns,
+and tuple element projection.
 
 ```ng
-const<T> is_tuple<T>: bool = false;
+const<> sizeof_pack<>: u32 = 0;
+const<T, U...> sizeof_pack<T, U...>: u32 = 1 + sizeof_pack<U...>;
+
+const is_tuple<T>: bool = false;
 const<T...> is_tuple<(T...)>: bool = true;
 
+const tuple_size<T>: u32 = delete;
 const<T...> tuple_size<(T...)>: u32 = sizeof_pack<T...>;
 
-type<T, const I: u32> tuple_element<T, I> = delete;
-type<T0, T...> tuple_element<(T0, T...), 0> = T0;
-type<T0, T...> tuple_element<(T0, T...), I> where I > 0 = tuple_element<(T...), I - 1>;
+type<T, const I: u32> tuple_element<T, I>;
 ```
 
-The syntax above is directional. It depends on const generic arithmetic and `const fun` for the recursive `I - 1` form. Before const arithmetic lands, the compiler may provide `tuple_element` as an intrinsic.
+`sizeof_pack`, `is_tuple`, and `tuple_size` are ordinary const specializations.
+`tuple_element<T, I>` is currently a standard-library type API resolved by the
+type checker because NG does not yet support const expressions such as `I - 1`
+inside type argument lists. Once that lands, it can be lowered to recursive
+standard-library specializations:
+
+```ng
+type<T, const I: u32> tuple_element<T, I> = delete;
+type<T0, T...> tuple_element<(T0, T...), 0> = T0;
+type<T0, T..., const I: u32> tuple_element<(T0, T...), I>
+  : where I > 0 = tuple_element<(T...), I - 1>;
+```
 
 ### Pack And Tuple Normalization
 
@@ -176,33 +189,34 @@ Value-level tuple spread already behaves like tuple concatenation. The type chec
 
 ## Phased Implementation Plan
 
-### Phase 1: Type Predicates And Intrinsics
+### Phase 1: Type Predicates And Projections
 
-- Add `is_tuple<T>`.
-- Add intrinsic `tuple_size<T>` for tuple types.
-- Add intrinsic `tuple_element<T, I>`.
-- Reject non-tuple input with clear diagnostics.
-- Add parser/typechecker tests for nested tuples and invalid indexes.
+- Implemented: `std.tuple` with `sizeof_pack`, `is_tuple`, `tuple_size`, and `tuple_element`.
+- Implemented: parser support for empty generic argument lists and `T...` in type arguments/tuple patterns.
+- Implemented: typechecker support for tuple pattern matching and pack-tail const specialization.
+- Implemented: `std.prelude` imports `std.tuple`, so entrypoint type checking sees tuple APIs by default.
+- Remaining: move `tuple_element` from compiler-resolved projection to recursive stdlib specializations after const expressions in type arguments are supported.
 
 ### Phase 2: Pack-To-Tuple Type Syntax
 
-- Support `(T...)` in type annotations where `T...` is a generic pack.
-- Type check `fun f<T...>(args: T...) -> (T...)`.
-- Ensure mangling encodes tuple-expanded pack types deterministically.
-- Add STUPID and ORGASM examples.
+- Implemented: `(T...)` in type annotations where `T...` is a generic pack.
+- Implemented: `fun f<T...>(args: T...) -> (T...)`.
+- Implemented: deterministic mangling for tuple-expanded pack types.
+- Implemented: STUPID and ORGASM examples.
 
 ### Phase 3: General Spread Call Application
 
-- Expand spread arguments in the type checker for fixed-arity calls.
-- Lower expanded tuple slots in ORGASM.
-- Cover default parameters, generic functions, methods, trait-qualified calls, and native calls.
-- Reject ambiguous array spread into fixed-arity calls.
+- Implemented: spread arguments expand in the type checker for fixed-arity calls.
+- Implemented: ORGASM lowering for statically tuple-typed spread call arguments, including tuple literals, tuple-valued locals/globals, and tuple-return expressions whose type can be inferred before bytecode emission.
+- Implemented: generic functions, methods, trait-qualified calls, imported calls, native calls, and `print` use the same spread-argument path.
+- Remaining: general sequence spread into calls from non-tuple runtime values stays rejected in ORGASM lowering.
 
 ### Phase 4: Tuple Type Concatenation And Rest Types
 
-- Add `tuple_concat`.
-- Expose rest binding result type through tuple slice logic.
-- Ensure `val (head, ...tail)` and `(head, ...tail)` share the same type computation path.
+- Implemented: `tuple_concat`.
+- Implemented: pack-to-tuple result expansion through tuple-return annotations.
+- Implemented: `val (head, ...tail)` and `(head, ...tail)` share the same type computation path.
+- Remaining: richer tuple-rest slicing beyond unpack/rest binding.
 
 ### Phase 5: Tuple Slicing With Range Design
 
@@ -218,7 +232,7 @@ Value-level tuple spread already behaves like tuple concatenation. The type chec
 - `tuple_element<(i32, string), 1>` resolves to `string`.
 - `fun collect<T...>(args: T...) -> (T...)` type checks and runs.
 - `consume(...(1, "x", true))` type checks and runs for a fixed-arity function.
-- Spread calls work for generic functions, methods, and trait-qualified calls.
+- Spread calls work for generic functions, methods, trait-qualified calls, imported calls, native calls, and `print`.
 - Invalid tuple element indexes fail during type checking.
 - Tuple type mangling is stable and collision-free with existing generic mangling.
 

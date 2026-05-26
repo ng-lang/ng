@@ -235,6 +235,10 @@ namespace NG::orgasm
                     {
                         globalValueTypes[valStmt->name] = valStmt->typeAnnotation->repr();
                     }
+                    else if (auto inferred = infer_expression_type_name(valStmt->value); !inferred.empty())
+                    {
+                        globalValueTypes[valStmt->name] = std::move(inferred);
+                    }
                     if (auto traitName = trait_ref_name(valStmt->typeAnnotation.get()); !traitName.empty())
                     {
                         globalTraitObjectTypes[valStmt->name] = traitName;
@@ -254,6 +258,10 @@ namespace NG::orgasm
                 Type type;
                 type.name = typeDef->typeName;
                 for (auto &&prop : typeDef->properties) type.properties.push_back(prop->propertyName);
+                for (auto &&trait : typeDef->derivedTraits)
+                {
+                    if (trait) type.derivedTraits.push_back(trait->repr());
+                }
                 module.types.push_back(std::move(type));
 
                 for (auto &&memFn : typeDef->memberFunctions)
@@ -1065,15 +1073,77 @@ namespace NG::orgasm
         }
     }
 
+    auto Compiler::emit_call_arguments(const Vec<ASTRef<Expression>> &arguments) -> uint16_t
+    {
+        uint16_t emitted = 0;
+        for (auto &&arg : arguments)
+        {
+            if (auto spread = dynamic_ast_cast<SpreadExpression>(arg))
+            {
+                auto spreadTypeName = infer_expression_type_name(spread->expression);
+                if (spreadTypeName.size() < 2 || spreadTypeName.front() != '(' || spreadTypeName.back() != ')')
+                {
+                    throw NotImplementedException("ORGASM spread call arguments require tuple-valued expressions");
+                }
+                auto tupleArityFromTypeName = [](const Str &typeName) -> size_t {
+                    Str inner = typeName.substr(1, typeName.size() - 2);
+                    if (inner.empty())
+                    {
+                        return 0;
+                    }
+                    size_t arity = 1;
+                    int depth = 0;
+                    for (char ch : inner)
+                    {
+                        if (ch == '<' || ch == '(' || ch == '[')
+                        {
+                            ++depth;
+                        }
+                        else if (ch == '>' || ch == ')' || ch == ']')
+                        {
+                            --depth;
+                        }
+                        else if (ch == ',' && depth == 0)
+                        {
+                            ++arity;
+                        }
+                    }
+                    return arity;
+                };
+                auto arity = tupleArityFromTypeName(spreadTypeName);
+                int32_t tempIndex = static_cast<int32_t>(locals.size());
+                auto tempName = "$$spread_tmp" + std::to_string(tempIndex);
+                locals[tempName] = tempIndex;
+                spread->expression->accept(this);
+                emit(OpCode::STORE_LOCAL);
+                emit_u16(static_cast<uint16_t>(tempIndex));
+                emit(OpCode::POP);
+                for (size_t i = 0; i < arity; ++i)
+                {
+                    emit(OpCode::LOAD_LOCAL);
+                    emit_u16(static_cast<uint16_t>(tempIndex));
+                    emit(OpCode::PUSH_I32);
+                    emit_i32(static_cast<int32_t>(i));
+                    emit(OpCode::GET_TUPLE_ITEM);
+                    ++emitted;
+                }
+                continue;
+            }
+            arg->accept(this);
+            ++emitted;
+        }
+        return emitted;
+    }
+
     void Compiler::visit(ast::FunCallExpression *funCallExpr)
     {
         if (auto idExpr = dynamic_ast_cast<IdExpression>(funCallExpr->primaryExpression))
         {
             if (idExpr->id == "print")
             {
-                for (auto &&arg : funCallExpr->arguments) arg->accept(this);
+                auto emittedArgs = emit_call_arguments(funCallExpr->arguments);
                 emit(OpCode::PRINT);
-                emit_u16(static_cast<uint16_t>(funCallExpr->arguments.size()));
+                emit_u16(emittedArgs);
                 return;
             }
             if (idExpr->id == "assert")
@@ -1163,6 +1233,21 @@ namespace NG::orgasm
                 }
 
                 if (def) {
+                    const bool hasSpreadArg = std::ranges::any_of(funCallExpr->arguments, [](const auto &arg) {
+                        return dynamic_ast_cast<SpreadExpression>(arg) != nullptr;
+                    });
+                    if (hasSpreadArg)
+                    {
+                        auto emittedArgs = emit_call_arguments(funCallExpr->arguments);
+                        if (emittedArgs != def->params.size())
+                        {
+                            throw NotImplementedException("Spread call argument count does not match function arity");
+                        }
+                        emit(OpCode::CALL);
+                        emit_u16(static_cast<uint16_t>(funIndex));
+                        emit_u16(emittedArgs);
+                        return;
+                    }
                     size_t provided = funCallExpr->arguments.size();
                     size_t expected = def->params.size();
                     Map<Str, Str> typeBindings;
@@ -1220,25 +1305,25 @@ namespace NG::orgasm
             
             if (imported_symbols.contains(idExpr->id)) {
                 auto &imp = imported_symbols[idExpr->id];
-                for (auto &&arg : funCallExpr->arguments) arg->accept(this);
+                auto emittedArgs = emit_call_arguments(funCallExpr->arguments);
                 emit(OpCode::CALL_IMPORT);
                 emit_u16(static_cast<uint16_t>(imp.importIndex));
-                emit_u16(static_cast<uint16_t>(funCallExpr->arguments.size()));
+                emit_u16(emittedArgs);
                 return;
             }
 
             if (nativeFnNames.contains(idExpr->id)) {
-                for (auto &&arg : funCallExpr->arguments) arg->accept(this);
+                auto emittedArgs = emit_call_arguments(funCallExpr->arguments);
                 uint16_t nameIdx = static_cast<uint16_t>(module.strings.size());
                 module.strings.push_back(idExpr->id);
                 emit(OpCode::NATIVE_CALL);
                 emit_u16(nameIdx);
-                emit_u16(static_cast<uint16_t>(funCallExpr->arguments.size()));
+                emit_u16(emittedArgs);
                 return;
             }
 
             if (locals.contains("self")) {
-                for (auto &&arg : funCallExpr->arguments) arg->accept(this);
+                auto emittedArgs = emit_call_arguments(funCallExpr->arguments);
                 emit(OpCode::LOAD_LOCAL);
                 emit_u16(static_cast<uint16_t>(locals["self"]));
                 uint16_t nameIdx = static_cast<uint16_t>(module.strings.size());
@@ -1251,7 +1336,7 @@ namespace NG::orgasm
                 module.strings.push_back(memberName);
                 emit(OpCode::INVOKE_MEMBER);
                 emit_u16(nameIdx);
-                emit_u16(static_cast<uint16_t>(funCallExpr->arguments.size()));
+                emit_u16(emittedArgs);
                 return;
             }
 
@@ -1259,7 +1344,7 @@ namespace NG::orgasm
         }
         else if (auto idAcc = dynamic_ast_cast<IdAccessorExpression>(funCallExpr->primaryExpression))
         {
-            for (auto &&arg : funCallExpr->arguments) arg->accept(this);
+            auto emittedArgs = emit_call_arguments(funCallExpr->arguments);
             idAcc->primaryExpression->accept(this);
             uint16_t nameIndex = static_cast<uint16_t>(module.strings.size());
             auto memberName = idAcc->accessor->repr();
@@ -1271,7 +1356,7 @@ namespace NG::orgasm
             module.strings.push_back(memberName);
             emit(OpCode::INVOKE_MEMBER);
             emit_u16(nameIndex);
-            emit_u16(static_cast<uint16_t>(funCallExpr->arguments.size()));
+            emit_u16(emittedArgs);
         }
         else if (auto qualifiedCall = dynamic_ast_cast<QualifiedTraitCallExpression>(funCallExpr->primaryExpression))
         {
@@ -1283,24 +1368,21 @@ namespace NG::orgasm
     void Compiler::visit(ast::IdAccessorExpression *idAccExpr)
     {
         idAccExpr->primaryExpression->accept(this);
-        for (auto &&arg : idAccExpr->arguments)
-        {
-            arg->accept(this);
-        }
+        auto emittedArgs = emit_call_arguments(idAccExpr->arguments);
         uint16_t nameIndex = static_cast<uint16_t>(module.strings.size());
         module.strings.push_back(idAccExpr->accessor->repr());
         emit(OpCode::INVOKE_MEMBER);
         emit_u16(nameIndex);
-        emit_u16(static_cast<uint16_t>(idAccExpr->arguments.size()));
+        emit_u16(emittedArgs);
     }
 
     void Compiler::visit(ast::QualifiedTraitCallExpression *qualifiedCall)
     {
-        size_t firstRegularArg = 0;
+        uint16_t emittedArgs = 0;
         if (qualifiedCall->receiver)
         {
-            for (auto &&arg : qualifiedCall->arguments) arg->accept(this);
             qualifiedCall->receiver->accept(this);
+            emittedArgs = emit_call_arguments(qualifiedCall->arguments);
         }
         else
         {
@@ -1308,18 +1390,17 @@ namespace NG::orgasm
             {
                 throw NotImplementedException("Trait-qualified call requires a receiver argument");
             }
-            for (size_t i = 1; i < qualifiedCall->arguments.size(); ++i)
-            {
-                qualifiedCall->arguments[i]->accept(this);
-            }
             qualifiedCall->arguments.front()->accept(this);
-            firstRegularArg = 1;
+            Vec<ASTRef<Expression>> regularArgs;
+            regularArgs.reserve(qualifiedCall->arguments.size() - 1);
+            regularArgs.insert(regularArgs.end(), qualifiedCall->arguments.begin() + 1, qualifiedCall->arguments.end());
+            emittedArgs = emit_call_arguments(regularArgs);
         }
         uint16_t nameIndex = static_cast<uint16_t>(module.strings.size());
         module.strings.push_back(qualifiedCall->traitName + "::" + qualifiedCall->methodName);
         emit(OpCode::INVOKE_MEMBER);
         emit_u16(nameIndex);
-        emit_u16(static_cast<uint16_t>(qualifiedCall->arguments.size() - firstRegularArg));
+        emit_u16(emittedArgs);
     }
 
     void Compiler::visit(ast::IndexAccessorExpression *idxAccExpr)
@@ -1445,6 +1526,10 @@ namespace NG::orgasm
                     if (valDefStmt->typeAnnotation)
                     {
                         localValueTypes[valDefStmt->name] = valDefStmt->typeAnnotation->repr();
+                    }
+                    else if (auto inferred = infer_expression_type_name(valDefStmt->value); !inferred.empty())
+                    {
+                        localValueTypes[valDefStmt->name] = std::move(inferred);
                     }
                     if (auto traitName = trait_ref_name(valDefStmt->typeAnnotation.get()); !traitName.empty())
                     {
@@ -1826,6 +1911,58 @@ namespace NG::orgasm
 
     auto Compiler::infer_expression_type_name(ast::ASTRef<ast::Expression> expr) const -> Str
     {
+        if (dynamic_ast_cast<UnitLiteral>(expr))
+        {
+            return "unit";
+        }
+        if (dynamic_ast_cast<StringValue>(expr))
+        {
+            return "string";
+        }
+        if (dynamic_ast_cast<BooleanValue>(expr))
+        {
+            return "bool";
+        }
+        if (dynamic_ast_cast<IntegralValue<int8_t>>(expr))
+        {
+            return "i8";
+        }
+        if (dynamic_ast_cast<IntegralValue<uint8_t>>(expr))
+        {
+            return "u8";
+        }
+        if (dynamic_ast_cast<IntegralValue<int16_t>>(expr))
+        {
+            return "i16";
+        }
+        if (dynamic_ast_cast<IntegralValue<uint16_t>>(expr))
+        {
+            return "u16";
+        }
+        if (dynamic_ast_cast<IntegralValue<int32_t>>(expr))
+        {
+            return "i32";
+        }
+        if (dynamic_ast_cast<IntegralValue<uint32_t>>(expr))
+        {
+            return "u32";
+        }
+        if (dynamic_ast_cast<IntegralValue<int64_t>>(expr))
+        {
+            return "i64";
+        }
+        if (dynamic_ast_cast<IntegralValue<uint64_t>>(expr))
+        {
+            return "u64";
+        }
+        if (dynamic_ast_cast<FloatingPointValue<float>>(expr))
+        {
+            return "f32";
+        }
+        if (dynamic_ast_cast<FloatingPointValue<double>>(expr))
+        {
+            return "f64";
+        }
         if (auto idExpr = dynamic_ast_cast<IdExpression>(expr))
         {
             if (auto it = localValueTypes.find(idExpr->id); it != localValueTypes.end())
@@ -1836,6 +1973,57 @@ namespace NG::orgasm
             {
                 return it->second;
             }
+        }
+        if (auto tuple = dynamic_ast_cast<TupleLiteral>(expr))
+        {
+            Vec<Str> elementTypes;
+            elementTypes.reserve(tuple->elements.size());
+            for (auto &element : tuple->elements)
+            {
+                if (auto spread = dynamic_ast_cast<SpreadExpression>(element))
+                {
+                    auto spreadType = infer_expression_type_name(spread->expression);
+                    if (spreadType.size() < 2 || spreadType.front() != '(' || spreadType.back() != ')')
+                    {
+                        return {};
+                    }
+                    Str inner = spreadType.substr(1, spreadType.size() - 2);
+                    if (inner.empty())
+                    {
+                        continue;
+                    }
+                    int depth = 0;
+                    Str current;
+                    for (char ch : inner)
+                    {
+                        if (ch == '<' || ch == '(' || ch == '[') ++depth;
+                        if (ch == '>' || ch == ')' || ch == ']') --depth;
+                        if (ch == ',' && depth == 0)
+                        {
+                            elementTypes.push_back(current);
+                            current.clear();
+                            continue;
+                        }
+                        current.push_back(ch);
+                    }
+                    if (!current.empty()) elementTypes.push_back(current);
+                    continue;
+                }
+                auto elementType = infer_expression_type_name(element);
+                if (elementType.empty())
+                {
+                    return {};
+                }
+                elementTypes.push_back(elementType);
+            }
+            Str repr = "(";
+            for (size_t i = 0; i < elementTypes.size(); ++i)
+            {
+                if (i > 0) repr += ", ";
+                repr += elementTypes[i];
+            }
+            repr += ")";
+            return repr;
         }
         if (auto unaryExpr = dynamic_ast_cast<UnaryExpression>(expr);
             unaryExpr && unaryExpr->optr && unaryExpr->optr->type == TokenType::TIMES)

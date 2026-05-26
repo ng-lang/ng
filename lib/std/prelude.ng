@@ -1,5 +1,6 @@
 module std.prelude exports *;
 
+import std.tuple (*);
 
 fun not(value: bool) -> bool {
     return value == false;

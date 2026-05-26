@@ -34,6 +34,7 @@ namespace NG::orgasm
     {
         Str name;
         Vec<Str> properties;
+        Vec<Str> derivedTraits;
         Vec<Variant> variants;  // Non-empty if this is a tagged union type
     };
 

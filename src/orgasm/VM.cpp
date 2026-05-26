@@ -200,6 +200,15 @@ namespace NG::orgasm
             auto ngType = makert<NGType>();
             ngType->name = type.name;
             ngType->properties = type.properties;
+            if (std::ranges::find(type.derivedTraits, Str{"Clone"}) != type.derivedTraits.end())
+            {
+                NGCallable cloneMember = [](const NGSelf &self, const NGEnv &, const NGArgs &) -> RuntimeRef<StorageCell> {
+                    if (!self) return unit_cell();
+                    return clone_runtime_storage_cell(self, StorageClass::TEMPORARY, "clone");
+                };
+                ngType->memberFunctions["Clone::clone"] = cloneMember;
+                ngType->memberFunctions["clone"] = std::move(cloneMember);
+            }
             root_types[type.name] = ngType;
             root_symbols->types[type.name] = ngType;
         }

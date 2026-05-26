@@ -107,6 +107,7 @@ namespace NG::parsing
     {"cast", TokenType::KEYWORD_CAST},
     {"ref", TokenType::KEYWORD_REF},
     {"move", TokenType::KEYWORD_MOVE},
+    {"auto", TokenType::KEYWORD_AUTO},
     {"trait", TokenType::KEYWORD_TRAIT},
     {"impl", TokenType::KEYWORD_IMPL},
     {"for", TokenType::KEYWORD_FOR},

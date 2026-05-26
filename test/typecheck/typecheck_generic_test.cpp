@@ -741,6 +741,26 @@ TEST_CASE("const functions should support recursive STUPID evaluation",
   destroyast(ast);
 }
 
+TEST_CASE("const functions should allow runtime calls with non-const arguments",
+          "[TypeCheck][Generic][ConstFun]")
+{
+  auto ast = parse(R"(
+    const fun add_one(value: i32) -> i32 {
+      return value + 1;
+    }
+
+    val input: i32 = 41;
+    val output: i32 = add_one(input);
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast);
+  REQUIRE(index.contains("output"));
+  check_type_tag(*index["output"], typeinfo_tag::I32);
+
+  destroyast(ast);
+}
+
 TEST_CASE("const functions should reject non-const calls during compile-time execution",
           "[TypeCheck][Generic][ConstFun][Failure]")
 {
@@ -763,6 +783,173 @@ TEST_CASE("const functions should reject native declarations",
   typecheck_failure(R"(
     const fun invalid() -> i32 = native;
   )", "Const function cannot be native or deleted");
+}
+
+TEST_CASE("std tuple const predicates should evaluate through prelude",
+          "[TypeCheck][Generic][EnhancedTuple]")
+{
+  auto preludeTypes = NG::typecheck::build_prelude_type_index();
+  auto ast = parse(R"(
+    const if (is_tuple<(i32, string)>) {
+      val ok: i32 = 1;
+    } else {
+      val impossible: i32 = false;
+    }
+
+    const if (tuple_size<(i32, string, bool)> == 3) {
+      val ok2: i32 = 2;
+    } else {
+      val impossible2: i32 = false;
+    }
+
+    const if (sizeof_pack<i32, string, bool> == 3) {
+      val ok3: i32 = 3;
+    } else {
+      val impossible3: i32 = false;
+    }
+  )");
+  REQUIRE(ast != nullptr);
+
+  REQUIRE_NOTHROW(type_check(ast, preludeTypes));
+
+  destroyast(ast);
+}
+
+TEST_CASE("std tuple module should be directly importable",
+          "[TypeCheck][Generic][EnhancedTuple][Module]")
+{
+  auto ast = parse(R"(
+    import std.tuple (*);
+
+    const if (is_tuple<(i32, string)> && tuple_size<(i32, string)> == 2) {
+      val ok: i32 = 1;
+    } else {
+      val impossible: i32 = false;
+    }
+  )");
+  REQUIRE(ast != nullptr);
+
+  REQUIRE_NOTHROW(type_check(ast, {}, {"lib", "../lib"}));
+
+  destroyast(ast);
+}
+
+TEST_CASE("std tuple_element should project tuple element types through prelude",
+          "[TypeCheck][Generic][EnhancedTuple]")
+{
+  auto preludeTypes = NG::typecheck::build_prelude_type_index();
+  auto ast = parse(R"(
+    val first: tuple_element<(i32, string, bool), 0> = 1;
+    val second: tuple_element<(i32, string, bool), 1> = "value";
+  )");
+  REQUIRE(ast != nullptr);
+  INFO(ast->repr());
+
+  auto index = type_check(ast, preludeTypes);
+  REQUIRE(index.contains("first"));
+  REQUIRE(index.contains("second"));
+  check_type_tag(*index["first"], typeinfo_tag::I32);
+  check_type_tag(*index["second"], typeinfo_tag::STRING);
+
+  destroyast(ast);
+}
+
+TEST_CASE("enhanced tuple pack-to-tuple return should expand parameter packs",
+          "[TypeCheck][Generic][EnhancedTuple]")
+{
+  auto preludeTypes = NG::typecheck::build_prelude_type_index();
+  auto ast = parse(R"(
+    fun gather<T...>(args: T...) -> (T...) {
+      return (...args,);
+    }
+
+    val packed: (i32, string, bool) = gather(1, "value", true);
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast, preludeTypes);
+  REQUIRE(index.contains("packed"));
+  auto tupleType = std::dynamic_pointer_cast<TupleType>(index["packed"]);
+  REQUIRE(tupleType != nullptr);
+  REQUIRE(tupleType->elementTypes.size() == 3);
+  check_type_tag(*tupleType->elementTypes[0], typeinfo_tag::I32);
+  check_type_tag(*tupleType->elementTypes[1], typeinfo_tag::STRING);
+  check_type_tag(*tupleType->elementTypes[2], typeinfo_tag::BOOL);
+
+  destroyast(ast);
+}
+
+TEST_CASE("enhanced tuple_concat should concatenate tuple types",
+          "[TypeCheck][Generic][EnhancedTuple]")
+{
+  auto preludeTypes = NG::typecheck::build_prelude_type_index();
+  auto ast = parse(R"(
+    val joined: tuple_concat<(i32, string), (bool, i32)> = (1, "value", true, 2);
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast, preludeTypes);
+  REQUIRE(index.contains("joined"));
+  auto tupleType = std::dynamic_pointer_cast<TupleType>(index["joined"]);
+  REQUIRE(tupleType != nullptr);
+  REQUIRE(tupleType->elementTypes.size() == 4);
+
+  destroyast(ast);
+}
+
+TEST_CASE("enhanced tuple spread should apply to fixed arity calls",
+          "[TypeCheck][Generic][EnhancedTuple]")
+{
+  auto preludeTypes = NG::typecheck::build_prelude_type_index();
+  auto ast = parse(R"(
+    fun middle(left: i32, value: string, ok: bool) -> string {
+      return value;
+    }
+
+    val result = middle(...(1, "spread", true));
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast, preludeTypes);
+  REQUIRE(index.contains("result"));
+  check_type_tag(*index["result"], typeinfo_tag::STRING);
+
+  destroyast(ast);
+}
+
+TEST_CASE("enhanced tuple spread should apply to trait-qualified calls",
+          "[TypeCheck][Generic][EnhancedTuple][Traits]")
+{
+  auto preludeTypes = NG::typecheck::build_prelude_type_index();
+  auto ast = parse(R"(
+    type Accumulator {
+      base: i32;
+    }
+
+    trait Combine {
+      fun combine(self: ref<Self>, left: i32, right: i32) -> i32;
+    }
+
+    impl Combine for Accumulator {
+      fun combine(self: ref<Self>, left: i32, right: i32) -> i32 {
+        return self.base + left + right;
+      }
+    }
+
+    val accumulator = new Accumulator { base: 1 };
+    val args = (2, 3);
+    val qualified = Combine::combine(accumulator, ...args);
+    val receiverQualified = accumulator.Combine::combine(...args);
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast, preludeTypes);
+  REQUIRE(index.contains("qualified"));
+  REQUIRE(index.contains("receiverQualified"));
+  check_type_tag(*index["qualified"], typeinfo_tag::I32);
+  check_type_tag(*index["receiverQualified"], typeinfo_tag::I32);
+
+  destroyast(ast);
 }
 
 TEST_CASE("prelude is_ref const predicate should fold const if by generic type",

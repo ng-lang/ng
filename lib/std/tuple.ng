@@ -1,0 +1,17 @@
+module std.tuple exports *;
+
+const<> sizeof_pack<>: u32 = 0;
+
+const<T, U...> sizeof_pack<T, U...>: u32 = 1 + sizeof_pack<U...>;
+
+const is_tuple<T>: bool = false;
+
+const<T...> is_tuple<(T...)>: bool = true;
+
+const tuple_size<T>: u32 = delete;
+
+const<T...> tuple_size<(T...)>: u32 = sizeof_pack<T...>;
+
+type<T, const I: u32> tuple_element<T, I>;
+
+type<A, B> tuple_concat<A, B>;

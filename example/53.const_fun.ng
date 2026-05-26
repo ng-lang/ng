@@ -21,3 +21,7 @@ const if (is_large(fact(4))) {
 }
 
 require_large<42>();
+
+val runtime_input: i32 = 3;
+val runtime_result: i32 = fact(runtime_input);
+print(runtime_result);

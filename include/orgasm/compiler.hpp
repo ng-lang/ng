@@ -131,6 +131,7 @@ namespace NG::orgasm
         auto specialize_type_repr(const Str &typeName, const Map<Str, Str> &typeBindings) const -> Str;
         void infer_type_bindings_from_reprs(const Str &pattern, const Str &actual, Map<Str, Str> &typeBindings) const;
         auto infer_expression_type_name(ast::ASTRef<ast::Expression> expr) const -> Str;
+        auto emit_call_arguments(const Vec<ast::ASTRef<ast::Expression>> &arguments) -> uint16_t;
         auto emit_trait_ref_if_needed(const ast::TypeAnnotation *annotation) -> bool;
         void emit_move_place(ast::ASTRef<ast::Expression> expr);
         void register_generic_function_instance(const Str &symbolName, ast::FunctionDef *funDef);

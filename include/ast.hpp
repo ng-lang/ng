@@ -1083,6 +1083,7 @@ namespace NG::ast
     {
         Str typeName;                             ///< The name of the type.
         Vec<ASTRef<GenericParam>> genericParams;  ///< The generic type parameters (e.g. <T>).
+        Vec<ASTRef<TypeAnnotation>> derivedTraits;///< Traits requested through derive(...).
         Vec<ASTRef<FunctionDef>> memberFunctions; ///< The member functions of the type.
         Vec<ASTRef<PropertyDef>> properties;      ///< The properties of the type.
 
@@ -1104,6 +1105,7 @@ namespace NG::ast
         Vec<ASTRef<GenericParam>> genericParams;
         Vec<ASTRef<TypeAnnotation>> superTraits;
         Vec<ASTRef<FunctionDef>> methods;
+        bool autoTrait = false;
 
         auto astNodeType() const -> ASTNodeType override { return ASTNodeType::TRAIT_DEFINITION; }
 

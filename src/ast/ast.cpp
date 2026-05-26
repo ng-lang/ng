@@ -101,6 +101,24 @@ namespace NG::ast
     {
       return this->name;
     }
+    if (type == TypeAnnotationType::TUPLE)
+    {
+      Str result = "(";
+      for (size_t i = 0; i < arguments.size(); ++i)
+      {
+        if (i > 0) result += ", ";
+        if (auto arg = dynamic_ast_cast<TypeAnnotation>(arguments[i]))
+        {
+          result += arg->repr();
+        }
+        else
+        {
+          result += arguments[i]->repr();
+        }
+      }
+      result += ")";
+      return result;
+    }
     if (genericArgs.empty())
     {
       return this->name;
@@ -737,8 +755,9 @@ namespace NG::ast
   {
     const Str &propertiesRepr = strOfNodeList(properties, "\n");
     const Str &membersRepr = strOfNodeList(memberFunctions, "\n");
+    const Str deriveRepr = derivedTraits.empty() ? "" : ": derive(" + strOfNodeList(derivedTraits, " + ") + ")";
 
-    return "type " + typeName + genericParamsRepr(genericParams) + "{" + propertiesRepr + membersRepr + "}";
+    return "type " + typeName + genericParamsRepr(genericParams) + deriveRepr + "{" + propertiesRepr + membersRepr + "}";
   }
 
   TypeDef::~TypeDef()
@@ -746,6 +765,10 @@ namespace NG::ast
     for (const auto &genericParam : genericParams)
     {
       destroyast(genericParam);
+    }
+    for (const auto &trait : derivedTraits)
+    {
+      destroyast(trait);
     }
     for (const auto &item : memberFunctions)
     {
@@ -774,6 +797,10 @@ namespace NG::ast
     if (!superTraits.empty())
     {
       supers = ": " + strOfNodeList(superTraits, " + ");
+    }
+    if (autoTrait)
+    {
+      return "auto trait " + traitName + genericParamsRepr(genericParams) + supers + ";";
     }
     return "trait " + traitName + genericParamsRepr(genericParams) + supers + "{" + strOfNodeList(methods, "\n") + "}";
   }

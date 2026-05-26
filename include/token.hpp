@@ -52,6 +52,7 @@ namespace NG
         KEYWORD_CAST,
         KEYWORD_REF,
         KEYWORD_MOVE,
+        KEYWORD_AUTO,
         KEYWORD_TRAIT,
         KEYWORD_IMPL,
         KEYWORD_FOR,

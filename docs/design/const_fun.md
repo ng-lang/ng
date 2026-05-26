@@ -41,6 +41,8 @@ In scope:
 - Deterministic, side-effect-free execution.
 - Scalar return values initially: `bool`, integers, and `string` if needed.
 - Calls from const definitions, `where` predicates, and `const if`.
+- Runtime calls from non-const contexts. In that mode, `const fun` behaves like a normal
+  `fun`; `const` means compile-time capable, not compile-time only.
 - Recursion and loop limits with explicit diagnostics.
 - Function body execution should reuse the STUPID interpreter through a restricted const runner;
   the type checker owns const-safety checks and scalar value marshalling, not a second evaluator.
@@ -57,4 +59,5 @@ Out of scope:
 - `where const_fun<T>()` or `where const_fun(N)` evaluates during type checking.
 - Non-terminating or over-limit compile-time execution reports a deterministic error.
 - Non-const functions cannot be called from const contexts.
+- Non-const runtime calls such as `val bar = foo(x)` are allowed when `foo` is a `const fun`.
 - Compile-time evaluator has tests for branching, loops, recursion limit, and invalid side effects.

@@ -1478,8 +1478,20 @@ namespace NG::intp
       NGArgs callArgs;
       for (const auto &argument : idAccExpr->arguments)
       {
-        argument->accept(&vis);
-        callArgs.push_back(vis.result_slot("arg." + std::to_string(callArgs.size())));
+        auto argVis = child_expression_visitor();
+        argument->accept(&argVis);
+        if (dynamic_ast_cast<SpreadExpression>(argument))
+        {
+          auto collection = argVis.collection;
+          for (auto &&item : *collection)
+          {
+            callArgs.push_back(clone_argument_slot("arg." + std::to_string(callArgs.size()), item));
+          }
+        }
+        else
+        {
+          callArgs.push_back(argVis.result_slot("arg." + std::to_string(callArgs.size())));
+        }
       }
 
       set_result(runtime_value_respond_slot(receiverSlot, repr, make_runtime_env(symbols), callArgs));
@@ -1529,8 +1541,20 @@ namespace NG::intp
       NGArgs callArgs;
       for (size_t i = firstRegularArg; i < qualifiedCall->arguments.size(); ++i)
       {
-        qualifiedCall->arguments[i]->accept(&vis);
-        callArgs.push_back(vis.result_slot("arg." + std::to_string(callArgs.size())));
+        auto argVis = child_expression_visitor();
+        qualifiedCall->arguments[i]->accept(&argVis);
+        if (dynamic_ast_cast<SpreadExpression>(qualifiedCall->arguments[i]))
+        {
+          auto collection = argVis.collection;
+          for (auto &&item : *collection)
+          {
+            callArgs.push_back(clone_argument_slot("arg." + std::to_string(callArgs.size()), item));
+          }
+        }
+        else
+        {
+          callArgs.push_back(argVis.result_slot("arg." + std::to_string(callArgs.size())));
+        }
       }
 
       set_result(runtime_value_respond_slot(receiverSlot, qualifiedCall->traitName + "::" + qualifiedCall->methodName,
@@ -2301,9 +2325,10 @@ namespace NG::intp
     RuntimeRef<Vec<CallFrame>> activeFrames = makert<Vec<CallFrame>>();
     Map<Str, TraitDef *> traitDefs;
     Map<Str, RuntimeTraitInfo> runtimeTraits;
+    bool loadingPreludeModule = false;
 
     explicit Stupid(Vec<Str> modulePaths, bool loadingPrelude = false)
-        : modulePaths(modulePaths)
+        : modulePaths(modulePaths), loadingPreludeModule(loadingPrelude)
     {
       gcRootProviderId = register_gc_root_provider([frames = activeFrames, symbols = symbols]() {
         auto roots = enumerate_symbol_roots(symbols);
@@ -2474,7 +2499,7 @@ namespace NG::intp
           else
           {
             auto &&ast = moduleInfo->moduleAst;
-            bool loadingPrelude = moduleInfo->moduleId == "std.prelude";
+            bool loadingPrelude = loadingPreludeModule || moduleInfo->moduleId == "std.prelude";
             Stupid stupid{modulePaths, loadingPrelude};
             ast->accept(&stupid);
             auto runtimeModule = stupid.asModule();
@@ -2914,6 +2939,25 @@ namespace NG::intp
           frameGuard.drop_now();
           return result;
         };
+      }
+
+      const bool derivesClone = std::ranges::any_of(typeDef->derivedTraits, [](const auto &trait) {
+        return trait && trait->repr() == CLONE_TRAIT_NAME;
+      });
+      if (derivesClone)
+      {
+        NGCallable cloneMember = [](const NGSelf &self, const NGEnv &, const NGArgs &) -> RuntimeRef<StorageCell> {
+          if (!self)
+          {
+            return unit_cell();
+          }
+          return clone_runtime_storage_cell(self, StorageClass::TEMPORARY, "clone");
+        };
+        type->memberFunctions[CLONE_TRAIT_NAME + Str{"::clone"}] = cloneMember;
+        if (!type->memberFunctions.contains("clone"))
+        {
+          type->memberFunctions["clone"] = std::move(cloneMember);
+        }
       }
 
       define_global_type(symbols, type->name, type);
