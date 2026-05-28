@@ -1,4 +1,5 @@
 #include "typecheck_utils.hpp"
+#include <module.hpp>
 
 TEST_CASE("generic function definition should type check", "[TypeCheck][Generic]")
 {
@@ -806,6 +807,27 @@ TEST_CASE("std tuple const predicates should evaluate through prelude",
       val ok3: i32 = 3;
     } else {
       val impossible3: i32 = false;
+    }
+  )");
+  REQUIRE(ast != nullptr);
+
+  REQUIRE_NOTHROW(type_check(ast, preludeTypes));
+
+  destroyast(ast);
+}
+
+TEST_CASE("prelude tuple const predicates survive module registry clears",
+          "[TypeCheck][Generic][EnhancedTuple][Prelude]")
+{
+  auto preludeTypes = NG::typecheck::build_prelude_type_index();
+  NG::module::clear_module_loader_cache();
+  NG::module::get_module_registry().clear();
+
+  auto ast = parse(R"(
+    const if (is_tuple<(i32, string)>) {
+      val ok: i32 = 1;
+    } else {
+      val impossible: i32 = false;
     }
   )");
   REQUIRE(ast != nullptr);

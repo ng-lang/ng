@@ -48,7 +48,10 @@ namespace NG::library::imgui
 namespace NG::module
 {
     using NG::ast::ASTNode;
+    using NG::ast::ConstDef;
+    using NG::ast::FunctionDef;
     using NG::ast::ImplDef;
+    using NG::ast::TypeAliasDef;
     using NG::ast::ASTRef;
     using NG::runtime::RuntimeRef;
     using NG::typecheck::TypeIndex;
@@ -106,6 +109,9 @@ namespace NG::module
         ModuleImportIndex imports;
         ModuleTraitIndex traits;
         ModuleImplIndex impls;
+        Map<Str, Vec<TypeAliasDef *>> typeAliasSpecializations;
+        Map<Str, Vec<ConstDef *>> constPredicates;
+        Map<Str, Vec<FunctionDef *>> constFunctions;
     };
 
     struct NativeModuleDescriptor

@@ -1048,6 +1048,7 @@ namespace NG::typecheck
     inline static Set<Str> activeAutoTraits{};
     inline static Set<Str> preludeAutoTraits{};
     inline static Set<Str> activeDerivedTraitImplKeys{};
+    inline static Vec<ASTRef<ASTNode>> retainedPreludeImportAsts{};
     struct TraitImplRecord
     {
       Str traitName;
@@ -1064,6 +1065,9 @@ namespace NG::typecheck
       TypeIndex exportedTypes;
       Vec<TraitImplRecord> exportedImpls;
       Set<Str> exports;
+      Map<Str, Vec<TypeAliasDef *>> exportedTypeAliasSpecializations;
+      Map<Str, Vec<ConstDef *>> exportedConstPredicates;
+      Map<Str, Vec<FunctionDef *>> exportedConstFunctions;
     };
     Vec<TraitImplRecord> localTraitImpls;
     Map<Str, Vec<UseImplDecl *>> selectedTraitImpls;
@@ -1396,7 +1400,7 @@ namespace NG::typecheck
           .genericParamNames = record.genericParamNames,
           .whereBounds = record.whereBounds,
           .methods = record.methods,
-          .definition = record.definition,
+          .definition = nullptr,
           .pos = record.pos,
       };
     }
@@ -1426,6 +1430,9 @@ namespace NG::typecheck
       ModuleArtifacts artifacts;
       artifacts.exportedTypes = artifact.exports.types;
       artifacts.exports = artifact.exports.declared;
+      artifacts.exportedTypeAliasSpecializations = artifact.typeAliasSpecializations;
+      artifacts.exportedConstPredicates = artifact.constPredicates;
+      artifacts.exportedConstFunctions = artifact.constFunctions;
       for (const auto &impl : artifact.impls)
       {
         artifacts.exportedImpls.push_back(toTraitImplRecord(impl));
@@ -1952,6 +1959,24 @@ namespace NG::typecheck
         }
         return true;
       }
+      if (pattern->type == TypeAnnotationType::UNION)
+      {
+        for (auto &arg : pattern->arguments)
+        {
+          auto alternative = dynamic_ast_cast<TypeAnnotation>(arg);
+          if (!alternative)
+          {
+            continue;
+          }
+          auto candidateBindings = bindings;
+          if (typePatternMatch(alternative.get(), actual, genericParamNames, candidateBindings))
+          {
+            bindings = std::move(candidateBindings);
+            return true;
+          }
+        }
+        return false;
+      }
       if (genericParamNames.contains(pattern->name) && pattern->genericArgs.empty() && pattern->arguments.empty())
       {
         if (auto it = bindings.find(pattern->name); it != bindings.end())
@@ -2237,11 +2262,19 @@ namespace NG::typecheck
     auto functionCandidateMatches(FunctionDef &candidate, const Vec<CheckingRef<TypeInfo>> &argumentTypes,
                                   Map<Str, CheckingRef<TypeInfo>> &bindings) -> bool
     {
-      if (candidate.params.size() != argumentTypes.size())
+      auto genericNames = genericParamNameSet(candidate.genericParams);
+      const bool hasPackTailParam = !candidate.params.empty() &&
+                                    candidate.params.back() &&
+                                    candidate.params.back()->annotatedType &&
+                                    isPackTypePattern(candidate.params.back()->annotatedType.get(), genericNames);
+      if (!hasPackTailParam && candidate.params.size() != argumentTypes.size())
       {
         return false;
       }
-      auto genericNames = genericParamNameSet(candidate.genericParams);
+      if (hasPackTailParam && argumentTypes.size() + 1 < candidate.params.size())
+      {
+        return false;
+      }
       for (auto &genericParam : candidate.genericParams)
       {
         if (genericParam)
@@ -2265,6 +2298,13 @@ namespace NG::typecheck
         if (!param || !param->annotatedType)
         {
           continue;
+        }
+        if (hasPackTailParam && i + 1 == candidate.params.size())
+        {
+          Vec<CheckingRef<TypeInfo>> packArgs;
+          packArgs.insert(packArgs.end(), argumentTypes.begin() + static_cast<std::ptrdiff_t>(i), argumentTypes.end());
+          return bindPackPattern(param->annotatedType.get(), packArgs, bindings) &&
+                 functionCandidateWhereMatches(candidate, bindings);
         }
         if (!typePatternMatch(param->annotatedType.get(), argumentTypes[i], genericNames, bindings))
         {
@@ -4177,6 +4217,30 @@ namespace NG::typecheck
           artifacts.exportedImpls.push_back(impl);
         }
       }
+      for (auto def : module->definitions)
+      {
+        if (auto typeAlias = dynamic_ast_cast<TypeAliasDef>(def); typeAlias && typeAlias->specializationPattern)
+        {
+          if (exportsAll || artifacts.exports.contains(typeAlias->aliasName))
+          {
+            artifacts.exportedTypeAliasSpecializations[typeAlias->aliasName].push_back(typeAlias.get());
+          }
+        }
+        else if (auto constDef = dynamic_ast_cast<ConstDef>(def))
+        {
+          if (exportsAll || artifacts.exports.contains(constDef->constName))
+          {
+            artifacts.exportedConstPredicates[constDef->constName].push_back(constDef.get());
+          }
+        }
+        else if (auto funDef = dynamic_ast_cast<FunctionDef>(def); funDef && funDef->constEval)
+        {
+          if (exportsAll || artifacts.exports.contains(funDef->funName))
+          {
+            artifacts.exportedConstFunctions[funDef->funName].push_back(funDef.get());
+          }
+        }
+      }
 
       const bool shouldPublishSharedArtifact =
           !currentModuleId.empty() && currentModuleId != "default" && currentModuleId != "[noname]" &&
@@ -4223,6 +4287,18 @@ namespace NG::typecheck
         for (const auto &impl : artifacts.exportedImpls)
         {
           sharedArtifact->impls.push_back(toModuleImplEvidence(impl));
+        }
+        if (sharedArtifact->ast)
+        {
+          sharedArtifact->typeAliasSpecializations = artifacts.exportedTypeAliasSpecializations;
+          sharedArtifact->constPredicates = artifacts.exportedConstPredicates;
+          sharedArtifact->constFunctions = artifacts.exportedConstFunctions;
+        }
+        else
+        {
+          sharedArtifact->typeAliasSpecializations.clear();
+          sharedArtifact->constPredicates.clear();
+          sharedArtifact->constFunctions.clear();
         }
         NG::module::get_module_registry().addModuleArtifact(sharedArtifact);
       }
@@ -7411,6 +7487,8 @@ namespace NG::typecheck
         return cached->second;
       }
       auto &registry = NG::module::get_module_registry();
+      const bool forceSourceLoad =
+          std::ranges::find(modulePaths, "[force-source-module-loader]") != modulePaths.end();
       if (!activeModuleChecks.insert(moduleId).second)
       {
         return {};
@@ -7425,22 +7503,33 @@ namespace NG::typecheck
       } guard{moduleId};
 
       auto moduleInfo = registry.queryModuleById(moduleId);
+      if (forceSourceLoad)
+      {
+        moduleInfo = {};
+      }
       if (!moduleInfo || !moduleInfo->moduleAst)
       {
         NG::module::FileBasedExternalModuleLoader loader{modulePaths};
         moduleInfo = loader.load(importDecl.modulePath);
         if (moduleInfo)
         {
+          if (forceSourceLoad && moduleInfo->moduleAst)
+          {
+            retainedPreludeImportAsts.push_back(moduleInfo->moduleAst);
+          }
           registry.addModuleInfo(moduleInfo);
         }
       }
       if (!moduleInfo || !moduleInfo->moduleAst)
       {
-        if (auto artifact = registry.queryArtifactById(moduleId); artifact && hasPublishedTypeMetadata(*artifact))
+        if (!forceSourceLoad)
         {
-          auto artifacts = toLocalModuleArtifacts(*artifact);
-          moduleArtifactsById[moduleId] = artifacts;
-          return artifacts;
+          if (auto artifact = registry.queryArtifactById(moduleId); artifact && hasPublishedTypeMetadata(*artifact))
+          {
+            auto artifacts = toLocalModuleArtifacts(*artifact);
+            moduleArtifactsById[moduleId] = artifacts;
+            return artifacts;
+          }
         }
         return {};
       }
@@ -7516,6 +7605,41 @@ namespace NG::typecheck
           exportedImportNames.insert(name);
         }
       }
+
+      Set<Str> compileTimeNamesToImport;
+      if (importAll)
+      {
+        for (const auto &[name, _defs] : artifacts.exportedTypeAliasSpecializations)
+        {
+          compileTimeNamesToImport.insert(name);
+        }
+        for (const auto &[name, _defs] : artifacts.exportedConstPredicates)
+        {
+          compileTimeNamesToImport.insert(name);
+        }
+        for (const auto &[name, _defs] : artifacts.exportedConstFunctions)
+        {
+          compileTimeNamesToImport.insert(name);
+        }
+      }
+      else
+      {
+        compileTimeNamesToImport.insert(importDecl.imports.begin(), importDecl.imports.end());
+      }
+
+      auto importCompileTimeDefs = [&compileTimeNamesToImport](auto &active, const auto &exported) {
+        for (const auto &name : compileTimeNamesToImport)
+        {
+          if (auto it = exported.find(name); it != exported.end())
+          {
+            auto &defs = active[name];
+            defs.insert(defs.end(), it->second.begin(), it->second.end());
+          }
+        }
+      };
+      importCompileTimeDefs(activeTypeAliasSpecializations, artifacts.exportedTypeAliasSpecializations);
+      importCompileTimeDefs(activeConstPredicates, artifacts.exportedConstPredicates);
+      importCompileTimeDefs(activeConstFunctions, artifacts.exportedConstFunctions);
 
       if (!importAll)
       {
@@ -9305,7 +9429,7 @@ namespace NG::typecheck
     // This mirrors the search logic used by the interpreter's module loader.
     namespace fs = std::filesystem;
 
-    Vec<Str> libPaths = {"lib", "../lib", "../../lib"};
+    Vec<Str> libPaths = {"[force-source-module-loader]", "lib", "../lib", "../../lib"};
     fs::path preludePath;
 
     for (const auto &base : libPaths)
@@ -9335,6 +9459,7 @@ namespace NG::typecheck
 
       if (ast)
       {
+        TypeChecker::retainedPreludeImportAsts.clear();
         result = type_check(ast, {}, libPaths);
         TypeChecker::preludeTypeAliasSpecializations = TypeChecker::activeTypeAliasSpecializations;
         TypeChecker::preludeConstPredicates = TypeChecker::activeConstPredicates;
@@ -9345,8 +9470,10 @@ namespace NG::typecheck
     }
     catch (...)
     {
-      // If prelude parsing/type-checking fails, return empty index.
-      // This keeps the rest of the program functional.
+      // If prelude parsing/type-checking fails, do not cache the partial
+      // result. Tests and host tools can register incomplete module artifacts
+      // before the stdlib sources are available to the type checker.
+      return result;
     }
 
     cachedResult = result;
