@@ -20,7 +20,7 @@ Unblocks:
 - [Native Module Artifacts](native_module_artifacts.md)
 - [Bytecode Module Loading](bytecode_module_loading.md)
 - [Standard Library Modularization](stdlib_modularization.md)
-- [Auto Traits And Derive Traits](auto_derive_traits.md), for cross-module impl coherence.
+- [Auto Traits And Derive Traits](../auto_derive_traits.md), for cross-module impl coherence.
 
 ## Scope
 
@@ -121,20 +121,49 @@ Keep the existing syntax:
 import std.prelude (*);
 import std.string (join, split);
 import vendor.math as math;
+import vendor.math;
 ```
 
 Normalize grammar:
 
 ```ebnf
-ImportDecl := "import" ModulePath ImportAlias? ImportList? ";"
+ImportDecl := ExportPrefix? "import" ModulePath ImportAlias? ImportList? ";"
+ExportPrefix := "export"
 ImportAlias := "as" Ident
-ImportList := "(" ("*" | Ident ("," Ident)*) ")"
+ImportList := "(" ("*" | ImportItem ("," ImportItem)*) ")"
+ImportItem := Ident
 ```
 
 Compatibility rule:
 
 - Existing `import a.b alias (...);` remains accepted initially.
 - New examples and docs should use `as`.
+- `export import m (*)` explicitly re-exports imported symbols. It is the
+  standard facade pattern for modules such as `std.prelude`.
+- `import m;` is a module-only import. The module value is available under the
+  tail name (`m`) or explicit alias and members are accessed as `m.symbol(...)`.
+- Symbol-level import aliases are deferred to
+  [Symbol Import Aliases](../symbol_import_aliases.md).
+
+## Import Provenance And Conflicts
+
+Every imported short name carries the canonical source module ID it came from.
+If a module re-exports an imported symbol, the original source module ID is
+preserved instead of being rewritten to the facade module.
+
+Rules:
+
+- Re-importing the same short name from the same canonical source module is
+  idempotent.
+- Importing the same short name from different canonical source modules is an
+  error.
+- If both modules are needed, keep at least one import module-qualified:
+  `import first.module as first; import second.module as second;`.
+- `use impl Trait for Type` resolves module qualifiers through the same
+  canonical module alias table, so `use impl first.Show for Foo` remains
+  unambiguous even when another module exports a different `Show` impl.
+- Short-name aliasing for individual imported symbols is deferred to
+  [Symbol Import Aliases](../symbol_import_aliases.md).
 
 ## Export Model
 
@@ -155,6 +184,7 @@ export fun f() -> unit { ... }
 export type T { ... }
 export trait Show { ... }
 export impl Show for T { ... }
+export import std.string (*);
 ```
 
 Rules:
@@ -162,6 +192,7 @@ Rules:
 - `exports *` exports local public definitions only.
 - Re-export requires explicit export of imported symbols.
 - Imported symbols are not re-exported by `exports *`.
+- `export import` is the explicit re-export form for imported symbols.
 - Impl evidence is not callable by name, but it participates in trait satisfaction and coherence.
 - `export impl` is the preferred explicit form for impl evidence.
 
@@ -198,6 +229,11 @@ Implemented in this phase:
 - Source probes for both `a/b/c.ng` and `a/b/c/module.ng`.
 - Explicit dotted module declarations, including `module std.prelude exports *;`.
 - `import vendor.math as math;` syntax while preserving the older alias form.
+- `export import ...` parsing and STUPID runtime re-export support.
+- Runtime import provenance for de-duplicating same-source imports while
+  rejecting conflicting same-name imports from different modules.
+- ORGASM rejects conflicting same-name short imports and supports
+  module-qualified calls for source/bytecode module imports.
 - Typechecker publication of exported type metadata, traits, and exported impl evidence into `ModuleRegistry`.
 - Typechecker import consumption through published `ModuleArtifact` metadata, including duplicate visible impl diagnostics with candidate module IDs.
 - STUPID and ORGASM reuse of registry module entries only when the stage-specific payload exists, avoiding empty runtime/bytecode artifacts.
@@ -208,4 +244,6 @@ Still intentionally deferred to later module-system issues:
 - Native module descriptors and native artifact publication.
 - `.ngo` bytecode serialization/deserialization and bytecode-first probing.
 - Physical stdlib modularization beyond the canonical `std.prelude` declaration.
-- Cross-module re-export semantics beyond local `exports *`.
+- Symbol-level import aliases, tracked separately in
+  [Symbol Import Aliases](../symbol_import_aliases.md).
+- Full ORGASM bytecode metadata for re-exported imported native/source symbols.

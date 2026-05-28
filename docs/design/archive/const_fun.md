@@ -29,7 +29,7 @@ Prerequisites:
 
 Unblocks:
 
-- Full [Enhanced Tuple Types](enhanced_tuples.md), especially recursive `tuple_element` and const arithmetic over tuple indexes.
+- Full [Enhanced Tuple Types](../enhanced_tuples.md), especially recursive `tuple_element` and const arithmetic over tuple indexes.
 - More expressive type/const constraints.
 
 ## Scope

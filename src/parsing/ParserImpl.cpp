@@ -234,7 +234,19 @@ namespace NG::parsing
         // todo: export an import.
         case TokenType::KEYWORD_IMPORT:
         {
-          current_mod->imports.push_back(importDecl());
+          auto import = importDecl();
+          if (exported)
+          {
+            import->exported = true;
+            for (const auto &name : import->imports)
+            {
+              if (name != "*")
+              {
+                mod->exports.push_back(name);
+              }
+            }
+          }
+          current_mod->imports.push_back(std::move(import));
           break;
         }
           // case TokenType::KEYWORD_IF:
@@ -774,7 +786,7 @@ namespace NG::parsing
 
       Vec<Str> modulePath{};
 
-      while (expect(TokenType::ID) || expect(TokenType::STRING))
+      while (expect(TokenType::ID) || expect(TokenType::STRING) || expect(TokenType::KEYWORD_STRING))
       {
         Str moduleSegment = state->repr;
         accept(state->type);
@@ -1276,13 +1288,13 @@ namespace NG::parsing
     auto moduleDecl(ASTRef<Module> mod) -> ASTRef<Module>
     {
       accept(TokenType::KEYWORD_MODULE);
-      if (expect(TokenType::ID))
+      if (expect(TokenType::ID) || expect(TokenType::KEYWORD_STRING))
       {
         Vec<Str> moduleSegments;
-        while (expect(TokenType::ID))
+        while (expect(TokenType::ID) || expect(TokenType::KEYWORD_STRING))
         {
           moduleSegments.push_back(state->repr);
-          accept(TokenType::ID);
+          accept(state->type);
           if (!expect(TokenType::DOT))
           {
             break;
@@ -1457,9 +1469,9 @@ namespace NG::parsing
     {
       ASTRef<TypeAnnotation> result = typeAnnotationBase();
       // Apply suffix generic syntax for all type bases:
-      // `i32 array` => vector<i32>, `bool Optional` => Optional<bool>
+      // `i32 vector` => vector<i32>, `bool Optional` => Optional<bool>
       // `(string, i32) Map` => Map<string, i32>
-      // Left-associative: `i32 array Optional` => Optional<vector<i32>>
+      // Left-associative: `i32 Optional List` => List<Optional<i32>>
       result = parseSuffixGeneric(std::move(result));
 
       // Parse union type annotations: `i32 | string | bool`
@@ -1620,10 +1632,6 @@ namespace NG::parsing
       while (expectTypeSuffixKeyword())
       {
         auto suffixName = expect(TokenType::KEYWORD_REF) ? Str{"ref"} : state->repr;
-        if (suffixName == "array")
-        {
-          suffixName = "vector";
-        }
         accept(state->type);
 
         auto wrapper = createNode<TypeAnnotation>(suffixName);
@@ -1641,7 +1649,7 @@ namespace NG::parsing
         }
         else
         {
-          // Single-param suffix: `i32 array` => vector<i32>
+          // Single-param suffix: `i32 vector` => vector<i32>
           wrapper->genericArgs.push_back(std::shared_ptr<TypeAnnotation>(std::move(base)));
         }
         base = std::move(wrapper);
@@ -1942,13 +1950,48 @@ namespace NG::parsing
       return createNode<TypeCheckingExpression>(expr, type);
     }
 
+    auto rangeExpression(ASTRef<Expression> start) -> ASTRef<RangeExpression>
+    {
+      const bool inclusive = expect(TokenType::RANGE_INCLUSIVE);
+      accept(inclusive ? TokenType::RANGE_INCLUSIVE : TokenType::RANGE);
+      ASTRef<Expression> end = nullptr;
+      if (!expectExpressionTerminator(false))
+      {
+        end = expression();
+      }
+      return createNode<RangeExpression>(std::move(start), std::move(end), inclusive);
+    }
+
+    auto pipelineExpression(ASTRef<Expression> input) -> ASTRef<Expression>
+    {
+      accept(TokenType::PIPE_FORWARD);
+      auto target = postfixExpression(primaryExpression());
+      if (auto call = dynamic_ast_cast<FunCallExpression>(target))
+      {
+        call->arguments.insert(call->arguments.begin(), std::move(input));
+        return call;
+      }
+      auto call = createNode<FunCallExpression>();
+      call->primaryExpression = std::move(target);
+      call->arguments.push_back(std::move(input));
+      return call;
+    }
+
     auto expression(bool stopAtBind = false) -> ASTRef<Expression>
     {
       auto expr = std::move(primaryExpression());
 
       while (!expectExpressionTerminator(stopAtBind))
       {
-        if (expect(TokenType::LEFT_PAREN))
+        if (expect(TokenType::PIPE_FORWARD))
+        {
+          expr = std::move(pipelineExpression(std::move(expr)));
+        }
+        else if (expect(TokenType::RANGE) || expect(TokenType::RANGE_INCLUSIVE))
+        {
+          expr = std::move(rangeExpression(std::move(expr)));
+        }
+        else if (expect(TokenType::LEFT_PAREN))
         {
           expr = std::move(funCallExpression(std::move(expr)));
         }
@@ -1975,6 +2018,21 @@ namespace NG::parsing
         else if (expect(TokenType::KEYWORD_IS))
         {
           expr = std::move(typeCheckExpr(std::move(expr)));
+        }
+        else if (expect(TokenType::QUERY))
+        {
+          accept(TokenType::QUERY);
+          if (!expect(TokenType::SPREAD))
+          {
+            unexpected("Filter fold marker expects `?...`");
+          }
+          accept(TokenType::SPREAD);
+          expr = createNode<PostfixFoldExpression>(std::move(expr), true);
+        }
+        else if (expect(TokenType::SPREAD))
+        {
+          accept(TokenType::SPREAD);
+          expr = createNode<PostfixFoldExpression>(std::move(expr), false);
         }
         else if (expect(TokenType::ASSIGN_EQUAL))
         {
@@ -2179,7 +2237,15 @@ namespace NG::parsing
     {
       accept(TokenType::LEFT_SQUARE);
 
-      auto accessor = expression();
+      ASTRef<Expression> accessor = nullptr;
+      if (expect(TokenType::RANGE) || expect(TokenType::RANGE_INCLUSIVE))
+      {
+        accessor = rangeExpression(nullptr);
+      }
+      else
+      {
+        accessor = expression();
+      }
       accept(TokenType::RIGHT_SQUARE);
 
       if (expect(TokenType::ASSIGN_EQUAL))
@@ -2308,6 +2374,11 @@ namespace NG::parsing
         accept(TokenType::SPREAD);
         auto expr = expression();
         return createNode<SpreadExpression>(std::move(expr));
+      }
+      if (expect(TokenType::CARET))
+      {
+        accept(TokenType::CARET);
+        return createNode<FromEndIndexExpression>(postfixExpression(primaryExpression()));
       }
       if (expect(TokenType::KEYWORD_REF) || expect(TokenType::KEYWORD_MOVE))
       {

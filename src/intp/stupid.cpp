@@ -239,6 +239,12 @@ namespace NG::intp
                      is_ref_self_type_annotation(param->annotatedType.get()));
   }
 
+  static auto is_variadic_param(const Param *param) -> bool
+  {
+    return param && param->annotatedType && param->annotatedType->name.size() > 3 &&
+           param->annotatedType->name.ends_with("...");
+  }
+
   static auto lookup_global_slot(const NGSymbols &symbols, const Str &name) -> RuntimeRef<StorageCell>
   {
     if (symbols && symbols->objectSlots.contains(name))
@@ -291,6 +297,7 @@ namespace NG::intp
       throw RuntimeException("Redefine " + name);
     }
     symbols->variantTypes[name] = type;
+    symbols->types.insert_or_assign(name, type);
   }
 
   static void define_global_module(const NGSymbols &symbols, const Str &name, const RuntimeRef<StorageCell> &module)
@@ -323,6 +330,14 @@ namespace NG::intp
     if (symbols && symbols->variantTypes.contains(variantName))
     {
       return symbols->variantTypes.at(variantName);
+    }
+    if (symbols && symbols->types.contains(variantName))
+    {
+      auto type = symbols->types.at(variantName);
+      if (type && !type->variantName.empty())
+      {
+        return type;
+      }
     }
     return nullptr;
   }
@@ -967,6 +982,74 @@ namespace NG::intp
       return ExpressionVisitor{symbols, activeFrames, activeScopes, publishGlobals, activeGenericInstanceName};
     }
 
+    void push_shadow_binding(const Str &name, const RuntimeRef<StorageCell> &value,
+                             const RuntimeRef<Vec<uint64_t>> &scopeIds) const
+    {
+      if (!activeFrames || activeFrames->empty())
+      {
+        throw RuntimeException("Fold expression requires an active call frame");
+      }
+      auto shadow = clone_argument_slot(name, value);
+      shadow->ownerScopeId = current_scope_id(scopeIds);
+      activeFrames->back().locals.push_back(shadow);
+    }
+
+    [[nodiscard]] auto call_function_by_name(const Str &name, const NGArgs &args, const TokenPosition &pos) const
+        -> RuntimeRef<StorageCell>
+    {
+      if (!symbols || !symbols->functions.contains(name))
+      {
+        throw RuntimeException("No such function: " + name, pos);
+      }
+      auto dummy = unit_cell();
+      return symbols->functions.at(name)(dummy, make_runtime_env(symbols), args);
+    }
+
+    [[nodiscard]] auto sequence_slots(const RuntimeRef<StorageCell> &sequence) const -> Vec<RuntimeRef<StorageCell>>
+    {
+      try
+      {
+        return runtime_builtin_sequence_slots(sequence);
+      }
+      catch (const RuntimeException &ex)
+      {
+        if (Str{ex.what()}.find("Expected Sequence-compatible runtime value") == Str::npos)
+        {
+          throw;
+        }
+      }
+
+      auto env = make_runtime_env(symbols);
+      auto sizeSlot = runtime_value_respond_slot(sequence, "size", env, {});
+      auto count = read_numeric_cell_as<int64_t>(sizeSlot);
+      if (count < 0)
+      {
+        throw RuntimeException("Sequence size cannot be negative");
+      }
+      Vec<RuntimeRef<StorageCell>> result;
+      result.reserve(static_cast<size_t>(count));
+      for (int64_t i = 0; i < count; ++i)
+      {
+        result.push_back(runtime_value_respond_slot(sequence, "get", env,
+                                                    {numeral_cell_from_value<int32_t>(static_cast<int32_t>(i))}));
+      }
+      return result;
+    }
+
+    [[nodiscard]] auto fold_sequence_slot(const ASTRef<Expression> &expression) -> RuntimeRef<StorageCell>
+    {
+      if (auto id = dynamic_ast_cast<IdExpression>(expression))
+      {
+        if (auto slot = lookup_binding_slot(id->id))
+        {
+          return slot;
+        }
+      }
+      ExpressionVisitor sequenceVis{symbols, activeFrames, activeScopes, publishGlobals, activeGenericInstanceName};
+      expression->accept(&sequenceVis);
+      return sequenceVis.result_slot();
+    }
+
     void set_result(const RuntimeRef<StorageCell> &value, bool isMoved = false)
     {
       moved = isMoved;
@@ -1213,6 +1296,48 @@ namespace NG::intp
 
     void visit(FunCallExpression *funCallExpr) override
     {
+      auto foldIt = std::find_if(funCallExpr->arguments.begin(), funCallExpr->arguments.end(), [](const auto &arg) {
+        return dynamic_ast_cast<PostfixFoldExpression>(arg) != nullptr;
+      });
+      if (foldIt != funCallExpr->arguments.end())
+      {
+        auto foldIndex = static_cast<size_t>(std::distance(funCallExpr->arguments.begin(), foldIt));
+        if (funCallExpr->arguments.size() != 2 || (foldIndex != 0 && foldIndex != 1))
+        {
+          throw RuntimeException("Fold call expects `op(xs..., init)` or `op(init, xs...)`", funCallExpr->pos);
+        }
+        auto fold = dynamic_ast_cast<PostfixFoldExpression>(*foldIt);
+        if (fold->filter)
+        {
+          throw RuntimeException("Filter marker `?...` is only supported in array literals", fold->pos);
+        }
+        auto resolvedCall = resolve_function_call(funCallExpr, activeGenericInstanceName);
+        auto items = sequence_slots(fold_sequence_slot(fold->expression));
+
+        auto initIndex = foldIndex == 0 ? 1UZ : 0UZ;
+        ExpressionVisitor initVis{symbols, activeFrames, activeScopes, publishGlobals, activeGenericInstanceName};
+        funCallExpr->arguments[initIndex]->accept(&initVis);
+        auto accumulator = initVis.result_slot("fold.acc");
+        if (foldIndex == 0)
+        {
+          for (auto it = items.rbegin(); it != items.rend(); ++it)
+          {
+            NGArgs args{clone_argument_slot("fold.item", *it), clone_argument_slot("fold.acc", accumulator)};
+            accumulator = call_function_by_name(resolvedCall.targetPath, args, funCallExpr->pos);
+          }
+        }
+        else
+        {
+          for (const auto &item : items)
+          {
+            NGArgs args{clone_argument_slot("fold.acc", accumulator), clone_argument_slot("fold.item", item)};
+            accumulator = call_function_by_name(resolvedCall.targetPath, args, funCallExpr->pos);
+          }
+        }
+        set_result(accumulator);
+        return;
+      }
+
       auto resolvedCall = resolve_function_call(funCallExpr, activeGenericInstanceName);
       NGArgs callArgs;
 
@@ -1372,12 +1497,70 @@ namespace NG::intp
 
     void visit(ArrayLiteral *array) override
     {
+      auto appendFold = [&](const ASTRef<PostfixFoldExpression> &fold, Vec<RuntimeRef<StorageCell>> &resultSlots) {
+        auto call = dynamic_ast_cast<FunCallExpression>(fold->expression);
+        auto driver = call && call->arguments.size() == 1 ? dynamic_ast_cast<IdExpression>(call->arguments[0]) : nullptr;
+        if (!call || !driver)
+        {
+          throw RuntimeException("Map/filter fold expects a single sequence identifier", fold->pos);
+        }
+        auto items = sequence_slots(fold_sequence_slot(call->arguments[0]));
+        auto originalTopLevelDriver = (!activeFrames || activeFrames->empty())
+                                          ? clone_runtime_storage_cell(lookup_global_slot(symbols, driver->id),
+                                                                       StorageClass::TEMPORARY, driver->id)
+                                          : nullptr;
+        for (const auto &item : items)
+        {
+          auto foldScopes = fork_scope_chain(activeScopes);
+          ExpressionVisitor bodyVis{symbols, activeFrames, foldScopes, publishGlobals, activeGenericInstanceName};
+          if (activeFrames && !activeFrames->empty())
+          {
+            bodyVis.push_shadow_binding(driver->id, item, foldScopes);
+          }
+          else
+          {
+            publish_global_binding(symbols, driver->id, item);
+          }
+          fold->expression->accept(&bodyVis);
+          if (fold->filter)
+          {
+            if (runtime_value_bool(bodyVis.result_slot()))
+            {
+              resultSlots.push_back(clone_argument_slot(std::to_string(resultSlots.size()), item));
+            }
+          }
+          else
+          {
+            resultSlots.push_back(bodyVis.result_slot(std::to_string(resultSlots.size())));
+          }
+        }
+        if (originalTopLevelDriver)
+        {
+          publish_global_binding(symbols, driver->id, originalTopLevelDriver);
+        }
+      };
+
+      if (array->elements.size() == 1)
+      {
+        if (auto fold = dynamic_ast_cast<PostfixFoldExpression>(array->elements[0]))
+        {
+          Vec<RuntimeRef<StorageCell>> resultSlots;
+          appendFold(fold, resultSlots);
+          set_result(make_runtime_array_cell(resultSlots));
+          return;
+        }
+      }
       Vec<RuntimeRef<StorageCell>> slots;
 
       ExpressionVisitor vis{symbols, activeFrames, activeScopes, publishGlobals};
 
       for (const auto &element : array->elements)
       {
+        if (auto fold = dynamic_ast_cast<PostfixFoldExpression>(element))
+        {
+          appendFold(fold, slots);
+          continue;
+        }
         element->accept(&vis);
         if (auto spread = dynamic_ast_cast<SpreadExpression>(element); spread)
         {
@@ -1414,11 +1597,80 @@ namespace NG::intp
       }
       ensure_usable_cell(primarySlot);
 
+      if (auto range = dynamic_ast_cast<RangeExpression>(index->accessor))
+      {
+        auto slots = runtime_is_tuple_value(primarySlot) ? runtime_tuple_slots(primarySlot)
+                                                         : runtime_array_slots(primarySlot);
+        auto resolveBound = [&](const ASTRef<Expression> &bound, size_t defaultValue) -> size_t {
+          if (!bound)
+          {
+            return defaultValue;
+          }
+          if (auto fromEnd = dynamic_ast_cast<FromEndIndexExpression>(bound))
+          {
+            ExpressionVisitor boundVis{symbols, activeFrames, activeScopes, publishGlobals};
+            fromEnd->index->accept(&boundVis);
+            auto offset = read_numeric_cell_as<int32_t>(boundVis.result_slot());
+            if (offset < 0 || static_cast<size_t>(offset) > slots.size())
+            {
+              throw RuntimeException("Index out of bounds: ^" + std::to_string(offset));
+            }
+            return slots.size() - static_cast<size_t>(offset);
+          }
+          ExpressionVisitor boundVis{symbols, activeFrames, activeScopes, publishGlobals};
+          bound->accept(&boundVis);
+          auto value = read_numeric_cell_as<int32_t>(boundVis.result_slot());
+          if (value < 0)
+          {
+            return 0;
+          }
+          return std::min(static_cast<size_t>(value), slots.size());
+        };
+        auto start = resolveBound(range->start, 0);
+        auto end = resolveBound(range->end, slots.size());
+        if (range->inclusive && end < slots.size())
+        {
+          ++end;
+        }
+        if (start > end)
+        {
+          start = end;
+        }
+        Vec<RuntimeRef<StorageCell>> resultSlots;
+        for (size_t i = start; i < end; ++i)
+        {
+          resultSlots.push_back(clone_runtime_storage_cell(slots[i], StorageClass::TEMPORARY));
+        }
+        set_result(runtime_is_tuple_value(primarySlot) ? make_runtime_tuple_cell(resultSlots)
+                                                       : make_runtime_span_cell(resultSlots));
+        return;
+      }
+
       index->accessor->accept(&vis);
 
       auto accessorSlot = vis.result_slot();
 
       set_result(runtime_index_read(primarySlot, accessorSlot));
+    }
+
+    void visit(RangeExpression *range) override
+    {
+      if (!range->start || !range->end)
+      {
+        throw RuntimeException("Open range expressions are only supported inside index access");
+      }
+      ExpressionVisitor startVis{symbols, activeFrames, activeScopes, publishGlobals};
+      range->start->accept(&startVis);
+      ExpressionVisitor endVis{symbols, activeFrames, activeScopes, publishGlobals};
+      range->end->accept(&endVis);
+      set_result(make_runtime_range_cell(startVis.result_slot(), endVis.result_slot(), range->inclusive));
+    }
+
+    void visit(FromEndIndexExpression *fromEnd) override
+    {
+      ExpressionVisitor vis{symbols, activeFrames, activeScopes, publishGlobals};
+      fromEnd->index->accept(&vis);
+      set_result(make_runtime_from_end_index(read_numeric_cell_as<int32_t>(vis.result_slot())));
     }
 
     void visit(IndexAssignmentExpression *index) override
@@ -1772,20 +2024,23 @@ namespace NG::intp
 
       spreadExpression->expression->accept(&vis);
       auto resultSlot = vis.result_slot();
-      if (runtime_is_tuple_value(resultSlot))
+      try
       {
-        collection = makert<Vec<RuntimeRef<StorageCell>>>(runtime_tuple_slots(resultSlot));
+        collection = makert<Vec<RuntimeRef<StorageCell>>>(sequence_slots(resultSlot));
         set_result(resultSlot);
         return;
       }
-      if (runtime_is_array_value(resultSlot))
+      catch (const RuntimeException &)
       {
-        collection = makert<Vec<RuntimeRef<StorageCell>>>(runtime_array_slots(resultSlot));
-        set_result(resultSlot);
-        return;
       }
-      throw RuntimeException("Invalid spread expression, expect array or tuple, but got: " +
+      throw RuntimeException("Invalid spread expression, expect Sequence-compatible value, but got: " +
                              spreadExpression->expression->repr());
+    }
+
+    void visit(PostfixFoldExpression *foldExpression) override
+    {
+      throw RuntimeException("Postfix fold expression is only supported in array literals or fold calls: " +
+                             foldExpression->repr());
     }
 
     void visit(UnitLiteral *unit) override
@@ -2325,6 +2580,7 @@ namespace NG::intp
     RuntimeRef<Vec<CallFrame>> activeFrames = makert<Vec<CallFrame>>();
     Map<Str, TraitDef *> traitDefs;
     Map<Str, RuntimeTraitInfo> runtimeTraits;
+    Set<Str> exportedImportNames;
     bool loadingPreludeModule = false;
 
     explicit Stupid(Vec<Str> modulePaths, bool loadingPrelude = false)
@@ -2416,12 +2672,20 @@ namespace NG::intp
 
       for (auto &&exp : mod->exports)
       {
-        if (!definedSymbols.contains(exp) && exp != "*")
+        if (!definedSymbols.contains(exp) && std::ranges::find(symbols->imported, exp) == symbols->imported.end() &&
+            exp != "*")
         {
           throw RuntimeException("Export undefined symbol: " + exp);
         }
       }
       symbols->exports = mod->exports;
+      for (const auto &name : exportedImportNames)
+      {
+        if (std::ranges::find(symbols->exports, name) == symbols->exports.end())
+        {
+          symbols->exports.push_back(name);
+        }
+      }
       CallFrame topLevelFrame{};
       topLevelFrame.functionName = "<module>";
       activeFrames->push_back(topLevelFrame);
@@ -2536,8 +2800,17 @@ namespace NG::intp
         }
       }
       RuntimeRef<StorageCell> targetModule = symbols->modules.at(importDecl->module);
+      auto moduleId = NG::module::canonical_module_id(importDecl->modulePath);
+      if (moduleId.empty())
+      {
+        moduleId = importDecl->module;
+      }
 
-      importInto(symbols, importDecl->imports, targetModule);
+      auto importedNames = importInto(symbols, importDecl->imports, targetModule, moduleId);
+      if (importDecl->exported)
+      {
+        exportedImportNames.insert(importedNames.begin(), importedNames.end());
+      }
 
       if (!importDecl->alias.empty())
       {
@@ -2545,8 +2818,8 @@ namespace NG::intp
       }
     }
 
-    static void importInto(const NGSymbols &symbols, Vec<Str> declaredImports,
-                           const RuntimeRef<StorageCell> &fromModule)
+    static auto importInto(const NGSymbols &symbols, Vec<Str> declaredImports,
+                           const RuntimeRef<StorageCell> &fromModule, const Str &moduleId) -> Set<Str>
     {
       Set<Str> imports = resolveImports(declaredImports, fromModule);
       std::copy(imports.begin(), imports.end(), std::back_inserter(symbols->imported));
@@ -2555,6 +2828,7 @@ namespace NG::intp
       auto traitNames = runtime_module_trait_names(fromModule);
       auto objectSlots = runtime_module_object_slots(fromModule);
       auto nativeFunctions = runtime_module_native_functions(fromModule);
+      auto originByName = runtime_module_import_origins(fromModule);
       symbols->traitNames.insert(traitNames.begin(), traitNames.end());
       auto moduleSymbols = makert<RuntimeSymbolTable>();
       moduleSymbols->functions = functions;
@@ -2568,19 +2842,39 @@ namespace NG::intp
 
       for (auto &&imp : imports)
       {
+        auto origin = originByName.contains(imp) ? originByName.at(imp) : moduleId;
+        auto shouldBind = [&](bool exists) {
+          if (!exists)
+          {
+            symbols->importOrigins.insert_or_assign(imp, origin);
+            return true;
+          }
+          if (auto existingOrigin = symbols->importOrigins.find(imp);
+              existingOrigin != symbols->importOrigins.end() && existingOrigin->second == origin)
+          {
+            return false;
+          }
+          throw RuntimeException("Import conflict for symbol: " + imp);
+        };
         if (functions.contains(imp))
         {
-          auto function = functions[imp];
-          define_global_function(symbols, imp,
-                                 [function = std::move(function), moduleSymbols](const NGSelf &self,
-                                                                                  const NGEnv &,
-                                                                                  const NGArgs &args) {
-                                   return function(self, make_runtime_env(moduleSymbols), args);
-                                 });
+          if (shouldBind(symbols->functions.contains(imp)))
+          {
+            auto function = functions[imp];
+            define_global_function(symbols, imp,
+                                   [function = std::move(function), moduleSymbols](const NGSelf &self,
+                                                                                    const NGEnv &,
+                                                                                    const NGArgs &args) {
+                                     return function(self, make_runtime_env(moduleSymbols), args);
+                                   });
+          }
         }
         if (types.contains(imp))
         {
-          define_global_type(symbols, imp, types[imp]);
+          if (shouldBind(symbols->types.contains(imp)))
+          {
+            define_global_type(symbols, imp, types[imp]);
+          }
         }
         if (traitNames.contains(imp))
         {
@@ -2588,14 +2882,21 @@ namespace NG::intp
         }
         if (objectSlots.contains(imp))
         {
-          auto slot = objectSlots[imp];
-          define_global_binding(symbols, imp, slot);
+          if (shouldBind(symbols->objectSlots.contains(imp)))
+          {
+            auto slot = objectSlots[imp];
+            define_global_binding(symbols, imp, slot);
+          }
         }
         if (nativeFunctions.contains(imp))
         {
-          define_global_function(symbols, imp, nativeFunctions[imp]);
+          if (shouldBind(symbols->functions.contains(imp)))
+          {
+            define_global_function(symbols, imp, nativeFunctions[imp]);
+          }
         }
       }
+      return imports;
     }
 
     static auto resolveImports(const Vec<Str> &imports, const RuntimeRef<StorageCell> &targetModule) -> Set<Str>
@@ -2682,13 +2983,13 @@ namespace NG::intp
           [funDef, frames = activeFrames](const NGSelf &dummy, const NGEnv &env,
                                           const NGArgs &args) -> RuntimeRef<StorageCell>
       {
-        // Determine if there's a pack parameter and at which position
+        // Determine if there's a variadic value parameter and at which parameter position.
         int packIndex = -1;
-        for (size_t g = 0; g < funDef->genericParams.size(); ++g)
+        for (size_t i = 0; i < funDef->params.size(); ++i)
         {
-          if (funDef->genericParams[g]->isPack)
+          if (is_variadic_param(funDef->params[i].get()))
           {
-            packIndex = static_cast<int>(g);
+            packIndex = static_cast<int>(i);
             break;
           }
         }
@@ -2978,7 +3279,7 @@ namespace NG::intp
       {
         throw RuntimeException("Cannot implement trait for unknown type: " + implDef->targetType->repr(), implDef->pos);
       }
-      auto traitName = implDef->trait->repr();
+      auto traitName = stripGenericTypeSuffix(implDef->trait->repr());
       auto traitIt = runtimeTraits.find(traitName);
       if (traitIt == runtimeTraits.end())
       {

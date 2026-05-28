@@ -45,6 +45,7 @@ set(NG_LIB_SRC
         src/runtime/NGStructuralObject.cpp
         src/runtime/NGModule.cpp
         src/runtime/NGTuple.cpp
+        src/runtime/NGRange.cpp
         src/runtime/NGUnit.cpp
         src/runtime/NGTaggedValue.cpp
         src/runtime/NGReference.cpp

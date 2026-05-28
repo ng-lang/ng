@@ -131,6 +131,79 @@ TEST_CASE("compiler and vm should call imported source module through canonical 
   destroyast(ast);
 }
 
+TEST_CASE("compiler should reject conflicting imported source symbols",
+          "[OrgasmTest][ModuleArtifact]")
+{
+  SourceModuleFixture fixture;
+  fixture.write("pkg/alpha.ng", R"(
+    module pkg.alpha exports *;
+    fun duplicated() -> i32 {
+      return 1;
+    }
+  )");
+  fixture.write("pkg/beta.ng", R"(
+    module pkg.beta exports *;
+    fun duplicated() -> i32 {
+      return 2;
+    }
+  )");
+
+  auto ast = parse(R"(
+    import pkg.alpha (*);
+    import pkg.beta (*);
+    fun main() -> i32 {
+      return duplicated();
+    }
+  )");
+  REQUIRE(ast != nullptr);
+
+  NG::typecheck::type_check(ast, {}, fixture.paths());
+
+  Compiler compiler{fixture.paths()};
+  REQUIRE_THROWS_WITH(compiler.compile(dynamic_ast_cast<CompileUnit>(ast)),
+                      Catch::Matchers::ContainsSubstring("Import conflict for symbol: duplicated"));
+
+  destroyast(ast);
+}
+
+TEST_CASE("compiler and vm should call qualified imports without short-name conflicts",
+          "[OrgasmTest][ModuleArtifact]")
+{
+  SourceModuleFixture fixture;
+  fixture.write("pkg/alpha.ng", R"(
+    module pkg.alpha exports *;
+    fun duplicated() -> i32 {
+      return 1;
+    }
+  )");
+  fixture.write("pkg/beta.ng", R"(
+    module pkg.beta exports *;
+    fun duplicated() -> i32 {
+      return 2;
+    }
+  )");
+
+  auto ast = parse(R"(
+    import pkg.alpha as first;
+    import pkg.beta;
+    fun main() -> i32 {
+      return first.duplicated() + beta.duplicated();
+    }
+  )");
+  REQUIRE(ast != nullptr);
+
+  NG::typecheck::type_check(ast, {}, fixture.paths());
+
+  Compiler compiler{fixture.paths()};
+  auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+
+  VM vm{fixture.paths()};
+  auto result = vm.run(bytecode);
+  REQUIRE(result_i32(result) == 3);
+
+  destroyast(ast);
+}
+
 TEST_CASE("compiler and vm should handle const if true branch", "[const_if][OrgasmTest]")
 {
   auto ast = parse(R"(
@@ -1071,8 +1144,8 @@ TEST_CASE("compiler and vm should call native prelude helpers", "[OrgasmTest][Pr
             val content = trim("  hello,world  ");
             val parts = split(content, ",");
             val reversed = reverse(parts);
-            val nums = range(1, 4);
-            val mid = slice(nums, 1, 3);
+            val nums = [...(1..4)];
+            val mid = [...nums[1..3]];
 
             assert(len(parts) == 2);
             assert(parts[0] == "hello");
@@ -1176,22 +1249,21 @@ TEST_CASE("compiler and vm should handle spread unpack property updates and memb
   destroyast(ast);
 }
 
-TEST_CASE("compiler and vm should handle descending range and clamped slice", "[OrgasmTest][Prelude]")
+TEST_CASE("compiler and vm should handle descending range and clamped slice syntax", "[OrgasmTest]")
 {
   auto ast = parse(R"(
         fun main() {
-            val down = range(3, 0);
-            val window = slice(down, -5, 99);
+            val down = [...(3..0)];
+            val window = [...down[-5..99]];
             return window[0] + window[1] + window[2];
         }
     )");
   REQUIRE(ast != nullptr);
 
-  Compiler compiler{{}, NG::library::prelude::native_function_names()};
+  Compiler compiler;
   auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
 
   VM vm;
-  NG::library::prelude::register_vm_natives(vm);
   auto result = vm.run(bytecode);
 
   REQUIRE(result_i32(result) == 6);

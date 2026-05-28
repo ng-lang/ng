@@ -693,6 +693,37 @@ namespace NG::ast
     destroyast(accessor);
   }
 
+  void RangeExpression::accept(AstVisitor *visitor)
+  {
+    visitor->visit(this);
+  }
+
+  auto RangeExpression::repr() const -> Str
+  {
+    return (start ? start->repr() : Str{}) + (inclusive ? "..=" : "..") + (end ? end->repr() : Str{});
+  }
+
+  RangeExpression::~RangeExpression()
+  {
+    destroyast(start);
+    destroyast(end);
+  }
+
+  void FromEndIndexExpression::accept(AstVisitor *visitor)
+  {
+    visitor->visit(this);
+  }
+
+  auto FromEndIndexExpression::repr() const -> Str
+  {
+    return "^" + (index ? index->repr() : Str{});
+  }
+
+  FromEndIndexExpression::~FromEndIndexExpression()
+  {
+    destroyast(index);
+  }
+
   void IndexAssignmentExpression::accept(AstVisitor *visitor)
   {
     visitor->visit(this);
@@ -1141,6 +1172,21 @@ namespace NG::ast
   }
 
   SpreadExpression::~SpreadExpression()
+  {
+    destroyast(expression);
+  }
+
+  void PostfixFoldExpression::accept(AstVisitor *visitor)
+  {
+    visitor->visit(this);
+  }
+
+  auto PostfixFoldExpression::repr() const -> Str
+  {
+    return expression->repr() + (filter ? "?..." : "...");
+  }
+
+  PostfixFoldExpression::~PostfixFoldExpression()
   {
     destroyast(expression);
   }

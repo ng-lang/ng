@@ -54,6 +54,12 @@ namespace NG::orgasm
                              is_ref_self_type_annotation(param->annotatedType.get()));
         }
 
+        auto is_variadic_param(const Param *param) -> bool
+        {
+            return param && param->annotatedType && param->annotatedType->name.size() > 3 &&
+                   param->annotatedType->name.ends_with("...");
+        }
+
         auto append_function_if_missing(BytecodeModule &module, Map<Str, FunctionDef*> &functionDefs,
                                         const Str &functionName, FunctionDef *functionDef) -> void
         {
@@ -158,6 +164,7 @@ namespace NG::orgasm
         imported_symbols.clear();
         functionDefs.clear();
         genericFunctionDefs.clear();
+        importedDefinitions.clear();
         genericFunctionInstances.clear();
         genericFunctionInstanceSet.clear();
         traitDefs.clear();
@@ -247,6 +254,13 @@ namespace NG::orgasm
             import->accept(this);
         }
 
+        for (auto *def : importedDefinitions)
+        {
+            if (auto traitDef = dynamic_cast<TraitDef *>(def))
+            {
+                traitDefs[traitDef->traitName] = traitDef;
+            }
+        }
         for (auto &&def : mod->definitions)
         {
             if (auto traitDef = dynamic_ast_cast<TraitDef>(def))
@@ -265,6 +279,83 @@ namespace NG::orgasm
             resolve_trait_closure(traitName, traitDefs, runtimeTraits, visitingTraits, visitedTraits);
         }
 
+        auto registerDefinitionShape = [&](Definition *def) {
+            if (auto funDef = dynamic_cast<FunctionDef *>(def))
+            {
+                if (funDef->deleted || funDef->native)
+                {
+                    return;
+                }
+                if (!funDef->genericParams.empty())
+                {
+                    genericFunctionDefs[funDef->funName] = funDef;
+                }
+                return;
+            }
+            if (auto typeDef = dynamic_cast<TypeDef *>(def))
+            {
+                if (std::ranges::none_of(module.types, [&](const Type &type) { return type.name == typeDef->typeName; }))
+                {
+                    Type type;
+                    type.name = typeDef->typeName;
+                    for (auto &&prop : typeDef->properties) type.properties.push_back(prop->propertyName);
+                    module.types.push_back(std::move(type));
+                }
+                for (auto &&memFn : typeDef->memberFunctions)
+                {
+                    append_function_if_missing(module, functionDefs, typeDef->typeName + "." + memFn->funName,
+                                               memFn.get());
+                }
+                return;
+            }
+            if (auto taggedUnion = dynamic_cast<TaggedUnionDef *>(def))
+            {
+                if (std::ranges::none_of(module.types, [&](const Type &type) { return type.name == taggedUnion->typeName; }))
+                {
+                    Type type;
+                    type.name = taggedUnion->typeName;
+                    for (int32_t i = 0; i < static_cast<int32_t>(taggedUnion->variants.size()); ++i)
+                    {
+                        Variant v;
+                        v.name = taggedUnion->variants[i].variantName;
+                        v.payloadFields = taggedUnion->variants[i].payloadNames;
+                        type.variants.push_back(std::move(v));
+
+                        variant_map[taggedUnion->variants[i].variantName] = VariantInfo{
+                            .unionName = taggedUnion->typeName,
+                            .variantIndex = i,
+                            .payloadFields = taggedUnion->variants[i].payloadNames,
+                            .payloadTypes = [&]() {
+                                Vec<Str> types;
+                                for (auto &&payloadType : taggedUnion->variants[i].payloadTypes)
+                                {
+                                    types.push_back(payloadType->repr());
+                                }
+                                return types;
+                            }(),
+                        };
+                    }
+                    module.types.push_back(std::move(type));
+                }
+                return;
+            }
+            if (auto implDef = dynamic_cast<ImplDef *>(def))
+            {
+                auto targetName = bare_type_name(implDef->targetType->repr());
+                auto traitName = bare_type_name(implDef->trait->repr());
+                for (auto &&method : implDef->methods)
+                {
+                    append_function_if_missing(module, functionDefs, targetName + "." + traitName + "::" + method->funName,
+                                               method.get());
+                    append_function_if_missing(module, functionDefs, targetName + "." + method->funName, method.get());
+                }
+            }
+        };
+
+        for (auto *def : importedDefinitions)
+        {
+            registerDefinitionShape(def);
+        }
         for (auto &&def : mod->definitions)
         {
             if (auto funDef = dynamic_ast_cast<FunctionDef>(def))
@@ -336,7 +427,7 @@ namespace NG::orgasm
             else if (auto implDef = dynamic_ast_cast<ImplDef>(def))
             {
                 auto targetName = bare_type_name(implDef->targetType->repr());
-                auto traitName = implDef->trait->repr();
+                auto traitName = bare_type_name(implDef->trait->repr());
                 Map<Str, FunctionDef*> providedMethods;
                 for (auto &&method : implDef->methods)
                 {
@@ -523,6 +614,30 @@ namespace NG::orgasm
 
         // Third pass: compile function bodies
         int funIndex = 1;
+        for (auto *importedDef : importedDefinitions)
+        {
+            auto *implDef = dynamic_cast<ImplDef *>(importedDef);
+            if (!implDef)
+            {
+                continue;
+            }
+            auto targetName = bare_type_name(implDef->targetType->repr());
+            auto traitName = bare_type_name(implDef->trait->repr());
+            for (auto &&method : implDef->methods)
+            {
+                auto previousTraitMethodOrigin = activeTraitMethodOrigin;
+                activeTraitMethodOrigin = traitName;
+                if (auto *targetFunction = find_function(targetName + "." + traitName + "::" + method->funName))
+                {
+                    compile_function_body(method.get(), *targetFunction, false);
+                }
+                if (auto *targetFunction = find_function(targetName + "." + method->funName))
+                {
+                    compile_function_body(method.get(), *targetFunction, false);
+                }
+                activeTraitMethodOrigin = previousTraitMethodOrigin;
+            }
+        }
         for (auto &&def : mod->definitions)
         {
             if (auto funDef = dynamic_ast_cast<FunctionDef>(def))
@@ -623,7 +738,7 @@ namespace NG::orgasm
             else if (auto implDef = dynamic_ast_cast<ImplDef>(def))
             {
                 current_type_name = bare_type_name(implDef->targetType->repr());
-                auto traitName = implDef->trait->repr();
+                auto traitName = bare_type_name(implDef->trait->repr());
                 Map<Str, FunctionDef*> providedMethods;
                 for (auto &&method : implDef->methods)
                 {
@@ -1070,6 +1185,19 @@ namespace NG::orgasm
         auto &registry = NG::module::get_module_registry();
         auto moduleId = NG::module::canonical_module_id(importDecl->modulePath);
         if (moduleId.empty()) moduleId = importDecl->module;
+        auto addShortImport = [&](const Str &name) {
+            if (auto existing = imported_symbols.find(name); existing != imported_symbols.end())
+            {
+                if (existing->second.moduleName == moduleId)
+                {
+                    return;
+                }
+                throw RuntimeException("Import conflict for symbol: " + name);
+            }
+            int32_t importIdx = static_cast<int32_t>(module.imports.size());
+            module.imports.push_back({moduleId, name});
+            imported_symbols[name] = {moduleId, importIdx};
+        };
 
         if (auto artifact = registry.queryArtifactById(moduleId);
             artifact && artifact->format == NG::module::ModuleFormat::Native)
@@ -1089,9 +1217,7 @@ namespace NG::orgasm
             }
             for (auto &&name : names)
             {
-                int32_t importIdx = static_cast<int32_t>(module.imports.size());
-                module.imports.push_back({moduleId, name});
-                imported_symbols[name] = {moduleId, importIdx};
+                addShortImport(name);
             }
             return;
         }
@@ -1114,19 +1240,34 @@ namespace NG::orgasm
             moduleInfo->bytecodeModule = std::make_shared<BytecodeModule>(std::move(bc));
             registry.addModuleInfo(moduleInfo);
         }
+        if (auto cu = dynamic_ast_cast<CompileUnit>(moduleInfo->moduleAst); cu && cu->module)
+        {
+            for (auto &&def : cu->module->definitions)
+            {
+                importedDefinitions.push_back(def.get());
+            }
+        }
 
         auto bc = moduleInfo->bytecodeModule;
+        if (importDecl->imports.empty())
+        {
+            auto alias = importDecl->alias.empty() ? importDecl->module : importDecl->alias;
+            auto &qualified = qualified_import_symbols[alias];
+            for (auto &&[name, index] : bc->exports)
+            {
+                int32_t importIdx = static_cast<int32_t>(module.imports.size());
+                module.imports.push_back({moduleId, name});
+                qualified[name] = {moduleId, importIdx};
+            }
+            return;
+        }
         for (auto &&imp : importDecl->imports) {
             if (imp == "*") {
                 for (auto &&[name, index] : bc->exports) {
-                    int32_t importIdx = static_cast<int32_t>(module.imports.size());
-                    module.imports.push_back({moduleId, name});
-                    imported_symbols[name] = {moduleId, importIdx};
+                    addShortImport(name);
                 }
             } else {
-                int32_t importIdx = static_cast<int32_t>(module.imports.size());
-                module.imports.push_back({moduleId, imp});
-                imported_symbols[imp] = {moduleId, importIdx};
+                addShortImport(imp);
             }
         }
     }
@@ -1195,6 +1336,55 @@ namespace NG::orgasm
 
     void Compiler::visit(ast::FunCallExpression *funCallExpr)
     {
+        auto foldIt = std::find_if(funCallExpr->arguments.begin(), funCallExpr->arguments.end(), [](const auto &arg) {
+            return dynamic_ast_cast<PostfixFoldExpression>(arg) != nullptr;
+        });
+        if (foldIt != funCallExpr->arguments.end())
+        {
+            auto target = dynamic_ast_cast<IdExpression>(funCallExpr->primaryExpression);
+            if (!target)
+            {
+                throw NotImplementedException("ORGASM fold calls require a direct function name");
+            }
+            int32_t funIndex = -1;
+            for (size_t i = 0; i < module.functions.size(); ++i)
+            {
+                if (module.functions[i].name == target->id)
+                {
+                    funIndex = static_cast<int32_t>(i);
+                    break;
+                }
+            }
+            if (funIndex < 0)
+            {
+                throw NotImplementedException("ORGASM fold calls only support local functions: " + target->id);
+            }
+            auto foldIndex = static_cast<size_t>(std::distance(funCallExpr->arguments.begin(), foldIt));
+            if (funCallExpr->arguments.size() != 2 || (foldIndex != 0 && foldIndex != 1))
+            {
+                throw NotImplementedException("Fold call expects `op(xs..., init)` or `op(init, xs...)`");
+            }
+            auto fold = dynamic_ast_cast<PostfixFoldExpression>(*foldIt);
+            if (fold->filter)
+            {
+                throw NotImplementedException("Filter marker `?...` is only supported in array literals");
+            }
+            if (foldIndex == 0)
+            {
+                fold->expression->accept(this);
+                funCallExpr->arguments[1]->accept(this);
+                emit(OpCode::FOLD_RIGHT_CALL);
+            }
+            else
+            {
+                funCallExpr->arguments[0]->accept(this);
+                fold->expression->accept(this);
+                emit(OpCode::FOLD_LEFT_CALL);
+            }
+            emit_u16(static_cast<uint16_t>(funIndex));
+            return;
+        }
+
         if (auto idExpr = dynamic_ast_cast<IdExpression>(funCallExpr->primaryExpression))
         {
             if (idExpr->id == "print")
@@ -1267,16 +1457,27 @@ namespace NG::orgasm
             {
                 auto &funName = module.functions[funIndex].name;
                 FunctionDef *def = functionDefs.contains(funName) ? functionDefs[funName] : nullptr;
-                bool hasPack = def && !def->genericParams.empty() && def->genericParams.back()->isPack;
+                int32_t packIndex = -1;
+                if (def)
+                {
+                    for (int32_t i = 0; i < static_cast<int32_t>(def->params.size()); ++i)
+                    {
+                        if (is_variadic_param(def->params[i].get()))
+                        {
+                            packIndex = i;
+                            break;
+                        }
+                    }
+                }
 
-                if (hasPack) {
+                if (packIndex >= 0) {
                     // Emit non-pack args normally
-                    int32_t nonPackCount = static_cast<int32_t>(def->params.size()) - 1;
+                    int32_t nonPackCount = packIndex;
                     for (int32_t i = 0; i < nonPackCount && i < static_cast<int32_t>(funCallExpr->arguments.size()); ++i) {
                         funCallExpr->arguments[i]->accept(this);
                     }
                     // Pack remaining args into a NEW_TUPLE
-                    int32_t packStart = nonPackCount;
+                    int32_t packStart = packIndex;
                     int32_t packCount = static_cast<int32_t>(funCallExpr->arguments.size()) - packStart;
                     for (int32_t i = packStart; i < static_cast<int32_t>(funCallExpr->arguments.size()); ++i) {
                         funCallExpr->arguments[i]->accept(this);
@@ -1363,8 +1564,7 @@ namespace NG::orgasm
             
             if (imported_symbols.contains(idExpr->id)) {
                 auto &imp = imported_symbols[idExpr->id];
-                if (nativeFnNames.contains(idExpr->id) &&
-                    (imp.moduleName == "std.prelude" || imp.moduleName == "std.imgui"))
+                if (nativeFnNames.contains(idExpr->id) && imp.moduleName.starts_with("std."))
                 {
                     auto emittedArgs = emit_call_arguments(funCallExpr->arguments);
                     uint16_t nameIdx = static_cast<uint16_t>(module.strings.size());
@@ -1413,6 +1613,20 @@ namespace NG::orgasm
         }
         else if (auto idAcc = dynamic_ast_cast<IdAccessorExpression>(funCallExpr->primaryExpression))
         {
+            if (auto moduleExpr = dynamic_ast_cast<IdExpression>(idAcc->primaryExpression);
+                moduleExpr && qualified_import_symbols.contains(moduleExpr->id))
+            {
+                auto memberName = idAcc->accessor->repr();
+                auto &qualified = qualified_import_symbols.at(moduleExpr->id);
+                if (qualified.contains(memberName))
+                {
+                    auto emittedArgs = emit_call_arguments(funCallExpr->arguments);
+                    emit(OpCode::CALL_IMPORT);
+                    emit_u16(static_cast<uint16_t>(qualified.at(memberName).importIndex));
+                    emit_u16(emittedArgs);
+                    return;
+                }
+            }
             auto emittedArgs = emit_call_arguments(funCallExpr->arguments);
             idAcc->primaryExpression->accept(this);
             uint16_t nameIndex = static_cast<uint16_t>(module.strings.size());
@@ -1436,6 +1650,20 @@ namespace NG::orgasm
 
     void Compiler::visit(ast::IdAccessorExpression *idAccExpr)
     {
+        if (auto moduleExpr = dynamic_ast_cast<IdExpression>(idAccExpr->primaryExpression);
+            moduleExpr && qualified_import_symbols.contains(moduleExpr->id))
+        {
+            auto memberName = idAccExpr->accessor->repr();
+            auto &qualified = qualified_import_symbols.at(moduleExpr->id);
+            if (qualified.contains(memberName))
+            {
+                auto emittedArgs = emit_call_arguments(idAccExpr->arguments);
+                emit(OpCode::CALL_IMPORT);
+                emit_u16(static_cast<uint16_t>(qualified.at(memberName).importIndex));
+                emit_u16(emittedArgs);
+                return;
+            }
+        }
         idAccExpr->primaryExpression->accept(this);
         auto emittedArgs = emit_call_arguments(idAccExpr->arguments);
         uint16_t nameIndex = static_cast<uint16_t>(module.strings.size());
@@ -1474,9 +1702,61 @@ namespace NG::orgasm
 
     void Compiler::visit(ast::IndexAccessorExpression *idxAccExpr)
     {
+        if (auto range = dynamic_ast_cast<RangeExpression>(idxAccExpr->accessor))
+        {
+            idxAccExpr->primary->accept(this);
+            if (range->start)
+            {
+                range->start->accept(this);
+            }
+            else
+            {
+                emit(OpCode::PUSH_I32);
+                emit_i32(0);
+            }
+            if (range->end)
+            {
+                range->end->accept(this);
+            }
+            else
+            {
+                emit(OpCode::PUSH_I32);
+                emit_i32(std::numeric_limits<int32_t>::max());
+            }
+            if (range->inclusive)
+            {
+                emit(OpCode::PUSH_I32);
+                emit_i32(1);
+                emit(OpCode::ADD);
+            }
+            emit(OpCode::SLICE_RANGE);
+            return;
+        }
         idxAccExpr->primary->accept(this);
         idxAccExpr->accessor->accept(this);
         emit(OpCode::GET_INDEX);
+    }
+
+    void Compiler::visit(ast::RangeExpression *rangeExpr)
+    {
+        if (!rangeExpr->start || !rangeExpr->end)
+        {
+            throw NotImplementedException("Open range expressions are only supported inside index access");
+        }
+        rangeExpr->start->accept(this);
+        rangeExpr->end->accept(this);
+        emit(OpCode::MAKE_RANGE);
+        emit_u8(rangeExpr->inclusive ? 1 : 0);
+    }
+
+    void Compiler::visit(ast::FromEndIndexExpression *fromEndExpr)
+    {
+        fromEndExpr->index->accept(this);
+        uint16_t nameIdx = static_cast<uint16_t>(module.strings.size());
+        module.strings.push_back("__ng_from_end");
+        emit(OpCode::NATIVE_CALL);
+        emit_u16(nameIdx);
+        emit_u16(1);
     }
 
     void Compiler::visit(ast::IndexAssignmentExpression *idxAssignExpr)
@@ -2354,11 +2634,71 @@ namespace NG::orgasm
         spreadExpr->expression->accept(this);
     }
 
+    void Compiler::visit(ast::PostfixFoldExpression *foldExpr)
+    {
+        throw NotImplementedException("Postfix fold expression is only supported in array literals or fold calls");
+    }
+
     void Compiler::visit(ast::ArrayLiteral *arrayLit)
     {
+        if (arrayLit->elements.size() == 1)
+        {
+            if (auto fold = dynamic_ast_cast<PostfixFoldExpression>(arrayLit->elements[0]))
+            {
+                auto call = dynamic_ast_cast<FunCallExpression>(fold->expression);
+                auto target = call ? dynamic_ast_cast<IdExpression>(call->primaryExpression) : nullptr;
+                if (!call || !target || call->arguments.size() != 1 || !dynamic_ast_cast<IdExpression>(call->arguments[0]))
+                {
+                    throw NotImplementedException("ORGASM map/filter fold expects `fn(xs)...` or `fn(xs)?...`");
+                }
+                int32_t funIndex = -1;
+                for (size_t i = 0; i < module.functions.size(); ++i)
+                {
+                    if (module.functions[i].name == target->id)
+                    {
+                        funIndex = static_cast<int32_t>(i);
+                        break;
+                    }
+                }
+                if (funIndex < 0)
+                {
+                    throw NotImplementedException("ORGASM map/filter fold only supports local functions: " + target->id);
+                }
+                call->arguments[0]->accept(this);
+                emit(fold->filter ? OpCode::FOLD_FILTER_CALL : OpCode::FOLD_MAP_CALL);
+                emit_u16(static_cast<uint16_t>(funIndex));
+                return;
+            }
+        }
         bool hasSpread = false;
         for (auto &&elem : arrayLit->elements) {
-            if (dynamic_ast_cast<SpreadExpression>(elem)) hasSpread = true;
+            if (dynamic_ast_cast<SpreadExpression>(elem) || dynamic_ast_cast<PostfixFoldExpression>(elem)) hasSpread = true;
+            if (auto fold = dynamic_ast_cast<PostfixFoldExpression>(elem))
+            {
+                auto call = dynamic_ast_cast<FunCallExpression>(fold->expression);
+                auto target = call ? dynamic_ast_cast<IdExpression>(call->primaryExpression) : nullptr;
+                if (!call || !target || call->arguments.size() != 1 || !dynamic_ast_cast<IdExpression>(call->arguments[0]))
+                {
+                    throw NotImplementedException("ORGASM map/filter fold expects `fn(xs)...` or `fn(xs)?...`");
+                }
+                int32_t funIndex = -1;
+                for (size_t i = 0; i < module.functions.size(); ++i)
+                {
+                    if (module.functions[i].name == target->id)
+                    {
+                        funIndex = static_cast<int32_t>(i);
+                        break;
+                    }
+                }
+                if (funIndex < 0)
+                {
+                    throw NotImplementedException("ORGASM map/filter fold only supports local functions: " + target->id);
+                }
+                call->arguments[0]->accept(this);
+                emit(fold->filter ? OpCode::FOLD_FILTER_CALL : OpCode::FOLD_MAP_CALL);
+                emit_u16(static_cast<uint16_t>(funIndex));
+                continue;
+            }
             elem->accept(this);
         }
 
@@ -2366,7 +2706,7 @@ namespace NG::orgasm
             emit(OpCode::NEW_ARRAY_SPREAD);
             emit_u16(static_cast<uint16_t>(arrayLit->elements.size()));
             for (auto &&elem : arrayLit->elements) {
-                if (dynamic_ast_cast<SpreadExpression>(elem)) emit_u8(1);
+                if (dynamic_ast_cast<SpreadExpression>(elem) || dynamic_ast_cast<PostfixFoldExpression>(elem)) emit_u8(1);
                 else emit_u8(0);
             }
         } else {

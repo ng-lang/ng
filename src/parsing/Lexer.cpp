@@ -51,6 +51,7 @@ namespace NG::parsing
     {">>", TokenType::RSHIFT},
 
     {"&", TokenType::AMPERSAND},
+    {"|>", TokenType::PIPE_FORWARD},
     {"|", TokenType::PIPE},
     {"^", TokenType::CARET},
     {"~", TokenType::TILDE},

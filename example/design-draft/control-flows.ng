@@ -2,7 +2,7 @@
 println("hello world");
 
 fun fact(n) {
-    return range(1, n+1).reduce((n, x)=> x * n);
+    return mul((1..(n + 1))..., 1);
 }
 
 fun loop_exmaples() {

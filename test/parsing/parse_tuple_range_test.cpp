@@ -54,3 +54,36 @@ TEST_CASE("parser should fail when parse invalid spread operator and multiple bi
 {
     parseInvalid("val (x, ..., ) = (1, 2, 3);", "Unpacking binding must be last one");
 }
+
+TEST_CASE("parser should parse range slicing from-end index and pipeline expressions",
+          "[Parser][Range][Pipeline]")
+{
+    auto ast = parse(R"(
+        val xs = 0..=4;
+        val window = xs[1..3];
+        val prefix = xs[..3];
+        val suffix = xs[2..];
+        val last = xs[^1];
+        val copy = xs |> reverse;
+    )");
+    REQUIRE(ast != nullptr);
+    REQUIRE(ast->repr().find("0..=4") != Str::npos);
+    REQUIRE(ast->repr().find("xs[1..3]") != Str::npos);
+    REQUIRE(ast->repr().find("xs[^1]") != Str::npos);
+    destroyast(ast);
+}
+
+TEST_CASE("parser should parse postfix fold expressions", "[Parser][Fold]")
+{
+    auto ast = parse(R"(
+        val ys = [inc(xs)...];
+        val evens = [even(xs)?...];
+        val right = plus(xs..., 0);
+        val left = plus(0, xs...);
+    )");
+    REQUIRE(ast != nullptr);
+    REQUIRE(ast->repr().find("inc(xs)...") != Str::npos);
+    REQUIRE(ast->repr().find("even(xs)?...") != Str::npos);
+    REQUIRE(ast->repr().find("xs...") != Str::npos);
+    destroyast(ast);
+}

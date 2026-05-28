@@ -1,0 +1,16 @@
+import std.string (trim, split, join, contains, regexMatch);
+import std.array (reverse);
+import std.io (currentExecutablePath);
+
+val cleaned: string = trim("  alpha,beta,gamma  ");
+val parts: string vector = split(cleaned, ",");
+val nums: i32 vector = [...(1..5)];
+val window: i32 vector = [...nums[1..3]];
+val reversed: i32 vector = reverse(window);
+
+assert(join(parts, "|") == "alpha|beta|gamma");
+assert(contains(cleaned, "beta"));
+assert(regexMatch(cleaned, "alpha.*gamma"));
+assert(reversed[0] == 3);
+assert(reversed[1] == 2);
+assert(regexMatch(currentExecutablePath(), ".+"));

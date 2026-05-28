@@ -59,6 +59,7 @@ namespace NG::typecheck
         UNION = 0xB5,
         TRAIT = 0xB6,
         SPAN = 0xB7,
+        RANGE = 0xB8,
 
         GENERICS = 0xC0,
         GENERIC_PARAM = 0xC1,
@@ -226,7 +227,7 @@ namespace NG::typecheck
     struct ArrayType : TypeInfo
     {
         CheckingRef<TypeInfo> elementType; ///< The element type of the array.
-        CheckingRef<TypeInfo> length; ///< Const generic length for array<T, N>. Null means legacy/unknown length.
+        CheckingRef<TypeInfo> length; ///< Const generic length for array<T, N>.
 
         explicit ArrayType(CheckingRef<TypeInfo> elementType, CheckingRef<TypeInfo> length = nullptr)
             : elementType(std::move(elementType)), length(std::move(length)) {}
@@ -276,6 +277,22 @@ namespace NG::typecheck
     };
 
     /**
+     * @brief A lazy integral range.
+     */
+    struct RangeType : TypeInfo
+    {
+        CheckingRef<TypeInfo> elementType;
+
+        explicit RangeType(CheckingRef<TypeInfo> elementType) : elementType(std::move(elementType)) {}
+
+        [[nodiscard]] auto containing(const TypeInfo &other) const -> bool;
+
+        auto tag() const -> typeinfo_tag override { return typeinfo_tag::RANGE; }
+        auto repr() const -> Str override;
+        auto match(const TypeInfo &other) const -> bool override;
+    };
+
+    /**
      * @brief A tuple type.
      */
     struct TupleType : TypeInfo
@@ -312,6 +329,7 @@ namespace NG::typecheck
         Str moduleId;
         bool nativeOpaque = false;
         bool abstract = false;
+        Vec<CheckingRef<TypeInfo>> typeArgs;
         Map<Str, CheckingRef<TypeInfo>> properties;
         Map<Str, CheckingRef<FunctionType>> memberFunctions;
         Map<Str, Map<Str, CheckingRef<FunctionType>>> traitMemberFunctions;

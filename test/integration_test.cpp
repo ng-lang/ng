@@ -185,6 +185,10 @@ TEST_CASE("should run numbered examples", "[Integration]")
       "example/40.trait_object_list.ng",
       "example/41.drop_smart_pointer.ng",
       "example/52.const_array_vector_span.ng",
+      "example/56.stdlib_modules.ng",
+      "example/57.ranges_slicing_pipeline.ng",
+      "example/58.fold_expressions.ng",
+      "example/59.std_list_sequence.ng",
       "example/50.partial_move.ng",
       "example/51.partial_move_drop.ng",
   };
@@ -224,6 +228,74 @@ TEST_CASE("STUPID should import source module through canonical module id",
   auto ast = parse(R"(
     import pkg.math (*);
     assert(answer() == 42);
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto preludeTypes = NG::typecheck::build_prelude_type_index();
+  NG::typecheck::type_check(ast, preludeTypes, {"[force-module-loader]"});
+
+  Interpreter *intp = NG::intp::stupid();
+  ast->accept(intp);
+
+  delete intp;
+  destroyast(ast);
+}
+
+TEST_CASE("STUPID should reject conflicting imported symbols from different modules",
+          "[Integration][ModuleArtifact]")
+{
+  SourceModuleFixture fixture;
+  fixture.write("pkg/alpha.ng", R"(
+    module pkg.alpha exports *;
+    fun duplicated() -> i32 {
+      return 1;
+    }
+  )");
+  fixture.write("pkg/beta.ng", R"(
+    module pkg.beta exports *;
+    fun duplicated() -> i32 {
+      return 2;
+    }
+  )");
+
+  auto ast = parse(R"(
+    import pkg.alpha (*);
+    import pkg.beta (*);
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto preludeTypes = NG::typecheck::build_prelude_type_index();
+  NG::typecheck::type_check(ast, preludeTypes, {"[force-module-loader]"});
+
+  Interpreter *intp = NG::intp::stupid();
+  REQUIRE_THROWS_WITH(ast->accept(intp), Catch::Matchers::ContainsSubstring("Import conflict for symbol: duplicated"));
+
+  delete intp;
+  destroyast(ast);
+}
+
+TEST_CASE("STUPID should allow qualified imports to avoid symbol conflicts",
+          "[Integration][ModuleArtifact]")
+{
+  SourceModuleFixture fixture;
+  fixture.write("pkg/alpha.ng", R"(
+    module pkg.alpha exports *;
+    fun duplicated() -> i32 {
+      return 1;
+    }
+  )");
+  fixture.write("pkg/beta.ng", R"(
+    module pkg.beta exports *;
+    fun duplicated() -> i32 {
+      return 2;
+    }
+  )");
+
+  auto ast = parse(R"(
+    import pkg.alpha as first;
+    import pkg.beta;
+    assert(first.duplicated() == 1);
+    assert(beta.duplicated() == 2);
   )");
   REQUIRE(ast != nullptr);
 

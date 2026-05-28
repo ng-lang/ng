@@ -91,6 +91,10 @@ namespace NG::typecheck
     {
       return "span<" + canonical_type_name(span->elementType) + ">";
     }
+    if (auto range = dynamic_cast<const RangeType *>(&type))
+    {
+      return "Range<" + canonical_type_name(range->elementType) + ">";
+    }
     if (auto tuple = dynamic_cast<const TupleType *>(&type))
     {
       return "(" + join_canonical_types(tuple->elementTypes, ",") + ")";

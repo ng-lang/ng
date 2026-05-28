@@ -100,3 +100,7 @@ TEST_CASE("Orgasm example 52.const_array_vector_span.ng", "[OrgasmExample]") { r
 TEST_CASE("Orgasm example 53.const_fun.ng", "[OrgasmExample]") { runOrgasmExample("example/53.const_fun.ng"); }
 TEST_CASE("Orgasm example 54.enhanced_tuple_types.ng", "[OrgasmExample]") { runOrgasmExample("example/54.enhanced_tuple_types.ng"); }
 TEST_CASE("Orgasm example 55.auto_derive_traits.ng", "[OrgasmExample]") { runOrgasmExample("example/55.auto_derive_traits.ng"); }
+TEST_CASE("Orgasm example 56.stdlib_modules.ng", "[OrgasmExample]") { runOrgasmExample("example/56.stdlib_modules.ng"); }
+TEST_CASE("Orgasm example 57.ranges_slicing_pipeline.ng", "[OrgasmExample]") { runOrgasmExample("example/57.ranges_slicing_pipeline.ng"); }
+TEST_CASE("Orgasm example 58.fold_expressions.ng", "[OrgasmExample]") { runOrgasmExample("example/58.fold_expressions.ng"); }
+TEST_CASE("Orgasm example 59.std_list_sequence.ng", "[OrgasmExample]") { runOrgasmExample("example/59.std_list_sequence.ng"); }

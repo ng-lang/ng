@@ -36,6 +36,23 @@ TEST_CASE("should type tuples and unit", "[TypeCheck][Tuple]")
   destroyast(ast);
 }
 
+TEST_CASE("should preserve tuple slice types", "[TypeCheck][Tuple][Range]")
+{
+  auto ast = parse(R"(
+            val tup: (int, string, bool, int) = (1, "two", true, 4);
+            val mid: (string, bool) = tup[1..3];
+            val tail: (bool, int) = tup[^2..];
+        )");
+
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast);
+
+  REQUIRE(index["mid"]->repr() == "(string, bool)");
+  REQUIRE(index["tail"]->repr() == "(bool, i32)");
+  destroyast(ast);
+}
+
 TEST_CASE("should type check tuple fail", "[TypeCheck][Tuple][Failure]")
 {
   typecheck_failure("val arr: unit = 1;", "Value Define Type Mismatch: i32 to unit");
@@ -48,4 +65,5 @@ TEST_CASE("should type check tuple fail", "[TypeCheck][Tuple][Failure]")
   typecheck_failure("val (a: bool, ...b: (string, int)) = (false, false, 1);",
                     "Value Binding Type Mismatch: (bool, i32) to (string, i32)");
   typecheck_failure("val (a: bool, ...b: (string, int)) = 1;", "Value Binding Type Mismatch: i32 to tuple");
+  typecheck_failure("val bad = (1, 2)[0..3];", "Tuple slice bounds out of range");
 }

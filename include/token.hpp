@@ -132,6 +132,7 @@ namespace NG
 
         AMPERSAND, // &
         PIPE,      // |
+        PIPE_FORWARD, // |>
         CARET,     // ^
         TILDE,     // ~
 

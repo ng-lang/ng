@@ -13,7 +13,7 @@ val greeting: string = "  Hello, World!  ";
 print(trim(greeting)); // "Hello, World!"
 
 val csv: string = "apple,banana,cherry";
-val fruits: string array = split(csv, ",");
+val fruits: string vector = split(csv, ",");
 print(fruits); // ["apple", "banana", "cherry"]
 
 print(join(fruits, " | ")); // "apple | banana | cherry"
@@ -30,13 +30,13 @@ print(toUpper("hello")); // "HELLO"
 print(toLower("WORLD")); // "world"
 
 // --- Collection operations ---
-val nums: i32 array = [1, 2, 3, 4, 5];
+val nums: i32 vector = [1, 2, 3, 4, 5];
 print(reverse(nums)); // [5, 4, 3, 2, 1]
 
-val r: i32 array = range(0, 5);
+val r: i32 vector = [...(0..5)];
 print(r); // [0, 1, 2, 3, 4]
 
-val sliced: i32 array = slice([10, 20, 30, 40, 50], 1, 4);
+val sliced: i32 vector = [...[10, 20, 30, 40, 50][1..4]];
 print(sliced); // [20, 30, 40]
 
 // contains also checks string substrings

@@ -1,0 +1,11 @@
+module std.memory exports *;
+
+type UniquePtr<T> = native;
+
+fun nativeMalloc<T>(size: i32) -> UniquePtr<T> = native;
+
+fun nativeFree<T>(ptr: UniquePtr<T>) -> unit = native;
+
+fun nativeOutstandingAllocations() -> i32 = native;
+
+fun gcFree() -> unit = native;

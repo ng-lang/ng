@@ -48,6 +48,10 @@ namespace NG::typecheck
       {
         return "span<" + nestedTypeRepr(span->elementType) + ">";
       }
+      if (auto range = dynamic_cast<const RangeType *>(&type))
+      {
+        return "Range<" + nestedTypeRepr(range->elementType) + ">";
+      }
       if (auto tuple = dynamic_cast<const TupleType *>(&type))
       {
         Str out = "(";

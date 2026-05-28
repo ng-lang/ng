@@ -232,6 +232,7 @@ namespace NG::runtime
         Set<Str> traitNames;
         Vec<Str> exports;
         Vec<Str> imported;
+        Map<Str, Str> importOrigins;
     };
 
     struct RuntimeEnv
@@ -286,6 +287,32 @@ namespace NG::runtime
     [[nodiscard]] auto runtime_is_tuple_value(const RuntimeRef<StorageCell> &cell) -> bool;
     [[nodiscard]] auto runtime_tuple_length(const RuntimeRef<StorageCell> &cell) -> size_t;
     [[nodiscard]] auto runtime_tuple_slots(const RuntimeRef<StorageCell> &cell) -> Vec<RuntimeRef<StorageCell>>;
+
+    [[nodiscard]] auto from_end_index_runtime_type() -> RuntimeRef<NGType>;
+    [[nodiscard]] auto make_runtime_from_end_index(int32_t value,
+                                                   StorageClass storageClass = StorageClass::TEMPORARY)
+        -> RuntimeRef<StorageCell>;
+    [[nodiscard]] auto runtime_is_from_end_index(const RuntimeRef<StorageCell> &cell) -> bool;
+    [[nodiscard]] auto runtime_from_end_index_value(const RuntimeRef<StorageCell> &cell) -> int32_t;
+
+    [[nodiscard]] auto range_runtime_type() -> RuntimeRef<NGType>;
+    [[nodiscard]] auto make_runtime_range_cell(const RuntimeRef<StorageCell> &start,
+                                               const RuntimeRef<StorageCell> &end,
+                                               bool inclusive,
+                                               StorageClass storageClass = StorageClass::TEMPORARY)
+        -> RuntimeRef<StorageCell>;
+    [[nodiscard]] auto runtime_is_range_value(const RuntimeRef<StorageCell> &cell) -> bool;
+    [[nodiscard]] auto runtime_range_slots(const RuntimeRef<StorageCell> &cell) -> Vec<RuntimeRef<StorageCell>>;
+
+    [[nodiscard]] auto span_runtime_type() -> RuntimeRef<NGType>;
+    [[nodiscard]] auto make_runtime_span_cell(const Vec<RuntimeRef<StorageCell>> &slots,
+                                              StorageClass storageClass = StorageClass::TEMPORARY)
+        -> RuntimeRef<StorageCell>;
+    [[nodiscard]] auto runtime_is_span_value(const RuntimeRef<StorageCell> &cell) -> bool;
+    [[nodiscard]] auto runtime_span_slots(const RuntimeRef<StorageCell> &cell) -> Vec<RuntimeRef<StorageCell>>;
+    [[nodiscard]] auto runtime_builtin_sequence_slots(const RuntimeRef<StorageCell> &cell) -> Vec<RuntimeRef<StorageCell>>;
+    [[nodiscard]] auto runtime_sequence_length(const RuntimeRef<StorageCell> &cell) -> size_t;
+    [[nodiscard]] auto runtime_sequence_slot(const RuntimeRef<StorageCell> &cell, size_t index) -> RuntimeRef<StorageCell>;
 
     [[nodiscard]] auto boolean_runtime_type() -> RuntimeRef<NGType>;
 
@@ -407,6 +434,7 @@ namespace NG::runtime
     [[nodiscard]] auto runtime_module_trait_names(const RuntimeRef<StorageCell> &value) -> Set<Str>;
     [[nodiscard]] auto runtime_module_native_functions(const RuntimeRef<StorageCell> &value) -> Map<Str, NGCallable>;
     [[nodiscard]] auto runtime_module_imports(const RuntimeRef<StorageCell> &value) -> Set<Str>;
+    [[nodiscard]] auto runtime_module_import_origins(const RuntimeRef<StorageCell> &value) -> Map<Str, Str>;
     [[nodiscard]] auto runtime_module_exports(const RuntimeRef<StorageCell> &value) -> Set<Str>;
     void runtime_module_add_export(const RuntimeRef<StorageCell> &value, const Str &name);
     void runtime_module_set_native_function(const RuntimeRef<StorageCell> &value, const Str &name, NGCallable handler);

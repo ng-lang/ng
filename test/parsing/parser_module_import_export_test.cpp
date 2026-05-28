@@ -84,6 +84,26 @@ TEST_CASE("Should export single declaration", "[Parser][Export][Native]")
   destroyast(ast);
 }
 
+TEST_CASE("parser should parse exported imports", "[Parser][Module][Import][Export]")
+{
+  auto ast = parse(R"(
+        export import std.string (*);
+        export import std.array (reverse);
+    )");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  REQUIRE(compileUnit->module->imports.size() == 2);
+  REQUIRE(compileUnit->module->imports[0]->exported);
+  REQUIRE(compileUnit->module->imports[0]->imports == Vec<Str>{"*"});
+  REQUIRE(compileUnit->module->imports[1]->exported);
+  REQUIRE(compileUnit->module->imports[1]->imports == Vec<Str>{"reverse"});
+  REQUIRE(std::ranges::find(compileUnit->module->exports, "reverse") != compileUnit->module->exports.end());
+
+  destroyast(ast);
+}
+
 TEST_CASE("Should not export statement", "[Parser][Export]")
 {
   parseInvalid(

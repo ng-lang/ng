@@ -35,7 +35,7 @@ Prerequisites:
 Unblocks:
 
 - [`const fun` And Compile-Time Computation](const_fun.md)
-- [Enhanced Tuple Types](enhanced_tuples.md), for `tuple_element<T, I>` and tuple slice bounds.
+- [Enhanced Tuple Types](../enhanced_tuples.md), for `tuple_element<T, I>` and tuple slice bounds.
 - Stable `.ngo` symbol persistence in [Bytecode Module Loading](bytecode_module_loading.md).
 
 ## Scope
@@ -77,8 +77,10 @@ The collection type split is:
 Compatibility migration:
 
 - `[T]` type annotation is treated as `vector<T>`.
-- Legacy suffix syntax `T array` is treated as `vector<T>`.
-- `array<T>` is rejected; callers must write `array<T, N>` or `vector<T>`.
+- Suffix syntax is purely generic sugar: `T vector` is `vector<T>`, and
+  `T array` is `array<T>`.
+- `array<T>` is rejected; callers must write `array<T, N>` for fixed arrays or
+  `vector<T>` / `T vector` for dynamic vectors.
 - Array literals remain runtime array cells today, but type-check as `vector<T>` unless an expected fixed `array<T, N>` type is present.
 
 Implemented behavior in this stage:

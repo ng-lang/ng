@@ -77,9 +77,9 @@ TEST_CASE("parser should parse const generic parameters and arguments", "[Parser
 // Suffix Generic Syntax: `T TypeName` => TypeName<T>
 // ============================================================================
 
-TEST_CASE("parser should parse suffix generic syntax: bool array", "[Parser][Generics][Suffix]")
+TEST_CASE("parser should parse suffix generic syntax: bool vector", "[Parser][Generics][Suffix]")
 {
-  auto ast = parse("val x: bool array = [];");
+  auto ast = parse("val x: bool vector = [];");
   REQUIRE(ast != nullptr);
 
   auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
@@ -93,7 +93,6 @@ TEST_CASE("parser should parse suffix generic syntax: bool array", "[Parser][Gen
   auto valStmt = dynamic_ast_cast<ValDefStatement>(valDef->body);
   REQUIRE(valStmt != nullptr);
   REQUIRE(valStmt->typeAnnotation != nullptr);
-  // Legacy `bool array` suffix now desugars to dynamic `vector<bool>`.
   REQUIRE(valStmt->typeAnnotation->name == "vector");
   REQUIRE(valStmt->typeAnnotation->type == TypeAnnotationType::CUSTOMIZED);
   REQUIRE(valStmt->typeAnnotation->genericArgs.size() == 1);
@@ -103,7 +102,27 @@ TEST_CASE("parser should parse suffix generic syntax: bool array", "[Parser][Gen
   destroyast(ast);
 }
 
-TEST_CASE("parser should parse suffix generic with numeric type: i32 array", "[Parser][Generics][Suffix]")
+TEST_CASE("parser should parse suffix generic with numeric type: i32 vector", "[Parser][Generics][Suffix]")
+{
+  auto ast = parse("val xs: i32 vector = [];");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto valDef = dynamic_ast_cast<ValDef>(compileUnit->module->definitions[0]);
+  REQUIRE(valDef != nullptr);
+  auto valStmt = dynamic_ast_cast<ValDefStatement>(valDef->body);
+  REQUIRE(valStmt != nullptr);
+  REQUIRE(valStmt->typeAnnotation != nullptr);
+  REQUIRE(valStmt->typeAnnotation->name == "vector");
+  REQUIRE(valStmt->typeAnnotation->genericArgs.size() == 1);
+  REQUIRE(valStmt->typeAnnotation->genericArgs[0]->name == "i32");
+  REQUIRE(valStmt->typeAnnotation->genericArgs[0]->type == TypeAnnotationType::BUILTIN_I32);
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should preserve suffix generic names: i32 array", "[Parser][Generics][Suffix]")
 {
   auto ast = parse("val xs: i32 array = [];");
   REQUIRE(ast != nullptr);
@@ -115,8 +134,7 @@ TEST_CASE("parser should parse suffix generic with numeric type: i32 array", "[P
   auto valStmt = dynamic_ast_cast<ValDefStatement>(valDef->body);
   REQUIRE(valStmt != nullptr);
   REQUIRE(valStmt->typeAnnotation != nullptr);
-  // Legacy `i32 array` suffix now desugars to dynamic `vector<i32>`.
-  REQUIRE(valStmt->typeAnnotation->name == "vector");
+  REQUIRE(valStmt->typeAnnotation->name == "array");
   REQUIRE(valStmt->typeAnnotation->genericArgs.size() == 1);
   REQUIRE(valStmt->typeAnnotation->genericArgs[0]->name == "i32");
   REQUIRE(valStmt->typeAnnotation->genericArgs[0]->type == TypeAnnotationType::BUILTIN_I32);
@@ -124,11 +142,11 @@ TEST_CASE("parser should parse suffix generic with numeric type: i32 array", "[P
   destroyast(ast);
 }
 
-TEST_CASE("parser should parse suffix generic with left-associative nesting: i32 array Optional",
+TEST_CASE("parser should parse suffix generic with left-associative nesting: i32 Optional List",
           "[Parser][Generics][Suffix]")
 {
-  // `i32 array Optional` desugars to `Optional<vector<i32>>`
-  auto ast = parse("val x: i32 array Optional = unit;");
+  // `i32 Optional List` desugars to `List<Optional<i32>>`
+  auto ast = parse("val x: i32 Optional List = unit;");
   REQUIRE(ast != nullptr);
 
   auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
@@ -139,14 +157,14 @@ TEST_CASE("parser should parse suffix generic with left-associative nesting: i32
   REQUIRE(valStmt != nullptr);
   REQUIRE(valStmt->typeAnnotation != nullptr);
 
-  // Outer: Optional<...>
-  REQUIRE(valStmt->typeAnnotation->name == "Optional");
+  // Outer: List<...>
+  REQUIRE(valStmt->typeAnnotation->name == "List");
   REQUIRE(valStmt->typeAnnotation->type == TypeAnnotationType::CUSTOMIZED);
   REQUIRE(valStmt->typeAnnotation->genericArgs.size() == 1);
 
-  // Inner: vector<i32>
+  // Inner: Optional<i32>
   auto inner = valStmt->typeAnnotation->genericArgs[0];
-  REQUIRE(inner->name == "vector");
+  REQUIRE(inner->name == "Optional");
   REQUIRE(inner->type == TypeAnnotationType::CUSTOMIZED);
   REQUIRE(inner->genericArgs.size() == 1);
   REQUIRE(inner->genericArgs[0]->name == "i32");
@@ -215,7 +233,7 @@ TEST_CASE("parser should parse multi-param suffix with left-associative nesting:
 TEST_CASE("parser should parse suffix generic in function signature", "[Parser][Generics][Suffix]")
 {
   // Suffix generic in parameter and return type positions
-  auto ast = parse("fun process(xs: i32 array) -> bool array { return []; }");
+  auto ast = parse("fun process(xs: i32 vector) -> bool vector { return []; }");
   REQUIRE(ast != nullptr);
 
   auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
@@ -224,14 +242,14 @@ TEST_CASE("parser should parse suffix generic in function signature", "[Parser][
   REQUIRE(funDef != nullptr);
   REQUIRE(funDef->funName == "process");
 
-  // Param: `i32 array` => vector<i32>
+  // Param: `i32 vector` => vector<i32>
   REQUIRE(funDef->params.size() == 1);
   REQUIRE(funDef->params[0]->annotatedType != nullptr);
   REQUIRE(funDef->params[0]->annotatedType->name == "vector");
   REQUIRE(funDef->params[0]->annotatedType->genericArgs.size() == 1);
   REQUIRE(funDef->params[0]->annotatedType->genericArgs[0]->name == "i32");
 
-  // Return: `bool array` => vector<bool>
+  // Return: `bool vector` => vector<bool>
   REQUIRE(funDef->returnType != nullptr);
   REQUIRE(funDef->returnType->name == "vector");
   REQUIRE(funDef->returnType->genericArgs.size() == 1);

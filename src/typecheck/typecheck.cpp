@@ -101,7 +101,9 @@ namespace NG::typecheck
     return type;
   }
 
-  static auto sequence_element_type(const CheckingRef<TypeInfo> &type) -> CheckingRef<TypeInfo>
+  static auto stripTypeInstanceSuffix(const Str &typeName) -> Str;
+
+  static auto builtin_sequence_element_type(const CheckingRef<TypeInfo> &type) -> CheckingRef<TypeInfo>
   {
     auto unwrapped = unwrap(type);
     if (auto array = std::dynamic_pointer_cast<ArrayType>(unwrapped))
@@ -116,12 +118,32 @@ namespace NG::typecheck
     {
       return span->elementType;
     }
+    if (auto range = std::dynamic_pointer_cast<RangeType>(unwrapped))
+    {
+      return range->elementType;
+    }
+    if (auto varargs = std::dynamic_pointer_cast<VarargsType>(unwrapped))
+    {
+      if (varargs->elementTypes.empty())
+      {
+        return nullptr;
+      }
+      auto elementType = varargs->elementTypes.front();
+      for (auto &nextType : varargs->elementTypes)
+      {
+        if (!typeMatch(*elementType, *nextType))
+        {
+          return makecheck<Untyped>();
+        }
+      }
+      return elementType;
+    }
     return nullptr;
   }
 
-  static auto is_sequence_type(const CheckingRef<TypeInfo> &type) -> bool
+  static auto is_builtin_sequence_type(const CheckingRef<TypeInfo> &type) -> bool
   {
-    return sequence_element_type(type) != nullptr;
+    return builtin_sequence_element_type(type) != nullptr;
   }
 
   static auto const_value_equals_size(const CheckingRef<TypeInfo> &type, size_t value) -> bool
@@ -854,6 +876,10 @@ namespace NG::typecheck
       {
         return "span<" + self(span->elementType, self) + ">";
       }
+      if (auto range = std::dynamic_pointer_cast<RangeType>(type))
+      {
+        return "Range<" + self(range->elementType, self) + ">";
+      }
       if (auto constValue = std::dynamic_pointer_cast<ConstValueType>(type))
       {
         return constValue->repr();
@@ -1046,6 +1072,7 @@ namespace NG::typecheck
     Set<Str> derivedTraitImplKeys;
     Set<Str> importedSymbolNames;
     Set<Str> importedImplNames;
+    Set<Str> exportedImportNames;
     Map<Str, Str> importAliases;
     Vec<Str> importedModuleIds;
     Vec<Str> modulePaths;
@@ -1070,6 +1097,158 @@ namespace NG::typecheck
     }
 
     bool hasWildcardImportFlag() const { return locals.contains(WILDCARD_IMPORT_KEY); }
+
+    auto resolveTypeAnnotationWithBindings(const TypeAnnotation *annotation,
+                                           const Map<Str, CheckingRef<TypeInfo>> &bindings) const
+        -> CheckingRef<TypeInfo>
+    {
+      if (!annotation)
+      {
+        return nullptr;
+      }
+      auto scope = locals;
+      for (const auto &[name, type] : bindings)
+      {
+        scope[name] = type;
+      }
+      TypeChecker checker{scope, {}, nullptr, {}, false, activeGenericInstanceName, modulePaths};
+      checker.trait_impls_by_type = trait_impls_by_type;
+      checker.localTraitImpls = localTraitImpls;
+      const_cast<TypeAnnotation *>(annotation)->accept(&checker);
+      return checker.result;
+    }
+
+    auto sequenceElementType(const CheckingRef<TypeInfo> &type) const -> CheckingRef<TypeInfo>
+    {
+      if (auto builtin = builtin_sequence_element_type(type))
+      {
+        return builtin;
+      }
+
+      auto unwrapped = unwrap(deref_reference_type(type));
+      auto custom = std::dynamic_pointer_cast<CustomizedType>(unwrapped);
+      if (!custom)
+      {
+        return nullptr;
+      }
+      if (custom->memberFunctions.contains("size") && custom->memberFunctions.contains("get"))
+      {
+        return custom->memberFunctions.at("get")->returnType;
+      }
+
+      for (const auto &impl : localTraitImpls)
+      {
+        if (impl.traitName != "Sequence" || !impl.definition || !impl.definition->targetType ||
+            !impl.definition->trait)
+        {
+          continue;
+        }
+        auto genericParamNames = impl.genericParamNames.empty()
+                                     ? genericParamNameSet(impl.definition->genericParams)
+                                     : impl.genericParamNames;
+        Map<Str, CheckingRef<TypeInfo>> bindings;
+        const bool patternMatches =
+            typePatternMatch(impl.definition->targetType.get(), unwrapped, genericParamNames, bindings);
+        if (!patternMatches &&
+            (stripTypeInstanceSuffix(impl.definition->targetType->name) != stripTypeInstanceSuffix(custom->name) ||
+             impl.definition->targetType->genericArgs.empty()))
+        {
+          continue;
+        }
+        if (!impl.definition->targetType->genericArgs.empty())
+        {
+          Vec<CheckingRef<TypeInfo>> actualArgs = custom->typeArgs;
+          if (actualArgs.empty())
+          {
+            for (auto &argName : parseTypeInstanceArgs(custom->name))
+            {
+              if (auto primitive = PrimitiveType::from(argName))
+              {
+                actualArgs.push_back(primitive);
+              }
+              else
+              {
+                actualArgs.push_back(makecheck<CustomizedType>(argName));
+              }
+            }
+          }
+          (void)typePatternArgListMatches(impl.definition->targetType->genericArgs, actualArgs,
+                                          genericParamNames, bindings);
+        }
+        if (impl.definition->trait->genericArgs.size() != 1)
+        {
+          continue;
+        }
+        auto traitElement = impl.definition->trait->genericArgs.front().get();
+        if (traitElement && traitElement->genericArgs.empty() && traitElement->arguments.empty())
+        {
+          if (auto binding = bindings.find(traitElement->name); binding != bindings.end())
+          {
+            return binding->second;
+          }
+        }
+        return resolveTypeAnnotationWithBindings(impl.definition->trait->genericArgs.front().get(), bindings);
+      }
+
+      for (const auto &impl : localTraitImpls)
+      {
+        if (impl.traitName != "Sequence" ||
+            stripTypeInstanceSuffix(impl.targetPattern) != stripTypeInstanceSuffix(custom->name))
+        {
+          continue;
+        }
+        Vec<CheckingRef<TypeInfo>> actualArgs = custom->typeArgs;
+        if (actualArgs.empty())
+        {
+          for (auto &argName : parseTypeInstanceArgs(custom->name))
+          {
+            if (auto primitive = PrimitiveType::from(argName))
+            {
+              actualArgs.push_back(primitive);
+            }
+            else
+            {
+              actualArgs.push_back(makecheck<CustomizedType>(argName));
+            }
+          }
+        }
+        auto patternArgs = parseTypeInstanceArgs(impl.targetPattern);
+        if (actualArgs.empty() || patternArgs.size() != actualArgs.size())
+        {
+          continue;
+        }
+        if (impl.genericParamNames.size() == 1)
+        {
+          auto genericName = *impl.genericParamNames.begin();
+          for (size_t i = 0; i < patternArgs.size(); ++i)
+          {
+            if (patternArgs[i] == genericName)
+            {
+              return actualArgs[i];
+            }
+          }
+        }
+        if (actualArgs.size() == 1)
+        {
+          return actualArgs.front();
+        }
+      }
+
+      if (auto traitIt = custom->traitMemberFunctions.find("Sequence");
+          traitIt != custom->traitMemberFunctions.end())
+      {
+        if (auto getIt = traitIt->second.find("get"); getIt != traitIt->second.end() && getIt->second)
+        {
+          return getIt->second->returnType;
+        }
+      }
+      return nullptr;
+    }
+
+    auto isSequenceType(const CheckingRef<TypeInfo> &type) const -> bool
+    {
+      return sequenceElementType(type) != nullptr;
+    }
 
     void rejectBorrowConflict(const Str &operation, const Str &place, TokenPosition pos) const
     {
@@ -1815,6 +1994,12 @@ namespace NG::typecheck
         auto span = std::dynamic_pointer_cast<SpanType>(unwrap(actual));
         return span && pattern->genericArgs.size() == 1 &&
                typePatternMatch(pattern->genericArgs[0].get(), span->elementType, genericParamNames, bindings);
+      }
+      if (pattern->name == "Range")
+      {
+        auto range = std::dynamic_pointer_cast<RangeType>(unwrap(actual));
+        return range && pattern->genericArgs.size() == 1 &&
+               typePatternMatch(pattern->genericArgs[0].get(), range->elementType, genericParamNames, bindings);
       }
       auto actualName = actual->repr();
       if (auto custom = std::dynamic_pointer_cast<CustomizedType>(unwrap(actual)))
@@ -3143,6 +3328,10 @@ namespace NG::typecheck
       {
         return generic->bound == trait.name || traitImplies(generic->bound, trait.name);
       }
+      if (trait.name == "Sequence" && isSequenceType(candidate))
+      {
+        return true;
+      }
       auto custom = std::dynamic_pointer_cast<CustomizedType>(candidate);
       if (!custom)
       {
@@ -3352,6 +3541,7 @@ namespace NG::typecheck
       case GenericTypeKind::TYPE_DEF:
       {
         auto customType = makecheck<CustomizedType>(instanceName, false, false, genericDef.moduleId);
+        customType->typeArgs = typeArgs;
         genericDef.instances[instanceName] = customType;
 
         TypeChecker checker{instLocals};
@@ -3956,6 +4146,7 @@ namespace NG::typecheck
     {
       ModuleArtifacts artifacts;
       artifacts.exports.insert(module->exports.begin(), module->exports.end());
+      artifacts.exports.insert(exportedImportNames.begin(), exportedImportNames.end());
       const bool exportsAll = artifacts.exports.contains("*");
       for (const auto &[name, type] : locals)
       {
@@ -3976,7 +4167,11 @@ namespace NG::typecheck
       for (const auto &impl : localTraitImpls)
       {
         auto implName = "impl " + impl.traitName + " for " + impl.targetPattern;
-        const bool explicitlyExported = artifacts.exports.contains(implName);
+        auto explicitImplName = impl.definition && impl.definition->trait
+                                    ? "impl " + impl.definition->trait->repr() + " for " + impl.targetPattern
+                                    : implName;
+        const bool explicitlyExported = artifacts.exports.contains(implName) ||
+                                        artifacts.exports.contains(explicitImplName);
         if ((exportsAll && !importedImplNames.contains(implName)) || explicitlyExported)
         {
           artifacts.exportedImpls.push_back(impl);
@@ -4093,7 +4288,7 @@ namespace NG::typecheck
             locals[funDef->funName] = genericDef;
 
             // Register generic type params in a temporary scope so parameter
-            // type annotations (e.g. `T array`) can resolve them during
+            // type annotations (e.g. `T vector`) can resolve them during
             // monomorphization later.  We don't need to fully type-check the
             // body here, but the params must be visible for annotation parsing.
             {
@@ -5426,7 +5621,7 @@ namespace NG::typecheck
         valBind->value->accept(&checker);
         auto valType = checker.result;
         movedBindings = checker.movedBindings;
-        if (auto elementType = sequence_element_type(valType); elementType)
+        if (auto elementType = sequenceElementType(valType); elementType)
         {
           for (size_t i = 0; i < valBind->bindings.size(); ++i)
           {
@@ -6008,6 +6203,22 @@ namespace NG::typecheck
           }
         }
 
+        if (annotation->name == "Range")
+        {
+          if (annotation->genericArgs.size() == 1)
+          {
+            TypeChecker checker{locals};
+            annotation->genericArgs[0]->accept(&checker);
+            auto argType = checker.result;
+            if (argType)
+            {
+              result = makecheck<RangeType>(argType);
+              return;
+            }
+            throw TypeCheckingException("Unknown element type for Range");
+          }
+        }
+
         if (annotation->name == "tuple_element")
         {
           if (annotation->genericArgs.size() != 2)
@@ -6148,6 +6359,19 @@ namespace NG::typecheck
               return;
             }
 
+            if (auto traitType = std::dynamic_pointer_cast<TraitType>(it->second))
+            {
+              if (traitType->typeParamNames.size() != typeArgs.size())
+              {
+                throw TypeCheckingException("Trait '" + annotation->name + "' expects " +
+                                                std::to_string(traitType->typeParamNames.size()) +
+                                                " type argument(s), got " + std::to_string(typeArgs.size()),
+                                            annotation->pos);
+              }
+              result = traitType;
+              return;
+            }
+
             auto *genericType = dynamic_cast<GenericTypeDef *>(&(*it->second));
             if (!genericType)
             {
@@ -6231,7 +6455,7 @@ namespace NG::typecheck
     {
       if (arrayLit->elements.empty())
       {
-        if (expectedType && is_sequence_type(expectedType))
+        if (expectedType && isSequenceType(expectedType))
         {
           if (auto expectedArray = std::dynamic_pointer_cast<ArrayType>(unwrap(expectedType));
               expectedArray && expectedArray->length && !const_value_equals_size(expectedArray->length, 0))
@@ -6248,16 +6472,77 @@ namespace NG::typecheck
         }
         return;
       }
-      auto expectedElementType = sequence_element_type(expectedType);
+      auto foldElementType = [&](const ASTRef<PostfixFoldExpression> &fold) -> CheckingRef<TypeInfo> {
+        auto call = dynamic_ast_cast<FunCallExpression>(fold->expression);
+        if (!call || call->arguments.size() != 1)
+        {
+          throw TypeCheckingException("Map/filter fold expects a single-argument function call", fold->pos);
+        }
+        auto driver = dynamic_ast_cast<IdExpression>(call->arguments[0]);
+        if (!driver)
+        {
+          throw TypeCheckingException("Map/filter fold driver must be a single sequence identifier", fold->pos);
+        }
+
+        TypeChecker sequenceChecker{locals, {}, nullptr, movedBindings};
+        call->arguments[0]->accept(&sequenceChecker);
+        auto sequenceType = sequenceChecker.result;
+        auto elementType = sequenceElementType(sequenceType);
+        if (!elementType)
+        {
+          throw TypeCheckingException("Map/filter fold driver must be a Sequence-compatible type: " +
+                                          sequenceType->repr(),
+                                      fold->pos);
+        }
+
+        auto elementLocals = locals;
+        elementLocals[driver->id] = elementType;
+        TypeChecker bodyChecker{elementLocals, {}, nullptr, sequenceChecker.movedBindings};
+        fold->expression->accept(&bodyChecker);
+        movedBindings = bodyChecker.movedBindings;
+        if (fold->filter)
+        {
+          if (!bodyChecker.result || bodyChecker.result->tag() != typeinfo_tag::BOOL)
+          {
+            throw TypeCheckingException("Filter fold expression must return bool", fold->pos);
+          }
+          return elementType;
+        }
+        return bodyChecker.result;
+      };
+
+      if (arrayLit->elements.size() == 1)
+      {
+        if (auto fold = dynamic_ast_cast<PostfixFoldExpression>(arrayLit->elements[0]))
+        {
+          result = makecheck<VectorType>(foldElementType(fold));
+          return;
+        }
+      }
+      auto expectedElementType = sequenceElementType(expectedType);
       TypeChecker checker{locals, {}, nullptr, movedBindings};
       checker.expectedType = expectedElementType;
-      arrayLit->elements[0]->accept(&checker);
-      auto elemType = checker.result;
+      CheckingRef<TypeInfo> elemType;
+      if (auto fold = dynamic_ast_cast<PostfixFoldExpression>(arrayLit->elements[0]))
+      {
+        elemType = foldElementType(fold);
+      }
+      else
+      {
+        arrayLit->elements[0]->accept(&checker);
+        elemType = checker.result;
+      }
       for (size_t i = 1; i < arrayLit->elements.size(); ++i)
       {
         checker.expectedType = expectedElementType;
-        arrayLit->elements[i]->accept(&checker);
-        auto nextType = checker.result;
+        auto nextType = [&]() -> CheckingRef<TypeInfo> {
+          if (auto fold = dynamic_ast_cast<PostfixFoldExpression>(arrayLit->elements[i]))
+          {
+            return foldElementType(fold);
+          }
+          arrayLit->elements[i]->accept(&checker);
+          return checker.result;
+        }();
         if (!typeMatch(*elemType, *nextType))
         {
           if (typeMatch(*nextType, *elemType))
@@ -6325,6 +6610,8 @@ namespace NG::typecheck
     void visit(SpreadExpression *spread) override
     {
       TypeChecker checker{locals, {}, nullptr, movedBindings};
+      checker.trait_impls_by_type = trait_impls_by_type;
+      checker.localTraitImpls = localTraitImpls;
       spread->expression->accept(&checker);
       auto type = checker.result;
       movedBindings = checker.movedBindings;
@@ -6345,7 +6632,7 @@ namespace NG::typecheck
           spreadResult.push_back(elemType);
         }
       }
-      else if (auto elementType = sequence_element_type(type); elementType)
+      else if (auto elementType = sequenceElementType(type); elementType)
       {
         // Contiguous sequence spread does not expand compile-time arity.
         result = elementType;
@@ -6354,6 +6641,13 @@ namespace NG::typecheck
       {
         throw TypeCheckingException("Invalid spread expression on type, expect tuple, varargs, array, vector, or span, got " + type->repr());
       }
+    }
+
+    void visit(PostfixFoldExpression *fold) override
+    {
+      throw TypeCheckingException("Postfix fold expression is only supported in array literals or fold calls: " +
+                                      fold->repr(),
+                                  fold->pos);
     }
 
     void visit(IndexAccessorExpression *indexAccess) override
@@ -6369,6 +6663,125 @@ namespace NG::typecheck
       if (primaryType->tag() == typeinfo_tag::UNTYPED)
       {
         result = makecheck<Untyped>();
+        return;
+      }
+      if (auto range = dynamic_ast_cast<RangeExpression>(indexAccess->accessor))
+      {
+        auto validateBound = [&](const ASTRef<Expression> &bound) {
+          if (!bound)
+          {
+            return;
+          }
+          if (auto fromEnd = dynamic_ast_cast<FromEndIndexExpression>(bound))
+          {
+            if (fromEnd->index)
+            {
+              fromEnd->index->accept(&checker);
+            }
+          }
+          else
+          {
+            bound->accept(&checker);
+          }
+          auto boundType = checker.result;
+          if (boundType && boundType->tag() != typeinfo_tag::UNTYPED && !isIntegralType(boundType->tag()))
+          {
+            throw TypeCheckingException("Range bound must be integral: " + bound->repr(), bound->pos);
+          }
+        };
+        validateBound(range->start);
+        validateBound(range->end);
+
+        if (primaryType->tag() == typeinfo_tag::TUPLE)
+        {
+          auto &tupleType = static_cast<TupleType &>(*primaryType);
+          auto staticBound = [&](const ASTRef<Expression> &bound, size_t defaultValue) -> std::optional<size_t> {
+            if (!bound)
+            {
+              return defaultValue;
+            }
+            auto literal = dynamic_ast_cast<IntegralValue<int32_t>>(bound);
+            if (literal)
+            {
+              if (literal->value < 0) return std::nullopt;
+              return static_cast<size_t>(literal->value);
+            }
+            if (auto fromEnd = dynamic_ast_cast<FromEndIndexExpression>(bound))
+            {
+              auto fromEndLiteral = dynamic_ast_cast<IntegralValue<int32_t>>(fromEnd->index);
+              if (!fromEndLiteral || fromEndLiteral->value < 0)
+              {
+                return std::nullopt;
+              }
+              auto offset = static_cast<size_t>(fromEndLiteral->value);
+              if (offset > tupleType.elementTypes.size())
+              {
+                return std::nullopt;
+              }
+              return tupleType.elementTypes.size() - offset;
+            }
+            return std::nullopt;
+          };
+          auto start = staticBound(range->start, 0);
+          auto end = staticBound(range->end, tupleType.elementTypes.size());
+          if (!start || !end)
+          {
+            throw TypeCheckingException("Tuple slice bounds must be compile-time non-negative integers",
+                                        indexAccess->accessor->pos);
+          }
+          auto exclusiveEnd = *end + (range->inclusive ? 1 : 0);
+          if (*start > exclusiveEnd || exclusiveEnd > tupleType.elementTypes.size())
+          {
+            throw TypeCheckingException("Tuple slice bounds out of range: " + range->repr(), indexAccess->accessor->pos);
+          }
+          Vec<CheckingRef<TypeInfo>> elements;
+          for (size_t i = *start; i < exclusiveEnd; ++i)
+          {
+            elements.push_back(tupleType.elementTypes[i]);
+          }
+          movedBindings = checker.movedBindings;
+          result = makecheck<TupleType>(std::move(elements));
+          return;
+        }
+
+        auto elementType = sequenceElementType(primaryType);
+        if (!elementType)
+        {
+          throw TypeCheckingException("Range index on non-contiguous sequence type: " + primaryType->repr());
+        }
+        movedBindings = checker.movedBindings;
+        result = makecheck<SpanType>(elementType);
+        return;
+      }
+      if (auto fromEnd = dynamic_ast_cast<FromEndIndexExpression>(indexAccess->accessor))
+      {
+        if (fromEnd->index)
+        {
+          fromEnd->index->accept(&checker);
+          auto indexType = checker.result;
+          if (!indexType || (!isIntegralType(indexType->tag()) && indexType->tag() != typeinfo_tag::UNTYPED))
+          {
+            throw TypeCheckingException("From-end index must be integral: " + fromEnd->repr(), fromEnd->pos);
+          }
+        }
+        auto elementType = primaryType->tag() == typeinfo_tag::TUPLE
+                               ? makecheck<Untyped>()
+                               : sequenceElementType(primaryType);
+        if (primaryType->tag() == typeinfo_tag::TUPLE)
+        {
+          auto &tupleType = static_cast<TupleType &>(*primaryType);
+          if (auto literal = dynamic_ast_cast<IntegralValue<int32_t>>(fromEnd->index);
+              literal && literal->value > 0 && static_cast<size_t>(literal->value) <= tupleType.elementTypes.size())
+          {
+            elementType = tupleType.elementTypes[tupleType.elementTypes.size() - static_cast<size_t>(literal->value)];
+          }
+        }
+        if (!elementType)
+        {
+          throw TypeCheckingException("Index accessor on non-contiguous sequence type: " + primaryType->repr());
+        }
+        movedBindings = checker.movedBindings;
+        result = elementType;
         return;
       }
       if (primaryType->tag() == typeinfo_tag::TUPLE)
@@ -6402,7 +6815,7 @@ namespace NG::typecheck
         result = makecheck<Untyped>();
         return;
       }
-      auto elementType = sequence_element_type(primaryType);
+      auto elementType = sequenceElementType(primaryType);
       if (!elementType)
       {
         throw TypeCheckingException("Index accessor on non-contiguous sequence type: " + primaryType->repr());
@@ -6422,6 +6835,37 @@ namespace NG::typecheck
         }
       }
       result = elementType;
+    }
+
+    void visit(RangeExpression *range) override
+    {
+      if (!range->start || !range->end)
+      {
+        throw TypeCheckingException("Open range expressions are only supported inside index access", range->pos);
+      }
+      TypeChecker checker{locals, {}, nullptr, movedBindings, true, activeGenericInstanceName};
+      range->start->accept(&checker);
+      auto startType = checker.result;
+      range->end->accept(&checker);
+      auto endType = checker.result;
+      movedBindings = checker.movedBindings;
+      if ((startType && startType->tag() != typeinfo_tag::UNTYPED && !isIntegralType(startType->tag())) ||
+          (endType && endType->tag() != typeinfo_tag::UNTYPED && !isIntegralType(endType->tag())))
+      {
+        throw TypeCheckingException("Range expression bounds must be integral", range->pos);
+      }
+      CheckingRef<TypeInfo> elementType = makecheck<PrimitiveType>(typeinfo_tag::I32);
+      if (startType && endType && startType->tag() == endType->tag() && isIntegralType(startType->tag()))
+      {
+        elementType = startType;
+      }
+      result = makecheck<RangeType>(elementType);
+    }
+
+    void visit(FromEndIndexExpression *fromEnd) override
+    {
+      throw TypeCheckingException("From-end index is only supported inside index access: " + fromEnd->repr(),
+                                  fromEnd->pos);
     }
 
     void visit(IdAccessorExpression *idAccExpr) override
@@ -6455,12 +6899,20 @@ namespace NG::typecheck
       // Tuple, varargs, and contiguous sequence types support common members like .size.
       auto tag = primaryType->tag();
       bool isCollectionType = (tag == typeinfo_tag::TUPLE || tag == typeinfo_tag::VARARGS ||
-                               is_sequence_type(primaryType));
+                               isSequenceType(primaryType));
       if (isCollectionType)
       {
         if (memberName == "size")
         {
           memberType = makecheck<PrimitiveType>(typeinfo_tag::U32);
+        }
+        else if (memberName == "get")
+        {
+          if (auto elementType = sequenceElementType(primaryType))
+          {
+            memberType = makecheck<FunctionType>(
+                elementType, Vec<CheckingRef<TypeInfo>>{primaryType, makecheck<PrimitiveType>(typeinfo_tag::I32)});
+          }
         }
       }
 
@@ -6812,7 +7264,7 @@ namespace NG::typecheck
       {
         throw TypeCheckingException("Invalid index assignment expression: " + indexAssign->primary->repr());
       }
-      auto sequenceElementType = sequence_element_type(primaryType);
+      auto sequenceElementType = this->sequenceElementType(primaryType);
       if (!sequenceElementType && primaryType->tag() != typeinfo_tag::TUPLE)
       {
         throw TypeCheckingException("Index assignment on non-contiguous sequence type: " + primaryType->repr());
@@ -7059,6 +7511,10 @@ namespace NG::typecheck
           locals.insert_or_assign(name, makecheck<Untyped>());
         }
         importedSymbolNames.insert(name);
+        if (importDecl.exported)
+        {
+          exportedImportNames.insert(name);
+        }
       }
 
       if (!importAll)
@@ -7078,7 +7534,9 @@ namespace NG::typecheck
         CheckingRef<TypeInfo> targetType;
         if (impl.definition)
         {
-          TypeChecker targetChecker{locals, {}, nullptr, {}, false, "", modulePaths};
+          auto targetScope = locals;
+          addGenericParamsToScope(targetScope, impl.definition->genericParams);
+          TypeChecker targetChecker{targetScope, {}, nullptr, {}, false, "", modulePaths};
           impl.definition->targetType->accept(&targetChecker);
           targetType = targetChecker.result;
         }
@@ -7189,6 +7647,10 @@ namespace NG::typecheck
         else
         {
           locals.insert_or_assign(imp, makecheck<Untyped>());
+          if (importDecl->exported)
+          {
+            exportedImportNames.insert(imp);
+          }
         }
       }
     }
@@ -7589,6 +8051,74 @@ namespace NG::typecheck
             }
           }
         }
+      }
+
+      auto foldArgIt = std::find_if(funCall->arguments.begin(), funCall->arguments.end(), [](const auto &arg) {
+        return dynamic_ast_cast<PostfixFoldExpression>(arg) != nullptr;
+      });
+      if (foldArgIt != funCall->arguments.end())
+      {
+        auto secondFoldArg = std::find_if(std::next(foldArgIt), funCall->arguments.end(), [](const auto &arg) {
+          return dynamic_ast_cast<PostfixFoldExpression>(arg) != nullptr;
+        });
+        if (secondFoldArg != funCall->arguments.end())
+        {
+          throw TypeCheckingException("Fold call supports only one postfix fold pack", funCall->pos);
+        }
+        auto foldIndex = static_cast<size_t>(std::distance(funCall->arguments.begin(), foldArgIt));
+        if (funCall->arguments.size() != 2 || (foldIndex != 0 && foldIndex != 1))
+        {
+          throw TypeCheckingException("Fold call expects `op(xs..., init)` or `op(init, xs...)`", funCall->pos);
+        }
+        auto fold = dynamic_ast_cast<PostfixFoldExpression>(*foldArgIt);
+        if (fold->filter)
+        {
+          throw TypeCheckingException("Filter marker `?...` is only supported in array literals", fold->pos);
+        }
+
+        TypeChecker checker{locals, {}, nullptr, movedBindings};
+        funCall->primaryExpression->accept(&checker);
+        auto primaryType = checker.result;
+        auto funcType = primaryType ? dynamic_cast<FunctionType *>(&(*primaryType)) : nullptr;
+        if (!funcType)
+        {
+          throw TypeCheckingException("Fold call requires a non-generic function value", funCall->pos);
+        }
+        if (funcType->parametersType.size() != 2)
+        {
+          throw TypeCheckingException("Fold call operator must be binary: " + funcType->repr(), funCall->pos);
+        }
+
+        fold->expression->accept(&checker);
+        auto sequenceType = checker.result;
+        auto elementType = sequenceElementType(sequenceType);
+        if (!elementType)
+        {
+          throw TypeCheckingException("Fold pack must be a Sequence-compatible value: " + sequenceType->repr(),
+                                      fold->pos);
+        }
+
+        auto initIndex = foldIndex == 0 ? 1UZ : 0UZ;
+        funCall->arguments[initIndex]->accept(&checker);
+        auto accumulatorType = checker.result;
+        movedBindings = checker.movedBindings;
+
+        Vec<CheckingRef<TypeInfo>> argumentTypes =
+            foldIndex == 0 ? Vec<CheckingRef<TypeInfo>>{elementType, accumulatorType}
+                           : Vec<CheckingRef<TypeInfo>>{accumulatorType, elementType};
+        if (!functionApplyWithCoercions(*funcType, argumentTypes))
+        {
+          throw TypeCheckingException("Invalid fold operator argument types for function: " + funcType->repr(),
+                                      funCall->pos);
+        }
+        if (!typeMatches(*accumulatorType, *funcType->returnType))
+        {
+          throw TypeCheckingException("Fold operator return type must match accumulator type: " +
+                                          funcType->returnType->repr() + " to " + accumulatorType->repr(),
+                                      funCall->pos);
+        }
+        result = accumulatorType;
+        return;
       }
 
       TypeChecker checker{locals, {}, nullptr, movedBindings};
@@ -8246,6 +8776,19 @@ namespace NG::typecheck
               substitution[packGp->name] = makecheck<VarargsType>(packElements);
               break; // Pack consumes all remaining args; no more params to process
             }
+            if (auto varargsParam = std::dynamic_pointer_cast<VarargsType>(unwrap(paramType)); varargsParam)
+            {
+              if (varargsParam->elementTypes.empty())
+              {
+                break;
+              }
+              auto elementPattern = varargsParam->elementTypes.front();
+              for (size_t j = i; j < argumentTypes.size(); ++j)
+              {
+                extractGenericBindings(elementPattern, argumentTypes[j], substitution);
+              }
+              break; // Homogeneous varargs consume all remaining args.
+            }
             // Non-pack: unify param type with argument type
             if (i < argumentTypes.size())
             {
@@ -8693,6 +9236,12 @@ namespace NG::typecheck
           }))
       {
         return span;
+      }
+      if (auto range = parseUnaryGeneric("Range<", [](CheckingRef<TypeInfo> inner) {
+            return makecheck<RangeType>(std::move(inner));
+          }))
+      {
+        return range;
       }
       if (repr.starts_with("array<") && repr.ends_with(">"))
       {

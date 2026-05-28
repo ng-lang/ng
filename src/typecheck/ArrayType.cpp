@@ -99,4 +99,28 @@ namespace NG::typecheck
   {
     return elementType->match(other);
   }
+
+  auto RangeType::repr() const -> Str
+  {
+    return "Range<" + elementType->repr() + ">";
+  }
+
+  auto RangeType::match(const TypeInfo &other) const -> bool
+  {
+    if (other.tag() != typeinfo_tag::RANGE)
+    {
+      return false;
+    }
+    const auto &rangeType = static_cast<const RangeType &>(other);
+    if (rangeType.elementType->tag() == typeinfo_tag::UNTYPED || elementType->tag() == typeinfo_tag::UNTYPED)
+    {
+      return true;
+    }
+    return elementType->match(*rangeType.elementType);
+  }
+
+  auto RangeType::containing(const TypeInfo &other) const -> bool
+  {
+    return elementType->match(other);
+  }
 } // namespace NG::typecheck

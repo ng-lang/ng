@@ -60,7 +60,10 @@ namespace NG::ast
         TUPLE_UNPACKING_EXPRESSION = 0x211,
         TYPEOF_EXPRESSION = 0x212,
         SPREAD_EXPRESSION = 0x213,
+        RANGE_EXPRESSION = 0x215,
+        FROM_END_INDEX_EXPRESSION = 0x216,
         QUALIFIED_TRAIT_CALL_EXPRESSION = 0x217,
+        POSTFIX_FOLD_EXPRESSION = 0x218,
 
         LITERAL = 0x300,
         INTEGER_VALUE = 0x301,
@@ -144,6 +147,7 @@ namespace NG::ast
         Vec<Str> modulePath; ///< The path to the module.
         Str alias;           ///< The alias for the module.
         Vec<Str> imports;    ///< The symbols to import.
+        bool exported = false; ///< True when this import is re-exported by the current module.
 
         auto astNodeType() const -> ASTNodeType override { return ASTNodeType::IMPORT_DECLARATION; }
 
@@ -684,6 +688,43 @@ namespace NG::ast
         ~IndexAccessorExpression() override;
     };
 
+    struct RangeExpression : Expression
+    {
+        ASTRef<Expression> start = nullptr;
+        ASTRef<Expression> end = nullptr;
+        bool inclusive = false;
+
+        RangeExpression(ASTRef<Expression> start, ASTRef<Expression> end, bool inclusive)
+            : start(std::move(start)), end(std::move(end)), inclusive(inclusive)
+        {
+        }
+
+        void accept(AstVisitor *visitor) override;
+
+        auto astNodeType() const -> ASTNodeType override { return ASTNodeType::RANGE_EXPRESSION; }
+
+        [[nodiscard]]
+        auto repr() const -> Str override;
+
+        ~RangeExpression() override;
+    };
+
+    struct FromEndIndexExpression : Expression
+    {
+        ASTRef<Expression> index = nullptr;
+
+        explicit FromEndIndexExpression(ASTRef<Expression> index) : index(std::move(index)) {}
+
+        void accept(AstVisitor *visitor) override;
+
+        auto astNodeType() const -> ASTNodeType override { return ASTNodeType::FROM_END_INDEX_EXPRESSION; }
+
+        [[nodiscard]]
+        auto repr() const -> Str override;
+
+        ~FromEndIndexExpression() override;
+    };
+
     /**
      * @brief An index assignment expression.
      */
@@ -1056,6 +1097,27 @@ namespace NG::ast
     };
 
     /**
+     * @brief A postfix fold expression marker (`expr...` or `expr?...`).
+     */
+    struct PostfixFoldExpression : Expression
+    {
+        ASTRef<Expression> expression; ///< The expression to fold over.
+        bool filter = false;           ///< Whether this is the fixed filter marker `?...`.
+
+        explicit PostfixFoldExpression(ASTRef<Expression> expr, bool filter = false)
+            : expression(std::move(expr)), filter(filter) {}
+
+        void accept(AstVisitor *visitor) override;
+
+        auto astNodeType() const -> ASTNodeType override { return ASTNodeType::POSTFIX_FOLD_EXPRESSION; }
+
+        [[nodiscard]]
+        auto repr() const -> Str override;
+
+        ~PostfixFoldExpression() override;
+    };
+
+    /**
      * @brief A property definition.
      */
     struct PropertyDef : Definition
@@ -1267,7 +1329,15 @@ namespace NG::ast
         Vec<ASTRef<GenericParam>> genericParams;///< The generic type parameters (e.g. <T>).
         Vec<VariantDef> variants;              ///< The variants.
 
-        auto names() const -> Vec<Str> override { return Vec<Str>{typeName}; }
+        auto names() const -> Vec<Str> override
+        {
+            Vec<Str> result{typeName};
+            for (const auto &variant : variants)
+            {
+                result.push_back(variant.variantName);
+            }
+            return result;
+        }
         auto astNodeType() const -> ASTNodeType override { return ASTNodeType::TAGGED_UNION_DEFINITION; }
 
         void accept(AstVisitor *visitor) override;

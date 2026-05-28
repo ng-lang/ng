@@ -10,23 +10,51 @@ namespace NG::runtime
   inline auto runtime_index_slot(const RuntimeRef<StorageCell> &container, const RuntimeRef<StorageCell> &index)
       -> RuntimeRef<StorageCell>
   {
-    auto indexValue = read_numeric_cell_as<int32_t>(index);
-    if (indexValue < 0)
+    int32_t indexValue = 0;
+    if (runtime_is_from_end_index(index))
     {
-      throw RuntimeException("Index out of bounds: " + std::to_string(indexValue));
+      auto fromEnd = runtime_from_end_index_value(index);
+      if (fromEnd <= 0)
+      {
+        throw RuntimeException("From-end index must be positive: " + std::to_string(fromEnd));
+      }
+      size_t length = 0;
+      try
+      {
+        length = runtime_sequence_length(container);
+      }
+      catch (const RuntimeException &)
+      {
+        throw IllegalTypeException("Not index-accessible");
+      }
+      if (length == 0 || static_cast<size_t>(fromEnd) > length)
+      {
+        throw RuntimeException("Index out of bounds: ^" + std::to_string(fromEnd));
+      }
+      indexValue = static_cast<int32_t>(length - static_cast<size_t>(fromEnd));
+    }
+    else
+    {
+      indexValue = read_numeric_cell_as<int32_t>(index);
+      if (indexValue < 0)
+      {
+        throw RuntimeException("Index out of bounds: " + std::to_string(indexValue));
+      }
     }
 
     auto offset = static_cast<size_t>(indexValue);
-    if (runtime_is_array_value(container))
+    try
     {
-      return array_element_slot(container, offset);
+      return runtime_sequence_slot(container, offset);
     }
-    if (runtime_is_tuple_value(container))
+    catch (const RuntimeException &ex)
     {
-      return tuple_element_slot(container, offset);
+      if (Str{ex.what()}.find("Expected Sequence-compatible runtime value") != Str::npos)
+      {
+        throw IllegalTypeException("Not index-accessible");
+      }
+      throw;
     }
-
-    throw IllegalTypeException("Not index-accessible");
   }
 
   inline auto runtime_index_read(const RuntimeRef<StorageCell> &container, const RuntimeRef<StorageCell> &index)

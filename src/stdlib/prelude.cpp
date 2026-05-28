@@ -13,6 +13,7 @@
 #include <cctype>
 #include <cstdio>
 #include <fstream>
+#include <initializer_list>
 #include <iostream>
 #include <regex>
 #include <cstdlib>
@@ -349,34 +350,11 @@ namespace NG::library::prelude
        }
        return make_runtime_array_cell(*items);
      }},
-    {"range",
+    {"__ng_from_end",
      [](const NGSelf &, const NGEnv &context, const NGArgs &args) -> RuntimeRef<StorageCell> {
-       auto nativeArgs = native_args_view(context, args);
-       auto startNum = require_numeric_arg<int32_t>("range", nativeArgs, 0, "a start integer");
-       auto endNum = require_numeric_arg<int32_t>("range", nativeArgs, 1, "an end integer");
-       auto items = makert<Vec<RuntimeRef<StorageCell>>>();
-       int32_t step = startNum <= endNum ? 1 : -1;
-       for (int32_t i = startNum; step > 0 ? i < endNum : i > endNum; i += step)
-       {
-         items->push_back(numeral_cell_from_value<int32_t>(i));
-       }
-       return make_runtime_array_cell(*items);
-     }},
-    {"slice",
-     [](const NGSelf &, const NGEnv &context, const NGArgs &args) -> RuntimeRef<StorageCell> {
-       auto nativeArgs = native_args_view(context, args);
-       auto arrObj = require_array_arg_slot("slice", nativeArgs, 0, "an array");
-       auto startNum = require_numeric_arg<int32_t>("slice", nativeArgs, 1, "a start index");
-       auto endNum = require_numeric_arg<int32_t>("slice", nativeArgs, 2, "an end index");
-       auto src = runtime_array_slots(arrObj);
-       auto items = makert<Vec<RuntimeRef<StorageCell>>>();
-       int32_t s = std::max(0, startNum);
-       int32_t e = std::min(static_cast<int32_t>(src.size()), endNum);
-       for (int32_t i = s; i < e; ++i)
-       {
-         items->push_back(clone_runtime_storage_cell(src[i], StorageClass::TEMPORARY));
-       }
-       return make_runtime_array_cell(*items);
+       auto value = require_numeric_arg<int32_t>("__ng_from_end", native_args_view(context, args), 0,
+                                                 "a from-end index");
+       return make_runtime_from_end_index(value);
      }},
     {"nativeMalloc",
      [](const NGSelf &, const NGEnv &context, const NGArgs &args) -> RuntimeRef<StorageCell> {
@@ -421,12 +399,58 @@ namespace NG::library::prelude
      }},
   };
 
+  static auto handlers_for(std::initializer_list<Str> names) -> Map<Str, NGCallable>
+  {
+    Map<Str, NGCallable> selected;
+    for (const auto &name : names)
+    {
+      if (auto it = handlers.find(name); it != handlers.end())
+      {
+        selected.insert_or_assign(name, it->second);
+      }
+    }
+    return selected;
+  }
+
   void do_register()
   {
-    register_native_library("std.prelude", handlers);
+    auto preludeHandlers = handlers_for({
+        "print",
+        "assert",
+        "len",
+    });
+    register_native_library("std.prelude", preludeHandlers);
+    register_native_library("std.io", handlers_for({
+                                      "readLine",
+                                      "readFile",
+                                      "writeFile",
+                                      "currentExecutablePath",
+                                      "runNgi",
+                                  }));
+    register_native_library("std.string", handlers_for({
+                                          "split",
+                                          "join",
+                                          "trim",
+                                          "contains",
+                                          "replace",
+                                          "startsWith",
+                                          "endsWith",
+                                          "toUpper",
+                                          "toLower",
+                                          "regexMatch",
+                                      }));
+    register_native_library("std.array", handlers_for({
+                                         "reverse",
+                                     }));
+    register_native_library("std.memory", handlers_for({
+                                          "nativeMalloc",
+                                          "nativeFree",
+                                          "nativeOutstandingAllocations",
+                                          "gcFree",
+                                      }));
     auto descriptor = makert<NG::module::NativeModuleDescriptor>();
     descriptor->moduleId = "std.prelude";
-    descriptor->functions = handlers;
+    descriptor->functions = preludeHandlers;
     descriptor->typeIndex = NG::typecheck::build_prelude_type_index();
     descriptor->exports.declared.insert("*");
     NG::module::get_module_registry().registerNativeModuleDescriptor(descriptor);

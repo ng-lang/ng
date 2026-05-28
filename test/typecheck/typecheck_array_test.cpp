@@ -109,10 +109,71 @@ TEST_CASE("should type check array with spread and unpacking", "[TypeCheck][Arra
   destroyast(ast);
 }
 
+TEST_CASE("should type check postfix fold expressions", "[TypeCheck][Array][Fold]")
+{
+  auto ast = parse(R"(
+    fun inc(value: i32) -> i32 {
+      return value + 1;
+    }
+
+    fun even(value: i32) -> bool {
+      return (value % 2) == 0;
+    }
+
+    fun foldRightStep(value: i32, acc: i32) -> i32 {
+      return value - acc;
+    }
+
+    fun foldLeftStep(acc: i32, value: i32) -> i32 {
+      return acc - value;
+    }
+
+    val xs = [1, 2, 3];
+    val ys = [inc(xs)...];
+    val evens = [even(xs)?...];
+    val mixed = [0, inc(xs)..., 9];
+    val r: i32 Range = 0..4;
+    val u: u32 Range = 1u32..10u32;
+    val fromRange = [inc(r)...];
+    val sp: i32 span = xs[0..2];
+    val fromSpan = [inc(sp)...];
+    val right = foldRightStep(xs..., 0);
+    val left = foldLeftStep(0, xs...);
+    val rangeRight = foldRightStep(r..., 0);
+    val spanLeft = foldLeftStep(0, sp...);
+  )");
+
+  REQUIRE(ast != nullptr);
+  auto index = type_check(ast);
+  check_type_tag(*index["ys"], typeinfo_tag::VECTOR);
+  check_type_tag(*index["evens"], typeinfo_tag::VECTOR);
+  check_type_tag(*index["mixed"], typeinfo_tag::VECTOR);
+  check_type_tag(*index["r"], typeinfo_tag::RANGE);
+  check_type_tag(*index["u"], typeinfo_tag::RANGE);
+  check_type_tag(*index["fromRange"], typeinfo_tag::VECTOR);
+  check_type_tag(*index["sp"], typeinfo_tag::SPAN);
+  check_type_tag(*index["fromSpan"], typeinfo_tag::VECTOR);
+  check_type_tag(*index["right"], typeinfo_tag::I32);
+  check_type_tag(*index["left"], typeinfo_tag::I32);
+  check_type_tag(*index["rangeRight"], typeinfo_tag::I32);
+  check_type_tag(*index["spanLeft"], typeinfo_tag::I32);
+  destroyast(ast);
+}
+
 TEST_CASE("should type check array fail", "[TypeCheck][Array][Failure]")
 {
   typecheck_failure("val arr: [int] = [1, 2.0, 3];", "Mismatched element type in array literal");
   typecheck_failure("val arr: [int] = [1, true, 3];", "Mismatched element type in array literal");
+  typecheck_failure(R"(
+    fun inc(value: i32) -> i32 { return value + 1; }
+    val xs = [1, 2, 3];
+    val bad = [inc(xs)?...];
+  )", "Filter fold expression must return bool");
+  typecheck_failure(R"(
+    fun plus(left: i32, right: i32) -> i32 { return left + right; }
+    val xs = [1, 2, 3];
+    val bad = plus(0, xs..., 4);
+  )", "Fold call expects `op(xs..., init)` or `op(init, xs...)`");
   // typecheck_failure("val arr: [int] = [1, 2, 3u8];", "Mismatched element type in array literal");
   typecheck_failure("val arr: [int] = [1, 2, 3]; val x: int = arr[1.0];", "Invalid index type for vector");
   typecheck_failure("val arr: [int] = [1, 2, 3]; val x: int = arr[true];", "Invalid index type for vector");
@@ -148,4 +209,26 @@ TEST_CASE("should type check fixed array const generic length", "[TypeCheck][Arr
 
   typecheck_failure("val fixed: array<int, 2> = [1, 2, 3];", "Array literal length mismatch");
   typecheck_failure("val bad: array<int> = [1];", "Fixed array type expects 2 generic arguments");
+  typecheck_failure("val bad: i32 array = [1];", "Fixed array type expects 2 generic arguments");
+}
+
+TEST_CASE("range expressions and slice syntax replace legacy std.array helpers", "[TypeCheck][Array][Range]")
+{
+  auto ast = parse(R"(
+            val r: i32 Range = 0..5;
+            val xs: i32 vector = [...r];
+            val view: i32 span = xs[1..4];
+            val ys: i32 vector = [...view];
+        )");
+
+  REQUIRE(ast != nullptr);
+  auto index = type_check(ast);
+  check_type_tag(*index["r"], typeinfo_tag::RANGE);
+  check_type_tag(*index["xs"], typeinfo_tag::VECTOR);
+  check_type_tag(*index["view"], typeinfo_tag::SPAN);
+  check_type_tag(*index["ys"], typeinfo_tag::VECTOR);
+  destroyast(ast);
+
+  typecheck_failure("val xs = range(0, 3);", "Unknown type for object: range");
+  typecheck_failure("val xs = [1, 2, 3]; val ys = slice(xs, 0, 2);", "Unknown type for object: slice");
 }

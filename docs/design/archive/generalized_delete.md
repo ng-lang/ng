@@ -24,8 +24,8 @@ Prerequisites:
 
 Unblocks:
 
-- [Enhanced Tuple Types](enhanced_tuples.md), for deleted fallback projections such as invalid `tuple_element`.
-- [Auto Traits And Derive Traits](auto_derive_traits.md), for negative or blocked auto-trait behavior.
+- [Enhanced Tuple Types](../enhanced_tuples.md), for deleted fallback projections such as invalid `tuple_element`.
+- [Auto Traits And Derive Traits](../auto_derive_traits.md), for negative or blocked auto-trait behavior.
 - Future constraint modeling that needs "matched but forbidden" diagnostics.
 
 ## Scope

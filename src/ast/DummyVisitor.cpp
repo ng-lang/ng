@@ -72,11 +72,15 @@ namespace NG::ast
 
   void DummyVisitor::visit(SpreadExpression *spreadExpr) {}
 
+  void DummyVisitor::visit(PostfixFoldExpression *foldExpr) {}
+
   void DummyVisitor::visit(ValueBindingStatement *valBind) {}
 
   void DummyVisitor::visit(Binding *binding) {}
 
   void DummyVisitor::visit(IndexAccessorExpression *index) {}
+  void DummyVisitor::visit(RangeExpression *range) {}
+  void DummyVisitor::visit(FromEndIndexExpression *fromEnd) {}
 
   void DummyVisitor::visit(IndexAssignmentExpression *index) {}
 

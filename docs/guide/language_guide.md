@@ -341,7 +341,7 @@ The `std.prelude` module is implicitly imported into every module. It provides t
 *   `print<T...>(args: T...)`: Prints one or more values to the console.
 *   `assert<T...>(assertion: T...)`: Asserts that a condition is true.
 *   `not(value: bool)`: Returns the logical negation of a boolean value.
-*   `len<T>(xs: string | T array) -> u32`: Returns the length of a string or array.
+*   `len<T>(xs: string | vector<T>) -> u32`: Returns the length of a string or vector.
 
 #### I/O
 
@@ -351,8 +351,8 @@ The `std.prelude` module is implicitly imported into every module. It provides t
 
 #### String Operations
 
-*   `split(s: string, delimiter: string) -> string array`: Splits a string by a delimiter.
-*   `join(items: string array, separator: string) -> string`: Joins an array of strings with a separator.
+*   `split(s: string, delimiter: string) -> vector<string>`: Splits a string by a delimiter.
+*   `join(items: vector<string>, separator: string) -> string`: Joins a vector of strings with a separator.
 *   `trim(s: string) -> string`: Removes leading and trailing whitespace.
 *   `contains(haystack: string, needle: string) -> bool`: Checks if a string contains a substring.
 *   `replace(s: string, old: string, replacement: string) -> string`: Replaces all occurrences of a substring.
@@ -363,9 +363,14 @@ The `std.prelude` module is implicitly imported into every module. It provides t
 
 #### Collection Operations
 
-*   `reverse<T>(xs: T array) -> T array`: Reverses an array.
-*   `range(start: i32, end: i32) -> i32 array`: Generates a range of integers from start to end (exclusive).
-*   `slice<T>(xs: T array, start: i32, end: i32) -> T array`: Returns a sub-array from start to end (exclusive).
+*   `reverse<T>(xs: vector<T>) -> vector<T>`: Reverses a vector.
+
+Ranges and slices are language syntax, not stdlib helper calls:
+
+*   `a..b` creates an end-exclusive `Range<T>`.
+*   `a..=b` creates an end-inclusive `Range<T>`.
+*   `xs[a..b]`, `xs[..b]`, and `xs[a..]` create `span<T>` views for contiguous sequences.
+*   `[...rangeOrSpan]` materializes a range or span into a `vector<T>`.
 
 ## 10. Computer Science Concepts
 
