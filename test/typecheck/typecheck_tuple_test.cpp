@@ -53,6 +53,25 @@ TEST_CASE("should preserve tuple slice types", "[TypeCheck][Tuple][Range]")
   destroyast(ast);
 }
 
+TEST_CASE("should type check tuple numeric accessors", "[TypeCheck][Tuple][Accessor]")
+{
+  auto ast = parse(R"(
+            val tup: (int, string, bool) = (1, "two", true);
+            val first: int = tup.0;
+            val second: string = tup.1;
+            val third: bool = tup.2;
+        )");
+
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast);
+
+  check_type_tag(*index["first"], typeinfo_tag::I32);
+  check_type_tag(*index["second"], typeinfo_tag::STRING);
+  check_type_tag(*index["third"], typeinfo_tag::BOOL);
+  destroyast(ast);
+}
+
 TEST_CASE("should type check tuple fail", "[TypeCheck][Tuple][Failure]")
 {
   typecheck_failure("val arr: unit = 1;", "Value Define Type Mismatch: i32 to unit");
@@ -66,4 +85,6 @@ TEST_CASE("should type check tuple fail", "[TypeCheck][Tuple][Failure]")
                     "Value Binding Type Mismatch: (bool, i32) to (string, i32)");
   typecheck_failure("val (a: bool, ...b: (string, int)) = 1;", "Value Binding Type Mismatch: i32 to tuple");
   typecheck_failure("val bad = (1, 2)[0..3];", "Tuple slice bounds out of range");
+  typecheck_failure("val bad: bool = (1, \"two\").0;", "Value Define Type Mismatch: i32 to bool");
+  typecheck_failure("val bad = (1, \"two\").2;", "Tuple element index out of range");
 }

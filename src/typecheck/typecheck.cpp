@@ -7077,6 +7077,21 @@ namespace NG::typecheck
       Str memberName = idAccExpr->accessor->repr();
 
       CheckingRef<TypeInfo> memberType = makecheck<Untyped>();
+      auto numericMemberIndex = [&]() -> std::optional<size_t> {
+        if (memberName.empty() ||
+            !std::ranges::all_of(memberName, [](unsigned char ch) { return std::isdigit(ch) != 0; }))
+        {
+          return std::nullopt;
+        }
+        try
+        {
+          return static_cast<size_t>(std::stoull(memberName));
+        }
+        catch (const std::exception &)
+        {
+          throw TypeCheckingException("Tuple element index out of range: " + memberName, idAccExpr->pos);
+        }
+      };
 
       // Adhoc polymorphic member access on built-in collection types
       // Tuple, varargs, and contiguous sequence types support common members like .size.
@@ -7085,6 +7100,28 @@ namespace NG::typecheck
                                isSequenceType(primaryType));
       if (isCollectionType)
       {
+        if (auto tupleType = std::dynamic_pointer_cast<TupleType>(primaryType); tupleType)
+        {
+          if (auto index = numericMemberIndex(); index.has_value())
+          {
+            if (*index >= tupleType->elementTypes.size())
+            {
+              throw TypeCheckingException("Tuple element index out of range: " + memberName, idAccExpr->pos);
+            }
+            memberType = tupleType->elementTypes[*index];
+          }
+        }
+        else if (auto varargsType = std::dynamic_pointer_cast<VarargsType>(primaryType); varargsType)
+        {
+          if (auto index = numericMemberIndex(); index.has_value())
+          {
+            if (*index >= varargsType->elementTypes.size())
+            {
+              throw TypeCheckingException("Tuple element index out of range: " + memberName, idAccExpr->pos);
+            }
+            memberType = varargsType->elementTypes[*index];
+          }
+        }
         if (memberName == "size")
         {
           memberType = makecheck<PrimitiveType>(typeinfo_tag::U32);
