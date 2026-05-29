@@ -1,6 +1,7 @@
 #include "../test.hpp"
 #include <chrono>
 #include <filesystem>
+#include <fstream>
 #include <orgasm/module.hpp>
 
 using namespace NG::orgasm;
@@ -32,6 +33,20 @@ void append_u64(Vec<uint8_t> &code, uint64_t value)
   {
     code.push_back(static_cast<uint8_t>((value >> shift) & 0xFF));
   }
+}
+
+auto unique_ngo_path(const Str &prefix) -> std::filesystem::path
+{
+  return std::filesystem::temp_directory_path() /
+         (prefix + "_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".ngo");
+}
+
+void write_bytes(const std::filesystem::path &path, const Vec<uint8_t> &bytes)
+{
+  std::ofstream out(path, std::ios::binary);
+  REQUIRE(out.good());
+  out.write(reinterpret_cast<const char *>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+  REQUIRE(out.good());
 }
 } // namespace
 
@@ -108,6 +123,46 @@ TEST_CASE("bytecode module artifacts round trip module metadata", "[OrgasmTest][
   REQUIRE_THROWS_WITH(read_bytecode_module(path.string(), "pkg.other"),
                       Catch::Matchers::ContainsSubstring("Bytecode module id mismatch"));
 
+  std::filesystem::remove(path);
+}
+
+TEST_CASE("bytecode module reader rejects truncated scalar and oversized strings", "[OrgasmTest][Module][Ngo][Failure]")
+{
+  auto truncated = unique_ngo_path("ng_truncated_magic");
+  write_bytes(truncated, Vec<uint8_t>{'N', 'G'});
+  REQUIRE_THROWS_WITH(read_bytecode_module(truncated.string()),
+                      Catch::Matchers::ContainsSubstring("Truncated .ngo artifact while reading magic"));
+  std::filesystem::remove(truncated);
+
+  Vec<uint8_t> oversized = {'N', 'G', 'O', '\0'};
+  append_u32(oversized, NGO_FORMAT_VERSION);
+  append_u32(oversized, NGO_ABI_VERSION);
+  append_u32(oversized, NGO_METADATA_SCHEMA_VERSION);
+  append_u32(oversized, 64U * 1024U * 1024U + 1U);
+
+  auto oversizedPath = unique_ngo_path("ng_oversized_string");
+  write_bytes(oversizedPath, oversized);
+  REQUIRE_THROWS_WITH(read_bytecode_module(oversizedPath.string()),
+                      Catch::Matchers::ContainsSubstring(".ngo string too large while reading module.name"));
+  std::filesystem::remove(oversizedPath);
+}
+
+TEST_CASE("bytecode module reader rejects truncated function code", "[OrgasmTest][Module][Ngo][Failure]")
+{
+  BytecodeModule module;
+  module.name = "pkg.truncated";
+  Function function;
+  function.name = "main";
+  function.code = {static_cast<uint8_t>(OpCode::PUSH_I32), 1, 0, 0, 0, static_cast<uint8_t>(OpCode::RETURN)};
+  module.functions.push_back(function);
+
+  auto path = unique_ngo_path("ng_truncated_code");
+  write_bytecode_module(module, path.string(), "hash");
+  auto size = std::filesystem::file_size(path);
+  std::filesystem::resize_file(path, size - 25);
+
+  REQUIRE_THROWS_WITH(read_bytecode_module(path.string(), "pkg.truncated"),
+                      Catch::Matchers::ContainsSubstring("Truncated .ngo artifact while reading functions[0].code"));
   std::filesystem::remove(path);
 }
 

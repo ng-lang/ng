@@ -10,13 +10,19 @@
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <cerrno>
 #include <cctype>
 #include <cstdio>
+#include <cstring>
 #include <fstream>
 #include <initializer_list>
 #include <iostream>
 #include <regex>
 #include <cstdlib>
+#ifndef _WIN32
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
 
 namespace NG::library::prelude
 {
@@ -110,35 +116,77 @@ namespace NG::library::prelude
     return NG::System::Process::current_executable_path();
   }
 
-  static auto shell_quote(Str value) -> Str
+  static auto run_child_process(const Str &executable, const Str &path) -> Str
   {
 #ifdef _WIN32
-    Str quoted = "\"";
-    for (char ch : value)
-    {
-      if (ch == '"' || ch == '\\')
-      {
-        quoted += '\\';
-      }
-      quoted += ch;
-    }
-    quoted += "\"";
-    return quoted;
+    throw RuntimeException("runNgi() is not implemented on Windows without shell execution");
 #else
-    Str quoted = "'";
-    for (char ch : value)
+    int pipefd[2]{};
+    if (pipe(pipefd) != 0)
     {
-      if (ch == '\'')
-      {
-        quoted += "'\\''";
-      }
-      else
-      {
-        quoted += ch;
-      }
+      throw RuntimeException("runNgi() failed to create output pipe: " + Str(std::strerror(errno)));
     }
-    quoted += "'";
-    return quoted;
+
+    auto pid = fork();
+    if (pid < 0)
+    {
+      auto error = errno;
+      close(pipefd[0]);
+      close(pipefd[1]);
+      throw RuntimeException("runNgi() failed to fork ngi: " + Str(std::strerror(error)));
+    }
+
+    if (pid == 0)
+    {
+      close(pipefd[0]);
+      if (dup2(pipefd[1], STDOUT_FILENO) < 0 || dup2(pipefd[1], STDERR_FILENO) < 0)
+      {
+        _exit(126);
+      }
+      close(pipefd[1]);
+      execl(executable.c_str(), executable.c_str(), path.c_str(), static_cast<char *>(nullptr));
+      _exit(127);
+    }
+
+    close(pipefd[1]);
+    Str output;
+    std::array<char, 4096> buffer{};
+    while (true)
+    {
+      auto bytesRead = read(pipefd[0], buffer.data(), buffer.size());
+      if (bytesRead > 0)
+      {
+        output.append(buffer.data(), static_cast<size_t>(bytesRead));
+        continue;
+      }
+      if (bytesRead == 0)
+      {
+        break;
+      }
+      if (errno == EINTR)
+      {
+        continue;
+      }
+      auto error = errno;
+      close(pipefd[0]);
+      throw RuntimeException("runNgi() failed to read ngi output: " + Str(std::strerror(error)));
+    }
+
+    close(pipefd[0]);
+    int status = 0;
+    while (waitpid(pid, &status, 0) < 0)
+    {
+      if (errno == EINTR)
+      {
+        continue;
+      }
+      throw RuntimeException("runNgi() failed waiting for ngi: " + Str(std::strerror(errno)));
+    }
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
+    {
+      output += "\n[process exited with status " + std::to_string(status) + "]";
+    }
+    return output;
 #endif
   }
 
@@ -164,34 +212,7 @@ namespace NG::library::prelude
     {
       throw RuntimeException("runNgi() could not resolve current executable path");
     }
-    auto command = shell_quote(executable) + " " + shell_quote(path);
-#ifdef _WIN32
-    FILE *pipe = _popen(command.c_str(), "r");
-#else
-    FILE *pipe = popen(command.c_str(), "r");
-#endif
-    if (pipe == nullptr)
-    {
-      throw RuntimeException("runNgi() failed to start ngi for: " + path);
-    }
-
-    Str output;
-    std::array<char, 4096> buffer{};
-    while (fgets(buffer.data(), static_cast<int>(buffer.size()), pipe) != nullptr)
-    {
-      output += buffer.data();
-    }
-
-#ifdef _WIN32
-    auto status = _pclose(pipe);
-#else
-    auto status = pclose(pipe);
-#endif
-    if (status != 0)
-    {
-      output += "\n[process exited with status " + std::to_string(status) + "]";
-    }
-    return output;
+    return run_child_process(executable, path);
   }
 
   static auto regex_match_native(Str value, Str pattern) -> bool

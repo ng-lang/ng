@@ -309,6 +309,36 @@ TEST_CASE("STUPID should allow qualified imports to avoid symbol conflicts",
   destroyast(ast);
 }
 
+TEST_CASE("STUPID should run ngi child process without shell expansion", "[Integration][Prelude]")
+{
+  auto ast = parse(R"(
+    import std.prelude (*);
+    val output = runNgi("example/01.id.ng");
+  )");
+  REQUIRE(ast != nullptr);
+
+  Interpreter *intp = NG::intp::stupid();
+  REQUIRE_NOTHROW(ast->accept(intp));
+
+  delete intp;
+  destroyast(ast);
+}
+
+TEST_CASE("STUPID should reject unsafe runNgi paths before spawning", "[Integration][Prelude]")
+{
+  auto ast = parse(R"(
+    import std.prelude (*);
+    val output = runNgi("example/01.id.ng;touch-bad.ng");
+  )");
+  REQUIRE(ast != nullptr);
+
+  Interpreter *intp = NG::intp::stupid();
+  REQUIRE_THROWS_WITH(ast->accept(intp), Catch::Matchers::ContainsSubstring("runNgi() requires a .ng path"));
+
+  delete intp;
+  destroyast(ast);
+}
+
 TEST_CASE("should run const specialization example with STUPID", "[Integration][ConstPredicate]")
 {
   runTypecheckedIntegrationTest("example/43.const_specialization.ng");

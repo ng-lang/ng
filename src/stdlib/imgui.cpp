@@ -7,7 +7,6 @@
 #include <orgasm/vm.hpp>
 #include <runtime/native_marshaling.hpp>
 #include <algorithm>
-#include <cstring>
 #include <filesystem>
 #include <regex>
 #include <sstream>
@@ -190,7 +189,8 @@ namespace NG::library::imgui
     {
       auto size = std::max<size_t>(1024, value.size() + 256);
       Str buffer(size, '\0');
-      std::memcpy(buffer.data(), value.c_str(), std::min(value.size(), size - 1));
+      auto copySize = std::min(value.size(), buffer.size() - 1);
+      value.copy(buffer.data(), copySize);
       return buffer;
     }
 
@@ -198,7 +198,8 @@ namespace NG::library::imgui
     {
       auto size = std::max<size_t>(64 * 1024, value.size() + 4096);
       Str buffer(size, '\0');
-      std::memcpy(buffer.data(), value.c_str(), std::min(value.size(), size - 1));
+      auto copySize = std::min(value.size(), buffer.size() - 1);
+      value.copy(buffer.data(), copySize);
       return buffer;
     }
 

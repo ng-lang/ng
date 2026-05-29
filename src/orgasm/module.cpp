@@ -1,6 +1,7 @@
 #include <orgasm/module.hpp>
 #include <cstring>
 #include <fstream>
+#include <limits>
 #include <sstream>
 #include <type_traits>
 
@@ -12,6 +13,32 @@ namespace NG::orgasm
         constexpr uint32_t MAX_NGO_STRING_SIZE = 64U * 1024U * 1024U;
         constexpr uint32_t MAX_NGO_VECTOR_SIZE = 1U * 1024U * 1024U;
         constexpr uint32_t MAX_NGO_CODE_SIZE = 64U * 1024U * 1024U;
+
+        void read_exact_bytes(std::istream &in, char *destination, size_t destinationSize,
+                              size_t requestedSize, const Str &field)
+        {
+            if (destination == nullptr && requestedSize > 0)
+            {
+                throw RuntimeException("Invalid .ngo destination buffer while reading " + field);
+            }
+            if (requestedSize > destinationSize)
+            {
+                throw RuntimeException(".ngo read exceeds destination buffer while reading " + field);
+            }
+            if (requestedSize > static_cast<size_t>(std::numeric_limits<std::streamsize>::max()))
+            {
+                throw RuntimeException(".ngo read too large while reading " + field);
+            }
+            if (requestedSize == 0)
+            {
+                return;
+            }
+            auto bytesRead = in.rdbuf()->sgetn(destination, static_cast<std::streamsize>(requestedSize));
+            if (bytesRead != static_cast<std::streamsize>(requestedSize))
+            {
+                throw RuntimeException("Truncated .ngo artifact while reading " + field);
+            }
+        }
 
         template <typename T>
         void write_scalar(std::ostream &out, T value)
@@ -29,11 +56,7 @@ namespace NG::orgasm
         {
             static_assert(std::is_integral_v<T> || std::is_floating_point_v<T> || std::is_enum_v<T>);
             T value{};
-            in.read(reinterpret_cast<char *>(&value), sizeof(T));
-            if (!in)
-            {
-                throw RuntimeException("Truncated .ngo artifact while reading " + field);
-            }
+            read_exact_bytes(in, reinterpret_cast<char *>(&value), sizeof(value), sizeof(value), field);
             return value;
         }
 
@@ -57,11 +80,7 @@ namespace NG::orgasm
             Str value(size, '\0');
             if (size > 0)
             {
-                in.read(value.data(), static_cast<std::streamsize>(size));
-                if (!in)
-                {
-                    throw RuntimeException("Truncated .ngo artifact while reading " + field);
-                }
+                read_exact_bytes(in, value.data(), value.size(), size, field);
             }
             return value;
         }
@@ -196,11 +215,8 @@ namespace NG::orgasm
             function.code.resize(codeSize);
             if (codeSize > 0)
             {
-                in.read(reinterpret_cast<char *>(function.code.data()), static_cast<std::streamsize>(codeSize));
-                if (!in)
-                {
-                    throw RuntimeException("Truncated .ngo artifact while reading " + field + ".code");
-                }
+                read_exact_bytes(in, reinterpret_cast<char *>(function.code.data()), function.code.size(),
+                                 codeSize, field + ".code");
             }
             return function;
         }
@@ -321,8 +337,8 @@ namespace NG::orgasm
         }
 
         char magic[4]{};
-        in.read(magic, sizeof(magic));
-        if (!in || std::memcmp(magic, NGO_MAGIC, sizeof(NGO_MAGIC)) != 0)
+        read_exact_bytes(in, magic, sizeof(magic), sizeof(magic), "magic");
+        if (std::memcmp(magic, NGO_MAGIC, sizeof(NGO_MAGIC)) != 0)
         {
             throw RuntimeException("Invalid .ngo artifact magic: " + path);
         }
