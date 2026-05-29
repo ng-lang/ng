@@ -1,4 +1,7 @@
 #include "../test.hpp"
+#include <chrono>
+#include <filesystem>
+#include <fstream>
 #include <orgasm/module.hpp>
 
 using namespace NG::orgasm;
@@ -31,7 +34,137 @@ void append_u64(Vec<uint8_t> &code, uint64_t value)
     code.push_back(static_cast<uint8_t>((value >> shift) & 0xFF));
   }
 }
+
+auto unique_ngo_path(const Str &prefix) -> std::filesystem::path
+{
+  return std::filesystem::temp_directory_path() /
+         (prefix + "_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".ngo");
+}
+
+void write_bytes(const std::filesystem::path &path, const Vec<uint8_t> &bytes)
+{
+  std::ofstream out(path, std::ios::binary);
+  REQUIRE(out.good());
+  out.write(reinterpret_cast<const char *>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+  REQUIRE(out.good());
+}
 } // namespace
+
+TEST_CASE("bytecode module artifacts round trip module metadata", "[OrgasmTest][Module][Ngo]")
+{
+  BytecodeModule module;
+  module.name = "pkg.sample";
+  module.sourceHash = "source-hash";
+  module.constants = {1, 2};
+  module.float_constants = {1.5};
+  module.strings = {"hello"};
+  module.imports.push_back(ExternalSymbol{.moduleName = "pkg.dep", .symbolName = "answer"});
+  module.exports["main"] = 0;
+  module.exportTypeReprs["main"] = "fun () -> i32";
+  module.traitMetadata.push_back(BytecodeTraitMetadata{
+      .name = "Show",
+      .moduleId = "pkg.sample",
+      .typeParamNames = {"T"},
+      .superTraits = {"Debug"},
+      .methods = {{"show", "fun (ref<Self>) -> string"}},
+      .allMethods = {{"show", "fun (ref<Self>) -> string"}},
+  });
+  module.implMetadata.push_back(BytecodeImplMetadata{
+      .traitName = "Show",
+      .targetPattern = "Point",
+      .moduleId = "pkg.sample",
+      .genericParamNames = {"T"},
+      .whereBounds = {"T: Debug"},
+      .methods = {{"show", "Point.Show::show"}},
+  });
+  module.types.push_back(Type{
+      .name = "Point",
+      .properties = {"x", "y"},
+      .derivedTraits = {"Clone"},
+      .variants = {Variant{.name = "Some", .payloadFields = {"value"}}},
+  });
+
+  Function main;
+  main.name = "main";
+  main.num_locals = 1;
+  main.num_params = 0;
+  main.explicit_receiver = true;
+  main.code = {static_cast<uint8_t>(OpCode::PUSH_I32), 42, 0, 0, 0, static_cast<uint8_t>(OpCode::RETURN)};
+  module.functions.push_back(std::move(main));
+
+  auto path = std::filesystem::temp_directory_path() /
+              ("ng_roundtrip_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
+               ".ngo");
+  write_bytecode_module(module, path.string(), "hash");
+
+  auto loaded = read_bytecode_module(path.string(), "pkg.sample");
+  REQUIRE(loaded.name == "pkg.sample");
+  REQUIRE(loaded.sourceHash == "hash");
+  REQUIRE(loaded.constants == Vec<int64_t>{1, 2});
+  REQUIRE(loaded.float_constants == Vec<double>{1.5});
+  REQUIRE(loaded.strings == Vec<Str>{"hello"});
+  REQUIRE(loaded.imports.size() == 1);
+  REQUIRE(loaded.imports[0].moduleName == "pkg.dep");
+  REQUIRE(loaded.exports.at("main") == 0);
+  REQUIRE(loaded.exportTypeReprs.at("main") == "fun () -> i32");
+  REQUIRE(loaded.traitMetadata.size() == 1);
+  REQUIRE(loaded.traitMetadata[0].name == "Show");
+  REQUIRE(loaded.traitMetadata[0].superTraits == Vec<Str>{"Debug"});
+  REQUIRE(loaded.traitMetadata[0].methods.at("show") == "fun (ref<Self>) -> string");
+  REQUIRE(loaded.implMetadata.size() == 1);
+  REQUIRE(loaded.implMetadata[0].traitName == "Show");
+  REQUIRE(loaded.implMetadata[0].methods.at("show") == "Point.Show::show");
+  REQUIRE(loaded.types.size() == 1);
+  REQUIRE(loaded.types[0].derivedTraits == Vec<Str>{"Clone"});
+  REQUIRE(loaded.types[0].variants[0].payloadFields == Vec<Str>{"value"});
+  REQUIRE(loaded.functions.size() == 1);
+  REQUIRE(loaded.functions[0].explicit_receiver);
+  REQUIRE(loaded.functions[0].code == module.functions[0].code);
+  REQUIRE_THROWS_WITH(read_bytecode_module(path.string(), "pkg.other"),
+                      Catch::Matchers::ContainsSubstring("Bytecode module id mismatch"));
+
+  std::filesystem::remove(path);
+}
+
+TEST_CASE("bytecode module reader rejects truncated scalar and oversized strings", "[OrgasmTest][Module][Ngo][Failure]")
+{
+  auto truncated = unique_ngo_path("ng_truncated_magic");
+  write_bytes(truncated, Vec<uint8_t>{'N', 'G'});
+  REQUIRE_THROWS_WITH(read_bytecode_module(truncated.string()),
+                      Catch::Matchers::ContainsSubstring("Truncated .ngo artifact while reading magic"));
+  std::filesystem::remove(truncated);
+
+  Vec<uint8_t> oversized = {'N', 'G', 'O', '\0'};
+  append_u32(oversized, NGO_FORMAT_VERSION);
+  append_u32(oversized, NGO_ABI_VERSION);
+  append_u32(oversized, NGO_METADATA_SCHEMA_VERSION);
+  append_u32(oversized, 64U * 1024U * 1024U + 1U);
+
+  auto oversizedPath = unique_ngo_path("ng_oversized_string");
+  write_bytes(oversizedPath, oversized);
+  REQUIRE_THROWS_WITH(read_bytecode_module(oversizedPath.string()),
+                      Catch::Matchers::ContainsSubstring(".ngo string too large while reading module.name"));
+  std::filesystem::remove(oversizedPath);
+}
+
+TEST_CASE("bytecode module reader rejects truncated function code", "[OrgasmTest][Module][Ngo][Failure]")
+{
+  BytecodeModule module;
+  module.name = "pkg.truncated";
+  Function function;
+  function.name = "main";
+  function.code = {static_cast<uint8_t>(OpCode::PUSH_I32), 1, 0, 0, 0, static_cast<uint8_t>(OpCode::RETURN)};
+  module.functions.push_back(function);
+
+  auto path = unique_ngo_path("ng_truncated_code");
+  write_bytecode_module(module, path.string(), "hash");
+  auto size = std::filesystem::file_size(path);
+  std::filesystem::resize_file(path, size - 25);
+
+  REQUIRE_THROWS_WITH(read_bytecode_module(path.string(), "pkg.truncated"),
+                      Catch::Matchers::ContainsSubstring("Truncated .ngo artifact while reading functions[0].code"));
+  std::filesystem::remove(path);
+}
 
 TEST_CASE("bytecode module merge remaps tagged union type operands", "[OrgasmTest][Module]")
 {

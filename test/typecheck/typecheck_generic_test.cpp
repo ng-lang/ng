@@ -1,4 +1,5 @@
 #include "typecheck_utils.hpp"
+#include <module.hpp>
 
 TEST_CASE("generic function definition should type check", "[TypeCheck][Generic]")
 {
@@ -524,6 +525,82 @@ TEST_CASE("deleted ref specialization should reject nested references", "[TypeCh
   )", "deleted");
 }
 
+TEST_CASE("deleted primary type alias should reject matching type use",
+          "[TypeCheck][Generic][Delete][Failure]")
+{
+  typecheck_failure(R"(
+    type Blocked<T> = delete;
+    val value: Blocked<i32> = 1;
+  )", "deleted");
+}
+
+TEST_CASE("deleted generic function overload should reject exact matching calls",
+          "[TypeCheck][Generic][Delete][Failure]")
+{
+  typecheck_failure(R"(
+    type Box<T> {
+      property value: T;
+    }
+
+    fun<T> take_box(value: Box<T>) = delete;
+
+    val box: Box<i32> = unit;
+    take_box(box);
+  )", "Function overload is deleted");
+}
+
+TEST_CASE("more specific deleted generic function overload should beat valid fallback",
+          "[TypeCheck][Generic][Delete][Failure]")
+{
+  typecheck_failure(R"(
+    type Box<T> {
+      property value: T;
+    }
+
+    fun<T> accept(value: T) -> T = value;
+    fun<T> accept(value: Box<T>) = delete;
+
+    val box: Box<i32> = unit;
+    val invalid = accept(box);
+  )", "Function overload is deleted");
+}
+
+TEST_CASE("non matching deleted generic function overload should not block valid fallback",
+          "[TypeCheck][Generic][Delete]")
+{
+  auto ast = parse(R"(
+    fun<T> accept(value: T) -> T = value;
+    fun<T> accept(value: ref<T>) = delete;
+
+    val valid = accept(1);
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast);
+  REQUIRE(index.contains("valid"));
+  check_type_tag(*index["valid"], typeinfo_tag::I32);
+
+  destroyast(ast);
+}
+
+TEST_CASE("deleted const specialization should reject matching predicate use",
+          "[TypeCheck][Generic][Delete][Failure]")
+{
+  typecheck_failure(R"(
+    type Box {
+      property value: i32;
+    }
+
+    const is_bad<T>: bool = native;
+    const<T> is_bad<ref<T>>: bool = delete;
+
+    fun<T> reject_ref(value: T) -> unit where !is_bad<T> = unit;
+
+    val box = new Box { value: 1 };
+    reject_ref(box);
+  )", "Const specialization is deleted");
+}
+
 TEST_CASE("native const predicate where clause should accept matching generic calls",
           "[TypeCheck][Generic][ConstPredicate]")
 {
@@ -581,6 +658,318 @@ TEST_CASE("const definitions should accept typed compile-time scalar values",
   REQUIRE(ast != nullptr);
 
   REQUIRE_NOTHROW(type_check(ast));
+
+  destroyast(ast);
+}
+
+TEST_CASE("const functions should compute const definitions through STUPID",
+          "[TypeCheck][Generic][ConstFun]")
+{
+  auto ast = parse(R"(
+    const fun add(a: i32, b: i32) -> i32 {
+      return a + b;
+    }
+
+    const answer: i32 = add(20, 22);
+  )");
+  REQUIRE(ast != nullptr);
+
+  REQUIRE_NOTHROW(type_check(ast));
+
+  destroyast(ast);
+}
+
+TEST_CASE("const functions should fold const if conditions",
+          "[TypeCheck][Generic][ConstFun]")
+{
+  auto ast = parse(R"(
+    const fun large(value: i32) -> bool {
+      return value > 10;
+    }
+
+    const if (large(20)) {
+      val ok: i32 = 1;
+    } else {
+      val impossible: i32 = false;
+    }
+  )");
+  REQUIRE(ast != nullptr);
+
+  REQUIRE_NOTHROW(type_check(ast));
+
+  destroyast(ast);
+}
+
+TEST_CASE("const functions should satisfy where predicates",
+          "[TypeCheck][Generic][ConstFun]")
+{
+  auto ast = parse(R"(
+    const fun positive(value: i32) -> bool {
+      return value > 0;
+    }
+
+    fun id<const N: i32>(value: i32) -> i32 where positive(N) = value;
+
+    val result = id<1>(2);
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast);
+  REQUIRE(index.contains("result"));
+  check_type_tag(*index["result"], typeinfo_tag::I32);
+
+  destroyast(ast);
+}
+
+TEST_CASE("const functions should support recursive STUPID evaluation",
+          "[TypeCheck][Generic][ConstFun]")
+{
+  auto ast = parse(R"(
+    const fun fact(n: i32) -> i32 {
+      if (n == 0) {
+        return 1;
+      } else {
+        return n * fact(n - 1);
+      }
+    }
+
+    const six: i32 = fact(3);
+  )");
+  REQUIRE(ast != nullptr);
+
+  REQUIRE_NOTHROW(type_check(ast));
+
+  destroyast(ast);
+}
+
+TEST_CASE("const functions should allow runtime calls with non-const arguments",
+          "[TypeCheck][Generic][ConstFun]")
+{
+  auto ast = parse(R"(
+    const fun add_one(value: i32) -> i32 {
+      return value + 1;
+    }
+
+    val input: i32 = 41;
+    val output: i32 = add_one(input);
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast);
+  REQUIRE(index.contains("output"));
+  check_type_tag(*index["output"], typeinfo_tag::I32);
+
+  destroyast(ast);
+}
+
+TEST_CASE("const functions should reject non-const calls during compile-time execution",
+          "[TypeCheck][Generic][ConstFun][Failure]")
+{
+  typecheck_failure(R"(
+    fun runtime_value() -> i32 {
+      return 1;
+    }
+
+    const fun invalid() -> i32 {
+      return runtime_value();
+    }
+
+    const value: i32 = invalid();
+  )", "Non-const function cannot be called from const function");
+}
+
+TEST_CASE("const functions should reject native declarations",
+          "[TypeCheck][Generic][ConstFun][Failure]")
+{
+  typecheck_failure(R"(
+    const fun invalid() -> i32 = native;
+  )", "Const function cannot be native or deleted");
+}
+
+TEST_CASE("std tuple const predicates should evaluate through prelude",
+          "[TypeCheck][Generic][EnhancedTuple]")
+{
+  auto preludeTypes = NG::typecheck::build_prelude_type_index();
+  auto ast = parse(R"(
+    const if (is_tuple<(i32, string)>) {
+      val ok: i32 = 1;
+    } else {
+      val impossible: i32 = false;
+    }
+
+    const if (tuple_size<(i32, string, bool)> == 3) {
+      val ok2: i32 = 2;
+    } else {
+      val impossible2: i32 = false;
+    }
+
+    const if (sizeof_pack<i32, string, bool> == 3) {
+      val ok3: i32 = 3;
+    } else {
+      val impossible3: i32 = false;
+    }
+  )");
+  REQUIRE(ast != nullptr);
+
+  REQUIRE_NOTHROW(type_check(ast, preludeTypes));
+
+  destroyast(ast);
+}
+
+TEST_CASE("prelude tuple const predicates survive module registry clears",
+          "[TypeCheck][Generic][EnhancedTuple][Prelude]")
+{
+  auto preludeTypes = NG::typecheck::build_prelude_type_index();
+  NG::module::clear_module_loader_cache();
+  NG::module::get_module_registry().clear();
+
+  auto ast = parse(R"(
+    const if (is_tuple<(i32, string)>) {
+      val ok: i32 = 1;
+    } else {
+      val impossible: i32 = false;
+    }
+  )");
+  REQUIRE(ast != nullptr);
+
+  REQUIRE_NOTHROW(type_check(ast, preludeTypes));
+
+  destroyast(ast);
+}
+
+TEST_CASE("std tuple module should be directly importable",
+          "[TypeCheck][Generic][EnhancedTuple][Module]")
+{
+  auto ast = parse(R"(
+    import std.tuple (*);
+
+    const if (is_tuple<(i32, string)> && tuple_size<(i32, string)> == 2) {
+      val ok: i32 = 1;
+    } else {
+      val impossible: i32 = false;
+    }
+  )");
+  REQUIRE(ast != nullptr);
+
+  REQUIRE_NOTHROW(type_check(ast, {}, {"lib", "../lib"}));
+
+  destroyast(ast);
+}
+
+TEST_CASE("std tuple_element should project tuple element types through prelude",
+          "[TypeCheck][Generic][EnhancedTuple]")
+{
+  auto preludeTypes = NG::typecheck::build_prelude_type_index();
+  auto ast = parse(R"(
+    val first: tuple_element<(i32, string, bool), 0> = 1;
+    val second: tuple_element<(i32, string, bool), 1> = "value";
+  )");
+  REQUIRE(ast != nullptr);
+  INFO(ast->repr());
+
+  auto index = type_check(ast, preludeTypes);
+  REQUIRE(index.contains("first"));
+  REQUIRE(index.contains("second"));
+  check_type_tag(*index["first"], typeinfo_tag::I32);
+  check_type_tag(*index["second"], typeinfo_tag::STRING);
+
+  destroyast(ast);
+}
+
+TEST_CASE("enhanced tuple pack-to-tuple return should expand parameter packs",
+          "[TypeCheck][Generic][EnhancedTuple]")
+{
+  auto preludeTypes = NG::typecheck::build_prelude_type_index();
+  auto ast = parse(R"(
+    fun gather<T...>(args: T...) -> (T...) {
+      return (...args,);
+    }
+
+    val packed: (i32, string, bool) = gather(1, "value", true);
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast, preludeTypes);
+  REQUIRE(index.contains("packed"));
+  auto tupleType = std::dynamic_pointer_cast<TupleType>(index["packed"]);
+  REQUIRE(tupleType != nullptr);
+  REQUIRE(tupleType->elementTypes.size() == 3);
+  check_type_tag(*tupleType->elementTypes[0], typeinfo_tag::I32);
+  check_type_tag(*tupleType->elementTypes[1], typeinfo_tag::STRING);
+  check_type_tag(*tupleType->elementTypes[2], typeinfo_tag::BOOL);
+
+  destroyast(ast);
+}
+
+TEST_CASE("enhanced tuple_concat should concatenate tuple types",
+          "[TypeCheck][Generic][EnhancedTuple]")
+{
+  auto preludeTypes = NG::typecheck::build_prelude_type_index();
+  auto ast = parse(R"(
+    val joined: tuple_concat<(i32, string), (bool, i32)> = (1, "value", true, 2);
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast, preludeTypes);
+  REQUIRE(index.contains("joined"));
+  auto tupleType = std::dynamic_pointer_cast<TupleType>(index["joined"]);
+  REQUIRE(tupleType != nullptr);
+  REQUIRE(tupleType->elementTypes.size() == 4);
+
+  destroyast(ast);
+}
+
+TEST_CASE("enhanced tuple spread should apply to fixed arity calls",
+          "[TypeCheck][Generic][EnhancedTuple]")
+{
+  auto preludeTypes = NG::typecheck::build_prelude_type_index();
+  auto ast = parse(R"(
+    fun middle(left: i32, value: string, ok: bool) -> string {
+      return value;
+    }
+
+    val result = middle(...(1, "spread", true));
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast, preludeTypes);
+  REQUIRE(index.contains("result"));
+  check_type_tag(*index["result"], typeinfo_tag::STRING);
+
+  destroyast(ast);
+}
+
+TEST_CASE("enhanced tuple spread should apply to trait-qualified calls",
+          "[TypeCheck][Generic][EnhancedTuple][Traits]")
+{
+  auto preludeTypes = NG::typecheck::build_prelude_type_index();
+  auto ast = parse(R"(
+    type Accumulator {
+      base: i32;
+    }
+
+    trait Combine {
+      fun combine(self: ref<Self>, left: i32, right: i32) -> i32;
+    }
+
+    impl Combine for Accumulator {
+      fun combine(self: ref<Self>, left: i32, right: i32) -> i32 {
+        return self.base + left + right;
+      }
+    }
+
+    val accumulator = new Accumulator { base: 1 };
+    val args = (2, 3);
+    val qualified = Combine::combine(accumulator, ...args);
+    val receiverQualified = accumulator.Combine::combine(...args);
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast, preludeTypes);
+  REQUIRE(index.contains("qualified"));
+  REQUIRE(index.contains("receiverQualified"));
+  check_type_tag(*index["qualified"], typeinfo_tag::I32);
+  check_type_tag(*index["receiverQualified"], typeinfo_tag::I32);
 
   destroyast(ast);
 }
@@ -1160,4 +1549,61 @@ TEST_CASE("generic inference should reject inconsistent repeated parameter bindi
 
     val result = choose((1, "x"));
   )", "Inconsistent bindings for generic parameter 'T'");
+}
+
+TEST_CASE("const generic parameters should instantiate distinct native types", "[TypeCheck][Generic][Const]")
+{
+  auto ast = parse(R"(
+    type Buffer<T, const N: u32> = native;
+
+    val a: Buffer<i32, 4> = unit;
+    val b: Buffer<i32, 8> = unit;
+  )");
+
+  REQUIRE(ast != nullptr);
+  auto index = type_check(ast);
+  REQUIRE(index["a"]->repr() == "Buffer<i32, 4:i64>");
+  REQUIRE(index["b"]->repr() == "Buffer<i32, 8:i64>");
+  REQUIRE_FALSE(index["a"]->match(*index["b"]));
+  destroyast(ast);
+}
+
+TEST_CASE("const generic function should accept explicit const arguments", "[TypeCheck][Generic][Const]")
+{
+  auto ast = parse(R"(
+    fun<const N: u32> id_len(value: array<i32, N>) -> array<i32, N> {
+      return value;
+    }
+
+    val xs: array<i32, 3> = [1, 2, 3];
+    val ys = id_len<3>(xs);
+  )");
+
+  REQUIRE(ast != nullptr);
+  auto index = type_check(ast);
+  check_type_tag(*index["ys"], typeinfo_tag::ARRAY);
+  destroyast(ast);
+}
+
+TEST_CASE("const generic arguments should reject type values and missing array length",
+          "[TypeCheck][Generic][Const][Failure]")
+{
+  typecheck_failure(R"(
+    type Buffer<T, const N: u32> = native;
+    val bad: Buffer<i32, i32> = unit;
+  )", "expects a compile-time constant argument");
+
+  typecheck_failure(R"(
+    type Buffer<T> = native;
+    val bad: Buffer<4> = unit;
+  )", "expects a type argument");
+
+  typecheck_failure(R"(
+    type Buffer<T, const N: u32> = native;
+    val bad: Buffer<i32, "wide"> = unit;
+  )", "expects const u32");
+
+  typecheck_failure(R"(
+    val bad: array<i32> = [1];
+  )", "Fixed array type expects 2 generic arguments");
 }

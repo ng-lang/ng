@@ -45,6 +45,7 @@ set(NG_LIB_SRC
         src/runtime/NGStructuralObject.cpp
         src/runtime/NGModule.cpp
         src/runtime/NGTuple.cpp
+        src/runtime/NGRange.cpp
         src/runtime/NGUnit.cpp
         src/runtime/NGTaggedValue.cpp
         src/runtime/NGReference.cpp
@@ -86,6 +87,7 @@ set(NG_TEST_SRC
         test/parsing/parser_ref_move_test.cpp
         test/parsing/parser_generics_test.cpp
         test/parsing/parser_traits_test.cpp
+        test/module/native_module_artifact_test.cpp
         test/integration_test.cpp
         test/runtime/interpreter_test.cpp
         test/runtime/nominal_test.cpp

@@ -64,6 +64,26 @@ namespace NG::runtime
             [](const RuntimeRef<StorageCell> &cell) {
               return !runtime_cell_slot_refs(cell).empty();
             },
+        .memberFunctions =
+            {
+                {"size",
+                 [](const NGSelf &self, const NGEnv &, const NGArgs &) -> RuntimeRef<StorageCell> {
+                   return numeral_cell_from_value<uint32_t>(static_cast<uint32_t>(runtime_array_length(self)));
+                 }},
+                {"get",
+                 [](const NGSelf &self, const NGEnv &, const NGArgs &args) -> RuntimeRef<StorageCell> {
+                   if (args.size() != 1)
+                   {
+                     throw RuntimeException("Array.get expects one index argument");
+                   }
+                   auto index = read_numeric_cell_as<int32_t>(args[0]);
+                   if (index < 0 || static_cast<size_t>(index) >= runtime_array_length(self))
+                   {
+                     throw RuntimeException("Array.get index out of bounds: " + std::to_string(index));
+                   }
+                   return runtime_sequence_slot(self, static_cast<size_t>(index));
+                 }},
+            },
         .cellBinaryOperators =
             {
                 {RuntimeBinaryOperator::LShift,

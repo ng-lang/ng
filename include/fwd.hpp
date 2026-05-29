@@ -113,6 +113,9 @@ namespace NG::ast
     // Forward declaration for Statement.
     struct Statement;
 
+    // Forward declaration for FunctionDef.
+    struct FunctionDef;
+
 } // namespace NG::ast
 
 namespace NG::runtime

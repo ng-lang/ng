@@ -106,6 +106,14 @@ namespace NG
         }
     };
 
+    struct SequenceCompatibilityException : RuntimeException
+    {
+        explicit SequenceCompatibilityException(const std::string &message = "Expected Sequence-compatible runtime value")
+            : RuntimeException(message)
+        {
+        }
+    };
+
     /**
      * @brief Exception thrown during type checking.
      */

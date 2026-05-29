@@ -1,0 +1,55 @@
+fun inc(value: i32) -> i32 {
+  return value + 1;
+}
+
+fun even(value: i32) -> bool {
+  return (value % 2) == 0;
+}
+
+fun foldRightStep(value: i32, acc: i32) -> i32 {
+  return value - acc;
+}
+
+fun foldLeftStep(acc: i32, value: i32) -> i32 {
+  return acc - value;
+}
+
+val xs = [1, 2, 3];
+val ys = [inc(xs)...];
+val evens = [even(xs)?...];
+val mixed = [0, inc(xs)..., 9];
+val r = 0..4;
+val fromRange = [inc(r)...];
+val sp = xs[0..2];
+val fromSpan = [inc(sp)...];
+val right = foldRightStep(xs..., 0);
+val left = foldLeftStep(0, xs...);
+val rangeSum = foldRightStep(r..., 0);
+val spanSum = foldLeftStep(0, sp...);
+
+assert(len(ys) == 3);
+assert(ys[0] == 2);
+assert(ys[1] == 3);
+assert(ys[2] == 4);
+
+assert(len(evens) == 1);
+assert(evens[0] == 2);
+
+assert(len(mixed) == 5);
+assert(mixed[0] == 0);
+assert(mixed[1] == 2);
+assert(mixed[3] == 4);
+assert(mixed[4] == 9);
+
+assert(len(fromRange) == 4);
+assert(fromRange[0] == 1);
+assert(fromRange[3] == 4);
+
+assert(len(fromSpan) == 2);
+assert(fromSpan[0] == 2);
+assert(fromSpan[1] == 3);
+
+assert(right == 2);
+assert(left == -6);
+assert(rangeSum == -2);
+assert(spanSum == -3);

@@ -97,6 +97,28 @@ namespace NG::ast
 
   auto TypeAnnotation::repr() const -> Str
   {
+    if (constLiteral)
+    {
+      return this->name;
+    }
+    if (type == TypeAnnotationType::TUPLE)
+    {
+      Str result = "(";
+      for (size_t i = 0; i < arguments.size(); ++i)
+      {
+        if (i > 0) result += ", ";
+        if (auto arg = dynamic_ast_cast<TypeAnnotation>(arguments[i]))
+        {
+          result += arg->repr();
+        }
+        else
+        {
+          result += arguments[i]->repr();
+        }
+      }
+      result += ")";
+      return result;
+    }
     if (genericArgs.empty())
     {
       return this->name;
@@ -126,6 +148,10 @@ namespace NG::ast
 
   auto GenericParam::repr() const -> Str
   {
+    if (isConst)
+    {
+      return "const " + name + ": " + (constType ? constType->repr() : "?");
+    }
     Str result = name;
     if (kindArity > 0 || kindVariadicTail)
     {
@@ -177,7 +203,7 @@ namespace NG::ast
   {
     auto target = specializationPattern ? specializationPattern->repr() : constName + genericParamsRepr(genericParams);
     auto whereRepr = whereBounds.empty() ? "" : " where " + strOfNodeList(whereBounds, " && ");
-    auto body = native ? Str{"native"} : (value ? value->repr() : "?");
+    auto body = deleted ? Str{"delete"} : (native ? Str{"native"} : (value ? value->repr() : "?"));
     return "const " + (specializationPattern ? genericParamsRepr(genericParams) + " " : "") + target + whereRepr + ": " +
            (returnType ? returnType->repr() : "?") + " = " + body + ";";
   }
@@ -605,8 +631,9 @@ namespace NG::ast
   auto FunctionDef::repr() const -> Str
   {
     auto whereRepr = whereBounds.empty() ? "" : " where " + strOfNodeList(whereBounds, " && ");
-    return "fun " + funName + genericParamsRepr(genericParams) + "(" + strOfNodeList(params) + ")" +
-           (returnType ? " -> " + returnType->repr() : "") + whereRepr + (body ? body->repr() : ";");
+    return (constEval ? "const " : "") + Str{"fun "} + funName + genericParamsRepr(genericParams) + "(" + strOfNodeList(params) + ")" +
+           (returnType ? " -> " + returnType->repr() : "") + whereRepr +
+           (deleted ? " = delete;" : (body ? body->repr() : ";"));
   }
 
   void UnaryExpression::accept(AstVisitor *visitor)
@@ -664,6 +691,37 @@ namespace NG::ast
   {
     destroyast(primary);
     destroyast(accessor);
+  }
+
+  void RangeExpression::accept(AstVisitor *visitor)
+  {
+    visitor->visit(this);
+  }
+
+  auto RangeExpression::repr() const -> Str
+  {
+    return (start ? start->repr() : Str{}) + (inclusive ? "..=" : "..") + (end ? end->repr() : Str{});
+  }
+
+  RangeExpression::~RangeExpression()
+  {
+    destroyast(start);
+    destroyast(end);
+  }
+
+  void FromEndIndexExpression::accept(AstVisitor *visitor)
+  {
+    visitor->visit(this);
+  }
+
+  auto FromEndIndexExpression::repr() const -> Str
+  {
+    return "^" + (index ? index->repr() : Str{});
+  }
+
+  FromEndIndexExpression::~FromEndIndexExpression()
+  {
+    destroyast(index);
   }
 
   void IndexAssignmentExpression::accept(AstVisitor *visitor)
@@ -728,8 +786,9 @@ namespace NG::ast
   {
     const Str &propertiesRepr = strOfNodeList(properties, "\n");
     const Str &membersRepr = strOfNodeList(memberFunctions, "\n");
+    const Str deriveRepr = derivedTraits.empty() ? "" : ": derive(" + strOfNodeList(derivedTraits, " + ") + ")";
 
-    return "type " + typeName + genericParamsRepr(genericParams) + "{" + propertiesRepr + membersRepr + "}";
+    return "type " + typeName + genericParamsRepr(genericParams) + deriveRepr + "{" + propertiesRepr + membersRepr + "}";
   }
 
   TypeDef::~TypeDef()
@@ -737,6 +796,10 @@ namespace NG::ast
     for (const auto &genericParam : genericParams)
     {
       destroyast(genericParam);
+    }
+    for (const auto &trait : derivedTraits)
+    {
+      destroyast(trait);
     }
     for (const auto &item : memberFunctions)
     {
@@ -765,6 +828,10 @@ namespace NG::ast
     if (!superTraits.empty())
     {
       supers = ": " + strOfNodeList(superTraits, " + ");
+    }
+    if (autoTrait)
+    {
+      return "auto trait " + traitName + genericParamsRepr(genericParams) + supers + ";";
     }
     return "trait " + traitName + genericParamsRepr(genericParams) + supers + "{" + strOfNodeList(methods, "\n") + "}";
   }
@@ -1105,6 +1172,21 @@ namespace NG::ast
   }
 
   SpreadExpression::~SpreadExpression()
+  {
+    destroyast(expression);
+  }
+
+  void PostfixFoldExpression::accept(AstVisitor *visitor)
+  {
+    visitor->visit(this);
+  }
+
+  auto PostfixFoldExpression::repr() const -> Str
+  {
+    return expression->repr() + (filter ? "?..." : "...");
+  }
+
+  PostfixFoldExpression::~PostfixFoldExpression()
   {
     destroyast(expression);
   }

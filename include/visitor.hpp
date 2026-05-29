@@ -138,6 +138,8 @@ namespace NG::ast
          * @param index The index accessor expression to visit.
          */
         virtual void visit(IndexAccessorExpression *index) = 0;
+        virtual void visit(RangeExpression *range) = 0;
+        virtual void visit(FromEndIndexExpression *fromEnd) = 0;
 
         /**
          * @brief Visits an index assignment expression.
@@ -246,6 +248,13 @@ namespace NG::ast
          * @param spreadExpr The spread expression to visit.
          */
         virtual void visit(SpreadExpression *spreadExpr) = 0;
+
+        /**
+         * @brief Visits a postfix fold expression.
+         *
+         * @param foldExpr The postfix fold expression to visit.
+         */
+        virtual void visit(PostfixFoldExpression *foldExpr) = 0;
 
         /**
          * @brief Visits a value binding statement.
@@ -364,6 +373,8 @@ namespace NG::ast
         void visit(QualifiedTraitCallExpression *qualifiedCall) override;
 
         void visit(IndexAccessorExpression *index) override;
+        void visit(RangeExpression *range) override;
+        void visit(FromEndIndexExpression *fromEnd) override;
 
         void visit(IndexAssignmentExpression *index) override;
 
@@ -401,6 +412,7 @@ namespace NG::ast
 
         void visit(TypeOfExpression *typeofExpr) override;
         void visit(SpreadExpression *spreadExpr) override;
+        void visit(PostfixFoldExpression *foldExpr) override;
         void visit(ValueBindingStatement *valBind) override;
         void visit(Binding *binding) override;
 

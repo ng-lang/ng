@@ -40,13 +40,46 @@ TEST_CASE("parser should parse generic function with single type param", "[Parse
   destroyast(ast);
 }
 
+TEST_CASE("parser should parse const generic parameters and arguments", "[Parser][Generics][Const]")
+{
+  auto ast = parse(R"(
+        type Buffer<T, const N: u32> = native;
+        fun<const N: u32> make_repeat(value: i32) -> array<i32, N> = native;
+        val xs: array<i32, 4> = [1, 2, 3, 4];
+    )");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  REQUIRE(compileUnit->module->definitions.size() == 3);
+
+  auto typeAlias = dynamic_ast_cast<TypeAliasDef>(compileUnit->module->definitions[0]);
+  REQUIRE(typeAlias != nullptr);
+  REQUIRE(typeAlias->genericParams.size() == 2);
+  REQUIRE(typeAlias->genericParams[1]->isConst);
+  REQUIRE(typeAlias->genericParams[1]->name == "N");
+  REQUIRE(typeAlias->genericParams[1]->constType != nullptr);
+  REQUIRE(typeAlias->genericParams[1]->constType->name == "u32");
+
+  auto valDef = dynamic_ast_cast<ValDef>(compileUnit->module->definitions[2]);
+  REQUIRE(valDef != nullptr);
+  auto valStmt = dynamic_ast_cast<ValDefStatement>(valDef->body);
+  REQUIRE(valStmt != nullptr);
+  REQUIRE(valStmt->typeAnnotation->name == "array");
+  REQUIRE(valStmt->typeAnnotation->genericArgs.size() == 2);
+  REQUIRE(valStmt->typeAnnotation->genericArgs[1]->constLiteral);
+  REQUIRE(valStmt->typeAnnotation->genericArgs[1]->name == "4");
+
+  destroyast(ast);
+}
+
 // ============================================================================
 // Suffix Generic Syntax: `T TypeName` => TypeName<T>
 // ============================================================================
 
-TEST_CASE("parser should parse suffix generic syntax: bool array", "[Parser][Generics][Suffix]")
+TEST_CASE("parser should parse suffix generic syntax: bool vector", "[Parser][Generics][Suffix]")
 {
-  auto ast = parse("val x: bool array = [];");
+  auto ast = parse("val x: bool vector = [];");
   REQUIRE(ast != nullptr);
 
   auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
@@ -60,8 +93,7 @@ TEST_CASE("parser should parse suffix generic syntax: bool array", "[Parser][Gen
   auto valStmt = dynamic_ast_cast<ValDefStatement>(valDef->body);
   REQUIRE(valStmt != nullptr);
   REQUIRE(valStmt->typeAnnotation != nullptr);
-  // `bool array` desugars to `array<bool>`
-  REQUIRE(valStmt->typeAnnotation->name == "array");
+  REQUIRE(valStmt->typeAnnotation->name == "vector");
   REQUIRE(valStmt->typeAnnotation->type == TypeAnnotationType::CUSTOMIZED);
   REQUIRE(valStmt->typeAnnotation->genericArgs.size() == 1);
   REQUIRE(valStmt->typeAnnotation->genericArgs[0]->name == "bool");
@@ -70,7 +102,27 @@ TEST_CASE("parser should parse suffix generic syntax: bool array", "[Parser][Gen
   destroyast(ast);
 }
 
-TEST_CASE("parser should parse suffix generic with numeric type: i32 array", "[Parser][Generics][Suffix]")
+TEST_CASE("parser should parse suffix generic with numeric type: i32 vector", "[Parser][Generics][Suffix]")
+{
+  auto ast = parse("val xs: i32 vector = [];");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto valDef = dynamic_ast_cast<ValDef>(compileUnit->module->definitions[0]);
+  REQUIRE(valDef != nullptr);
+  auto valStmt = dynamic_ast_cast<ValDefStatement>(valDef->body);
+  REQUIRE(valStmt != nullptr);
+  REQUIRE(valStmt->typeAnnotation != nullptr);
+  REQUIRE(valStmt->typeAnnotation->name == "vector");
+  REQUIRE(valStmt->typeAnnotation->genericArgs.size() == 1);
+  REQUIRE(valStmt->typeAnnotation->genericArgs[0]->name == "i32");
+  REQUIRE(valStmt->typeAnnotation->genericArgs[0]->type == TypeAnnotationType::BUILTIN_I32);
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should preserve suffix generic names: i32 array", "[Parser][Generics][Suffix]")
 {
   auto ast = parse("val xs: i32 array = [];");
   REQUIRE(ast != nullptr);
@@ -82,7 +134,6 @@ TEST_CASE("parser should parse suffix generic with numeric type: i32 array", "[P
   auto valStmt = dynamic_ast_cast<ValDefStatement>(valDef->body);
   REQUIRE(valStmt != nullptr);
   REQUIRE(valStmt->typeAnnotation != nullptr);
-  // `i32 array` desugars to `array<i32>`
   REQUIRE(valStmt->typeAnnotation->name == "array");
   REQUIRE(valStmt->typeAnnotation->genericArgs.size() == 1);
   REQUIRE(valStmt->typeAnnotation->genericArgs[0]->name == "i32");
@@ -91,11 +142,11 @@ TEST_CASE("parser should parse suffix generic with numeric type: i32 array", "[P
   destroyast(ast);
 }
 
-TEST_CASE("parser should parse suffix generic with left-associative nesting: i32 array Optional",
+TEST_CASE("parser should parse suffix generic with left-associative nesting: i32 Optional List",
           "[Parser][Generics][Suffix]")
 {
-  // `i32 array Optional` desugars to `Optional<array<i32>>`
-  auto ast = parse("val x: i32 array Optional = unit;");
+  // `i32 Optional List` desugars to `List<Optional<i32>>`
+  auto ast = parse("val x: i32 Optional List = unit;");
   REQUIRE(ast != nullptr);
 
   auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
@@ -106,14 +157,14 @@ TEST_CASE("parser should parse suffix generic with left-associative nesting: i32
   REQUIRE(valStmt != nullptr);
   REQUIRE(valStmt->typeAnnotation != nullptr);
 
-  // Outer: Optional<...>
-  REQUIRE(valStmt->typeAnnotation->name == "Optional");
+  // Outer: List<...>
+  REQUIRE(valStmt->typeAnnotation->name == "List");
   REQUIRE(valStmt->typeAnnotation->type == TypeAnnotationType::CUSTOMIZED);
   REQUIRE(valStmt->typeAnnotation->genericArgs.size() == 1);
 
-  // Inner: array<i32>
+  // Inner: Optional<i32>
   auto inner = valStmt->typeAnnotation->genericArgs[0];
-  REQUIRE(inner->name == "array");
+  REQUIRE(inner->name == "Optional");
   REQUIRE(inner->type == TypeAnnotationType::CUSTOMIZED);
   REQUIRE(inner->genericArgs.size() == 1);
   REQUIRE(inner->genericArgs[0]->name == "i32");
@@ -182,7 +233,7 @@ TEST_CASE("parser should parse multi-param suffix with left-associative nesting:
 TEST_CASE("parser should parse suffix generic in function signature", "[Parser][Generics][Suffix]")
 {
   // Suffix generic in parameter and return type positions
-  auto ast = parse("fun process(xs: i32 array) -> bool array { return []; }");
+  auto ast = parse("fun process(xs: i32 vector) -> bool vector { return []; }");
   REQUIRE(ast != nullptr);
 
   auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
@@ -191,16 +242,16 @@ TEST_CASE("parser should parse suffix generic in function signature", "[Parser][
   REQUIRE(funDef != nullptr);
   REQUIRE(funDef->funName == "process");
 
-  // Param: `i32 array` => array<i32>
+  // Param: `i32 vector` => vector<i32>
   REQUIRE(funDef->params.size() == 1);
   REQUIRE(funDef->params[0]->annotatedType != nullptr);
-  REQUIRE(funDef->params[0]->annotatedType->name == "array");
+  REQUIRE(funDef->params[0]->annotatedType->name == "vector");
   REQUIRE(funDef->params[0]->annotatedType->genericArgs.size() == 1);
   REQUIRE(funDef->params[0]->annotatedType->genericArgs[0]->name == "i32");
 
-  // Return: `bool array` => array<bool>
+  // Return: `bool vector` => vector<bool>
   REQUIRE(funDef->returnType != nullptr);
-  REQUIRE(funDef->returnType->name == "array");
+  REQUIRE(funDef->returnType->name == "vector");
   REQUIRE(funDef->returnType->genericArgs.size() == 1);
   REQUIRE(funDef->returnType->genericArgs[0]->name == "bool");
 
@@ -576,6 +627,40 @@ TEST_CASE("parser should parse deleted ref specialization", "[Parser][Generics][
   destroyast(ast);
 }
 
+TEST_CASE("parser should parse deleted generic function declarations", "[Parser][Generics][Delete]")
+{
+  auto ast = parse("fun<T> accept(value: ref<T>) = delete;");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto funDef = dynamic_ast_cast<FunctionDef>(compileUnit->module->definitions[0]);
+  REQUIRE(funDef != nullptr);
+  REQUIRE(funDef->funName == "accept");
+  REQUIRE(funDef->genericParams.size() == 1);
+  REQUIRE(funDef->deleted);
+  REQUIRE(funDef->body == nullptr);
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse deleted const specializations", "[Parser][Generics][Delete]")
+{
+  auto ast = parse("const<T> is_bad<ref<T>>: bool = delete;");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto constDef = dynamic_ast_cast<ConstDef>(compileUnit->module->definitions[0]);
+  REQUIRE(constDef != nullptr);
+  REQUIRE(constDef->constName == "is_bad");
+  REQUIRE(constDef->genericParams.size() == 1);
+  REQUIRE(constDef->specializationPattern != nullptr);
+  REQUIRE(constDef->deleted);
+
+  destroyast(ast);
+}
+
 TEST_CASE("parser should parse type specialization where predicates", "[Parser][Generics][TypeAlias]")
 {
   auto ast = parse("type<T> deref<ref<T>>: where is_ref<T> = T;");
@@ -632,6 +717,24 @@ TEST_CASE("parser should parse native const predicate declarations", "[Parser][G
   REQUIRE(constDef->returnType != nullptr);
   REQUIRE(constDef->returnType->repr() == "bool");
   REQUIRE(constDef->native);
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse const function declarations", "[Parser][Generics][ConstFun]")
+{
+  auto ast = parse("const fun is_even(value: i32) -> bool { return value % 2 == 0; }");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  auto funDef = dynamic_ast_cast<FunctionDef>(compileUnit->module->definitions[0]);
+  REQUIRE(funDef != nullptr);
+  REQUIRE(funDef->constEval);
+  REQUIRE(funDef->funName == "is_even");
+  REQUIRE(funDef->params.size() == 1);
+  REQUIRE(funDef->returnType != nullptr);
+  REQUIRE(funDef->repr().starts_with("const fun is_even"));
 
   destroyast(ast);
 }
@@ -961,7 +1064,7 @@ TEST_CASE("parser should parse generic type annotation in return type", "[Parser
 
 TEST_CASE("parser should parse generic type annotation in val definition", "[Parser][Generics][TypeAnnotation]")
 {
-  auto ast = parse("val items: array<int> = [1, 2, 3];");
+  auto ast = parse("val items: vector<int> = [1, 2, 3];");
   REQUIRE(ast != nullptr);
 
   auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
@@ -971,9 +1074,8 @@ TEST_CASE("parser should parse generic type annotation in val definition", "[Par
   auto valStmt = dynamic_ast_cast<ValDefStatement>(valDef->body);
   REQUIRE(valStmt != nullptr);
   REQUIRE(valStmt->typeAnnotation != nullptr);
-  REQUIRE(valStmt->typeAnnotation->name == "array");
-  // `array<int>` where `array` is an identifier is parsed as CUSTOMIZED with genericArgs
-  // (as opposed to `[int]` which is ARRAY with arguments)
+  REQUIRE(valStmt->typeAnnotation->name == "vector");
+  // `vector<int>` where `vector` is an identifier is parsed as CUSTOMIZED with genericArgs.
   REQUIRE(valStmt->typeAnnotation->type == TypeAnnotationType::CUSTOMIZED);
   REQUIRE(valStmt->typeAnnotation->genericArgs.size() == 1);
   REQUIRE(valStmt->typeAnnotation->genericArgs[0]->name == "int");
@@ -1066,7 +1168,7 @@ TEST_CASE("parser should parse generic arg with array type inside", "[Parser][Ge
   auto optType = funDef->params[0]->annotatedType;
   REQUIRE(optType->name == "Option");
   REQUIRE(optType->genericArgs.size() == 1);
-  REQUIRE(optType->genericArgs[0]->type == TypeAnnotationType::ARRAY);
+  REQUIRE(optType->genericArgs[0]->type == TypeAnnotationType::VECTOR);
 
   destroyast(ast);
 }
@@ -1116,7 +1218,7 @@ TEST_CASE("parser should parse nested generics with different type names", "[Par
 
 TEST_CASE("parser should parse deeply nested mixed generics", "[Parser][Generics][TypeAnnotation]")
 {
-  auto ast = parse("fun myfn(x: Map<string, Option<array<i32>>>) -> unit { return unit; }");
+  auto ast = parse("fun myfn(x: Map<string, Option<array<i32, 4>>>) -> unit { return unit; }");
   REQUIRE(ast != nullptr);
 
   auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
@@ -1135,10 +1237,10 @@ TEST_CASE("parser should parse deeply nested mixed generics", "[Parser][Generics
 
   auto arrType = optType->genericArgs[0];
   REQUIRE(arrType->name == "array");
-  // `array<i32>` uses generic ID syntax, not bracket syntax `[i32]`
-  // so it's CUSTOMIZED with genericArgs, not ARRAY
+  // `array<i32, 4>` uses fixed array generic syntax with a const literal argument.
   REQUIRE(arrType->type == TypeAnnotationType::CUSTOMIZED);
-  REQUIRE(arrType->genericArgs.size() == 1);
+  REQUIRE(arrType->genericArgs.size() == 2);
+  REQUIRE(arrType->genericArgs[1]->constLiteral);
   REQUIRE(arrType->genericArgs[0]->name == "i32");
   REQUIRE(arrType->genericArgs[0]->type == TypeAnnotationType::BUILTIN_I32);
 

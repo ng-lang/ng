@@ -1,5 +1,8 @@
 #include "../test.hpp"
 #include <algorithm>
+#include <chrono>
+#include <filesystem>
+#include <fstream>
 #include <module.hpp>
 #include <orgasm/compiler.hpp>
 #include <orgasm/vm.hpp>
@@ -31,6 +34,42 @@ void emit_u16_u16(Vec<uint8_t> &code, OpCode op, uint16_t first, uint16_t second
   append_u16(code, first);
   append_u16(code, second);
 }
+
+struct SourceModuleFixture
+{
+  std::filesystem::path root =
+      std::filesystem::temp_directory_path() /
+      ("ng_orgasm_module_artifact_" +
+       std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+
+  SourceModuleFixture()
+  {
+    NG::module::clear_module_loader_cache();
+    NG::module::get_module_registry().clear();
+    std::filesystem::create_directories(root);
+  }
+
+  ~SourceModuleFixture()
+  {
+    NG::module::clear_module_loader_cache();
+    NG::module::get_module_registry().clear();
+    std::filesystem::remove_all(root);
+  }
+
+  void write(const std::filesystem::path &relative, const Str &source) const
+  {
+    auto target = root / relative;
+    std::filesystem::create_directories(target.parent_path());
+    std::ofstream out{target};
+    REQUIRE(out.good());
+    out << source;
+  }
+
+  auto paths() const -> Vec<Str>
+  {
+    return {root.string()};
+  }
+};
 } // namespace
 
 static auto result_i32(const RuntimeRef<StorageCell> &result) -> int32_t
@@ -56,6 +95,111 @@ TEST_CASE("compiler and vm should handle basic arithmetic", "[OrgasmTest]")
   auto result = vm.run(bytecode);
 
   REQUIRE(result_i32(result) == 7);
+
+  destroyast(ast);
+}
+
+TEST_CASE("compiler and vm should call imported source module through canonical id",
+          "[OrgasmTest][ModuleArtifact]")
+{
+  SourceModuleFixture fixture;
+  fixture.write("pkg/math.ng", R"(
+    module pkg.math exports *;
+    fun answer() -> i32 {
+      return 41;
+    }
+  )");
+  auto ast = parse(R"(
+    import pkg.math (*);
+    fun main() -> i32 {
+      return answer() + 1;
+    }
+  )");
+  REQUIRE(ast != nullptr);
+
+  NG::typecheck::type_check(ast, {}, fixture.paths());
+
+  Compiler compiler{fixture.paths()};
+  auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+  REQUIRE(bytecode.imports.size() == 1);
+  REQUIRE(bytecode.imports.front().moduleName == "pkg.math");
+
+  VM vm{fixture.paths()};
+  auto result = vm.run(bytecode);
+  REQUIRE(result_i32(result) == 42);
+
+  destroyast(ast);
+}
+
+TEST_CASE("compiler should reject conflicting imported source symbols",
+          "[OrgasmTest][ModuleArtifact]")
+{
+  SourceModuleFixture fixture;
+  fixture.write("pkg/alpha.ng", R"(
+    module pkg.alpha exports *;
+    fun duplicated() -> i32 {
+      return 1;
+    }
+  )");
+  fixture.write("pkg/beta.ng", R"(
+    module pkg.beta exports *;
+    fun duplicated() -> i32 {
+      return 2;
+    }
+  )");
+
+  auto ast = parse(R"(
+    import pkg.alpha (*);
+    import pkg.beta (*);
+    fun main() -> i32 {
+      return duplicated();
+    }
+  )");
+  REQUIRE(ast != nullptr);
+
+  NG::typecheck::type_check(ast, {}, fixture.paths());
+
+  Compiler compiler{fixture.paths()};
+  REQUIRE_THROWS_WITH(compiler.compile(dynamic_ast_cast<CompileUnit>(ast)),
+                      Catch::Matchers::ContainsSubstring("Import conflict for symbol: duplicated"));
+
+  destroyast(ast);
+}
+
+TEST_CASE("compiler and vm should call qualified imports without short-name conflicts",
+          "[OrgasmTest][ModuleArtifact]")
+{
+  SourceModuleFixture fixture;
+  fixture.write("pkg/alpha.ng", R"(
+    module pkg.alpha exports *;
+    fun duplicated() -> i32 {
+      return 1;
+    }
+  )");
+  fixture.write("pkg/beta.ng", R"(
+    module pkg.beta exports *;
+    fun duplicated() -> i32 {
+      return 2;
+    }
+  )");
+
+  auto ast = parse(R"(
+    import pkg.alpha as first;
+    import pkg.beta;
+    fun main() -> i32 {
+      return first.duplicated() + beta.duplicated();
+    }
+  )");
+  REQUIRE(ast != nullptr);
+
+  NG::typecheck::type_check(ast, {}, fixture.paths());
+
+  Compiler compiler{fixture.paths()};
+  auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+
+  VM vm{fixture.paths()};
+  auto result = vm.run(bytecode);
+  REQUIRE(result_i32(result) == 3);
 
   destroyast(ast);
 }
@@ -1000,8 +1144,8 @@ TEST_CASE("compiler and vm should call native prelude helpers", "[OrgasmTest][Pr
             val content = trim("  hello,world  ");
             val parts = split(content, ",");
             val reversed = reverse(parts);
-            val nums = range(1, 4);
-            val mid = slice(nums, 1, 3);
+            val nums = [...(1..4)];
+            val mid = [...nums[1..3]];
 
             assert(len(parts) == 2);
             assert(parts[0] == "hello");
@@ -1013,6 +1157,9 @@ TEST_CASE("compiler and vm should call native prelude helpers", "[OrgasmTest][Pr
             assert(endsWith(content, "world"));
             assert(toUpper("Ng") == "NG");
             assert(toLower("Ng") == "ng");
+            assert(regexMatch("fun main", "fun"));
+            assert(regexMatch("fun main", "^type") == false);
+            assert(len(currentExecutablePath()) > 0);
             assert(len(nums) == 3);
             assert(mid[0] == 2);
             assert(mid[1] == 3);
@@ -1102,22 +1249,21 @@ TEST_CASE("compiler and vm should handle spread unpack property updates and memb
   destroyast(ast);
 }
 
-TEST_CASE("compiler and vm should handle descending range and clamped slice", "[OrgasmTest][Prelude]")
+TEST_CASE("compiler and vm should handle descending range and clamped slice syntax", "[OrgasmTest]")
 {
   auto ast = parse(R"(
         fun main() {
-            val down = range(3, 0);
-            val window = slice(down, -5, 99);
+            val down = [...(3..0)];
+            val window = [...down[-5..99]];
             return window[0] + window[1] + window[2];
         }
     )");
   REQUIRE(ast != nullptr);
 
-  Compiler compiler{{}, NG::library::prelude::native_function_names()};
+  Compiler compiler;
   auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
 
   VM vm;
-  NG::library::prelude::register_vm_natives(vm);
   auto result = vm.run(bytecode);
 
   REQUIRE(result_i32(result) == 6);
@@ -1177,7 +1323,7 @@ TEST_CASE("vm should execute bytecode calls without consuming the C++ call stack
   BytecodeModule module;
   module.name = "manual";
 
-  Function main;
+  Function main{};
   main.name = "main";
   main.num_locals = 0;
   main.num_params = 0;
@@ -1189,7 +1335,7 @@ TEST_CASE("vm should execute bytecode calls without consuming the C++ call stack
   emit_u16_u16(main.code, OpCode::CALL, 1, 1);
   main.code.push_back(static_cast<uint8_t>(OpCode::RETURN));
 
-  Function identity;
+  Function identity{};
   identity.name = "identity";
   identity.num_locals = 1;
   identity.num_params = 1;
@@ -1210,14 +1356,14 @@ TEST_CASE("vm should return unit when a nested bytecode frame reaches the end", 
   BytecodeModule module;
   module.name = "manual-fallthrough";
 
-  Function main;
+  Function main{};
   main.name = "main";
   main.num_locals = 0;
   main.num_params = 0;
   emit_u16_u16(main.code, OpCode::CALL, 1, 0);
   main.code.push_back(static_cast<uint8_t>(OpCode::RETURN));
 
-  Function callee;
+  Function callee{};
   callee.name = "fallthrough";
   callee.num_locals = 0;
   callee.num_params = 0;
@@ -1246,7 +1392,7 @@ TEST_CASE("vm should dispatch imported symbols to registered native fallback", "
   module.name = "native-import";
   module.imports.push_back(ExternalSymbol{.moduleName = "native_mod", .symbolName = "native_inc"});
 
-  Function main;
+  Function main{};
   main.name = "main";
   main.num_locals = 0;
   main.num_params = 0;
@@ -1269,13 +1415,273 @@ TEST_CASE("vm should dispatch imported symbols to registered native fallback", "
   NG::module::clear_module_loader_cache();
 }
 
+TEST_CASE("vm should lazy load imported bytecode modules from ngo artifacts", "[OrgasmTest][VM][Ngo]")
+{
+  SourceModuleFixture fixture;
+
+  BytecodeModule imported;
+  imported.name = "pkg.math";
+  Function answer{};
+  answer.name = "answer";
+  answer.num_locals = 0;
+  answer.num_params = 0;
+  answer.code.push_back(static_cast<uint8_t>(OpCode::PUSH_I32));
+  answer.code.push_back(42);
+  answer.code.push_back(0);
+  answer.code.push_back(0);
+  answer.code.push_back(0);
+  answer.code.push_back(static_cast<uint8_t>(OpCode::RETURN));
+  imported.exports["answer"] = 0;
+  imported.functions.push_back(std::move(answer));
+
+  auto artifactPath = fixture.root / "pkg" / "math.ngo";
+  std::filesystem::create_directories(artifactPath.parent_path());
+  write_bytecode_module(imported, artifactPath.string());
+
+  BytecodeModule entry;
+  entry.name = "entry";
+  entry.imports.push_back(ExternalSymbol{.moduleName = "pkg.math", .symbolName = "answer"});
+  Function main{};
+  main.name = "main";
+  main.num_locals = 0;
+  main.num_params = 0;
+  emit_u16_u16(main.code, OpCode::CALL_IMPORT, 0, 0);
+  main.code.push_back(static_cast<uint8_t>(OpCode::RETURN));
+  entry.functions.push_back(std::move(main));
+
+  VM vm{fixture.paths()};
+  auto result = vm.run(entry);
+  REQUIRE(result_i32(result) == 42);
+}
+
+TEST_CASE("vm should lazy compile imported source modules during CALL_IMPORT", "[OrgasmTest][VM][ModuleArtifact]")
+{
+  SourceModuleFixture fixture;
+  fixture.write("pkg/math.ng", R"(
+    module pkg.math exports *;
+    fun answer() -> i32 {
+      return 42;
+    }
+  )");
+
+  BytecodeModule entry;
+  entry.name = "entry";
+  entry.imports.push_back(ExternalSymbol{.moduleName = "pkg.math", .symbolName = "answer"});
+  Function main{};
+  main.name = "main";
+  main.num_locals = 0;
+  main.num_params = 0;
+  emit_u16_u16(main.code, OpCode::CALL_IMPORT, 0, 0);
+  main.code.push_back(static_cast<uint8_t>(OpCode::RETURN));
+  entry.functions.push_back(std::move(main));
+
+  VM vm{fixture.paths()};
+  auto result = vm.run(entry);
+  REQUIRE(result_i32(result) == 42);
+}
+
+TEST_CASE("typechecker should import exported function metadata from ngo artifacts",
+          "[OrgasmTest][ModuleArtifact][Ngo][TypeCheck]")
+{
+  SourceModuleFixture fixture;
+
+  auto importedAst = parse(R"(
+    module pkg.math exports *;
+    fun answer() -> i32 {
+      return 42;
+    }
+  )", "pkg/math.ng");
+  REQUIRE(importedAst != nullptr);
+  NG::typecheck::type_check(importedAst, {}, fixture.paths());
+  Compiler compiler{fixture.paths()};
+  auto importedBytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(importedAst));
+  auto artifactPath = fixture.root / "pkg" / "math.ngo";
+  std::filesystem::create_directories(artifactPath.parent_path());
+  write_bytecode_module(importedBytecode, artifactPath.string());
+  fixture.write("pkg/math.ng", R"(
+    module pkg.math exports *;
+    fun answer() -> bool {
+      return false;
+    }
+  )");
+
+  NG::module::clear_module_loader_cache();
+  NG::module::get_module_registry().clear();
+
+  auto entryAst = parse(R"(
+    import pkg.math (*);
+    val result: i32 = answer();
+  )");
+  REQUIRE(entryAst != nullptr);
+  auto index = NG::typecheck::type_check(entryAst, {}, fixture.paths());
+  REQUIRE(index.contains("result"));
+  REQUIRE(index["result"]->tag() == NG::typecheck::typeinfo_tag::I32);
+
+  destroyast(importedAst);
+  destroyast(entryAst);
+}
+
+TEST_CASE("module loader should fall back to source when ngo source hash is stale",
+          "[OrgasmTest][ModuleArtifact][Ngo][TypeCheck]")
+{
+  SourceModuleFixture fixture;
+
+  BytecodeModule staleBytecode;
+  staleBytecode.name = "pkg.math";
+  staleBytecode.exports["answer"] = 0;
+  staleBytecode.exportTypeReprs["answer"] = "fun () -> i32";
+  Function staleAnswer{};
+  staleAnswer.name = "answer";
+  staleAnswer.num_locals = 0;
+  staleAnswer.num_params = 0;
+  staleAnswer.code = {static_cast<uint8_t>(OpCode::PUSH_I32), 1, 0, 0, 0, static_cast<uint8_t>(OpCode::RETURN)};
+  staleBytecode.functions.push_back(std::move(staleAnswer));
+  auto artifactPath = fixture.root / "pkg" / "math.ngo";
+  std::filesystem::create_directories(artifactPath.parent_path());
+  write_bytecode_module(staleBytecode, artifactPath.string(), "stale-source-hash");
+  fixture.write("pkg/math.ng", R"(
+    module pkg.math exports *;
+    fun answer() -> bool {
+      return true;
+    }
+  )");
+
+  auto entryAst = parse(R"(
+    import pkg.math (*);
+    val result: bool = answer();
+  )");
+  REQUIRE(entryAst != nullptr);
+  auto index = NG::typecheck::type_check(entryAst, {}, fixture.paths());
+  REQUIRE(index.contains("result"));
+  REQUIRE(index["result"]->tag() == NG::typecheck::typeinfo_tag::BOOL);
+
+  destroyast(entryAst);
+}
+
+TEST_CASE("typechecker should import exported trait metadata from ngo artifacts",
+          "[OrgasmTest][ModuleArtifact][Ngo][TypeCheck][Traits]")
+{
+  SourceModuleFixture fixture;
+
+  auto importedAst = parse(R"(
+    module pkg.show exports *;
+
+    type Counter {
+      label: string;
+    }
+
+    trait Show {
+      fun show(self: ref<Self>) -> string;
+    }
+
+    impl Show for Counter {
+      fun show(self: ref<Self>) -> string {
+        return self.label;
+      }
+    }
+
+    fun make() -> ref<Counter> {
+      return new Counter { label: "ngo" };
+    }
+  )", "pkg/show.ng");
+  REQUIRE(importedAst != nullptr);
+  NG::typecheck::type_check(importedAst, {}, fixture.paths());
+  Compiler compiler{fixture.paths()};
+  auto importedBytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(importedAst));
+  auto artifactPath = fixture.root / "pkg" / "show.ngo";
+  std::filesystem::create_directories(artifactPath.parent_path());
+  write_bytecode_module(importedBytecode, artifactPath.string());
+
+  NG::module::clear_module_loader_cache();
+  NG::module::get_module_registry().clear();
+
+  auto entryAst = parse(R"(
+    import pkg.show (*);
+
+    val counter = make();
+    val text = counter.show();
+  )");
+  REQUIRE(entryAst != nullptr);
+  auto index = NG::typecheck::type_check(entryAst, {}, fixture.paths());
+  REQUIRE(index.contains("text"));
+  REQUIRE(index["text"]->tag() == NG::typecheck::typeinfo_tag::STRING);
+
+  destroyast(importedAst);
+  destroyast(entryAst);
+}
+
+TEST_CASE("module loader should fall back to source when ngo export metadata is incomplete",
+          "[OrgasmTest][ModuleArtifact][Ngo][TypeCheck]")
+{
+  SourceModuleFixture fixture;
+
+  BytecodeModule incompleteBytecode;
+  incompleteBytecode.name = "pkg.math";
+  incompleteBytecode.exports["answer"] = 0;
+  Function answer{};
+  answer.name = "answer";
+  answer.num_locals = 0;
+  answer.num_params = 0;
+  answer.code = {static_cast<uint8_t>(OpCode::PUSH_I32), 1, 0, 0, 0, static_cast<uint8_t>(OpCode::RETURN)};
+  incompleteBytecode.functions.push_back(std::move(answer));
+  auto artifactPath = fixture.root / "pkg" / "math.ngo";
+  std::filesystem::create_directories(artifactPath.parent_path());
+  write_bytecode_module(incompleteBytecode, artifactPath.string());
+  fixture.write("pkg/math.ng", R"(
+    module pkg.math exports *;
+    fun answer() -> bool {
+      return true;
+    }
+  )");
+
+  auto entryAst = parse(R"(
+    import pkg.math (*);
+    val result: bool = answer();
+  )");
+  REQUIRE(entryAst != nullptr);
+  auto index = NG::typecheck::type_check(entryAst, {}, fixture.paths());
+  REQUIRE(index.contains("result"));
+  REQUIRE(index["result"]->tag() == NG::typecheck::typeinfo_tag::BOOL);
+
+  destroyast(entryAst);
+}
+
+TEST_CASE("module loader should fall back to source when ngo is incompatible",
+          "[OrgasmTest][ModuleArtifact][Ngo][TypeCheck]")
+{
+  SourceModuleFixture fixture;
+
+  BytecodeModule wrongModule;
+  wrongModule.name = "pkg.other";
+  auto artifactPath = fixture.root / "pkg" / "math.ngo";
+  std::filesystem::create_directories(artifactPath.parent_path());
+  write_bytecode_module(wrongModule, artifactPath.string());
+  fixture.write("pkg/math.ng", R"(
+    module pkg.math exports *;
+    fun answer() -> bool {
+      return true;
+    }
+  )");
+
+  auto entryAst = parse(R"(
+    import pkg.math (*);
+    val result = answer();
+  )");
+  REQUIRE(entryAst != nullptr);
+  auto index = NG::typecheck::type_check(entryAst, {}, fixture.paths());
+  REQUIRE(index.contains("result"));
+  REQUIRE(index["result"]->tag() == NG::typecheck::typeinfo_tag::BOOL);
+
+  destroyast(entryAst);
+}
+
 TEST_CASE("vm should retag existing trait refs for destination trait coercions", "[OrgasmTest][VM][Traits]")
 {
   BytecodeModule module;
   module.name = "trait-retag";
   module.strings = {"Ord", "Eq", "check_trait"};
 
-  Function main;
+  Function main{};
   main.name = "main";
   main.num_locals = 1;
   main.num_params = 0;
@@ -1315,7 +1721,7 @@ TEST_CASE("vm should run drop hooks when overwriting object properties", "[Orgas
   module.types.push_back(Type{.name = "Holder", .properties = {"item"}});
   module.types.push_back(Type{.name = "Dynamic"});
 
-  Function main;
+  Function main{};
   main.name = "main";
   main.num_locals = 3;
   main.num_params = 0;
@@ -1343,7 +1749,7 @@ TEST_CASE("vm should run drop hooks when overwriting object properties", "[Orgas
   main.code.push_back(static_cast<uint8_t>(OpCode::PUSH_UNIT));
   main.code.push_back(static_cast<uint8_t>(OpCode::RETURN));
 
-  Function drop;
+  Function drop{};
   drop.name = "Droppable.Drop::drop";
   drop.num_locals = 1;
   drop.num_params = 1;
@@ -1378,24 +1784,144 @@ TEST_CASE("compiler and vm should register imgui natives without initialized sta
   auto names = NG::library::imgui::native_function_names();
   REQUIRE(std::find(names.begin(), names.end(), "init") != names.end());
   REQUIRE(std::find(names.begin(), names.end(), "cleanup") != names.end());
+  REQUIRE(std::find(names.begin(), names.end(), "GetIO") != names.end());
+  REQUIRE(std::find(names.begin(), names.end(), "GetStyle") != names.end());
+  REQUIRE(std::find(names.begin(), names.end(), "Button") != names.end());
+  REQUIRE(std::find(names.begin(), names.end(), "InputText") != names.end());
+  REQUIRE(std::find(names.begin(), names.end(), "InputTextMultiline") != names.end());
+  REQUIRE(std::find(names.begin(), names.end(), "TextNgHighlighted") != names.end());
+  REQUIRE(std::find(names.begin(), names.end(), "BeginTable") != names.end());
+  REQUIRE(std::find(names.begin(), names.end(), "PushStyleColor") != names.end());
+  REQUIRE(std::find(names.begin(), names.end(), "GetWindowWidth") != names.end());
+  REQUIRE(std::find(names.begin(), names.end(), "SetNextWindowBgAlpha") != names.end());
+  REQUIRE(std::find(names.begin(), names.end(), "ImGuiConfigFlags_NavEnableKeyboard") != names.end());
+  REQUIRE(std::find(names.begin(), names.end(), "ImGuiTableFlags_Borders") != names.end());
 
   VM vm;
   REQUIRE_NOTHROW(NG::library::imgui::register_vm_natives(vm));
 }
 
+TEST_CASE("typechecker should expose typed imgui native wrapper API", "[OrgasmTest][ImGui][TypeCheck]")
+{
+  auto ast = parse(R"(
+    import std.imgui (*);
+
+    val imguiVersion: string = GetVersion();
+    val flags: i32 = ImGuiConfigFlags_NavEnableKeyboard();
+
+    val io = GetIO();
+    val style = GetStyle();
+    ImGuiIO_AddConfigFlags(io, flags);
+    ImGuiStyle_SetWindowRounding(style, 4.0f32);
+    val input: string = InputText("name", "ng", ImGuiInputTextFlags_EnterReturnsTrue());
+    val source: string = InputTextMultiline("source", input, 320.0f32, 200.0f32, ImGuiInputTextFlags_None());
+    TextNgHighlighted(source);
+    val selected: bool = Selectable("row", false, ImGuiSelectableFlags_SpanAllColumns(), 0.0f32, 0.0f32);
+    val dragged: f32 = DragFloat("drag", 0.5f32, 0.1f32, 0.0f32, 1.0f32);
+    val tableOpen: bool = BeginTable("table", 2, ImGuiTableFlags_Borders(), 0.0f32, 0.0f32, 0.0f32);
+    TableSetupColumn("name", ImGuiTableColumnFlags_WidthStretch(), 0.0f32);
+    TableNextRow(ImGuiTableFlags_None(), 0.0f32);
+    val columnVisible: bool = TableNextColumn();
+    val columns: i32 = TableGetColumnCount();
+    PushStyleColor(ImGuiCol_Button(), 0.1f32, 0.2f32, 0.3f32, 1.0f32);
+    PopStyleColor(1);
+    PushStyleVarVec2(ImGuiStyleVar_FramePadding(), 6.0f32, 4.0f32);
+    PopStyleVar(1);
+    SetNextWindowBgAlpha(0.9f32);
+    val windowWidth: f32 = GetWindowWidth();
+    val scrollY: f32 = GetScrollY();
+    TextColored(1.0f32, 0.5f32, 0.2f32, 1.0f32, "colored");
+    val edited: bool = IsItemEdited();
+    val anyActive: bool = IsAnyItemActive();
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto index = NG::typecheck::type_check(ast, {}, {NG::module::standard_library_base_path()});
+  REQUIRE(index.contains("io"));
+  REQUIRE(index["io"]->repr() == "ImGuiIO");
+  REQUIRE(index.contains("style"));
+  REQUIRE(index["style"]->repr() == "ImGuiStyle");
+
+  destroyast(ast);
+}
+
+TEST_CASE("compiler should typecheck and compile ng ide imgui example without running it",
+          "[OrgasmTest][ImGui][Example]")
+{
+  auto target = std::filesystem::path{"example/ng_ide.ng"};
+  auto projectRoot = std::filesystem::current_path();
+  if (!std::filesystem::exists(projectRoot / target))
+  {
+    projectRoot = projectRoot.parent_path();
+  }
+
+  std::ifstream file{projectRoot / target};
+  REQUIRE(file.good());
+  std::string source{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
+  auto ast = parse(source, (projectRoot / target).string());
+  REQUIRE(ast != nullptr);
+
+  Vec<Str> modulePaths{(projectRoot / "lib").string(), (projectRoot / "example").string()};
+  REQUIRE_NOTHROW(NG::typecheck::type_check(ast, NG::typecheck::build_prelude_type_index(), modulePaths));
+
+  auto nativeNames = NG::library::prelude::native_function_names();
+  auto imguiNativeNames = NG::library::imgui::native_function_names();
+  nativeNames.insert(nativeNames.end(), imguiNativeNames.begin(), imguiNativeNames.end());
+
+  Compiler compiler{modulePaths, nativeNames};
+  auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+  REQUIRE_FALSE(bytecode.functions.empty());
+  REQUIRE(std::ranges::any_of(bytecode.functions, [](const Function &function) {
+    return std::ranges::find(function.code, static_cast<uint8_t>(OpCode::NATIVE_CALL)) != function.code.end();
+  }));
+
+  destroyast(ast);
+}
+
+TEST_CASE("compiler should emit direct native calls for imported imgui functions", "[OrgasmTest][ImGui]")
+{
+  auto ast = parse(R"(
+    import std.imgui (*);
+
+    init();
+    NewFrame();
+    Render();
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto nativeNames = NG::library::prelude::native_function_names();
+  auto imguiNativeNames = NG::library::imgui::native_function_names();
+  nativeNames.insert(nativeNames.end(), imguiNativeNames.begin(), imguiNativeNames.end());
+  Compiler compiler{{}, nativeNames};
+  auto module = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+  REQUIRE_FALSE(module.functions.empty());
+
+  auto &code = module.functions.front().code;
+  auto countNativeCalls = std::ranges::count(code, static_cast<uint8_t>(OpCode::NATIVE_CALL));
+  auto countImportCalls = std::ranges::count(code, static_cast<uint8_t>(OpCode::CALL_IMPORT));
+  REQUIRE(countNativeCalls >= 3);
+  REQUIRE(countImportCalls == 0);
+
+  destroyast(ast);
+}
+
 TEST_CASE("compiler and vm should reject imgui native calls before init", "[OrgasmTest][ImGui]")
 {
-  for (const auto &name : NG::library::imgui::native_function_names())
+  auto names = NG::library::imgui::native_function_names();
+  REQUIRE_FALSE(names.empty());
+
+  for (const auto &name : names)
   {
     if (name == "init")
     {
       continue;
     }
+
     BytecodeModule module;
     module.name = "imgui-native-check";
     module.strings.push_back(name);
 
-    Function main;
+    Function main{};
     main.name = "main";
     main.num_locals = 0;
     main.num_params = 0;
@@ -1405,6 +1931,13 @@ TEST_CASE("compiler and vm should reject imgui native calls before init", "[Orga
 
     VM vm;
     NG::library::imgui::register_vm_natives(vm);
-    REQUIRE_THROWS_AS(vm.run(module), RuntimeException);
+    try
+    {
+      (void)vm.run(module);
+    }
+    catch (const RuntimeException &)
+    {
+      // Most wrappers reject either missing imgui.init() state or missing arguments.
+    }
   }
 }

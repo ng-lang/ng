@@ -94,6 +94,12 @@ namespace NG::orgasm
         NEW_TUPLE_SPREAD,
         NEW_ARRAY_SPREAD,
         GET_TUPLE_REST,
+        FOLD_MAP_CALL,
+        FOLD_FILTER_CALL,
+        FOLD_LEFT_CALL,
+        FOLD_RIGHT_CALL,
+        MAKE_RANGE,
+        SLICE_RANGE,
 
         // Native
         NATIVE_CALL,

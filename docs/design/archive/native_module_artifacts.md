@@ -2,8 +2,11 @@
 
 ## Order
 
-Recommended Issue order: 4.
+Recommended Issue order: 5.
 Module-system-local order: 2.
+
+Implementation status: initial implementation landed on the module artifact branch. Native
+descriptors are now first-class registry inputs for the type checker, STUPID, and ORGASM.
 
 ## Goal
 
@@ -45,10 +48,13 @@ Out of scope:
 struct NativeModuleDescriptor {
   Str moduleId;
   Map<Str, NGCallable> functions;
-  Map<Str, RuntimeRef<NGType>> types;
-  Set<Str> traits;
-  Vec<TraitImplEvidence> impls;
   TypeIndex typeIndex;
+  ModuleExportIndex exports;
+  ModuleTraitIndex traits;
+  ModuleImplIndex impls;
+  Str origin;
+  Str version;
+  bool requireSignatures = false;
 };
 ```
 
@@ -59,6 +65,12 @@ Rules:
 - Native functions must have NG signatures available either from `.ng` stub modules or native descriptors.
 - Native modules can export opaque types, functions, traits, and impl evidence.
 - Native module impl evidence participates in duplicate impl diagnostics.
+- Descriptor registration publishes a shared `ModuleArtifact` and registers a runtime module.
+- If a source stub runtime module has already been loaded, descriptor registration augments it
+  with native handlers instead of replacing NG-defined helper functions.
+- If no source stub exists, STUPID falls back to the native runtime module registered by the
+  descriptor.
+- ORGASM treats imported native functions as external imports backed by VM native handlers.
 
 Recommended layout:
 
@@ -85,3 +97,19 @@ If a native module has an NG stub, the checker should verify:
 - A native opaque type can be exported and used by source modules.
 - Native-exported impl evidence participates in trait satisfaction.
 - Descriptor/stub mismatches produce deterministic diagnostics.
+
+## Implemented Coverage
+
+- `NativeModuleDescriptor` registration in `ModuleRegistry`.
+- Native descriptor metadata import in the type checker, including descriptor-only modules with
+  no source file.
+- STUPID import fallback for native-only artifacts.
+- STUPID source-stub compatibility, including mixed NG helper functions plus native handlers.
+- ORGASM external native imports for descriptor-backed modules.
+- Native descriptors for `std.prelude` and `std.imgui`.
+
+## Remaining Work
+
+- Persisted native artifact metadata for `.ngo` module loading.
+- Full duplicate trait impl diagnostics across native/source module boundaries.
+- Richer descriptor/stub agreement diagnostics for trait and impl evidence mismatches.

@@ -1,0 +1,21 @@
+module std.string exports *;
+
+fun split(s: string, delimiter: string) -> vector<string> = native;
+
+fun join(items: vector<string>, separator: string) -> string = native;
+
+fun trim(s: string) -> string = native;
+
+fun contains(haystack: string, needle: string) -> bool = native;
+
+fun replace(s: string, old: string, replacement: string) -> string = native;
+
+fun startsWith(s: string, prefix: string) -> bool = native;
+
+fun endsWith(s: string, suffix: string) -> bool = native;
+
+fun toUpper(s: string) -> string = native;
+
+fun toLower(s: string) -> string = native;
+
+fun regexMatch(value: string, pattern: string) -> bool = native;

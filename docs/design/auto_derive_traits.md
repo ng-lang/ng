@@ -1,57 +1,32 @@
-# Auto Traits And Derive Traits
+# Auto Traits And Derive Traits Follow-Ups
 
-## Order
+The implemented `auto trait`, `derive(Copy)`, and `derive(Clone)` baseline is
+archived in [archive/auto_derive_traits_baseline.md](archive/auto_derive_traits_baseline.md).
 
-Recommended Issue order: 7.
+This active document tracks future derive/auto-trait work only.
 
-## Goal
+## Remaining Scope
 
-Add compiler-assisted trait implementation mechanisms for common marker and structural traits.
-
-Example direction:
-
-```ng
-type Point: derive(Clone + Debug) {
-  property x: i32;
-  property y: i32;
-}
-
-auto trait Send;
-```
+- Debug/Show-like derived traits with deterministic field-order formatting.
+- Negative auto-trait controls or blocked auto-trait behavior, building on the
+  archived generalized `= delete` baseline.
+- Richer module artifact export/import behavior for derived impl evidence if
+  future module formats need more than the current impl metadata.
+- Diagnostics that report the exact field path preventing an auto trait or
+  derived trait from applying.
+- Validation that synthetic clone/drop behavior remains sound with future
+  ownership and partial-move extensions.
 
 ## Dependencies
 
-Prerequisites:
-
-- [Module Artifact And Typechecker Integration](module_artifact_typechecker.md), for cross-module trait impl visibility and coherence.
-- [Generalized `= delete` Declarations](generalized_delete.md), for negative or blocked auto-trait behavior.
-- Existing trait dispatch, trait bounds, and impl coherence.
-
-Related:
-
-- [Standard Library Modularization](stdlib_modularization.md), if core marker traits live in `std`.
-
-## Scope
-
-In scope:
-
-- Syntax and semantics for `derive(...)`.
-- Syntax and semantics for `auto trait`.
-- Built-in derive support for a small initial set, likely `Clone`, `Copy`, and `Debug`/`Show` if available.
-- Structural eligibility checks.
-- Interaction with explicit impls and coherence.
-- Diagnostics explaining why derive/auto trait application failed.
-
-Out of scope:
-
-- Procedural macros.
-- User-defined derive expansion hooks.
-- Associated types.
+- Implemented baseline: [Module Artifact And Typechecker Integration](archive/module_artifact_typechecker.md)
+- Implemented baseline: [Generalized `= delete`](archive/generalized_delete.md)
+- Implemented baseline: [Standard Library Modularization](archive/stdlib_modularization.md)
 
 ## Acceptance Criteria
 
-- Deriving `Clone` generates a valid `Clone` impl when all fields are cloneable.
-- Deriving `Copy` only succeeds when all fields are copyable and no `Drop` conflict exists.
-- Explicit impls conflict deterministically with derived impls.
-- Auto traits propagate structurally through fields.
-- Negative or blocked auto-trait behavior is specified before implementation.
+- Future derived formatting traits must work in both STUPID and ORGASM.
+- Negative or blocked auto-trait behavior must be specified before
+  implementation, including coherence and diagnostics.
+- Any new derived impl evidence must remain compatible with source and bytecode
+  module imports.

@@ -1,0 +1,6 @@
+module std.seq exports *;
+
+trait Sequence<T> {
+    fun size(self: ref<Self>) -> u32;
+    fun get(self: ref<Self>, index: i32) -> T;
+}

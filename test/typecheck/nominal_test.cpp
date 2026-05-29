@@ -215,6 +215,6 @@ TEST_CASE("empty array inferred from annotation", "[TypeCheck][Nominal][Inferenc
 
   REQUIRE(ast != nullptr);
   auto index = type_check(ast);
-  check_type_tag(*index["x"], typeinfo_tag::ARRAY);
+  check_type_tag(*index["x"], typeinfo_tag::VECTOR);
   destroyast(ast);
 }

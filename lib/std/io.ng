@@ -1,0 +1,11 @@
+module std.io exports *;
+
+fun readLine() -> string = native;
+
+fun readFile(path: string) -> string = native;
+
+fun writeFile(path: string, content: string) -> unit = native;
+
+fun currentExecutablePath() -> string = native;
+
+fun runNgi(path: string) -> string = native;

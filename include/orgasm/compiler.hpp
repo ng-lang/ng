@@ -29,6 +29,8 @@ namespace NG::orgasm
         void visit(ast::IdAccessorExpression *idAccExpr) override;
         void visit(ast::QualifiedTraitCallExpression *qualifiedCall) override;
         void visit(ast::IndexAccessorExpression *idxAccExpr) override;
+        void visit(ast::RangeExpression *rangeExpr) override;
+        void visit(ast::FromEndIndexExpression *fromEndExpr) override;
         void visit(ast::IndexAssignmentExpression *idxAssignExpr) override;
         void visit(ast::CompoundStatement *compoundStmt) override;
         void visit(ast::SimpleStatement *simpleStmt) override;
@@ -37,6 +39,7 @@ namespace NG::orgasm
         void visit(ast::TypeOfExpression *typeofExpr) override;
         void visit(ast::TypeCheckingExpression *typeCheck) override;
         void visit(ast::SpreadExpression *spreadExpr) override;
+        void visit(ast::PostfixFoldExpression *foldExpr) override;
         void visit(ast::ValueBindingStatement *valBind) override;
         void visit(ast::ValDefStatement *valDefStmt) override;
         void visit(ast::NewObjectExpression *newObj) override;
@@ -99,8 +102,10 @@ namespace NG::orgasm
         Map<Str, Str> globalTraitObjectTypes;
         Map<Str, Str> globalValueTypes;
         Map<Str, ImportedSymbol> imported_symbols;
+        Map<Str, Map<Str, ImportedSymbol>> qualified_import_symbols;
         Map<Str, ast::FunctionDef*> functionDefs;
         Map<Str, ast::FunctionDef*> genericFunctionDefs;
+        Vec<ast::Definition*> importedDefinitions;
         Vec<Str> genericFunctionInstances;
         Set<Str> genericFunctionInstanceSet;
         Map<Str, ast::TraitDef*> traitDefs;
@@ -131,6 +136,7 @@ namespace NG::orgasm
         auto specialize_type_repr(const Str &typeName, const Map<Str, Str> &typeBindings) const -> Str;
         void infer_type_bindings_from_reprs(const Str &pattern, const Str &actual, Map<Str, Str> &typeBindings) const;
         auto infer_expression_type_name(ast::ASTRef<ast::Expression> expr) const -> Str;
+        auto emit_call_arguments(const Vec<ast::ASTRef<ast::Expression>> &arguments) -> uint16_t;
         auto emit_trait_ref_if_needed(const ast::TypeAnnotation *annotation) -> bool;
         void emit_move_place(ast::ASTRef<ast::Expression> expr);
         void register_generic_function_instance(const Str &symbolName, ast::FunctionDef *funDef);

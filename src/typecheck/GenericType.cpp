@@ -42,6 +42,29 @@ namespace NG::typecheck
         return other.tag() == ANY;
     }
 
+    auto ConstValueType::repr() const -> Str
+    {
+        return valueType.empty() ? value : value + ":" + valueType;
+    }
+
+    auto ConstValueType::match(const TypeInfo &other) const -> bool
+    {
+        if (other.tag() == UNTYPED || other.tag() == ANY)
+        {
+            return true;
+        }
+        auto otherConst = dynamic_cast<const ConstValueType *>(&other);
+        if (!otherConst)
+        {
+            return false;
+        }
+        if (isParam || otherConst->isParam)
+        {
+            return valueType.empty() || otherConst->valueType.empty() || valueType == otherConst->valueType;
+        }
+        return value == otherConst->value && (valueType.empty() || otherConst->valueType.empty() || valueType == otherConst->valueType);
+    }
+
     // --- GenericDefType ---
 
     auto GenericDefType::repr() const -> Str
@@ -51,6 +74,8 @@ namespace NG::typecheck
         {
             if (i > 0)
                 result += ", ";
+            if (i < typeParamIsConst.size() && typeParamIsConst[i])
+                result += "const ";
             result += typeParamNames[i];
         }
         result += ">";
@@ -72,6 +97,8 @@ namespace NG::typecheck
         {
             if (i > 0)
                 result += ", ";
+            if (i < typeParamIsConst.size() && typeParamIsConst[i])
+                result += "const ";
             result += typeParamNames[i];
         }
         result += ">";

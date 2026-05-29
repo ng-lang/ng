@@ -1,0 +1,103 @@
+module std.list exports *;
+
+import std.seq (Sequence);
+
+type Node<T> = Cell(value: T, prev: ref<Node<T>>, rest: ref<Node<T>>) | Empty;
+
+fun getNode<T>(node: ref<Node<T>>, index: i32) -> T {
+    switch (*node) {
+        case Empty {
+            assert(false);
+            return getNode(node, index);
+        }
+        case Cell(value, previous, rest) {
+            if (index == 0) {
+                return value;
+            }
+            return getNode(rest, index - 1);
+        }
+    }
+}
+
+type List<T> {
+    head: ref<Node<T>>;
+    tail: ref<Node<T>>;
+    sizeValue: u32;
+
+    fun pushBack(self: ref<Self>, value: T) -> unit {
+        switch (*self.tail) {
+            case Empty {
+                *self.head := Cell(value, new Empty {}, new Empty {});
+                self.tail := self.head;
+            }
+            case Cell(existing, previous, rest) {
+                *rest := Cell(value, self.tail, new Empty {});
+                self.tail := rest;
+            }
+        }
+        self.sizeValue := self.sizeValue + 1u32;
+    }
+
+    fun append(self: ref<Self>, value: T) -> unit {
+        self.pushBack(value);
+    }
+
+    fun size(self: ref<Self>) -> u32 {
+        return self.sizeValue;
+    }
+
+    fun get(self: ref<Self>, index: i32) -> T {
+        return getNode(self.head, index);
+    }
+}
+
+fun list<T>() -> List<T> {
+    return *new List<T> {
+        head: new Empty {},
+        tail: new Empty {},
+        sizeValue: 0u32
+    };
+}
+
+fun listof<T>(args: T...) -> List<T> {
+    val result: List<T> = list<T>();
+    loop i = 0 {
+        if (i < args.size) {
+            pushBack(ref result, args[i]);
+            next i + 1;
+        }
+    }
+    return result;
+}
+
+fun pushBack<T>(list: ref<List<T>>, value: T) -> unit {
+    switch (*list.tail) {
+        case Empty {
+            *list.head := Cell(value, new Empty {}, new Empty {});
+            list.tail := list.head;
+        }
+        case Cell(existing, previous, rest) {
+            *rest := Cell(value, list.tail, new Empty {});
+            list.tail := rest;
+        }
+    }
+    list.sizeValue := list.sizeValue + 1u32;
+}
+
+fun append<T>(list: ref<List<T>>, value: T) -> unit {
+    pushBack(list, value);
+}
+
+fun get<T>(list: ref<List<T>>, index: i32) -> T {
+    return getNode(list.head, index);
+}
+
+impl<T> Sequence<T> for List<T> {
+    fun size(self: ref<Self>) -> u32 {
+        return self.sizeValue;
+    }
+
+    fun get(self: ref<Self>, index: i32) -> T {
+        return getNode(self.head, index);
+    }
+}

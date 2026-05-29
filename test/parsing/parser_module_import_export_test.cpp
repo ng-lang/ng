@@ -17,6 +17,22 @@ TEST_CASE("parser should parse modules", "[Parser][Module]")
   destroyast(ast);
 }
 
+TEST_CASE("parser should parse canonical dotted module names", "[Parser][Module]")
+{
+  auto ast = parse(R"(
+        module std.prelude exports *;
+    )");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  REQUIRE(compileUnit->module != nullptr);
+  REQUIRE(compileUnit->module->name == "std.prelude");
+  REQUIRE(compileUnit->module->nameDeclared);
+
+  destroyast(ast);
+}
+
 TEST_CASE("parser should parse exports", "[Parser][Module][Export]")
 {
   auto ast = parse(R"(
@@ -69,6 +85,27 @@ TEST_CASE("Should export single declaration", "[Parser][Export][Native]")
   destroyast(ast);
 }
 
+TEST_CASE("parser should parse exported imports", "[Parser][Module][Import][Export]")
+{
+  auto ast = parse(R"(
+        export import std.string (*);
+        export import std.array (reverse);
+    )");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  REQUIRE(compileUnit->module != nullptr);
+  REQUIRE(compileUnit->module->imports.size() == 2);
+  REQUIRE(compileUnit->module->imports[0]->exported);
+  REQUIRE(compileUnit->module->imports[0]->imports == Vec<Str>{"*"});
+  REQUIRE(compileUnit->module->imports[1]->exported);
+  REQUIRE(compileUnit->module->imports[1]->imports == Vec<Str>{"reverse"});
+  REQUIRE(std::ranges::find(compileUnit->module->exports, "reverse") != compileUnit->module->exports.end());
+
+  destroyast(ast);
+}
+
 TEST_CASE("Should not export statement", "[Parser][Export]")
 {
   parseInvalid(
@@ -77,4 +114,23 @@ TEST_CASE("Should not export statement", "[Parser][Export]")
         }
     )",
       "Invalid export");
+}
+
+TEST_CASE("parser should parse import as alias syntax", "[Parser][Module][Import]")
+{
+  auto ast = parse(R"(
+        import vendor.math as math;
+    )");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  REQUIRE(compileUnit->module->imports.size() == 1);
+  auto importDecl = compileUnit->module->imports.front();
+  REQUIRE(importDecl != nullptr);
+  REQUIRE(importDecl->module == "math");
+  REQUIRE(importDecl->alias == "math");
+  REQUIRE(importDecl->modulePath == Vec<Str>{"vendor", "math"});
+
+  destroyast(ast);
 }

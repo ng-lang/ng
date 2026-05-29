@@ -72,8 +72,9 @@ The linked discussion proposed four broad areas. Their current status is:
 - Multiple returns are represented as returning tuple values.
 - Generic parameter packs are implemented and cover the main variadic function use case better than the original native-only variadic proposal.
 - Prelude `print` and `assert` are backed by variadic native handling; user-defined `fun<T...>(args: T...)` is supported.
-- `range(start, end)` and `slice(array, start, end)` exist as prelude functions, including descending ranges and clamped slicing.
-- Lexer tokens exist for `..`, `..=`, `...`, and `^`, but range operator expressions and from-end indexing are not implemented.
+- Range expressions (`a..b`, `a..=b`), from-end indexing (`^n`), and slice syntax
+  are implemented. The old `range(...)` and `slice(...)` helper APIs have been
+  removed.
 - Tuple type-level operations such as `<tuple>.size` as a compile-time type expression and `<tuple>[N]` as an element type projection are not implemented.
 - Fold/map/filter postfix syntax and pipeline syntax from the discussion are not implemented.
 
@@ -96,12 +97,12 @@ Enhanced generics do not replace tuple type introspection. APIs that need compil
 The remaining work should be split from the original broad tuple discussion into smaller designs:
 
 - Enhanced tuple types: compile-time tuple arity, element projection, pack-to-tuple normalization, tuple concatenation, and function type interop.
-- Range operators: `a..b`, `a..=b`, open ranges, and from-end indexes; see [ranges_slicing_pipeline.md](ranges_slicing_pipeline.md).
-- Tuple and array slicing syntax: `xs[a..b]`, `xs[^n]`, and tuple slice type preservation; see [enhanced_tuples.md](enhanced_tuples.md) for tuple type rules.
+- Range operators: `a..b`, `a..=b`, open ranges, and from-end indexes; see [ranges_slicing_pipeline.md](../ranges_slicing_pipeline.md).
+- Tuple and array slicing syntax: `xs[a..b]`, `xs[^n]`, and tuple slice type preservation; see [enhanced_tuples.md](../enhanced_tuples.md) for tuple type rules.
 - General function application via spread: make `f(...tuple)` consistently type checked and compiled for non-pack functions, default parameters, and trait/object method calls.
 - Fold/pipeline syntax: should be redesigned separately over traits or prelude functions instead of overloading tuple spread semantics further.
 
-The follow-up enhanced tuple plan is in [enhanced_tuples.md](enhanced_tuples.md).
+The follow-up enhanced tuple plan is in [enhanced_tuples.md](../enhanced_tuples.md).
 
 ## Acceptance Baseline
 

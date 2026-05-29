@@ -60,3 +60,30 @@ TEST_CASE("pack parameter with single argument", "[ParameterPack][TypeCheck]")
   REQUIRE(typeIndex.contains("identity"));
   REQUIRE(typeIndex.contains("r"));
 }
+
+TEST_CASE("homogeneous varargs use a single non-pack type parameter", "[ParameterPack][TypeCheck]")
+{
+  auto ast = parse(R"(
+            fun all_i32<T>(args: T...) -> unit {
+                val first: T = args[0];
+            }
+
+            all_i32(1, 2, 3);
+        )");
+
+  REQUIRE(ast != nullptr);
+  auto typeIndex = type_check(ast);
+  REQUIRE(typeIndex.contains("all_i32"));
+}
+
+TEST_CASE("homogeneous varargs reject mixed argument types", "[ParameterPack][TypeCheck]")
+{
+  typecheck_failure(R"(
+            fun same<T>(args: T...) -> unit {
+                args;
+            }
+
+            same(1, "two");
+        )",
+                    "Inconsistent bindings for generic parameter 'T'");
+}

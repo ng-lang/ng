@@ -1,8 +1,11 @@
 
 #include <debug.hpp>
+#include <intp/intp.hpp>
+#include <intp/runtime_numerals.hpp>
 #include <token.hpp>
 #include <typecheck/mangling.hpp>
 #include <typecheck/typecheck.hpp>
+#include <runtime/value_access.hpp>
 #include <module.hpp>
 #include <parser.hpp>
 #include <algorithm>
@@ -84,7 +87,11 @@ namespace NG::typecheck
   {
     if (type && type->tag() == typeinfo_tag::PARAM_WITH_DEFAULT_VALUE)
     {
-      return static_cast<ParamWithDefaultValueType &>(*type).paramType;
+      return unwrap(static_cast<ParamWithDefaultValueType &>(*type).paramType);
+    }
+    if (auto alias = std::dynamic_pointer_cast<TypeAliasType>(type))
+    {
+      return unwrap(alias->underlyingType);
     }
     return type;
   }
@@ -96,6 +103,68 @@ namespace NG::typecheck
       return refType->referencedType;
     }
     return type;
+  }
+
+  static auto stripTypeInstanceSuffix(const Str &typeName) -> Str;
+
+  static auto builtin_sequence_element_type(const CheckingRef<TypeInfo> &type) -> CheckingRef<TypeInfo>
+  {
+    auto unwrapped = unwrap(type);
+    if (auto array = std::dynamic_pointer_cast<ArrayType>(unwrapped))
+    {
+      return array->elementType;
+    }
+    if (auto vector = std::dynamic_pointer_cast<VectorType>(unwrapped))
+    {
+      return vector->elementType;
+    }
+    if (auto span = std::dynamic_pointer_cast<SpanType>(unwrapped))
+    {
+      return span->elementType;
+    }
+    if (auto range = std::dynamic_pointer_cast<RangeType>(unwrapped))
+    {
+      return range->elementType;
+    }
+    if (auto varargs = std::dynamic_pointer_cast<VarargsType>(unwrapped))
+    {
+      if (varargs->elementTypes.empty())
+      {
+        return nullptr;
+      }
+      auto elementType = varargs->elementTypes.front();
+      for (auto &nextType : varargs->elementTypes)
+      {
+        if (!typeMatch(*elementType, *nextType))
+        {
+          return makecheck<Untyped>();
+        }
+      }
+      return elementType;
+    }
+    return nullptr;
+  }
+
+  static auto is_builtin_sequence_type(const CheckingRef<TypeInfo> &type) -> bool
+  {
+    return builtin_sequence_element_type(type) != nullptr;
+  }
+
+  static auto const_value_equals_size(const CheckingRef<TypeInfo> &type, size_t value) -> bool
+  {
+    auto constValue = std::dynamic_pointer_cast<ConstValueType>(unwrap(type));
+    if (!constValue || constValue->isParam)
+    {
+      return true;
+    }
+    try
+    {
+      return std::stoull(constValue->value) == value;
+    }
+    catch (...)
+    {
+      return false;
+    }
   }
 
   static auto is_self_type(const CheckingRef<TypeInfo> &type) -> bool
@@ -128,6 +197,14 @@ namespace NG::typecheck
     if (auto array = std::dynamic_pointer_cast<ArrayType>(unwrapped))
     {
       return contains_non_receiver_self(array->elementType);
+    }
+    if (auto vector = std::dynamic_pointer_cast<VectorType>(unwrapped))
+    {
+      return contains_non_receiver_self(vector->elementType);
+    }
+    if (auto span = std::dynamic_pointer_cast<SpanType>(unwrapped))
+    {
+      return contains_non_receiver_self(span->elementType);
     }
     if (auto tuple = std::dynamic_pointer_cast<TupleType>(unwrapped))
     {
@@ -789,7 +866,27 @@ namespace NG::typecheck
       }
       if (auto array = std::dynamic_pointer_cast<ArrayType>(type))
       {
-        return self(array->elementType, self) + " array";
+        if (array->length)
+        {
+          return "array<" + self(array->elementType, self) + ", " + self(array->length, self) + ">";
+        }
+        return "array<" + self(array->elementType, self) + ", ?>";
+      }
+      if (auto vector = std::dynamic_pointer_cast<VectorType>(type))
+      {
+        return "vector<" + self(vector->elementType, self) + ">";
+      }
+      if (auto span = std::dynamic_pointer_cast<SpanType>(type))
+      {
+        return "span<" + self(span->elementType, self) + ">";
+      }
+      if (auto range = std::dynamic_pointer_cast<RangeType>(type))
+      {
+        return "Range<" + self(range->elementType, self) + ">";
+      }
+      if (auto constValue = std::dynamic_pointer_cast<ConstValueType>(type))
+      {
+        return constValue->repr();
       }
       if (auto tuple = std::dynamic_pointer_cast<TupleType>(type))
       {
@@ -895,6 +992,10 @@ namespace NG::typecheck
       return "string";
     case typeinfo_tag::ARRAY:
       return "array";
+    case typeinfo_tag::VECTOR:
+      return "vector";
+    case typeinfo_tag::SPAN:
+      return "span";
     case typeinfo_tag::TUPLE:
       return "tuple";
     case typeinfo_tag::FUNCTION:
@@ -943,8 +1044,15 @@ namespace NG::typecheck
     Str currentModuleId = "default";
     Str activeGenericInstanceName;
     inline static Map<Str, Vec<TypeAliasDef *>> activeTypeAliasSpecializations{};
+    inline static Map<Str, Vec<TypeAliasDef *>> preludeTypeAliasSpecializations{};
     inline static Map<Str, Vec<ConstDef *>> activeConstPredicates{};
     inline static Map<Str, Vec<ConstDef *>> preludeConstPredicates{};
+    inline static Map<Str, Vec<FunctionDef *>> activeConstFunctions{};
+    inline static Map<Str, Vec<FunctionDef *>> preludeConstFunctions{};
+    inline static Set<Str> activeAutoTraits{};
+    inline static Set<Str> preludeAutoTraits{};
+    inline static Set<Str> activeDerivedTraitImplKeys{};
+    inline static Vec<ASTRef<ASTNode>> retainedPreludeImportAsts{};
     struct TraitImplRecord
     {
       Str traitName;
@@ -961,13 +1069,20 @@ namespace NG::typecheck
       TypeIndex exportedTypes;
       Vec<TraitImplRecord> exportedImpls;
       Set<Str> exports;
+      Map<Str, Vec<TypeAliasDef *>> exportedTypeAliasSpecializations;
+      Map<Str, Vec<ConstDef *>> exportedConstPredicates;
+      Map<Str, Vec<FunctionDef *>> exportedConstFunctions;
     };
     Vec<TraitImplRecord> localTraitImpls;
     Map<Str, Vec<UseImplDecl *>> selectedTraitImpls;
     Set<Str> matchedSelectedTraitImpls;
+    Set<Str> autoTraitNames;
+    Set<Str> derivedTraitImplKeys;
     Set<Str> importedSymbolNames;
     Set<Str> importedImplNames;
+    Set<Str> exportedImportNames;
     Map<Str, Str> importAliases;
+    Vec<Str> importedModuleIds;
     Vec<Str> modulePaths;
     inline static Map<Str, ModuleArtifacts> moduleArtifactsById{};
     inline static Set<Str> activeModuleChecks{};
@@ -990,6 +1105,158 @@ namespace NG::typecheck
     }
 
     bool hasWildcardImportFlag() const { return locals.contains(WILDCARD_IMPORT_KEY); }
+
+    auto resolveTypeAnnotationWithBindings(const TypeAnnotation *annotation,
+                                           const Map<Str, CheckingRef<TypeInfo>> &bindings) const
+        -> CheckingRef<TypeInfo>
+    {
+      if (!annotation)
+      {
+        return nullptr;
+      }
+      auto scope = locals;
+      for (const auto &[name, type] : bindings)
+      {
+        scope[name] = type;
+      }
+      TypeChecker checker{scope, {}, nullptr, {}, false, activeGenericInstanceName, modulePaths};
+      checker.trait_impls_by_type = trait_impls_by_type;
+      checker.localTraitImpls = localTraitImpls;
+      const_cast<TypeAnnotation *>(annotation)->accept(&checker);
+      return checker.result;
+    }
+
+    auto sequenceElementType(const CheckingRef<TypeInfo> &type) const -> CheckingRef<TypeInfo>
+    {
+      if (auto builtin = builtin_sequence_element_type(type))
+      {
+        return builtin;
+      }
+
+      auto unwrapped = unwrap(deref_reference_type(type));
+      auto custom = std::dynamic_pointer_cast<CustomizedType>(unwrapped);
+      if (!custom)
+      {
+        return nullptr;
+      }
+      if (custom->memberFunctions.contains("size") && custom->memberFunctions.contains("get"))
+      {
+        return custom->memberFunctions.at("get")->returnType;
+      }
+
+      for (const auto &impl : localTraitImpls)
+      {
+        if (impl.traitName != "Sequence" || !impl.definition || !impl.definition->targetType ||
+            !impl.definition->trait)
+        {
+          continue;
+        }
+        auto genericParamNames = impl.genericParamNames.empty()
+                                     ? genericParamNameSet(impl.definition->genericParams)
+                                     : impl.genericParamNames;
+        Map<Str, CheckingRef<TypeInfo>> bindings;
+        const bool patternMatches =
+            typePatternMatch(impl.definition->targetType.get(), unwrapped, genericParamNames, bindings);
+        if (!patternMatches &&
+            (stripTypeInstanceSuffix(impl.definition->targetType->name) != stripTypeInstanceSuffix(custom->name) ||
+             impl.definition->targetType->genericArgs.empty()))
+        {
+          continue;
+        }
+        if (!impl.definition->targetType->genericArgs.empty())
+        {
+          Vec<CheckingRef<TypeInfo>> actualArgs = custom->typeArgs;
+          if (actualArgs.empty())
+          {
+            for (auto &argName : parseTypeInstanceArgs(custom->name))
+            {
+              if (auto primitive = PrimitiveType::from(argName))
+              {
+                actualArgs.push_back(primitive);
+              }
+              else
+              {
+                actualArgs.push_back(makecheck<CustomizedType>(argName));
+              }
+            }
+          }
+          (void)typePatternArgListMatches(impl.definition->targetType->genericArgs, actualArgs,
+                                          genericParamNames, bindings);
+        }
+        if (impl.definition->trait->genericArgs.size() != 1)
+        {
+          continue;
+        }
+        auto traitElement = impl.definition->trait->genericArgs.front().get();
+        if (traitElement && traitElement->genericArgs.empty() && traitElement->arguments.empty())
+        {
+          if (auto binding = bindings.find(traitElement->name); binding != bindings.end())
+          {
+            return binding->second;
+          }
+        }
+        return resolveTypeAnnotationWithBindings(impl.definition->trait->genericArgs.front().get(), bindings);
+      }
+
+      for (const auto &impl : localTraitImpls)
+      {
+        if (impl.traitName != "Sequence" ||
+            stripTypeInstanceSuffix(impl.targetPattern) != stripTypeInstanceSuffix(custom->name))
+        {
+          continue;
+        }
+        Vec<CheckingRef<TypeInfo>> actualArgs = custom->typeArgs;
+        if (actualArgs.empty())
+        {
+          for (auto &argName : parseTypeInstanceArgs(custom->name))
+          {
+            if (auto primitive = PrimitiveType::from(argName))
+            {
+              actualArgs.push_back(primitive);
+            }
+            else
+            {
+              actualArgs.push_back(makecheck<CustomizedType>(argName));
+            }
+          }
+        }
+        auto patternArgs = parseTypeInstanceArgs(impl.targetPattern);
+        if (actualArgs.empty() || patternArgs.size() != actualArgs.size())
+        {
+          continue;
+        }
+        if (impl.genericParamNames.size() == 1)
+        {
+          auto genericName = *impl.genericParamNames.begin();
+          for (size_t i = 0; i < patternArgs.size(); ++i)
+          {
+            if (patternArgs[i] == genericName)
+            {
+              return actualArgs[i];
+            }
+          }
+        }
+        if (actualArgs.size() == 1)
+        {
+          return actualArgs.front();
+        }
+      }
+
+      if (auto traitIt = custom->traitMemberFunctions.find("Sequence");
+          traitIt != custom->traitMemberFunctions.end())
+      {
+        if (auto getIt = traitIt->second.find("get"); getIt != traitIt->second.end() && getIt->second)
+        {
+          return getIt->second->returnType;
+        }
+      }
+      return nullptr;
+    }
+
+    auto isSequenceType(const CheckingRef<TypeInfo> &type) const -> bool
+    {
+      return sequenceElementType(type) != nullptr;
+    }
 
     void rejectBorrowConflict(const Str &operation, const Str &place, TokenPosition pos) const
     {
@@ -1074,6 +1341,7 @@ namespace NG::typecheck
           break;
         }
       }
+
     }
 
     static auto implSelectionKey(const Str &traitName, const Str &targetPattern) -> Str
@@ -1083,16 +1351,7 @@ namespace NG::typecheck
 
     static auto moduleIdFromPath(const Vec<Str> &modulePath) -> Str
     {
-      Str moduleId;
-      for (const auto &segment : modulePath)
-      {
-        if (!moduleId.empty())
-        {
-          moduleId += ".";
-        }
-        moduleId += segment;
-      }
-      return moduleId;
+      return NG::module::canonical_module_id(modulePath);
     }
 
     static auto moduleIdTail(const Str &moduleId) -> Str
@@ -1134,6 +1393,55 @@ namespace NG::typecheck
     auto selectedRecordKey(const TraitImplRecord &record) const -> Str
     {
       return record.moduleId + "::" + implSelectionKey(record.traitName, record.targetPattern);
+    }
+
+    static auto toModuleImplEvidence(const TraitImplRecord &record) -> NG::module::ModuleImplEvidence
+    {
+      return NG::module::ModuleImplEvidence{
+          .traitName = record.traitName,
+          .targetPattern = record.targetPattern,
+          .moduleId = record.moduleId,
+          .genericParamNames = record.genericParamNames,
+          .whereBounds = record.whereBounds,
+          .methods = record.methods,
+          .definition = nullptr,
+          .pos = record.pos,
+      };
+    }
+
+    static auto toTraitImplRecord(const NG::module::ModuleImplEvidence &evidence) -> TraitImplRecord
+    {
+      return TraitImplRecord{
+          .traitName = evidence.traitName,
+          .targetPattern = evidence.targetPattern,
+          .moduleId = evidence.moduleId,
+          .genericParamNames = evidence.genericParamNames,
+          .whereBounds = evidence.whereBounds,
+          .methods = evidence.methods,
+          .definition = evidence.definition.get(),
+          .pos = evidence.pos,
+      };
+    }
+
+    static auto hasPublishedTypeMetadata(const NG::module::ModuleArtifact &artifact) -> bool
+    {
+      return !artifact.typeIndex.empty() || !artifact.exports.types.empty() || !artifact.impls.empty() ||
+             !artifact.traits.empty();
+    }
+
+    static auto toLocalModuleArtifacts(const NG::module::ModuleArtifact &artifact) -> ModuleArtifacts
+    {
+      ModuleArtifacts artifacts;
+      artifacts.exportedTypes = artifact.exports.types;
+      artifacts.exports = artifact.exports.declared;
+      artifacts.exportedTypeAliasSpecializations = artifact.typeAliasSpecializations;
+      artifacts.exportedConstPredicates = artifact.constPredicates;
+      artifacts.exportedConstFunctions = artifact.constFunctions;
+      for (const auto &impl : artifact.impls)
+      {
+        artifacts.exportedImpls.push_back(toTraitImplRecord(impl));
+      }
+      return artifacts;
     }
 
     static auto byValueAbstractReason(const CheckingRef<TypeInfo> &type) -> Str
@@ -1251,6 +1559,36 @@ namespace NG::typecheck
       }
       validateTypeArgumentKind(paramName, expectedArity, expectedVariadicTail, it->second, annotation->pos);
       return it->second;
+    }
+
+    auto resolveGenericArgument(TypeAnnotation *annotation, bool expectedConst, const Str &expectedConstType,
+                                size_t expectedArity, bool expectedVariadicTail,
+                                const Str &paramName) const -> CheckingRef<TypeInfo>
+    {
+      auto resolved = resolveGenericTypeArgument(annotation, expectedArity, expectedVariadicTail, paramName);
+      const bool isConstValue = resolved && resolved->tag() == typeinfo_tag::CONST_VALUE;
+      if (expectedConst && !isConstValue)
+      {
+        throw TypeCheckingException("Generic parameter '" + paramName + "' expects a compile-time constant argument",
+                                    annotation ? annotation->pos : TokenPosition{});
+      }
+      if (expectedConst && !expectedConstType.empty())
+      {
+        auto constValueType = std::dynamic_pointer_cast<ConstValueType>(unwrap(resolved));
+        auto value = constValueFromType(constValueType);
+        auto expectedType = type_from_repr(expectedConstType);
+        if (value.has_value() && expectedType && !constValueMatchesType(*value, expectedType))
+        {
+          throw TypeCheckingException("Generic parameter '" + paramName + "' expects const " + expectedConstType,
+                                      annotation ? annotation->pos : TokenPosition{});
+        }
+      }
+      if (!expectedConst && isConstValue)
+      {
+        throw TypeCheckingException("Generic parameter '" + paramName + "' expects a type argument",
+                                    annotation ? annotation->pos : TokenPosition{});
+      }
+      return resolved;
     }
 
     static auto isBuiltinLifecycleTraitName(const Str &name) -> bool
@@ -1381,6 +1719,16 @@ namespace NG::typecheck
         validateObjectSafeTraitRefs(array->elementType);
         return;
       }
+      if (auto vector = std::dynamic_pointer_cast<VectorType>(unwrapped))
+      {
+        validateObjectSafeTraitRefs(vector->elementType);
+        return;
+      }
+      if (auto span = std::dynamic_pointer_cast<SpanType>(unwrapped))
+      {
+        validateObjectSafeTraitRefs(span->elementType);
+        return;
+      }
       if (auto tuple = std::dynamic_pointer_cast<TupleType>(unwrapped))
       {
         for (auto &element : tuple->elementTypes)
@@ -1468,6 +1816,17 @@ namespace NG::typecheck
       return tails;
     }
 
+    static auto genericParamIsConst(const Vec<ASTRef<GenericParam>> &genericParams) -> Vec<bool>
+    {
+      Vec<bool> flags;
+      flags.reserve(genericParams.size());
+      for (auto &param : genericParams)
+      {
+        flags.push_back(param->isConst);
+      }
+      return flags;
+    }
+
     static auto genericTypeConstructorFixedArity(const GenericTypeDef &genericType) -> size_t
     {
       auto packIt = std::find(genericType.typeParamIsPack.begin(), genericType.typeParamIsPack.end(), true);
@@ -1493,6 +1852,37 @@ namespace NG::typecheck
         names.insert(param->name);
       }
       return names;
+    }
+
+    static auto isPackTypePattern(const TypeAnnotation *pattern, const Set<Str> &genericParamNames) -> bool
+    {
+      return pattern && pattern->genericArgs.empty() && pattern->arguments.empty() &&
+             pattern->name.size() > 3 && pattern->name.ends_with("...") &&
+             genericParamNames.contains(pattern->name.substr(0, pattern->name.size() - 3));
+    }
+
+    static auto packPatternName(const TypeAnnotation *pattern) -> Str
+    {
+      return pattern->name.substr(0, pattern->name.size() - 3);
+    }
+
+    static auto bindPackPattern(const TypeAnnotation *pattern,
+                                const Vec<CheckingRef<TypeInfo>> &actualTypes,
+                                Map<Str, CheckingRef<TypeInfo>> &bindings) -> bool
+    {
+      auto name = packPatternName(pattern);
+      auto packed = makecheck<VarargsType>(actualTypes);
+      if (auto it = bindings.find(name); it != bindings.end())
+      {
+        if (it->second && it->second->tag() == typeinfo_tag::GENERIC_PARAM)
+        {
+          it->second = packed;
+          return true;
+        }
+        return it->second && typeMatch(*it->second, *packed);
+      }
+      bindings[name] = packed;
+      return true;
     }
 
     static auto typePatternMatch(const TypeAnnotation *pattern, const CheckingRef<TypeInfo> &actual,
@@ -1528,10 +1918,90 @@ namespace NG::typecheck
       {
         return false;
       }
+      if (isPackTypePattern(pattern, genericParamNames))
+      {
+        return bindPackPattern(pattern, Vec<CheckingRef<TypeInfo>>{actual}, bindings);
+      }
+      if (pattern->constLiteral)
+      {
+        auto constValue = std::dynamic_pointer_cast<ConstValueType>(unwrap(actual));
+        return constValue && constValue->value == pattern->name;
+      }
+      if (pattern->type == TypeAnnotationType::TUPLE)
+      {
+        auto tuple = std::dynamic_pointer_cast<TupleType>(unwrap(actual));
+        if (!tuple)
+        {
+          return false;
+        }
+        Vec<const TypeAnnotation *> patternElements;
+        patternElements.reserve(pattern->arguments.size());
+        for (auto &arg : pattern->arguments)
+        {
+          auto child = dynamic_ast_cast<TypeAnnotation>(arg);
+          if (!child)
+          {
+            return false;
+          }
+          patternElements.push_back(child.get());
+        }
+        const bool hasPackTail = !patternElements.empty() &&
+                                 isPackTypePattern(patternElements.back(), genericParamNames);
+        if (!hasPackTail && patternElements.size() != tuple->elementTypes.size())
+        {
+          return false;
+        }
+        if (hasPackTail && tuple->elementTypes.size() + 1 < patternElements.size())
+        {
+          return false;
+        }
+        const auto fixedCount = hasPackTail ? patternElements.size() - 1 : patternElements.size();
+        for (size_t i = 0; i < fixedCount; ++i)
+        {
+          if (!typePatternMatch(patternElements[i], tuple->elementTypes[i], genericParamNames, bindings))
+          {
+            return false;
+          }
+        }
+        if (hasPackTail)
+        {
+          Vec<CheckingRef<TypeInfo>> tailTypes;
+          tailTypes.reserve(tuple->elementTypes.size() - fixedCount);
+          for (size_t i = fixedCount; i < tuple->elementTypes.size(); ++i)
+          {
+            tailTypes.push_back(tuple->elementTypes[i]);
+          }
+          return bindPackPattern(patternElements.back(), tailTypes, bindings);
+        }
+        return true;
+      }
+      if (pattern->type == TypeAnnotationType::UNION)
+      {
+        for (auto &arg : pattern->arguments)
+        {
+          auto alternative = dynamic_ast_cast<TypeAnnotation>(arg);
+          if (!alternative)
+          {
+            continue;
+          }
+          auto candidateBindings = bindings;
+          if (typePatternMatch(alternative.get(), actual, genericParamNames, candidateBindings))
+          {
+            bindings = std::move(candidateBindings);
+            return true;
+          }
+        }
+        return false;
+      }
       if (genericParamNames.contains(pattern->name) && pattern->genericArgs.empty() && pattern->arguments.empty())
       {
         if (auto it = bindings.find(pattern->name); it != bindings.end())
         {
+          if (it->second && it->second->tag() == typeinfo_tag::GENERIC_PARAM)
+          {
+            it->second = actual;
+            return true;
+          }
           return typeMatch(*it->second, *actual);
         }
         bindings[pattern->name] = actual;
@@ -1542,6 +2012,35 @@ namespace NG::typecheck
         auto ref = std::dynamic_pointer_cast<ReferenceType>(unwrap(actual));
         return ref && pattern->genericArgs.size() == 1 &&
                typePatternMatch(pattern->genericArgs[0].get(), ref->referencedType, genericParamNames, bindings);
+      }
+      if (pattern->name == "array")
+      {
+        auto array = std::dynamic_pointer_cast<ArrayType>(unwrap(actual));
+        if (!array || pattern->genericArgs.size() != 2)
+        {
+          return false;
+        }
+        return typePatternMatch(pattern->genericArgs[0].get(), array->elementType, genericParamNames, bindings) &&
+               array->length &&
+               typePatternMatch(pattern->genericArgs[1].get(), array->length, genericParamNames, bindings);
+      }
+      if (pattern->name == "vector")
+      {
+        auto vector = std::dynamic_pointer_cast<VectorType>(unwrap(actual));
+        return vector && pattern->genericArgs.size() == 1 &&
+               typePatternMatch(pattern->genericArgs[0].get(), vector->elementType, genericParamNames, bindings);
+      }
+      if (pattern->name == "span")
+      {
+        auto span = std::dynamic_pointer_cast<SpanType>(unwrap(actual));
+        return span && pattern->genericArgs.size() == 1 &&
+               typePatternMatch(pattern->genericArgs[0].get(), span->elementType, genericParamNames, bindings);
+      }
+      if (pattern->name == "Range")
+      {
+        auto range = std::dynamic_pointer_cast<RangeType>(unwrap(actual));
+        return range && pattern->genericArgs.size() == 1 &&
+               typePatternMatch(pattern->genericArgs[0].get(), range->elementType, genericParamNames, bindings);
       }
       auto actualName = actual->repr();
       if (auto custom = std::dynamic_pointer_cast<CustomizedType>(unwrap(actual)))
@@ -1577,15 +2076,48 @@ namespace NG::typecheck
       {
         return pattern->genericArgs.empty();
       }
-      for (size_t i = 0; i < pattern->genericArgs.size(); ++i)
+      Vec<CheckingRef<TypeInfo>> actualArgs;
+      actualArgs.reserve(args.size());
+      for (auto &arg : args)
       {
-        CheckingRef<TypeInfo> actualArg = typeFromInstanceArg(args[i], bindings);
-        if (!typePatternMatch(pattern->genericArgs[i].get(), actualArg, genericParamNames, bindings))
+        actualArgs.push_back(typeFromInstanceArg(arg, bindings));
+      }
+      return typePatternArgListMatches(pattern->genericArgs, actualArgs, genericParamNames, bindings);
+    }
+
+    static auto typePatternArgListMatches(const Vec<std::shared_ptr<TypeAnnotation>> &patterns,
+                                          const Vec<CheckingRef<TypeInfo>> &actuals,
+                                          const Set<Str> &genericParamNames,
+                                          Map<Str, CheckingRef<TypeInfo>> &bindings) -> bool
+    {
+      const bool hasPackTail = !patterns.empty() && isPackTypePattern(patterns.back().get(), genericParamNames);
+      if (!hasPackTail && patterns.size() != actuals.size())
+      {
+        return false;
+      }
+      if (hasPackTail && actuals.size() + 1 < patterns.size())
+      {
+        return false;
+      }
+      const auto fixedCount = hasPackTail ? patterns.size() - 1 : patterns.size();
+      for (size_t i = 0; i < fixedCount; ++i)
+      {
+        if (!typePatternMatch(patterns[i].get(), actuals[i], genericParamNames, bindings))
         {
           return false;
         }
       }
-      return true;
+      if (!hasPackTail)
+      {
+        return true;
+      }
+      Vec<CheckingRef<TypeInfo>> tailTypes;
+      tailTypes.reserve(actuals.size() - fixedCount);
+      for (size_t i = fixedCount; i < actuals.size(); ++i)
+      {
+        tailTypes.push_back(actuals[i]);
+      }
+      return bindPackPattern(patterns.back().get(), tailTypes, bindings);
     }
 
     static auto typeSpecializationMatches(const TypeAliasDef &specialization,
@@ -1597,19 +2129,8 @@ namespace NG::typecheck
         return false;
       }
       auto genericNames = genericParamNameSet(specialization.genericParams);
-      if (specialization.specializationPattern->genericArgs.size() != typeArgs.size())
-      {
-        return false;
-      }
-      for (size_t i = 0; i < typeArgs.size(); ++i)
-      {
-        if (!typePatternMatch(specialization.specializationPattern->genericArgs[i].get(), typeArgs[i],
-                              genericNames, bindings))
-        {
-          return false;
-        }
-      }
-      return true;
+      return typePatternArgListMatches(specialization.specializationPattern->genericArgs, typeArgs,
+                                       genericNames, bindings);
     }
 
     auto typeAliasSpecializationWhereMatches(const TypeAliasDef &specialization,
@@ -1664,19 +2185,8 @@ namespace NG::typecheck
         return false;
       }
       auto genericNames = genericParamNameSet(specialization.genericParams);
-      if (specialization.specializationPattern->genericArgs.size() != typeArgs.size())
-      {
-        return false;
-      }
-      for (size_t i = 0; i < typeArgs.size(); ++i)
-      {
-        if (!typePatternMatch(specialization.specializationPattern->genericArgs[i].get(), typeArgs[i],
-                              genericNames, bindings))
-        {
-          return false;
-        }
-      }
-      return true;
+      return typePatternArgListMatches(specialization.specializationPattern->genericArgs, typeArgs,
+                                       genericNames, bindings);
     }
 
     auto constSpecializationWhereMatches(const ConstDef &specialization,
@@ -1720,6 +2230,147 @@ namespace NG::typecheck
         }
       }
       return true;
+    }
+
+    auto functionCandidateWhereMatches(const FunctionDef &candidate,
+                                       const Map<Str, CheckingRef<TypeInfo>> &bindings) -> bool
+    {
+      if (candidate.whereBounds.empty())
+      {
+        return true;
+      }
+      TypeChecker whereChecker{locals};
+      whereChecker.trait_impls_by_type = trait_impls_by_type;
+      for (auto &[name, type] : bindings)
+      {
+        whereChecker.locals[name] = type;
+      }
+      for (auto &bound : candidate.whereBounds)
+      {
+        if (!bound)
+        {
+          return false;
+        }
+        if (bound->predicate)
+        {
+          auto value = whereChecker.tryEvalWherePredicate(bound->predicate.get());
+          if (!value.has_value() || !*value)
+          {
+            return false;
+          }
+          continue;
+        }
+        if (!bound->subject || !bound->trait || !bound->subject->genericArgs.empty())
+        {
+          return false;
+        }
+        auto subIt = whereChecker.locals.find(bound->subject->name);
+        auto traitIt = whereChecker.locals.find(bound->trait->repr());
+        auto trait = traitIt == whereChecker.locals.end() ? nullptr : std::dynamic_pointer_cast<TraitType>(traitIt->second);
+        if (subIt == whereChecker.locals.end() || !trait || !whereChecker.typeSatisfiesTrait(subIt->second, *trait))
+        {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    auto functionCandidateMatches(FunctionDef &candidate, const Vec<CheckingRef<TypeInfo>> &argumentTypes,
+                                  Map<Str, CheckingRef<TypeInfo>> &bindings) -> bool
+    {
+      auto genericNames = genericParamNameSet(candidate.genericParams);
+      const bool hasPackTailParam = !candidate.params.empty() &&
+                                    candidate.params.back() &&
+                                    candidate.params.back()->annotatedType &&
+                                    isPackTypePattern(candidate.params.back()->annotatedType.get(), genericNames);
+      if (!hasPackTailParam && candidate.params.size() != argumentTypes.size())
+      {
+        return false;
+      }
+      if (hasPackTailParam && argumentTypes.size() + 1 < candidate.params.size())
+      {
+        return false;
+      }
+      for (auto &genericParam : candidate.genericParams)
+      {
+        if (genericParam)
+        {
+          if (genericParam->isConst)
+          {
+            bindings[genericParam->name] = makecheck<ConstValueType>(
+                genericParam->name, genericParam->constType ? genericParam->constType->repr() : "", true);
+          }
+          else
+          {
+            bindings[genericParam->name] = makecheck<GenericParamType>(
+                genericParam->name, typeParamBoundName(*genericParam), genericParam->isPack,
+                genericParam->kindArity, genericParam->kindVariadicTail);
+          }
+        }
+      }
+      for (size_t i = 0; i < candidate.params.size(); ++i)
+      {
+        auto &param = candidate.params[i];
+        if (!param || !param->annotatedType)
+        {
+          continue;
+        }
+        if (hasPackTailParam && i + 1 == candidate.params.size())
+        {
+          Vec<CheckingRef<TypeInfo>> packArgs;
+          packArgs.insert(packArgs.end(), argumentTypes.begin() + static_cast<std::ptrdiff_t>(i), argumentTypes.end());
+          return bindPackPattern(param->annotatedType.get(), packArgs, bindings) &&
+                 functionCandidateWhereMatches(candidate, bindings);
+        }
+        if (!typePatternMatch(param->annotatedType.get(), argumentTypes[i], genericNames, bindings))
+        {
+          return false;
+        }
+      }
+      return functionCandidateWhereMatches(candidate, bindings);
+    }
+
+    auto selectGenericFunctionCandidate(GenericDefType &genericDef,
+                                        const Vec<CheckingRef<TypeInfo>> &argumentTypes,
+                                        size_t explicitGenericArgCount = Str::npos) -> FunctionDef *
+    {
+      FunctionDef *best = genericDef.funcDef.get();
+      size_t bestSpecificity = 0;
+      bool found = false;
+      for (auto &candidateRef : genericDef.overloads)
+      {
+        auto *candidate = candidateRef.get();
+        if (!candidate)
+        {
+          continue;
+        }
+        if (explicitGenericArgCount != Str::npos &&
+            candidate->genericParams.size() != explicitGenericArgCount)
+        {
+          continue;
+        }
+        Map<Str, CheckingRef<TypeInfo>> bindings;
+        if (!functionCandidateMatches(*candidate, argumentTypes, bindings))
+        {
+          continue;
+        }
+        auto specificity = functionPatternSpecificity(*candidate);
+        if (!found || specificity > bestSpecificity)
+        {
+          best = candidate;
+          bestSpecificity = specificity;
+          found = true;
+        }
+      }
+      if (found)
+      {
+        return best;
+      }
+      if (genericDef.overloads.size() == 1 && genericDef.funcDef && !genericDef.funcDef->deleted)
+      {
+        return genericDef.funcDef.get();
+      }
+      return nullptr;
     }
 
     auto resolveAliasSpecializationBody(const TypeAliasDef &specialization,
@@ -1851,6 +2502,25 @@ namespace NG::typecheck
       return score;
     }
 
+    static auto functionPatternSpecificity(const FunctionDef &candidate) -> size_t
+    {
+      auto genericNames = genericParamNameSet(candidate.genericParams);
+      size_t score = 0;
+      for (auto &param : candidate.params)
+      {
+        score += typePatternSpecificity(param ? param->annotatedType.get() : nullptr, genericNames);
+      }
+      for (auto &genericParam : candidate.genericParams)
+      {
+        if (genericParam && genericParam->bound)
+        {
+          ++score;
+        }
+      }
+      score += candidate.whereBounds.size();
+      return score;
+    }
+
     auto selectTypeAliasSpecialization(const Str &name,
                                        const Vec<CheckingRef<TypeInfo>> &typeArgs)
         -> std::optional<std::pair<TypeAliasDef *, Map<Str, CheckingRef<TypeInfo>>>>
@@ -1930,8 +2600,13 @@ namespace NG::typecheck
         {
           continue;
         }
-        if (!typePatternsMayOverlap(existing.definition->targetType.get(), existing.genericParamNames,
-                                    candidate.definition->targetType.get(), candidate.genericParamNames))
+        const bool overlaps = existing.definition && candidate.definition
+                                  ? typePatternsMayOverlap(existing.definition->targetType.get(),
+                                                           existing.genericParamNames,
+                                                           candidate.definition->targetType.get(),
+                                                           candidate.genericParamNames)
+                                  : existing.targetPattern == candidate.targetPattern;
+        if (!overlaps)
         {
           continue;
         }
@@ -1948,12 +2623,14 @@ namespace NG::typecheck
         if (existing.targetPattern == candidate.targetPattern)
         {
           throw TypeCheckingException("Duplicate impl for trait '" + candidate.traitName +
-                                          "' and type '" + candidate.targetPattern + "'",
+                                          "' and type '" + candidate.targetPattern + "' from modules '" +
+                                          existing.moduleId + "' and '" + candidate.moduleId + "'",
                                       pos);
         }
         throw TypeCheckingException("Overlapping impl for trait '" + candidate.traitName +
                                         "' between '" + existing.targetPattern + "' and '" +
-                                        candidate.targetPattern + "'",
+                                        candidate.targetPattern + "' from modules '" + existing.moduleId +
+                                        "' and '" + candidate.moduleId + "'",
                                     pos);
       }
 
@@ -1967,8 +2644,13 @@ namespace NG::typecheck
             continue;
           }
           Set<Str> emptyGenericParams;
-          if (typePatternsMayOverlap(candidate.definition->targetType.get(), candidate.genericParamNames,
-                                     selection->targetType.get(), emptyGenericParams))
+          const bool overlapsSelection = candidate.definition
+                                             ? typePatternsMayOverlap(candidate.definition->targetType.get(),
+                                                                      candidate.genericParamNames,
+                                                                      selection->targetType.get(),
+                                                                      emptyGenericParams)
+                                             : candidate.targetPattern == selection->targetType->repr();
+          if (overlapsSelection)
           {
             return false;
           }
@@ -2003,8 +2685,15 @@ namespace NG::typecheck
     {
       for (auto &gp : genericParams)
       {
-        scope[gp->name] = makecheck<GenericParamType>(gp->name, typeParamBoundName(*gp), gp->isPack,
-                                                      gp->kindArity, gp->kindVariadicTail);
+        if (gp->isConst)
+        {
+          scope[gp->name] = makecheck<ConstValueType>(gp->name, gp->constType ? gp->constType->repr() : "", true);
+        }
+        else
+        {
+          scope[gp->name] = makecheck<GenericParamType>(gp->name, typeParamBoundName(*gp), gp->isPack,
+                                                        gp->kindArity, gp->kindVariadicTail);
+        }
       }
     }
 
@@ -2101,7 +2790,14 @@ namespace NG::typecheck
         {
           return std::nullopt;
         }
-        typeArgs.push_back(resolved);
+        if (auto varargs = std::dynamic_pointer_cast<VarargsType>(unwrap(resolved)))
+        {
+          typeArgs.insert(typeArgs.end(), varargs->elementTypes.begin(), varargs->elementTypes.end());
+        }
+        else
+        {
+          typeArgs.push_back(resolved);
+        }
       }
 
       ConstDef *primary = nullptr;
@@ -2138,6 +2834,11 @@ namespace NG::typecheck
 
       if (bestSpecialization)
       {
+        if (bestSpecialization->deleted)
+        {
+          throw TypeCheckingException("Const specialization is deleted: " + bestSpecialization->repr(),
+                                      bestSpecialization->pos);
+        }
         TypeChecker valueChecker{locals};
         valueChecker.trait_impls_by_type = trait_impls_by_type;
         for (auto &[name, type] : bestBindings)
@@ -2153,6 +2854,10 @@ namespace NG::typecheck
 
       if (primary)
       {
+        if (primary->deleted)
+        {
+          throw TypeCheckingException("Const predicate is deleted: " + primary->repr(), primary->pos);
+        }
         TypeChecker valueChecker{locals};
         valueChecker.trait_impls_by_type = trait_impls_by_type;
         for (size_t i = 0; i < primary->genericParams.size() && i < typeArgs.size(); ++i)
@@ -2173,6 +2878,11 @@ namespace NG::typecheck
       if (auto *funCall = dynamic_cast<FunCallExpression *>(expr))
       {
         auto value = tryEvalConstPredicateCall(funCall);
+        if (value.has_value() && std::holds_alternative<bool>(*value))
+        {
+          return std::get<bool>(*value);
+        }
+        value = tryEvalConstValue(expr);
         if (value.has_value() && std::holds_alternative<bool>(*value))
         {
           return std::get<bool>(*value);
@@ -2208,6 +2918,215 @@ namespace NG::typecheck
       return tryEvalConstCondition(expr);
     }
 
+    static auto constValueTypeName(const ConstValue &value) -> Str
+    {
+      if (std::holds_alternative<bool>(value))
+      {
+        return "bool";
+      }
+      if (std::holds_alternative<Str>(value))
+      {
+        return "string";
+      }
+      return "i64";
+    }
+
+    static auto primitiveTypeForConstValue(const ConstValue &value) -> CheckingRef<TypeInfo>
+    {
+      if (std::holds_alternative<bool>(value))
+      {
+        return makecheck<PrimitiveType>(typeinfo_tag::BOOL);
+      }
+      if (std::holds_alternative<Str>(value))
+      {
+        return makecheck<PrimitiveType>(typeinfo_tag::STRING);
+      }
+      return makecheck<PrimitiveType>(typeinfo_tag::I64);
+    }
+
+    static auto constValueLiteral(const ConstValue &value) -> Str
+    {
+      if (std::holds_alternative<bool>(value))
+      {
+        return std::get<bool>(value) ? "true" : "false";
+      }
+      if (std::holds_alternative<Str>(value))
+      {
+        return std::get<Str>(value);
+      }
+      return std::to_string(std::get<int64_t>(value));
+    }
+
+    static auto constValueFromType(const CheckingRef<TypeInfo> &type) -> std::optional<ConstValue>
+    {
+      auto constValue = std::dynamic_pointer_cast<ConstValueType>(unwrap(type));
+      if (!constValue || constValue->isParam)
+      {
+        return std::nullopt;
+      }
+      if (constValue->valueType == "bool" || constValue->value == "true" || constValue->value == "false")
+      {
+        if (constValue->value == "true")
+        {
+          return true;
+        }
+        if (constValue->value == "false")
+        {
+          return false;
+        }
+        return std::nullopt;
+      }
+      if (constValue->valueType == "string")
+      {
+        return constValue->value;
+      }
+      try
+      {
+        return static_cast<int64_t>(std::stoll(constValue->value));
+      }
+      catch (const std::exception &)
+      {
+        return std::nullopt;
+      }
+    }
+
+    auto predicateHasUnresolvedGeneric(Expression *expr) const -> bool
+    {
+      if (!expr)
+      {
+        return false;
+      }
+      if (auto *idExpr = dynamic_cast<IdExpression *>(expr))
+      {
+        auto it = locals.find(idExpr->id);
+        if (it == locals.end())
+        {
+          return false;
+        }
+        if (auto constValue = std::dynamic_pointer_cast<ConstValueType>(unwrap(it->second)))
+        {
+          return constValue->isParam;
+        }
+        return unwrap(it->second)->tag() == typeinfo_tag::GENERIC_PARAM;
+      }
+      if (auto *funCall = dynamic_cast<FunCallExpression *>(expr))
+      {
+        for (auto &arg : funCall->genericArgs)
+        {
+          if (typeAnnotationHasUnresolvedGeneric(arg.get()))
+          {
+            return true;
+          }
+        }
+        for (auto &arg : funCall->arguments)
+        {
+          if (predicateHasUnresolvedGeneric(arg.get()))
+          {
+            return true;
+          }
+        }
+        return false;
+      }
+      if (auto *unary = dynamic_cast<UnaryExpression *>(expr))
+      {
+        return predicateHasUnresolvedGeneric(unary->operand.get());
+      }
+      if (auto *binary = dynamic_cast<BinaryExpression *>(expr))
+      {
+        return predicateHasUnresolvedGeneric(binary->left.get()) ||
+               predicateHasUnresolvedGeneric(binary->right.get());
+      }
+      return false;
+    }
+
+    auto typeAnnotationHasUnresolvedGeneric(TypeAnnotation *annotation) const -> bool
+    {
+      if (!annotation)
+      {
+        return false;
+      }
+      if (auto it = locals.find(annotation->name); it != locals.end())
+      {
+        auto unwrapped = unwrap(it->second);
+        if (unwrapped && (unwrapped->tag() == typeinfo_tag::GENERIC_PARAM ||
+                          unwrapped->tag() == typeinfo_tag::CONST_VALUE))
+        {
+          return true;
+        }
+      }
+      return std::ranges::any_of(annotation->genericArgs, [&](const auto &arg) {
+        return typeAnnotationHasUnresolvedGeneric(arg.get());
+      });
+    }
+
+    void validateConstFunctionExpression(Expression *expr)
+    {
+      if (!expr)
+      {
+        return;
+      }
+      if (auto *call = dynamic_cast<FunCallExpression *>(expr))
+      {
+        auto id = dynamic_cast<IdExpression *>(call->primaryExpression.get());
+        if (!id || !activeConstFunctions.contains(id->id))
+        {
+          throw TypeCheckingException("Non-const function cannot be called from const function: " +
+                                          call->primaryExpression->repr(),
+                                      call->pos);
+        }
+        for (auto &arg : call->arguments)
+        {
+          validateConstFunctionExpression(arg.get());
+        }
+        return;
+      }
+      if (auto *unary = dynamic_cast<UnaryExpression *>(expr))
+      {
+        validateConstFunctionExpression(unary->operand.get());
+        return;
+      }
+      if (auto *binary = dynamic_cast<BinaryExpression *>(expr))
+      {
+        validateConstFunctionExpression(binary->left.get());
+        validateConstFunctionExpression(binary->right.get());
+        return;
+      }
+    }
+
+    void validateConstFunctionStatement(Statement *stmt)
+    {
+      if (!stmt)
+      {
+        return;
+      }
+      if (auto *ret = dynamic_cast<ReturnStatement *>(stmt))
+      {
+        validateConstFunctionExpression(ret->expression.get());
+        return;
+      }
+      if (auto *compound = dynamic_cast<CompoundStatement *>(stmt))
+      {
+        for (auto &child : compound->statements)
+        {
+          validateConstFunctionStatement(child.get());
+        }
+        return;
+      }
+      if (auto *val = dynamic_cast<ValDefStatement *>(stmt))
+      {
+        validateConstFunctionExpression(val->value.get());
+        return;
+      }
+      if (auto *ifStmt = dynamic_cast<IfStatement *>(stmt))
+      {
+        validateConstFunctionExpression(ifStmt->testing.get());
+        validateConstFunctionStatement(ifStmt->consequence.get());
+        validateConstFunctionStatement(ifStmt->alternative.get());
+        return;
+      }
+      throw TypeCheckingException("Unsupported statement in const function: " + stmt->repr(), stmt->pos);
+    }
+
     void validateWherePredicates(const Vec<ASTRef<TraitBound>> &bounds, const TokenPosition &pos)
     {
       for (auto &bound : bounds)
@@ -2219,6 +3138,10 @@ namespace NG::typecheck
         auto value = tryEvalWherePredicate(bound->predicate.get());
         if (!value.has_value())
         {
+          if (predicateHasUnresolvedGeneric(bound->predicate.get()))
+          {
+            continue;
+          }
           throw TypeCheckingException("Unable to evaluate where predicate: " + bound->predicate->repr(),
                                       bound->pos);
         }
@@ -2248,6 +3171,11 @@ namespace NG::typecheck
         rejectInvalidByValueType(returnType, "function return type", funDef->returnType->pos);
       }
       auto funType = makecheck<FunctionType>(returnType, paramTypes);
+      funType->deleted = funDef->deleted;
+      if (funDef->deleted)
+      {
+        funType->deletedRepr = funDef->repr();
+      }
       if (!funDef->params.empty() && isReceiverParam(funDef->params.front().get()))
       {
         attachReceiverEffects(*funType, funDef, funDef->params.front()->paramName);
@@ -2316,16 +3244,40 @@ namespace NG::typecheck
       return true;
     }
 
-    auto typeSatisfiesTrait(const CheckingRef<TypeInfo> &type, const TraitType &trait) const -> bool
+    auto typeSatisfiesAutoTrait(const CheckingRef<TypeInfo> &type, const TraitType &trait,
+                                Set<Str> &seen) const -> bool
     {
       auto candidate = unwrap(type);
+      if (!candidate)
+      {
+        return false;
+      }
+      if (isPrimitive(candidate->tag()) || candidate->tag() == typeinfo_tag::UNIT ||
+          candidate->tag() == typeinfo_tag::BOOL || candidate->tag() == typeinfo_tag::STRING)
+      {
+        return true;
+      }
       if (auto ref = std::dynamic_pointer_cast<ReferenceType>(candidate))
       {
-        candidate = unwrap(ref->referencedType);
+        return typeSatisfiesAutoTrait(ref->referencedType, trait, seen);
       }
-      if (auto generic = std::dynamic_pointer_cast<GenericParamType>(candidate))
+      if (auto tuple = std::dynamic_pointer_cast<TupleType>(candidate))
       {
-        return generic->bound == trait.name || traitImplies(generic->bound, trait.name);
+        return std::ranges::all_of(tuple->elementTypes, [&](const auto &element) {
+          return typeSatisfiesAutoTrait(element, trait, seen);
+        });
+      }
+      if (auto array = std::dynamic_pointer_cast<ArrayType>(candidate))
+      {
+        return typeSatisfiesAutoTrait(array->elementType, trait, seen);
+      }
+      if (auto vector = std::dynamic_pointer_cast<VectorType>(candidate))
+      {
+        return typeSatisfiesAutoTrait(vector->elementType, trait, seen);
+      }
+      if (auto span = std::dynamic_pointer_cast<SpanType>(candidate))
+      {
+        return typeSatisfiesAutoTrait(span->elementType, trait, seen);
       }
       auto custom = std::dynamic_pointer_cast<CustomizedType>(candidate);
       if (!custom)
@@ -2340,6 +3292,164 @@ namespace NG::typecheck
         {
           return true;
         }
+      }
+      if (!seen.insert(custom->name + "::" + trait.name).second)
+      {
+        return true;
+      }
+      for (const auto &[_, fieldType] : custom->properties)
+      {
+        if (!typeSatisfiesAutoTrait(fieldType, trait, seen))
+        {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    auto typeSatisfiesAutoTrait(const CheckingRef<TypeInfo> &type, const TraitType &trait) const -> bool
+    {
+      Set<Str> seen;
+      return typeSatisfiesAutoTrait(type, trait, seen);
+    }
+
+    auto typeCanDeriveTrait(const CheckingRef<TypeInfo> &type, const Str &traitName,
+                            Set<Str> &seen) const -> bool
+    {
+      auto candidate = unwrap(type);
+      if (!candidate)
+      {
+        return false;
+      }
+      if (isPrimitive(candidate->tag()) || candidate->tag() == typeinfo_tag::UNIT ||
+          candidate->tag() == typeinfo_tag::BOOL || candidate->tag() == typeinfo_tag::STRING)
+      {
+        return true;
+      }
+      if (auto ref = std::dynamic_pointer_cast<ReferenceType>(candidate))
+      {
+        return traitName == COPY_TRAIT_NAME || typeCanDeriveTrait(ref->referencedType, traitName, seen);
+      }
+      if (auto tuple = std::dynamic_pointer_cast<TupleType>(candidate))
+      {
+        return std::ranges::all_of(tuple->elementTypes, [&](const auto &element) {
+          return typeCanDeriveTrait(element, traitName, seen);
+        });
+      }
+      if (auto array = std::dynamic_pointer_cast<ArrayType>(candidate))
+      {
+        return typeCanDeriveTrait(array->elementType, traitName, seen);
+      }
+      if (auto span = std::dynamic_pointer_cast<SpanType>(candidate))
+      {
+        return typeCanDeriveTrait(span->elementType, traitName, seen);
+      }
+      if (std::dynamic_pointer_cast<VectorType>(candidate))
+      {
+        return false;
+      }
+      auto custom = std::dynamic_pointer_cast<CustomizedType>(candidate);
+      if (!custom)
+      {
+        return false;
+      }
+      if (!seen.insert(custom->name + "::" + traitName).second)
+      {
+        return true;
+      }
+      if (auto implIt = trait_impls_by_type.find(custom->name); implIt != trait_impls_by_type.end())
+      {
+        if (std::ranges::find(implIt->second, traitName) != implIt->second.end())
+        {
+          return true;
+        }
+        if (traitName == COPY_TRAIT_NAME &&
+            std::ranges::find(implIt->second, DROP_TRAIT_NAME) != implIt->second.end())
+        {
+          return false;
+        }
+      }
+      return std::ranges::all_of(custom->properties, [&](const auto &entry) {
+        return typeCanDeriveTrait(entry.second, traitName, seen);
+      });
+    }
+
+    auto typeCanDeriveTrait(const CheckingRef<TypeInfo> &type, const Str &traitName) const -> bool
+    {
+      Set<Str> seen;
+      return typeCanDeriveTrait(type, traitName, seen);
+    }
+
+    auto typeSatisfiesTrait(const CheckingRef<TypeInfo> &type, const TraitType &trait) const -> bool
+    {
+      if (activeAutoTraits.contains(trait.name))
+      {
+        return typeSatisfiesAutoTrait(type, trait);
+      }
+      auto candidate = unwrap(type);
+      if (trait.name == COPY_TRAIT_NAME || trait.name == CLONE_TRAIT_NAME)
+      {
+        if (isPrimitive(candidate->tag()) || candidate->tag() == typeinfo_tag::UNIT ||
+            candidate->tag() == typeinfo_tag::BOOL || candidate->tag() == typeinfo_tag::STRING)
+        {
+          return true;
+        }
+        if (auto ref = std::dynamic_pointer_cast<ReferenceType>(candidate))
+        {
+          return trait.name == COPY_TRAIT_NAME || typeSatisfiesTrait(ref->referencedType, trait);
+        }
+        if (auto tuple = std::dynamic_pointer_cast<TupleType>(candidate))
+        {
+          return std::ranges::all_of(tuple->elementTypes, [&](const auto &element) {
+            return typeSatisfiesTrait(element, trait);
+          });
+        }
+        if (auto array = std::dynamic_pointer_cast<ArrayType>(candidate))
+        {
+          return typeSatisfiesTrait(array->elementType, trait);
+        }
+        if (auto span = std::dynamic_pointer_cast<SpanType>(candidate))
+        {
+          return typeSatisfiesTrait(span->elementType, trait);
+        }
+        if (std::dynamic_pointer_cast<VectorType>(candidate))
+        {
+          return false;
+        }
+      }
+      if (auto ref = std::dynamic_pointer_cast<ReferenceType>(candidate))
+      {
+        candidate = unwrap(ref->referencedType);
+      }
+      if (auto generic = std::dynamic_pointer_cast<GenericParamType>(candidate))
+      {
+        return generic->bound == trait.name || traitImplies(generic->bound, trait.name);
+      }
+      if (trait.name == "Sequence" && isSequenceType(candidate))
+      {
+        return true;
+      }
+      auto custom = std::dynamic_pointer_cast<CustomizedType>(candidate);
+      if (!custom)
+      {
+        return false;
+      }
+      if (auto implIt = trait_impls_by_type.find(custom->name); implIt != trait_impls_by_type.end())
+      {
+        if (std::ranges::any_of(implIt->second, [&](const Str &implemented) {
+              return implemented == trait.name || traitImplies(implemented, trait.name);
+            }))
+        {
+          return true;
+        }
+      }
+      if (activeDerivedTraitImplKeys.contains(custom->name + "::" + trait.name))
+      {
+        return true;
+      }
+      if (trait.name == COPY_TRAIT_NAME || trait.name == CLONE_TRAIT_NAME)
+      {
+        return false;
       }
       auto &methods = trait.allMethods.empty() ? trait.methods : trait.allMethods;
       for (auto &[methodName, methodType] : methods)
@@ -2477,6 +3587,54 @@ namespace NG::typecheck
       }
       for (size_t i = 0; i < typeArgs.size(); ++i)
       {
+        const bool expectedConst = i < genericDef.typeParamIsConst.size() && genericDef.typeParamIsConst[i];
+        const bool actualConst = typeArgs[i] && typeArgs[i]->tag() == typeinfo_tag::CONST_VALUE;
+        if (expectedConst)
+        {
+          if (!actualConst)
+          {
+            throw TypeCheckingException("Generic parameter '" + genericDef.typeParamNames[i] +
+                                        "' expects a compile-time constant argument");
+          }
+          auto constValueType = std::dynamic_pointer_cast<ConstValueType>(unwrap(typeArgs[i]));
+          auto value = constValueFromType(constValueType);
+          Str expectedConstType;
+          if (genericDef.typeDef && i < genericDef.typeDef->genericParams.size() &&
+              genericDef.typeDef->genericParams[i]->constType)
+          {
+            expectedConstType = genericDef.typeDef->genericParams[i]->constType->repr();
+          }
+          else if (genericDef.typeAliasDef && i < genericDef.typeAliasDef->genericParams.size() &&
+                   genericDef.typeAliasDef->genericParams[i]->constType)
+          {
+            expectedConstType = genericDef.typeAliasDef->genericParams[i]->constType->repr();
+          }
+          else if (genericDef.newTypeDef && i < genericDef.newTypeDef->genericParams.size() &&
+                   genericDef.newTypeDef->genericParams[i]->constType)
+          {
+            expectedConstType = genericDef.newTypeDef->genericParams[i]->constType->repr();
+          }
+          else if (genericDef.taggedUnionDef && i < genericDef.taggedUnionDef->genericParams.size() &&
+                   genericDef.taggedUnionDef->genericParams[i]->constType)
+          {
+            expectedConstType = genericDef.taggedUnionDef->genericParams[i]->constType->repr();
+          }
+          if (value.has_value() && !expectedConstType.empty())
+          {
+            auto expectedType = type_from_repr(expectedConstType);
+            if (expectedType && !constValueMatchesType(*value, expectedType))
+            {
+              throw TypeCheckingException("Generic parameter '" + genericDef.typeParamNames[i] +
+                                          "' expects const " + expectedConstType);
+            }
+          }
+          continue;
+        }
+        if (actualConst)
+        {
+          throw TypeCheckingException("Generic parameter '" + genericDef.typeParamNames[i] +
+                                      "' expects a type argument");
+        }
         const size_t expectedArity =
             i < genericDef.typeParamKindArities.size() ? genericDef.typeParamKindArities[i] : 0;
         const bool expectedVariadicTail = i < genericDef.typeParamKindVariadicTails.size()
@@ -2512,6 +3670,7 @@ namespace NG::typecheck
       case GenericTypeKind::TYPE_DEF:
       {
         auto customType = makecheck<CustomizedType>(instanceName, false, false, genericDef.moduleId);
+        customType->typeArgs = typeArgs;
         genericDef.instances[instanceName] = customType;
 
         TypeChecker checker{instLocals};
@@ -2587,6 +3746,11 @@ namespace NG::typecheck
       }
       case GenericTypeKind::TYPE_ALIAS:
       {
+        if (genericDef.typeAliasDef->deleted)
+        {
+          throw TypeCheckingException("Type alias is deleted: " + genericDef.typeAliasDef->repr(),
+                                      genericDef.typeAliasDef->pos);
+        }
         if (genericDef.typeAliasDef->abstract)
         {
           throw TypeCheckingException("Abstract type alias cannot be instantiated without a matching specialization: " +
@@ -2740,6 +3904,123 @@ namespace NG::typecheck
       return std::nullopt;
     }
 
+    auto tryEvalConstFunctionCall(const FunCallExpression *funCall) -> std::optional<ConstValue>
+    {
+      auto idExpr = dynamic_cast<IdExpression *>(funCall->primaryExpression.get());
+      if (!idExpr || !activeConstFunctions.contains(idExpr->id))
+      {
+        return std::nullopt;
+      }
+      auto candidates = activeConstFunctions.at(idExpr->id);
+      if (candidates.empty())
+      {
+        return std::nullopt;
+      }
+      auto *fn = candidates.front();
+      if (!fn)
+      {
+        return std::nullopt;
+      }
+      if (!fn->genericParams.empty())
+      {
+        throw TypeCheckingException("Generic const functions are not supported yet: " + fn->funName, fn->pos);
+      }
+      if (fn->native || fn->deleted)
+      {
+        throw TypeCheckingException("Const function cannot be native or deleted: " + fn->funName, fn->pos);
+      }
+      if (fn->params.size() != funCall->arguments.size())
+      {
+        throw TypeCheckingException("Const function argument count mismatch: " + fn->funName, funCall->pos);
+      }
+
+      Vec<NG::runtime::RuntimeRef<NG::runtime::StorageCell>> runtimeArgs;
+      runtimeArgs.reserve(fn->params.size());
+      for (size_t i = 0; i < fn->params.size(); ++i)
+      {
+        auto argValue = tryEvalConstValue(funCall->arguments[i].get());
+        if (!argValue.has_value())
+        {
+          if (predicateHasUnresolvedGeneric(funCall->arguments[i].get()))
+          {
+            return std::nullopt;
+          }
+          throw TypeCheckingException("Const function argument is not compile-time evaluable: " + fn->funName,
+                                      funCall->arguments[i]->pos);
+        }
+        if (fn->params[i]->annotatedType)
+        {
+          TypeChecker paramChecker{locals};
+          fn->params[i]->annotatedType->accept(&paramChecker);
+          if (!constValueMatchesType(*argValue, paramChecker.result))
+          {
+            throw TypeCheckingException("Const function argument type mismatch: " + fn->funName,
+                                        funCall->arguments[i]->pos);
+          }
+        }
+        if (std::holds_alternative<bool>(*argValue))
+        {
+          runtimeArgs.push_back(NG::runtime::make_runtime_boolean(std::get<bool>(*argValue)));
+        }
+        else if (std::holds_alternative<Str>(*argValue))
+        {
+          runtimeArgs.push_back(NG::runtime::make_runtime_string(std::get<Str>(*argValue)));
+        }
+        else
+        {
+          runtimeArgs.push_back(NG::runtime::numeral_cell_from_value<int64_t>(std::get<int64_t>(*argValue)));
+        }
+      }
+
+      Vec<FunctionDef *> constFunctions;
+      for (const auto &[_, functions] : activeConstFunctions)
+      {
+        constFunctions.insert(constFunctions.end(), functions.begin(), functions.end());
+      }
+      for (auto *constFunction : Vec<FunctionDef *>{fn})
+      {
+        if (constFunction)
+        {
+          validateConstFunctionStatement(constFunction->body.get());
+        }
+      }
+      auto resultCell = NG::intp::eval_const_function(fn, constFunctions, runtimeArgs, modulePaths);
+      std::optional<ConstValue> resultValue = std::nullopt;
+      if (auto boolValue = NG::runtime::runtime_boolean_value(resultCell); boolValue.has_value())
+      {
+        resultValue = *boolValue;
+      }
+      else if (NG::runtime::runtime_is_string_value(resultCell))
+      {
+        resultValue = NG::runtime::runtime_string_value(resultCell);
+      }
+      else if (resultCell && resultCell->runtimeType)
+      {
+        try
+        {
+          resultValue = NG::runtime::read_numeric_cell_as<int64_t>(resultCell);
+        }
+        catch (const std::exception &)
+        {
+          resultValue = std::nullopt;
+        }
+      }
+      if (!resultValue.has_value())
+      {
+        throw TypeCheckingException("Const function does not return a compile-time value: " + fn->funName, fn->pos);
+      }
+      if (fn->returnType)
+      {
+        TypeChecker returnChecker{locals};
+        fn->returnType->accept(&returnChecker);
+        if (!constValueMatchesType(*resultValue, returnChecker.result))
+        {
+          throw TypeCheckingException("Const function return type mismatch: " + fn->funName, fn->pos);
+        }
+      }
+      return resultValue;
+    }
+
     auto tryEvalConstValue(Expression *expr) -> std::optional<ConstValue>
     {
       if (auto *funCall = dynamic_cast<FunCallExpression *>(expr))
@@ -2747,6 +4028,17 @@ namespace NG::typecheck
         if (auto predicate = tryEvalConstPredicateCall(funCall); predicate.has_value())
         {
           return *predicate;
+        }
+        if (auto constFun = tryEvalConstFunctionCall(funCall); constFun.has_value())
+        {
+          return *constFun;
+        }
+      }
+      if (auto *idExpr = dynamic_cast<IdExpression *>(expr))
+      {
+        if (auto it = locals.find(idExpr->id); it != locals.end())
+        {
+          return constValueFromType(it->second);
         }
       }
       if (auto *boolVal = dynamic_cast<BooleanValue *>(expr))
@@ -2826,6 +4118,11 @@ namespace NG::typecheck
         {
           return !std::get<bool>(*operand);
         }
+        if (operand.has_value() && unaryExpr->optr && unaryExpr->optr->type == TokenType::MINUS &&
+            std::holds_alternative<int64_t>(*operand))
+        {
+          return -std::get<int64_t>(*operand);
+        }
         return std::nullopt;
       }
       if (auto *binaryExpr = dynamic_cast<BinaryExpression *>(expr))
@@ -2853,6 +4150,38 @@ namespace NG::typecheck
 
         switch (binaryExpr->optr->type)
         {
+        case TokenType::PLUS:
+          if (std::holds_alternative<int64_t>(*left) && std::holds_alternative<int64_t>(*right))
+          {
+            return std::get<int64_t>(*left) + std::get<int64_t>(*right);
+          }
+          break;
+        case TokenType::MINUS:
+          if (std::holds_alternative<int64_t>(*left) && std::holds_alternative<int64_t>(*right))
+          {
+            return std::get<int64_t>(*left) - std::get<int64_t>(*right);
+          }
+          break;
+        case TokenType::TIMES:
+          if (std::holds_alternative<int64_t>(*left) && std::holds_alternative<int64_t>(*right))
+          {
+            return std::get<int64_t>(*left) * std::get<int64_t>(*right);
+          }
+          break;
+        case TokenType::DIVIDE:
+          if (std::holds_alternative<int64_t>(*left) && std::holds_alternative<int64_t>(*right) &&
+              std::get<int64_t>(*right) != 0)
+          {
+            return std::get<int64_t>(*left) / std::get<int64_t>(*right);
+          }
+          break;
+        case TokenType::MODULUS:
+          if (std::holds_alternative<int64_t>(*left) && std::holds_alternative<int64_t>(*right) &&
+              std::get<int64_t>(*right) != 0)
+          {
+            return std::get<int64_t>(*left) % std::get<int64_t>(*right);
+          }
+          break;
         case TokenType::AND:
           if (std::holds_alternative<bool>(*left) && std::holds_alternative<bool>(*right))
           {
@@ -2875,6 +4204,30 @@ namespace NG::typecheck
           if (left->index() == right->index())
           {
             return *left != *right;
+          }
+          break;
+        case TokenType::GT:
+          if (std::holds_alternative<int64_t>(*left) && std::holds_alternative<int64_t>(*right))
+          {
+            return std::get<int64_t>(*left) > std::get<int64_t>(*right);
+          }
+          break;
+        case TokenType::GE:
+          if (std::holds_alternative<int64_t>(*left) && std::holds_alternative<int64_t>(*right))
+          {
+            return std::get<int64_t>(*left) >= std::get<int64_t>(*right);
+          }
+          break;
+        case TokenType::LT:
+          if (std::holds_alternative<int64_t>(*left) && std::holds_alternative<int64_t>(*right))
+          {
+            return std::get<int64_t>(*left) < std::get<int64_t>(*right);
+          }
+          break;
+        case TokenType::LE:
+          if (std::holds_alternative<int64_t>(*left) && std::holds_alternative<int64_t>(*right))
+          {
+            return std::get<int64_t>(*left) <= std::get<int64_t>(*right);
           }
           break;
         default:
@@ -2922,6 +4275,7 @@ namespace NG::typecheck
     {
       ModuleArtifacts artifacts;
       artifacts.exports.insert(module->exports.begin(), module->exports.end());
+      artifacts.exports.insert(exportedImportNames.begin(), exportedImportNames.end());
       const bool exportsAll = artifacts.exports.contains("*");
       for (const auto &[name, type] : locals)
       {
@@ -2942,11 +4296,108 @@ namespace NG::typecheck
       for (const auto &impl : localTraitImpls)
       {
         auto implName = "impl " + impl.traitName + " for " + impl.targetPattern;
-        const bool explicitlyExported = artifacts.exports.contains(implName);
+        auto explicitImplName = impl.definition && impl.definition->trait
+                                    ? "impl " + impl.definition->trait->repr() + " for " + impl.targetPattern
+                                    : implName;
+        const bool explicitlyExported = artifacts.exports.contains(implName) ||
+                                        artifacts.exports.contains(explicitImplName);
         if ((exportsAll && !importedImplNames.contains(implName)) || explicitlyExported)
         {
           artifacts.exportedImpls.push_back(impl);
         }
+      }
+      for (auto def : module->definitions)
+      {
+        if (auto typeAlias = dynamic_ast_cast<TypeAliasDef>(def); typeAlias && typeAlias->specializationPattern)
+        {
+          if (exportsAll || artifacts.exports.contains(typeAlias->aliasName))
+          {
+            artifacts.exportedTypeAliasSpecializations[typeAlias->aliasName].push_back(typeAlias.get());
+          }
+        }
+        else if (auto constDef = dynamic_ast_cast<ConstDef>(def))
+        {
+          if (exportsAll || artifacts.exports.contains(constDef->constName))
+          {
+            artifacts.exportedConstPredicates[constDef->constName].push_back(constDef.get());
+          }
+        }
+        else if (auto funDef = dynamic_ast_cast<FunctionDef>(def); funDef && funDef->constEval)
+        {
+          if (exportsAll || artifacts.exports.contains(funDef->funName))
+          {
+            artifacts.exportedConstFunctions[funDef->funName].push_back(funDef.get());
+          }
+        }
+      }
+
+      const bool shouldPublishSharedArtifact =
+          !currentModuleId.empty() && currentModuleId != "default" && currentModuleId != "[noname]" &&
+          currentModuleId != "[interpreter]";
+      auto sharedArtifact = runtime::makert<NG::module::ModuleArtifact>();
+      if (shouldPublishSharedArtifact)
+      {
+        if (auto moduleInfo = NG::module::get_module_registry().queryModuleById(currentModuleId))
+        {
+          if (moduleInfo->artifact)
+          {
+            sharedArtifact = moduleInfo->artifact;
+          }
+          else
+          {
+            moduleInfo->artifact = sharedArtifact;
+          }
+          if (!moduleInfo->moduleAst && sharedArtifact->ast)
+          {
+            moduleInfo->moduleAst = sharedArtifact->ast;
+          }
+        }
+      }
+
+      if (shouldPublishSharedArtifact)
+      {
+        auto artifactTypeIndex = type_index;
+        for (const auto &[name, type] : locals)
+        {
+          if (name != WILDCARD_IMPORT_KEY)
+          {
+            artifactTypeIndex.insert_or_assign(name, type);
+          }
+        }
+        const bool wasNativeArtifact = sharedArtifact->format == NG::module::ModuleFormat::Native;
+        sharedArtifact->id = NG::module::module_id_from_name(currentModuleId);
+        sharedArtifact->format = wasNativeArtifact ? NG::module::ModuleFormat::Native
+                                                   : NG::module::ModuleFormat::SourceNg;
+        sharedArtifact->typeIndex = std::move(artifactTypeIndex);
+        sharedArtifact->exports.declared = artifacts.exports;
+        sharedArtifact->exports.types = artifacts.exportedTypes;
+        sharedArtifact->imports.moduleIds = importedModuleIds;
+        sharedArtifact->traits.clear();
+        for (const auto &[name, type] : artifacts.exportedTypes)
+        {
+          if (type && unwrap(type)->tag() == typeinfo_tag::TRAIT)
+          {
+            sharedArtifact->traits.insert_or_assign(name, type);
+          }
+        }
+        sharedArtifact->impls.clear();
+        for (const auto &impl : artifacts.exportedImpls)
+        {
+          sharedArtifact->impls.push_back(toModuleImplEvidence(impl));
+        }
+        if (sharedArtifact->ast)
+        {
+          sharedArtifact->typeAliasSpecializations = artifacts.exportedTypeAliasSpecializations;
+          sharedArtifact->constPredicates = artifacts.exportedConstPredicates;
+          sharedArtifact->constFunctions = artifacts.exportedConstFunctions;
+        }
+        else
+        {
+          sharedArtifact->typeAliasSpecializations.clear();
+          sharedArtifact->constPredicates.clear();
+          sharedArtifact->constFunctions.clear();
+        }
+        NG::module::get_module_registry().addModuleArtifact(sharedArtifact);
       }
       moduleArtifactsById[currentModuleId] = std::move(artifacts);
     }
@@ -2982,9 +4433,37 @@ namespace NG::typecheck
         }
         else if (auto funDef = dynamic_ast_cast<FunctionDef>(def))
         {
+          if (funDef->constEval && !funDef->genericParams.empty())
+          {
+            throw TypeCheckingException("Generic const functions are not supported yet: " + funDef->funName,
+                                        funDef->pos);
+          }
+          if (funDef->constEval)
+          {
+            activeConstFunctions[funDef->funName].push_back(funDef.get());
+          }
           // Check if this is a generic function (has type parameters)
           if (!funDef->genericParams.empty())
           {
+            auto validateGenericFunctionAnnotations = [&](FunctionDef *target) {
+              Map<Str, CheckingRef<TypeInfo>> genericLocals = locals;
+              addGenericParamsToScope(genericLocals, target->genericParams);
+              addWhereBoundsToScope(genericLocals, target->whereBounds);
+              for (auto param : target->params)
+              {
+                if (param->annotatedType)
+                {
+                  TypeChecker annoChecker{genericLocals};
+                  param->annotatedType->accept(&annoChecker);
+                }
+              }
+            };
+            if (auto existing = std::dynamic_pointer_cast<GenericDefType>(locals[funDef->funName]))
+            {
+              existing->overloads.push_back(funDef);
+              validateGenericFunctionAnnotations(funDef.get());
+              continue;
+            }
             Vec<Str> typeParamNames;
             Vec<bool> typeParamIsPack;
             for (auto &gp : funDef->genericParams)
@@ -2994,30 +4473,17 @@ namespace NG::typecheck
             }
             auto genericDef = makecheck<GenericDefType>(
                 funDef->funName, typeParamNames, typeParamIsPack, funDef, locals, currentModuleId);
+            genericDef->typeParamIsConst = genericParamIsConst(funDef->genericParams);
             genericDef->typeParamKindArities = genericParamKindArities(funDef->genericParams);
             genericDef->typeParamKindVariadicTails =
                 genericParamKindVariadicTails(funDef->genericParams);
             locals[funDef->funName] = genericDef;
 
             // Register generic type params in a temporary scope so parameter
-            // type annotations (e.g. `T array`) can resolve them during
+            // type annotations (e.g. `T vector`) can resolve them during
             // monomorphization later.  We don't need to fully type-check the
             // body here, but the params must be visible for annotation parsing.
-            {
-              Map<Str, CheckingRef<TypeInfo>> genericLocals = locals;
-              addGenericParamsToScope(genericLocals, funDef->genericParams);
-              addWhereBoundsToScope(genericLocals, funDef->whereBounds);
-              for (auto param : funDef->params)
-              {
-                if (param->annotatedType)
-                {
-                  TypeChecker annoChecker{genericLocals};
-                  param->annotatedType->accept(&annoChecker);
-                  // Result is discarded — we just need to validate the annotation
-                  // is resolvable.  If it throws, the test catches it.
-                }
-              }
-            }
+            validateGenericFunctionAnnotations(funDef.get());
             continue; // Skip normal function type registration
           }
 
@@ -3063,6 +4529,8 @@ namespace NG::typecheck
             }
             locals[typeAlias->aliasName] =
                 makecheck<GenericTypeDef>(typeAlias->aliasName, typeParamNames, typeParamIsPack, typeAlias, locals, currentModuleId);
+            std::static_pointer_cast<GenericTypeDef>(locals[typeAlias->aliasName])->typeParamIsConst =
+                genericParamIsConst(typeAlias->genericParams);
             std::static_pointer_cast<GenericTypeDef>(locals[typeAlias->aliasName])->typeParamKindArities =
                 genericParamKindArities(typeAlias->genericParams);
             std::static_pointer_cast<GenericTypeDef>(locals[typeAlias->aliasName])->typeParamKindVariadicTails =
@@ -3099,6 +4567,8 @@ namespace NG::typecheck
             }
             locals[newTypeDef->typeName] =
                 makecheck<GenericTypeDef>(newTypeDef->typeName, typeParamNames, typeParamIsPack, newTypeDef, locals, currentModuleId);
+            std::static_pointer_cast<GenericTypeDef>(locals[newTypeDef->typeName])->typeParamIsConst =
+                genericParamIsConst(newTypeDef->genericParams);
             std::static_pointer_cast<GenericTypeDef>(locals[newTypeDef->typeName])->typeParamKindArities =
                 genericParamKindArities(newTypeDef->genericParams);
             std::static_pointer_cast<GenericTypeDef>(locals[newTypeDef->typeName])->typeParamKindVariadicTails =
@@ -3125,6 +4595,8 @@ namespace NG::typecheck
             }
             locals[typeDef->typeName] =
                 makecheck<GenericTypeDef>(typeDef->typeName, typeParamNames, typeParamIsPack, typeDef, locals, currentModuleId);
+            std::static_pointer_cast<GenericTypeDef>(locals[typeDef->typeName])->typeParamIsConst =
+                genericParamIsConst(typeDef->genericParams);
             std::static_pointer_cast<GenericTypeDef>(locals[typeDef->typeName])->typeParamKindArities =
                 genericParamKindArities(typeDef->genericParams);
             std::static_pointer_cast<GenericTypeDef>(locals[typeDef->typeName])->typeParamKindVariadicTails =
@@ -3149,6 +4621,7 @@ namespace NG::typecheck
             }
             auto genericDef = makecheck<GenericTypeDef>(taggedUnion->typeName, typeParamNames,
                                                         typeParamIsPack, taggedUnion, locals, currentModuleId);
+            genericDef->typeParamIsConst = genericParamIsConst(taggedUnion->genericParams);
             genericDef->typeParamKindArities = genericParamKindArities(taggedUnion->genericParams);
             genericDef->typeParamKindVariadicTails =
                 genericParamKindVariadicTails(taggedUnion->genericParams);
@@ -3325,6 +4798,73 @@ namespace NG::typecheck
           }
         }
       }
+
+      for (auto &derivedTraitAnnotation : typeDef->derivedTraits)
+      {
+        TypeChecker traitChecker{locals};
+        derivedTraitAnnotation->accept(&traitChecker);
+        auto trait = std::dynamic_pointer_cast<TraitType>(traitChecker.result);
+        if (!trait)
+        {
+          throw TypeCheckingException("derive target is not a trait: " + derivedTraitAnnotation->repr(),
+                                      derivedTraitAnnotation->pos);
+        }
+        if (trait->name != COPY_TRAIT_NAME && trait->name != CLONE_TRAIT_NAME)
+        {
+          throw TypeCheckingException("derive currently supports Copy and Clone only: " + trait->name,
+                                      derivedTraitAnnotation->pos);
+        }
+        auto derivedKey = customType->name + "::" + trait->name;
+        if (derivedTraitImplKeys.contains(derivedKey))
+        {
+          throw TypeCheckingException("Duplicate derive for trait '" + trait->name + "' on type '" +
+                                      customType->name + "'", derivedTraitAnnotation->pos);
+        }
+        if (auto implIt = trait_impls_by_type.find(customType->name);
+            implIt != trait_impls_by_type.end() &&
+            std::ranges::find(implIt->second, trait->name) != implIt->second.end())
+        {
+          throw TypeCheckingException("derive conflicts with explicit impl for trait '" + trait->name +
+                                      "' on type '" + customType->name + "'", derivedTraitAnnotation->pos);
+        }
+        if (trait->name == COPY_TRAIT_NAME)
+        {
+          if (auto implIt = trait_impls_by_type.find(customType->name);
+              implIt != trait_impls_by_type.end() &&
+              std::ranges::find(implIt->second, DROP_TRAIT_NAME) != implIt->second.end())
+          {
+            throw TypeCheckingException("Copy cannot be derived for Drop type '" + customType->name + "'",
+                                        derivedTraitAnnotation->pos);
+          }
+        }
+        for (const auto &[fieldName, fieldType] : customType->properties)
+        {
+          if (!typeCanDeriveTrait(fieldType, trait->name))
+          {
+            throw TypeCheckingException("Cannot derive " + trait->name + " for '" + customType->name +
+                                            "': field '" + fieldName + "' does not satisfy " + trait->name,
+                                        derivedTraitAnnotation->pos);
+          }
+        }
+        derivedTraitImplKeys.insert(derivedKey);
+        activeDerivedTraitImplKeys.insert(derivedKey);
+        auto &implTraits = trait_impls_by_type[customType->name];
+        if (std::ranges::find(implTraits, trait->name) == implTraits.end())
+        {
+          implTraits.push_back(trait->name);
+        }
+        if (trait->name == CLONE_TRAIT_NAME)
+        {
+          auto cloneType =
+              makecheck<FunctionType>(customType, Vec<CheckingRef<TypeInfo>>{makecheck<ReferenceType>(customType)});
+          customType->traitMemberFunctions[CLONE_TRAIT_NAME]["clone"] = cloneType;
+          customType->memberFunctions[CLONE_TRAIT_NAME + Str{"::clone"}] = cloneType;
+          if (!customType->memberFunctions.contains("clone"))
+          {
+            customType->memberFunctions["clone"] = cloneType;
+          }
+        }
+      }
     }
 
     void visit(ConstDef *constDef) override
@@ -3335,6 +4875,11 @@ namespace NG::typecheck
       TypeChecker returnChecker{constScope};
       constDef->returnType->accept(&returnChecker);
       auto returnType = returnChecker.result;
+
+      if (constDef->deleted)
+      {
+        return;
+      }
 
       if (constDef->native)
       {
@@ -3357,6 +4902,10 @@ namespace NG::typecheck
       auto value = valueChecker.tryEvalConstValue(constDef->value.get());
       if (!value.has_value())
       {
+        if (!constDef->genericParams.empty() || constDef->specializationPattern)
+        {
+          return;
+        }
         throw TypeCheckingException("Const definition is not compile-time evaluable: " + constDef->constName,
                                     constDef->value->pos);
       }
@@ -3407,6 +4956,22 @@ namespace NG::typecheck
           }
         }
         return;
+      }
+
+      if (traitDef->autoTrait)
+      {
+        if (!traitDef->genericParams.empty())
+        {
+          throw TypeCheckingException("auto trait cannot declare generic parameters: " + traitDef->traitName,
+                                      traitDef->pos);
+        }
+        if (!traitDef->methods.empty())
+        {
+          throw TypeCheckingException("auto trait cannot declare methods: " + traitDef->traitName,
+                                      traitDef->pos);
+        }
+        activeAutoTraits.insert(traitDef->traitName);
+        autoTraitNames.insert(traitDef->traitName);
       }
 
       auto trait = std::dynamic_pointer_cast<TraitType>(locals[traitDef->traitName]);
@@ -3510,6 +5075,18 @@ namespace NG::typecheck
       {
         throw TypeCheckingException("Impl target must be a structural or native opaque type: " +
                                     implDef->targetType->repr(), implDef->pos);
+      }
+      auto implKey = customType->name + "::" + trait->name;
+      if (derivedTraitImplKeys.contains(implKey))
+      {
+        throw TypeCheckingException("Explicit impl conflicts with derived impl for trait '" + trait->name +
+                                    "' on type '" + customType->name + "'", implDef->pos);
+      }
+      if (trait->name == DROP_TRAIT_NAME &&
+          derivedTraitImplKeys.contains(customType->name + "::" + COPY_TRAIT_NAME))
+      {
+        throw TypeCheckingException("Drop impl conflicts with derived Copy for type '" + customType->name + "'",
+                                    implDef->pos);
       }
       if (!registerLocalTraitImpl(implDef, *trait))
       {
@@ -3680,6 +5257,11 @@ namespace NG::typecheck
 
     void visit(FunctionDef *funDef) override
     {
+      if (funDef->constEval && (funDef->native || funDef->deleted))
+      {
+        throw TypeCheckingException("Const function cannot be native or deleted: " + funDef->funName,
+                                    funDef->pos);
+      }
       // Skip generic functions — already registered as GenericDefType in Module first pass
       if (!funDef->genericParams.empty())
       {
@@ -3690,6 +5272,11 @@ namespace NG::typecheck
       if (auto it = locals.find(funDef->funName); it != locals.end())
       {
         funType = it->second;
+        if (auto existingFunction = std::dynamic_pointer_cast<FunctionType>(funType); existingFunction && funDef->deleted)
+        {
+          existingFunction->deleted = true;
+          existingFunction->deletedRepr = funDef->repr();
+        }
       }
       else
       {
@@ -3713,6 +5300,12 @@ namespace NG::typecheck
           returnType = makecheck<Untyped>();
         }
         funType = makecheck<FunctionType>(returnType, paramTypes);
+        auto &createdFunctionType = static_cast<FunctionType &>(*funType);
+        createdFunctionType.deleted = funDef->deleted;
+        if (funDef->deleted)
+        {
+          createdFunctionType.deletedRepr = funDef->repr();
+        }
         if (!funDef->funName.empty())
         {
           locals.insert_or_assign(funDef->funName, funType);
@@ -3720,6 +5313,10 @@ namespace NG::typecheck
       }
 
       auto &funcInfo = static_cast<FunctionType &>(*funType);
+      if (funcInfo.deleted)
+      {
+        return;
+      }
       for (auto &paramType : funcInfo.parametersType)
       {
         validateObjectSafeTraitRefs(paramType);
@@ -4037,6 +5634,7 @@ namespace NG::typecheck
       if (valDefStatement->typeAnnotation)
       {
         TypeChecker annoChecker{locals, {}, nullptr, movedBindings, allowMovedLvalueRead, activeGenericInstanceName};
+        annoChecker.trait_impls_by_type = trait_impls_by_type;
         valDefStatement->typeAnnotation->accept(&annoChecker);
         annoType = annoChecker.result;
         rejectInvalidByValueType(annoType, "value annotation '" + valDefStatement->name + "'",
@@ -4045,6 +5643,7 @@ namespace NG::typecheck
 
       // Bidirectional inference: pass annotation type as expectedType to value expression
       TypeChecker valChecker{locals, {}, annoType, movedBindings, allowMovedLvalueRead, activeGenericInstanceName};
+      valChecker.trait_impls_by_type = trait_impls_by_type;
       valDefStatement->value->accept(&valChecker);
       auto valType = valChecker.result;
       movedBindings = valChecker.movedBindings;
@@ -4205,7 +5804,7 @@ namespace NG::typecheck
         valBind->value->accept(&checker);
         auto valType = checker.result;
         movedBindings = checker.movedBindings;
-        if (auto arrayType = std::dynamic_pointer_cast<ArrayType>(valType); arrayType)
+        if (auto elementType = sequenceElementType(valType); elementType)
         {
           for (size_t i = 0; i < valBind->bindings.size(); ++i)
           {
@@ -4216,7 +5815,7 @@ namespace NG::typecheck
               {
                 throw TypeCheckingException("Spread receiver must be the last binding in array unpack.");
               }
-              auto restArrayType = makecheck<ArrayType>(arrayType->elementType);
+              auto restArrayType = makecheck<VectorType>(elementType);
               if (binding->annotation)
               {
                 binding->annotation->accept(&checker);
@@ -4244,20 +5843,20 @@ namespace NG::typecheck
             {
               binding->annotation->accept(&checker);
               auto annoType = checker.result;
-              if (typeMatch(*annoType, *arrayType->elementType))
+              if (typeMatch(*annoType, *elementType))
               {
                 locals.insert_or_assign(binding->name, annoType);
                 clearMovedPlace(movedBindings, binding->name);
               }
               else
               {
-                throw TypeCheckingException("Value Binding Type Mismatch: " + arrayType->elementType->repr() + " to " +
+                throw TypeCheckingException("Value Binding Type Mismatch: " + elementType->repr() + " to " +
                                             annoType->repr());
               }
             }
             else
             {
-              locals.insert_or_assign(binding->name, arrayType->elementType);
+              locals.insert_or_assign(binding->name, elementType);
               clearMovedPlace(movedBindings, binding->name);
             }
           }
@@ -4522,13 +6121,13 @@ namespace NG::typecheck
           throw TypeCheckingException("Unsupported operator for primitive types", expression->pos);
         }
       }
-      else if (leftType->tag() == typeinfo_tag::ARRAY)
+      else if (leftType->tag() == typeinfo_tag::VECTOR)
       {
-        ArrayType &arrayType = static_cast<ArrayType &>(*leftType);
+        VectorType &vectorType = static_cast<VectorType &>(*leftType);
         switch (expression->optr->type)
         {
-        case TokenType::LSHIFT: // push to array
-          if (typeMatch(*arrayType.elementType, *rightType) || rightType->tag() == typeinfo_tag::UNTYPED)
+        case TokenType::LSHIFT:
+          if (typeMatch(*vectorType.elementType, *rightType) || rightType->tag() == typeinfo_tag::UNTYPED)
           {
             result = leftType;
             return;
@@ -4538,8 +6137,13 @@ namespace NG::typecheck
             throw TypeCheckingException("Invalid element type for array push: " + rightType->repr(), expression->pos);
           }
         default:
-          throw TypeCheckingException("Unsupported operator for array types", expression->pos);
+          throw TypeCheckingException("Unsupported operator for vector types", expression->pos);
         }
+      }
+      else if (leftType->tag() == typeinfo_tag::ARRAY || leftType->tag() == typeinfo_tag::SPAN)
+      {
+        throw TypeCheckingException("Unsupported operator for " + typeKindName(*leftType) + " types",
+                                    expression->pos);
       }
       else
       {
@@ -4592,6 +6196,11 @@ namespace NG::typecheck
 
     void visit(TypeAnnotation *annotation) override
     {
+      if (annotation->constLiteral)
+      {
+        result = makecheck<ConstValueType>(annotation->name, annotation->constLiteralType, false);
+        return;
+      }
       auto typecode = code(annotation->type);
       if (typecode > code(TypeAnnotationType::BUILTIN) && typecode < code(TypeAnnotationType::END_OF_BUILTIN))
       {
@@ -4615,7 +6224,27 @@ namespace NG::typecheck
         }
         else
         {
-          throw TypeCheckingException("Array type expects exactly 1 type argument");
+          throw TypeCheckingException("Legacy array type expects exactly 1 element type argument");
+        }
+      }
+      else if (annotation->type == TypeAnnotationType::VECTOR)
+      {
+        if (annotation->arguments.size() == 1)
+        {
+          auto arg = annotation->arguments[0];
+          TypeChecker checker{locals};
+          arg->accept(&checker);
+          auto argType = checker.result;
+          if (argType)
+          {
+            result = makecheck<VectorType>(argType);
+            return;
+          }
+          throw TypeCheckingException("Unknown element type for vector");
+        }
+        else
+        {
+          throw TypeCheckingException("Vector type expects exactly 1 type argument");
         }
       }
       else if (annotation->type == TypeAnnotationType::TUPLE)
@@ -4627,7 +6256,14 @@ namespace NG::typecheck
         {
           anno->accept(&checker);
           auto &&type = checker.result;
-          types.push_back(type);
+          if (auto varargs = std::dynamic_pointer_cast<VarargsType>(unwrap(type)))
+          {
+            types.insert(types.end(), varargs->elementTypes.begin(), varargs->elementTypes.end());
+          }
+          else
+          {
+            types.push_back(type);
+          }
         }
         result = makecheck<TupleType>(types);
         return;
@@ -4678,9 +6314,35 @@ namespace NG::typecheck
           return;
         }
 
-        // Handle suffix generic "array" syntax: T array => ArrayType<T>
-        // This can come from bracket syntax [T] (arguments) or suffix syntax T array (genericArgs)
+        // Fixed array type: array<T, N>
         if (annotation->name == "array")
+        {
+          if (annotation->genericArgs.size() == 2)
+          {
+            TypeChecker checker{locals};
+            annotation->genericArgs[0]->accept(&checker);
+            auto argType = checker.result;
+            annotation->genericArgs[1]->accept(&checker);
+            auto lengthType = checker.result;
+            if (!argType)
+            {
+              throw TypeCheckingException("Unknown element type for array");
+            }
+            if (!lengthType || lengthType->tag() != typeinfo_tag::CONST_VALUE)
+            {
+              throw TypeCheckingException("Array length expects a compile-time constant argument", annotation->pos);
+            }
+            result = makecheck<ArrayType>(argType, lengthType);
+            return;
+          }
+          if (annotation->genericArgs.size() == 1)
+          {
+            throw TypeCheckingException("Fixed array type expects 2 generic arguments: array<T, N>; use vector<T> for dynamic arrays",
+                                        annotation->pos);
+          }
+        }
+
+        if (annotation->name == "vector")
         {
           if (annotation->arguments.size() == 1)
           {
@@ -4689,10 +6351,10 @@ namespace NG::typecheck
             auto argType = checker.result;
             if (argType)
             {
-              result = makecheck<ArrayType>(argType);
+              result = makecheck<VectorType>(argType);
               return;
             }
-            throw TypeCheckingException("Unknown element type for array");
+            throw TypeCheckingException("Unknown element type for vector");
           }
           if (annotation->genericArgs.size() == 1)
           {
@@ -4701,11 +6363,110 @@ namespace NG::typecheck
             auto argType = checker.result;
             if (argType)
             {
-              result = makecheck<ArrayType>(argType);
+              result = makecheck<VectorType>(argType);
               return;
             }
-            throw TypeCheckingException("Unknown element type for array");
+            throw TypeCheckingException("Unknown element type for vector");
           }
+        }
+
+        if (annotation->name == "span")
+        {
+          if (annotation->genericArgs.size() == 1)
+          {
+            TypeChecker checker{locals};
+            annotation->genericArgs[0]->accept(&checker);
+            auto argType = checker.result;
+            if (argType)
+            {
+              result = makecheck<SpanType>(argType);
+              return;
+            }
+            throw TypeCheckingException("Unknown element type for span");
+          }
+        }
+
+        if (annotation->name == "Range")
+        {
+          if (annotation->genericArgs.size() == 1)
+          {
+            TypeChecker checker{locals};
+            annotation->genericArgs[0]->accept(&checker);
+            auto argType = checker.result;
+            if (argType)
+            {
+              result = makecheck<RangeType>(argType);
+              return;
+            }
+            throw TypeCheckingException("Unknown element type for Range");
+          }
+        }
+
+        if (annotation->name == "tuple_element")
+        {
+          if (annotation->genericArgs.size() != 2)
+          {
+            throw TypeCheckingException("tuple_element<T, I> expects exactly 2 generic arguments",
+                                        annotation->pos);
+          }
+          TypeChecker checker{locals};
+          annotation->genericArgs[0]->accept(&checker);
+          auto tupleType = std::dynamic_pointer_cast<TupleType>(unwrap(checker.result));
+          annotation->genericArgs[1]->accept(&checker);
+          auto indexValue = std::dynamic_pointer_cast<ConstValueType>(unwrap(checker.result));
+          if (!tupleType)
+          {
+            throw TypeCheckingException("tuple_element<T, I> expects a tuple type as T", annotation->pos);
+          }
+          if (!indexValue || indexValue->isParam)
+          {
+            throw TypeCheckingException("tuple_element<T, I> expects a concrete const index", annotation->pos);
+          }
+          size_t index = 0;
+          try
+          {
+            auto parsed = std::stoll(indexValue->value);
+            if (parsed < 0)
+            {
+              throw TypeCheckingException("tuple_element<T, I> index cannot be negative", annotation->pos);
+            }
+            index = static_cast<size_t>(parsed);
+          }
+          catch (const TypeCheckingException &)
+          {
+            throw;
+          }
+          catch (const std::exception &)
+          {
+            throw TypeCheckingException("tuple_element<T, I> expects an integer const index", annotation->pos);
+          }
+          if (index >= tupleType->elementTypes.size())
+          {
+            throw TypeCheckingException("tuple_element<T, I> index out of range", annotation->pos);
+          }
+          result = tupleType->elementTypes[index];
+          return;
+        }
+
+        if (annotation->name == "tuple_concat")
+        {
+          if (annotation->genericArgs.size() != 2)
+          {
+            throw TypeCheckingException("tuple_concat<A, B> expects exactly 2 generic arguments", annotation->pos);
+          }
+          TypeChecker checker{locals};
+          annotation->genericArgs[0]->accept(&checker);
+          auto leftTuple = std::dynamic_pointer_cast<TupleType>(unwrap(checker.result));
+          annotation->genericArgs[1]->accept(&checker);
+          auto rightTuple = std::dynamic_pointer_cast<TupleType>(unwrap(checker.result));
+          if (!leftTuple || !rightTuple)
+          {
+            throw TypeCheckingException("tuple_concat<A, B> expects tuple type arguments", annotation->pos);
+          }
+          Vec<CheckingRef<TypeInfo>> elements = leftTuple->elementTypes;
+          elements.insert(elements.end(), rightTuple->elementTypes.begin(), rightTuple->elementTypes.end());
+          result = makecheck<TupleType>(elements);
+          return;
         }
 
         // Handle variadic type annotations: T...
@@ -4778,6 +6539,19 @@ namespace NG::typecheck
                                             annotation->pos);
               }
               result = makecheck<TypeConstructorApplicationType>(it->second, typeArgs);
+              return;
+            }
+
+            if (auto traitType = std::dynamic_pointer_cast<TraitType>(it->second))
+            {
+              if (traitType->typeParamNames.size() != typeArgs.size())
+              {
+                throw TypeCheckingException("Trait '" + annotation->name + "' expects " +
+                                                std::to_string(traitType->typeParamNames.size()) +
+                                                " type argument(s), got " + std::to_string(typeArgs.size()),
+                                            annotation->pos);
+              }
+              result = traitType;
               return;
             }
 
@@ -4864,24 +6638,94 @@ namespace NG::typecheck
     {
       if (arrayLit->elements.empty())
       {
-        // Bidirectional inference: use expectedType if it's an array type
-        if (expectedType && expectedType->tag() == typeinfo_tag::ARRAY)
+        if (expectedType && isSequenceType(expectedType))
         {
+          if (auto expectedArray = std::dynamic_pointer_cast<ArrayType>(unwrap(expectedType));
+              expectedArray && expectedArray->length && !const_value_equals_size(expectedArray->length, 0))
+          {
+            throw TypeCheckingException("Array literal length mismatch: expected " + expectedArray->length->repr() +
+                                            ", got 0",
+                                        arrayLit->pos);
+          }
           result = expectedType;
         }
         else
         {
-          result = makecheck<ArrayType>(makecheck<Untyped>());
+          result = makecheck<VectorType>(makecheck<Untyped>());
         }
         return;
       }
+      auto foldElementType = [&](const ASTRef<PostfixFoldExpression> &fold) -> CheckingRef<TypeInfo> {
+        auto call = dynamic_ast_cast<FunCallExpression>(fold->expression);
+        if (!call || call->arguments.size() != 1)
+        {
+          throw TypeCheckingException("Map/filter fold expects a single-argument function call", fold->pos);
+        }
+        auto driver = dynamic_ast_cast<IdExpression>(call->arguments[0]);
+        if (!driver)
+        {
+          throw TypeCheckingException("Map/filter fold driver must be a single sequence identifier", fold->pos);
+        }
+
+        TypeChecker sequenceChecker{locals, {}, nullptr, movedBindings};
+        call->arguments[0]->accept(&sequenceChecker);
+        auto sequenceType = sequenceChecker.result;
+        auto elementType = sequenceElementType(sequenceType);
+        if (!elementType)
+        {
+          throw TypeCheckingException("Map/filter fold driver must be a Sequence-compatible type: " +
+                                          sequenceType->repr(),
+                                      fold->pos);
+        }
+
+        auto elementLocals = locals;
+        elementLocals[driver->id] = elementType;
+        TypeChecker bodyChecker{elementLocals, {}, nullptr, sequenceChecker.movedBindings};
+        fold->expression->accept(&bodyChecker);
+        movedBindings = bodyChecker.movedBindings;
+        if (fold->filter)
+        {
+          if (!bodyChecker.result || bodyChecker.result->tag() != typeinfo_tag::BOOL)
+          {
+            throw TypeCheckingException("Filter fold expression must return bool", fold->pos);
+          }
+          return elementType;
+        }
+        return bodyChecker.result;
+      };
+
+      if (arrayLit->elements.size() == 1)
+      {
+        if (auto fold = dynamic_ast_cast<PostfixFoldExpression>(arrayLit->elements[0]))
+        {
+          result = makecheck<VectorType>(foldElementType(fold));
+          return;
+        }
+      }
+      auto expectedElementType = sequenceElementType(expectedType);
       TypeChecker checker{locals, {}, nullptr, movedBindings};
-      arrayLit->elements[0]->accept(&checker);
-      auto elemType = checker.result;
+      checker.expectedType = expectedElementType;
+      CheckingRef<TypeInfo> elemType;
+      if (auto fold = dynamic_ast_cast<PostfixFoldExpression>(arrayLit->elements[0]))
+      {
+        elemType = foldElementType(fold);
+      }
+      else
+      {
+        arrayLit->elements[0]->accept(&checker);
+        elemType = checker.result;
+      }
       for (size_t i = 1; i < arrayLit->elements.size(); ++i)
       {
-        arrayLit->elements[i]->accept(&checker);
-        auto nextType = checker.result;
+        checker.expectedType = expectedElementType;
+        auto nextType = [&]() -> CheckingRef<TypeInfo> {
+          if (auto fold = dynamic_ast_cast<PostfixFoldExpression>(arrayLit->elements[i]))
+          {
+            return foldElementType(fold);
+          }
+          arrayLit->elements[i]->accept(&checker);
+          return checker.result;
+        }();
         if (!typeMatch(*elemType, *nextType))
         {
           if (typeMatch(*nextType, *elemType))
@@ -4896,7 +6740,23 @@ namespace NG::typecheck
         }
       }
       movedBindings = checker.movedBindings;
-      result = makecheck<ArrayType>(elemType);
+      if (auto expectedArray = std::dynamic_pointer_cast<ArrayType>(unwrap(expectedType)); expectedArray)
+      {
+        if (expectedArray->length && !const_value_equals_size(expectedArray->length, arrayLit->elements.size()))
+        {
+          throw TypeCheckingException("Array literal length mismatch: expected " + expectedArray->length->repr() +
+                                          ", got " + std::to_string(arrayLit->elements.size()),
+                                      arrayLit->pos);
+        }
+        result = expectedType;
+        return;
+      }
+      if (expectedType && expectedType->tag() == typeinfo_tag::VECTOR)
+      {
+        result = expectedType;
+        return;
+      }
+      result = makecheck<VectorType>(elemType);
     }
 
     void visit(TupleLiteral *tuple) override
@@ -4933,6 +6793,8 @@ namespace NG::typecheck
     void visit(SpreadExpression *spread) override
     {
       TypeChecker checker{locals, {}, nullptr, movedBindings};
+      checker.trait_impls_by_type = trait_impls_by_type;
+      checker.localTraitImpls = localTraitImpls;
       spread->expression->accept(&checker);
       auto type = checker.result;
       movedBindings = checker.movedBindings;
@@ -4953,15 +6815,22 @@ namespace NG::typecheck
           spreadResult.push_back(elemType);
         }
       }
-      else if (auto arr = std::dynamic_pointer_cast<ArrayType>(type); arr)
+      else if (auto elementType = sequenceElementType(type); elementType)
       {
-        // Array spread does not expand compile-time arity.
-        result = arr->elementType;
+        // Contiguous sequence spread does not expand compile-time arity.
+        result = elementType;
       }
       else
       {
-        throw TypeCheckingException("Invalid spread expression on type, expect tuple, varargs, or array, got " + type->repr());
+        throw TypeCheckingException("Invalid spread expression on type, expect tuple, varargs, array, vector, or span, got " + type->repr());
       }
+    }
+
+    void visit(PostfixFoldExpression *fold) override
+    {
+      throw TypeCheckingException("Postfix fold expression is only supported in array literals or fold calls: " +
+                                      fold->repr(),
+                                  fold->pos);
     }
 
     void visit(IndexAccessorExpression *indexAccess) override
@@ -4977,6 +6846,125 @@ namespace NG::typecheck
       if (primaryType->tag() == typeinfo_tag::UNTYPED)
       {
         result = makecheck<Untyped>();
+        return;
+      }
+      if (auto range = dynamic_ast_cast<RangeExpression>(indexAccess->accessor))
+      {
+        auto validateBound = [&](const ASTRef<Expression> &bound) {
+          if (!bound)
+          {
+            return;
+          }
+          if (auto fromEnd = dynamic_ast_cast<FromEndIndexExpression>(bound))
+          {
+            if (fromEnd->index)
+            {
+              fromEnd->index->accept(&checker);
+            }
+          }
+          else
+          {
+            bound->accept(&checker);
+          }
+          auto boundType = checker.result;
+          if (boundType && boundType->tag() != typeinfo_tag::UNTYPED && !isIntegralType(boundType->tag()))
+          {
+            throw TypeCheckingException("Range bound must be integral: " + bound->repr(), bound->pos);
+          }
+        };
+        validateBound(range->start);
+        validateBound(range->end);
+
+        if (primaryType->tag() == typeinfo_tag::TUPLE)
+        {
+          auto &tupleType = static_cast<TupleType &>(*primaryType);
+          auto staticBound = [&](const ASTRef<Expression> &bound, size_t defaultValue) -> std::optional<size_t> {
+            if (!bound)
+            {
+              return defaultValue;
+            }
+            auto literal = dynamic_ast_cast<IntegralValue<int32_t>>(bound);
+            if (literal)
+            {
+              if (literal->value < 0) return std::nullopt;
+              return static_cast<size_t>(literal->value);
+            }
+            if (auto fromEnd = dynamic_ast_cast<FromEndIndexExpression>(bound))
+            {
+              auto fromEndLiteral = dynamic_ast_cast<IntegralValue<int32_t>>(fromEnd->index);
+              if (!fromEndLiteral || fromEndLiteral->value < 0)
+              {
+                return std::nullopt;
+              }
+              auto offset = static_cast<size_t>(fromEndLiteral->value);
+              if (offset > tupleType.elementTypes.size())
+              {
+                return std::nullopt;
+              }
+              return tupleType.elementTypes.size() - offset;
+            }
+            return std::nullopt;
+          };
+          auto start = staticBound(range->start, 0);
+          auto end = staticBound(range->end, tupleType.elementTypes.size());
+          if (!start || !end)
+          {
+            throw TypeCheckingException("Tuple slice bounds must be compile-time non-negative integers",
+                                        indexAccess->accessor->pos);
+          }
+          auto exclusiveEnd = *end + (range->inclusive ? 1 : 0);
+          if (*start > exclusiveEnd || exclusiveEnd > tupleType.elementTypes.size())
+          {
+            throw TypeCheckingException("Tuple slice bounds out of range: " + range->repr(), indexAccess->accessor->pos);
+          }
+          Vec<CheckingRef<TypeInfo>> elements;
+          for (size_t i = *start; i < exclusiveEnd; ++i)
+          {
+            elements.push_back(tupleType.elementTypes[i]);
+          }
+          movedBindings = checker.movedBindings;
+          result = makecheck<TupleType>(std::move(elements));
+          return;
+        }
+
+        auto elementType = sequenceElementType(primaryType);
+        if (!elementType)
+        {
+          throw TypeCheckingException("Range index on non-contiguous sequence type: " + primaryType->repr());
+        }
+        movedBindings = checker.movedBindings;
+        result = makecheck<SpanType>(elementType);
+        return;
+      }
+      if (auto fromEnd = dynamic_ast_cast<FromEndIndexExpression>(indexAccess->accessor))
+      {
+        if (fromEnd->index)
+        {
+          fromEnd->index->accept(&checker);
+          auto indexType = checker.result;
+          if (!indexType || (!isIntegralType(indexType->tag()) && indexType->tag() != typeinfo_tag::UNTYPED))
+          {
+            throw TypeCheckingException("From-end index must be integral: " + fromEnd->repr(), fromEnd->pos);
+          }
+        }
+        auto elementType = primaryType->tag() == typeinfo_tag::TUPLE
+                               ? makecheck<Untyped>()
+                               : sequenceElementType(primaryType);
+        if (primaryType->tag() == typeinfo_tag::TUPLE)
+        {
+          auto &tupleType = static_cast<TupleType &>(*primaryType);
+          if (auto literal = dynamic_ast_cast<IntegralValue<int32_t>>(fromEnd->index);
+              literal && literal->value > 0 && static_cast<size_t>(literal->value) <= tupleType.elementTypes.size())
+          {
+            elementType = tupleType.elementTypes[tupleType.elementTypes.size() - static_cast<size_t>(literal->value)];
+          }
+        }
+        if (!elementType)
+        {
+          throw TypeCheckingException("Index accessor on non-contiguous sequence type: " + primaryType->repr());
+        }
+        movedBindings = checker.movedBindings;
+        result = elementType;
         return;
       }
       if (primaryType->tag() == typeinfo_tag::TUPLE)
@@ -5010,17 +6998,17 @@ namespace NG::typecheck
         result = makecheck<Untyped>();
         return;
       }
-      if (primaryType->tag() != typeinfo_tag::ARRAY)
+      auto elementType = sequenceElementType(primaryType);
+      if (!elementType)
       {
-        throw TypeCheckingException("Index accessor on non-array type: " + primaryType->repr());
+        throw TypeCheckingException("Index accessor on non-contiguous sequence type: " + primaryType->repr());
       }
       indexAccess->accessor->accept(&checker);
       auto indexType = checker.result;
       if (!indexType || (!isIntegralType(indexType->tag()) && indexType->tag() != typeinfo_tag::UNTYPED))
       {
-        throw TypeCheckingException("Invalid index type for array: " + indexAccess->accessor->repr());
+        throw TypeCheckingException("Invalid index type for " + typeKindName(*primaryType) + ": " + indexAccess->accessor->repr());
       }
-      ArrayType &arrayType = static_cast<ArrayType &>(*primaryType);
       movedBindings = checker.movedBindings;
       if (auto place = staticPlaceKey(indexAccess); place.has_value() && !allowMovedLvalueRead)
       {
@@ -5029,7 +7017,38 @@ namespace NG::typecheck
           throw TypeCheckingException("Use after move: " + *moved, indexAccess->pos);
         }
       }
-      result = arrayType.elementType;
+      result = elementType;
+    }
+
+    void visit(RangeExpression *range) override
+    {
+      if (!range->start || !range->end)
+      {
+        throw TypeCheckingException("Open range expressions are only supported inside index access", range->pos);
+      }
+      TypeChecker checker{locals, {}, nullptr, movedBindings, true, activeGenericInstanceName};
+      range->start->accept(&checker);
+      auto startType = checker.result;
+      range->end->accept(&checker);
+      auto endType = checker.result;
+      movedBindings = checker.movedBindings;
+      if ((startType && startType->tag() != typeinfo_tag::UNTYPED && !isIntegralType(startType->tag())) ||
+          (endType && endType->tag() != typeinfo_tag::UNTYPED && !isIntegralType(endType->tag())))
+      {
+        throw TypeCheckingException("Range expression bounds must be integral", range->pos);
+      }
+      CheckingRef<TypeInfo> elementType = makecheck<PrimitiveType>(typeinfo_tag::I32);
+      if (startType && endType && startType->tag() == endType->tag() && isIntegralType(startType->tag()))
+      {
+        elementType = startType;
+      }
+      result = makecheck<RangeType>(elementType);
+    }
+
+    void visit(FromEndIndexExpression *fromEnd) override
+    {
+      throw TypeCheckingException("From-end index is only supported inside index access: " + fromEnd->repr(),
+                                  fromEnd->pos);
     }
 
     void visit(IdAccessorExpression *idAccExpr) override
@@ -5060,20 +7079,35 @@ namespace NG::typecheck
       CheckingRef<TypeInfo> memberType = makecheck<Untyped>();
 
       // Adhoc polymorphic member access on built-in collection types
-      // (TupleType, VarargsType, ArrayType) support common members like .size
+      // Tuple, varargs, and contiguous sequence types support common members like .size.
       auto tag = primaryType->tag();
       bool isCollectionType = (tag == typeinfo_tag::TUPLE || tag == typeinfo_tag::VARARGS ||
-                               tag == typeinfo_tag::ARRAY);
+                               isSequenceType(primaryType));
       if (isCollectionType)
       {
         if (memberName == "size")
         {
           memberType = makecheck<PrimitiveType>(typeinfo_tag::U32);
         }
+        else if (memberName == "get")
+        {
+          if (auto elementType = sequenceElementType(primaryType))
+          {
+            memberType = makecheck<FunctionType>(
+                elementType, Vec<CheckingRef<TypeInfo>>{primaryType, makecheck<PrimitiveType>(typeinfo_tag::I32)});
+          }
+        }
       }
 
       if (auto customType = std::dynamic_pointer_cast<CustomizedType>(primaryType))
       {
+        if (auto localType = locals.find(customType->name); localType != locals.end())
+        {
+          if (auto localCustom = std::dynamic_pointer_cast<CustomizedType>(unwrap(localType->second)))
+          {
+            customType = localCustom;
+          }
+        }
         if (customType->properties.contains(memberName))
         {
           memberType = customType->properties[memberName];
@@ -5232,7 +7266,19 @@ namespace NG::typecheck
       for (size_t i = firstRegularArg; i < qualifiedCall->arguments.size(); ++i)
       {
         qualifiedCall->arguments[i]->accept(&checker);
-        argumentTypes.push_back(checker.result);
+        if (dynamic_ast_cast<SpreadExpression>(qualifiedCall->arguments[i]))
+        {
+          if (checker.spreadResult.empty())
+          {
+            throw TypeCheckingException("Spread call arguments require compile-time tuple arity", qualifiedCall->pos);
+          }
+          argumentTypes.insert(argumentTypes.end(), checker.spreadResult.begin(), checker.spreadResult.end());
+          checker.spreadResult.clear();
+        }
+        else
+        {
+          argumentTypes.push_back(checker.result);
+        }
       }
       movedBindings = checker.movedBindings;
 
@@ -5401,23 +7447,24 @@ namespace NG::typecheck
       {
         throw TypeCheckingException("Invalid index assignment expression: " + indexAssign->primary->repr());
       }
-      if (primaryType->tag() != typeinfo_tag::ARRAY && primaryType->tag() != typeinfo_tag::TUPLE)
+      auto sequenceElementType = this->sequenceElementType(primaryType);
+      if (!sequenceElementType && primaryType->tag() != typeinfo_tag::TUPLE)
       {
-        throw TypeCheckingException("Index assignment on non-array type: " + primaryType->repr());
+        throw TypeCheckingException("Index assignment on non-contiguous sequence type: " + primaryType->repr());
       }
       indexAssign->accessor->accept(&checker);
       auto indexType = checker.result;
       if (!indexType || !isIntegralType(indexType->tag()))
       {
-        const auto targetName = primaryType->tag() == typeinfo_tag::ARRAY ? Str{"array"} : Str{"tuple"};
+        const auto targetName = sequenceElementType ? typeKindName(*primaryType) : Str{"tuple"};
         throw TypeCheckingException("Invalid index type for " + targetName + ": " + indexAssign->accessor->repr());
       }
       indexAssign->value->accept(&checker);
       auto valueType = checker.result;
       CheckingRef<TypeInfo> expectedElementType;
-      if (primaryType->tag() == typeinfo_tag::ARRAY)
+      if (sequenceElementType)
       {
-        expectedElementType = static_cast<ArrayType &>(*primaryType).elementType;
+        expectedElementType = sequenceElementType;
       }
       else
       {
@@ -5437,7 +7484,7 @@ namespace NG::typecheck
       }
       if (!typeMatch(*expectedElementType, *valueType))
       {
-        const auto targetName = primaryType->tag() == typeinfo_tag::ARRAY ? Str{"array"} : Str{"tuple"};
+        const auto targetName = sequenceElementType ? typeKindName(*primaryType) : Str{"tuple"};
         throw TypeCheckingException("Invalid value type for " + targetName + " assignment: " + valueType->repr());
       }
       movedBindings = checker.movedBindings;
@@ -5546,6 +7593,9 @@ namespace NG::typecheck
       {
         return cached->second;
       }
+      auto &registry = NG::module::get_module_registry();
+      const bool forceSourceLoad =
+          std::ranges::find(modulePaths, "[force-source-module-loader]") != modulePaths.end();
       if (!activeModuleChecks.insert(moduleId).second)
       {
         return {};
@@ -5559,14 +7609,35 @@ namespace NG::typecheck
         }
       } guard{moduleId};
 
-      auto moduleInfo = NG::module::get_module_registry().queryModuleById(moduleId);
-      if (!moduleInfo)
+      auto moduleInfo = registry.queryModuleById(moduleId);
+      if (forceSourceLoad)
       {
-        NG::module::FileBasedExternalModuleLoader loader{modulePaths};
-        moduleInfo = loader.load(importDecl.modulePath);
+        moduleInfo = {};
       }
       if (!moduleInfo || !moduleInfo->moduleAst)
       {
+        NG::module::FileBasedExternalModuleLoader loader{modulePaths};
+        moduleInfo = loader.load(importDecl.modulePath);
+        if (moduleInfo)
+        {
+          if (forceSourceLoad && moduleInfo->moduleAst)
+          {
+            retainedPreludeImportAsts.push_back(moduleInfo->moduleAst);
+          }
+          registry.addModuleInfo(moduleInfo);
+        }
+      }
+      if (!moduleInfo || !moduleInfo->moduleAst)
+      {
+        if (!forceSourceLoad)
+        {
+          if (auto artifact = registry.queryArtifactById(moduleId); artifact && hasPublishedTypeMetadata(*artifact))
+          {
+            auto artifacts = toLocalModuleArtifacts(*artifact);
+            moduleArtifactsById[moduleId] = artifacts;
+            return artifacts;
+          }
+        }
         return {};
       }
 
@@ -5574,6 +7645,17 @@ namespace NG::typecheck
       checker.currentModuleId = moduleInfo->moduleId.empty() ? moduleId : moduleInfo->moduleId;
       moduleInfo->moduleAst->accept(&checker);
       moduleInfo->moduleTypeIndex = checker.type_index;
+
+      if (auto artifact = registry.queryArtifactById(checker.currentModuleId); artifact && hasPublishedTypeMetadata(*artifact))
+      {
+        auto artifacts = toLocalModuleArtifacts(*artifact);
+        moduleArtifactsById[checker.currentModuleId] = artifacts;
+        if (checker.currentModuleId != moduleId)
+        {
+          moduleArtifactsById[moduleId] = artifacts;
+        }
+        return artifacts;
+      }
 
       if (auto cached = moduleArtifactsById.find(checker.currentModuleId); cached != moduleArtifactsById.end())
       {
@@ -5625,7 +7707,46 @@ namespace NG::typecheck
           locals.insert_or_assign(name, makecheck<Untyped>());
         }
         importedSymbolNames.insert(name);
+        if (importDecl.exported)
+        {
+          exportedImportNames.insert(name);
+        }
       }
+
+      Set<Str> compileTimeNamesToImport;
+      if (importAll)
+      {
+        for (const auto &[name, _defs] : artifacts.exportedTypeAliasSpecializations)
+        {
+          compileTimeNamesToImport.insert(name);
+        }
+        for (const auto &[name, _defs] : artifacts.exportedConstPredicates)
+        {
+          compileTimeNamesToImport.insert(name);
+        }
+        for (const auto &[name, _defs] : artifacts.exportedConstFunctions)
+        {
+          compileTimeNamesToImport.insert(name);
+        }
+      }
+      else
+      {
+        compileTimeNamesToImport.insert(importDecl.imports.begin(), importDecl.imports.end());
+      }
+
+      auto importCompileTimeDefs = [&compileTimeNamesToImport](auto &active, const auto &exported) {
+        for (const auto &name : compileTimeNamesToImport)
+        {
+          if (auto it = exported.find(name); it != exported.end())
+          {
+            auto &defs = active[name];
+            defs.insert(defs.end(), it->second.begin(), it->second.end());
+          }
+        }
+      };
+      importCompileTimeDefs(activeTypeAliasSpecializations, artifacts.exportedTypeAliasSpecializations);
+      importCompileTimeDefs(activeConstPredicates, artifacts.exportedConstPredicates);
+      importCompileTimeDefs(activeConstFunctions, artifacts.exportedConstFunctions);
 
       if (!importAll)
       {
@@ -5641,9 +7762,30 @@ namespace NG::typecheck
         {
           continue;
         }
-        TypeChecker targetChecker{locals, {}, nullptr, {}, false, "", modulePaths};
-        impl.definition->targetType->accept(&targetChecker);
-        auto custom = std::dynamic_pointer_cast<CustomizedType>(unwrap(targetChecker.result));
+        CheckingRef<TypeInfo> targetType;
+        if (impl.definition)
+        {
+          auto targetScope = locals;
+          addGenericParamsToScope(targetScope, impl.definition->genericParams);
+          TypeChecker targetChecker{targetScope, {}, nullptr, {}, false, "", modulePaths};
+          impl.definition->targetType->accept(&targetChecker);
+          targetType = targetChecker.result;
+        }
+        else
+        {
+          targetType = type_from_repr(impl.targetPattern);
+        }
+        auto custom = std::dynamic_pointer_cast<CustomizedType>(unwrap(targetType));
+        if (custom)
+        {
+          if (auto localTarget = locals.find(custom->name); localTarget != locals.end())
+          {
+            if (auto localCustom = std::dynamic_pointer_cast<CustomizedType>(unwrap(localTarget->second)))
+            {
+              custom = localCustom;
+            }
+          }
+        }
         if (!custom)
         {
           continue;
@@ -5652,6 +7794,17 @@ namespace NG::typecheck
         if (std::ranges::find(implTraits, impl.traitName) == implTraits.end())
         {
           implTraits.push_back(impl.traitName);
+        }
+        auto traitIt = locals.find(impl.traitName);
+        auto trait = traitIt == locals.end() ? nullptr : std::dynamic_pointer_cast<TraitType>(traitIt->second);
+        if (trait)
+        {
+          auto &methods = trait->allMethods.empty() ? trait->methods : trait->allMethods;
+          for (const auto &[methodName, methodType] : methods)
+          {
+            custom->traitMemberFunctions[trait->name][methodName] = methodType;
+            custom->memberFunctions[trait->name + "::" + methodName] = methodType;
+          }
         }
       }
     }
@@ -5668,6 +7821,10 @@ namespace NG::typecheck
         importAliases[importDecl->alias] = moduleId;
       }
       importAliases[importDecl->module] = moduleId;
+      if (!moduleId.empty() && std::ranges::find(importedModuleIds, moduleId) == importedModuleIds.end())
+      {
+        importedModuleIds.push_back(moduleId);
+      }
 
       if (!modulePaths.empty())
       {
@@ -5686,6 +7843,15 @@ namespace NG::typecheck
           // Preserve the historical loose import behavior for modules that are
           // intentionally provided by native/compiler test harnesses.
         }
+      }
+
+      if (auto artifact = NG::module::get_module_registry().queryArtifactById(moduleId);
+          artifact && hasPublishedTypeMetadata(*artifact))
+      {
+        auto artifacts = toLocalModuleArtifacts(*artifact);
+        moduleArtifactsById[moduleId] = artifacts;
+        importCheckedModuleArtifacts(*importDecl, moduleId, artifacts);
+        return;
       }
 
       // Basic support for imports in type checker:
@@ -5712,6 +7878,10 @@ namespace NG::typecheck
         else
         {
           locals.insert_or_assign(imp, makecheck<Untyped>());
+          if (importDecl->exported)
+          {
+            exportedImportNames.insert(imp);
+          }
         }
       }
     }
@@ -5831,6 +8001,38 @@ namespace NG::typecheck
       if (auto predicate = tryEvalConstPredicateCall(funCall); predicate.has_value())
       {
         result = makecheck<PrimitiveType>(typeinfo_tag::BOOL);
+        return;
+      }
+      if (auto idExpr = dynamic_cast<IdExpression *>(funCall->primaryExpression.get());
+          idExpr && activeConstFunctions.contains(idExpr->id) && !activeConstFunctions.at(idExpr->id).empty())
+      {
+        auto *fn = activeConstFunctions.at(idExpr->id).front();
+        if (!fn || !fn->returnType)
+        {
+          throw TypeCheckingException("Const function must declare a return type: " + idExpr->id, funCall->pos);
+        }
+        if (fn->params.size() != funCall->arguments.size())
+        {
+          throw TypeCheckingException("Const function argument count mismatch: " + fn->funName, funCall->pos);
+        }
+        for (size_t i = 0; i < funCall->arguments.size(); ++i)
+        {
+          TypeChecker argChecker{locals};
+          funCall->arguments[i]->accept(&argChecker);
+          if (fn->params[i]->annotatedType)
+          {
+            TypeChecker paramChecker{locals};
+            fn->params[i]->annotatedType->accept(&paramChecker);
+            if (!typeMatches(*paramChecker.result, *argChecker.result))
+            {
+              throw TypeCheckingException("Const function argument type mismatch: " + fn->funName,
+                                          funCall->arguments[i]->pos);
+            }
+          }
+        }
+        TypeChecker returnChecker{locals};
+        fn->returnType->accept(&returnChecker);
+        result = returnChecker.result;
         return;
       }
       // Check if this is a tagged value construction (e.g. Ok(42))
@@ -5988,13 +8190,22 @@ namespace NG::typecheck
             TypeChecker instChecker{genericType->capturedLocals};
             for (size_t i = 0; i < genericType->typeParamNames.size(); ++i)
             {
-              instChecker.locals[genericType->typeParamNames[i]] =
-                  makecheck<GenericParamType>(
-                      genericType->typeParamNames[i], "", genericType->typeParamIsPack[i],
-                      i < genericType->typeParamKindArities.size() ? genericType->typeParamKindArities[i] : 0,
-                      i < genericType->typeParamKindVariadicTails.size()
-                          ? genericType->typeParamKindVariadicTails[i]
-                          : false);
+              if (i < genericType->typeParamIsConst.size() && genericType->typeParamIsConst[i])
+              {
+                instChecker.locals[genericType->typeParamNames[i]] =
+                    makecheck<ConstValueType>(genericType->typeParamNames[i], "", true);
+              }
+              else
+              {
+                instChecker.locals[genericType->typeParamNames[i]] =
+                    makecheck<GenericParamType>(
+                        genericType->typeParamNames[i], "",
+                        i < genericType->typeParamIsPack.size() ? genericType->typeParamIsPack[i] : false,
+                        i < genericType->typeParamKindArities.size() ? genericType->typeParamKindArities[i] : 0,
+                        i < genericType->typeParamKindVariadicTails.size()
+                            ? genericType->typeParamKindVariadicTails[i]
+                            : false);
+              }
             }
 
             for (auto &variant : genericType->taggedUnionDef->variants)
@@ -6073,6 +8284,74 @@ namespace NG::typecheck
         }
       }
 
+      auto foldArgIt = std::find_if(funCall->arguments.begin(), funCall->arguments.end(), [](const auto &arg) {
+        return dynamic_ast_cast<PostfixFoldExpression>(arg) != nullptr;
+      });
+      if (foldArgIt != funCall->arguments.end())
+      {
+        auto secondFoldArg = std::find_if(std::next(foldArgIt), funCall->arguments.end(), [](const auto &arg) {
+          return dynamic_ast_cast<PostfixFoldExpression>(arg) != nullptr;
+        });
+        if (secondFoldArg != funCall->arguments.end())
+        {
+          throw TypeCheckingException("Fold call supports only one postfix fold pack", funCall->pos);
+        }
+        auto foldIndex = static_cast<size_t>(std::distance(funCall->arguments.begin(), foldArgIt));
+        if (funCall->arguments.size() != 2 || (foldIndex != 0 && foldIndex != 1))
+        {
+          throw TypeCheckingException("Fold call expects `op(xs..., init)` or `op(init, xs...)`", funCall->pos);
+        }
+        auto fold = dynamic_ast_cast<PostfixFoldExpression>(*foldArgIt);
+        if (fold->filter)
+        {
+          throw TypeCheckingException("Filter marker `?...` is only supported in array literals", fold->pos);
+        }
+
+        TypeChecker checker{locals, {}, nullptr, movedBindings};
+        funCall->primaryExpression->accept(&checker);
+        auto primaryType = checker.result;
+        auto funcType = primaryType ? dynamic_cast<FunctionType *>(&(*primaryType)) : nullptr;
+        if (!funcType)
+        {
+          throw TypeCheckingException("Fold call requires a non-generic function value", funCall->pos);
+        }
+        if (funcType->parametersType.size() != 2)
+        {
+          throw TypeCheckingException("Fold call operator must be binary: " + funcType->repr(), funCall->pos);
+        }
+
+        fold->expression->accept(&checker);
+        auto sequenceType = checker.result;
+        auto elementType = sequenceElementType(sequenceType);
+        if (!elementType)
+        {
+          throw TypeCheckingException("Fold pack must be a Sequence-compatible value: " + sequenceType->repr(),
+                                      fold->pos);
+        }
+
+        auto initIndex = foldIndex == 0 ? 1UZ : 0UZ;
+        funCall->arguments[initIndex]->accept(&checker);
+        auto accumulatorType = checker.result;
+        movedBindings = checker.movedBindings;
+
+        Vec<CheckingRef<TypeInfo>> argumentTypes =
+            foldIndex == 0 ? Vec<CheckingRef<TypeInfo>>{elementType, accumulatorType}
+                           : Vec<CheckingRef<TypeInfo>>{accumulatorType, elementType};
+        if (!functionApplyWithCoercions(*funcType, argumentTypes))
+        {
+          throw TypeCheckingException("Invalid fold operator argument types for function: " + funcType->repr(),
+                                      funCall->pos);
+        }
+        if (!typeMatches(*accumulatorType, *funcType->returnType))
+        {
+          throw TypeCheckingException("Fold operator return type must match accumulator type: " +
+                                          funcType->returnType->repr() + " to " + accumulatorType->repr(),
+                                      funCall->pos);
+        }
+        result = accumulatorType;
+        return;
+      }
+
       TypeChecker checker{locals, {}, nullptr, movedBindings};
       funCall->primaryExpression->accept(&checker);
       auto primaryType = checker.result;
@@ -6114,6 +8393,12 @@ namespace NG::typecheck
       {
         throw TypeCheckingException("Invalid function type: " + primaryType->repr(), funCall->pos);
       }
+      if (funcType->deleted)
+      {
+        throw TypeCheckingException("Function overload is deleted: " +
+                                        (funcType->deletedRepr.empty() ? funcType->repr() : funcType->deletedRepr),
+                                    funCall->pos);
+      }
 
       Vec<CheckingRef<TypeInfo>> argumentTypes;
       for (auto arg : funCall->arguments)
@@ -6128,7 +8413,19 @@ namespace NG::typecheck
           }
         }
         arg->accept(&checker);
-        argumentTypes.push_back(checker.result);
+        if (dynamic_ast_cast<SpreadExpression>(arg))
+        {
+          if (checker.spreadResult.empty())
+          {
+            throw TypeCheckingException("Spread call arguments require compile-time tuple arity", arg->pos);
+          }
+          argumentTypes.insert(argumentTypes.end(), checker.spreadResult.begin(), checker.spreadResult.end());
+          checker.spreadResult.clear();
+        }
+        else
+        {
+          argumentTypes.push_back(checker.result);
+        }
       }
       movedBindings = checker.movedBindings;
 
@@ -6193,6 +8490,36 @@ namespace NG::typecheck
         return;
       }
 
+      if (paramType->tag() == typeinfo_tag::CONST_VALUE)
+      {
+        auto &constParam = static_cast<ConstValueType &>(*paramType);
+        if (!constParam.isParam)
+        {
+          return;
+        }
+        if (auto existing = substitution.contains(constParam.value) ? substitution[constParam.value] : nullptr)
+        {
+          if (existing->tag() == typeinfo_tag::CONST_VALUE)
+          {
+            auto existingConst = std::static_pointer_cast<ConstValueType>(existing);
+            if (existingConst->isParam)
+            {
+              substitution[constParam.value] = argType;
+            }
+            else if (!existing->match(*argType))
+            {
+              throw TypeCheckingException("Inconsistent bindings for const generic parameter '" + constParam.value +
+                                          "': " + existing->repr() + " vs " + argType->repr());
+            }
+          }
+        }
+        else
+        {
+          substitution[constParam.value] = argType;
+        }
+        return;
+      }
+
       if (paramType->tag() == typeinfo_tag::GENERIC_PARAM)
       {
         auto &gp = static_cast<GenericParamType &>(*paramType);
@@ -6220,6 +8547,26 @@ namespace NG::typecheck
         auto &paramArr = static_cast<ArrayType &>(*paramType);
         auto &argArr = static_cast<ArrayType &>(*argType);
         extractGenericBindingsImpl(paramArr.elementType, argArr.elementType, substitution, seen);
+        if (paramArr.length && argArr.length)
+        {
+          extractGenericBindingsImpl(paramArr.length, argArr.length, substitution, seen);
+        }
+        return;
+      }
+
+      if (paramType->tag() == typeinfo_tag::VECTOR && argType->tag() == typeinfo_tag::VECTOR)
+      {
+        auto &paramVec = static_cast<VectorType &>(*paramType);
+        auto &argVec = static_cast<VectorType &>(*argType);
+        extractGenericBindingsImpl(paramVec.elementType, argVec.elementType, substitution, seen);
+        return;
+      }
+
+      if (paramType->tag() == typeinfo_tag::SPAN && argType->tag() == typeinfo_tag::SPAN)
+      {
+        auto &paramSpan = static_cast<SpanType &>(*paramType);
+        auto &argSpan = static_cast<SpanType &>(*argType);
+        extractGenericBindingsImpl(paramSpan.elementType, argSpan.elementType, substitution, seen);
         return;
       }
 
@@ -6439,36 +8786,79 @@ namespace NG::typecheck
      */
     CheckingRef<TypeInfo> monomorphizeGenericCall(GenericDefType &genericDef, FunCallExpression *funCall)
     {
-      auto &funcDef = genericDef.funcDef;
-      auto &typeParamNames = genericDef.typeParamNames;
-      auto &typeParamIsPack = genericDef.typeParamIsPack;
-
       // 1. Type-check arguments
       TypeChecker argChecker{locals, {}, nullptr, movedBindings, allowMovedLvalueRead, activeGenericInstanceName};
       Vec<CheckingRef<TypeInfo>> argumentTypes;
       for (auto arg : funCall->arguments)
       {
         arg->accept(&argChecker);
-        argumentTypes.push_back(argChecker.result);
+        if (dynamic_ast_cast<SpreadExpression>(arg))
+        {
+          if (argChecker.spreadResult.empty())
+          {
+            throw TypeCheckingException("Spread call arguments require compile-time tuple arity", arg->pos);
+          }
+          argumentTypes.insert(argumentTypes.end(), argChecker.spreadResult.begin(), argChecker.spreadResult.end());
+          argChecker.spreadResult.clear();
+        }
+        else
+        {
+          argumentTypes.push_back(argChecker.result);
+        }
       }
       movedBindings = argChecker.movedBindings;
+
+      auto *funcDef = selectGenericFunctionCandidate(
+          genericDef, argumentTypes, funCall->genericArgs.empty() ? Str::npos : funCall->genericArgs.size());
+      if (!funcDef)
+      {
+        throw TypeCheckingException("No matching generic function overload: " + genericDef.name, funCall->pos);
+      }
+      if (funcDef->deleted)
+      {
+        throw TypeCheckingException("Function overload is deleted: " + funcDef->repr(), funCall->pos);
+      }
+
+      Vec<Str> typeParamNames;
+      Vec<bool> typeParamIsPack;
+      Vec<bool> typeParamIsConst;
+      for (auto &genericParam : funcDef->genericParams)
+      {
+        typeParamNames.push_back(genericParam->name);
+        typeParamIsPack.push_back(genericParam->isPack);
+        typeParamIsConst.push_back(genericParam->isConst);
+      }
+      auto typeParamKindArities = genericParamKindArities(funcDef->genericParams);
+      auto typeParamKindVariadicTails = genericParamKindVariadicTails(funcDef->genericParams);
 
       // 2. Inject GenericParamType entries (with pack flags) into a working scope
       Map<Str, CheckingRef<TypeInfo>> substitution;
       for (size_t pi = 0; pi < typeParamNames.size(); ++pi)
       {
         bool isPack = (pi < typeParamIsPack.size()) ? typeParamIsPack[pi] : false;
-        size_t kindArity = (pi < genericDef.typeParamKindArities.size()) ? genericDef.typeParamKindArities[pi] : 0;
-        bool kindVariadicTail = pi < genericDef.typeParamKindVariadicTails.size()
-                                    ? genericDef.typeParamKindVariadicTails[pi]
+        size_t kindArity = (pi < typeParamKindArities.size()) ? typeParamKindArities[pi] : 0;
+        bool kindVariadicTail = pi < typeParamKindVariadicTails.size()
+                                    ? typeParamKindVariadicTails[pi]
                                     : false;
         Str bound;
         if (pi < funcDef->genericParams.size())
         {
           bound = typeParamBoundName(*funcDef->genericParams[pi]);
         }
-        substitution[typeParamNames[pi]] = makecheck<GenericParamType>(typeParamNames[pi], bound, isPack,
-                                                                       kindArity, kindVariadicTail);
+        if (pi < typeParamIsConst.size() && typeParamIsConst[pi])
+        {
+          substitution[typeParamNames[pi]] = makecheck<ConstValueType>(
+              typeParamNames[pi],
+              pi < funcDef->genericParams.size() && funcDef->genericParams[pi]->constType
+                  ? funcDef->genericParams[pi]->constType->repr()
+                  : "",
+              true);
+        }
+        else
+        {
+          substitution[typeParamNames[pi]] = makecheck<GenericParamType>(typeParamNames[pi], bound, isPack,
+                                                                         kindArity, kindVariadicTail);
+        }
       }
       addWhereBoundsToScope(substitution, funcDef->whereBounds);
       if (!funCall->genericArgs.empty())
@@ -6483,13 +8873,17 @@ namespace NG::typecheck
         for (size_t pi = 0; pi < funCall->genericArgs.size(); ++pi)
         {
           const size_t expectedArity =
-              pi < genericDef.typeParamKindArities.size() ? genericDef.typeParamKindArities[pi] : 0;
-          const bool expectedVariadicTail = pi < genericDef.typeParamKindVariadicTails.size()
-                                                ? genericDef.typeParamKindVariadicTails[pi]
+              pi < typeParamKindArities.size() ? typeParamKindArities[pi] : 0;
+          const bool expectedVariadicTail = pi < typeParamKindVariadicTails.size()
+                                                ? typeParamKindVariadicTails[pi]
                                                 : false;
+          const bool expectedConst = pi < typeParamIsConst.size() && typeParamIsConst[pi];
           substitution[typeParamNames[pi]] =
-              resolveGenericTypeArgument(funCall->genericArgs[pi].get(), expectedArity, expectedVariadicTail,
-                                         typeParamNames[pi]);
+              resolveGenericArgument(funCall->genericArgs[pi].get(), expectedConst,
+                                     pi < funcDef->genericParams.size() && funcDef->genericParams[pi]->constType
+                                         ? funcDef->genericParams[pi]->constType->repr()
+                                         : "",
+                                     expectedArity, expectedVariadicTail, typeParamNames[pi]);
         }
       }
 
@@ -6617,6 +9011,19 @@ namespace NG::typecheck
               substitution[packGp->name] = makecheck<VarargsType>(packElements);
               break; // Pack consumes all remaining args; no more params to process
             }
+            if (auto varargsParam = std::dynamic_pointer_cast<VarargsType>(unwrap(paramType)); varargsParam)
+            {
+              if (varargsParam->elementTypes.empty())
+              {
+                break;
+              }
+              auto elementPattern = varargsParam->elementTypes.front();
+              for (size_t j = i; j < argumentTypes.size(); ++j)
+              {
+                extractGenericBindings(elementPattern, argumentTypes[j], substitution);
+              }
+              break; // Homogeneous varargs consume all remaining args.
+            }
             // Non-pack: unify param type with argument type
             if (i < argumentTypes.size())
             {
@@ -6656,11 +9063,11 @@ namespace NG::typecheck
           if (paramIt != typeParamNames.end())
           {
             auto index = static_cast<size_t>(std::distance(typeParamNames.begin(), paramIt));
-            auto kindArity = index < genericDef.typeParamKindArities.size()
-                                 ? genericDef.typeParamKindArities[index]
+            auto kindArity = index < typeParamKindArities.size()
+                                 ? typeParamKindArities[index]
                                  : 0;
-            auto kindVariadicTail = index < genericDef.typeParamKindVariadicTails.size()
-                                        ? genericDef.typeParamKindVariadicTails[index]
+            auto kindVariadicTail = index < typeParamKindVariadicTails.size()
+                                        ? typeParamKindVariadicTails[index]
                                         : false;
             if ((kindArity > 0 || kindVariadicTail) && !annotation->genericArgs.empty())
             {
@@ -6713,6 +9120,15 @@ namespace NG::typecheck
       // Fill in any unsubstituted type params with Untyped
       for (auto &name : typeParamNames)
       {
+        auto subIt = substitution.find(name);
+        if (subIt != substitution.end() && subIt->second && subIt->second->tag() == typeinfo_tag::CONST_VALUE)
+        {
+          auto constParam = std::static_pointer_cast<ConstValueType>(subIt->second);
+          if (constParam->isParam)
+          {
+            throw TypeCheckingException("Could not infer const generic parameter '" + name + "'", funCall->pos);
+          }
+        }
         if (!substitution.contains(name))
         {
           substitution[name] = makecheck<Untyped>();
@@ -6925,15 +9341,180 @@ namespace NG::typecheck
     }
   };
 
+  namespace
+  {
+    auto trim_copy(Str value) -> Str
+    {
+      auto isNotSpace = [](unsigned char ch) { return !std::isspace(ch); };
+      value.erase(value.begin(), std::find_if(value.begin(), value.end(), isNotSpace));
+      value.erase(std::find_if(value.rbegin(), value.rend(), isNotSpace).base(), value.end());
+      return value;
+    }
+
+    auto split_top_level(const Str &value) -> Vec<Str>
+    {
+      Vec<Str> parts;
+      int depth = 0;
+      size_t start = 0;
+      for (size_t i = 0; i < value.size(); ++i)
+      {
+        char ch = value[i];
+        if (ch == '<' || ch == '(' || ch == '[')
+        {
+          ++depth;
+        }
+        else if (ch == '>' || ch == ')' || ch == ']')
+        {
+          --depth;
+        }
+        else if (ch == ',' && depth == 0)
+        {
+          parts.push_back(trim_copy(value.substr(start, i - start)));
+          start = i + 1;
+        }
+      }
+      auto tail = trim_copy(value.substr(start));
+      if (!tail.empty())
+      {
+        parts.push_back(std::move(tail));
+      }
+      return parts;
+    }
+
+    auto find_top_level_arrow(const Str &value) -> size_t
+    {
+      int depth = 0;
+      for (size_t i = 0; i + 1 < value.size(); ++i)
+      {
+        char ch = value[i];
+        if (ch == '<' || ch == '(' || ch == '[')
+        {
+          ++depth;
+        }
+        else if (ch == '>' || ch == ')' || ch == ']')
+        {
+          --depth;
+        }
+        else if (ch == '-' && value[i + 1] == '>' && depth == 0)
+        {
+          return i;
+        }
+      }
+      return Str::npos;
+    }
+
+    auto type_from_repr_impl(const Str &raw) -> CheckingRef<TypeInfo>
+    {
+      auto repr = trim_copy(raw);
+      if (repr.empty() || repr == "untyped" || repr == "[untyped]")
+      {
+        return makecheck<Untyped>();
+      }
+      if (auto primitive = PrimitiveType::from(repr))
+      {
+        return primitive;
+      }
+      if (repr.starts_with("fun ("))
+      {
+        auto paramsStart = Str{"fun ("}.size();
+        auto paramsEnd = repr.find(") -> ", paramsStart);
+        if (paramsEnd != Str::npos)
+        {
+          Vec<CheckingRef<TypeInfo>> params;
+          auto paramsRepr = repr.substr(paramsStart, paramsEnd - paramsStart);
+          if (!trim_copy(paramsRepr).empty())
+          {
+            for (auto &&part : split_top_level(paramsRepr))
+            {
+              params.push_back(type_from_repr_impl(part));
+            }
+          }
+          auto returnType = type_from_repr_impl(repr.substr(paramsEnd + Str{") -> "}.size()));
+          return makecheck<FunctionType>(returnType, params);
+        }
+      }
+      if (repr.size() >= 2 && repr.front() == '(' && repr.back() == ')')
+      {
+        Vec<CheckingRef<TypeInfo>> elements;
+        auto inner = repr.substr(1, repr.size() - 2);
+        if (!trim_copy(inner).empty())
+        {
+          for (auto &&part : split_top_level(inner))
+          {
+            elements.push_back(type_from_repr_impl(part));
+          }
+        }
+        return makecheck<TupleType>(elements);
+      }
+      auto parseUnaryGeneric = [&](const Str &prefix, auto makeType) -> CheckingRef<TypeInfo> {
+        if (repr.starts_with(prefix) && repr.ends_with(">"))
+        {
+          auto inner = repr.substr(prefix.size(), repr.size() - prefix.size() - 1);
+          return makeType(type_from_repr_impl(inner));
+        }
+        return nullptr;
+      };
+      if (auto ref = parseUnaryGeneric("ref<", [](CheckingRef<TypeInfo> inner) {
+            return makecheck<ReferenceType>(std::move(inner));
+          }))
+      {
+        return ref;
+      }
+      if (auto vector = parseUnaryGeneric("vector<", [](CheckingRef<TypeInfo> inner) {
+            return makecheck<VectorType>(std::move(inner));
+          }))
+      {
+        return vector;
+      }
+      if (auto span = parseUnaryGeneric("span<", [](CheckingRef<TypeInfo> inner) {
+            return makecheck<SpanType>(std::move(inner));
+          }))
+      {
+        return span;
+      }
+      if (auto range = parseUnaryGeneric("Range<", [](CheckingRef<TypeInfo> inner) {
+            return makecheck<RangeType>(std::move(inner));
+          }))
+      {
+        return range;
+      }
+      if (repr.starts_with("array<") && repr.ends_with(">"))
+      {
+        auto inner = repr.substr(Str{"array<"}.size(), repr.size() - Str{"array<"}.size() - 1);
+        auto parts = split_top_level(inner);
+        if (parts.size() == 2)
+        {
+          return makecheck<ArrayType>(type_from_repr_impl(parts[0]), makecheck<ConstValueType>(parts[1]));
+        }
+      }
+      if (auto arrow = find_top_level_arrow(repr); arrow != Str::npos)
+      {
+        return makecheck<Untyped>();
+      }
+      return makecheck<CustomizedType>(repr);
+    }
+  } // namespace
+
+  CheckingRef<TypeInfo> type_from_repr(const Str &repr)
+  {
+    return type_from_repr_impl(repr);
+  }
+
   TypeIndex type_check(ASTRef<ASTNode> ast, TypeIndex initial_index, Vec<Str> module_paths)
   {
     TypeChecker::activeTypeAliasSpecializations.clear();
     TypeChecker::activeConstPredicates.clear();
+    TypeChecker::activeConstFunctions.clear();
+    TypeChecker::activeAutoTraits.clear();
+    TypeChecker::activeDerivedTraitImplKeys.clear();
     TypeChecker::moduleArtifactsById.clear();
     TypeChecker::activeModuleChecks.clear();
     if (!initial_index.empty())
     {
+      TypeChecker::activeTypeAliasSpecializations = TypeChecker::preludeTypeAliasSpecializations;
       TypeChecker::activeConstPredicates = TypeChecker::preludeConstPredicates;
+      TypeChecker::activeConstFunctions = TypeChecker::preludeConstFunctions;
+      TypeChecker::activeAutoTraits = TypeChecker::preludeAutoTraits;
     }
     TypeChecker checker{initial_index, {}, nullptr, {}, false, "", std::move(module_paths)};
     checker.type_index = initial_index;
@@ -6959,7 +9540,7 @@ namespace NG::typecheck
     // This mirrors the search logic used by the interpreter's module loader.
     namespace fs = std::filesystem;
 
-    Vec<Str> libPaths = {"lib", "../lib", "../../lib"};
+    Vec<Str> libPaths = {"[force-source-module-loader]", "lib", "../lib", "../../lib"};
     fs::path preludePath;
 
     for (const auto &base : libPaths)
@@ -6989,15 +9570,21 @@ namespace NG::typecheck
 
       if (ast)
       {
-        result = type_check(ast);
+        TypeChecker::retainedPreludeImportAsts.clear();
+        result = type_check(ast, {}, libPaths);
+        TypeChecker::preludeTypeAliasSpecializations = TypeChecker::activeTypeAliasSpecializations;
         TypeChecker::preludeConstPredicates = TypeChecker::activeConstPredicates;
+        TypeChecker::preludeConstFunctions = TypeChecker::activeConstFunctions;
+        TypeChecker::preludeAutoTraits = TypeChecker::activeAutoTraits;
         retainedPreludeAst = ast;
       }
     }
     catch (...)
     {
-      // If prelude parsing/type-checking fails, return empty index.
-      // This keeps the rest of the program functional.
+      // If prelude parsing/type-checking fails, do not cache the partial
+      // result. Tests and host tools can register incomplete module artifacts
+      // before the stdlib sources are available to the type checker.
+      return result;
     }
 
     cachedResult = result;

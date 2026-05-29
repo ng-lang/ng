@@ -1,4 +1,5 @@
 #include <orgasm/vm.hpp>
+#include <orgasm/compiler.hpp>
 #include <algorithm>
 #include <bit>
 #include <functional>
@@ -200,6 +201,15 @@ namespace NG::orgasm
             auto ngType = makert<NGType>();
             ngType->name = type.name;
             ngType->properties = type.properties;
+            if (std::ranges::find(type.derivedTraits, Str{"Clone"}) != type.derivedTraits.end())
+            {
+                NGCallable cloneMember = [](const NGSelf &self, const NGEnv &, const NGArgs &) -> RuntimeRef<StorageCell> {
+                    if (!self) return unit_cell();
+                    return clone_runtime_storage_cell(self, StorageClass::TEMPORARY, "clone");
+                };
+                ngType->memberFunctions["Clone::clone"] = cloneMember;
+                ngType->memberFunctions["clone"] = std::move(cloneMember);
+            }
             root_types[type.name] = ngType;
             root_symbols->types[type.name] = ngType;
         }
@@ -323,6 +333,54 @@ namespace NG::orgasm
             }
             return -1;
         };
+        auto type_dispatch_name_candidates = [](const Str &typeName) {
+            Vec<Str> candidates{typeName};
+            auto genericStart = typeName.find('<');
+            if (genericStart != Str::npos)
+            {
+                auto bareName = typeName.substr(0, genericStart);
+                if (bareName != typeName)
+                {
+                    candidates.push_back(std::move(bareName));
+                }
+            }
+            return candidates;
+        };
+        auto function_base_name_matches = [](const Str &functionName, const Str &baseName) {
+            if (functionName == baseName)
+            {
+                return true;
+            }
+            if (functionName.find(std::to_string(baseName.size()) + ":" + baseName) != Str::npos)
+            {
+                return true;
+            }
+            auto marker = Str{":"} + baseName;
+            auto pos = functionName.find(marker);
+            while (pos != Str::npos)
+            {
+                auto segmentStart = pos;
+                auto lengthStart = functionName.rfind(':', segmentStart - 1);
+                if (lengthStart != Str::npos)
+                {
+                    auto digitStart = functionName.rfind(':', lengthStart - 1);
+                    digitStart = digitStart == Str::npos ? 0 : digitStart + 1;
+                    try
+                    {
+                        auto length = static_cast<size_t>(std::stoul(functionName.substr(digitStart, lengthStart - digitStart)));
+                        if (length == baseName.size())
+                        {
+                            return true;
+                        }
+                    }
+                    catch (...)
+                    {
+                    }
+                }
+                pos = functionName.find(marker, pos + 1);
+            }
+            return false;
+        };
         std::function<void(const BytecodeModule &, const RuntimeRef<StorageCell> &)> drop_cell_if_needed;
         drop_cell_if_needed = [this, &function_index_by_name, &drop_cell_if_needed](
                                   const BytecodeModule &dropModule, const RuntimeRef<StorageCell> &cell) {
@@ -406,6 +464,90 @@ namespace NG::orgasm
             {
                 drop_cell_if_needed(*frameToDrop.module, *it);
             }
+        };
+        auto sequence_slots = [&](const BytecodeModule &lookupModule, const RuntimeRef<StorageCell> &sequence) {
+            try
+            {
+                return runtime_builtin_sequence_slots(sequence);
+            }
+            catch (const SequenceCompatibilityException &)
+            {
+            }
+
+            auto target = access_target_slot(sequence);
+            auto type = runtime_value_type(runtime_is_trait_object_ref(target) ? runtime_trait_object_target(target) : target);
+            if (!type)
+            {
+                throw SequenceCompatibilityException();
+            }
+
+            auto callSequenceMember = [&](const Str &member, const Vec<RuntimeRef<StorageCell>> &args) {
+                if (member == "get")
+                {
+                    for (const auto &function : lookupModule.functions)
+                    {
+                        if ((!function.name.starts_with("$NG") && function.name.find('.') != Str::npos) ||
+                            !function_base_name_matches(function.name, member))
+                        {
+                            continue;
+                        }
+                        Vec<RuntimeRef<StorageCell>> callArgs;
+                        callArgs.reserve(args.size() + 1);
+                        callArgs.push_back(make_runtime_reference_cell(target, "arg:self"));
+                        for (const auto &arg : args)
+                        {
+                            callArgs.push_back(clone_value_slot(arg, "arg:" + std::to_string(callArgs.size())));
+                        }
+                        return execute_slots(lookupModule, function, callArgs);
+                    }
+                }
+                Vec<Str> memberCandidates{member, "Sequence::" + member};
+                for (const auto &typeName : type_dispatch_name_candidates(type->name))
+                {
+                    for (const auto &candidateMember : memberCandidates)
+                    {
+                        auto functionIndex = function_index_by_name(lookupModule, typeName + "." + candidateMember);
+                        if (functionIndex < 0)
+                        {
+                            continue;
+                        }
+                        const auto &function = lookupModule.functions[static_cast<size_t>(functionIndex)];
+                        Vec<RuntimeRef<StorageCell>> callArgs;
+                        callArgs.reserve(args.size() + 1);
+                        auto selfSlot = function.explicit_receiver
+                                            ? make_runtime_reference_cell(target, "arg:self")
+                                            : clone_value_slot(target, "arg:self");
+                        callArgs.push_back(selfSlot);
+                        for (const auto &arg : args)
+                        {
+                            callArgs.push_back(clone_value_slot(arg, "arg:" + std::to_string(callArgs.size())));
+                        }
+                        return execute_slots(lookupModule, function, callArgs);
+                    }
+                }
+                NGArgs nativeArgs;
+                nativeArgs.reserve(args.size());
+                for (const auto &arg : args)
+                {
+                    nativeArgs.push_back(clone_value_slot(arg, "arg:" + std::to_string(nativeArgs.size())));
+                }
+                return runtime_value_respond_slot(target, member, make_runtime_env(root_symbols), nativeArgs);
+            };
+
+            auto sizeSlot = callSequenceMember("size", {});
+            auto count = read_numeric_cell_as<int64_t>(sizeSlot);
+            if (count < 0)
+            {
+                throw RuntimeException("Sequence size cannot be negative");
+            }
+            Vec<RuntimeRef<StorageCell>> result;
+            result.reserve(static_cast<size_t>(count));
+            for (int64_t i = 0; i < count; ++i)
+            {
+                result.push_back(callSequenceMember("get",
+                                                    {numeral_cell_from_value<int32_t>(static_cast<int32_t>(i))}));
+            }
+            return result;
         };
 
         while (call_stack.size() > baseFrameDepth)
@@ -766,8 +908,52 @@ namespace NG::orgasm
                     uint16_t numArgs = read_u16();
                     auto &imp = current_module->imports[importIdx];
                     
-                    auto moduleInfo = NG::module::get_module_registry().queryModuleById(imp.moduleName);
+                    auto &registry = NG::module::get_module_registry();
+                    auto moduleInfo = registry.queryModuleById(imp.moduleName);
+                    if (!moduleInfo)
+                    {
+                        auto id = NG::module::module_id_from_name(imp.moduleName);
+                        NG::module::FileBasedExternalModuleLoader loader{modulePaths};
+                        moduleInfo = loader.load(id.pathSegments);
+                        if (moduleInfo)
+                        {
+                            registry.addModuleInfo(moduleInfo);
+                        }
+                    }
                     if (!moduleInfo) throw RuntimeException("Module not found: " + imp.moduleName);
+
+                    if (!moduleInfo->bytecodeModule && moduleInfo->moduleAst)
+                    {
+                        static thread_local Set<Str> compilingModules;
+                        struct CompileGuard
+                        {
+                            Set<Str> &ids;
+                            Str moduleId;
+
+                            CompileGuard(Set<Str> &ids, Str moduleId) : ids(ids), moduleId(std::move(moduleId))
+                            {
+                                if (!this->ids.insert(this->moduleId).second)
+                                {
+                                    throw RuntimeException("Cyclic source module compilation detected: " + this->moduleId);
+                                }
+                            }
+
+                            ~CompileGuard()
+                            {
+                                ids.erase(moduleId);
+                            }
+                        };
+                        CompileGuard guard{compilingModules, imp.moduleName};
+                        auto compileUnit = dynamic_ast_cast<NG::ast::CompileUnit>(moduleInfo->moduleAst);
+                        if (!compileUnit)
+                        {
+                            throw RuntimeException("Failed to cast AST to CompileUnit for module " + imp.moduleName);
+                        }
+                        Compiler compiler{modulePaths};
+                        auto bytecode = compiler.compile(compileUnit);
+                        moduleInfo->bytecodeModule = std::make_shared<BytecodeModule>(std::move(bytecode));
+                        registry.addModuleInfo(moduleInfo);
+                    }
                     
                     if (moduleInfo->bytecodeModule) {
                         auto &otherModule = *moduleInfo->bytecodeModule;
@@ -1025,18 +1211,9 @@ namespace NG::orgasm
                     for (int i = 0; i < num; ++i) {
                         if (flags[i] == 1) { // Spread
                             auto segment = segments[i];
-                            if (runtime_is_tuple_value(segment)) {
-                                auto values = runtime_tuple_slots(segment);
-                                for (const auto &slot : values) {
-                                    elems.push_back(clone_value_slot(slot, "spread:" + std::to_string(elems.size())));
-                                }
-                            } else if (runtime_is_array_value(segment)) {
-                                auto values = runtime_array_slots(segment);
-                                for (const auto &slot : values) {
-                                    elems.push_back(clone_value_slot(slot, "spread:" + std::to_string(elems.size())));
-                                }
-                            } else {
-                                throw RuntimeException("Cannot spread non-iterable");
+                            auto values = sequence_slots(activeModule, segment);
+                            for (const auto &slot : values) {
+                                elems.push_back(clone_value_slot(slot, "spread:" + std::to_string(elems.size())));
                             }
                         } else {
                             elems.push_back(clone_value_slot(segments[i], "spread:" + std::to_string(elems.size())));
@@ -1062,6 +1239,94 @@ namespace NG::orgasm
                         }
                     }
                     push_slot_copy(make_runtime_tuple_cell(rest));
+                    break;
+                }
+                case OpCode::FOLD_MAP_CALL:
+                case OpCode::FOLD_FILTER_CALL:
+                {
+                    uint16_t funIndex = read_u16();
+                    auto sequence = access_target_slot(pop_slot());
+                    auto items = sequence_slots(activeModule, sequence);
+                    Vec<RuntimeRef<StorageCell>> elems;
+                    elems.reserve(items.size());
+                    for (const auto &item : items) {
+                        auto mapped = execute_slots(*current_module, current_module->functions[funIndex],
+                                                    {clone_value_slot(item, "fold.item")});
+                        if (op == OpCode::FOLD_FILTER_CALL) {
+                            if (runtime_value_bool(mapped)) {
+                                elems.push_back(clone_value_slot(item, "fold.filter:" + std::to_string(elems.size())));
+                            }
+                        } else {
+                            elems.push_back(clone_value_slot(mapped, "fold.map:" + std::to_string(elems.size())));
+                        }
+                    }
+                    push_slot_copy(make_runtime_array_cell(elems));
+                    break;
+                }
+                case OpCode::FOLD_LEFT_CALL:
+                {
+                    uint16_t funIndex = read_u16();
+                    auto sequence = access_target_slot(pop_slot());
+                    auto accumulator = pop_slot();
+                    auto items = sequence_slots(activeModule, sequence);
+                    for (const auto &item : items) {
+                        accumulator = execute_slots(*current_module, current_module->functions[funIndex],
+                                                    {clone_value_slot(accumulator, "fold.acc"),
+                                                     clone_value_slot(item, "fold.item")});
+                    }
+                    push_slot_copy(accumulator);
+                    break;
+                }
+                case OpCode::FOLD_RIGHT_CALL:
+                {
+                    uint16_t funIndex = read_u16();
+                    auto accumulator = pop_slot();
+                    auto sequence = access_target_slot(pop_slot());
+                    auto items = sequence_slots(activeModule, sequence);
+                    for (auto it = items.rbegin(); it != items.rend(); ++it) {
+                        accumulator = execute_slots(*current_module, current_module->functions[funIndex],
+                                                    {clone_value_slot(*it, "fold.item"),
+                                                     clone_value_slot(accumulator, "fold.acc")});
+                    }
+                    push_slot_copy(accumulator);
+                    break;
+                }
+                case OpCode::MAKE_RANGE:
+                {
+                    uint8_t inclusive = code[ip++];
+                    auto end = pop_slot();
+                    auto start = pop_slot();
+                    push_slot_copy(make_runtime_range_cell(start, end, inclusive != 0));
+                    break;
+                }
+                case OpCode::SLICE_RANGE:
+                {
+                    auto endSlot = pop_slot();
+                    auto startSlot = pop_slot();
+                    auto sequence = access_target_slot(pop_slot());
+                    auto slots = sequence_slots(activeModule, sequence);
+                    auto bound = [&](const RuntimeRef<StorageCell> &slot, size_t defaultValue) -> size_t {
+                        if (runtime_is_from_end_index(slot)) {
+                            auto offset = runtime_from_end_index_value(slot);
+                            if (offset < 0 || static_cast<size_t>(offset) > slots.size()) {
+                                throw RuntimeException("slice range from-end bound out of range");
+                            }
+                            return slots.size() - static_cast<size_t>(offset);
+                        }
+                        auto value = read_numeric_cell_as<int32_t>(slot);
+                        if (value == std::numeric_limits<int32_t>::max()) return defaultValue;
+                        if (value < 0) return 0;
+                        return std::min(static_cast<size_t>(value), slots.size());
+                    };
+                    auto start = bound(startSlot, 0);
+                    auto end = bound(endSlot, slots.size());
+                    if (start > end) start = end;
+                    Vec<RuntimeRef<StorageCell>> result;
+                    for (size_t i = start; i < end; ++i) {
+                        result.push_back(clone_value_slot(slots[i], "span:" + std::to_string(result.size())));
+                    }
+                    if (runtime_is_tuple_value(sequence)) push_slot_copy(make_runtime_tuple_cell(result));
+                    else push_slot_copy(make_runtime_span_cell(result));
                     break;
                 }
                 case OpCode::LSHIFT: { auto b = pop_slot(); auto a = pop_slot(); push_binary_result(a, RuntimeBinaryOperator::LShift, b); break; }

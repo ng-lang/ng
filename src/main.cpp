@@ -147,6 +147,8 @@ auto repl() -> int
 auto main(int argc, char *argv[]) -> int
 {
   bool use_stupid = false;
+  bool run_bytecode = false;
+  Str emit_ngo_path;
   const char *filename_ptr = nullptr;
 
   for (int i = 1; i < argc; ++i)
@@ -154,6 +156,19 @@ auto main(int argc, char *argv[]) -> int
     if (std::strcmp(argv[i], "--stupid") == 0)
     {
       use_stupid = true;
+    }
+    else if (std::strcmp(argv[i], "--run-bytecode") == 0)
+    {
+      run_bytecode = true;
+    }
+    else if (std::strcmp(argv[i], "--emit-ngo") == 0)
+    {
+      if (i + 1 >= argc)
+      {
+        std::cout << "--emit-ngo expects an output path" << std::endl;
+        return -1;
+      }
+      emit_ngo_path = argv[++i];
     }
     else if (filename_ptr == nullptr)
     {
@@ -174,6 +189,42 @@ auto main(int argc, char *argv[]) -> int
 
   std::string filename{filename_ptr};
 
+  Vec<Str> modulePaths;
+  namespace fs = std::filesystem;
+  fs::path inputPath{filename};
+  auto parentDir = inputPath.parent_path();
+  if (!parentDir.empty())
+  {
+    modulePaths.push_back(parentDir.string());
+  }
+  modulePaths.push_back("lib");
+  modulePaths.push_back("../lib");
+
+  if (run_bytecode)
+  {
+    try
+    {
+      NG::library::prelude::do_register();
+      NG::library::imgui::do_register();
+      auto bytecode = NG::orgasm::read_bytecode_module(filename);
+      NG::orgasm::VM vm{modulePaths};
+      NG::library::prelude::register_vm_natives(vm);
+      NG::library::imgui::register_vm_natives(vm);
+      vm.run(bytecode);
+      return 0;
+    }
+    catch (NG::RuntimeException &ex)
+    {
+      std::cout << "Runtime error: " << ex.what() << " at " << ex.pos.line << ":" << ex.pos.col << std::endl;
+      return -1;
+    }
+    catch (const std::exception &ex)
+    {
+      std::cout << "Error: " << ex.what() << std::endl;
+      return -1;
+    }
+  }
+
   std::ifstream file{filename};
   std::string source{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
 
@@ -181,19 +232,11 @@ auto main(int argc, char *argv[]) -> int
   {
     auto ast = parse(source, filename);
 
+    NG::library::prelude::do_register();
+    NG::library::imgui::do_register();
+
     using namespace NG::typecheck;
     TypeIndex prelude_types = build_prelude_type_index();
-
-    Vec<Str> modulePaths;
-    namespace fs = std::filesystem;
-    fs::path inputPath{filename};
-    auto parentDir = inputPath.parent_path();
-    if (!parentDir.empty())
-    {
-      modulePaths.push_back(parentDir.string());
-    }
-    modulePaths.push_back("lib");
-    modulePaths.push_back("../lib");
 
     NG::typecheck::type_check(ast, prelude_types, modulePaths);
 
@@ -210,7 +253,13 @@ auto main(int argc, char *argv[]) -> int
 
       NG::orgasm::Compiler compiler{modulePaths, nativeNames};
       auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
-      NG::orgasm::VM vm;
+      if (!emit_ngo_path.empty())
+      {
+        NG::orgasm::write_bytecode_module(bytecode, emit_ngo_path, NG::orgasm::bytecode_source_hash(source));
+        destroyast(ast);
+        return 0;
+      }
+      NG::orgasm::VM vm{modulePaths};
 
       // Register native functions from the prelude
       NG::library::prelude::register_vm_natives(vm);

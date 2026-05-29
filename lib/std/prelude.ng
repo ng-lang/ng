@@ -1,5 +1,11 @@
-module prelude exports *;
+module std.prelude exports *;
 
+export import std.tuple (*);
+export import std.io (*);
+export import std.string (*);
+export import std.array (*);
+export import std.seq (*);
+export import std.memory (*);
 
 fun not(value: bool) -> bool {
     return value == false;
@@ -14,48 +20,4 @@ const<T> is_ref<ref<T>>: bool = true;
 const is_trait<T>: bool = native;
 const is_abstract<T>: bool = native;
 
-fun len<T>(xs: string | T array) -> u32 = native;
-
-// C1: Basic I/O
-fun readLine() -> string = native;
-
-fun readFile(path: string) -> string = native;
-
-fun writeFile(path: string, content: string) -> unit = native;
-
-// C2: String operations
-fun split(s: string, delimiter: string) -> string array = native;
-
-fun join(items: string array, separator: string) -> string = native;
-
-fun trim(s: string) -> string = native;
-
-fun contains(haystack: string, needle: string) -> bool = native;
-
-fun replace(s: string, old: string, replacement: string) -> string = native;
-
-fun startsWith(s: string, prefix: string) -> bool = native;
-
-fun endsWith(s: string, suffix: string) -> bool = native;
-
-fun toUpper(s: string) -> string = native;
-
-fun toLower(s: string) -> string = native;
-
-// C3: Collection operations
-fun reverse<T>(xs: T array) -> T array = native;
-
-fun range(start: i32, end: i32) -> i32 array = native;
-
-fun slice<T>(xs: T array, start: i32, end: i32) -> T array = native;
-
-// C4: Native allocation profiler helpers for RAII validation
-type UniquePtr<T> = native;
-
-fun nativeMalloc<T>(size: i32) -> UniquePtr<T> = native;
-
-fun nativeFree<T>(ptr: UniquePtr<T>) -> unit = native;
-
-fun nativeOutstandingAllocations() -> i32 = native;
-
-fun gcFree() -> unit = native;
+fun len<T>(xs: string | vector<T>) -> u32 = native;

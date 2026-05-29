@@ -60,7 +60,10 @@ namespace NG::ast
         TUPLE_UNPACKING_EXPRESSION = 0x211,
         TYPEOF_EXPRESSION = 0x212,
         SPREAD_EXPRESSION = 0x213,
+        RANGE_EXPRESSION = 0x215,
+        FROM_END_INDEX_EXPRESSION = 0x216,
         QUALIFIED_TRAIT_CALL_EXPRESSION = 0x217,
+        POSTFIX_FOLD_EXPRESSION = 0x218,
 
         LITERAL = 0x300,
         INTEGER_VALUE = 0x301,
@@ -144,6 +147,7 @@ namespace NG::ast
         Vec<Str> modulePath; ///< The path to the module.
         Str alias;           ///< The alias for the module.
         Vec<Str> imports;    ///< The symbols to import.
+        bool exported = false; ///< True when this import is re-exported by the current module.
 
         auto astNodeType() const -> ASTNodeType override { return ASTNodeType::IMPORT_DECLARATION; }
 
@@ -265,6 +269,8 @@ namespace NG::ast
         TypeAnnotationType type{}; ///< The type of the annotation.
         Vec<ASTRef<ASTNode>> arguments;             ///< Array/tuple type arguments.
         Vec<std::shared_ptr<TypeAnnotation>> genericArgs;    ///< Generic type arguments (e.g. <int, string>).
+        bool constLiteral = false;                  ///< Whether this generic argument is a scalar const literal.
+        Str constLiteralType;                       ///< Optional scalar type for const generic literals.
         // Note: uses shared_ptr directly instead of ASTRef to avoid circular concept dependency
 
         explicit TypeAnnotation(Str _name) : name(std::move(_name)) {}
@@ -287,6 +293,8 @@ namespace NG::ast
         size_t kindArity = 0;                  ///< 0 for *, N for a type constructor with N type slots.
         bool kindVariadicTail = false;         ///< Whether the type constructor kind has a variadic tail.
         ASTRef<TypeAnnotation> bound = nullptr; ///< Optional type bound (T: Comparable).
+        bool isConst = false;                  ///< Whether this is a const generic parameter.
+        ASTRef<TypeAnnotation> constType = nullptr; ///< Scalar type for const generic parameters.
 
         explicit GenericParam(Str _name) : name(std::move(_name)) {}
 
@@ -330,6 +338,7 @@ namespace NG::ast
         ASTRef<TypeAnnotation> returnType = nullptr;
         ASTRef<Expression> value = nullptr;
         bool native = false;
+        bool deleted = false;
 
         explicit ConstDef(Str name) : constName(std::move(name)) {}
 
@@ -386,6 +395,8 @@ namespace NG::ast
         Vec<ASTRef<TraitBound>> whereBounds;         ///< Narrow Phase-1 trait bounds from `where`.
         ASTRef<Statement> body = nullptr;            ///< The body of the function.
         bool native = false;                         ///< Whether the function is a native function.
+        bool deleted = false;                        ///< Whether this declaration is a forbidden overload.
+        bool constEval = false;                      ///< Whether this function is executable at compile time.
 
         [[nodiscard]] auto names() const -> Vec<Str> override;
 
@@ -537,6 +548,7 @@ namespace NG::ast
     struct Module : ASTNode
     {
         Str name; ///< The name of the module.
+        bool nameDeclared = false; ///< True when source contains an explicit module declaration.
 
         Vec<ASTRef<Definition>> definitions; ///< The definitions in the module.
 
@@ -674,6 +686,43 @@ namespace NG::ast
         auto repr() const -> Str override;
 
         ~IndexAccessorExpression() override;
+    };
+
+    struct RangeExpression : Expression
+    {
+        ASTRef<Expression> start = nullptr;
+        ASTRef<Expression> end = nullptr;
+        bool inclusive = false;
+
+        RangeExpression(ASTRef<Expression> start, ASTRef<Expression> end, bool inclusive)
+            : start(std::move(start)), end(std::move(end)), inclusive(inclusive)
+        {
+        }
+
+        void accept(AstVisitor *visitor) override;
+
+        auto astNodeType() const -> ASTNodeType override { return ASTNodeType::RANGE_EXPRESSION; }
+
+        [[nodiscard]]
+        auto repr() const -> Str override;
+
+        ~RangeExpression() override;
+    };
+
+    struct FromEndIndexExpression : Expression
+    {
+        ASTRef<Expression> index = nullptr;
+
+        explicit FromEndIndexExpression(ASTRef<Expression> index) : index(std::move(index)) {}
+
+        void accept(AstVisitor *visitor) override;
+
+        auto astNodeType() const -> ASTNodeType override { return ASTNodeType::FROM_END_INDEX_EXPRESSION; }
+
+        [[nodiscard]]
+        auto repr() const -> Str override;
+
+        ~FromEndIndexExpression() override;
     };
 
     /**
@@ -1048,6 +1097,27 @@ namespace NG::ast
     };
 
     /**
+     * @brief A postfix fold expression marker (`expr...` or `expr?...`).
+     */
+    struct PostfixFoldExpression : Expression
+    {
+        ASTRef<Expression> expression; ///< The expression to fold over.
+        bool filter = false;           ///< Whether this is the fixed filter marker `?...`.
+
+        explicit PostfixFoldExpression(ASTRef<Expression> expr, bool filter = false)
+            : expression(std::move(expr)), filter(filter) {}
+
+        void accept(AstVisitor *visitor) override;
+
+        auto astNodeType() const -> ASTNodeType override { return ASTNodeType::POSTFIX_FOLD_EXPRESSION; }
+
+        [[nodiscard]]
+        auto repr() const -> Str override;
+
+        ~PostfixFoldExpression() override;
+    };
+
+    /**
      * @brief A property definition.
      */
     struct PropertyDef : Definition
@@ -1075,6 +1145,7 @@ namespace NG::ast
     {
         Str typeName;                             ///< The name of the type.
         Vec<ASTRef<GenericParam>> genericParams;  ///< The generic type parameters (e.g. <T>).
+        Vec<ASTRef<TypeAnnotation>> derivedTraits;///< Traits requested through derive(...).
         Vec<ASTRef<FunctionDef>> memberFunctions; ///< The member functions of the type.
         Vec<ASTRef<PropertyDef>> properties;      ///< The properties of the type.
 
@@ -1096,6 +1167,7 @@ namespace NG::ast
         Vec<ASTRef<GenericParam>> genericParams;
         Vec<ASTRef<TypeAnnotation>> superTraits;
         Vec<ASTRef<FunctionDef>> methods;
+        bool autoTrait = false;
 
         auto astNodeType() const -> ASTNodeType override { return ASTNodeType::TRAIT_DEFINITION; }
 
@@ -1257,7 +1329,15 @@ namespace NG::ast
         Vec<ASTRef<GenericParam>> genericParams;///< The generic type parameters (e.g. <T>).
         Vec<VariantDef> variants;              ///< The variants.
 
-        auto names() const -> Vec<Str> override { return Vec<Str>{typeName}; }
+        auto names() const -> Vec<Str> override
+        {
+            Vec<Str> result{typeName};
+            for (const auto &variant : variants)
+            {
+                result.push_back(variant.variantName);
+            }
+            return result;
+        }
         auto astNodeType() const -> ASTNodeType override { return ASTNodeType::TAGGED_UNION_DEFINITION; }
 
         void accept(AstVisitor *visitor) override;

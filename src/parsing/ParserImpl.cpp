@@ -135,6 +135,20 @@ namespace NG::parsing
             current_mod->statements.push_back(statement());
             break;
           }
+          if (peekTokenType(1) == TokenType::KEYWORD_FUN)
+          {
+            accept(TokenType::KEYWORD_CONST);
+            auto fn = funDef(false, true);
+            if (exported)
+            {
+              for (auto &&name : fn->names())
+              {
+                mod->exports.push_back(name);
+              }
+            }
+            current_mod->definitions.push_back(std::move(fn));
+            break;
+          }
           auto constant = constDef();
           if (exported)
           {
@@ -162,6 +176,23 @@ namespace NG::parsing
         case TokenType::KEYWORD_TRAIT:
         {
           auto trait = traitDef();
+          if (exported)
+          {
+            for (auto &&name : trait->names())
+            {
+              mod->exports.push_back(name);
+            }
+          }
+          current_mod->definitions.push_back(std::move(trait));
+          break;
+        }
+        case TokenType::KEYWORD_AUTO:
+        {
+          if (peekTokenType(1) != TokenType::KEYWORD_TRAIT)
+          {
+            unexpected("Expected trait after auto");
+          }
+          auto trait = autoTraitDef();
           if (exported)
           {
             for (auto &&name : trait->names())
@@ -203,7 +234,19 @@ namespace NG::parsing
         // todo: export an import.
         case TokenType::KEYWORD_IMPORT:
         {
-          current_mod->imports.push_back(importDecl());
+          auto import = importDecl();
+          if (exported)
+          {
+            import->exported = true;
+            for (const auto &name : import->imports)
+            {
+              if (name != "*")
+              {
+                mod->exports.push_back(name);
+              }
+            }
+          }
+          current_mod->imports.push_back(std::move(import));
           break;
         }
           // case TokenType::KEYWORD_IF:
@@ -243,7 +286,11 @@ namespace NG::parsing
       return type == TokenType::LEFT_PAREN || type == TokenType::RIGHT_PAREN || type == TokenType::LEFT_CURLY ||
              type == TokenType::RIGHT_CURLY || type == TokenType::RIGHT_SQUARE || type == TokenType::SEMICOLON ||
              type == TokenType::COMMA || type == TokenType::COLON || type == TokenType::BIND ||
-             type == TokenType::AND || type == TokenType::OR;
+             type == TokenType::AND || type == TokenType::OR || type == TokenType::EQUAL ||
+             type == TokenType::NOT_EQUAL || type == TokenType::LT || type == TokenType::LE ||
+             type == TokenType::GT || type == TokenType::GE || type == TokenType::PLUS ||
+             type == TokenType::MINUS || type == TokenType::TIMES || type == TokenType::DIVIDE ||
+             type == TokenType::MODULUS;
     }
 
     auto genericExpressionArgsAhead() -> bool
@@ -385,12 +432,34 @@ namespace NG::parsing
       accept(TokenType::LT);
       while (!expect(TokenType::GT) && !state.eof())
       {
+        const bool isConstParam = expect(TokenType::KEYWORD_CONST);
+        if (isConstParam)
+        {
+          accept(TokenType::KEYWORD_CONST);
+        }
         if (!expect(TokenType::ID))
         {
           unexpected("Expected generic type parameter name");
         }
         auto param = createNode<GenericParam>(state->repr);
         accept(TokenType::ID);
+
+        if (isConstParam)
+        {
+          param->isConst = true;
+          if (!expect(TokenType::COLON))
+          {
+            unexpected("Expected ':' after const generic parameter name");
+          }
+          accept(TokenType::COLON);
+          param->constType = typeAnnotation();
+          params.push_back(std::move(param));
+          if (expect(TokenType::COMMA))
+          {
+            accept(TokenType::COMMA);
+          }
+          continue;
+        }
 
         // Higher-kinded type constructor parameter: F<_>, F<_, _>, ...
         if (expect(TokenType::LT))
@@ -468,9 +537,56 @@ namespace NG::parsing
       accept(TokenType::LT);
       while (!expect(TokenType::GT) && !state.eof() && !expect(TokenType::RSHIFT))
       {
-        auto arg = typeAnnotation();
+        std::shared_ptr<TypeAnnotation> arg;
+        if (expect(TokenType::NUMBER) || expect(TokenType::STRING) || expect(TokenType::KEYWORD_TRUE) ||
+            expect(TokenType::KEYWORD_FALSE))
+        {
+          auto literal = createNode<TypeAnnotation>(state->repr);
+          literal->type = TypeAnnotationType::CUSTOMIZED;
+          literal->constLiteral = true;
+          if (expect(TokenType::STRING))
+          {
+            literal->constLiteralType = "string";
+          }
+          else if (expect(TokenType::KEYWORD_TRUE) || expect(TokenType::KEYWORD_FALSE))
+          {
+            literal->constLiteralType = "bool";
+          }
+          else
+          {
+            static const Vec<Str> numericSuffixes{
+                "i8", "i16", "i32", "i64", "i128", "u8", "u16", "u32", "u64", "u128",
+                "f16", "f32", "f64", "f128"};
+            literal->constLiteralType = "i64";
+            for (const auto &suffix : numericSuffixes)
+            {
+              if (state->repr.ends_with(suffix))
+              {
+                literal->constLiteralType = suffix;
+                break;
+              }
+            }
+          }
+          accept(state->type);
+          arg = std::shared_ptr<TypeAnnotation>(std::move(literal));
+        }
+        else
+        {
+          arg = std::shared_ptr<TypeAnnotation>(std::move(typeAnnotation()));
+          if (expect(TokenType::SPREAD))
+          {
+            accept(TokenType::SPREAD);
+            if (!arg->genericArgs.empty())
+            {
+              unexpected("Type argument spread only supports a pack name");
+            }
+            auto spreadArg = createNode<TypeAnnotation>(arg->name + "...");
+            spreadArg->type = TypeAnnotationType::CUSTOMIZED;
+            arg = std::move(spreadArg);
+          }
+        }
         // Convert ASTRef to shared_ptr for genericArgs field
-        args.push_back(std::shared_ptr<TypeAnnotation>(std::move(arg)));
+        args.push_back(std::move(arg));
 
         if (expect(TokenType::COMMA))
         {
@@ -524,8 +640,10 @@ namespace NG::parsing
       return bounds;
     }
 
-    auto funDef(bool allowSignatureOnly = false) -> ASTRef<FunctionDef>
+    auto funDef(bool allowSignatureOnly = false, bool constEval = false) -> ASTRef<FunctionDef>
     {
+      auto def = createNode<FunctionDef>();
+      def->constEval = constEval;
       accept(TokenType::KEYWORD_FUN);
 
       // Parse generic parameters: fun<T, U> name(...) or fun<T...> name(...)
@@ -537,7 +655,6 @@ namespace NG::parsing
 
       if (expect(TokenType::ID))
       {
-        auto def = createNode<FunctionDef>();
         def->funName = state->repr;
         accept(TokenType::ID);
 
@@ -582,6 +699,13 @@ namespace NG::parsing
             accept(TokenType::SEMICOLON);
             return def;
           }
+          if (expect(TokenType::KEYWORD_DELETE))
+          {
+            accept(TokenType::KEYWORD_DELETE);
+            def->deleted = true;
+            accept(TokenType::SEMICOLON);
+            return def;
+          }
           else
           {
             auto expressionBody = expression();
@@ -602,8 +726,10 @@ namespace NG::parsing
     {
       accept(TokenType::KEYWORD_CONST);
       Vec<ASTRef<GenericParam>> constGenericParams;
+      bool constGenericParamsDeclared = false;
       if (expect(TokenType::LT))
       {
+        constGenericParamsDeclared = true;
         constGenericParams = std::move(genericParams());
       }
       if (!expect(TokenType::ID))
@@ -615,7 +741,7 @@ namespace NG::parsing
       ASTRef<TypeAnnotation> specializationPattern = nullptr;
       if (expect(TokenType::LT))
       {
-        if (constGenericParams.empty())
+        if (!constGenericParamsDeclared)
         {
           constGenericParams = std::move(genericParams());
         }
@@ -640,6 +766,11 @@ namespace NG::parsing
       {
         accept(TokenType::KEYWORD_NATIVE);
         def->native = true;
+      }
+      else if (expect(TokenType::KEYWORD_DELETE))
+      {
+        accept(TokenType::KEYWORD_DELETE);
+        def->deleted = true;
       }
       else
       {
@@ -666,7 +797,7 @@ namespace NG::parsing
 
       Vec<Str> modulePath{};
 
-      while (expect(TokenType::ID) || expect(TokenType::STRING))
+      while (expect(TokenType::ID) || expect(TokenType::STRING) || expect(TokenType::KEYWORD_STRING))
       {
         Str moduleSegment = state->repr;
         accept(state->type);
@@ -695,8 +826,22 @@ namespace NG::parsing
       // alias import
       if (expect(TokenType::ID))
       {
-        Str alias = state->repr;
-        accept(TokenType::ID);
+        Str alias;
+        if (state->repr == "as")
+        {
+          accept(TokenType::ID);
+          if (!expect(TokenType::ID))
+          {
+            unexpected("Expected import alias after `as`.");
+          }
+          alias = state->repr;
+          accept(TokenType::ID);
+        }
+        else
+        {
+          alias = state->repr;
+          accept(TokenType::ID);
+        }
         imp->alias = alias;
       }
 
@@ -865,13 +1010,38 @@ namespace NG::parsing
       whereBoundsOut = whereBounds();
     }
 
+    auto deriveTraitList() -> Vec<ASTRef<TypeAnnotation>>
+    {
+      Vec<ASTRef<TypeAnnotation>> traits;
+      accept(TokenType::COLON);
+      if (!expect(TokenType::ID) || state->repr != "derive")
+      {
+        unexpected("Expected derive(...) after ':' in type declaration");
+      }
+      accept(TokenType::ID);
+      accept(TokenType::LEFT_PAREN);
+      while (!expect(TokenType::RIGHT_PAREN) && !state.eof())
+      {
+        traits.push_back(typeAnnotation());
+        if (!expect(TokenType::PLUS))
+        {
+          break;
+        }
+        accept(TokenType::PLUS);
+      }
+      accept(TokenType::RIGHT_PAREN);
+      return traits;
+    }
+
     auto typeDef() -> ASTRef<Definition>
     {
       accept(TokenType::KEYWORD_TYPE);
 
       Vec<ASTRef<GenericParam>> typeGenericParams;
+      bool typeGenericParamsDeclared = false;
       if (expect(TokenType::LT))
       {
+        typeGenericParamsDeclared = true;
         typeGenericParams = std::move(genericParams());
       }
 
@@ -892,7 +1062,7 @@ namespace NG::parsing
       // For `type<T> Name<Pattern> = ...`, the annotation is a specialization pattern.
       if (expect(TokenType::LT))
       {
-        if (typeGenericParams.empty())
+        if (!typeGenericParamsDeclared)
         {
           typeGenericParams = std::move(genericParams());
         }
@@ -905,7 +1075,18 @@ namespace NG::parsing
       }
 
       Vec<ASTRef<TraitBound>> aliasWhereBounds;
-      parseTypeAliasConstraintSection(aliasWhereBounds);
+      Vec<ASTRef<TypeAnnotation>> derivedTraits;
+      if (expect(TokenType::COLON))
+      {
+        if (peekTokenType(1) == TokenType::ID && state.tokens[state.index + 1].repr == "derive")
+        {
+          derivedTraits = deriveTraitList();
+        }
+        else
+        {
+          parseTypeAliasConstraintSection(aliasWhereBounds);
+        }
+      }
 
       // Check for type alias or tagged union syntax: type A = B; or type A = V1(T) | V2(T);
       if (expect(TokenType::BIND))
@@ -977,6 +1158,10 @@ namespace NG::parsing
 
         // Otherwise it's a type alias
         auto aliasDef = createNode<TypeAliasDef>(nameStr);
+        if (!derivedTraits.empty())
+        {
+          unexpected("derive(...) is only supported on structural type definitions");
+        }
         aliasDef->genericParams = std::move(typeGenericParams);
         aliasDef->specializationPattern = std::move(specializationPattern);
         aliasDef->whereBounds = std::move(aliasWhereBounds);
@@ -1001,6 +1186,10 @@ namespace NG::parsing
       if (expect(TokenType::SEMICOLON))
       {
         auto aliasDef = createNode<TypeAliasDef>(nameStr);
+        if (!derivedTraits.empty())
+        {
+          unexpected("derive(...) is only supported on structural type definitions");
+        }
         aliasDef->genericParams = std::move(typeGenericParams);
         aliasDef->specializationPattern = std::move(specializationPattern);
         aliasDef->whereBounds = std::move(aliasWhereBounds);
@@ -1012,6 +1201,10 @@ namespace NG::parsing
       // Check for newtype syntax: type A wraps B;
       if (expect(TokenType::KEYWORD_WRAPS))
       {
+        if (!derivedTraits.empty())
+        {
+          unexpected("derive(...) is only supported on structural type definitions");
+        }
         accept(TokenType::KEYWORD_WRAPS);
         auto ntDef = createNode<NewTypeDef>(nameStr);
         ntDef->genericParams = std::move(typeGenericParams);
@@ -1024,6 +1217,7 @@ namespace NG::parsing
       auto typeDef = createNode<TypeDef>();
       typeDef->typeName = nameStr;
       typeDef->genericParams = std::move(typeGenericParams);
+      typeDef->derivedTraits = std::move(derivedTraits);
 
       accept(TokenType::LEFT_CURLY);
 
@@ -1059,17 +1253,80 @@ namespace NG::parsing
       return typeDef;
     }
 
+    auto autoTraitDef() -> ASTRef<TraitDef>
+    {
+      accept(TokenType::KEYWORD_AUTO);
+      auto trait = createNode<TraitDef>();
+      trait->autoTrait = true;
+      accept(TokenType::KEYWORD_TRAIT);
+      trait->traitName = idExpression()->repr();
+      if (expect(TokenType::LT))
+      {
+        trait->genericParams = genericParams();
+      }
+      if (expect(TokenType::COLON))
+      {
+        accept(TokenType::COLON);
+        while (!state.eof())
+        {
+          trait->superTraits.push_back(typeAnnotation());
+          if (!expect(TokenType::PLUS))
+          {
+            break;
+          }
+          accept(TokenType::PLUS);
+        }
+      }
+      if (expect(TokenType::SEMICOLON))
+      {
+        accept(TokenType::SEMICOLON);
+        return trait;
+      }
+      accept(TokenType::LEFT_CURLY);
+      while (!expect(TokenType::RIGHT_CURLY))
+      {
+        if (!expect(TokenType::KEYWORD_FUN))
+        {
+          unexpected("Expected auto trait method declaration");
+        }
+        auto method = funDef(true);
+        trait->methods.push_back(std::move(method));
+      }
+      accept(TokenType::RIGHT_CURLY);
+      return trait;
+    }
+
     auto moduleDecl(ASTRef<Module> mod) -> ASTRef<Module>
     {
       accept(TokenType::KEYWORD_MODULE);
-      if (expect(TokenType::ID))
+      if (expect(TokenType::ID) || expect(TokenType::KEYWORD_STRING))
       {
-        auto moduleName = state->repr;
-        accept(TokenType::ID);
+        Vec<Str> moduleSegments;
+        while (expect(TokenType::ID) || expect(TokenType::KEYWORD_STRING))
+        {
+          moduleSegments.push_back(state->repr);
+          accept(state->type);
+          if (!expect(TokenType::DOT))
+          {
+            break;
+          }
+          accept(TokenType::DOT);
+        }
+        Str moduleName;
+        for (const auto &segment : moduleSegments)
+        {
+          if (!moduleName.empty())
+          {
+            moduleName += ".";
+          }
+          moduleName += segment;
+        }
+        auto moduleTail = moduleSegments.empty() ? Str{} : moduleSegments.back();
         if (mod->name == moduleName)
         {
         }
-        else if (mod->name == "[noname]" || mod->name == "[interpreter]")
+        else if (mod->name == moduleTail || mod->name == "module" || mod->name == "[noname]" ||
+                 mod->name == "[interpreter]")
         {
           mod->name = moduleName;
         }
@@ -1077,6 +1334,7 @@ namespace NG::parsing
         {
           unexpected("Invalid module name for module: " + moduleName + ", expected: " + mod->name);
         }
+        mod->nameDeclared = true;
       }
       if (expect(TokenType::KEYWORD_EXPORTS))
       {
@@ -1223,9 +1481,9 @@ namespace NG::parsing
     {
       ASTRef<TypeAnnotation> result = typeAnnotationBase();
       // Apply suffix generic syntax for all type bases:
-      // `i32 array` => array<i32>, `bool Optional` => Optional<bool>
+      // `i32 vector` => vector<i32>, `bool Optional` => Optional<bool>
       // `(string, i32) Map` => Map<string, i32>
-      // Left-associative: `i32 array Optional` => Optional<array<i32>>
+      // Left-associative: `i32 Optional List` => List<Optional<i32>>
       result = parseSuffixGeneric(std::move(result));
 
       // Parse union type annotations: `i32 | string | bool`
@@ -1274,9 +1532,9 @@ namespace NG::parsing
       }
       if (maybeBuiltin == TokenType::LEFT_SQUARE)
       {
-        auto array = createNode<TypeAnnotation>("array");
+        auto array = createNode<TypeAnnotation>("vector");
         accept(TokenType::LEFT_SQUARE);
-        array->type = TypeAnnotationType::ARRAY;
+        array->type = TypeAnnotationType::VECTOR;
         auto argumentRst = typeAnnotation();
         array->arguments.push_back(argumentRst);
         accept(TokenType::RIGHT_SQUARE);
@@ -1292,6 +1550,17 @@ namespace NG::parsing
         while (!expect(TokenType::RIGHT_PAREN))
         {
           auto elementType = typeAnnotation();
+          if (expect(TokenType::SPREAD))
+          {
+            accept(TokenType::SPREAD);
+            if (!elementType->genericArgs.empty())
+            {
+              unexpected("Tuple type spread only supports a pack name");
+            }
+            auto spreadElement = createNode<TypeAnnotation>(elementType->name + "...");
+            spreadElement->type = TypeAnnotationType::CUSTOMIZED;
+            elementType = std::move(spreadElement);
+          }
           tuple->arguments.push_back(elementType);
 
           if (!expect(TokenType::COMMA))
@@ -1343,7 +1612,8 @@ namespace NG::parsing
             if (next == TokenType::ID ||
                 (code(TokenType::KEYWORD_INT) <= code(next) && code(TokenType::KEYWORD_F128) >= code(next)) ||
                 next == TokenType::KEYWORD_UNIT || next == TokenType::KEYWORD_REF || next == TokenType::LEFT_SQUARE ||
-                next == TokenType::LEFT_PAREN)
+                next == TokenType::LEFT_PAREN || next == TokenType::NUMBER || next == TokenType::STRING ||
+                next == TokenType::KEYWORD_TRUE || next == TokenType::KEYWORD_FALSE)
             {
               isGenericArgs = true;
             }
@@ -1391,7 +1661,7 @@ namespace NG::parsing
         }
         else
         {
-          // Single-param suffix: `i32 array` => array<i32>
+          // Single-param suffix: `i32 vector` => vector<i32>
           wrapper->genericArgs.push_back(std::shared_ptr<TypeAnnotation>(std::move(base)));
         }
         base = std::move(wrapper);
@@ -1692,13 +1962,48 @@ namespace NG::parsing
       return createNode<TypeCheckingExpression>(expr, type);
     }
 
+    auto rangeExpression(ASTRef<Expression> start) -> ASTRef<RangeExpression>
+    {
+      const bool inclusive = expect(TokenType::RANGE_INCLUSIVE);
+      accept(inclusive ? TokenType::RANGE_INCLUSIVE : TokenType::RANGE);
+      ASTRef<Expression> end = nullptr;
+      if (!expectExpressionTerminator(false))
+      {
+        end = expression();
+      }
+      return createNode<RangeExpression>(std::move(start), std::move(end), inclusive);
+    }
+
+    auto pipelineExpression(ASTRef<Expression> input) -> ASTRef<Expression>
+    {
+      accept(TokenType::PIPE_FORWARD);
+      auto target = postfixExpression(primaryExpression());
+      if (auto call = dynamic_ast_cast<FunCallExpression>(target))
+      {
+        call->arguments.insert(call->arguments.begin(), std::move(input));
+        return call;
+      }
+      auto call = createNode<FunCallExpression>();
+      call->primaryExpression = std::move(target);
+      call->arguments.push_back(std::move(input));
+      return call;
+    }
+
     auto expression(bool stopAtBind = false) -> ASTRef<Expression>
     {
       auto expr = std::move(primaryExpression());
 
       while (!expectExpressionTerminator(stopAtBind))
       {
-        if (expect(TokenType::LEFT_PAREN))
+        if (expect(TokenType::PIPE_FORWARD))
+        {
+          expr = std::move(pipelineExpression(std::move(expr)));
+        }
+        else if (expect(TokenType::RANGE) || expect(TokenType::RANGE_INCLUSIVE))
+        {
+          expr = std::move(rangeExpression(std::move(expr)));
+        }
+        else if (expect(TokenType::LEFT_PAREN))
         {
           expr = std::move(funCallExpression(std::move(expr)));
         }
@@ -1725,6 +2030,21 @@ namespace NG::parsing
         else if (expect(TokenType::KEYWORD_IS))
         {
           expr = std::move(typeCheckExpr(std::move(expr)));
+        }
+        else if (expect(TokenType::QUERY))
+        {
+          accept(TokenType::QUERY);
+          if (!expect(TokenType::SPREAD))
+          {
+            unexpected("Filter fold marker expects `?...`");
+          }
+          accept(TokenType::SPREAD);
+          expr = createNode<PostfixFoldExpression>(std::move(expr), true);
+        }
+        else if (expect(TokenType::SPREAD))
+        {
+          accept(TokenType::SPREAD);
+          expr = createNode<PostfixFoldExpression>(std::move(expr), false);
         }
         else if (expect(TokenType::ASSIGN_EQUAL))
         {
@@ -1929,7 +2249,15 @@ namespace NG::parsing
     {
       accept(TokenType::LEFT_SQUARE);
 
-      auto accessor = expression();
+      ASTRef<Expression> accessor = nullptr;
+      if (expect(TokenType::RANGE) || expect(TokenType::RANGE_INCLUSIVE))
+      {
+        accessor = rangeExpression(nullptr);
+      }
+      else
+      {
+        accessor = expression();
+      }
       accept(TokenType::RIGHT_SQUARE);
 
       if (expect(TokenType::ASSIGN_EQUAL))
@@ -2058,6 +2386,11 @@ namespace NG::parsing
         accept(TokenType::SPREAD);
         auto expr = expression();
         return createNode<SpreadExpression>(std::move(expr));
+      }
+      if (expect(TokenType::CARET))
+      {
+        accept(TokenType::CARET);
+        return createNode<FromEndIndexExpression>(postfixExpression(primaryExpression()));
       }
       if (expect(TokenType::KEYWORD_REF) || expect(TokenType::KEYWORD_MOVE))
       {

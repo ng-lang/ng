@@ -1,14 +1,90 @@
 
 #include "test.hpp"
+#include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <intp/intp.hpp>
+#include <module.hpp>
 #include <typecheck/typecheck.hpp>
 #include <vector>
 
 using namespace NG::intp;
 
 namespace fs = std::filesystem;
+
+namespace
+{
+struct ScopedEnvVar
+{
+  Str name;
+  Str previous;
+  bool hadPrevious = false;
+
+  ScopedEnvVar(Str name, const Str &value) : name(std::move(name))
+  {
+    if (const char *existing = std::getenv(this->name.c_str()))
+    {
+      previous = existing;
+      hadPrevious = true;
+    }
+#ifdef _WIN32
+    _putenv_s(this->name.c_str(), value.c_str());
+#else
+    setenv(this->name.c_str(), value.c_str(), 1);
+#endif
+  }
+
+  ~ScopedEnvVar()
+  {
+#ifdef _WIN32
+    _putenv_s(name.c_str(), hadPrevious ? previous.c_str() : "");
+#else
+    if (hadPrevious)
+    {
+      setenv(name.c_str(), previous.c_str(), 1);
+    }
+    else
+    {
+      unsetenv(name.c_str());
+    }
+#endif
+  }
+};
+
+struct SourceModuleFixture
+{
+  fs::path root;
+  ScopedEnvVar modulePath;
+
+  SourceModuleFixture()
+      : root(fs::temp_directory_path() /
+             ("ng_stupid_module_artifact_" +
+              std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()))),
+        modulePath("NG_MODULE_PATH", root.string())
+  {
+    NG::module::clear_module_loader_cache();
+    NG::module::get_module_registry().clear();
+    fs::create_directories(root);
+  }
+
+  ~SourceModuleFixture()
+  {
+    NG::module::clear_module_loader_cache();
+    NG::module::get_module_registry().clear();
+    fs::remove_all(root);
+  }
+
+  void write(const fs::path &relative, const Str &source) const
+  {
+    auto target = root / relative;
+    fs::create_directories(target.parent_path());
+    std::ofstream out{target};
+    REQUIRE(out.good());
+    out << source;
+  }
+};
+} // namespace
 
 static inline void runIntegrationTest(const std::string &filename)
 {
@@ -108,6 +184,11 @@ TEST_CASE("should run numbered examples", "[Integration]")
       "example/39.drop_raii.ng",
       "example/40.trait_object_list.ng",
       "example/41.drop_smart_pointer.ng",
+      "example/52.const_array_vector_span.ng",
+      "example/56.stdlib_modules.ng",
+      "example/57.ranges_slicing_pipeline.ng",
+      "example/58.fold_expressions.ng",
+      "example/59.std_list_sequence.ng",
       "example/50.partial_move.ng",
       "example/51.partial_move_drop.ng",
   };
@@ -126,6 +207,136 @@ TEST_CASE("should parse and run shebang example source", "[Integration][Shebang]
 TEST_CASE("should run const type predicate example with STUPID", "[Integration][ConstPredicate]")
 {
   runTypecheckedIntegrationTest("example/42.const_type_predicate.ng");
+}
+
+TEST_CASE("should run auto derive trait example with STUPID", "[Integration][AutoDerive]")
+{
+  runTypecheckedIntegrationTest("example/55.auto_derive_traits.ng");
+}
+
+TEST_CASE("STUPID should import source module through canonical module id",
+          "[Integration][ModuleArtifact]")
+{
+  SourceModuleFixture fixture;
+  fixture.write("pkg/math.ng", R"(
+    module pkg.math exports *;
+    fun answer() -> i32 {
+      return 42;
+    }
+  )");
+
+  auto ast = parse(R"(
+    import pkg.math (*);
+    assert(answer() == 42);
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto preludeTypes = NG::typecheck::build_prelude_type_index();
+  NG::typecheck::type_check(ast, preludeTypes, {"[force-module-loader]"});
+
+  Interpreter *intp = NG::intp::stupid();
+  ast->accept(intp);
+
+  delete intp;
+  destroyast(ast);
+}
+
+TEST_CASE("STUPID should reject conflicting imported symbols from different modules",
+          "[Integration][ModuleArtifact]")
+{
+  SourceModuleFixture fixture;
+  fixture.write("pkg/alpha.ng", R"(
+    module pkg.alpha exports *;
+    fun duplicated() -> i32 {
+      return 1;
+    }
+  )");
+  fixture.write("pkg/beta.ng", R"(
+    module pkg.beta exports *;
+    fun duplicated() -> i32 {
+      return 2;
+    }
+  )");
+
+  auto ast = parse(R"(
+    import pkg.alpha (*);
+    import pkg.beta (*);
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto preludeTypes = NG::typecheck::build_prelude_type_index();
+  NG::typecheck::type_check(ast, preludeTypes, {"[force-module-loader]"});
+
+  Interpreter *intp = NG::intp::stupid();
+  REQUIRE_THROWS_WITH(ast->accept(intp), Catch::Matchers::ContainsSubstring("Import conflict for symbol: duplicated"));
+
+  delete intp;
+  destroyast(ast);
+}
+
+TEST_CASE("STUPID should allow qualified imports to avoid symbol conflicts",
+          "[Integration][ModuleArtifact]")
+{
+  SourceModuleFixture fixture;
+  fixture.write("pkg/alpha.ng", R"(
+    module pkg.alpha exports *;
+    fun duplicated() -> i32 {
+      return 1;
+    }
+  )");
+  fixture.write("pkg/beta.ng", R"(
+    module pkg.beta exports *;
+    fun duplicated() -> i32 {
+      return 2;
+    }
+  )");
+
+  auto ast = parse(R"(
+    import pkg.alpha as first;
+    import pkg.beta;
+    assert(first.duplicated() == 1);
+    assert(beta.duplicated() == 2);
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto preludeTypes = NG::typecheck::build_prelude_type_index();
+  NG::typecheck::type_check(ast, preludeTypes, {"[force-module-loader]"});
+
+  Interpreter *intp = NG::intp::stupid();
+  ast->accept(intp);
+
+  delete intp;
+  destroyast(ast);
+}
+
+TEST_CASE("STUPID should run ngi child process without shell expansion", "[Integration][Prelude]")
+{
+  auto ast = parse(R"(
+    import std.prelude (*);
+    val output = runNgi("example/01.id.ng");
+  )");
+  REQUIRE(ast != nullptr);
+
+  Interpreter *intp = NG::intp::stupid();
+  REQUIRE_NOTHROW(ast->accept(intp));
+
+  delete intp;
+  destroyast(ast);
+}
+
+TEST_CASE("STUPID should reject unsafe runNgi paths before spawning", "[Integration][Prelude]")
+{
+  auto ast = parse(R"(
+    import std.prelude (*);
+    val output = runNgi("example/01.id.ng;touch-bad.ng");
+  )");
+  REQUIRE(ast != nullptr);
+
+  Interpreter *intp = NG::intp::stupid();
+  REQUIRE_THROWS_WITH(ast->accept(intp), Catch::Matchers::ContainsSubstring("runNgi() requires a .ng path"));
+
+  delete intp;
+  destroyast(ast);
 }
 
 TEST_CASE("should run const specialization example with STUPID", "[Integration][ConstPredicate]")
@@ -151,6 +362,16 @@ TEST_CASE("should run const trait constraints example with STUPID", "[Integratio
 TEST_CASE("should run const generic instances example with STUPID", "[Integration][ConstPredicate]")
 {
   runTypecheckedIntegrationTest("example/47.const_generic_instances.ng");
+}
+
+TEST_CASE("should run const fun example with STUPID", "[Integration][ConstFun]")
+{
+  runTypecheckedIntegrationTest("example/53.const_fun.ng");
+}
+
+TEST_CASE("should run enhanced tuple type example with STUPID", "[Integration][Tuple][EnhancedTuple]")
+{
+  runTypecheckedIntegrationTest("example/54.enhanced_tuple_types.ng");
 }
 
 TEST_CASE("should run higher-kinded generic example with STUPID", "[Integration][HKT]")

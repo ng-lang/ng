@@ -1,0 +1,32 @@
+auto trait Send;
+
+type Point: derive(Copy + Clone) {
+    x: i32;
+    y: i32;
+}
+
+fun require_copy<T: Copy>() -> unit {
+    print("Copy bound accepted");
+}
+
+fun require_clone<T: Clone>() -> unit {
+    print("Clone bound accepted");
+}
+
+fun require_send<T: Send>() -> unit {
+    print("auto trait bound accepted");
+}
+
+val point = new Point { x: 20, y: 22 };
+
+assert((point.x + point.y) == 42);
+
+require_send<Point>();
+require_copy<Point>();
+require_clone<Point>();
+
+val cloned = point.clone();
+cloned.x := cloned.x + 1;
+
+assert(point.x == 20);
+assert(cloned.x == 21);

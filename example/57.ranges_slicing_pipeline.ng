@@ -1,0 +1,39 @@
+fun add(value: i32, acc: i32) -> i32 {
+  return value + acc;
+}
+
+val r: i32 Range = 0..=4;
+val xs: i32 vector = [...r];
+assert(len(xs) == 5);
+assert(xs[0] == 0);
+assert(xs[^1] == 4);
+
+val ur: u32 Range = 1u32..=3u32;
+val ux: u32 vector = [...ur];
+assert(len(ux) == 3);
+assert(ux[0] == 1u32);
+assert(ux[2] == 3u32);
+
+val middleView: i32 span = xs[1..4];
+val middle: i32 vector = [...middleView];
+assert(len(middle) == 3);
+assert(middle[0] == 1);
+assert(middle[2] == 3);
+
+val prefix: i32 vector = [...xs[..3]];
+assert(len(prefix) == 3);
+assert(prefix[2] == 2);
+
+val suffix: i32 vector = [...xs[2..]];
+assert(len(suffix) == 3);
+assert(suffix[0] == 2);
+
+val tup: (i32, string, bool, i32) = (7, "ng", true, 9);
+val tupleWindow: (string, bool) = tup[1..3];
+assert(tupleWindow.0 == "ng");
+assert(tupleWindow.1 == true);
+
+val sum: i32 = add(r..., 0);
+assert(sum == 10);
+
+print(xs, ux, middle, prefix, suffix, tup, sum);

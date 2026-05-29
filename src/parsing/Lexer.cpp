@@ -51,6 +51,7 @@ namespace NG::parsing
     {">>", TokenType::RSHIFT},
 
     {"&", TokenType::AMPERSAND},
+    {"|>", TokenType::PIPE_FORWARD},
     {"|", TokenType::PIPE},
     {"^", TokenType::CARET},
     {"~", TokenType::TILDE},
@@ -107,6 +108,7 @@ namespace NG::parsing
     {"cast", TokenType::KEYWORD_CAST},
     {"ref", TokenType::KEYWORD_REF},
     {"move", TokenType::KEYWORD_MOVE},
+    {"auto", TokenType::KEYWORD_AUTO},
     {"trait", TokenType::KEYWORD_TRAIT},
     {"impl", TokenType::KEYWORD_IMPL},
     {"for", TokenType::KEYWORD_FOR},

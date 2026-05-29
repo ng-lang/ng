@@ -1,0 +1,21 @@
+// Fixed array, dynamic vector, and span type surface.
+
+fun span_size(xs: span<int>) -> u32 = native;
+
+fun first3(xs: array<int, 3>) -> int {
+    return xs[0];
+}
+
+fun sum_vec(xs: vector<int>) -> int {
+    return xs[0] + xs[1] + xs[2];
+}
+
+val fixed: array<int, 3> = [1, 2, 3];
+val dynamic: vector<int> = [4, 5];
+
+dynamic := dynamic << 6;
+
+assert(first3(fixed) == 1);
+assert(sum_vec(dynamic) == 15);
+
+print("const array and vector example completed successfully!");

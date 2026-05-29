@@ -18,6 +18,9 @@ Replace the early STUPID-era module loader with a single module system that work
 The complete system must eventually support:
 
 - Modular standard library imports such as `import std.prelude (*)`.
+- Facade modules with explicit re-exports such as `export import std.string (*);`.
+- Conflict-safe imports using module-qualified access (`import x as xmod; xmod.name(...)`).
+- Future symbol-level aliases as a separate extension: [Symbol Import Aliases](../symbol_import_aliases.md).
 - File-based `.ng` source modules.
 - Native module interop for C++-registered libraries.
 - ORGASM bytecode modules loaded from compiled `.ngo` artifacts.

@@ -58,6 +58,8 @@ namespace NG::typecheck
         VARIANT = 0xB4,
         UNION = 0xB5,
         TRAIT = 0xB6,
+        SPAN = 0xB7,
+        RANGE = 0xB8,
 
         GENERICS = 0xC0,
         GENERIC_PARAM = 0xC1,
@@ -65,6 +67,7 @@ namespace NG::typecheck
         VARARGS = 0xC3,
         GENERIC_TYPE_DEF = 0xC4,
         TYPE_CONSTRUCTOR_APPLICATION = 0xC5,
+        CONST_VALUE = 0xC6,
     };
 
     /**
@@ -183,6 +186,8 @@ namespace NG::typecheck
         Vec<CheckingRef<TypeInfo>> parametersType; ///< The parameter types of the function.
         Vec<PlaceEffect> placeEffects;             ///< Ordered receiver effects used to update partial-move state.
         bool unknownPlaceEffects = false;          ///< True when receiver effects cannot be inferred conservatively.
+        bool deleted = false;                      ///< True when this signature is a deleted overload.
+        Str deletedRepr;                           ///< Source-like declaration used in deleted overload diagnostics.
 
         FunctionType(CheckingRef<TypeInfo> returnType, Vec<CheckingRef<TypeInfo>> parametersType)
             : returnType(returnType), parametersType(parametersType)
@@ -217,13 +222,15 @@ namespace NG::typecheck
     };
 
     /**
-     * @brief A array type.
+     * @brief A fixed-size array type.
      */
     struct ArrayType : TypeInfo
     {
         CheckingRef<TypeInfo> elementType; ///< The element type of the array.
+        CheckingRef<TypeInfo> length; ///< Const generic length for array<T, N>.
 
-        ArrayType(CheckingRef<TypeInfo> elementType) : elementType(elementType) {}
+        explicit ArrayType(CheckingRef<TypeInfo> elementType, CheckingRef<TypeInfo> length = nullptr)
+            : elementType(std::move(elementType)), length(std::move(length)) {}
         /**
          * @brief Applies the function with the given types.
          *
@@ -233,6 +240,54 @@ namespace NG::typecheck
         [[nodiscard]] auto containing(const TypeInfo &other) const -> bool;
 
         auto tag() const -> typeinfo_tag override;
+        auto repr() const -> Str override;
+        auto match(const TypeInfo &other) const -> bool override;
+    };
+
+    /**
+     * @brief A dynamic owning contiguous container.
+     */
+    struct VectorType : TypeInfo
+    {
+        CheckingRef<TypeInfo> elementType;
+
+        explicit VectorType(CheckingRef<TypeInfo> elementType) : elementType(std::move(elementType)) {}
+
+        [[nodiscard]] auto containing(const TypeInfo &other) const -> bool;
+
+        auto tag() const -> typeinfo_tag override { return typeinfo_tag::VECTOR; }
+        auto repr() const -> Str override;
+        auto match(const TypeInfo &other) const -> bool override;
+    };
+
+    /**
+     * @brief A non-owning contiguous memory view.
+     */
+    struct SpanType : TypeInfo
+    {
+        CheckingRef<TypeInfo> elementType;
+
+        explicit SpanType(CheckingRef<TypeInfo> elementType) : elementType(std::move(elementType)) {}
+
+        [[nodiscard]] auto containing(const TypeInfo &other) const -> bool;
+
+        auto tag() const -> typeinfo_tag override { return typeinfo_tag::SPAN; }
+        auto repr() const -> Str override;
+        auto match(const TypeInfo &other) const -> bool override;
+    };
+
+    /**
+     * @brief A lazy integral range.
+     */
+    struct RangeType : TypeInfo
+    {
+        CheckingRef<TypeInfo> elementType;
+
+        explicit RangeType(CheckingRef<TypeInfo> elementType) : elementType(std::move(elementType)) {}
+
+        [[nodiscard]] auto containing(const TypeInfo &other) const -> bool;
+
+        auto tag() const -> typeinfo_tag override { return typeinfo_tag::RANGE; }
         auto repr() const -> Str override;
         auto match(const TypeInfo &other) const -> bool override;
     };
@@ -274,6 +329,7 @@ namespace NG::typecheck
         Str moduleId;
         bool nativeOpaque = false;
         bool abstract = false;
+        Vec<CheckingRef<TypeInfo>> typeArgs;
         Map<Str, CheckingRef<TypeInfo>> properties;
         Map<Str, CheckingRef<FunctionType>> memberFunctions;
         Map<Str, Map<Str, CheckingRef<FunctionType>>> traitMemberFunctions;
@@ -418,6 +474,20 @@ namespace NG::typecheck
         auto match(const TypeInfo &other) const -> bool override;
     };
 
+    struct ConstValueType : TypeInfo
+    {
+        Str value;
+        Str valueType;
+        bool isParam = false;
+
+        ConstValueType(Str value, Str valueType = "", bool isParam = false)
+            : value(std::move(value)), valueType(std::move(valueType)), isParam(isParam) {}
+
+        auto tag() const -> typeinfo_tag override { return CONST_VALUE; }
+        auto repr() const -> Str override;
+        auto match(const TypeInfo &other) const -> bool override;
+    };
+
     /**
      * @brief A generic function or type definition that has not yet been monomorphized.
      *
@@ -432,9 +502,11 @@ namespace NG::typecheck
         Str moduleId;                               ///< Canonical module that owns this generic definition.
         Vec<Str> typeParamNames;                    ///< Names of type parameters (e.g. ["T", "U"])
         Vec<bool> typeParamIsPack;                  ///< Which type params are packs (parallel to typeParamNames)
+        Vec<bool> typeParamIsConst;                 ///< Which generic params are scalar const params.
         Vec<size_t> typeParamKindArities;            ///< 0 for *, N for type constructor params.
         Vec<bool> typeParamKindVariadicTails;        ///< Which type params are variadic constructor kinds.
         NG::ast::ASTRef<NG::ast::FunctionDef> funcDef; ///< The original AST node (for generic functions)
+        Vec<NG::ast::ASTRef<NG::ast::FunctionDef>> overloads; ///< Same-name generic overload candidates.
         TypeEnv capturedLocals;                     ///< Local type environment at definition site
         Map<Str, CheckingRef<TypeInfo>> instances; ///< Monomorphized return types keyed by instantiated name.
 
@@ -442,7 +514,10 @@ namespace NG::typecheck
                        NG::ast::ASTRef<NG::ast::FunctionDef> funcDef, TypeEnv capturedLocals, Str moduleId = "")
             : name(std::move(name)), moduleId(std::move(moduleId)), typeParamNames(std::move(typeParamNames)),
               typeParamIsPack(std::move(typeParamIsPack)),
-              funcDef(std::move(funcDef)), capturedLocals(std::move(capturedLocals)) {}
+              funcDef(std::move(funcDef)), capturedLocals(std::move(capturedLocals))
+        {
+            overloads.push_back(this->funcDef);
+        }
 
         auto tag() const -> typeinfo_tag override { return GENERIC_DEF; }
         auto repr() const -> Str override;
@@ -466,6 +541,7 @@ namespace NG::typecheck
         GenericTypeKind kind;
         Vec<Str> typeParamNames;
         Vec<bool> typeParamIsPack;
+        Vec<bool> typeParamIsConst;
         Vec<size_t> typeParamKindArities;
         Vec<bool> typeParamKindVariadicTails;
         NG::ast::ASTRef<NG::ast::TypeDef> typeDef = nullptr;

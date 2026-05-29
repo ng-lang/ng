@@ -1,16 +1,28 @@
 #include <intp/runtime.hpp>
 #include <intp/runtime_numerals.hpp>
+#include <module.hpp>
 #include <orgasm/native_bridge.hpp>
 #include <orgasm/vm.hpp>
 #include <runtime/native_marshaling.hpp>
 #include <runtime/value_access.hpp>
 #include <runtime/string_layout_access.hpp>
+#include <sysdep/process.hpp>
 #include <algorithm>
+#include <array>
 #include <bit>
+#include <cerrno>
 #include <cctype>
+#include <cstdio>
+#include <cstring>
 #include <fstream>
+#include <initializer_list>
 #include <iostream>
+#include <regex>
 #include <cstdlib>
+#ifndef _WIN32
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
 
 namespace NG::library::prelude
 {
@@ -97,6 +109,130 @@ namespace NG::library::prelude
     std::transform(result.begin(), result.end(), result.begin(),
                    [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
     return result;
+  }
+
+  static auto current_executable_path_native() -> Str
+  {
+    return NG::System::Process::current_executable_path();
+  }
+
+  static auto run_child_process(const Str &executable, const Str &path) -> Str
+  {
+#ifdef _WIN32
+    throw RuntimeException("runNgi() is not implemented on Windows without shell execution");
+#else
+    int pipefd[2]{};
+    if (pipe(pipefd) != 0)
+    {
+      throw RuntimeException("runNgi() failed to create output pipe: " + Str(std::strerror(errno)));
+    }
+
+    auto pid = fork();
+    if (pid < 0)
+    {
+      auto error = errno;
+      close(pipefd[0]);
+      close(pipefd[1]);
+      throw RuntimeException("runNgi() failed to fork ngi: " + Str(std::strerror(error)));
+    }
+
+    if (pid == 0)
+    {
+      close(pipefd[0]);
+      if (dup2(pipefd[1], STDOUT_FILENO) < 0 || dup2(pipefd[1], STDERR_FILENO) < 0)
+      {
+        _exit(126);
+      }
+      close(pipefd[1]);
+      execl(executable.c_str(), executable.c_str(), path.c_str(), static_cast<char *>(nullptr));
+      _exit(127);
+    }
+
+    close(pipefd[1]);
+    Str output;
+    std::array<char, 4096> buffer{};
+    while (true)
+    {
+      auto bytesRead = read(pipefd[0], buffer.data(), buffer.size());
+      if (bytesRead > 0)
+      {
+        output.append(buffer.data(), static_cast<size_t>(bytesRead));
+        continue;
+      }
+      if (bytesRead == 0)
+      {
+        break;
+      }
+      if (errno == EINTR)
+      {
+        continue;
+      }
+      auto error = errno;
+      close(pipefd[0]);
+      throw RuntimeException("runNgi() failed to read ngi output: " + Str(std::strerror(error)));
+    }
+
+    close(pipefd[0]);
+    int status = 0;
+    while (waitpid(pid, &status, 0) < 0)
+    {
+      if (errno == EINTR)
+      {
+        continue;
+      }
+      throw RuntimeException("runNgi() failed waiting for ngi: " + Str(std::strerror(errno)));
+    }
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
+    {
+      output += "\n[process exited with status " + std::to_string(status) + "]";
+    }
+    return output;
+#endif
+  }
+
+  static auto validate_ngi_script_path(const Str &path) -> bool
+  {
+    if (path.empty() || !path.ends_with(".ng"))
+    {
+      return false;
+    }
+    return std::ranges::all_of(path, [](unsigned char ch) {
+      if (std::isalnum(ch) != 0 || ch == '/' || ch == '.' || ch == '_' || ch == '-')
+      {
+        return true;
+      }
+#ifdef _WIN32
+      return ch == '\\' || ch == ':';
+#else
+      return false;
+#endif
+    });
+  }
+
+  static auto run_ngi_native(Str path) -> Str
+  {
+    if (!validate_ngi_script_path(path))
+    {
+      throw RuntimeException("runNgi() requires a .ng path containing only alnum, '/', '.', '_', or '-'");
+    }
+    auto executable = current_executable_path_native();
+    if (executable.empty())
+    {
+      throw RuntimeException("runNgi() could not resolve current executable path");
+    }
+    return run_child_process(executable, path);
+  }
+
+  static auto regex_match_native(Str value, Str pattern) -> bool
+  {
+    try
+    {
+      return std::regex_search(value, std::regex(pattern));
+    }
+    catch (const std::regex_error &ex)
+    {
+      throw RuntimeException("regexMatch() invalid regex: " + Str(ex.what()));
+    }
   }
 
   static auto native_allocation_count() -> int32_t &
@@ -227,6 +363,9 @@ namespace NG::library::prelude
     {"endsWith", NG::orgasm::wrap_native_callable(ends_with_native)},
     {"toUpper", NG::orgasm::wrap_native_callable(to_upper_native)},
     {"toLower", NG::orgasm::wrap_native_callable(to_lower_native)},
+    {"currentExecutablePath", NG::orgasm::wrap_native_callable(current_executable_path_native)},
+    {"runNgi", NG::orgasm::wrap_native_callable(run_ngi_native)},
+    {"regexMatch", NG::orgasm::wrap_native_callable(regex_match_native)},
     {"reverse",
      [](const NGSelf &, const NGEnv &context, const NGArgs &args) -> RuntimeRef<StorageCell> {
        auto nativeArgs = native_args_view(context, args);
@@ -240,34 +379,11 @@ namespace NG::library::prelude
        }
        return make_runtime_array_cell(*items);
      }},
-    {"range",
+    {"__ng_from_end",
      [](const NGSelf &, const NGEnv &context, const NGArgs &args) -> RuntimeRef<StorageCell> {
-       auto nativeArgs = native_args_view(context, args);
-       auto startNum = require_numeric_arg<int32_t>("range", nativeArgs, 0, "a start integer");
-       auto endNum = require_numeric_arg<int32_t>("range", nativeArgs, 1, "an end integer");
-       auto items = makert<Vec<RuntimeRef<StorageCell>>>();
-       int32_t step = startNum <= endNum ? 1 : -1;
-       for (int32_t i = startNum; step > 0 ? i < endNum : i > endNum; i += step)
-       {
-         items->push_back(numeral_cell_from_value<int32_t>(i));
-       }
-       return make_runtime_array_cell(*items);
-     }},
-    {"slice",
-     [](const NGSelf &, const NGEnv &context, const NGArgs &args) -> RuntimeRef<StorageCell> {
-       auto nativeArgs = native_args_view(context, args);
-       auto arrObj = require_array_arg_slot("slice", nativeArgs, 0, "an array");
-       auto startNum = require_numeric_arg<int32_t>("slice", nativeArgs, 1, "a start index");
-       auto endNum = require_numeric_arg<int32_t>("slice", nativeArgs, 2, "an end index");
-       auto src = runtime_array_slots(arrObj);
-       auto items = makert<Vec<RuntimeRef<StorageCell>>>();
-       int32_t s = std::max(0, startNum);
-       int32_t e = std::min(static_cast<int32_t>(src.size()), endNum);
-       for (int32_t i = s; i < e; ++i)
-       {
-         items->push_back(clone_runtime_storage_cell(src[i], StorageClass::TEMPORARY));
-       }
-       return make_runtime_array_cell(*items);
+       auto value = require_numeric_arg<int32_t>("__ng_from_end", native_args_view(context, args), 0,
+                                                 "a from-end index");
+       return make_runtime_from_end_index(value);
      }},
     {"nativeMalloc",
      [](const NGSelf &, const NGEnv &context, const NGArgs &args) -> RuntimeRef<StorageCell> {
@@ -312,9 +428,61 @@ namespace NG::library::prelude
      }},
   };
 
+  static auto handlers_for(std::initializer_list<Str> names) -> Map<Str, NGCallable>
+  {
+    Map<Str, NGCallable> selected;
+    for (const auto &name : names)
+    {
+      if (auto it = handlers.find(name); it != handlers.end())
+      {
+        selected.insert_or_assign(name, it->second);
+      }
+    }
+    return selected;
+  }
+
   void do_register()
   {
-    register_native_library("std.prelude", handlers);
+    auto preludeHandlers = handlers_for({
+        "print",
+        "assert",
+        "len",
+    });
+    register_native_library("std.prelude", preludeHandlers);
+    register_native_library("std.io", handlers_for({
+                                      "readLine",
+                                      "readFile",
+                                      "writeFile",
+                                      "currentExecutablePath",
+                                      "runNgi",
+                                  }));
+    register_native_library("std.string", handlers_for({
+                                          "split",
+                                          "join",
+                                          "trim",
+                                          "contains",
+                                          "replace",
+                                          "startsWith",
+                                          "endsWith",
+                                          "toUpper",
+                                          "toLower",
+                                          "regexMatch",
+                                      }));
+    register_native_library("std.array", handlers_for({
+                                         "reverse",
+                                     }));
+    register_native_library("std.memory", handlers_for({
+                                          "nativeMalloc",
+                                          "nativeFree",
+                                          "nativeOutstandingAllocations",
+                                          "gcFree",
+                                      }));
+    auto descriptor = makert<NG::module::NativeModuleDescriptor>();
+    descriptor->moduleId = "std.prelude";
+    descriptor->functions = preludeHandlers;
+    descriptor->typeIndex = NG::typecheck::build_prelude_type_index();
+    descriptor->exports.declared.insert("*");
+    NG::module::get_module_registry().registerNativeModuleDescriptor(descriptor);
   };
 
   void register_vm_natives(NG::orgasm::VM &vm)

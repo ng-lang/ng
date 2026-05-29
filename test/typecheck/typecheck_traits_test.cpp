@@ -1,5 +1,9 @@
 #include "typecheck_utils.hpp"
 #include <module.hpp>
+#include <chrono>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
 
 namespace
 {
@@ -34,6 +38,81 @@ namespace
     auto paths() const -> Vec<Str>
     {
       return {"[memory]"};
+    }
+  };
+
+  struct ScopedEnvVar
+  {
+    Str name;
+    Str previous;
+    bool hadPrevious = false;
+
+    ScopedEnvVar(Str name, const Str &value) : name(std::move(name))
+    {
+      if (const char *existing = std::getenv(this->name.c_str()))
+      {
+        previous = existing;
+        hadPrevious = true;
+      }
+#ifdef _WIN32
+      _putenv_s(this->name.c_str(), value.c_str());
+#else
+      setenv(this->name.c_str(), value.c_str(), 1);
+#endif
+    }
+
+    ~ScopedEnvVar()
+    {
+#ifdef _WIN32
+      _putenv_s(name.c_str(), hadPrevious ? previous.c_str() : "");
+#else
+      if (hadPrevious)
+      {
+        setenv(name.c_str(), previous.c_str(), 1);
+      }
+      else
+      {
+        unsetenv(name.c_str());
+      }
+#endif
+    }
+  };
+
+  struct SourceModuleFixture
+  {
+    std::filesystem::path root;
+    ScopedEnvVar modulePath;
+
+    SourceModuleFixture()
+        : root(std::filesystem::temp_directory_path() /
+               ("ng_module_artifact_" +
+                std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()))),
+          modulePath("NG_MODULE_PATH", root.string())
+    {
+      NG::module::clear_module_loader_cache();
+      NG::module::get_module_registry().clear();
+      std::filesystem::create_directories(root);
+    }
+
+    ~SourceModuleFixture()
+    {
+      NG::module::clear_module_loader_cache();
+      NG::module::get_module_registry().clear();
+      std::filesystem::remove_all(root);
+    }
+
+    void write(const std::filesystem::path &relative, const Str &source) const
+    {
+      auto target = root / relative;
+      std::filesystem::create_directories(target.parent_path());
+      std::ofstream out{target};
+      REQUIRE(out.good());
+      out << source;
+    }
+
+    auto paths() const -> Vec<Str>
+    {
+      return {"[force-module-loader]"};
     }
   };
 }
@@ -841,4 +920,277 @@ TEST_CASE("module-qualified use impl should select one duplicate exported impl",
   check_type_tag(*index["shown"], typeinfo_tag::STRING);
 
   destroyast(ast);
+}
+
+TEST_CASE("source module artifacts should load through NG_MODULE_PATH",
+          "[TypeCheck][Traits][ModuleArtifact]")
+{
+  SourceModuleFixture fixture;
+  fixture.write("pkg/base.ng", R"(
+    module pkg.base exports *;
+    type Box {
+      property value: i32;
+    }
+    trait Show {
+      fun show(self: ref<Self>) -> string;
+    }
+  )");
+  fixture.write("pkg/show_impl.ng", R"(
+    module pkg.show_impl exports *;
+    import pkg.base (*);
+    export impl Show for Box {
+      fun show(self: ref<Self>) -> string {
+        return "box";
+      }
+    }
+  )");
+
+  auto ast = parse(R"(
+    import pkg.base (*);
+    import pkg.show_impl (*);
+    val box = new Box { value: 1 };
+    val shown = box.show();
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast, {}, fixture.paths());
+  REQUIRE(index.contains("shown"));
+  check_type_tag(*index["shown"], typeinfo_tag::STRING);
+
+  auto &registry = NG::module::get_module_registry();
+  auto baseArtifact = registry.queryArtifactById("pkg.base");
+  REQUIRE(baseArtifact != nullptr);
+  REQUIRE(baseArtifact->format == NG::module::ModuleFormat::SourceNg);
+  REQUIRE(std::filesystem::path(baseArtifact->originPath).generic_string().ends_with("pkg/base.ng"));
+  REQUIRE(baseArtifact->exports.types.contains("Box"));
+  REQUIRE(baseArtifact->exports.types.contains("Show"));
+  REQUIRE(baseArtifact->traits.contains("Show"));
+
+  auto implArtifact = registry.queryArtifactById("pkg.show_impl");
+  REQUIRE(implArtifact != nullptr);
+  REQUIRE(implArtifact->imports.moduleIds == Vec<Str>{"pkg.base"});
+  REQUIRE(implArtifact->impls.size() == 1);
+  REQUIRE(implArtifact->impls.front().traitName == "Show");
+  REQUIRE(implArtifact->impls.front().targetPattern == "Box");
+  REQUIRE(implArtifact->impls.front().moduleId == "pkg.show_impl");
+
+  destroyast(ast);
+}
+
+TEST_CASE("duplicate source module artifacts should report canonical module ids",
+          "[TypeCheck][Traits][ModuleArtifact][Failure]")
+{
+  SourceModuleFixture fixture;
+  fixture.write("pkg/base.ng", R"(
+    module pkg.base exports *;
+    type Box {
+      property value: i32;
+    }
+    trait Show {
+      fun show(self: ref<Self>) -> string;
+    }
+  )");
+  fixture.write("pkg/impl_a.ng", R"(
+    module pkg.impl_a exports *;
+    import pkg.base (*);
+    export impl Show for Box {
+      fun show(self: ref<Self>) -> string {
+        return "a";
+      }
+    }
+  )");
+  fixture.write("pkg/impl_b.ng", R"(
+    module pkg.impl_b exports *;
+    import pkg.base (*);
+    export impl Show for Box {
+      fun show(self: ref<Self>) -> string {
+        return "b";
+      }
+    }
+  )");
+
+  auto ast = parse(R"(
+    import pkg.base (*);
+    import pkg.impl_a (*);
+    import pkg.impl_b (*);
+    val box = new Box { value: 1 };
+    val shown = box.show();
+  )");
+  REQUIRE(ast != nullptr);
+
+  try
+  {
+    (void)type_check(ast, {}, fixture.paths());
+    FAIL("expected duplicate impl error");
+  }
+  catch (const TypeCheckingException &ex)
+  {
+    REQUIRE_THAT(ex.what(), Catch::Matchers::ContainsSubstring("Duplicate impl"));
+    REQUIRE_THAT(ex.what(), Catch::Matchers::ContainsSubstring("pkg.impl_a"));
+    REQUIRE_THAT(ex.what(), Catch::Matchers::ContainsSubstring("pkg.impl_b"));
+  }
+
+  destroyast(ast);
+}
+
+TEST_CASE("derived Copy should satisfy Copy bounds only when explicitly derived",
+          "[TypeCheck][Traits][Derive]")
+{
+  auto ast = parse(R"(
+    type Point: derive(Copy) {
+      x: i32;
+      y: i32;
+    }
+
+    fun accept_copy<T: Copy>() -> unit {
+    }
+
+    accept_copy<Point>();
+  )");
+  REQUIRE(ast != nullptr);
+
+  REQUIRE_NOTHROW(type_check(ast));
+
+  destroyast(ast);
+}
+
+TEST_CASE("structural types should not satisfy Copy bounds without derive or impl",
+          "[TypeCheck][Traits][Derive][Failure]")
+{
+  typecheck_failure(R"(
+    type Point {
+      x: i32;
+      y: i32;
+    }
+
+    fun accept_copy<T: Copy>() -> unit {
+    }
+
+    accept_copy<Point>();
+  )", "does not implement trait 'Copy'");
+}
+
+TEST_CASE("derived Clone should satisfy Clone bounds", "[TypeCheck][Traits][Derive]")
+{
+  auto ast = parse(R"(
+    type Point: derive(Clone) {
+      x: i32;
+      y: i32;
+    }
+
+    fun accept_clone<T: Clone>() -> unit {
+    }
+
+    accept_clone<Point>();
+  )");
+  REQUIRE(ast != nullptr);
+
+  REQUIRE_NOTHROW(type_check(ast));
+
+  destroyast(ast);
+}
+
+TEST_CASE("derived Clone should expose a callable clone method", "[TypeCheck][Traits][Derive]")
+{
+  auto ast = parse(R"(
+    type Point: derive(Clone) {
+      x: i32;
+      y: i32;
+    }
+
+    val point = new Point { x: 1, y: 2 };
+    val cloned = point.clone();
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto index = type_check(ast);
+  REQUIRE(index.contains("cloned"));
+  auto clonedType = std::dynamic_pointer_cast<CustomizedType>(index["cloned"]);
+  REQUIRE(clonedType != nullptr);
+  REQUIRE(clonedType->name == "Point");
+
+  destroyast(ast);
+}
+
+TEST_CASE("derive should reject non-derivable fields", "[TypeCheck][Traits][Derive][Failure]")
+{
+  typecheck_failure(R"(
+    type Bag: derive(Copy) {
+      values: vector<i32>;
+    }
+  )", "field 'values' does not satisfy Copy");
+}
+
+TEST_CASE("derive should conflict with explicit impls", "[TypeCheck][Traits][Derive][Failure]")
+{
+  typecheck_failure(R"(
+    type Point: derive(Copy) {
+      x: i32;
+    }
+
+    impl Copy for Point {
+    }
+  )", "Explicit impl conflicts with derived impl");
+}
+
+TEST_CASE("derived Clone should conflict with explicit Clone impls",
+          "[TypeCheck][Traits][Derive][Failure]")
+{
+  typecheck_failure(R"(
+    type Point: derive(Clone) {
+      x: i32;
+    }
+
+    impl Clone for Point {
+      fun clone(self: ref<Self>) -> Self {
+        return *self;
+      }
+    }
+  )", "Explicit impl conflicts with derived impl");
+}
+
+TEST_CASE("Drop impl should conflict with derived Copy", "[TypeCheck][Traits][Derive][Failure]")
+{
+  typecheck_failure(R"(
+    type Resource: derive(Copy) {
+      handle: i32;
+    }
+
+    impl Drop for Resource {
+      fun drop(self: ref<Self>) -> unit {
+      }
+    }
+  )", "Drop impl conflicts with derived Copy");
+}
+
+TEST_CASE("auto traits should structurally satisfy generic bounds", "[TypeCheck][Traits][Auto]")
+{
+  auto ast = parse(R"(
+    auto trait Send;
+
+    type Point {
+      x: i32;
+      y: i32;
+    }
+
+    fun accept_send<T: Send>(value: ref<T>) -> unit {
+    }
+
+    val point = new Point { x: 1, y: 2 };
+    accept_send(point);
+  )");
+  REQUIRE(ast != nullptr);
+
+  REQUIRE_NOTHROW(type_check(ast));
+
+  destroyast(ast);
+}
+
+TEST_CASE("auto traits should reject methods", "[TypeCheck][Traits][Auto][Failure]")
+{
+  typecheck_failure(R"(
+    auto trait Send {
+      fun send(self: ref<Self>) -> unit;
+    }
+  )", "auto trait cannot declare methods");
 }

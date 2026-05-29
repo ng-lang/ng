@@ -100,6 +100,7 @@ namespace NG::runtime
     Map<Str, NGCallable> nativeFunctions;
     Set<Str> traitNames;
     Set<Str> imports;
+    Map<Str, Str> importOrigins;
     Set<Str> exports;
     Map<Str, std::shared_ptr<void>> nativeState;
   };
@@ -128,6 +129,7 @@ namespace NG::runtime
       state->traitNames = symbols->traitNames;
       state->exports.insert(symbols->exports.begin(), symbols->exports.end());
       state->imports.insert(symbols->imported.begin(), symbols->imported.end());
+      state->importOrigins = symbols->importOrigins;
     }
     cell->moduleState = std::move(state);
     return cell;
@@ -204,11 +206,25 @@ namespace NG::runtime
     return state->imports;
   }
 
+  inline auto runtime_module_import_origins(const RuntimeRef<StorageCell> &value) -> Map<Str, Str>
+  {
+    auto state = runtime_module_state(value);
+    if (!state) throw RuntimeException("Expected module runtime value");
+    return state->importOrigins;
+  }
+
   inline auto runtime_module_exports(const RuntimeRef<StorageCell> &value) -> Set<Str>
   {
     auto state = runtime_module_state(value);
     if (!state) throw RuntimeException("Expected module runtime value");
     return state->exports;
+  }
+
+  inline void runtime_module_add_export(const RuntimeRef<StorageCell> &value, const Str &name)
+  {
+    auto state = runtime_module_state(value);
+    if (!state) throw RuntimeException("Expected module runtime value");
+    state->exports.insert(name);
   }
 
   inline void runtime_module_set_native_function(const RuntimeRef<StorageCell> &value, const Str &name, NGCallable handler)

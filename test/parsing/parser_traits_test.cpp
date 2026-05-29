@@ -172,3 +172,45 @@ TEST_CASE("parser should export impl declarations", "[Parser][Traits][Export]")
 
   destroyast(ast);
 }
+
+TEST_CASE("parser should parse auto trait declarations", "[Parser][Traits][Auto]")
+{
+  auto ast = parse(R"(
+    auto trait Send;
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  REQUIRE(compileUnit->module->definitions.size() == 1);
+  auto trait = dynamic_ast_cast<TraitDef>(compileUnit->module->definitions[0]);
+  REQUIRE(trait != nullptr);
+  REQUIRE(trait->autoTrait);
+  REQUIRE(trait->traitName == "Send");
+  REQUIRE(trait->methods.empty());
+
+  destroyast(ast);
+}
+
+TEST_CASE("parser should parse derive trait lists on structural types", "[Parser][Traits][Derive]")
+{
+  auto ast = parse(R"(
+    type Point: derive(Copy + Clone) {
+      x: i32;
+      y: i32;
+    }
+  )");
+  REQUIRE(ast != nullptr);
+
+  auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
+  REQUIRE(compileUnit != nullptr);
+  REQUIRE(compileUnit->module->definitions.size() == 1);
+  auto type = dynamic_ast_cast<TypeDef>(compileUnit->module->definitions[0]);
+  REQUIRE(type != nullptr);
+  REQUIRE(type->typeName == "Point");
+  REQUIRE(type->derivedTraits.size() == 2);
+  REQUIRE(type->derivedTraits[0]->repr() == "Copy");
+  REQUIRE(type->derivedTraits[1]->repr() == "Clone");
+
+  destroyast(ast);
+}
