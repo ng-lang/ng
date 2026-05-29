@@ -21,6 +21,7 @@ TEST_CASE("parser should parse value like accessors", "[Parser][Type][Tuple][Acc
         val z = tup.2;
         val a = value."property";
         val b = value.123;
+        val c = value.123(1, "arg");
     )");
     REQUIRE(ast != nullptr);
     destroyast(ast);

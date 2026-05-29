@@ -218,7 +218,8 @@ namespace NG::parsing
 
   [[nodiscard]] inline auto isTermintator(char character) -> bool
   {
-    return character == ',' || character == ';' || character == ')' || character == ']' || character == '}';
+    return character == ',' || character == ';' || character == '(' || character == ')' || character == ']' ||
+           character == '}';
   }
 
   [[nodiscard]] inline auto withStream(LexState &state,
