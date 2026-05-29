@@ -1,4 +1,5 @@
 #include <orgasm/vm.hpp>
+#include <orgasm/compiler.hpp>
 #include <algorithm>
 #include <bit>
 #include <functional>
@@ -469,19 +470,15 @@ namespace NG::orgasm
             {
                 return runtime_builtin_sequence_slots(sequence);
             }
-            catch (const RuntimeException &ex)
+            catch (const SequenceCompatibilityException &)
             {
-                if (Str{ex.what()}.find("Expected Sequence-compatible runtime value") == Str::npos)
-                {
-                    throw;
-                }
             }
 
             auto target = access_target_slot(sequence);
             auto type = runtime_value_type(runtime_is_trait_object_ref(target) ? runtime_trait_object_target(target) : target);
             if (!type)
             {
-                throw RuntimeException("Expected Sequence-compatible runtime value");
+                throw SequenceCompatibilityException();
             }
 
             auto callSequenceMember = [&](const Str &member, const Vec<RuntimeRef<StorageCell>> &args) {
@@ -924,6 +921,39 @@ namespace NG::orgasm
                         }
                     }
                     if (!moduleInfo) throw RuntimeException("Module not found: " + imp.moduleName);
+
+                    if (!moduleInfo->bytecodeModule && moduleInfo->moduleAst)
+                    {
+                        static thread_local Set<Str> compilingModules;
+                        struct CompileGuard
+                        {
+                            Set<Str> &ids;
+                            Str moduleId;
+
+                            CompileGuard(Set<Str> &ids, Str moduleId) : ids(ids), moduleId(std::move(moduleId))
+                            {
+                                if (!this->ids.insert(this->moduleId).second)
+                                {
+                                    throw RuntimeException("Cyclic source module compilation detected: " + this->moduleId);
+                                }
+                            }
+
+                            ~CompileGuard()
+                            {
+                                ids.erase(moduleId);
+                            }
+                        };
+                        CompileGuard guard{compilingModules, imp.moduleName};
+                        auto compileUnit = dynamic_ast_cast<NG::ast::CompileUnit>(moduleInfo->moduleAst);
+                        if (!compileUnit)
+                        {
+                            throw RuntimeException("Failed to cast AST to CompileUnit for module " + imp.moduleName);
+                        }
+                        Compiler compiler{modulePaths};
+                        auto bytecode = compiler.compile(compileUnit);
+                        moduleInfo->bytecodeModule = std::make_shared<BytecodeModule>(std::move(bytecode));
+                        registry.addModuleInfo(moduleInfo);
+                    }
                     
                     if (moduleInfo->bytecodeModule) {
                         auto &otherModule = *moduleInfo->bytecodeModule;

@@ -231,7 +231,7 @@ namespace NG::runtime
     if (runtime_is_array_value(cell)) return runtime_array_slots(cell);
     if (runtime_is_range_value(cell)) return runtime_range_slots(cell);
     if (runtime_is_span_value(cell)) return runtime_span_slots(cell);
-    throw RuntimeException("Expected Sequence-compatible runtime value");
+    throw SequenceCompatibilityException();
   }
 
   auto runtime_sequence_length(const RuntimeRef<StorageCell> &cell) -> size_t

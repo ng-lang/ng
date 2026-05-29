@@ -1011,12 +1011,8 @@ namespace NG::intp
       {
         return runtime_builtin_sequence_slots(sequence);
       }
-      catch (const RuntimeException &ex)
+      catch (const SequenceCompatibilityException &)
       {
-        if (Str{ex.what()}.find("Expected Sequence-compatible runtime value") == Str::npos)
-        {
-          throw;
-        }
       }
 
       auto env = make_runtime_env(symbols);
@@ -1040,9 +1036,9 @@ namespace NG::intp
     {
       if (auto id = dynamic_ast_cast<IdExpression>(expression))
       {
-        if (auto slot = lookup_binding_slot(id->id))
+        if (auto bindingSlot = lookup_binding_slot(id->id))
         {
-          return slot;
+          return bindingSlot;
         }
       }
       ExpressionVisitor sequenceVis{symbols, activeFrames, activeScopes, publishGlobals, activeGenericInstanceName};
@@ -1347,8 +1343,8 @@ namespace NG::intp
         param->accept(&vis);
         if (auto spread = dynamic_ast_cast<SpreadExpression>(param))
         {
-          auto collection = vis.collection;
-          for (auto &&item : *collection)
+          auto argCollection = vis.collection;
+          for (auto &&item : *argCollection)
           {
             callArgs.push_back(clone_argument_slot("arg." + std::to_string(callArgs.size()), item));
           }
@@ -1734,8 +1730,8 @@ namespace NG::intp
         argument->accept(&argVis);
         if (dynamic_ast_cast<SpreadExpression>(argument))
         {
-          auto collection = argVis.collection;
-          for (auto &&item : *collection)
+          auto argCollection = argVis.collection;
+          for (auto &&item : *argCollection)
           {
             callArgs.push_back(clone_argument_slot("arg." + std::to_string(callArgs.size()), item));
           }
@@ -1797,8 +1793,8 @@ namespace NG::intp
         qualifiedCall->arguments[i]->accept(&argVis);
         if (dynamic_ast_cast<SpreadExpression>(qualifiedCall->arguments[i]))
         {
-          auto collection = argVis.collection;
-          for (auto &&item : *collection)
+          auto argCollection = argVis.collection;
+          for (auto &&item : *argCollection)
           {
             callArgs.push_back(clone_argument_slot("arg." + std::to_string(callArgs.size()), item));
           }
@@ -2228,8 +2224,8 @@ namespace NG::intp
                 arg->accept(&argVis);
                 if (auto spread = dynamic_ast_cast<SpreadExpression>(arg); spread)
                 {
-                  auto collection = argVis.collection;
-                  slotValues.insert(slotValues.end(), collection->begin(), collection->end());
+                  auto argCollection = argVis.collection;
+                  slotValues.insert(slotValues.end(), argCollection->begin(), argCollection->end());
                 }
                 else
                 {
@@ -2785,8 +2781,12 @@ namespace NG::intp
             define_global_module(symbols, importDecl->module, moduleInfo->runtimeModule);
           }
         }
-        catch (const RuntimeException &)
+        catch (const RuntimeException &ex)
         {
+          if (Str{ex.what()}.find("Module not found:") != 0)
+          {
+            throw;
+          }
           if (auto target = get_module_registry().queryModuleById(moduleId);
               target && target->runtimeModule && target->artifact &&
               target->artifact->format == NG::module::ModuleFormat::Native && !target->moduleAst)

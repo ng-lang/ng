@@ -87,7 +87,11 @@ namespace NG::typecheck
   {
     if (type && type->tag() == typeinfo_tag::PARAM_WITH_DEFAULT_VALUE)
     {
-      return static_cast<ParamWithDefaultValueType &>(*type).paramType;
+      return unwrap(static_cast<ParamWithDefaultValueType &>(*type).paramType);
+    }
+    if (auto alias = std::dynamic_pointer_cast<TypeAliasType>(type))
+    {
+      return unwrap(alias->underlyingType);
     }
     return type;
   }
@@ -1414,7 +1418,7 @@ namespace NG::typecheck
           .genericParamNames = evidence.genericParamNames,
           .whereBounds = evidence.whereBounds,
           .methods = evidence.methods,
-          .definition = evidence.definition,
+          .definition = evidence.definition.get(),
           .pos = evidence.pos,
       };
     }
@@ -1557,8 +1561,9 @@ namespace NG::typecheck
       return it->second;
     }
 
-    auto resolveGenericArgument(TypeAnnotation *annotation, bool expectedConst, size_t expectedArity,
-                                bool expectedVariadicTail, const Str &paramName) const -> CheckingRef<TypeInfo>
+    auto resolveGenericArgument(TypeAnnotation *annotation, bool expectedConst, const Str &expectedConstType,
+                                size_t expectedArity, bool expectedVariadicTail,
+                                const Str &paramName) const -> CheckingRef<TypeInfo>
     {
       auto resolved = resolveGenericTypeArgument(annotation, expectedArity, expectedVariadicTail, paramName);
       const bool isConstValue = resolved && resolved->tag() == typeinfo_tag::CONST_VALUE;
@@ -1566,6 +1571,17 @@ namespace NG::typecheck
       {
         throw TypeCheckingException("Generic parameter '" + paramName + "' expects a compile-time constant argument",
                                     annotation ? annotation->pos : TokenPosition{});
+      }
+      if (expectedConst && !expectedConstType.empty())
+      {
+        auto constValueType = std::dynamic_pointer_cast<ConstValueType>(unwrap(resolved));
+        auto value = constValueFromType(constValueType);
+        auto expectedType = type_from_repr(expectedConstType);
+        if (value.has_value() && expectedType && !constValueMatchesType(*value, expectedType))
+        {
+          throw TypeCheckingException("Generic parameter '" + paramName + "' expects const " + expectedConstType,
+                                      annotation ? annotation->pos : TokenPosition{});
+        }
       }
       if (!expectedConst && isConstValue)
       {
@@ -2315,7 +2331,8 @@ namespace NG::typecheck
     }
 
     auto selectGenericFunctionCandidate(GenericDefType &genericDef,
-                                        const Vec<CheckingRef<TypeInfo>> &argumentTypes) -> FunctionDef *
+                                        const Vec<CheckingRef<TypeInfo>> &argumentTypes,
+                                        size_t explicitGenericArgCount = Str::npos) -> FunctionDef *
     {
       FunctionDef *best = genericDef.funcDef.get();
       size_t bestSpecificity = 0;
@@ -2324,6 +2341,11 @@ namespace NG::typecheck
       {
         auto *candidate = candidateRef.get();
         if (!candidate)
+        {
+          continue;
+        }
+        if (explicitGenericArgCount != Str::npos &&
+            candidate->genericParams.size() != explicitGenericArgCount)
         {
           continue;
         }
@@ -2488,6 +2510,14 @@ namespace NG::typecheck
       {
         score += typePatternSpecificity(param ? param->annotatedType.get() : nullptr, genericNames);
       }
+      for (auto &genericParam : candidate.genericParams)
+      {
+        if (genericParam && genericParam->bound)
+        {
+          ++score;
+        }
+      }
+      score += candidate.whereBounds.size();
       return score;
     }
 
@@ -2981,6 +3011,13 @@ namespace NG::typecheck
       }
       if (auto *funCall = dynamic_cast<FunCallExpression *>(expr))
       {
+        for (auto &arg : funCall->genericArgs)
+        {
+          if (typeAnnotationHasUnresolvedGeneric(arg.get()))
+          {
+            return true;
+          }
+        }
         for (auto &arg : funCall->arguments)
         {
           if (predicateHasUnresolvedGeneric(arg.get()))
@@ -3000,6 +3037,26 @@ namespace NG::typecheck
                predicateHasUnresolvedGeneric(binary->right.get());
       }
       return false;
+    }
+
+    auto typeAnnotationHasUnresolvedGeneric(TypeAnnotation *annotation) const -> bool
+    {
+      if (!annotation)
+      {
+        return false;
+      }
+      if (auto it = locals.find(annotation->name); it != locals.end())
+      {
+        auto unwrapped = unwrap(it->second);
+        if (unwrapped && (unwrapped->tag() == typeinfo_tag::GENERIC_PARAM ||
+                          unwrapped->tag() == typeinfo_tag::CONST_VALUE))
+        {
+          return true;
+        }
+      }
+      return std::ranges::any_of(annotation->genericArgs, [&](const auto &arg) {
+        return typeAnnotationHasUnresolvedGeneric(arg.get());
+      });
     }
 
     void validateConstFunctionExpression(Expression *expr)
@@ -3539,6 +3596,38 @@ namespace NG::typecheck
             throw TypeCheckingException("Generic parameter '" + genericDef.typeParamNames[i] +
                                         "' expects a compile-time constant argument");
           }
+          auto constValueType = std::dynamic_pointer_cast<ConstValueType>(unwrap(typeArgs[i]));
+          auto value = constValueFromType(constValueType);
+          Str expectedConstType;
+          if (genericDef.typeDef && i < genericDef.typeDef->genericParams.size() &&
+              genericDef.typeDef->genericParams[i]->constType)
+          {
+            expectedConstType = genericDef.typeDef->genericParams[i]->constType->repr();
+          }
+          else if (genericDef.typeAliasDef && i < genericDef.typeAliasDef->genericParams.size() &&
+                   genericDef.typeAliasDef->genericParams[i]->constType)
+          {
+            expectedConstType = genericDef.typeAliasDef->genericParams[i]->constType->repr();
+          }
+          else if (genericDef.newTypeDef && i < genericDef.newTypeDef->genericParams.size() &&
+                   genericDef.newTypeDef->genericParams[i]->constType)
+          {
+            expectedConstType = genericDef.newTypeDef->genericParams[i]->constType->repr();
+          }
+          else if (genericDef.taggedUnionDef && i < genericDef.taggedUnionDef->genericParams.size() &&
+                   genericDef.taggedUnionDef->genericParams[i]->constType)
+          {
+            expectedConstType = genericDef.taggedUnionDef->genericParams[i]->constType->repr();
+          }
+          if (value.has_value() && !expectedConstType.empty())
+          {
+            auto expectedType = type_from_repr(expectedConstType);
+            if (expectedType && !constValueMatchesType(*value, expectedType))
+            {
+              throw TypeCheckingException("Generic parameter '" + genericDef.typeParamNames[i] +
+                                          "' expects const " + expectedConstType);
+            }
+          }
           continue;
         }
         if (actualConst)
@@ -3888,7 +3977,7 @@ namespace NG::typecheck
       {
         constFunctions.insert(constFunctions.end(), functions.begin(), functions.end());
       }
-      for (auto *constFunction : constFunctions)
+      for (auto *constFunction : Vec<FunctionDef *>{fn})
       {
         if (constFunction)
         {
@@ -4267,11 +4356,19 @@ namespace NG::typecheck
 
       if (shouldPublishSharedArtifact)
       {
+        auto artifactTypeIndex = type_index;
+        for (const auto &[name, type] : locals)
+        {
+          if (name != WILDCARD_IMPORT_KEY)
+          {
+            artifactTypeIndex.insert_or_assign(name, type);
+          }
+        }
         const bool wasNativeArtifact = sharedArtifact->format == NG::module::ModuleFormat::Native;
         sharedArtifact->id = NG::module::module_id_from_name(currentModuleId);
         sharedArtifact->format = wasNativeArtifact ? NG::module::ModuleFormat::Native
                                                    : NG::module::ModuleFormat::SourceNg;
-        sharedArtifact->typeIndex = type_index;
+        sharedArtifact->typeIndex = std::move(artifactTypeIndex);
         sharedArtifact->exports.declared = artifacts.exports;
         sharedArtifact->exports.types = artifacts.exportedTypes;
         sharedArtifact->imports.moduleIds = importedModuleIds;
@@ -4336,6 +4433,11 @@ namespace NG::typecheck
         }
         else if (auto funDef = dynamic_ast_cast<FunctionDef>(def))
         {
+          if (funDef->constEval && !funDef->genericParams.empty())
+          {
+            throw TypeCheckingException("Generic const functions are not supported yet: " + funDef->funName,
+                                        funDef->pos);
+          }
           if (funDef->constEval)
           {
             activeConstFunctions[funDef->funName].push_back(funDef.get());
@@ -4343,9 +4445,23 @@ namespace NG::typecheck
           // Check if this is a generic function (has type parameters)
           if (!funDef->genericParams.empty())
           {
+            auto validateGenericFunctionAnnotations = [&](FunctionDef *target) {
+              Map<Str, CheckingRef<TypeInfo>> genericLocals = locals;
+              addGenericParamsToScope(genericLocals, target->genericParams);
+              addWhereBoundsToScope(genericLocals, target->whereBounds);
+              for (auto param : target->params)
+              {
+                if (param->annotatedType)
+                {
+                  TypeChecker annoChecker{genericLocals};
+                  param->annotatedType->accept(&annoChecker);
+                }
+              }
+            };
             if (auto existing = std::dynamic_pointer_cast<GenericDefType>(locals[funDef->funName]))
             {
               existing->overloads.push_back(funDef);
+              validateGenericFunctionAnnotations(funDef.get());
               continue;
             }
             Vec<Str> typeParamNames;
@@ -4367,21 +4483,7 @@ namespace NG::typecheck
             // type annotations (e.g. `T vector`) can resolve them during
             // monomorphization later.  We don't need to fully type-check the
             // body here, but the params must be visible for annotation parsing.
-            {
-              Map<Str, CheckingRef<TypeInfo>> genericLocals = locals;
-              addGenericParamsToScope(genericLocals, funDef->genericParams);
-              addWhereBoundsToScope(genericLocals, funDef->whereBounds);
-              for (auto param : funDef->params)
-              {
-                if (param->annotatedType)
-                {
-                  TypeChecker annoChecker{genericLocals};
-                  param->annotatedType->accept(&annoChecker);
-                  // Result is discarded — we just need to validate the annotation
-                  // is resolvable.  If it throws, the test catches it.
-                }
-              }
-            }
+            validateGenericFunctionAnnotations(funDef.get());
             continue; // Skip normal function type registration
           }
 
@@ -5170,6 +5272,11 @@ namespace NG::typecheck
       if (auto it = locals.find(funDef->funName); it != locals.end())
       {
         funType = it->second;
+        if (auto existingFunction = std::dynamic_pointer_cast<FunctionType>(funType); existingFunction && funDef->deleted)
+        {
+          existingFunction->deleted = true;
+          existingFunction->deletedRepr = funDef->repr();
+        }
       }
       else
       {
@@ -8701,7 +8808,8 @@ namespace NG::typecheck
       }
       movedBindings = argChecker.movedBindings;
 
-      auto *funcDef = selectGenericFunctionCandidate(genericDef, argumentTypes);
+      auto *funcDef = selectGenericFunctionCandidate(
+          genericDef, argumentTypes, funCall->genericArgs.empty() ? Str::npos : funCall->genericArgs.size());
       if (!funcDef)
       {
         throw TypeCheckingException("No matching generic function overload: " + genericDef.name, funCall->pos);
@@ -8771,8 +8879,11 @@ namespace NG::typecheck
                                                 : false;
           const bool expectedConst = pi < typeParamIsConst.size() && typeParamIsConst[pi];
           substitution[typeParamNames[pi]] =
-              resolveGenericArgument(funCall->genericArgs[pi].get(), expectedConst, expectedArity,
-                                     expectedVariadicTail, typeParamNames[pi]);
+              resolveGenericArgument(funCall->genericArgs[pi].get(), expectedConst,
+                                     pi < funcDef->genericParams.size() && funcDef->genericParams[pi]->constType
+                                         ? funcDef->genericParams[pi]->constType->repr()
+                                         : "",
+                                     expectedArity, expectedVariadicTail, typeParamNames[pi]);
         }
       }
 

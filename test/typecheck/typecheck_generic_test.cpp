@@ -1599,6 +1599,11 @@ TEST_CASE("const generic arguments should reject type values and missing array l
   )", "expects a type argument");
 
   typecheck_failure(R"(
+    type Buffer<T, const N: u32> = native;
+    val bad: Buffer<i32, "wide"> = unit;
+  )", "expects const u32");
+
+  typecheck_failure(R"(
     val bad: array<i32> = [1];
   )", "Fixed array type expects 2 generic arguments");
 }

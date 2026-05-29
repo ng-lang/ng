@@ -26,6 +26,7 @@ TEST_CASE("parser should parse canonical dotted module names", "[Parser][Module]
 
   auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
   REQUIRE(compileUnit != nullptr);
+  REQUIRE(compileUnit->module != nullptr);
   REQUIRE(compileUnit->module->name == "std.prelude");
   REQUIRE(compileUnit->module->nameDeclared);
 
@@ -94,6 +95,7 @@ TEST_CASE("parser should parse exported imports", "[Parser][Module][Import][Expo
 
   auto compileUnit = dynamic_ast_cast<CompileUnit>(ast);
   REQUIRE(compileUnit != nullptr);
+  REQUIRE(compileUnit->module != nullptr);
   REQUIRE(compileUnit->module->imports.size() == 2);
   REQUIRE(compileUnit->module->imports[0]->exported);
   REQUIRE(compileUnit->module->imports[0]->imports == Vec<Str>{"*"});

@@ -155,6 +155,10 @@ namespace NG::library::imgui
         throw RuntimeException(functionName + "() requires " + typeName + " at argument " +
                                std::to_string(index + 1));
       }
+      if (typeName.starts_with("ImGui") && (!active_imgui_state() || ImGui::GetCurrentContext() == nullptr))
+      {
+        throw RuntimeException(functionName + "() received a stale " + typeName + " handle");
+      }
       return reinterpret_cast<T *>(handle.address);
     }
 

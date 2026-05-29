@@ -77,7 +77,7 @@ namespace NG::module
         Set<Str> genericParamNames;
         Vec<Str> whereBounds;
         Map<Str, Str> methods;
-        ImplDef *definition = nullptr;
+        ASTRef<ImplDef> definition;
         TokenPosition pos;
     };
 

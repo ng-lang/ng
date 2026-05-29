@@ -1323,7 +1323,7 @@ TEST_CASE("vm should execute bytecode calls without consuming the C++ call stack
   BytecodeModule module;
   module.name = "manual";
 
-  Function main;
+  Function main{};
   main.name = "main";
   main.num_locals = 0;
   main.num_params = 0;
@@ -1335,7 +1335,7 @@ TEST_CASE("vm should execute bytecode calls without consuming the C++ call stack
   emit_u16_u16(main.code, OpCode::CALL, 1, 1);
   main.code.push_back(static_cast<uint8_t>(OpCode::RETURN));
 
-  Function identity;
+  Function identity{};
   identity.name = "identity";
   identity.num_locals = 1;
   identity.num_params = 1;
@@ -1356,14 +1356,14 @@ TEST_CASE("vm should return unit when a nested bytecode frame reaches the end", 
   BytecodeModule module;
   module.name = "manual-fallthrough";
 
-  Function main;
+  Function main{};
   main.name = "main";
   main.num_locals = 0;
   main.num_params = 0;
   emit_u16_u16(main.code, OpCode::CALL, 1, 0);
   main.code.push_back(static_cast<uint8_t>(OpCode::RETURN));
 
-  Function callee;
+  Function callee{};
   callee.name = "fallthrough";
   callee.num_locals = 0;
   callee.num_params = 0;
@@ -1392,7 +1392,7 @@ TEST_CASE("vm should dispatch imported symbols to registered native fallback", "
   module.name = "native-import";
   module.imports.push_back(ExternalSymbol{.moduleName = "native_mod", .symbolName = "native_inc"});
 
-  Function main;
+  Function main{};
   main.name = "main";
   main.num_locals = 0;
   main.num_params = 0;
@@ -1421,7 +1421,7 @@ TEST_CASE("vm should lazy load imported bytecode modules from ngo artifacts", "[
 
   BytecodeModule imported;
   imported.name = "pkg.math";
-  Function answer;
+  Function answer{};
   answer.name = "answer";
   answer.num_locals = 0;
   answer.num_params = 0;
@@ -1441,7 +1441,33 @@ TEST_CASE("vm should lazy load imported bytecode modules from ngo artifacts", "[
   BytecodeModule entry;
   entry.name = "entry";
   entry.imports.push_back(ExternalSymbol{.moduleName = "pkg.math", .symbolName = "answer"});
-  Function main;
+  Function main{};
+  main.name = "main";
+  main.num_locals = 0;
+  main.num_params = 0;
+  emit_u16_u16(main.code, OpCode::CALL_IMPORT, 0, 0);
+  main.code.push_back(static_cast<uint8_t>(OpCode::RETURN));
+  entry.functions.push_back(std::move(main));
+
+  VM vm{fixture.paths()};
+  auto result = vm.run(entry);
+  REQUIRE(result_i32(result) == 42);
+}
+
+TEST_CASE("vm should lazy compile imported source modules during CALL_IMPORT", "[OrgasmTest][VM][ModuleArtifact]")
+{
+  SourceModuleFixture fixture;
+  fixture.write("pkg/math.ng", R"(
+    module pkg.math exports *;
+    fun answer() -> i32 {
+      return 42;
+    }
+  )");
+
+  BytecodeModule entry;
+  entry.name = "entry";
+  entry.imports.push_back(ExternalSymbol{.moduleName = "pkg.math", .symbolName = "answer"});
+  Function main{};
   main.name = "main";
   main.num_locals = 0;
   main.num_params = 0;
@@ -1504,8 +1530,10 @@ TEST_CASE("module loader should fall back to source when ngo source hash is stal
   staleBytecode.name = "pkg.math";
   staleBytecode.exports["answer"] = 0;
   staleBytecode.exportTypeReprs["answer"] = "fun () -> i32";
-  Function staleAnswer;
+  Function staleAnswer{};
   staleAnswer.name = "answer";
+  staleAnswer.num_locals = 0;
+  staleAnswer.num_params = 0;
   staleAnswer.code = {static_cast<uint8_t>(OpCode::PUSH_I32), 1, 0, 0, 0, static_cast<uint8_t>(OpCode::RETURN)};
   staleBytecode.functions.push_back(std::move(staleAnswer));
   auto artifactPath = fixture.root / "pkg" / "math.ngo";
@@ -1590,8 +1618,10 @@ TEST_CASE("module loader should fall back to source when ngo export metadata is 
   BytecodeModule incompleteBytecode;
   incompleteBytecode.name = "pkg.math";
   incompleteBytecode.exports["answer"] = 0;
-  Function answer;
+  Function answer{};
   answer.name = "answer";
+  answer.num_locals = 0;
+  answer.num_params = 0;
   answer.code = {static_cast<uint8_t>(OpCode::PUSH_I32), 1, 0, 0, 0, static_cast<uint8_t>(OpCode::RETURN)};
   incompleteBytecode.functions.push_back(std::move(answer));
   auto artifactPath = fixture.root / "pkg" / "math.ngo";
@@ -1651,7 +1681,7 @@ TEST_CASE("vm should retag existing trait refs for destination trait coercions",
   module.name = "trait-retag";
   module.strings = {"Ord", "Eq", "check_trait"};
 
-  Function main;
+  Function main{};
   main.name = "main";
   main.num_locals = 1;
   main.num_params = 0;
@@ -1691,7 +1721,7 @@ TEST_CASE("vm should run drop hooks when overwriting object properties", "[Orgas
   module.types.push_back(Type{.name = "Holder", .properties = {"item"}});
   module.types.push_back(Type{.name = "Dynamic"});
 
-  Function main;
+  Function main{};
   main.name = "main";
   main.num_locals = 3;
   main.num_params = 0;
@@ -1719,7 +1749,7 @@ TEST_CASE("vm should run drop hooks when overwriting object properties", "[Orgas
   main.code.push_back(static_cast<uint8_t>(OpCode::PUSH_UNIT));
   main.code.push_back(static_cast<uint8_t>(OpCode::RETURN));
 
-  Function drop;
+  Function drop{};
   drop.name = "Droppable.Drop::drop";
   drop.num_locals = 1;
   drop.num_params = 1;
@@ -1891,7 +1921,7 @@ TEST_CASE("compiler and vm should reject imgui native calls before init", "[Orga
     module.name = "imgui-native-check";
     module.strings.push_back(name);
 
-    Function main;
+    Function main{};
     main.name = "main";
     main.num_locals = 0;
     main.num_params = 0;

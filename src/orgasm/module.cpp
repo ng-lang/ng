@@ -13,6 +13,7 @@ namespace NG::orgasm
         constexpr uint32_t MAX_NGO_STRING_SIZE = 64U * 1024U * 1024U;
         constexpr uint32_t MAX_NGO_VECTOR_SIZE = 1U * 1024U * 1024U;
         constexpr uint32_t MAX_NGO_CODE_SIZE = 64U * 1024U * 1024U;
+        constexpr uint32_t MAX_NGO_EXPORTS = 1U * 1024U * 1024U;
 
         void read_exact_bytes(std::istream &in, char *destination, size_t destinationSize,
                               size_t requestedSize, const Str &field)
@@ -293,7 +294,7 @@ namespace NG::orgasm
         return out.str();
     }
 
-    void write_bytecode_module(const BytecodeModule &module, const Str &path, const Str &sourceHash)
+    void write_bytecode_module(const BytecodeModule &module, const Str &path, const Str &overrideSourceHash)
     {
         std::ofstream out(path, std::ios::binary);
         if (!out)
@@ -306,7 +307,7 @@ namespace NG::orgasm
         write_scalar<uint32_t>(out, NGO_ABI_VERSION);
         write_scalar<uint32_t>(out, NGO_METADATA_SCHEMA_VERSION);
         write_string(out, module.name);
-        write_string(out, sourceHash.empty() ? module.sourceHash : sourceHash);
+        write_string(out, overrideSourceHash.empty() ? module.sourceHash : overrideSourceHash);
 
         write_vector<int64_t>(out, module.constants, [&](int64_t value) { write_scalar<int64_t>(out, value); });
         write_vector<double>(out, module.float_constants, [&](double value) { write_scalar<double>(out, value); });
@@ -378,6 +379,10 @@ namespace NG::orgasm
         module.imports = read_vector<ExternalSymbol>(in, "imports",
                                                      [&](const Str &field) { return read_import(in, field); });
         auto exportCount = read_scalar<uint32_t>(in, "exports.count");
+        if (exportCount > MAX_NGO_EXPORTS)
+        {
+            throw RuntimeException(".ngo exports too large");
+        }
         for (uint32_t i = 0; i < exportCount; ++i)
         {
             auto name = read_string(in, "exports[" + std::to_string(i) + "].name");
@@ -503,8 +508,17 @@ namespace NG::orgasm
 
                 // Instructions with function index operand
                 case OpCode::CALL:
+                case OpCode::FOLD_MAP_CALL:
+                case OpCode::FOLD_FILTER_CALL:
+                case OpCode::FOLD_LEFT_CALL:
+                case OpCode::FOLD_RIGHT_CALL:
                     remap_u16_fun(1);
-                    i += 4; // funIndex + numArgs
+                    i += op == OpCode::CALL ? 4 : 2; // CALL has funIndex + numArgs; folds only funIndex.
+                    break;
+                case OpCode::MAKE_RANGE:
+                    i += 1; // inclusive flag
+                    break;
+                case OpCode::SLICE_RANGE:
                     break;
                 case OpCode::CONSTRUCT_TAGGED:
                     remap_u16_type(1);

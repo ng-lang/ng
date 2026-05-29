@@ -94,7 +94,11 @@ namespace NG::module
 
   static auto read_text_file(const fs::path &path) -> Str
   {
-    std::fstream file{path};
+    std::ifstream file{path};
+    if (!file)
+    {
+      throw RuntimeException("Failed to open module file: " + path.string());
+    }
     return Str{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
   }
 
@@ -247,6 +251,16 @@ namespace NG::module
     global_module_info_cache[modulePath] = moduleInfo;
   }
 
+  static auto module_cache_key(const fs::path &base, const Str &moduleId) -> Str
+  {
+    return "module:" + fs::absolute(base).lexically_normal().string() + ":" + moduleId;
+  }
+
+  static auto path_cache_key(const Str &absolutePath, const Str &moduleId) -> Str
+  {
+    return "path:" + absolutePath + ":" + moduleId;
+  }
+
   void clear_module_loader_cache() noexcept
   {
     global_module_info_cache.clear();
@@ -255,11 +269,6 @@ namespace NG::module
   auto FileBasedExternalModuleLoader::load(const Vec<Str> &module) -> RuntimeRef<ModuleInfo>
   {
     const Str requestedModuleId = canonical_module_id(module);
-    if (isCached(requestedModuleId))
-    {
-      return getCached(requestedModuleId);
-    }
-
     fs::path modulePath = std::accumulate(module.begin(), module.end(), fs::path{},
                                           [](fs::path acc, const Str &segment) { return acc / segment; });
     Vec<std::pair<fs::path, ModuleFormat>> relativeProbes;
@@ -274,6 +283,11 @@ namespace NG::module
 
     for (const auto &base : module_search_roots(this->basePaths))
     {
+      auto moduleKey = module_cache_key(base, requestedModuleId);
+      if (isCached(moduleKey))
+      {
+        return getCached(moduleKey);
+      }
       for (const auto &[relative, format] : relativeProbes)
       {
         fs::path candidate{base};
@@ -283,9 +297,14 @@ namespace NG::module
           continue;
         }
         auto absolute = fs::absolute(candidate).lexically_normal().string();
-        if (isCached(absolute))
+        auto absoluteKey = path_cache_key(absolute, requestedModuleId);
+        if (isCached(absoluteKey))
         {
-          return getCached(absolute);
+          auto cached = getCached(absoluteKey);
+          if (cached && cached->moduleId == requestedModuleId)
+          {
+            return cached;
+          }
         }
         if (format == ModuleFormat::BytecodeNgo)
         {
@@ -362,12 +381,16 @@ namespace NG::module
             .traits = std::move(traits),
             .impls = std::move(impls),
           });
-          putCached(requestedModuleId, moduleInfo);
-          putCached(absolute, moduleInfo);
+          putCached(moduleKey, moduleInfo);
+          putCached(absoluteKey, moduleInfo);
           return moduleInfo;
         }
         std::string source = read_text_file(candidate);
         auto result = Parser(ParseState(Lexer(LexState{source}).lex())).parse(candidate);
+        if (!result)
+        {
+          throw RuntimeException("Failed to parse module '" + requestedModuleId + "' from: " + absolute);
+        }
         if (result)
         {
           auto compileUnit = dynamic_ast_cast<NG::ast::CompileUnit>(result);
@@ -398,8 +421,8 @@ namespace NG::module
             .originPath = absolute,
             .ast = result,
           });
-          putCached(requestedModuleId, moduleInfo);
-          putCached(absolute, moduleInfo);
+          putCached(moduleKey, moduleInfo);
+          putCached(absoluteKey, moduleInfo);
           return moduleInfo;
         }
       }

@@ -83,6 +83,13 @@ namespace NG::module
       {
         exports.declared = descriptor.exports.declared;
       }
+      if (exports.declared.empty() && !descriptor.functions.empty())
+      {
+        for (const auto &[name, _handler] : descriptor.functions)
+        {
+          exports.declared.insert(name);
+        }
+      }
       if (exports.declared.empty() && (!descriptor.typeIndex.empty() || !descriptor.exports.types.empty()))
       {
         exports.declared.insert("*");
@@ -139,6 +146,14 @@ namespace NG::module
     auto runtimeModule = moduleInfo && moduleInfo->moduleAst && moduleInfo->runtimeModule
                              ? moduleInfo->runtimeModule
                              : NG::runtime::make_runtime_module();
+    if (auto state = NG::runtime::runtime_module_state(runtimeModule))
+    {
+      state->nativeFunctions.clear();
+      for (const auto &[name, _handler] : descriptor->functions)
+      {
+        state->exports.erase(name);
+      }
+    }
     NG::runtime::bind_native_library_handlers(runtimeModule, descriptor->functions);
     for (const auto &name : exports.declared)
     {

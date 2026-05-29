@@ -47,13 +47,9 @@ namespace NG::runtime
     {
       return runtime_sequence_slot(container, offset);
     }
-    catch (const RuntimeException &ex)
+    catch (const SequenceCompatibilityException &)
     {
-      if (Str{ex.what()}.find("Expected Sequence-compatible runtime value") != Str::npos)
-      {
-        throw IllegalTypeException("Not index-accessible");
-      }
-      throw;
+      throw IllegalTypeException("Not index-accessible");
     }
   }
 

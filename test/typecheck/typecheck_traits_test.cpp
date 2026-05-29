@@ -961,7 +961,7 @@ TEST_CASE("source module artifacts should load through NG_MODULE_PATH",
   auto baseArtifact = registry.queryArtifactById("pkg.base");
   REQUIRE(baseArtifact != nullptr);
   REQUIRE(baseArtifact->format == NG::module::ModuleFormat::SourceNg);
-  REQUIRE(baseArtifact->originPath.ends_with("pkg/base.ng"));
+  REQUIRE(std::filesystem::path(baseArtifact->originPath).generic_string().ends_with("pkg/base.ng"));
   REQUIRE(baseArtifact->exports.types.contains("Box"));
   REQUIRE(baseArtifact->exports.types.contains("Show"));
   REQUIRE(baseArtifact->traits.contains("Show"));

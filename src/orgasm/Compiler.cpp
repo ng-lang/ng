@@ -299,6 +299,10 @@ namespace NG::orgasm
                     Type type;
                     type.name = typeDef->typeName;
                     for (auto &&prop : typeDef->properties) type.properties.push_back(prop->propertyName);
+                    for (auto &&trait : typeDef->derivedTraits)
+                    {
+                        if (trait) type.derivedTraits.push_back(trait->repr());
+                    }
                     module.types.push_back(std::move(type));
                 }
                 for (auto &&memFn : typeDef->memberFunctions)
@@ -386,6 +390,10 @@ namespace NG::orgasm
                     }
                     else if (auto inferred = infer_expression_type_name(valStmt->value); !inferred.empty())
                     {
+                        if (auto traitName = trait_ref_name_from_type_repr(inferred); !traitName.empty())
+                        {
+                            globalTraitObjectTypes[valStmt->name] = traitName;
+                        }
                         globalValueTypes[valStmt->name] = std::move(inferred);
                     }
                     if (auto traitName = trait_ref_name(valStmt->typeAnnotation.get()); !traitName.empty())
@@ -538,9 +546,10 @@ namespace NG::orgasm
         {
             for (size_t i = 0; i < module.functions.size(); ++i)
             {
-                if (module.functions[i].name != "__start__")
+                const auto &name = module.functions[i].name;
+                if (name != "__start__" && !genericFunctionInstanceSet.contains(name))
                 {
-                    module.exports[module.functions[i].name] = static_cast<int32_t>(i);
+                    module.exports[name] = static_cast<int32_t>(i);
                 }
             }
         }
@@ -1215,6 +1224,18 @@ namespace NG::orgasm
             {
                 names = importDecl->imports;
             }
+            if (importDecl->imports.empty())
+            {
+                auto alias = importDecl->alias.empty() ? importDecl->module : importDecl->alias;
+                auto &qualified = qualified_import_symbols[alias];
+                for (const auto &[name, _type] : artifact->exports.types)
+                {
+                    int32_t importIdx = static_cast<int32_t>(module.imports.size());
+                    module.imports.push_back({moduleId, name});
+                    qualified[name] = {moduleId, importIdx};
+                }
+                return;
+            }
             for (auto &&name : names)
             {
                 addShortImport(name);
@@ -1233,12 +1254,26 @@ namespace NG::orgasm
             registry.addModuleInfo(moduleInfo);
         }
         if (!moduleInfo->bytecodeModule) {
+            static Set<Str> compilingModules;
+            if (!compilingModules.insert(moduleId).second)
+            {
+                throw RuntimeException("Cyclic source module compilation detected: " + moduleId);
+            }
             Compiler inner(modulePaths);
             auto cu = dynamic_ast_cast<CompileUnit>(moduleInfo->moduleAst);
-            if (!cu) throw RuntimeException("Failed to cast AST to CompileUnit for module " + moduleId);
-            auto bc = inner.compile(cu);
-            moduleInfo->bytecodeModule = std::make_shared<BytecodeModule>(std::move(bc));
-            registry.addModuleInfo(moduleInfo);
+            try
+            {
+                if (!cu) throw RuntimeException("Failed to cast AST to CompileUnit for module " + moduleId);
+                auto bc = inner.compile(cu);
+                moduleInfo->bytecodeModule = std::make_shared<BytecodeModule>(std::move(bc));
+                registry.addModuleInfo(moduleInfo);
+                compilingModules.erase(moduleId);
+            }
+            catch (...)
+            {
+                compilingModules.erase(moduleId);
+                throw;
+            }
         }
         if (auto cu = dynamic_ast_cast<CompileUnit>(moduleInfo->moduleAst); cu && cu->module)
         {
@@ -1717,17 +1752,17 @@ namespace NG::orgasm
             if (range->end)
             {
                 range->end->accept(this);
+                if (range->inclusive)
+                {
+                    emit(OpCode::PUSH_I32);
+                    emit_i32(1);
+                    emit(OpCode::ADD);
+                }
             }
             else
             {
                 emit(OpCode::PUSH_I32);
                 emit_i32(std::numeric_limits<int32_t>::max());
-            }
-            if (range->inclusive)
-            {
-                emit(OpCode::PUSH_I32);
-                emit_i32(1);
-                emit(OpCode::ADD);
             }
             emit(OpCode::SLICE_RANGE);
             return;
@@ -1878,6 +1913,10 @@ namespace NG::orgasm
                     }
                     else if (auto inferred = infer_expression_type_name(valDefStmt->value); !inferred.empty())
                     {
+                        if (auto traitName = trait_ref_name_from_type_repr(inferred); !traitName.empty())
+                        {
+                            localTraitObjectTypes[valDefStmt->name] = traitName;
+                        }
                         localValueTypes[valDefStmt->name] = std::move(inferred);
                     }
                     if (auto traitName = trait_ref_name(valDefStmt->typeAnnotation.get()); !traitName.empty())

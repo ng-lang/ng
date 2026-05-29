@@ -71,14 +71,15 @@ loop {
             SameLine();
             BulletText("SDL is still managed inside std.imgui.");
             AlignTextToFramePadding();
-            GetWindowPosX();
-            GetWindowPosY();
-            GetWindowWidth();
-            GetWindowHeight();
-            GetTextLineHeightWithSpacing();
-            GetFrameHeightWithSpacing();
-            GetScrollX();
-            GetScrollMaxY();
+            val windowX = GetWindowPosX();
+            val windowY = GetWindowPosY();
+            val windowW = GetWindowWidth();
+            val windowH = GetWindowHeight();
+            val textLine = GetTextLineHeightWithSpacing();
+            val frameLine = GetFrameHeightWithSpacing();
+            val scrollX = GetScrollX();
+            val scrollMaxY = GetScrollMaxY();
+            Text("Window and layout metrics sampled through getters.");
 
             BeginGroup();
             Text("Backend");

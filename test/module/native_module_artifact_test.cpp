@@ -70,11 +70,14 @@ namespace
                 std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()))),
           modulePath("NG_MODULE_PATH", root.string())
     {
+      NG::module::clear_module_loader_cache();
       fs::create_directories(root);
     }
 
     ~NativeSourceFixture()
     {
+      NG::module::clear_module_loader_cache();
+      NG::module::get_module_registry().clear();
       fs::remove_all(root);
     }
 

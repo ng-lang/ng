@@ -554,7 +554,18 @@ namespace NG::parsing
           }
           else
           {
+            static const Vec<Str> numericSuffixes{
+                "i8", "i16", "i32", "i64", "i128", "u8", "u16", "u32", "u64", "u128",
+                "f16", "f32", "f64", "f128"};
             literal->constLiteralType = "i64";
+            for (const auto &suffix : numericSuffixes)
+            {
+              if (state->repr.ends_with(suffix))
+              {
+                literal->constLiteralType = suffix;
+                break;
+              }
+            }
           }
           accept(state->type);
           arg = std::shared_ptr<TypeAnnotation>(std::move(literal));
@@ -1314,7 +1325,8 @@ namespace NG::parsing
         if (mod->name == moduleName)
         {
         }
-        else if (mod->name == moduleTail || mod->name == "[noname]" || mod->name == "[interpreter]")
+        else if (mod->name == moduleTail || mod->name == "module" || mod->name == "[noname]" ||
+                 mod->name == "[interpreter]")
         {
           mod->name = moduleName;
         }

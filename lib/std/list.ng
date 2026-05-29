@@ -7,6 +7,7 @@ type Node<T> = Cell(value: T, prev: ref<Node<T>>, rest: ref<Node<T>>) | Empty;
 fun getNode<T>(node: ref<Node<T>>, index: i32) -> T {
     switch (*node) {
         case Empty {
+            assert(false);
             return getNode(node, index);
         }
         case Cell(value, previous, rest) {

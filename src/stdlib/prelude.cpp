@@ -197,7 +197,15 @@ namespace NG::library::prelude
       return false;
     }
     return std::ranges::all_of(path, [](unsigned char ch) {
-      return std::isalnum(ch) != 0 || ch == '/' || ch == '.' || ch == '_' || ch == '-';
+      if (std::isalnum(ch) != 0 || ch == '/' || ch == '.' || ch == '_' || ch == '-')
+      {
+        return true;
+      }
+#ifdef _WIN32
+      return ch == '\\' || ch == ':';
+#else
+      return false;
+#endif
     });
   }
 
