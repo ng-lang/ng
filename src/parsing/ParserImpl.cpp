@@ -2185,7 +2185,6 @@ namespace NG::parsing
       else if (expect(TokenType::NUMBER))
       {
         idacc->accessor = createNode<IdExpression>(numberLiteral()->repr());
-        return idacc;
       }
       else
       {
