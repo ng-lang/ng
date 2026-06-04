@@ -2390,65 +2390,36 @@ namespace NG::parsing
     auto numberLiteral() -> ASTRef<Expression>
     {
       auto integer = state->repr;
-      switch (state->type)
+      auto type = state->type;
+      accept(type);
+
+      // Integral types — table-driven dispatch
+      switch (type)
       {
       case TokenType::NUMBER:
-        accept(state->type);
-        return createNode<IntegralValue<int32_t>>(std::stoi(integer));
       case TokenType::INTEGRAL:
-        accept(state->type);
-        return createNode<IntegralValue<int32_t>>(static_cast<int32_t>(std::stoi(integer)));
-      case TokenType::NUMBER_I8:
-        accept(state->type);
-        return createNode<IntegralValue<int8_t>>(static_cast<int8_t>(std::stoi(integer)));
-      case TokenType::NUMBER_U8:
-        accept(state->type);
-        return createNode<IntegralValue<uint8_t>>(static_cast<uint8_t>(std::stoi(integer)));
-      case TokenType::NUMBER_I16:
-        accept(state->type);
-        return createNode<IntegralValue<int16_t>>(static_cast<int16_t>(std::stoi(integer)));
-      case TokenType::NUMBER_U16:
-        accept(state->type);
-        return createNode<IntegralValue<uint16_t>>(static_cast<uint16_t>(std::stoi(integer)));
-      case TokenType::NUMBER_I32:
-        accept(state->type);
-        return createNode<IntegralValue<int32_t>>(static_cast<int32_t>(std::stoi(integer)));
-      case TokenType::NUMBER_U32:
-        accept(state->type);
-        return createNode<IntegralValue<uint32_t>>(static_cast<uint32_t>(std::stoul(integer)));
-      case TokenType::NUMBER_I64:
-        accept(state->type);
-        return createNode<IntegralValue<int64_t>>(static_cast<int64_t>(std::stoll(integer)));
-      case TokenType::NUMBER_U64:
-        accept(state->type);
-        return createNode<IntegralValue<uint64_t>>(static_cast<uint64_t>(std::stoull(integer)));
-      case TokenType::NUMBER_I128:
-        accept(state->type);
-        // todo: support i128 parsing properly
-        return createNode<IntegralValue<int64_t>>(static_cast<int64_t>(std::stoll(integer)));
-      case TokenType::NUMBER_U128:
-        accept(state->type);
-        // todo: support u128 parsing properly
-        return createNode<IntegralValue<uint64_t>>(static_cast<uint64_t>(std::stoull(integer)));
+      case TokenType::NUMBER_I32:  return createNode<IntegralValue<int32_t>>(std::stoi(integer));
+      case TokenType::NUMBER_I8:   return createNode<IntegralValue<int8_t>>(static_cast<int8_t>(std::stoi(integer)));
+      case TokenType::NUMBER_U8:   return createNode<IntegralValue<uint8_t>>(static_cast<uint8_t>(std::stoi(integer)));
+      case TokenType::NUMBER_I16:  return createNode<IntegralValue<int16_t>>(static_cast<int16_t>(std::stoi(integer)));
+      case TokenType::NUMBER_U16:  return createNode<IntegralValue<uint16_t>>(static_cast<uint16_t>(std::stoi(integer)));
+      case TokenType::NUMBER_U32:  return createNode<IntegralValue<uint32_t>>(static_cast<uint32_t>(std::stoul(integer)));
+      case TokenType::NUMBER_I64:  return createNode<IntegralValue<int64_t>>(std::stoll(integer));
+      case TokenType::NUMBER_U64:  return createNode<IntegralValue<uint64_t>>(std::stoull(integer));
+      case TokenType::NUMBER_I128: return createNode<IntegralValue<int64_t>>(std::stoll(integer)); // todo: i128
+      case TokenType::NUMBER_U128: return createNode<IntegralValue<uint64_t>>(std::stoull(integer)); // todo: u128
+
+      // Floating-point types
       case TokenType::FLOATING_POINT:
-        accept(state->type);
-        return createNode<FloatingPointValue<float>>(std::stof(integer));
-      case TokenType::NUMBER_F16:
-        unexpected("Float16 not supported");
-      case TokenType::NUMBER_F32:
-        accept(state->type);
-        return createNode<FloatingPointValue<float>>(std::stof(integer));
+      case TokenType::NUMBER_F32:  return createNode<FloatingPointValue<float>>(std::stof(integer));
       case TokenType::NUMBER_F64:
-        accept(state->type);
-        return createNode<FloatingPointValue<double>>(std::stod(integer));
-      case TokenType::NUMBER_F128:
-        accept(state->type);
-        return createNode<FloatingPointValue<double>>(std::stod(integer));
-      case TokenType::NUMBER_F256:
-        unexpected("Float256 not supported");
-      default:
-        unexpected("Invalid number literal");
+      case TokenType::NUMBER_F128: return createNode<FloatingPointValue<double>>(std::stod(integer));
+
+      case TokenType::NUMBER_F16:  unexpected("Float16 not supported");
+      case TokenType::NUMBER_F256: unexpected("Float256 not supported");
+      default:                     unexpected("Invalid number literal");
       }
+      return nullptr; // unreachable
     }
 
     auto idExpression() -> ASTRef<IdExpression>
