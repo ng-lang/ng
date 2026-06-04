@@ -62,6 +62,7 @@ set(NG_LIB_SRC
         src/typecheck/typecheck.cpp
         src/typecheck/mangling.cpp
         src/typecheck/typeinfo.cpp
+        src/typecheck/pattern_matching.cpp
         src/typecheck/PrimitiveType.cpp
         src/typecheck/FunctionType.cpp
         src/typecheck/ArrayType.cpp
