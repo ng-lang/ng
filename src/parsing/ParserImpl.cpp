@@ -1017,6 +1017,32 @@ namespace NG::parsing
       return traits;
     }
 
+    // Parse a single tagged union variant: VariantName(field: Type, ...)
+    auto parseVariant() -> VariantDef
+    {
+      VariantDef variant;
+      variant.variantName = state->repr;
+      accept(TokenType::ID);
+      if (expect(TokenType::LEFT_PAREN))
+      {
+        accept(TokenType::LEFT_PAREN);
+        while (!expect(TokenType::RIGHT_PAREN))
+        {
+          // Skip optional field name: "name: type" or just "type"
+          if (expect(TokenType::ID) && peekTokenType(1) == TokenType::COLON)
+          {
+            variant.payloadNames.push_back(state->repr);
+            accept(TokenType::ID);
+            accept(TokenType::COLON);
+          }
+          variant.payloadTypes.push_back(typeAnnotation());
+          if (expect(TokenType::COMMA)) accept(TokenType::COMMA);
+        }
+        accept(TokenType::RIGHT_PAREN);
+      }
+      return variant;
+    }
+
     auto typeDef() -> ASTRef<Definition>
     {
       accept(TokenType::KEYWORD_TYPE);
@@ -1088,52 +1114,13 @@ namespace NG::parsing
           taggedUnion->genericParams = std::move(typeGenericParams);
 
           // Parse first variant
-          VariantDef variant;
-          variant.variantName = state->repr;
-          accept(TokenType::ID);
-          if (expect(TokenType::LEFT_PAREN))
-          {
-            accept(TokenType::LEFT_PAREN);
-            while (!expect(TokenType::RIGHT_PAREN))
-            {
-              // Skip optional field name: "name: type" or just "type"
-              if (expect(TokenType::ID) && peekTokenType(1) == TokenType::COLON)
-              {
-                variant.payloadNames.push_back(state->repr); // store field name
-                accept(TokenType::ID);   // skip field name
-                accept(TokenType::COLON); // skip colon
-              }
-              variant.payloadTypes.push_back(typeAnnotation());
-              if (expect(TokenType::COMMA)) accept(TokenType::COMMA);
-            }
-            accept(TokenType::RIGHT_PAREN);
-          }
-          taggedUnion->variants.push_back(std::move(variant));
+          taggedUnion->variants.push_back(parseVariant());
 
           // Parse additional variants separated by PIPE
           while (expect(TokenType::PIPE))
           {
             accept(TokenType::PIPE);
-            VariantDef v;
-            v.variantName = state->repr;
-            accept(TokenType::ID);
-            if (expect(TokenType::LEFT_PAREN))
-            {
-              accept(TokenType::LEFT_PAREN);
-              while (!expect(TokenType::RIGHT_PAREN))
-              {
-                if (expect(TokenType::ID) && peekTokenType(1) == TokenType::COLON)
-                {
-                  v.payloadNames.push_back(state->repr); // store field name
-                  accept(TokenType::ID);
-                  accept(TokenType::COLON);
-                }
-                v.payloadTypes.push_back(typeAnnotation());
-                if (expect(TokenType::COMMA)) accept(TokenType::COMMA);
-              }
-              accept(TokenType::RIGHT_PAREN);
-            }
-            taggedUnion->variants.push_back(std::move(v));
+            taggedUnion->variants.push_back(parseVariant());
           }
 
           accept(TokenType::SEMICOLON);
