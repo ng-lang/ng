@@ -612,39 +612,12 @@ namespace NG::parsing
     return val;
   }
 
-  static auto hex2dec(char character) -> int
+  static auto hex2dec(char c) -> int
   {
-    constexpr int decimalBase = 10;
-    switch (character)
-    {
-    case '0':
-    case '1':
-    case '2':
-    case '3':
-    case '4':
-    case '5':
-    case '6':
-    case '7':
-    case '8':
-    case '9':
-      return character - '0';
-    case 'a':
-    case 'b':
-    case 'c':
-    case 'd':
-    case 'e':
-    case 'f':
-      return (character - 'a') + decimalBase;
-    case 'A':
-    case 'B':
-    case 'C':
-    case 'D':
-    case 'E':
-    case 'F':
-      return (character - 'A') + decimalBase;
-    default:
-      throw LexException("Unknown hex digit");
-    }
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    throw LexException("Unknown hex digit");
   }
 
   static auto hexVal(LexState &state) -> char
