@@ -1660,45 +1660,42 @@ namespace NG::typecheck
       {
         return;
       }
-      if (auto ref = std::dynamic_pointer_cast<ReferenceType>(unwrapped))
+      switch (unwrapped->tag())
       {
-        if (auto trait = std::dynamic_pointer_cast<TraitType>(unwrap(ref->referencedType));
-            trait && !isObjectSafeTrait(*trait))
+      case typeinfo_tag::REFERENCE:
+      {
+        const auto &ref = static_cast<const ReferenceType &>(*unwrapped);
+        auto refUnwrapped = unwrap(ref.referencedType);
+        if (refUnwrapped && refUnwrapped->tag() == typeinfo_tag::TRAIT)
         {
-          throw TypeCheckingException("Trait is not object-safe for ref<" + trait->repr() + ">");
+          const auto &trait = static_cast<const TraitType &>(*refUnwrapped);
+          if (!isObjectSafeTrait(trait))
+          {
+            throw TypeCheckingException("Trait is not object-safe for ref<" + trait.repr() + ">");
+          }
         }
-        validateObjectSafeTraitRefs(ref->referencedType);
+        validateObjectSafeTraitRefs(ref.referencedType);
         return;
       }
-      if (auto array = std::dynamic_pointer_cast<ArrayType>(unwrapped))
-      {
-        validateObjectSafeTraitRefs(array->elementType);
+      case typeinfo_tag::ARRAY:
+        validateObjectSafeTraitRefs(static_cast<const ArrayType &>(*unwrapped).elementType);
         return;
-      }
-      if (auto vector = std::dynamic_pointer_cast<VectorType>(unwrapped))
-      {
-        validateObjectSafeTraitRefs(vector->elementType);
+      case typeinfo_tag::VECTOR:
+        validateObjectSafeTraitRefs(static_cast<const VectorType &>(*unwrapped).elementType);
         return;
-      }
-      if (auto span = std::dynamic_pointer_cast<SpanType>(unwrapped))
-      {
-        validateObjectSafeTraitRefs(span->elementType);
+      case typeinfo_tag::SPAN:
+        validateObjectSafeTraitRefs(static_cast<const SpanType &>(*unwrapped).elementType);
         return;
-      }
-      if (auto tuple = std::dynamic_pointer_cast<TupleType>(unwrapped))
-      {
-        for (auto &element : tuple->elementTypes)
-        {
+      case typeinfo_tag::TUPLE:
+        for (auto &element : static_cast<const TupleType &>(*unwrapped).elementTypes)
           validateObjectSafeTraitRefs(element);
-        }
         return;
-      }
-      if (auto unionType = std::dynamic_pointer_cast<UnionType>(unwrapped))
-      {
-        for (auto &member : unionType->types)
-        {
+      case typeinfo_tag::UNION:
+        for (auto &member : static_cast<const UnionType &>(*unwrapped).types)
           validateObjectSafeTraitRefs(member);
-        }
+        return;
+      default:
+        return;
       }
     }
 
