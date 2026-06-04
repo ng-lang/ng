@@ -44,22 +44,29 @@ namespace NG
     };
 
     /**
+     * @brief Unified base exception for all NG compiler/runtime errors.
+     */
+    struct NGException : std::runtime_error
+    {
+        using std::runtime_error::runtime_error;
+    };
+
+    /**
      * @brief Exception thrown during lexical analysis.
      */
-    struct LexException : std::logic_error
+    struct LexException : NGException
     {
-        explicit LexException() : logic_error("Error: lex exception found") {}
-
-        explicit LexException(const std::string &msg) : logic_error(msg) {}
+        explicit LexException() : NGException("Error: lex exception found") {}
+        explicit LexException(const std::string &msg) : NGException(msg) {}
     };
 
     /**
      * @brief Exception thrown during parsing.
      */
-    struct ParseException : std::logic_error
+    struct ParseException : NGException
     {
         TokenPosition pos;
-        explicit ParseException(const std::string &message, TokenPosition pos = {}) : logic_error(message), pos(pos) {}
+        explicit ParseException(const std::string &message, TokenPosition pos = {}) : NGException(message), pos(pos) {}
     };
 
     /**
@@ -71,59 +78,53 @@ namespace NG
     };
 
     /**
-     * @brief Exception thrown for features that are not yet implemented.
+     * @brief Exception thrown during type checking.
      */
-    struct NotImplementedException : std::runtime_error
+    struct TypeCheckingException : NGException
     {
-        explicit NotImplementedException() : runtime_error("Error: not implemented") {}
-        explicit NotImplementedException(const std::string &reason) : runtime_error(reason) {}
-    };
-
-    /**
-     * @brief Exception thrown for illegal type operations.
-     */
-    struct IllegalTypeException : std::runtime_error
-    {
-        explicit IllegalTypeException(const std::string &message) : runtime_error(message) {}
-    };
-
-    /**
-     * @brief Exception thrown when an assertion fails.
-     */
-    struct AssertionException : std::logic_error
-    {
-        explicit AssertionException() : logic_error("Assertion Failed") {}
+        TokenPosition pos;
+        explicit TypeCheckingException(const std::string &message, TokenPosition pos = {})
+            : NGException(message), pos(pos) {}
     };
 
     /**
      * @brief Generic runtime exception.
      */
-    struct RuntimeException : std::runtime_error
+    struct RuntimeException : NGException
     {
         TokenPosition pos;
-        explicit RuntimeException(const std::string &message, TokenPosition pos = {}) : runtime_error(message), pos(pos)
-        {
-        }
+        explicit RuntimeException(const std::string &message, TokenPosition pos = {}) : NGException(message), pos(pos) {}
     };
 
     struct SequenceCompatibilityException : RuntimeException
     {
         explicit SequenceCompatibilityException(const std::string &message = "Expected Sequence-compatible runtime value")
-            : RuntimeException(message)
-        {
-        }
+            : RuntimeException(message) {}
     };
 
     /**
-     * @brief Exception thrown during type checking.
+     * @brief Exception thrown when an assertion fails.
      */
-    struct TypeCheckingException : std::logic_error
+    struct AssertionException : RuntimeException
     {
-        TokenPosition pos;
-        explicit TypeCheckingException(const std::string &message, TokenPosition pos = {})
-            : logic_error(message), pos(pos)
-        {
-        }
+        explicit AssertionException() : RuntimeException("Assertion Failed") {}
+    };
+
+    /**
+     * @brief Exception thrown for features that are not yet implemented.
+     */
+    struct NotImplementedException : RuntimeException
+    {
+        explicit NotImplementedException() : RuntimeException("Error: not implemented") {}
+        explicit NotImplementedException(const std::string &reason) : RuntimeException(reason) {}
+    };
+
+    /**
+     * @brief Exception thrown for illegal type operations.
+     */
+    struct IllegalTypeException : RuntimeException
+    {
+        explicit IllegalTypeException(const std::string &message) : RuntimeException(message) {}
     };
 
     /**
