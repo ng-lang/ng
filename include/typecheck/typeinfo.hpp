@@ -75,25 +75,18 @@ namespace NG::typecheck
      */
     struct TypeInfo : NG::NonCopyable
     {
-        /**
-         * @brief Returns the tag of the type info.
-         *
-         * @return The tag of the type info.
-         */
         [[nodiscard]] virtual auto tag() const -> typeinfo_tag = 0;
-        /**
-         * @brief Returns a string representation of the type info.
-         *
-         * @return A string representation of the type info.
-         */
         [[nodiscard]] virtual auto repr() const -> Str = 0;
-        /**
-         * @brief Matches this type info against another type info.
-         *
-         * @param other The other type info.
-         * @return `true` if the type infos match, `false` otherwise.
-         */
         [[nodiscard]] virtual auto match(const TypeInfo &other) const -> bool = 0;
+
+        /**
+         * @brief Returns the canonical name for name mangling.
+         *
+         * Override in subclasses to provide type-specific canonical names.
+         * Default implementation returns repr().
+         */
+        [[nodiscard]] virtual auto canonicalName() const -> Str { return repr(); }
+
         virtual ~TypeInfo() = 0;
     };
 
