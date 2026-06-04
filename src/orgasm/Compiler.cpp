@@ -1265,55 +1265,76 @@ namespace NG::orgasm
         return emitted;
     }
 
-    void Compiler::visit(ast::FunCallExpression *funCallExpr)
+    void Compiler::compileFoldCall(ast::FunCallExpression *funCallExpr, ast::IdExpression *target)
     {
         auto foldIt = std::find_if(funCallExpr->arguments.begin(), funCallExpr->arguments.end(), [](const auto &arg) {
             return dynamic_ast_cast<PostfixFoldExpression>(arg) != nullptr;
         });
-        if (foldIt != funCallExpr->arguments.end())
+        if (foldIt == funCallExpr->arguments.end()) return;
+
+        int32_t funIndex = find_function_index(target->id);
+        if (funIndex < 0)
         {
-            auto target = dynamic_ast_cast<IdExpression>(funCallExpr->primaryExpression);
-            if (!target)
-            {
-                throw NotImplementedException("ORGASM fold calls require a direct function name");
+            throw NotImplementedException("ORGASM fold calls only support local functions: " + target->id);
+        }
+        auto foldIndex = static_cast<size_t>(std::distance(funCallExpr->arguments.begin(), foldIt));
+        if (funCallExpr->arguments.size() != 2 || (foldIndex != 0 && foldIndex != 1))
+        {
+            throw NotImplementedException("Fold call expects `op(xs..., init)` or `op(init, xs...)`");
+        }
+        auto fold = dynamic_ast_cast<PostfixFoldExpression>(*foldIt);
+        if (fold->filter)
+        {
+            throw NotImplementedException("Filter marker `?...` is only supported in array literals");
+        }
+        if (foldIndex == 0)
+        {
+            fold->expression->accept(this);
+            funCallExpr->arguments[1]->accept(this);
+            emit(OpCode::FOLD_RIGHT_CALL);
+        }
+        else
+        {
+            funCallExpr->arguments[0]->accept(this);
+            fold->expression->accept(this);
+            emit(OpCode::FOLD_LEFT_CALL);
+        }
+        emit_u16(static_cast<uint16_t>(funIndex));
+    }
+
+    void Compiler::compileTaggedConstructor(ast::FunCallExpression *funCallExpr, const Str &variantName)
+    {
+        auto &info = variant_map[variantName];
+        int32_t typeIdx = -1;
+        for (size_t i = 0; i < module.types.size(); ++i) {
+            if (module.types[i].name == info.unionName) {
+                typeIdx = static_cast<int32_t>(i);
+                break;
             }
-            int32_t funIndex = -1;
-            for (size_t i = 0; i < module.functions.size(); ++i)
+        }
+        if (typeIdx == -1) throw NotImplementedException("Unknown tagged union type: " + info.unionName);
+
+        for (auto &&arg : funCallExpr->arguments) arg->accept(this);
+
+        emit(OpCode::CONSTRUCT_TAGGED);
+        emit_u16(static_cast<uint16_t>(typeIdx));
+        emit_u16(static_cast<uint16_t>(info.variantIndex));
+        emit_u16(static_cast<uint16_t>(funCallExpr->arguments.size()));
+    }
+
+    void Compiler::visit(ast::FunCallExpression *funCallExpr)
+    {
+        // Fold calls
+        if (auto idExpr = dynamic_ast_cast<IdExpression>(funCallExpr->primaryExpression))
+        {
+            auto foldIt = std::find_if(funCallExpr->arguments.begin(), funCallExpr->arguments.end(), [](const auto &arg) {
+                return dynamic_ast_cast<PostfixFoldExpression>(arg) != nullptr;
+            });
+            if (foldIt != funCallExpr->arguments.end())
             {
-                if (module.functions[i].name == target->id)
-                {
-                    funIndex = static_cast<int32_t>(i);
-                    break;
-                }
+                compileFoldCall(funCallExpr, idExpr.get());
+                return;
             }
-            if (funIndex < 0)
-            {
-                throw NotImplementedException("ORGASM fold calls only support local functions: " + target->id);
-            }
-            auto foldIndex = static_cast<size_t>(std::distance(funCallExpr->arguments.begin(), foldIt));
-            if (funCallExpr->arguments.size() != 2 || (foldIndex != 0 && foldIndex != 1))
-            {
-                throw NotImplementedException("Fold call expects `op(xs..., init)` or `op(init, xs...)`");
-            }
-            auto fold = dynamic_ast_cast<PostfixFoldExpression>(*foldIt);
-            if (fold->filter)
-            {
-                throw NotImplementedException("Filter marker `?...` is only supported in array literals");
-            }
-            if (foldIndex == 0)
-            {
-                fold->expression->accept(this);
-                funCallExpr->arguments[1]->accept(this);
-                emit(OpCode::FOLD_RIGHT_CALL);
-            }
-            else
-            {
-                funCallExpr->arguments[0]->accept(this);
-                fold->expression->accept(this);
-                emit(OpCode::FOLD_LEFT_CALL);
-            }
-            emit_u16(static_cast<uint16_t>(funIndex));
-            return;
         }
 
         if (auto idExpr = dynamic_ast_cast<IdExpression>(funCallExpr->primaryExpression))
@@ -1343,24 +1364,7 @@ namespace NG::orgasm
             // Check if this is a tagged value construction (e.g. Ok(42), Err("msg"))
             if (variant_map.contains(idExpr->id))
             {
-                auto &info = variant_map[idExpr->id];
-                // Find the type index
-                int32_t typeIdx = -1;
-                for (size_t i = 0; i < module.types.size(); ++i) {
-                    if (module.types[i].name == info.unionName) {
-                        typeIdx = static_cast<int32_t>(i);
-                        break;
-                    }
-                }
-                if (typeIdx == -1) throw NotImplementedException("Unknown tagged union type: " + info.unionName);
-
-                // Push payload values onto the stack
-                for (auto &&arg : funCallExpr->arguments) arg->accept(this);
-
-                emit(OpCode::CONSTRUCT_TAGGED);
-                emit_u16(static_cast<uint16_t>(typeIdx));
-                emit_u16(static_cast<uint16_t>(info.variantIndex));
-                emit_u16(static_cast<uint16_t>(funCallExpr->arguments.size()));
+                compileTaggedConstructor(funCallExpr, idExpr->id);
                 return;
             }
 

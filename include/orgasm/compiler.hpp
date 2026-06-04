@@ -150,6 +150,10 @@ namespace NG::orgasm
         void compileModuleTopLevelCode(ast::Module *mod);
         void compileModuleFunctionBodies(ast::Module *mod);
 
+        // Helpers for visit(FunCallExpression)
+        void compileFoldCall(ast::FunCallExpression *funCallExpr, ast::IdExpression *target);
+        void compileTaggedConstructor(ast::FunCallExpression *funCallExpr, const Str &variantName);
+
         auto find_function(const Str &name) -> Function *;
         auto find_function_index(const Str &name) const -> int32_t;
 
