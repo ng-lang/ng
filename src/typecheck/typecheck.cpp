@@ -180,31 +180,23 @@ namespace NG::typecheck
     {
       return true;
     }
-    if (auto ref = std::dynamic_pointer_cast<ReferenceType>(unwrapped))
+    switch (unwrapped->tag())
     {
-      return contains_non_receiver_self(ref->referencedType);
+    case typeinfo_tag::REFERENCE:
+      return contains_non_receiver_self(static_cast<const ReferenceType &>(*unwrapped).referencedType);
+    case typeinfo_tag::ARRAY:
+      return contains_non_receiver_self(static_cast<const ArrayType &>(*unwrapped).elementType);
+    case typeinfo_tag::VECTOR:
+      return contains_non_receiver_self(static_cast<const VectorType &>(*unwrapped).elementType);
+    case typeinfo_tag::SPAN:
+      return contains_non_receiver_self(static_cast<const SpanType &>(*unwrapped).elementType);
+    case typeinfo_tag::TUPLE:
+      return std::ranges::any_of(static_cast<const TupleType &>(*unwrapped).elementTypes, contains_non_receiver_self);
+    case typeinfo_tag::UNION:
+      return std::ranges::any_of(static_cast<const UnionType &>(*unwrapped).types, contains_non_receiver_self);
+    default:
+      return false;
     }
-    if (auto array = std::dynamic_pointer_cast<ArrayType>(unwrapped))
-    {
-      return contains_non_receiver_self(array->elementType);
-    }
-    if (auto vector = std::dynamic_pointer_cast<VectorType>(unwrapped))
-    {
-      return contains_non_receiver_self(vector->elementType);
-    }
-    if (auto span = std::dynamic_pointer_cast<SpanType>(unwrapped))
-    {
-      return contains_non_receiver_self(span->elementType);
-    }
-    if (auto tuple = std::dynamic_pointer_cast<TupleType>(unwrapped))
-    {
-      return std::ranges::any_of(tuple->elementTypes, contains_non_receiver_self);
-    }
-    if (auto unionType = std::dynamic_pointer_cast<UnionType>(unwrapped))
-    {
-      return std::ranges::any_of(unionType->types, contains_non_receiver_self);
-    }
-    return false;
   }
 
   static auto isReferenceableExpression(const Expression *expr) -> bool
