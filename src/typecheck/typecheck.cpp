@@ -6152,15 +6152,18 @@ namespace NG::typecheck
           }
           TypeChecker checker{locals};
           annotation->genericArgs[0]->accept(&checker);
-          auto leftTuple = std::dynamic_pointer_cast<TupleType>(unwrap(checker.result));
+          auto unwrappedLeft = unwrap(checker.result);
           annotation->genericArgs[1]->accept(&checker);
-          auto rightTuple = std::dynamic_pointer_cast<TupleType>(unwrap(checker.result));
-          if (!leftTuple || !rightTuple)
+          auto unwrappedRight = unwrap(checker.result);
+          if (!unwrappedLeft || unwrappedLeft->tag() != typeinfo_tag::TUPLE ||
+              !unwrappedRight || unwrappedRight->tag() != typeinfo_tag::TUPLE)
           {
             throw TypeCheckingException("tuple_concat<A, B> expects tuple type arguments", annotation->pos);
           }
-          Vec<CheckingRef<TypeInfo>> elements = leftTuple->elementTypes;
-          elements.insert(elements.end(), rightTuple->elementTypes.begin(), rightTuple->elementTypes.end());
+          auto &leftTuple = static_cast<TupleType &>(*unwrappedLeft);
+          auto &rightTuple = static_cast<TupleType &>(*unwrappedRight);
+          Vec<CheckingRef<TypeInfo>> elements = leftTuple.elementTypes;
+          elements.insert(elements.end(), rightTuple.elementTypes.begin(), rightTuple.elementTypes.end());
           result = makecheck<TupleType>(elements);
           return;
         }
