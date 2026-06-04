@@ -8902,20 +8902,23 @@ namespace NG::typecheck
         }
         if (bound.empty())
         {
-          if (auto generic = std::dynamic_pointer_cast<GenericParamType>(substitution[name]))
+          if (substitution[name] && substitution[name]->tag() == typeinfo_tag::GENERIC_PARAM)
           {
-            bound = generic->bound;
+            bound = static_cast<GenericParamType &>(*substitution[name]).bound;
           }
         }
         if (!bound.empty())
         {
           auto traitIt = locals.find(bound);
-          auto trait = traitIt == locals.end() ? nullptr : std::dynamic_pointer_cast<TraitType>(traitIt->second);
-          if (trait && pi < instantiatedArgs.size() && !typeSatisfiesTrait(instantiatedArgs[pi], *trait))
+          if (traitIt != locals.end() && traitIt->second && traitIt->second->tag() == typeinfo_tag::TRAIT)
           {
-            throw TypeCheckingException("Type '" + instantiatedArgs[pi]->repr() + "' does not implement trait '" +
-                                            trait->name + "'",
-                                        funCall->pos);
+            auto &trait = static_cast<TraitType &>(*traitIt->second);
+            if (pi < instantiatedArgs.size() && !typeSatisfiesTrait(instantiatedArgs[pi], trait))
+            {
+              throw TypeCheckingException("Type '" + instantiatedArgs[pi]->repr() + "' does not implement trait '" +
+                                              trait.name + "'",
+                                          funCall->pos);
+            }
           }
         }
       }
