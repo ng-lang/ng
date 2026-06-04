@@ -142,3 +142,15 @@ TEST_CASE("withStream should only catch LexException for backtracking", "[Lexer]
   REQUIRE(tokens[1].type == TokenType::PLUS);
   REQUIRE(tokens[2].type == TokenType::NUMBER);
 }
+
+TEST_CASE("lexer should lex pipe forward operator", "[Lexer][Operator]")
+{
+  Lexer lexer{LexState{"a |> b"}};
+  auto &&tokens = lexer.lex();
+
+  REQUIRE(tokens.size() == 3);
+  REQUIRE(tokens[0].type == TokenType::ID);
+  REQUIRE(tokens[1].type == TokenType::PIPE_FORWARD);
+  REQUIRE(tokens[1].repr == "|>");
+  REQUIRE(tokens[2].type == TokenType::ID);
+}

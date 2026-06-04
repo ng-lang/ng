@@ -32,44 +32,19 @@ namespace NG::parsing
     return std::find(container.begin(), container.end(), item) != container.end();
   }
 
-  static const Map<Str, TokenType> operator_types = {
-    {":=", TokenType::ASSIGN_EQUAL},
-
-    {"=", TokenType::BIND},
-    {"+", TokenType::PLUS},
-    {"-", TokenType::MINUS},
-    {"*", TokenType::TIMES},
-    {"/", TokenType::DIVIDE},
-    {"%", TokenType::MODULUS},
-    {"==", TokenType::EQUAL},
-    {"!=", TokenType::NOT_EQUAL},
-    {">", TokenType::GT},
-    {"<", TokenType::LT},
-    {">=", TokenType::GE},
-    {"<=", TokenType::LE},
-    {"<<", TokenType::LSHIFT},
-    {">>", TokenType::RSHIFT},
-
-    {"&", TokenType::AMPERSAND},
-    {"|>", TokenType::PIPE_FORWARD},
-    {"|", TokenType::PIPE},
-    {"^", TokenType::CARET},
-    {"~", TokenType::TILDE},
-
-    {"$", TokenType::DOLLAR},
-
-    {"&&", TokenType::AND},
-    {"||", TokenType::OR},
-
-    {"!", TokenType::NOT},
-    {"?", TokenType::QUERY},
-    {"???", TokenType::UNDEFINED},
+  // Set of token types that represent operators (used by parser for precedence parsing).
+  static const Set<TokenType> operator_token_types = {
+      TokenType::ASSIGN_EQUAL, TokenType::BIND, TokenType::PLUS, TokenType::MINUS,
+      TokenType::TIMES, TokenType::DIVIDE, TokenType::MODULUS, TokenType::EQUAL,
+      TokenType::NOT_EQUAL, TokenType::GT, TokenType::LT, TokenType::GE, TokenType::LE,
+      TokenType::LSHIFT, TokenType::RSHIFT, TokenType::AMPERSAND, TokenType::PIPE_FORWARD,
+      TokenType::PIPE, TokenType::CARET, TokenType::TILDE, TokenType::DOLLAR,
+      TokenType::AND, TokenType::OR, TokenType::NOT, TokenType::QUERY, TokenType::UNDEFINED,
   };
 
   auto is_operator(TokenType token) -> bool
   {
-    return std::any_of(operator_types.begin(), operator_types.end(),
-                       [token](const auto &pair) { return pair.second == token; });
+    return operator_token_types.contains(token);
   }
 
   const static Map<Str, TokenType> tokenType = {
@@ -184,6 +159,7 @@ namespace NG::parsing
     {">>", TokenType::RSHIFT},
 
     {"&", TokenType::AMPERSAND},
+    {"|>", TokenType::PIPE_FORWARD},
     {"|", TokenType::PIPE},
     {"^", TokenType::CARET},
     {"~", TokenType::TILDE},
@@ -814,23 +790,11 @@ namespace NG::parsing
       result = ">>";
     }
 
-    if (tokenType.contains(result))
-    {
-      Token token{.type = tokenType.at(result), .repr = result, .position = pos};
-      tokens.push_back(token);
-      return token;
-    }
-
-    TokenType operatorType = TokenType::NONE;
-    if (operator_types.contains(result))
-    {
-      operatorType = operator_types.at(result);
-    }
-    else
+    if (!tokenType.contains(result))
     {
       throw LexException("Unknown operator: " + result);
     }
-    Token token{.type = operatorType, .repr = result, .position = pos};
+    Token token{.type = tokenType.at(result), .repr = result, .position = pos};
     tokens.push_back(token);
     return token;
   }
