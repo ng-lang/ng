@@ -26,6 +26,13 @@ namespace NG::parsing
 
   constexpr std::array<int, 6> bitlengths{8, 16, 32, 64, 128, 256};
 
+  auto emitToken(Vec<Token> &tokens, TokenType type, const Str &repr, TokenPosition pos) -> Token
+  {
+    Token token{.type = type, .repr = repr, .position = pos};
+    tokens.push_back(token);
+    return token;
+  }
+
   template <class Container, class T>
   inline auto is(const Container &container, T item) -> bool
   {
@@ -250,10 +257,8 @@ namespace NG::parsing
       {
         Str result{};
         result += current;
-        Token token{.type = tokenType.at(result), .repr = result, .position = pos};
-        tokens.push_back(token);
         state.next();
-        return token;
+        return emitToken(tokens, tokenType.at(result), result, pos);
       }
       else if (current == '/')
       {
@@ -322,39 +327,29 @@ namespace NG::parsing
       {
         if (state.lookAhead() == ':')
         {
-          Token token{.type = TokenType::SEPARATOR, .repr = "::", .position = pos};
-          tokens.push_back(token);
           state.next(2);
-          return token;
+          return emitToken(tokens, TokenType::SEPARATOR, "::", pos);
         }
         if (state.lookAhead() == '=')
         {
-          Token token{.type = TokenType::ASSIGN_EQUAL, .repr = ":=", .position = pos};
-          tokens.push_back(token);
           state.next(2);
-          return token;
+          return emitToken(tokens, TokenType::ASSIGN_EQUAL, ":=", pos);
         }
         else
         {
-          Token token{.type = TokenType::COLON, .repr = ":", .position = pos};
-          tokens.push_back(token);
           state.next();
-          return token;
+          return emitToken(tokens, TokenType::COLON, ":", pos);
         }
       }
       else if (current == ';')
       {
-        Token token{.type = TokenType::SEMICOLON, .repr = ";", .position = pos};
-        tokens.push_back(token);
         state.next();
-        return token;
+        return emitToken(tokens, TokenType::SEMICOLON, ";", pos);
       }
       else if (current == ',')
       {
-        Token token{.type = TokenType::COMMA, .repr = ",", .position = pos};
-        tokens.push_back(token);
         state.next();
-        return token;
+        return emitToken(tokens, TokenType::COMMA, ",", pos);
       }
       else if (current == '.')
       {
@@ -363,30 +358,22 @@ namespace NG::parsing
           state.next();
           if (state.lookAhead() == '.')
           {
-            Token token{.type = TokenType::SPREAD, .repr = "...", .position = pos};
-            tokens.push_back(token);
             state.next(2);
-            return token;
+            return emitToken(tokens, TokenType::SPREAD, "...", pos);
           }
           else if (state.lookAhead() == '=')
           {
-            Token token{.type = TokenType::RANGE_INCLUSIVE, .repr = "..=", .position = pos};
-            tokens.push_back(token);
             state.next(2);
-            return token;
+            return emitToken(tokens, TokenType::RANGE_INCLUSIVE, "..=", pos);
           }
           else
           {
-            Token token{.type = TokenType::RANGE, .repr = "..", .position = pos};
-            tokens.push_back(token);
             state.next();
-            return token;
+            return emitToken(tokens, TokenType::RANGE, "..", pos);
           }
         }
-        Token token{.type = TokenType::DOT, .repr = ".", .position = pos};
-        tokens.push_back(token);
         state.next();
-        return token;
+        return emitToken(tokens, TokenType::DOT, ".", pos);
       }
       else
       {
@@ -426,15 +413,11 @@ namespace NG::parsing
       {
         throw LexException("You are using a reserved token: " + result);
       }
-      Token token{.type = tokenType.at(result), .repr = result, .position = pos};
-      tokens.push_back(token);
-      return token;
+      return emitToken(tokens, tokenType.at(result), result, pos);
     }
     else
     {
-      Token token{.type = TokenType::ID, .repr = result, .position = pos};
-      tokens.push_back(token);
-      return token;
+      return emitToken(tokens, TokenType::ID, result, pos);
     }
   }
 
@@ -615,9 +598,7 @@ namespace NG::parsing
 
     if (!result.empty())
     {
-      Token token{.type = numTokenType, .repr = result, .position = pos};
-      tokens.push_back(token);
-      return token;
+      return emitToken(tokens, numTokenType, result, pos);
     }
     else
     {
@@ -756,9 +737,7 @@ namespace NG::parsing
       throw LexException("Unterminated string literal");
     }
     state.next();
-    Token token{.type = TokenType::STRING, .repr = result, .position = pos};
-    tokens.push_back(token);
-    return token;
+    return emitToken(tokens, TokenType::STRING, result, pos);
   }
 
   static Token lexOperator(LexState &state, Vec<Token> &tokens)
@@ -794,8 +773,6 @@ namespace NG::parsing
     {
       throw LexException("Unknown operator: " + result);
     }
-    Token token{.type = tokenType.at(result), .repr = result, .position = pos};
-    tokens.push_back(token);
-    return token;
+    return emitToken(tokens, tokenType.at(result), result, pos);
   }
 } // namespace NG::parsing
