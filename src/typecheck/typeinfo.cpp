@@ -8,64 +8,45 @@ namespace NG::typecheck
 
     auto nestedTypeRepr(const TypeInfo &type) -> Str
     {
-      if (auto tagged = dynamic_cast<const TaggedUnionType *>(&type))
+      switch (type.tag())
       {
-        return tagged->name;
+      case typeinfo_tag::TAGGED_UNION: return static_cast<const TaggedUnionType &>(type).name;
+      case typeinfo_tag::CUSTOMIZED:   return static_cast<const CustomizedType &>(type).name;
+      case typeinfo_tag::TYPE_ALIAS:   return static_cast<const TypeAliasType &>(type).name;
+      case typeinfo_tag::NEW_TYPE:     return static_cast<const NewTypeType &>(type).name;
+      case typeinfo_tag::VARIANT:
+      {
+        const auto &v = static_cast<const VariantType &>(type);
+        return v.unionName + "." + v.variantName;
       }
-      if (auto custom = dynamic_cast<const CustomizedType *>(&type))
+      case typeinfo_tag::REFERENCE:
+        return "ref<" + nestedTypeRepr(static_cast<const ReferenceType &>(type).referencedType) + ">";
+      case typeinfo_tag::ARRAY:
       {
-        return custom->name;
+        const auto &a = static_cast<const ArrayType &>(type);
+        if (a.length) return "array<" + nestedTypeRepr(a.elementType) + ", " + nestedTypeRepr(a.length) + ">";
+        return "array<" + nestedTypeRepr(a.elementType) + ", ?>";
       }
-      if (auto alias = dynamic_cast<const TypeAliasType *>(&type))
+      case typeinfo_tag::VECTOR:
+        return "vector<" + nestedTypeRepr(static_cast<const VectorType &>(type).elementType) + ">";
+      case typeinfo_tag::SPAN:
+        return "span<" + nestedTypeRepr(static_cast<const SpanType &>(type).elementType) + ">";
+      case typeinfo_tag::RANGE:
+        return "Range<" + nestedTypeRepr(static_cast<const RangeType &>(type).elementType) + ">";
+      case typeinfo_tag::TUPLE:
       {
-        return alias->name;
-      }
-      if (auto newType = dynamic_cast<const NewTypeType *>(&type))
-      {
-        return newType->name;
-      }
-      if (auto variant = dynamic_cast<const VariantType *>(&type))
-      {
-        return variant->unionName + "." + variant->variantName;
-      }
-      if (auto ref = dynamic_cast<const ReferenceType *>(&type))
-      {
-        return "ref<" + nestedTypeRepr(ref->referencedType) + ">";
-      }
-      if (auto array = dynamic_cast<const ArrayType *>(&type))
-      {
-        if (array->length)
-        {
-          return "array<" + nestedTypeRepr(array->elementType) + ", " + nestedTypeRepr(array->length) + ">";
-        }
-        return "array<" + nestedTypeRepr(array->elementType) + ", ?>";
-      }
-      if (auto vector = dynamic_cast<const VectorType *>(&type))
-      {
-        return "vector<" + nestedTypeRepr(vector->elementType) + ">";
-      }
-      if (auto span = dynamic_cast<const SpanType *>(&type))
-      {
-        return "span<" + nestedTypeRepr(span->elementType) + ">";
-      }
-      if (auto range = dynamic_cast<const RangeType *>(&type))
-      {
-        return "Range<" + nestedTypeRepr(range->elementType) + ">";
-      }
-      if (auto tuple = dynamic_cast<const TupleType *>(&type))
-      {
+        const auto &t = static_cast<const TupleType &>(type);
         Str out = "(";
-        for (size_t i = 0; i < tuple->elementTypes.size(); ++i)
+        for (size_t i = 0; i < t.elementTypes.size(); ++i)
         {
-          if (i > 0)
-          {
-            out += ", ";
-          }
-          out += nestedTypeRepr(tuple->elementTypes[i]);
+          if (i > 0) out += ", ";
+          out += nestedTypeRepr(t.elementTypes[i]);
         }
         return out + ")";
       }
-      return type.repr();
+      default:
+        return type.repr();
+      }
     }
 
     auto nestedTypeRepr(const CheckingRef<TypeInfo> &type) -> Str
