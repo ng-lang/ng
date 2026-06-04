@@ -58,6 +58,22 @@ namespace NG::orgasm
             return value;
         }
 
+        // Clone a value slot for stack operations.
+        auto clone_value_slot(const RuntimeRef<StorageCell> &source, const Str &name = "stack") -> RuntimeRef<StorageCell>
+        {
+            return clone_runtime_storage_cell(source, StorageClass::TEMPORARY, name);
+        }
+
+        // Move a slot: copy value to a new temporary cell, mark original as moved.
+        auto move_slot(const RuntimeRef<StorageCell> &source) -> RuntimeRef<StorageCell>
+        {
+            ensure_usable_cell(source);
+            auto moved = make_storage_cell(source->layout, StorageClass::TEMPORARY, "stack", source->runtimeType);
+            runtime_copy_storage_cell(moved, source);
+            mark_moved_storage_cell(source);
+            return moved;
+        }
+
         auto ensure_slot(Vec<RuntimeRef<StorageCell>> &slots, size_t index, const Str &prefix,
                          StorageClass storageClass = StorageClass::FRAME) -> RuntimeRef<StorageCell>
         {
@@ -268,10 +284,6 @@ namespace NG::orgasm
         {
             ensure_slot(frame.locals, i, "local:");
         }
-        auto clone_value_slot = [](const RuntimeRef<StorageCell> &source, const Str &name) -> RuntimeRef<StorageCell>
-        {
-            return clone_runtime_storage_cell(source, StorageClass::TEMPORARY, name);
-        };
         for (size_t i = 0; i < args.size(); ++i)
         {
             auto target = ensure_slot(frame.locals, i, "param:");
@@ -299,11 +311,7 @@ namespace NG::orgasm
             }
         } callStackGuard{call_stack, baseFrameDepth};
 
-        auto clone_value_slot = [](const RuntimeRef<StorageCell> &source, const Str &name) -> RuntimeRef<StorageCell>
-        {
-            return clone_runtime_storage_cell(source, StorageClass::TEMPORARY, name);
-        };
-        auto push_slot_copy = [this, &clone_value_slot](const RuntimeRef<StorageCell> &source, const Str &name = "stack") -> RuntimeRef<StorageCell>
+        auto push_slot_copy = [this](const RuntimeRef<StorageCell> &source, const Str &name = "stack") -> RuntimeRef<StorageCell>
         {
             auto slot = clone_value_slot(source, name);
             stack.push_back(slot);
@@ -881,23 +889,13 @@ namespace NG::orgasm
                 case OpCode::MOVE_LOCAL:
                 {
                     uint16_t idx = read_u16();
-                    auto slot = ensure_slot(frame.locals, idx, "local:");
-                    ensure_usable_cell(slot);
-                    auto moved = make_storage_cell(slot->layout, StorageClass::TEMPORARY, "stack", slot->runtimeType);
-                    runtime_copy_storage_cell(moved, slot);
-                    mark_moved_storage_cell(slot);
-                    stack.push_back(moved);
+                    stack.push_back(move_slot(ensure_slot(frame.locals, idx, "local:")));
                     break;
                 }
                 case OpCode::MOVE_GLOBAL:
                 {
                     uint16_t idx = read_u16();
-                    auto slot = ensure_slot(globals, idx, "global:", StorageClass::GLOBAL);
-                    ensure_usable_cell(slot);
-                    auto moved = make_storage_cell(slot->layout, StorageClass::TEMPORARY, "stack", slot->runtimeType);
-                    runtime_copy_storage_cell(moved, slot);
-                    mark_moved_storage_cell(slot);
-                    stack.push_back(moved);
+                    stack.push_back(move_slot(ensure_slot(globals, idx, "global:", StorageClass::GLOBAL)));
                     break;
                 }
                 case OpCode::MOVE_REF:
@@ -905,11 +903,7 @@ namespace NG::orgasm
                     auto reference = pop_slot();
                     auto slot = runtime_reference_target(reference);
                     if (!slot) throw RuntimeException("Cannot move from non-reference value");
-                    ensure_usable_cell(slot);
-                    auto moved = make_storage_cell(slot->layout, StorageClass::TEMPORARY, "stack", slot->runtimeType);
-                    runtime_copy_storage_cell(moved, slot);
-                    mark_moved_storage_cell(slot);
-                    stack.push_back(moved);
+                    stack.push_back(move_slot(slot));
                     break;
                 }
                 case OpCode::GET_TUPLE_ITEM:
