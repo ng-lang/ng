@@ -659,89 +659,14 @@ namespace NG::orgasm
                 {
                     continue;
                 }
-                current_function = &module.functions[funIndex++];
-                last_emit_was_return = false;
-                locals.clear();
-                localTraitObjectTypes.clear();
-                localValueTypes.clear();
-                loop_stack.clear();
-                
-                LoopInfo info;
-                info.startIp = 0; // Function start
-                for (int32_t i = 0; i < funDef->params.size(); ++i)
-                {
-                    locals[funDef->params[i]->paramName] = i;
-                    if (funDef->params[i]->annotatedType)
-                    {
-                        localValueTypes[funDef->params[i]->paramName] = funDef->params[i]->annotatedType->repr();
-                    }
-                    if (auto traitName = trait_ref_name(funDef->params[i]->annotatedType.get()); !traitName.empty())
-                    {
-                        localTraitObjectTypes[funDef->params[i]->paramName] = traitName;
-                    }
-                    info.bindingSlots.push_back(i);
-                }
-                loop_stack.push_back(std::move(info));
-
-                if (funDef->body) funDef->body->accept(this);
-
-                loop_stack.pop_back();
-                current_function->num_locals = static_cast<int32_t>(locals.size());
-
-                if (!last_emit_was_return)
-                {
-                    emit(OpCode::PUSH_UNIT);
-                    emit(OpCode::RETURN);
-                }
+                compile_function_body(funDef.get(), module.functions[funIndex++], false);
             }
             else if (auto typeDef = dynamic_ast_cast<TypeDef>(def))
             {
+                current_type_name = typeDef->typeName;
                 for (auto &&memFn : typeDef->memberFunctions)
                 {
-                    current_function = &module.functions[funIndex++];
-                    last_emit_was_return = false;
-                    locals.clear();
-                    localTraitObjectTypes.clear();
-                    localValueTypes.clear();
-                    loop_stack.clear();
-                    current_type_name = typeDef->typeName;
-                    const bool explicitReceiver = !memFn->params.empty() && is_explicit_receiver_param(memFn->params.front().get());
-                    
-                    LoopInfo info;
-                    info.startIp = 0;
-                    int32_t paramBase = 0;
-                    if (!explicitReceiver)
-                    {
-                        locals["self"] = 0;
-                        info.bindingSlots.push_back(0); // self can be updated by next? maybe not, but keep slot.
-                        paramBase = 1;
-                    }
-                    
-                    for (int32_t i = 0; i < memFn->params.size(); ++i)
-                    {
-                        locals[memFn->params[i]->paramName] = i + paramBase;
-                        if (memFn->params[i]->annotatedType)
-                        {
-                            localValueTypes[memFn->params[i]->paramName] = memFn->params[i]->annotatedType->repr();
-                        }
-                        if (auto traitName = trait_ref_name(memFn->params[i]->annotatedType.get()); !traitName.empty())
-                        {
-                            localTraitObjectTypes[memFn->params[i]->paramName] = traitName;
-                        }
-                        info.bindingSlots.push_back(i + paramBase);
-                    }
-                    loop_stack.push_back(std::move(info));
-
-                    if (memFn->body) memFn->body->accept(this);
-
-                    loop_stack.pop_back();
-                    current_function->num_locals = static_cast<int32_t>(locals.size());
-
-                    if (!last_emit_was_return)
-                    {
-                        emit(OpCode::PUSH_UNIT);
-                        emit(OpCode::RETURN);
-                    }
+                    compile_function_body(memFn.get(), module.functions[funIndex++], true);
                 }
             }
             else if (auto implDef = dynamic_ast_cast<ImplDef>(def))
@@ -761,49 +686,8 @@ namespace NG::orgasm
                     }
                     auto previousTraitMethodOrigin = activeTraitMethodOrigin;
                     activeTraitMethodOrigin = traitOrigin;
-                    current_function = &module.functions[funIndex++];
-                    last_emit_was_return = false;
-                    locals.clear();
-                    localTraitObjectTypes.clear();
-                    localValueTypes.clear();
-                    loop_stack.clear();
-
-                    const bool explicitReceiver =
-                        !method->params.empty() && is_explicit_receiver_param(method->params.front().get());
-                    LoopInfo info;
-                    info.startIp = 0;
-                    int32_t paramBase = 0;
-                    if (!explicitReceiver)
-                    {
-                        locals["self"] = 0;
-                        info.bindingSlots.push_back(0);
-                        paramBase = 1;
-                    }
-                    for (int32_t i = 0; i < method->params.size(); ++i)
-                    {
-                        locals[method->params[i]->paramName] = i + paramBase;
-                        if (method->params[i]->annotatedType)
-                        {
-                            localValueTypes[method->params[i]->paramName] = method->params[i]->annotatedType->repr();
-                        }
-                        if (auto traitName = trait_ref_name(method->params[i]->annotatedType.get()); !traitName.empty())
-                        {
-                            localTraitObjectTypes[method->params[i]->paramName] = traitName;
-                        }
-                        info.bindingSlots.push_back(i + paramBase);
-                    }
-                    loop_stack.push_back(std::move(info));
-
-                    if (method->body) method->body->accept(this);
+                    compile_function_body(method, module.functions[funIndex++], true);
                     activeTraitMethodOrigin = previousTraitMethodOrigin;
-
-                    loop_stack.pop_back();
-                    current_function->num_locals = static_cast<int32_t>(locals.size());
-                    if (!last_emit_was_return)
-                    {
-                        emit(OpCode::PUSH_UNIT);
-                        emit(OpCode::RETURN);
-                    }
                 };
                 for (auto &&method : implDef->methods)
                 {
