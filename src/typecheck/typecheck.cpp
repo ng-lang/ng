@@ -42,9 +42,9 @@ namespace NG::typecheck
   // Unwrap TypeAliasType to get the underlying concrete type
   inline const TypeInfo &unwrapAlias(const TypeInfo &t)
   {
-    if (auto alias = dynamic_cast<const TypeAliasType *>(&t))
+    if (t.tag() == typeinfo_tag::TYPE_ALIAS)
     {
-      return unwrapAlias(*alias->underlyingType);
+      return unwrapAlias(*static_cast<const TypeAliasType &>(t).underlyingType);
     }
     return t;
   }
@@ -1712,18 +1712,29 @@ namespace NG::typecheck
 
     auto refTraitCoercionMatches(const TypeInfo &expected, const TypeInfo &actual) const -> bool
     {
-      auto expectedRef = dynamic_cast<const ReferenceType *>(&unwrapAlias(expected));
-      auto actualRef = dynamic_cast<const ReferenceType *>(&unwrapAlias(actual));
-      if (!expectedRef || !actualRef || !expectedRef->referencedType || !actualRef->referencedType)
+      const auto &unwrappedExpected = unwrapAlias(expected);
+      const auto &unwrappedActual = unwrapAlias(actual);
+      if (unwrappedExpected.tag() != typeinfo_tag::REFERENCE || unwrappedActual.tag() != typeinfo_tag::REFERENCE)
       {
         return false;
       }
-      auto trait = std::dynamic_pointer_cast<TraitType>(unwrap(expectedRef->referencedType));
-      if (!trait || !isObjectSafeTrait(*trait))
+      const auto &expectedRef = static_cast<const ReferenceType &>(unwrappedExpected);
+      const auto &actualRef = static_cast<const ReferenceType &>(unwrappedActual);
+      if (!expectedRef.referencedType || !actualRef.referencedType)
       {
         return false;
       }
-      return typeSatisfiesTrait(actualRef->referencedType, *trait);
+      auto unwrappedRef = unwrap(expectedRef.referencedType);
+      if (!unwrappedRef || unwrappedRef->tag() != typeinfo_tag::TRAIT)
+      {
+        return false;
+      }
+      auto trait = std::static_pointer_cast<TraitType>(unwrappedRef);
+      if (!isObjectSafeTrait(*trait))
+      {
+        return false;
+      }
+      return typeSatisfiesTrait(actualRef.referencedType, *trait);
     }
 
     auto typeMatches(const TypeInfo &expected, const TypeInfo &actual) const -> bool
