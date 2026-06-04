@@ -29,6 +29,7 @@ namespace NG::parsing
 
         size_t line; ///< The current line number.
         size_t col;  ///< The current column number.
+        Vec<size_t> lineStarts = {0}; ///< Offsets of line starts, for O(log n) revert.
 
         explicit LexState(const Str &_source);
 

@@ -1,6 +1,7 @@
 
 #include <parser.hpp>
 #include <token.hpp>
+#include <algorithm>
 
 namespace NG::parsing
 {
@@ -45,38 +46,25 @@ namespace NG::parsing
     }
   }
 
-  static void resetLineAndCol(LexState &state, size_t index)
-  {
-    if (index > state.size)
-    {
-      return;
-    }
-    state.line = 1;
-    state.col = 0;
-    for (size_t i = 0; i <= index; i++)
-    {
-      state.col++;
-      if (state.source[i] == '\n')
-      {
-        state.line++;
-        state.col = 0;
-      }
-    }
-  }
-
   void LexState::revert(size_t n)
   {
     if (n > index)
     {
       return;
     }
-    if (index - n > col)
+    // Binary search lineStarts to find the line for position n.
+    // lineStarts[i] is the index of the first character of line i+1.
+    auto it = std::upper_bound(lineStarts.begin(), lineStarts.end(), n);
+    if (it == lineStarts.begin())
     {
-      resetLineAndCol(*this, n);
+      line = 1;
+      col = n + 1; // 1-based column
     }
     else
     {
-      col -= (index - n);
+      --it;
+      line = static_cast<size_t>(std::distance(lineStarts.begin(), it)) + 1;
+      col = n - *it + 1; // 1-based column
     }
     index = n;
   }
@@ -85,6 +73,11 @@ namespace NG::parsing
   {
     line++;
     col = 0;
+    // Record the next character's index as a line start.
+    if (index < size)
+    {
+      lineStarts.push_back(index + 1);
+    }
   }
 
 } // namespace NG::parsing
