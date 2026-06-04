@@ -86,22 +86,24 @@ namespace NG::typecheck
 
   static auto unwrap(CheckingRef<TypeInfo> type) -> CheckingRef<TypeInfo>
   {
-    if (type && type->tag() == typeinfo_tag::PARAM_WITH_DEFAULT_VALUE)
+    if (!type) return type;
+    switch (type->tag())
     {
+    case typeinfo_tag::PARAM_WITH_DEFAULT_VALUE:
       return unwrap(static_cast<ParamWithDefaultValueType &>(*type).paramType);
+    case typeinfo_tag::TYPE_ALIAS:
+      return unwrap(static_cast<TypeAliasType &>(*type).underlyingType);
+    default:
+      return type;
     }
-    if (auto alias = std::dynamic_pointer_cast<TypeAliasType>(type))
-    {
-      return unwrap(alias->underlyingType);
-    }
-    return type;
   }
 
   static auto deref_reference_type(CheckingRef<TypeInfo> type) -> CheckingRef<TypeInfo>
   {
-    if (auto refType = std::dynamic_pointer_cast<ReferenceType>(unwrap(type)))
+    auto unwrapped = unwrap(type);
+    if (unwrapped && unwrapped->tag() == typeinfo_tag::REFERENCE)
     {
-      return refType->referencedType;
+      return static_cast<ReferenceType &>(*unwrapped).referencedType;
     }
     return type;
   }
@@ -111,39 +113,26 @@ namespace NG::typecheck
   static auto builtin_sequence_element_type(const CheckingRef<TypeInfo> &type) -> CheckingRef<TypeInfo>
   {
     auto unwrapped = unwrap(type);
-    if (auto array = std::dynamic_pointer_cast<ArrayType>(unwrapped))
+    if (!unwrapped) return nullptr;
+    switch (unwrapped->tag())
     {
-      return array->elementType;
-    }
-    if (auto vector = std::dynamic_pointer_cast<VectorType>(unwrapped))
+    case typeinfo_tag::ARRAY:  return static_cast<const ArrayType &>(*unwrapped).elementType;
+    case typeinfo_tag::VECTOR: return static_cast<const VectorType &>(*unwrapped).elementType;
+    case typeinfo_tag::SPAN:   return static_cast<const SpanType &>(*unwrapped).elementType;
+    case typeinfo_tag::RANGE:  return static_cast<const RangeType &>(*unwrapped).elementType;
+    case typeinfo_tag::VARARGS:
     {
-      return vector->elementType;
-    }
-    if (auto span = std::dynamic_pointer_cast<SpanType>(unwrapped))
-    {
-      return span->elementType;
-    }
-    if (auto range = std::dynamic_pointer_cast<RangeType>(unwrapped))
-    {
-      return range->elementType;
-    }
-    if (auto varargs = std::dynamic_pointer_cast<VarargsType>(unwrapped))
-    {
-      if (varargs->elementTypes.empty())
+      const auto &varargs = static_cast<const VarargsType &>(*unwrapped);
+      if (varargs.elementTypes.empty()) return nullptr;
+      auto elementType = varargs.elementTypes.front();
+      for (auto &nextType : varargs.elementTypes)
       {
-        return nullptr;
-      }
-      auto elementType = varargs->elementTypes.front();
-      for (auto &nextType : varargs->elementTypes)
-      {
-        if (!typeMatch(*elementType, *nextType))
-        {
-          return makecheck<Untyped>();
-        }
+        if (!typeMatch(*elementType, *nextType)) return makecheck<Untyped>();
       }
       return elementType;
     }
-    return nullptr;
+    default: return nullptr;
+    }
   }
 
   static auto is_builtin_sequence_type(const CheckingRef<TypeInfo> &type) -> bool
@@ -836,73 +825,47 @@ namespace NG::typecheck
 
   static auto formatTypeInstanceName(const Str &baseName, const Vec<CheckingRef<TypeInfo>> &args) -> Str
   {
+    // Use tag() dispatch instead of dynamic_pointer_cast for better performance.
     auto safeTypeName = [](const CheckingRef<TypeInfo> &type, const auto &self) -> Str {
-      if (!type)
+      if (!type) return "?";
+      switch (type->tag())
       {
-        return "?";
+      case typeinfo_tag::TAGGED_UNION: return static_cast<const TaggedUnionType &>(*type).name;
+      case typeinfo_tag::VARIANT:
+      {
+        const auto &v = static_cast<const VariantType &>(*type);
+        return v.unionName + "." + v.variantName;
       }
-      if (auto tagged = std::dynamic_pointer_cast<TaggedUnionType>(type))
+      case typeinfo_tag::CUSTOMIZED:  return static_cast<const CustomizedType &>(*type).name;
+      case typeinfo_tag::TYPE_ALIAS:  return static_cast<const TypeAliasType &>(*type).name;
+      case typeinfo_tag::NEW_TYPE:    return static_cast<const NewTypeType &>(*type).name;
+      case typeinfo_tag::REFERENCE:
+        return "ref<" + self(static_cast<const ReferenceType &>(*type).referencedType, self) + ">";
+      case typeinfo_tag::ARRAY:
       {
-        return tagged->name;
+        const auto &a = static_cast<const ArrayType &>(*type);
+        if (a.length) return "array<" + self(a.elementType, self) + ", " + self(a.length, self) + ">";
+        return "array<" + self(a.elementType, self) + ", ?>";
       }
-      if (auto variant = std::dynamic_pointer_cast<VariantType>(type))
+      case typeinfo_tag::VECTOR:
+        return "vector<" + self(static_cast<const VectorType &>(*type).elementType, self) + ">";
+      case typeinfo_tag::SPAN:
+        return "span<" + self(static_cast<const SpanType &>(*type).elementType, self) + ">";
+      case typeinfo_tag::RANGE:
+        return "Range<" + self(static_cast<const RangeType &>(*type).elementType, self) + ">";
+      case typeinfo_tag::TUPLE:
       {
-        return variant->unionName + "." + variant->variantName;
-      }
-      if (auto custom = std::dynamic_pointer_cast<CustomizedType>(type))
-      {
-        return custom->name;
-      }
-      if (auto alias = std::dynamic_pointer_cast<TypeAliasType>(type))
-      {
-        return alias->name;
-      }
-      if (auto newType = std::dynamic_pointer_cast<NewTypeType>(type))
-      {
-        return newType->name;
-      }
-      if (auto ref = std::dynamic_pointer_cast<ReferenceType>(type))
-      {
-        return "ref<" + self(ref->referencedType, self) + ">";
-      }
-      if (auto array = std::dynamic_pointer_cast<ArrayType>(type))
-      {
-        if (array->length)
-        {
-          return "array<" + self(array->elementType, self) + ", " + self(array->length, self) + ">";
-        }
-        return "array<" + self(array->elementType, self) + ", ?>";
-      }
-      if (auto vector = std::dynamic_pointer_cast<VectorType>(type))
-      {
-        return "vector<" + self(vector->elementType, self) + ">";
-      }
-      if (auto span = std::dynamic_pointer_cast<SpanType>(type))
-      {
-        return "span<" + self(span->elementType, self) + ">";
-      }
-      if (auto range = std::dynamic_pointer_cast<RangeType>(type))
-      {
-        return "Range<" + self(range->elementType, self) + ">";
-      }
-      if (auto constValue = std::dynamic_pointer_cast<ConstValueType>(type))
-      {
-        return constValue->repr();
-      }
-      if (auto tuple = std::dynamic_pointer_cast<TupleType>(type))
-      {
+        const auto &t = static_cast<const TupleType &>(*type);
         Str out = "(";
-        for (size_t i = 0; i < tuple->elementTypes.size(); ++i)
+        for (size_t i = 0; i < t.elementTypes.size(); ++i)
         {
-          if (i > 0)
-          {
-            out += ", ";
-          }
-          out += self(tuple->elementTypes[i], self);
+          if (i > 0) out += ", ";
+          out += self(t.elementTypes[i], self);
         }
         return out + ")";
       }
-      return type->repr();
+      default: return type->repr();
+      }
     };
 
     Str result = baseName + "<";
