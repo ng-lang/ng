@@ -9562,70 +9562,60 @@ namespace NG::typecheck
 
   TypeIndex build_prelude_type_index()
   {
-    static bool cached = false;
     static TypeIndex cachedResult;
     static ASTRef<ASTNode> retainedPreludeAst = nullptr;
+    static std::once_flag initFlag;
+    static bool initSucceeded = false;
 
-    if (cached)
+    std::call_once(initFlag, [&]()
     {
-      return cachedResult;
-    }
+      TypeIndex result;
 
-    TypeIndex result;
+      // Try to locate and load the prelude source file from known lib paths.
+      namespace fs = std::filesystem;
 
-    // Try to locate and load the prelude source file from known lib paths.
-    // This mirrors the search logic used by the interpreter's module loader.
-    namespace fs = std::filesystem;
+      Vec<Str> libPaths = {"[force-source-module-loader]", "lib", "../lib", "../../lib"};
+      fs::path preludePath;
 
-    Vec<Str> libPaths = {"[force-source-module-loader]", "lib", "../lib", "../../lib"};
-    fs::path preludePath;
-
-    for (const auto &base : libPaths)
-    {
-      fs::path candidate = fs::path(base) / "std" / "prelude.ng";
-      if (fs::exists(candidate))
+      for (const auto &base : libPaths)
       {
-        preludePath = candidate;
-        break;
+        fs::path candidate = fs::path(base) / "std" / "prelude.ng";
+        if (fs::exists(candidate))
+        {
+          preludePath = candidate;
+          break;
+        }
       }
-    }
 
-    if (preludePath.empty())
-    {
-      // Prelude not found — return empty index (tests/CLI that don't use
-      // the prelude will still work).
-      return result;
-    }
+      if (preludePath.empty()) return;
 
-    try
-    {
-      std::ifstream file{preludePath};
-      std::string source{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
-
-      using namespace NG::parsing;
-      auto ast = Parser(ParseState(Lexer(LexState{source}).lex())).parse(preludePath.string());
-
-      if (ast)
+      try
       {
-        TypeChecker::retainedPreludeImportAsts.clear();
-        result = type_check(ast, {}, libPaths);
-        TypeChecker::preludeTypeAliasSpecializations = TypeChecker::activeTypeAliasSpecializations;
-        TypeChecker::preludeConstPredicates = TypeChecker::activeConstPredicates;
-        TypeChecker::preludeConstFunctions = TypeChecker::activeConstFunctions;
-        TypeChecker::preludeAutoTraits = TypeChecker::activeAutoTraits;
-        retainedPreludeAst = ast;
-      }
-    }
-    catch (...)
-    {
-      // If prelude parsing/type-checking fails, do not cache the partial
-      // result. Tests and host tools can register incomplete module artifacts
-      // before the stdlib sources are available to the type checker.
-      return result;
-    }
+        std::ifstream file{preludePath};
+        std::string source{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
 
-    cachedResult = result;
-    cached = true;
-    return result;
+        using namespace NG::parsing;
+        auto ast = Parser(ParseState(Lexer(LexState{source}).lex())).parse(preludePath.string());
+
+        if (ast)
+        {
+          TypeChecker::retainedPreludeImportAsts.clear();
+          result = type_check(ast, {}, libPaths);
+          TypeChecker::preludeTypeAliasSpecializations = TypeChecker::activeTypeAliasSpecializations;
+          TypeChecker::preludeConstPredicates = TypeChecker::activeConstPredicates;
+          TypeChecker::preludeConstFunctions = TypeChecker::activeConstFunctions;
+          TypeChecker::preludeAutoTraits = TypeChecker::activeAutoTraits;
+          retainedPreludeAst = ast;
+          cachedResult = result;
+          initSucceeded = true;
+        }
+      }
+      catch (...)
+      {
+        // If prelude parsing/type-checking fails, do not cache.
+      }
+    });
+
+    return initSucceeded ? cachedResult : TypeIndex{};
   }
 } // namespace NG::typecheck
