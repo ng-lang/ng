@@ -357,14 +357,7 @@ namespace NG::orgasm
             stack.push_back(result);
         };
         auto function_index_by_name = [](const BytecodeModule &lookupModule, const Str &name) -> int32_t {
-            for (size_t i = 0; i < lookupModule.functions.size(); ++i)
-            {
-                if (lookupModule.functions[i].name == name)
-                {
-                    return static_cast<int32_t>(i);
-                }
-            }
-            return -1;
+            return lookupModule.findFunction(name);
         };
         auto type_dispatch_name_candidates = [](const Str &typeName) {
             Vec<Str> candidates{typeName};
@@ -1005,12 +998,7 @@ namespace NG::orgasm
                         if (otherModule.exports.contains(imp.symbolName)) {
                             funIdx = otherModule.exports.at(imp.symbolName);
                         } else {
-                             for(size_t i=0; i<otherModule.functions.size(); ++i) {
-                                 if(otherModule.functions[i].name == imp.symbolName) {
-                                     funIdx = (int32_t)i;
-                                     break;
-                                 }
-                             }
+                            funIdx = otherModule.findFunction(imp.symbolName);
                         }
                         
                         if (funIdx == -1) throw RuntimeException("Function " + imp.symbolName + " not found in module " + imp.moduleName);
@@ -1220,11 +1208,7 @@ namespace NG::orgasm
                         memberName = runtime_trait_object_name(targetSlot) + "::" + memberName;
                     }
                     Str fullFunName = typeName + "." + memberName;
-                    
-                    int32_t funIdx = -1;
-                    for (size_t i = 0; i < current_module->functions.size(); ++i) {
-                        if (current_module->functions[i].name == fullFunName) { funIdx = static_cast<int32_t>(i); break; }
-                    }
+                    int32_t funIdx = current_module->findFunction(fullFunName);
                     
                     if (funIdx != -1) {
                         auto selfSlot = current_module->functions[funIdx].explicit_receiver

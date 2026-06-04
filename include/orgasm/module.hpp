@@ -86,6 +86,7 @@ namespace NG::orgasm
         Vec<Type> types;              ///< The types in the module.
         Vec<ExternalSymbol> imports;  ///< The imported symbols.
         Map<Str, int32_t> exports;    ///< The exported symbols and their indices.
+        Map<Str, size_t> functionIndex; ///< Function name → index lookup (built by buildIndex).
         Map<Str, Str> exportTypeReprs; ///< Exported typechecker metadata by symbol.
         Vec<BytecodeTraitMetadata> traitMetadata; ///< Exported trait shape metadata.
         Vec<BytecodeImplMetadata> implMetadata; ///< Exported trait implementation metadata.
@@ -101,6 +102,36 @@ namespace NG::orgasm
          * @param prefix Optional prefix for merged symbol names (e.g. module name).
          */
         void merge(const BytecodeModule &other, const Str &prefix = "");
+
+        /**
+         * @brief Builds the function name index for O(1) lookup.
+         */
+        void buildIndex()
+        {
+            functionIndex.clear();
+            for (size_t i = 0; i < functions.size(); ++i)
+            {
+                functionIndex[functions[i].name] = i;
+            }
+        }
+
+        /**
+         * @brief Finds a function index by name. Returns -1 if not found.
+         */
+        [[nodiscard]] auto findFunction(const Str &name) const -> int32_t
+        {
+            // Use index if available, otherwise fall back to linear search.
+            if (!functionIndex.empty())
+            {
+                auto it = functionIndex.find(name);
+                return it != functionIndex.end() ? static_cast<int32_t>(it->second) : -1;
+            }
+            for (size_t i = 0; i < functions.size(); ++i)
+            {
+                if (functions[i].name == name) return static_cast<int32_t>(i);
+            }
+            return -1;
+        }
     };
 
     // Non-empty overrideSourceHash is written instead of BytecodeModule::sourceHash.

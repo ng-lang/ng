@@ -239,6 +239,7 @@ namespace NG::orgasm
                 });
             }
         }
+        module.buildIndex();
         return std::move(module);
     }
 

@@ -394,6 +394,7 @@ namespace NG::orgasm
             in, "traitMetadata", [&](const Str &field) { return read_trait_metadata(in, field); });
         module.implMetadata = read_vector<BytecodeImplMetadata>(
             in, "implMetadata", [&](const Str &field) { return read_impl_metadata(in, field); });
+        module.buildIndex();
         return module;
     }
 
