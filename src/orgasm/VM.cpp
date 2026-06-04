@@ -614,6 +614,7 @@ namespace NG::orgasm
             try {
                 switch (op)
                 {
+                // ── Stack operations ──────────────────────────────────────────
                                 case OpCode::NOP:
                                     break;
                                 case OpCode::PUSH_I8:
@@ -676,7 +677,8 @@ namespace NG::orgasm
                                     push_slot_copy(numeral_cell_from_value<double>(val));
                                     break;
                                 }
-                                case OpCode::ADD: {
+                                // ── Arithmetic ──────────────────────────────────────────────
+                case OpCode::ADD: {
                                     auto b = pop_slot();
                                     auto a = pop_slot();
                                     try {
@@ -719,6 +721,7 @@ namespace NG::orgasm
                     push_slot_copy(numeral_cell_from_value<int64_t>(current_module->constants[idx]));
                     break;
                 }
+                // ── Comparison ───────────────────────────────────────────────
                 case OpCode::EQ: { auto b = pop_slot(); auto a = pop_slot(); stack.push_back(make_runtime_boolean(value_equals(a, b))); break; }
                 case OpCode::LT: { auto b = pop_slot(); auto a = pop_slot(); stack.push_back(make_runtime_boolean(value_less_than(a, b))); break; }
                 case OpCode::GT: { auto b = pop_slot(); auto a = pop_slot(); stack.push_back(make_runtime_boolean(value_greater_than(a, b))); break; }
@@ -751,6 +754,7 @@ namespace NG::orgasm
                     push_slot_copy(res);
                     break;
                 }
+                // ── Data access ──────────────────────────────────────────────
                 case OpCode::LOAD_LOCAL: { push_slot_copy(ensure_slot(frame.locals, read_u16(), "local:")); break; }
                 case OpCode::LOAD_PARAM: { push_slot_copy(ensure_slot(frame.locals, read_u16(), "param:")); break; }
                 case OpCode::STORE_LOCAL:
@@ -929,7 +933,9 @@ namespace NG::orgasm
                                 push_slot_copy(stack.back());
                                 break;
                             }
-                            case OpCode::PUSH_UNIT: stack.push_back(unit_cell()); break;                case OpCode::CALL:
+                            case OpCode::PUSH_UNIT: stack.push_back(unit_cell()); break;
+                // ── Control flow ──────────────────────────────────────────────
+                case OpCode::CALL:
                 {
                     uint16_t funIndex = read_u16();
                     if (funIndex >= current_module->functions.size()) throw RuntimeException("VM error: CALL function index out of bounds");
@@ -1025,6 +1031,7 @@ namespace NG::orgasm
                     }
                     break;
                 }
+                // ── Object/Array/Tuple ────────────────────────────────────────
                 case OpCode::GET_PROPERTY:
             {
                 uint16_t fieldIdx = read_u16();
@@ -1368,8 +1375,10 @@ namespace NG::orgasm
                     else push_slot_copy(make_runtime_span_cell(result));
                     break;
                 }
+                // ── Bitwise/Shift ─────────────────────────────────────────────
                 case OpCode::LSHIFT: { auto b = pop_slot(); auto a = pop_slot(); push_binary_result(a, RuntimeBinaryOperator::LShift, b); break; }
                 case OpCode::RSHIFT: { auto b = pop_slot(); auto a = pop_slot(); push_slot_copy(value_rshift(a, b)); break; }
+                // ── Newtype ───────────────────────────────────────────────────
                 case OpCode::WRAP_NEWTYPE:
                 {
                     uint16_t typeIdx = read_u16();
@@ -1397,6 +1406,7 @@ namespace NG::orgasm
                     }
                     break;
                 }
+                // ── Native/Assert ─────────────────────────────────────────────
                 case OpCode::PRINT:
             {
                 uint16_t numArgs = read_u16();
@@ -1447,6 +1457,7 @@ namespace NG::orgasm
                     break;
                 }
 
+                // ── Tagged Union ──────────────────────────────────────────────
                 case OpCode::CONSTRUCT_TAGGED: {
                     uint16_t typeIdx = read_u16();
                     if (typeIdx >= current_module->types.size()) throw RuntimeException("VM error: CONSTRUCT_TAGGED type index out of bounds");
