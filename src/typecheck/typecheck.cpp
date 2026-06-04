@@ -2956,27 +2956,22 @@ namespace NG::typecheck
       {
         return true;
       }
-      if (auto ref = std::dynamic_pointer_cast<ReferenceType>(candidate))
+      switch (candidate->tag())
       {
-        return typeSatisfiesAutoTrait(ref->referencedType, trait, seen);
-      }
-      if (auto tuple = std::dynamic_pointer_cast<TupleType>(candidate))
-      {
-        return std::ranges::all_of(tuple->elementTypes, [&](const auto &element) {
+      case typeinfo_tag::REFERENCE:
+        return typeSatisfiesAutoTrait(static_cast<const ReferenceType &>(*candidate).referencedType, trait, seen);
+      case typeinfo_tag::TUPLE:
+        return std::ranges::all_of(static_cast<const TupleType &>(*candidate).elementTypes, [&](const auto &element) {
           return typeSatisfiesAutoTrait(element, trait, seen);
         });
-      }
-      if (auto array = std::dynamic_pointer_cast<ArrayType>(candidate))
-      {
-        return typeSatisfiesAutoTrait(array->elementType, trait, seen);
-      }
-      if (auto vector = std::dynamic_pointer_cast<VectorType>(candidate))
-      {
-        return typeSatisfiesAutoTrait(vector->elementType, trait, seen);
-      }
-      if (auto span = std::dynamic_pointer_cast<SpanType>(candidate))
-      {
-        return typeSatisfiesAutoTrait(span->elementType, trait, seen);
+      case typeinfo_tag::ARRAY:
+        return typeSatisfiesAutoTrait(static_cast<const ArrayType &>(*candidate).elementType, trait, seen);
+      case typeinfo_tag::VECTOR:
+        return typeSatisfiesAutoTrait(static_cast<const VectorType &>(*candidate).elementType, trait, seen);
+      case typeinfo_tag::SPAN:
+        return typeSatisfiesAutoTrait(static_cast<const SpanType &>(*candidate).elementType, trait, seen);
+      default:
+        break;
       }
       auto custom = std::dynamic_pointer_cast<CustomizedType>(candidate);
       if (!custom)
@@ -3025,27 +3020,23 @@ namespace NG::typecheck
       {
         return true;
       }
-      if (auto ref = std::dynamic_pointer_cast<ReferenceType>(candidate))
+      switch (candidate->tag())
       {
-        return traitName == COPY_TRAIT_NAME || typeCanDeriveTrait(ref->referencedType, traitName, seen);
-      }
-      if (auto tuple = std::dynamic_pointer_cast<TupleType>(candidate))
-      {
-        return std::ranges::all_of(tuple->elementTypes, [&](const auto &element) {
+      case typeinfo_tag::REFERENCE:
+        return traitName == COPY_TRAIT_NAME ||
+               typeCanDeriveTrait(static_cast<const ReferenceType &>(*candidate).referencedType, traitName, seen);
+      case typeinfo_tag::TUPLE:
+        return std::ranges::all_of(static_cast<const TupleType &>(*candidate).elementTypes, [&](const auto &element) {
           return typeCanDeriveTrait(element, traitName, seen);
         });
-      }
-      if (auto array = std::dynamic_pointer_cast<ArrayType>(candidate))
-      {
-        return typeCanDeriveTrait(array->elementType, traitName, seen);
-      }
-      if (auto span = std::dynamic_pointer_cast<SpanType>(candidate))
-      {
-        return typeCanDeriveTrait(span->elementType, traitName, seen);
-      }
-      if (std::dynamic_pointer_cast<VectorType>(candidate))
-      {
+      case typeinfo_tag::ARRAY:
+        return typeCanDeriveTrait(static_cast<const ArrayType &>(*candidate).elementType, traitName, seen);
+      case typeinfo_tag::SPAN:
+        return typeCanDeriveTrait(static_cast<const SpanType &>(*candidate).elementType, traitName, seen);
+      case typeinfo_tag::VECTOR:
         return false;
+      default:
+        break;
       }
       auto custom = std::dynamic_pointer_cast<CustomizedType>(candidate);
       if (!custom)
