@@ -227,158 +227,134 @@ namespace NG::parsing
     return isblank(current) || isspace(current) || isTerminator(current) || is(operators, current);
   }
 
+  // Skip a line comment (// or #) — consumes to end of line.
+  static void skipLineComment(LexState &state)
+  {
+    while (state.current() != '\n' && !state.eof())
+    {
+      state.next();
+    }
+    if (!state.eof())
+    {
+      state.nextLine();
+    }
+    state.next();
+  }
+
+  // Skip a block comment (/* ... */) — consumes to closing */.
+  static void skipBlockComment(LexState &state)
+  {
+    state.next(2); // consume '/*'
+    while (!state.eof())
+    {
+      if (state.current() == '\n')
+      {
+        state.next();
+        state.nextLine();
+        continue;
+      }
+      if (state.current() == '*' && state.lookAhead() == '/')
+      {
+        state.next(2);
+        return;
+      }
+      state.next();
+    }
+    throw LexException("Unterminated block comment");
+  }
+
+  // Lex colon variants: ::, :=, :
+  static auto lexColon(LexState &state, Vec<Token> &tokens, TokenPosition pos) -> Token
+  {
+    if (state.lookAhead() == ':')
+    {
+      state.next(2);
+      return emitToken(tokens, TokenType::SEPARATOR, "::", pos);
+    }
+    if (state.lookAhead() == '=')
+    {
+      state.next(2);
+      return emitToken(tokens, TokenType::ASSIGN_EQUAL, ":=", pos);
+    }
+    state.next();
+    return emitToken(tokens, TokenType::COLON, ":", pos);
+  }
+
+  // Lex dot variants: ..., ..=, .., .
+  static auto lexDot(LexState &state, Vec<Token> &tokens, TokenPosition pos) -> Token
+  {
+    if (state.lookAhead() == '.')
+    {
+      state.next();
+      if (state.lookAhead() == '.')
+      {
+        state.next(2);
+        return emitToken(tokens, TokenType::SPREAD, "...", pos);
+      }
+      if (state.lookAhead() == '=')
+      {
+        state.next(2);
+        return emitToken(tokens, TokenType::RANGE_INCLUSIVE, "..=", pos);
+      }
+      state.next();
+      return emitToken(tokens, TokenType::RANGE, "..", pos);
+    }
+    state.next();
+    return emitToken(tokens, TokenType::DOT, ".", pos);
+  }
+
   auto Lexer::next() -> Token
   {
     while (const char current = state.current())
     {
       TokenPosition pos{.line = state.line, .col = state.col};
+
+      // Whitespace
       if (isblank(current) || isspace(current))
       {
-        if (current == '\n')
-        {
-          state.nextLine();
-        }
+        if (current == '\n') state.nextLine();
         state.next();
         continue;
       }
-      if (isalpha(current) || current == '_')
+
+      // Identifiers and keywords
+      if (isalpha(current) || current == '_') return lexSymbol(state, tokens);
+
+      // Numbers
+      if (isdigit(current)) return lexNumber(state, tokens);
+
+      // Strings
+      if (current == '"') return lexString(state, tokens);
+
+      // Brackets
+      if (is(brackets, current))
       {
-        return lexSymbol(state, tokens);
-      }
-      else if (isdigit(current))
-      {
-        return lexNumber(state, tokens);
-      }
-      else if (current == '"')
-      {
-        return lexString(state, tokens);
-      }
-      else if (is(brackets, current))
-      {
-        Str result{};
-        result += current;
+        Str result(1, current);
         state.next();
         return emitToken(tokens, tokenType.at(result), result, pos);
       }
-      else if (current == '/')
+
+      // Comments (// and /* */) and division operator
+      if (current == '/')
       {
-        if (state.lookAhead() == '/')
-        {
-          while (state.current() != '\n' && !state.eof())
-          {
-            state.next();
-          }
-          if (!state.eof())
-          {
-            state.nextLine();
-          }
-          state.next();
-        }
-        else if (state.lookAhead() == '*')
-        {
-          // consume '/*'
-          state.next(2);
-          while (!state.eof())
-          {
-            if (state.current() == '\n')
-            {
-              state.next();
-              state.nextLine();
-              continue;
-            }
-            if (state.current() == '*' && state.lookAhead() == '/')
-            {
-              state.next(2);
-              break;
-            }
-            state.next();
-          }
-          if (state.eof())
-          {
-            throw LexException("Unterminated block comment");
-          }
-        }
-        else
-        {
-          return lexOperator(state, tokens);
-        }
-      }
-      else if (current == '#')
-      {
-        while (state.current() != '\n' && !state.eof())
-        {
-          state.next();
-        }
-        if (!state.eof())
-        {
-          state.nextLine();
-        }
-        state.next();
-      }
-      else if (current == '-')
-      {
+        if (state.lookAhead() == '/') { skipLineComment(state); continue; }
+        if (state.lookAhead() == '*') { skipBlockComment(state); continue; }
         return lexOperator(state, tokens);
       }
-      else if (is(operators, current))
-      {
-        return lexOperator(state, tokens);
-      }
-      else if (current == ':')
-      {
-        if (state.lookAhead() == ':')
-        {
-          state.next(2);
-          return emitToken(tokens, TokenType::SEPARATOR, "::", pos);
-        }
-        if (state.lookAhead() == '=')
-        {
-          state.next(2);
-          return emitToken(tokens, TokenType::ASSIGN_EQUAL, ":=", pos);
-        }
-        else
-        {
-          state.next();
-          return emitToken(tokens, TokenType::COLON, ":", pos);
-        }
-      }
-      else if (current == ';')
-      {
-        state.next();
-        return emitToken(tokens, TokenType::SEMICOLON, ";", pos);
-      }
-      else if (current == ',')
-      {
-        state.next();
-        return emitToken(tokens, TokenType::COMMA, ",", pos);
-      }
-      else if (current == '.')
-      {
-        if (state.lookAhead() == '.')
-        {
-          state.next();
-          if (state.lookAhead() == '.')
-          {
-            state.next(2);
-            return emitToken(tokens, TokenType::SPREAD, "...", pos);
-          }
-          else if (state.lookAhead() == '=')
-          {
-            state.next(2);
-            return emitToken(tokens, TokenType::RANGE_INCLUSIVE, "..=", pos);
-          }
-          else
-          {
-            state.next();
-            return emitToken(tokens, TokenType::RANGE, "..", pos);
-          }
-        }
-        state.next();
-        return emitToken(tokens, TokenType::DOT, ".", pos);
-      }
-      else
-      {
-        throw LexException("Unknown token: " + std::string(1, current));
-      }
+
+      // Hash comments
+      if (current == '#') { skipLineComment(state); continue; }
+
+      // Operators (including minus)
+      if (is(operators, current)) return lexOperator(state, tokens);
+
+      // Punctuation
+      if (current == ':') return lexColon(state, tokens, pos);
+      if (current == ';') { state.next(); return emitToken(tokens, TokenType::SEMICOLON, ";", pos); }
+      if (current == ',') { state.next(); return emitToken(tokens, TokenType::COMMA, ",", pos); }
+      if (current == '.') return lexDot(state, tokens, pos);
+
+      throw LexException("Unknown token: " + std::string(1, current));
     }
     return {};
   }
