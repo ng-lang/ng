@@ -293,6 +293,45 @@ namespace NG::orgasm
         call_stack.push_back(std::move(frame));
     }
 
+    auto VM::pop_slot() -> RuntimeRef<StorageCell>
+    {
+        if (stack.empty()) throw RuntimeException("Stack underflow");
+        auto val = stack.back();
+        stack.pop_back();
+        return val;
+    }
+
+    void VM::resolve_member_call(const Str &typeName, const Str &memberName,
+                                 const RuntimeRef<StorageCell> &target,
+                                 Vec<RuntimeRef<StorageCell>> &callArgs)
+    {
+        auto dispatchTarget = runtime_is_trait_object_ref(target) ? runtime_trait_object_target(target) : target;
+        Str resolvedTypeName = runtime_value_type(dispatchTarget) ? runtime_value_type(dispatchTarget)->name : "Object";
+        Str resolvedMemberName = memberName;
+        if (runtime_is_trait_object_ref(target) && memberName.find("::") == Str::npos)
+        {
+            resolvedMemberName = runtime_trait_object_name(target) + "::" + memberName;
+        }
+        Str fullFunName = resolvedTypeName + "." + resolvedMemberName;
+        int32_t funIdx = current_module->findFunction(fullFunName);
+
+        if (funIdx != -1) {
+            auto selfSlot = current_module->functions[funIdx].explicit_receiver
+                                ? make_runtime_reference_cell(dispatchTarget, "arg:self")
+                                : clone_value_slot(dispatchTarget, "arg:self");
+            selfSlot->name = "arg:self";
+            callArgs.insert(callArgs.begin(), selfSlot);
+            push_frame(*current_module, current_module->functions[funIdx], callArgs);
+        } else {
+            NGArgs memberArgs;
+            memberArgs.reserve(callArgs.size());
+            for (const auto &slot : callArgs) {
+                memberArgs.push_back(clone_value_slot(slot, "arg:" + std::to_string(memberArgs.size())));
+            }
+            stack.push_back(runtime_value_respond_slot(target, resolvedMemberName, make_runtime_env(root_symbols), memberArgs));
+        }
+    }
+
     auto VM::execute_slots(const BytecodeModule &module, const Function &fun,
                            const Vec<RuntimeRef<StorageCell>> &args) -> RuntimeRef<StorageCell>
     {
@@ -316,13 +355,6 @@ namespace NG::orgasm
             auto slot = clone_value_slot(source, name);
             stack.push_back(slot);
             return slot;
-        };
-        auto pop_slot = [this]() -> RuntimeRef<StorageCell>
-        {
-            if (stack.empty()) throw RuntimeException("Stack underflow");
-            auto val = stack.back();
-            stack.pop_back();
-            return val;
         };
         auto access_target_slot = [](const RuntimeRef<StorageCell> &slot) -> RuntimeRef<StorageCell>
         {
@@ -1200,31 +1232,7 @@ namespace NG::orgasm
                     Vec<RuntimeRef<StorageCell>> callArgs;
                     callArgs.reserve(numArgs); for (int i = 0; i < numArgs; ++i) callArgs.push_back(pop_slot()); std::reverse(callArgs.begin(), callArgs.end());
                     auto targetSlot = access_target_slot(pop_slot());
-                    
-                    auto dispatchTarget = runtime_is_trait_object_ref(targetSlot) ? runtime_trait_object_target(targetSlot) : targetSlot;
-                    Str typeName = runtime_value_type(dispatchTarget) ? runtime_value_type(dispatchTarget)->name : "Object";
-                    if (runtime_is_trait_object_ref(targetSlot) && memberName.find("::") == Str::npos)
-                    {
-                        memberName = runtime_trait_object_name(targetSlot) + "::" + memberName;
-                    }
-                    Str fullFunName = typeName + "." + memberName;
-                    int32_t funIdx = current_module->findFunction(fullFunName);
-                    
-                    if (funIdx != -1) {
-                        auto selfSlot = current_module->functions[funIdx].explicit_receiver
-                                            ? make_runtime_reference_cell(dispatchTarget, "arg:self")
-                                            : clone_value_slot(dispatchTarget, "arg:self");
-                        selfSlot->name = "arg:self";
-                        callArgs.insert(callArgs.begin(), selfSlot);
-                        push_frame(*current_module, current_module->functions[funIdx], callArgs);
-                    } else {
-                        NGArgs memberArgs;
-                        memberArgs.reserve(callArgs.size());
-                        for (const auto &slot : callArgs) {
-                            memberArgs.push_back(clone_value_slot(slot, "arg:" + std::to_string(memberArgs.size())));
-                        }
-                        push_slot_copy(runtime_value_respond_slot(targetSlot, memberName, make_runtime_env(root_symbols), memberArgs));
-                    }
+                    resolve_member_call("", memberName, targetSlot, callArgs);
                     break;
                 }
                 case OpCode::NEW_TUPLE_SPREAD:
@@ -1233,10 +1241,11 @@ namespace NG::orgasm
                     uint16_t num = read_u16();
                     Vec<uint8_t> flags(num);
                     for (int i = 0; i < num; ++i) flags[i] = read_byte_checked(code, ip);
-                    
+
                     Vec<RuntimeRef<StorageCell>> segments;
-                    for (int i = 0; i < num; ++i) segments.insert(segments.begin(), pop_slot());
-                    
+                    for (int i = 0; i < num; ++i) segments.push_back(pop_slot());
+                    std::reverse(segments.begin(), segments.end());
+
                     Vec<RuntimeRef<StorageCell>> elems;
                     for (int i = 0; i < num; ++i) {
                         if (flags[i] == 1) { // Spread
@@ -1249,7 +1258,7 @@ namespace NG::orgasm
                             elems.push_back(clone_value_slot(segments[i], "spread:" + std::to_string(elems.size())));
                         }
                     }
-                    
+
                     if (op == OpCode::NEW_TUPLE_SPREAD) push_slot_copy(make_runtime_tuple_cell(elems));
                     else push_slot_copy(make_runtime_array_cell(elems));
                     break;
