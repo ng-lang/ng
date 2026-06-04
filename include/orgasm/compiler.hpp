@@ -85,6 +85,7 @@ namespace NG::orgasm
         };
 
       private:
+        friend class GenericInstanceCollector;
         BytecodeModule module;
         Function *current_function = nullptr;
         struct LoopInfo {
