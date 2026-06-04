@@ -97,6 +97,21 @@ namespace NG::parsing
   public:
     explicit ParserImpl(ParseState &state) : state(state) {}
 
+    // Parse a comma-separated list of expressions inside parentheses.
+    auto parseExprList() -> Vec<ASTRef<Expression>>
+    {
+      accept(TokenType::LEFT_PAREN);
+      Vec<ASTRef<Expression>> args;
+      while (!expect(TokenType::RIGHT_PAREN))
+      {
+        args.push_back(std::move(expression()));
+        if (!expect(TokenType::COMMA)) break;
+        accept(TokenType::COMMA);
+      }
+      accept(TokenType::RIGHT_PAREN);
+      return args;
+    }
+
     void addDefinition(ASTRef<Module> &mod, ASTRef<Definition> def, bool exported)
     {
       if (exported)
@@ -2093,18 +2108,7 @@ namespace NG::parsing
     auto funCallExpression(ASTRef<Expression> primaryExpression,
                            Vec<std::shared_ptr<TypeAnnotation>> genericArgs = {}) -> ASTRef<FunCallExpression>
     {
-      accept(TokenType::LEFT_PAREN);
-      Vec<ASTRef<Expression>> args{};
-      while (!expect(TokenType::RIGHT_PAREN))
-      {
-        args.push_back(std::move(expression()));
-        if (!expect(TokenType::COMMA))
-        {
-          break;
-        }
-        accept(TokenType::COMMA);
-      }
-      accept(TokenType::RIGHT_PAREN);
+      auto args = parseExprList();
       auto funcall = createNode<FunCallExpression>();
       funcall->primaryExpression = std::move(primaryExpression);
       funcall->genericArgs = std::move(genericArgs);
@@ -2128,17 +2132,7 @@ namespace NG::parsing
         }
         qualified->methodName = state->repr;
         accept(TokenType::ID);
-        accept(TokenType::LEFT_PAREN);
-        while (!expect(TokenType::RIGHT_PAREN))
-        {
-          qualified->arguments.push_back(std::move(expression()));
-          if (!expect(TokenType::COMMA))
-          {
-            break;
-          }
-          accept(TokenType::COMMA);
-        }
-        accept(TokenType::RIGHT_PAREN);
+        qualified->arguments = parseExprList();
         return qualified;
       }
 
@@ -2164,22 +2158,7 @@ namespace NG::parsing
 
       if (expect(TokenType::LEFT_PAREN))
       {
-        accept(TokenType::LEFT_PAREN);
-
-        Vec<ASTRef<Expression>> args{};
-
-        while (!expect(TokenType::RIGHT_PAREN))
-        {
-          args.push_back(std::move(expression()));
-          if (!expect(TokenType::COMMA))
-          {
-            break;
-          }
-          accept(TokenType::COMMA);
-        }
-        accept(TokenType::RIGHT_PAREN);
-
-        idacc->arguments = std::move(args);
+        idacc->arguments = parseExprList();
       }
       return idacc;
     }
@@ -2200,17 +2179,7 @@ namespace NG::parsing
       }
       qualified->methodName = state->repr;
       accept(TokenType::ID);
-      accept(TokenType::LEFT_PAREN);
-      while (!expect(TokenType::RIGHT_PAREN))
-      {
-        qualified->arguments.push_back(std::move(expression()));
-        if (!expect(TokenType::COMMA))
-        {
-          break;
-        }
-        accept(TokenType::COMMA);
-      }
-      accept(TokenType::RIGHT_PAREN);
+      qualified->arguments = parseExprList();
       destroyast(expr);
       return qualified;
     }
