@@ -144,6 +144,12 @@ namespace NG::orgasm
         void collect_generic_function_instances(ast::ASTRef<ast::Statement> stmt, const Str &instanceContext = "");
         void collect_generic_function_instances(ast::ASTRef<ast::Expression> expr, const Str &instanceContext = "");
         void compile_function_body(ast::FunctionDef *funDef, Function &targetFunction, bool allowImplicitSelf);
+
+        // Phases of visit(Module*) — extracted for readability
+        void collectModuleDefinitions(ast::Module *mod);
+        void compileModuleTopLevelCode(ast::Module *mod);
+        void compileModuleFunctionBodies(ast::Module *mod);
+
         auto find_function(const Str &name) -> Function *;
         auto find_function_index(const Str &name) const -> int32_t;
 

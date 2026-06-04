@@ -244,7 +244,13 @@ namespace NG::orgasm
 
     void Compiler::visit(Module *mod)
     {
-        // First pass: collect all function signatures and create placeholders
+        collectModuleDefinitions(mod);
+        compileModuleTopLevelCode(mod);
+        compileModuleFunctionBodies(mod);
+    }
+
+    void Compiler::collectModuleDefinitions(Module *mod)
+    {
         Function startFun;
         startFun.name = "__start__";
         startFun.num_params = 0;
@@ -523,7 +529,10 @@ namespace NG::orgasm
                 module.types.push_back(std::move(type));
             }
         }
+    }
 
+    void Compiler::compileModuleTopLevelCode(Module *mod)
+    {
         for (auto &&def : mod->definitions)
         {
             collect_generic_function_instances(def);
@@ -620,8 +629,10 @@ namespace NG::orgasm
         module.functions[0].num_locals = static_cast<int32_t>(locals.size());
         emit(OpCode::PUSH_UNIT);
         emit(OpCode::RETURN);
+    }
 
-        // Third pass: compile function bodies
+    void Compiler::compileModuleFunctionBodies(Module *mod)
+    {
         int funIndex = 1;
         for (auto *importedDef : importedDefinitions)
         {
