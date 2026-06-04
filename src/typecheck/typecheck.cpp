@@ -6103,21 +6103,24 @@ namespace NG::typecheck
           }
           TypeChecker checker{locals};
           annotation->genericArgs[0]->accept(&checker);
-          auto tupleType = std::dynamic_pointer_cast<TupleType>(unwrap(checker.result));
+          auto unwrappedTuple = unwrap(checker.result);
+          bool isTuple = unwrappedTuple && unwrappedTuple->tag() == typeinfo_tag::TUPLE;
           annotation->genericArgs[1]->accept(&checker);
-          auto indexValue = std::dynamic_pointer_cast<ConstValueType>(unwrap(checker.result));
-          if (!tupleType)
+          auto unwrappedIndex = unwrap(checker.result);
+          bool isConstValue = unwrappedIndex && unwrappedIndex->tag() == typeinfo_tag::CONST_VALUE;
+          if (!isTuple)
           {
             throw TypeCheckingException("tuple_element<T, I> expects a tuple type as T", annotation->pos);
           }
-          if (!indexValue || indexValue->isParam)
+          auto &indexValue = static_cast<ConstValueType &>(*unwrappedIndex);
+          if (!isConstValue || indexValue.isParam)
           {
             throw TypeCheckingException("tuple_element<T, I> expects a concrete const index", annotation->pos);
           }
           size_t index = 0;
           try
           {
-            auto parsed = std::stoll(indexValue->value);
+            auto parsed = std::stoll(indexValue.value);
             if (parsed < 0)
             {
               throw TypeCheckingException("tuple_element<T, I> index cannot be negative", annotation->pos);
@@ -6132,11 +6135,12 @@ namespace NG::typecheck
           {
             throw TypeCheckingException("tuple_element<T, I> expects an integer const index", annotation->pos);
           }
-          if (index >= tupleType->elementTypes.size())
+          auto &tupleRef = static_cast<TupleType &>(*unwrappedTuple);
+          if (index >= tupleRef.elementTypes.size())
           {
             throw TypeCheckingException("tuple_element<T, I> index out of range", annotation->pos);
           }
-          result = tupleType->elementTypes[index];
+          result = tupleRef.elementTypes[index];
           return;
         }
 
