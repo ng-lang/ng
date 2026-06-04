@@ -8339,25 +8339,22 @@ namespace NG::typecheck
         auto &paramApp = static_cast<TypeConstructorApplicationType &>(*paramType);
         Str argBase;
         Vec<Str> argArgs;
-        if (auto argCustom = std::dynamic_pointer_cast<CustomizedType>(argType))
+        if (argType)
         {
-          argBase = stripTypeInstanceSuffix(argCustom->name);
-          argArgs = parseTypeInstanceArgs(argCustom->name);
-        }
-        else if (auto argAlias = std::dynamic_pointer_cast<TypeAliasType>(argType))
-        {
-          argBase = stripTypeInstanceSuffix(argAlias->name);
-          argArgs = parseTypeInstanceArgs(argAlias->name);
-        }
-        else if (auto argNewType = std::dynamic_pointer_cast<NewTypeType>(argType))
-        {
-          argBase = stripTypeInstanceSuffix(argNewType->name);
-          argArgs = parseTypeInstanceArgs(argNewType->name);
-        }
-        else if (auto argTagged = std::dynamic_pointer_cast<TaggedUnionType>(argType))
-        {
-          argBase = stripTypeInstanceSuffix(argTagged->name);
-          argArgs = parseTypeInstanceArgs(argTagged->name);
+          Str name;
+          switch (argType->tag())
+          {
+          case typeinfo_tag::CUSTOMIZED:    name = static_cast<const CustomizedType &>(*argType).name; break;
+          case typeinfo_tag::TYPE_ALIAS:    name = static_cast<const TypeAliasType &>(*argType).name; break;
+          case typeinfo_tag::NEW_TYPE:      name = static_cast<const NewTypeType &>(*argType).name; break;
+          case typeinfo_tag::TAGGED_UNION:  name = static_cast<const TaggedUnionType &>(*argType).name; break;
+          default: break;
+          }
+          if (!name.empty())
+          {
+            argBase = stripTypeInstanceSuffix(name);
+            argArgs = parseTypeInstanceArgs(name);
+          }
         }
 
         if (argBase.empty() || argArgs.size() != paramApp.typeArgs.size())
