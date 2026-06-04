@@ -5407,13 +5407,13 @@ namespace NG::typecheck
         movedBindings = checker.movedBindings;
         // Both TupleType and VarargsType have elementTypes and can be unpacked
         Vec<CheckingRef<TypeInfo>> *elementTypesPtr = nullptr;
-        if (auto tupleType = std::dynamic_pointer_cast<TupleType>(valType); tupleType)
+        if (valType && valType->tag() == typeinfo_tag::TUPLE)
         {
-          elementTypesPtr = &tupleType->elementTypes;
+          elementTypesPtr = &static_cast<TupleType &>(*valType).elementTypes;
         }
-        else if (auto varargsType = std::dynamic_pointer_cast<VarargsType>(valType); varargsType)
+        else if (valType && valType->tag() == typeinfo_tag::VARARGS)
         {
-          elementTypesPtr = &varargsType->elementTypes;
+          elementTypesPtr = &static_cast<VarargsType &>(*valType).elementTypes;
         }
         if (elementTypesPtr)
         {
@@ -5653,7 +5653,7 @@ namespace NG::typecheck
         {
           throw TypeCheckingException("Reference operator requires an lvalue.");
         }
-        if (std::dynamic_pointer_cast<ReferenceType>(unwrap(operandType)))
+        if (unwrap(operandType) && unwrap(operandType)->tag() == typeinfo_tag::REFERENCE)
         {
           throw TypeCheckingException("Reference operator cannot take a reference value.");
         }
@@ -5662,12 +5662,12 @@ namespace NG::typecheck
       }
       case TokenType::TIMES:
       {
-        auto refType = std::dynamic_pointer_cast<ReferenceType>(unwrap(operandType));
-        if (!refType)
+        auto unwrappedOp = unwrap(operandType);
+        if (!unwrappedOp || unwrappedOp->tag() != typeinfo_tag::REFERENCE)
         {
           throw TypeCheckingException("Cannot dereference non-reference type: " + operandType->repr());
         }
-        result = refType->referencedType;
+        result = static_cast<ReferenceType &>(*unwrappedOp).referencedType;
         return;
       }
       case TokenType::KEYWORD_MOVE:
