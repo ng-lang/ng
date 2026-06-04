@@ -216,7 +216,7 @@ namespace NG::parsing
 
   static Token lexString(LexState &state, Vec<Token> &tokens);
 
-  [[nodiscard]] inline auto isTermintator(char character) -> bool
+  [[nodiscard]] inline auto isTerminator(char character) -> bool
   {
     return character == ',' || character == ';' || character == '(' || character == ')' || character == ']' ||
            character == '}';
@@ -232,7 +232,7 @@ namespace NG::parsing
       func(state, stream);
       return stream.str();
     }
-    catch (std::exception &)
+    catch (LexException &)
     {
       state.revert(current);
       return "";
@@ -241,7 +241,7 @@ namespace NG::parsing
 
   [[nodiscard]] inline auto isBlankSpaceTerminatorOrOperator(char current) -> bool
   {
-    return isblank(current) || isspace(current) || isTermintator(current) || is(operators, current);
+    return isblank(current) || isspace(current) || isTerminator(current) || is(operators, current);
   }
 
   auto Lexer::next() -> Token
@@ -575,13 +575,13 @@ namespace NG::parsing
   static Token lexNumber(LexState &state, Vec<Token> &tokens)
   {
     TokenPosition pos{.line = state.line, .col = state.col};
-    TokenType tokenType = TokenType::NUMBER;
+    TokenType numTokenType = TokenType::NUMBER;
     Str result = withStream(state,
-                            [&tokenType](LexState &state, Stream &stream)
+                            [&numTokenType](LexState &state, Stream &stream)
                             {
                               auto current = state.current();
                               bool decimalPointSet = false;
-                              bool exponentalSet = false;
+                              bool exponentialSet = false;
                               while (current && !(isBlankSpaceTerminatorOrOperator(current)))
                               {
                                 if (isdigit(current))
@@ -592,20 +592,20 @@ namespace NG::parsing
                                 {
                                   // skip just as seperator.
                                 }
-                                else if (current == '.' && !decimalPointSet && !exponentalSet)
+                                else if (current == '.' && !decimalPointSet && !exponentialSet)
                                 {
                                   if (!isdigit(state.lookAhead()))
                                   {
                                     return;
                                   }
                                   decimalPointSet = true;
-                                  tokenType = TokenType::FLOATING_POINT;
+                                  numTokenType = TokenType::FLOATING_POINT;
                                   stream << current;
                                 }
-                                else if (current == 'e' && !exponentalSet)
+                                else if (current == 'e' && !exponentialSet)
                                 {
-                                  exponentalSet = true;
-                                  tokenType = TokenType::FLOATING_POINT;
+                                  exponentialSet = true;
+                                  numTokenType = TokenType::FLOATING_POINT;
                                   stream << current;
                                   if (state.lookAhead() == '-')
                                   {
@@ -614,18 +614,18 @@ namespace NG::parsing
                                   }
                                 }
                                 else if ((tolower(current) == 'u' || tolower(current) == 'i') &&
-                                         tokenType != TokenType::FLOATING_POINT)
+                                         numTokenType != TokenType::FLOATING_POINT)
                                 {
                                   state.next();
                                   int bitlength = numberTypePostfix(state);
-                                  tokenType = resolveIntegralType(current, from_code<Words>(bitlength));
+                                  numTokenType = resolveIntegralType(current, from_code<Words>(bitlength));
                                   return;
                                 }
                                 else if ((tolower(current) == 'f'))
                                 {
                                   state.next();
                                   int bitlength = numberTypePostfix(state);
-                                  tokenType = resolveFloatingPointType(from_code<Floats>(bitlength));
+                                  numTokenType = resolveFloatingPointType(from_code<Floats>(bitlength));
                                   return;
                                 }
                                 else
@@ -639,7 +639,7 @@ namespace NG::parsing
 
     if (!result.empty())
     {
-      Token token{.type = tokenType, .repr = result, .position = pos};
+      Token token{.type = numTokenType, .repr = result, .position = pos};
       tokens.push_back(token);
       return token;
     }
@@ -664,11 +664,11 @@ namespace NG::parsing
   static auto octalVal(LexState &state) -> char
   {
     char val = 0;
-    constexpr int octaBase = 8;
+    constexpr int octalBase = 8;
     constexpr int charLimit = 256;
     while (isOctalDigit(state.current()))
     {
-      int newVal = (val * octaBase) + (state.current() - '0');
+      int newVal = (val * octalBase) + (state.current() - '0');
       if (newVal >= charLimit)
       {
         return val;
@@ -717,11 +717,11 @@ namespace NG::parsing
   static auto hexVal(LexState &state) -> char
   {
     char val = 0;
-    constexpr int hexoBase = 16;
+    constexpr int hexBase = 16;
     constexpr int charLimit = 256;
     while (isxdigit(state.current()) != 0)
     {
-      int newVal = (val * hexoBase) + hex2dec(state.current());
+      int newVal = (val * hexBase) + hex2dec(state.current());
       if (newVal >= charLimit)
       {
         return val;
@@ -762,7 +762,7 @@ namespace NG::parsing
                             [](LexState &state, Stream &stream)
                             {
                               state.next();
-                              while (state.current() != '"')
+                              while (!state.eof() && state.current() != '"')
                               {
                                 if (state.current() == '\\')
                                 {
@@ -775,6 +775,10 @@ namespace NG::parsing
                                 }
                               }
                             });
+    if (state.eof())
+    {
+      throw LexException("Unterminated string literal");
+    }
     state.next();
     Token token{.type = TokenType::STRING, .repr = result, .position = pos};
     tokens.push_back(token);

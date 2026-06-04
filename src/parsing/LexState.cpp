@@ -36,7 +36,7 @@ namespace NG::parsing
     return source.at(index + 1);
   }
 
-  void LexState::next(int n)
+  void LexState::next(size_t n)
   {
     if (!eof())
     {

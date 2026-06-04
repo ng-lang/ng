@@ -99,6 +99,98 @@ TEST_CASE("compiler and vm should handle basic arithmetic", "[OrgasmTest]")
   destroyast(ast);
 }
 
+TEST_CASE("compiler and vm should handle i8 literal correctly", "[OrgasmTest]")
+{
+  auto ast = parse(R"(
+        fun main() {
+            val x: i8 = 42i8;
+            return x;
+        }
+    )");
+  REQUIRE(ast != nullptr);
+
+  NG::typecheck::type_check(ast);
+
+  Compiler compiler;
+  auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+
+  VM vm;
+  auto result = vm.run(bytecode);
+
+  REQUIRE(result_i32(result) == 42);
+
+  destroyast(ast);
+}
+
+TEST_CASE("compiler and vm should handle u8 literal correctly", "[OrgasmTest]")
+{
+  auto ast = parse(R"(
+        fun main() {
+            val x: u8 = 200u8;
+            return x;
+        }
+    )");
+  REQUIRE(ast != nullptr);
+
+  NG::typecheck::type_check(ast);
+
+  Compiler compiler;
+  auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+
+  VM vm;
+  auto result = vm.run(bytecode);
+
+  REQUIRE(result_i32(result) == 200);
+
+  destroyast(ast);
+}
+
+TEST_CASE("compiler and vm should handle i16 literal correctly", "[OrgasmTest]")
+{
+  auto ast = parse(R"(
+        fun main() {
+            val x: i16 = 1000i16;
+            return x;
+        }
+    )");
+  REQUIRE(ast != nullptr);
+
+  NG::typecheck::type_check(ast);
+
+  Compiler compiler;
+  auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+
+  VM vm;
+  auto result = vm.run(bytecode);
+
+  REQUIRE(result_i32(result) == 1000);
+
+  destroyast(ast);
+}
+
+TEST_CASE("compiler and vm should handle u16 literal correctly", "[OrgasmTest]")
+{
+  auto ast = parse(R"(
+        fun main() {
+            val x: u16 = 50000u16;
+            return x;
+        }
+    )");
+  REQUIRE(ast != nullptr);
+
+  NG::typecheck::type_check(ast);
+
+  Compiler compiler;
+  auto bytecode = compiler.compile(dynamic_ast_cast<CompileUnit>(ast));
+
+  VM vm;
+  auto result = vm.run(bytecode);
+
+  REQUIRE(result_i32(result) == 50000);
+
+  destroyast(ast);
+}
+
 TEST_CASE("compiler and vm should call imported source module through canonical id",
           "[OrgasmTest][ModuleArtifact]")
 {
@@ -1940,4 +2032,117 @@ TEST_CASE("compiler and vm should reject imgui native calls before init", "[Orga
       // Most wrappers reject either missing imgui.init() state or missing arguments.
     }
   }
+}
+
+TEST_CASE("vm should throw on truncated bytecode (PUSH_I32)", "[OrgasmTest][VM][BoundsCheck]")
+{
+  // Manually construct bytecode with PUSH_I32 but only 1 byte of operand (needs 4)
+  BytecodeModule module;
+  module.name = "truncated";
+  Function main{};
+  main.name = "main";
+  main.num_locals = 0;
+  main.num_params = 0;
+  // PUSH_I32 opcode followed by only 1 byte (needs 4)
+  main.code.push_back(static_cast<uint8_t>(OpCode::PUSH_I32));
+  main.code.push_back(0x42);
+  main.code.push_back(static_cast<uint8_t>(OpCode::RETURN));
+  module.functions.push_back(std::move(main));
+
+  VM vm;
+  REQUIRE_THROWS_AS(vm.run(module), RuntimeException);
+}
+
+TEST_CASE("vm should throw on LOAD_STR with out-of-bounds index", "[OrgasmTest][VM][BoundsCheck]")
+{
+  BytecodeModule module;
+  module.name = "oob_str";
+  Function main{};
+  main.name = "main";
+  main.num_locals = 0;
+  main.num_params = 0;
+  // LOAD_STR with index 5 but module has 0 strings
+  emit_u16(main.code, OpCode::LOAD_STR, 5);
+  main.code.push_back(static_cast<uint8_t>(OpCode::RETURN));
+  module.functions.push_back(std::move(main));
+
+  VM vm;
+  REQUIRE_THROWS_AS(vm.run(module), RuntimeException);
+}
+
+TEST_CASE("vm should throw on CALL with out-of-bounds function index", "[OrgasmTest][VM][BoundsCheck]")
+{
+  BytecodeModule module;
+  module.name = "oob_call";
+  Function main{};
+  main.name = "main";
+  main.num_locals = 0;
+  main.num_params = 0;
+  // CALL function index 99 but module has only 1 function
+  emit_u16_u16(main.code, OpCode::CALL, 99, 0);
+  main.code.push_back(static_cast<uint8_t>(OpCode::RETURN));
+  module.functions.push_back(std::move(main));
+
+  VM vm;
+  REQUIRE_THROWS_AS(vm.run(module), RuntimeException);
+}
+
+TEST_CASE("vm should throw on DUP with empty stack", "[OrgasmTest][VM][BoundsCheck]")
+{
+  BytecodeModule module;
+  module.name = "dup_empty";
+  Function main{};
+  main.name = "main";
+  main.num_locals = 0;
+  main.num_params = 0;
+  // DUP with nothing on stack
+  main.code.push_back(static_cast<uint8_t>(OpCode::DUP));
+  main.code.push_back(static_cast<uint8_t>(OpCode::RETURN));
+  module.functions.push_back(std::move(main));
+
+  VM vm;
+  REQUIRE_THROWS_AS(vm.run(module), RuntimeException);
+}
+
+TEST_CASE("vm should throw on JUMP to negative address", "[OrgasmTest][VM][BoundsCheck]")
+{
+  BytecodeModule module;
+  module.name = "jump_neg";
+  Function main{};
+  main.name = "main";
+  main.num_locals = 0;
+  main.num_params = 0;
+  // JUMP to address -1 (0xFFFFFFFF)
+  main.code.push_back(static_cast<uint8_t>(OpCode::JUMP));
+  main.code.push_back(0xFF);
+  main.code.push_back(0xFF);
+  main.code.push_back(0xFF);
+  main.code.push_back(0xFF);
+  main.code.push_back(static_cast<uint8_t>(OpCode::RETURN));
+  module.functions.push_back(std::move(main));
+
+  VM vm;
+  REQUIRE_THROWS_AS(vm.run(module), RuntimeException);
+}
+
+TEST_CASE("vm should throw on PUSH_BOOL with truncated operand", "[OrgasmTest][VM][BoundsCheck]")
+{
+  BytecodeModule module;
+  module.name = "trunc_bool";
+  Function main{};
+  main.name = "main";
+  main.num_locals = 0;
+  main.num_params = 0;
+  // PUSH_BOOL with no operand byte
+  main.code.push_back(static_cast<uint8_t>(OpCode::PUSH_BOOL));
+  main.code.push_back(static_cast<uint8_t>(OpCode::RETURN));
+  // Remove the RETURN to simulate truncation at end
+  // Actually, the opcode byte IS the RETURN — PUSH_BOOL reads it as operand, then ip is past code
+  // Let's just have PUSH_BOOL at end of code with no operand
+  main.code.clear();
+  main.code.push_back(static_cast<uint8_t>(OpCode::PUSH_BOOL));
+  module.functions.push_back(std::move(main));
+
+  VM vm;
+  REQUIRE_THROWS_AS(vm.run(module), RuntimeException);
 }

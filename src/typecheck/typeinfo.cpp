@@ -100,6 +100,9 @@ namespace NG::typecheck
 
   auto Untyped::match(const TypeInfo &other) const -> bool
   {
+    // Untyped acts as a wildcard — used for unresolved types, wildcard imports, empty arrays.
+    // This is intentional: Untyped means "type not yet determined" and should accept any type.
+    // A stricter check would break wildcard imports, empty array inference, and generic fallbacks.
     return true;
   }
 
@@ -123,7 +126,14 @@ namespace NG::typecheck
     }
     if (auto otherCustom = dynamic_cast<const CustomizedType *>(&other); otherCustom != nullptr)
     {
-      return name == otherCustom->name;
+      if (name != otherCustom->name) return false;
+      // When both types have module IDs, they must match to prevent false positives
+      // between different modules that happen to use the same type name.
+      if (!moduleId.empty() && !otherCustom->moduleId.empty())
+      {
+        return moduleId == otherCustom->moduleId;
+      }
+      return true;
     }
     return false;
   }

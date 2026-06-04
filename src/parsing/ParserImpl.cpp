@@ -34,9 +34,34 @@ namespace NG::parsing
     return unary_operators.contains(optr);
   }
 
+  // Builtin type keywords in the KEYWORD_INT..KEYWORD_F128 enum range.
+  // Matches the original range check: code(KEYWORD_INT) <= x <= code(KEYWORD_F128)
+  static const Set<TokenType> builtin_type_keywords{
+      TokenType::KEYWORD_INT,        TokenType::KEYWORD_BOOL,      TokenType::KEYWORD_STRING,
+      TokenType::KEYWORD_FLOAT,
+      TokenType::KEYWORD_BYTE,       TokenType::KEYWORD_UBYTE,     TokenType::KEYWORD_SHORT,
+      TokenType::KEYWORD_USHORT,     TokenType::KEYWORD_UINT,      TokenType::KEYWORD_LONG,
+      TokenType::KEYWORD_ULONG,      TokenType::KEYWORD_U8,        TokenType::KEYWORD_I8,
+      TokenType::KEYWORD_U16,        TokenType::KEYWORD_I16,       TokenType::KEYWORD_U32,
+      TokenType::KEYWORD_I32,        TokenType::KEYWORD_U64,       TokenType::KEYWORD_I64,
+      TokenType::KEYWORD_UPTR,       TokenType::KEYWORD_IPTR,
+      TokenType::KEYWORD_HALF,       TokenType::KEYWORD_DOUBLE,    TokenType::KEYWORD_QUADRUPLE,
+      TokenType::KEYWORD_F16,        TokenType::KEYWORD_F32,       TokenType::KEYWORD_F64,
+      TokenType::KEYWORD_F128,
+  };
+
+  static const Set<TokenType> numeric_literal_types{
+      TokenType::NUMBER,       TokenType::NUMBER_U8,      TokenType::NUMBER_I8,
+      TokenType::NUMBER_U16,   TokenType::NUMBER_I16,     TokenType::NUMBER_U32,
+      TokenType::NUMBER_I32,   TokenType::NUMBER_U64,     TokenType::NUMBER_I64,
+      TokenType::NUMBER_U128,  TokenType::NUMBER_I128,    TokenType::NUMBER_F16,
+      TokenType::NUMBER_F32,   TokenType::NUMBER_F64,     TokenType::NUMBER_F128,
+      TokenType::NUMBER_F256,  TokenType::FLOATING_POINT,
+  };
+
   class ParserImpl
   {
-    ParseState state;
+    ParseState &state;
 
         template <class T, class... Args>
         auto createNode(Args &&...args) -> ASTRef<T>
@@ -57,9 +82,16 @@ namespace NG::parsing
     {
       if (message.empty())
       {
-        message = std::string{"Unexpected token "} + state->repr;
+        if (state.eof())
+        {
+          message = "Unexpected end of file";
+        }
+        else
+        {
+          message = std::string{"Unexpected token "} + state->repr;
+        }
       }
-      throw ParseException(message, state->position);
+      throw ParseException(message, state.eof() ? state.tokens.back().position : state->position);
     }
 
   public:
@@ -79,14 +111,14 @@ namespace NG::parsing
       }
 
       Str fileWithoutPath{filePath.filename()};
-      Str moudleName = fileWithoutPath;
-      if (moudleName.ends_with(".ng"))
+      Str moduleName = fileWithoutPath;
+      if (moduleName.ends_with(".ng"))
       {
-        moudleName = fileWithoutPath.substr(0, fileWithoutPath.size() - 3);
+        moduleName = fileWithoutPath.substr(0, fileWithoutPath.size() - 3);
       }
 
       auto mod = createNode<Module>();
-      mod->name = moudleName;
+      mod->name = moduleName;
       ASTRef<Module> current_mod = mod;
       compileUnit->module = mod;
       bool moduleDeclared = false;
@@ -389,6 +421,10 @@ namespace NG::parsing
     {
       if (!expect(type))
       {
+        if (state.eof())
+        {
+          return unexpected("Unexpected end of file, expected " + std::to_string(static_cast<int>(type)));
+        }
         return unexpected("Unexpected token " + state->repr);
       }
       state.next();
@@ -1514,7 +1550,7 @@ namespace NG::parsing
     auto typeAnnotationBase() -> ASTRef<TypeAnnotation>
     {
       TokenType maybeBuiltin = state->type;
-      if (code(TokenType::KEYWORD_INT) <= code(maybeBuiltin) && code(TokenType::KEYWORD_F128) >= code(maybeBuiltin))
+      if (builtin_type_keywords.contains(maybeBuiltin))
       {
         ASTRef<TypeAnnotation> anno = createNode<TypeAnnotation>(state->repr);
         size_t builtin_type_code =
@@ -1610,7 +1646,7 @@ namespace NG::parsing
             // Try to see if next token could start a type annotation
             TokenType next = state->type;
             if (next == TokenType::ID ||
-                (code(TokenType::KEYWORD_INT) <= code(next) && code(TokenType::KEYWORD_F128) >= code(next)) ||
+                builtin_type_keywords.contains(next) ||
                 next == TokenType::KEYWORD_UNIT || next == TokenType::KEYWORD_REF || next == TokenType::LEFT_SQUARE ||
                 next == TokenType::LEFT_PAREN || next == TokenType::NUMBER || next == TokenType::STRING ||
                 next == TokenType::KEYWORD_TRUE || next == TokenType::KEYWORD_FALSE)
@@ -2328,8 +2364,7 @@ namespace NG::parsing
       {
         return idExpression();
       }
-      if (expect(TokenType::NUMBER) ||
-          (code(state->type) >= code(TokenType::NUMBER) && code(state->type) <= code(TokenType::NUMBER_F128)))
+      if (numeric_literal_types.contains(state->type))
       {
         return numberLiteral();
       }

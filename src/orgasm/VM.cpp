@@ -33,6 +33,31 @@ namespace NG::orgasm
             return value;
         }
 
+        auto read_byte_checked(const Vec<uint8_t> &code, size_t &ip) -> uint8_t
+        {
+            if (ip >= code.size())
+            {
+                throw RuntimeException("VM error: unexpected end of bytecode");
+            }
+            return code[ip++];
+        }
+
+        template <typename UInt>
+        auto read_le_bytes_checked(const Vec<uint8_t> &code, size_t &ip) -> UInt
+        {
+            if (ip + sizeof(UInt) > code.size())
+            {
+                throw RuntimeException("VM error: unexpected end of bytecode reading " +
+                                       std::to_string(sizeof(UInt)) + " bytes");
+            }
+            UInt value = 0;
+            for (size_t i = 0; i < sizeof(UInt); ++i)
+            {
+                value |= static_cast<UInt>(code[ip++]) << (i * 8U);
+            }
+            return value;
+        }
+
         auto ensure_slot(Vec<RuntimeRef<StorageCell>> &slots, size_t index, const Str &prefix,
                          StorageClass storageClass = StorageClass::FRAME) -> RuntimeRef<StorageCell>
         {
@@ -575,7 +600,7 @@ namespace NG::orgasm
 
             auto read_u16 = [&code, &ip]() -> uint16_t
             {
-                return read_le_bytes<uint16_t>(code, ip);
+                return read_le_bytes_checked<uint16_t>(code, ip);
             };
 
             try {
@@ -585,61 +610,61 @@ namespace NG::orgasm
                                     break;
                                 case OpCode::PUSH_I8:
                                 {
-                                    int8_t val = static_cast<int8_t>(code[ip++]);
+                                    int8_t val = static_cast<int8_t>(read_byte_checked(code, ip));
                                     push_slot_copy(numeral_cell_from_value<int8_t>(val));
                                     break;
                                 }
                                 case OpCode::PUSH_I16:
                                 {
-                                    int16_t val = std::bit_cast<int16_t>(read_le_bytes<uint16_t>(code, ip));
+                                    int16_t val = std::bit_cast<int16_t>(read_le_bytes_checked<uint16_t>(code, ip));
                                     push_slot_copy(numeral_cell_from_value<int16_t>(val));
                                     break;
                                 }
                                 case OpCode::PUSH_I32:
                                 {
-                                    int32_t val = std::bit_cast<int32_t>(read_le_bytes<uint32_t>(code, ip));
+                                    int32_t val = std::bit_cast<int32_t>(read_le_bytes_checked<uint32_t>(code, ip));
                                     push_slot_copy(numeral_cell_from_value<int32_t>(val));
                                     break;
                                 }
                                 case OpCode::PUSH_I64:
                                 {
-                                    int64_t val = std::bit_cast<int64_t>(read_le_bytes<uint64_t>(code, ip));
+                                    int64_t val = std::bit_cast<int64_t>(read_le_bytes_checked<uint64_t>(code, ip));
                                     push_slot_copy(numeral_cell_from_value<int64_t>(val));
                                     break;
                                 }
                                 case OpCode::PUSH_U8:
                                 {
-                                    uint8_t val = code[ip++];
+                                    uint8_t val = read_byte_checked(code, ip);
                                     push_slot_copy(numeral_cell_from_value<uint8_t>(val));
                                     break;
                                 }
                                 case OpCode::PUSH_U16:
                                 {
-                                    uint16_t val = read_le_bytes<uint16_t>(code, ip);
+                                    uint16_t val = read_le_bytes_checked<uint16_t>(code, ip);
                                     push_slot_copy(numeral_cell_from_value<uint16_t>(val));
                                     break;
                                 }
                                 case OpCode::PUSH_U32:
                                 {
-                                    uint32_t val = read_le_bytes<uint32_t>(code, ip);
+                                    uint32_t val = read_le_bytes_checked<uint32_t>(code, ip);
                                     push_slot_copy(numeral_cell_from_value<uint32_t>(val));
                                     break;
                                 }
                                 case OpCode::PUSH_U64:
                                 {
-                                    uint64_t val = read_le_bytes<uint64_t>(code, ip);
+                                    uint64_t val = read_le_bytes_checked<uint64_t>(code, ip);
                                     push_slot_copy(numeral_cell_from_value<uint64_t>(val));
                                     break;
                                 }
                                 case OpCode::PUSH_F32:
                                 {
-                                    float val = std::bit_cast<float>(read_le_bytes<uint32_t>(code, ip));
+                                    float val = std::bit_cast<float>(read_le_bytes_checked<uint32_t>(code, ip));
                                     push_slot_copy(numeral_cell_from_value<float>(val));
                                     break;
                                 }
                                 case OpCode::PUSH_F64:
                                 {
-                                    double val = std::bit_cast<double>(read_le_bytes<uint64_t>(code, ip));
+                                    double val = std::bit_cast<double>(read_le_bytes_checked<uint64_t>(code, ip));
                                     push_slot_copy(numeral_cell_from_value<double>(val));
                                     break;
                                 }
@@ -674,16 +699,30 @@ namespace NG::orgasm
                                                            (bType ? bType->name : Str{"?"}) + ")");
                                 }
                                 break; 
-                            }                case OpCode::LOAD_STR: { stack.push_back(make_runtime_string(current_module->strings[read_u16()])); break; }
-                case OpCode::LOAD_CONST: { push_slot_copy(numeral_cell_from_value<int64_t>(current_module->constants[read_u16()])); break; }
+                            }
+                case OpCode::LOAD_STR:
+                {
+                    uint16_t idx = read_u16();
+                    if (idx >= current_module->strings.size()) throw RuntimeException("VM error: LOAD_STR index out of bounds");
+                    stack.push_back(make_runtime_string(current_module->strings[idx]));
+                    break;
+                }
+                case OpCode::LOAD_CONST:
+                {
+                    uint16_t idx = read_u16();
+                    if (idx >= current_module->constants.size()) throw RuntimeException("VM error: LOAD_CONST index out of bounds");
+                    push_slot_copy(numeral_cell_from_value<int64_t>(current_module->constants[idx]));
+                    break;
+                }
                 case OpCode::EQ_I32: { auto b = pop_slot(); auto a = pop_slot(); stack.push_back(make_runtime_boolean(value_equals(a, b))); break; }
                 case OpCode::LT_I32: { auto b = pop_slot(); auto a = pop_slot(); stack.push_back(make_runtime_boolean(value_less_than(a, b))); break; }
                 case OpCode::GT_I32: { auto b = pop_slot(); auto a = pop_slot(); stack.push_back(make_runtime_boolean(value_greater_than(a, b))); break; }
-                case OpCode::PUSH_BOOL: stack.push_back(make_runtime_boolean(code[ip++] != 0)); break;
+                case OpCode::PUSH_BOOL: stack.push_back(make_runtime_boolean(read_byte_checked(code, ip) != 0)); break;
                 case OpCode::NOT: { auto val = pop_slot(); stack.push_back(make_runtime_boolean(!runtime_value_bool(val))); break; }
                 case OpCode::INSTANCE_OF:
                 {
                     uint16_t typeNameIdx = read_u16();
+                    if (typeNameIdx >= current_module->strings.size()) throw RuntimeException("VM error: INSTANCE_OF string index out of bounds");
                     Str typeName = current_module->strings[typeNameIdx];
                     auto val = access_target_slot(pop_slot());
                     bool result = false;
@@ -805,6 +844,7 @@ namespace NG::orgasm
                 case OpCode::MAKE_TRAIT_REF:
                 {
                     uint16_t traitIdx = read_u16();
+                    if (traitIdx >= current_module->strings.size()) throw RuntimeException("VM error: MAKE_TRAIT_REF string index out of bounds");
                     auto targetRef = pop_slot();
                     if (runtime_is_trait_object_ref(targetRef))
                     {
@@ -892,19 +932,26 @@ namespace NG::orgasm
                     break;
                 }
                             case OpCode::POP: pop_slot(); break;
-                            case OpCode::DUP: push_slot_copy(stack.back()); break;
+                            case OpCode::DUP:
+                            {
+                                if (stack.empty()) throw RuntimeException("VM error: DUP on empty stack");
+                                push_slot_copy(stack.back());
+                                break;
+                            }
                             case OpCode::PUSH_UNIT: stack.push_back(unit_cell()); break;                case OpCode::CALL:
                 {
                     uint16_t funIndex = read_u16();
+                    if (funIndex >= current_module->functions.size()) throw RuntimeException("VM error: CALL function index out of bounds");
                     uint16_t numArgs = read_u16();
                     Vec<RuntimeRef<StorageCell>> callArgs;
-                    for (int i = 0; i < numArgs; ++i) callArgs.insert(callArgs.begin(), pop_slot());
+                    callArgs.reserve(numArgs); for (int i = 0; i < numArgs; ++i) callArgs.push_back(pop_slot()); std::reverse(callArgs.begin(), callArgs.end());
                     push_frame(*current_module, current_module->functions[funIndex], callArgs);
                     break;
                 }
                 case OpCode::CALL_IMPORT:
                 {
                     uint16_t importIdx = read_u16();
+                    if (importIdx >= current_module->imports.size()) throw RuntimeException("VM error: CALL_IMPORT index out of bounds");
                     uint16_t numArgs = read_u16();
                     auto &imp = current_module->imports[importIdx];
                     
@@ -972,13 +1019,13 @@ namespace NG::orgasm
                         if (funIdx == -1) throw RuntimeException("Function " + imp.symbolName + " not found in module " + imp.moduleName);
                         
                         Vec<RuntimeRef<StorageCell>> callArgs;
-                        for (int i = 0; i < numArgs; ++i) callArgs.insert(callArgs.begin(), pop_slot());
+                        callArgs.reserve(numArgs); for (int i = 0; i < numArgs; ++i) callArgs.push_back(pop_slot()); std::reverse(callArgs.begin(), callArgs.end());
                         
                         push_frame(otherModule, otherModule.functions[funIdx], callArgs);
                     } else {
                         // Try native function fallback
                         Vec<RuntimeRef<StorageCell>> callArgs;
-                        for (int i = 0; i < numArgs; ++i) callArgs.insert(callArgs.begin(), pop_slot());
+                        callArgs.reserve(numArgs); for (int i = 0; i < numArgs; ++i) callArgs.push_back(pop_slot()); std::reverse(callArgs.begin(), callArgs.end());
                         if (native_functions.contains(imp.symbolName)) {
                             stack.push_back(native_functions[imp.symbolName](callArgs));
                         } else {
@@ -1161,10 +1208,11 @@ namespace NG::orgasm
                 case OpCode::INVOKE_MEMBER:
                 {
                     uint16_t nameIdx = read_u16();
+                    if (nameIdx >= current_module->strings.size()) throw RuntimeException("VM error: INVOKE_MEMBER string index out of bounds");
                     uint16_t numArgs = read_u16();
                     Str memberName = current_module->strings[nameIdx];
                     Vec<RuntimeRef<StorageCell>> callArgs;
-                    for (int i = 0; i < numArgs; ++i) callArgs.insert(callArgs.begin(), pop_slot());
+                    callArgs.reserve(numArgs); for (int i = 0; i < numArgs; ++i) callArgs.push_back(pop_slot()); std::reverse(callArgs.begin(), callArgs.end());
                     auto targetSlot = access_target_slot(pop_slot());
                     
                     auto dispatchTarget = runtime_is_trait_object_ref(targetSlot) ? runtime_trait_object_target(targetSlot) : targetSlot;
@@ -1202,7 +1250,7 @@ namespace NG::orgasm
                 {
                     uint16_t num = read_u16();
                     Vec<uint8_t> flags(num);
-                    for (int i = 0; i < num; ++i) flags[i] = code[ip++];
+                    for (int i = 0; i < num; ++i) flags[i] = read_byte_checked(code, ip);
                     
                     Vec<RuntimeRef<StorageCell>> segments;
                     for (int i = 0; i < num; ++i) segments.insert(segments.begin(), pop_slot());
@@ -1293,7 +1341,7 @@ namespace NG::orgasm
                 }
                 case OpCode::MAKE_RANGE:
                 {
-                    uint8_t inclusive = code[ip++];
+                    uint8_t inclusive = read_byte_checked(code, ip);
                     auto end = pop_slot();
                     auto start = pop_slot();
                     push_slot_copy(make_runtime_range_cell(start, end, inclusive != 0));
@@ -1334,6 +1382,7 @@ namespace NG::orgasm
                 case OpCode::WRAP_NEWTYPE:
                 {
                     uint16_t typeIdx = read_u16();
+                    if (typeIdx >= current_module->strings.size()) throw RuntimeException("VM error: WRAP_NEWTYPE string index out of bounds");
                     Str typeName = current_module->strings[typeIdx];
                     auto value = pop_slot();
                     RuntimeRef<NGType> newType;
@@ -1372,10 +1421,11 @@ namespace NG::orgasm
                 case OpCode::NATIVE_CALL:
                 {
                     uint16_t nameIdx = read_u16();
+                    if (nameIdx >= current_module->strings.size()) throw RuntimeException("VM error: NATIVE_CALL string index out of bounds");
                     uint16_t numArgs = read_u16();
                     Str funcName = current_module->strings[nameIdx];
                     Vec<RuntimeRef<StorageCell>> callArgs;
-                    for (int i = 0; i < numArgs; ++i) callArgs.insert(callArgs.begin(), pop_slot());
+                    callArgs.reserve(numArgs); for (int i = 0; i < numArgs; ++i) callArgs.push_back(pop_slot()); std::reverse(callArgs.begin(), callArgs.end());
                     if (!native_functions.contains(funcName)) {
                         throw RuntimeException("Native function not registered: " + funcName);
                     }
@@ -1391,12 +1441,26 @@ namespace NG::orgasm
                     stack.push_back(unit_cell()); 
                     break; 
                 }
-                case OpCode::JUMP: { int32_t target = std::bit_cast<int32_t>(read_le_bytes<uint32_t>(code, ip)); ip = static_cast<size_t>(target); break; }
-                case OpCode::JUMP_IF_FALSE: { int32_t target = std::bit_cast<int32_t>(read_le_bytes<uint32_t>(code, ip)); if (!runtime_value_bool(pop_slot())) ip = static_cast<size_t>(target); break; }
+                case OpCode::JUMP:
+                {
+                    int32_t target = std::bit_cast<int32_t>(read_le_bytes_checked<uint32_t>(code, ip));
+                    if (target < 0 || static_cast<size_t>(target) >= code.size()) throw RuntimeException("VM error: JUMP target out of bounds");
+                    ip = static_cast<size_t>(target);
+                    break;
+                }
+                case OpCode::JUMP_IF_FALSE:
+                {
+                    int32_t target = std::bit_cast<int32_t>(read_le_bytes_checked<uint32_t>(code, ip));
+                    if (target < 0 || static_cast<size_t>(target) >= code.size()) throw RuntimeException("VM error: JUMP_IF_FALSE target out of bounds");
+                    if (!runtime_value_bool(pop_slot())) ip = static_cast<size_t>(target);
+                    break;
+                }
 
                 case OpCode::CONSTRUCT_TAGGED: {
                     uint16_t typeIdx = read_u16();
+                    if (typeIdx >= current_module->types.size()) throw RuntimeException("VM error: CONSTRUCT_TAGGED type index out of bounds");
                     uint16_t variantIdx = read_u16();
+                    if (variantIdx >= current_module->types[typeIdx].variants.size()) throw RuntimeException("VM error: CONSTRUCT_TAGGED variant index out of bounds");
                     uint16_t numPayload = read_u16();
                     Vec<RuntimeRef<StorageCell>> payload;
                     payload.reserve(numPayload);
@@ -1435,6 +1499,7 @@ namespace NG::orgasm
                 }
 
                 case OpCode::SWITCH_TAG: {
+                    if (stack.empty()) throw RuntimeException("VM error: SWITCH_TAG on empty stack");
                     uint16_t numCases = read_u16();
                     // Peek at the tagged value on the stack (don't pop — case bodies need it)
                     auto taggedRef = access_target_slot(stack.back());
@@ -1446,18 +1511,20 @@ namespace NG::orgasm
                     int32_t defaultAddr = -1;
                     for (uint16_t i = 0; i < numCases; ++i) {
                         uint16_t tag = read_u16();
-                        int32_t addr = std::bit_cast<int32_t>(read_le_bytes<uint32_t>(code, ip));
+                        int32_t addr = std::bit_cast<int32_t>(read_le_bytes_checked<uint32_t>(code, ip));
                         if (tag == SWITCH_DEFAULT_TAG) {
                             defaultAddr = addr;
                             continue;
                         }
                         if (static_cast<int32_t>(tag) == tagVal) {
+                            if (addr < 0 || static_cast<size_t>(addr) >= code.size()) throw RuntimeException("VM error: SWITCH_TAG case target out of bounds");
                             ip = static_cast<size_t>(addr);
                             found = true;
                             break;
                         }
                     }
                     if (!found && defaultAddr >= 0) {
+                        if (static_cast<size_t>(defaultAddr) >= code.size()) throw RuntimeException("VM error: SWITCH_TAG default target out of bounds");
                         ip = static_cast<size_t>(defaultAddr);
                         found = true;
                     }

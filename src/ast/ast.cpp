@@ -267,7 +267,7 @@ namespace NG::ast
 
   auto ReturnStatement::repr() const -> Str
   {
-    return "return " + this->expression->repr() + ";";
+    return "return " + (this->expression ? this->expression->repr() : "") + ";";
   }
 
   void IfStatement::accept(AstVisitor *visitor)
@@ -368,7 +368,7 @@ namespace NG::ast
 
   auto SimpleStatement::repr() const -> Str
   {
-    return this->expression->repr() + ";";
+    return (this->expression ? this->expression->repr() : "") + ";";
   }
 
   void FunCallExpression::accept(AstVisitor *visitor)
@@ -446,7 +446,7 @@ namespace NG::ast
 
   auto ValDefStatement::repr() const -> Str
   {
-    return "val " + this->name + " = " + this->value->repr() + ";";
+    return "val " + this->name + " = " + (this->value ? this->value->repr() : "") + ";";
   }
 
   auto ValDef::names() const -> Vec<Str>
@@ -960,6 +960,10 @@ namespace NG::ast
 
   NewTypeDef::~NewTypeDef()
   {
+    for (const auto &genericParam : genericParams)
+    {
+      destroyast(genericParam);
+    }
     destroyast(wrappedType);
   }
 
@@ -1080,6 +1084,11 @@ namespace NG::ast
   auto PropertyDef::repr() const -> Str
   {
     return "property " + propertyName + ";";
+  }
+
+  PropertyDef::~PropertyDef()
+  {
+    destroyast(typeAnnotation);
   }
 
   auto NewObjectExpression::astNodeType() const -> ASTNodeType

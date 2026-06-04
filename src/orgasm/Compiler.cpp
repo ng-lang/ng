@@ -2642,10 +2642,10 @@ namespace NG::orgasm
         emit_u16(numFields);
     }
 
-    void Compiler::visit(ast::IntegralValue<int8_t> *intVal) { emit(OpCode::PUSH_I8); emit_i32(static_cast<int32_t>(intVal->value)); }
-    void Compiler::visit(ast::IntegralValue<uint8_t> *intVal) { emit(OpCode::PUSH_U8); emit_i32(static_cast<int32_t>(intVal->value)); }
-    void Compiler::visit(ast::IntegralValue<int16_t> *intVal) { emit(OpCode::PUSH_I16); emit_i32(static_cast<int32_t>(intVal->value)); }
-    void Compiler::visit(ast::IntegralValue<uint16_t> *intVal) { emit(OpCode::PUSH_U16); emit_i32(static_cast<int32_t>(intVal->value)); }
+    void Compiler::visit(ast::IntegralValue<int8_t> *intVal) { emit(OpCode::PUSH_I8); emit_u8(static_cast<uint8_t>(intVal->value)); }
+    void Compiler::visit(ast::IntegralValue<uint8_t> *intVal) { emit(OpCode::PUSH_U8); emit_u8(intVal->value); }
+    void Compiler::visit(ast::IntegralValue<int16_t> *intVal) { emit(OpCode::PUSH_I16); emit_u16(static_cast<uint16_t>(intVal->value)); }
+    void Compiler::visit(ast::IntegralValue<uint16_t> *intVal) { emit(OpCode::PUSH_U16); emit_u16(intVal->value); }
     void Compiler::visit(ast::IntegralValue<int32_t> *intVal) { emit(OpCode::PUSH_I32); emit_i32(intVal->value); }
     void Compiler::visit(ast::IntegralValue<uint32_t> *intVal) { emit(OpCode::PUSH_U32); emit_i32(static_cast<int32_t>(intVal->value)); }
     void Compiler::visit(ast::IntegralValue<int64_t> *intVal) { emit(OpCode::PUSH_I64); emit_i64(intVal->value); }

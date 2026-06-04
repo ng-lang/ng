@@ -54,11 +54,20 @@ namespace NG
     };
 
     /**
+     * @brief Exception thrown during parsing.
+     */
+    struct ParseException : std::logic_error
+    {
+        TokenPosition pos;
+        explicit ParseException(const std::string &message, TokenPosition pos = {}) : logic_error(message), pos(pos) {}
+    };
+
+    /**
      * @brief Exception thrown when the end of a file is reached unexpectedly.
      */
-    struct EOFException : std::out_of_range
+    struct EOFException : ParseException
     {
-        explicit EOFException() : out_of_range("Error: end of file") {}
+        explicit EOFException() : ParseException("Unexpected end of file") {}
     };
 
     /**
@@ -68,15 +77,6 @@ namespace NG
     {
         explicit NotImplementedException() : runtime_error("Error: not implemented") {}
         explicit NotImplementedException(const std::string &reason) : runtime_error(reason) {}
-    };
-
-    /**
-     * @brief Exception thrown during parsing.
-     */
-    struct ParseException : std::logic_error
-    {
-        TokenPosition pos;
-        explicit ParseException(const std::string &message, TokenPosition pos = {}) : logic_error(message), pos(pos) {}
     };
 
     /**

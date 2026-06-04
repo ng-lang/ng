@@ -93,11 +93,11 @@ namespace NG::ast
         COMPOUND_TYPE_ANNOTATION = 0x601,
 
         TAGGED_UNION_DEFINITION = 0x117,
-        TAGGED_VALUE_EXPRESSION = 0x215,
+        TAGGED_VALUE_EXPRESSION = 0x219,
         SWITCH_STATEMENT = 0x408,
 
         GENERIC_PARAM = 0x118,
-        PACK_EXPRESSION = 0x216,
+        PACK_EXPRESSION = 0x21A,
 
         BOTTOM = 0xFF00,
     };
@@ -1136,6 +1136,8 @@ namespace NG::ast
 
         [[nodiscard]]
         auto repr() const -> Str override;
+
+        ~PropertyDef() override;
     };
 
     /**

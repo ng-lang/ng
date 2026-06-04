@@ -51,14 +51,14 @@ namespace NG::parsing
          *
          * @param n The number of characters to advance.
          */
-        void next(int n = 1);
+        void next(size_t n = 1);
 
         /**
-         * @brief Reverts the lexer by `n` characters.
+         * @brief Reverts the lexer to absolute position `n`.
          *
-         * @param n The number of characters to revert.
+         * @param n The absolute character index to revert to.
          */
-        void revert(size_t n = 1);
+        void revert(size_t n);
 
         /**
          * @brief Advances the lexer to the next line.
@@ -145,14 +145,14 @@ namespace NG::parsing
          *
          * @param n The number of tokens to advance.
          */
-        void next(int n = 1);
+        void next(size_t n = 1);
 
         /**
-         * @brief Reverts the parser by `n` tokens.
+         * @brief Reverts the parser to absolute token index `n`.
          *
-         * @param n The number of tokens to revert.
+         * @param n The absolute token index to revert to.
          */
-        void revert(size_t n = 1);
+        void revert(size_t n);
 
         /**
          * @brief Creates a parsing error.

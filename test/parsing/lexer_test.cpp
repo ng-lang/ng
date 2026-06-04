@@ -117,3 +117,28 @@ TEST_CASE("lexer should fail with invalid multiline comment", "[Lexer][Comment][
   REQUIRE_THROWS_MATCHES(Lexer{LexState{"/**"}}.lex(), LexException,
                          MessageMatches(ContainsSubstring("Unterminated block comment")));
 }
+
+TEST_CASE("lexer should fail with unterminated string literal", "[Lexer][String][Failure]")
+{
+  REQUIRE_THROWS_MATCHES(Lexer{LexState{R"("hello)"}}.lex(), LexException,
+                         MessageMatches(ContainsSubstring("Unterminated string")));
+
+  REQUIRE_THROWS_MATCHES(Lexer{LexState{R"(")"}}.lex(), LexException,
+                         MessageMatches(ContainsSubstring("Unterminated string")));
+
+  // Valid empty string should not throw
+  REQUIRE_NOTHROW(Lexer{LexState{R"("")"}}.lex());
+}
+
+TEST_CASE("withStream should only catch LexException for backtracking", "[Lexer][Backtracking]")
+{
+  // Number with type suffix should backtrack correctly when suffix is incomplete
+  // This exercises withStream's backtracking path
+  Lexer lexer{LexState{"42i16 + 1"}};
+  auto &&tokens = lexer.lex();
+  REQUIRE(tokens.size() == 3);
+  REQUIRE(tokens[0].type == TokenType::NUMBER_I16);
+  REQUIRE(tokens[0].repr == "42");
+  REQUIRE(tokens[1].type == TokenType::PLUS);
+  REQUIRE(tokens[2].type == TokenType::NUMBER);
+}
