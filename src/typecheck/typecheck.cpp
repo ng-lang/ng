@@ -6219,21 +6219,22 @@ namespace NG::typecheck
               typeArgs.push_back(checker.result);
             }
 
-            if (auto genericParam = std::dynamic_pointer_cast<GenericParamType>(it->second))
+            if (it->second && it->second->tag() == typeinfo_tag::GENERIC_PARAM)
             {
-              if (genericParam->kindArity == 0 && !genericParam->kindVariadicTail)
+              auto &genericParam = static_cast<GenericParamType &>(*it->second);
+              if (genericParam.kindArity == 0 && !genericParam.kindVariadicTail)
               {
                 throw TypeCheckingException("Type parameter '" + annotation->name +
                                                 "' is not a type constructor",
                                             annotation->pos);
               }
-              if (!typeConstructorApplicationArityValid(genericParam->kindArity,
-                                                        genericParam->kindVariadicTail, typeArgs.size()))
+              if (!typeConstructorApplicationArityValid(genericParam.kindArity,
+                                                        genericParam.kindVariadicTail, typeArgs.size()))
               {
                 throw TypeCheckingException("Type constructor parameter '" + annotation->name + "' expects " +
-                                                std::to_string(genericParam->kindArity) +
+                                                std::to_string(genericParam.kindArity) +
                                                 " fixed type argument(s)" +
-                                                (genericParam->kindVariadicTail ? " and a variadic tail" : "") +
+                                                (genericParam.kindVariadicTail ? " and a variadic tail" : "") +
                                                 ", got " + std::to_string(typeArgs.size()),
                                             annotation->pos);
               }
@@ -6241,16 +6242,17 @@ namespace NG::typecheck
               return;
             }
 
-            if (auto traitType = std::dynamic_pointer_cast<TraitType>(it->second))
+            if (it->second && it->second->tag() == typeinfo_tag::TRAIT)
             {
-              if (traitType->typeParamNames.size() != typeArgs.size())
+              auto &traitType = static_cast<TraitType &>(*it->second);
+              if (traitType.typeParamNames.size() != typeArgs.size())
               {
                 throw TypeCheckingException("Trait '" + annotation->name + "' expects " +
-                                                std::to_string(traitType->typeParamNames.size()) +
+                                                std::to_string(traitType.typeParamNames.size()) +
                                                 " type argument(s), got " + std::to_string(typeArgs.size()),
                                             annotation->pos);
               }
-              result = traitType;
+              result = it->second;
               return;
             }
 
