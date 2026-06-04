@@ -1767,6 +1767,7 @@ namespace NG::typecheck
       return typeMatch(expected, actual) || refTraitCoercionMatches(expected, actual);
     }
 
+    // ── Overload resolution ─────────────────────────────────────────────
     auto functionApplyWithCoercions(const FunctionType &funcType,
                                     const Vec<CheckingRef<TypeInfo>> &argumentTypes) const -> bool
     {
@@ -4404,6 +4405,7 @@ namespace NG::typecheck
 
     void visit(CompileUnit *compileUnit) override { compileUnit->module->accept(this); }
 
+    // ── Module-level type checking ──────────────────────────────────────
     void visit(Module *module) override
     {
       installBuiltinLifecycleTraits();
@@ -6194,6 +6196,7 @@ namespace NG::typecheck
       }
     }
 
+    // ── Type annotation resolution ──────────────────────────────────────
     void visit(TypeAnnotation *annotation) override
     {
       if (annotation->constLiteral)
@@ -7533,6 +7536,7 @@ namespace NG::typecheck
       result = expectedElementType;
     }
 
+    // ── Expression visitors ─────────────────────────────────────────────
     void visit(IdExpression *id) override
     {
       auto it = locals.find(id->id);
@@ -8033,6 +8037,7 @@ namespace NG::typecheck
       result = makecheck<Untyped>();
     }
 
+    // ── Function call resolution ────────────────────────────────────────
     void visit(FunCallExpression *funCall) override
     {
       if (auto predicate = tryEvalConstPredicateCall(funCall); predicate.has_value())
