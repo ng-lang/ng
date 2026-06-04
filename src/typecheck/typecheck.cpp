@@ -6881,22 +6881,23 @@ namespace NG::typecheck
           }
         }
       }
-      else if (auto genericType = std::dynamic_pointer_cast<GenericParamType>(primaryType))
+      else if (primaryType && primaryType->tag() == typeinfo_tag::GENERIC_PARAM)
       {
-        if (!genericType->bound.empty())
+        auto &genericType = static_cast<GenericParamType &>(*primaryType);
+        if (!genericType.bound.empty())
         {
-          auto traitIt = locals.find(genericType->bound);
-          auto traitType = traitIt == locals.end() ? nullptr : std::dynamic_pointer_cast<TraitType>(traitIt->second);
-          if (traitType)
+          auto traitIt = locals.find(genericType.bound);
+          if (traitIt != locals.end() && traitIt->second && traitIt->second->tag() == typeinfo_tag::TRAIT)
           {
-            auto &methods = !traitType->allMethods.empty() ? traitType->allMethods : traitType->methods;
+            auto &traitType = static_cast<TraitType &>(*traitIt->second);
+            auto &methods = !traitType.allMethods.empty() ? traitType.allMethods : traitType.methods;
             if (methods.contains(memberName))
             {
               memberType = methods[memberName];
             }
           }
         }
-        if (genericType->name == "Self" && !std::dynamic_pointer_cast<FunctionType>(memberType))
+        if (genericType.name == "Self" && (!memberType || memberType->tag() != typeinfo_tag::FUNCTION))
         {
           throw TypeCheckingException("Trait default method cannot access member '" + memberName +
                                           "' on abstract Self",
@@ -6905,7 +6906,7 @@ namespace NG::typecheck
       }
 
       // Property access on tagged union variant types (after switch/case narrowing)
-      if (auto variantType = std::dynamic_pointer_cast<VariantType>(primaryType))
+      if (primaryType && primaryType->tag() == typeinfo_tag::VARIANT)
       {
         if (memberName == "tag")
         {
@@ -6915,15 +6916,19 @@ namespace NG::typecheck
         {
           memberType = makecheck<PrimitiveType>(typeinfo_tag::I32);
         }
-        else if (!variantType->payloadNames.empty())
+        else
         {
-          // Look up named payload field
-          for (size_t i = 0; i < variantType->payloadNames.size(); ++i)
+          auto &variantType = static_cast<VariantType &>(*primaryType);
+          if (!variantType.payloadNames.empty())
           {
-            if (i < variantType->payloadTypes.size() && variantType->payloadNames[i] == memberName)
+            // Look up named payload field
+            for (size_t i = 0; i < variantType.payloadNames.size(); ++i)
             {
-              memberType = variantType->payloadTypes[i];
-              break;
+              if (i < variantType.payloadTypes.size() && variantType.payloadNames[i] == memberName)
+              {
+                memberType = variantType.payloadTypes[i];
+                break;
+              }
             }
           }
         }
