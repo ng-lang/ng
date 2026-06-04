@@ -2490,7 +2490,7 @@ namespace NG::orgasm
             break;
         case TokenType::MINUS:
             unaryExpr->operand->accept(this);
-            emit(OpCode::NEG_I32);
+            emit(OpCode::NEG);
             break;
         case TokenType::NOT:
             unaryExpr->operand->accept(this);
@@ -2510,10 +2510,10 @@ namespace NG::orgasm
         case TokenType::MINUS: emit(OpCode::SUB); break;
         case TokenType::TIMES: emit(OpCode::MUL); break;
         case TokenType::DIVIDE:emit(OpCode::DIV); break;
-        case TokenType::MODULUS:emit(OpCode::MOD_I32); break;
-        case TokenType::EQUAL: emit(OpCode::EQ_I32);  break;
-        case TokenType::LT:    emit(OpCode::LT_I32);  break;
-        case TokenType::GT:    emit(OpCode::GT_I32);  break;
+        case TokenType::MODULUS:emit(OpCode::MOD); break;
+        case TokenType::EQUAL: emit(OpCode::EQ);  break;
+        case TokenType::LT:    emit(OpCode::LT);  break;
+        case TokenType::GT:    emit(OpCode::GT);  break;
         case TokenType::LSHIFT:emit(OpCode::LSHIFT);  break;
         case TokenType::RSHIFT:emit(OpCode::RSHIFT);  break;
         default: throw NotImplementedException("Binary op not implemented");

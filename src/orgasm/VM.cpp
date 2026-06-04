@@ -685,20 +685,17 @@ namespace NG::orgasm
                                 case OpCode::SUB: { auto b = pop_slot(); auto a = pop_slot(); push_binary_result(a, RuntimeBinaryOperator::Subtract, b); break; }
                                 case OpCode::MUL: { auto b = pop_slot(); auto a = pop_slot(); push_binary_result(a, RuntimeBinaryOperator::Multiply, b); break; }
                                 case OpCode::DIV: { auto b = pop_slot(); auto a = pop_slot(); push_binary_result(a, RuntimeBinaryOperator::Divide, b); break; }
-                                case OpCode::ADD_I32: { auto b = pop_slot(); auto a = pop_slot(); push_binary_result(a, RuntimeBinaryOperator::Add, b); break; }
-                                case OpCode::SUB_I32: { auto b = pop_slot(); auto a = pop_slot(); push_binary_result(a, RuntimeBinaryOperator::Subtract, b); break; }
-                                case OpCode::MUL_I32: { auto b = pop_slot(); auto a = pop_slot(); push_binary_result(a, RuntimeBinaryOperator::Multiply, b); break; }
-                                case OpCode::DIV_I32: { auto b = pop_slot(); auto a = pop_slot(); push_binary_result(a, RuntimeBinaryOperator::Divide, b); break; }                            case OpCode::MOD_I32: { 
-                                auto b = pop_slot(); auto a = pop_slot(); 
+                                case OpCode::MOD: {
+                                auto b = pop_slot(); auto a = pop_slot();
                                 try { push_binary_result(a, RuntimeBinaryOperator::Modulus, b); }
                                 catch (const std::exception& ex) {
                                     auto aType = runtime_value_type(a);
                                     auto bType = runtime_value_type(b);
-                                    throw RuntimeException(Str(ex.what()) + " (MOD_I32: " +
+                                    throw RuntimeException(Str(ex.what()) + " (MOD: " +
                                                            (aType ? aType->name : Str{"?"}) + " % " +
                                                            (bType ? bType->name : Str{"?"}) + ")");
                                 }
-                                break; 
+                                break;
                             }
                 case OpCode::LOAD_STR:
                 {
@@ -714,9 +711,9 @@ namespace NG::orgasm
                     push_slot_copy(numeral_cell_from_value<int64_t>(current_module->constants[idx]));
                     break;
                 }
-                case OpCode::EQ_I32: { auto b = pop_slot(); auto a = pop_slot(); stack.push_back(make_runtime_boolean(value_equals(a, b))); break; }
-                case OpCode::LT_I32: { auto b = pop_slot(); auto a = pop_slot(); stack.push_back(make_runtime_boolean(value_less_than(a, b))); break; }
-                case OpCode::GT_I32: { auto b = pop_slot(); auto a = pop_slot(); stack.push_back(make_runtime_boolean(value_greater_than(a, b))); break; }
+                case OpCode::EQ: { auto b = pop_slot(); auto a = pop_slot(); stack.push_back(make_runtime_boolean(value_equals(a, b))); break; }
+                case OpCode::LT: { auto b = pop_slot(); auto a = pop_slot(); stack.push_back(make_runtime_boolean(value_less_than(a, b))); break; }
+                case OpCode::GT: { auto b = pop_slot(); auto a = pop_slot(); stack.push_back(make_runtime_boolean(value_greater_than(a, b))); break; }
                 case OpCode::PUSH_BOOL: stack.push_back(make_runtime_boolean(read_byte_checked(code, ip) != 0)); break;
                 case OpCode::NOT: { auto val = pop_slot(); stack.push_back(make_runtime_boolean(!runtime_value_bool(val))); break; }
                 case OpCode::INSTANCE_OF:
@@ -730,7 +727,7 @@ namespace NG::orgasm
                     stack.push_back(make_runtime_boolean(result));
                     break;
                 }
-                case OpCode::NEG_I32: {
+                case OpCode::NEG: {
                     auto val = pop_slot();
                     stack.push_back(negate_numeric_cell(val));
                     break;
