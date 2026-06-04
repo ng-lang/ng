@@ -97,6 +97,18 @@ namespace NG::parsing
   public:
     explicit ParserImpl(ParseState &state) : state(state) {}
 
+    void addDefinition(ASTRef<Module> &mod, ASTRef<Definition> def, bool exported)
+    {
+      if (exported)
+      {
+        for (auto &&name : def->names())
+        {
+          mod->exports.push_back(name);
+        }
+      }
+      mod->definitions.push_back(std::move(def));
+    }
+
     auto parse(const Str &fileName) -> ASTRef<ASTNode>
     {
       // file as default module
@@ -136,28 +148,12 @@ namespace NG::parsing
         {
         case TokenType::KEYWORD_FUN:
         {
-          auto fn = funDef();
-          if (exported)
-          {
-            for (auto &&name : fn->names())
-            {
-              mod->exports.push_back(name);
-            }
-          }
-          current_mod->definitions.push_back(std::move(fn));
+          addDefinition(current_mod, funDef(), exported);
           break;
         }
         case TokenType::KEYWORD_VAL:
         {
-          auto value = valDef();
-          if (exported)
-          {
-            for (auto &&name : value->names())
-            {
-              mod->exports.push_back(name);
-            }
-          }
-          current_mod->definitions.push_back(std::move(value));
+          addDefinition(current_mod, valDef(), exported);
           break;
         }
         case TokenType::KEYWORD_CONST:
@@ -170,52 +166,20 @@ namespace NG::parsing
           if (peekTokenType(1) == TokenType::KEYWORD_FUN)
           {
             accept(TokenType::KEYWORD_CONST);
-            auto fn = funDef(false, true);
-            if (exported)
-            {
-              for (auto &&name : fn->names())
-              {
-                mod->exports.push_back(name);
-              }
-            }
-            current_mod->definitions.push_back(std::move(fn));
+            addDefinition(current_mod, funDef(false, true), exported);
             break;
           }
-          auto constant = constDef();
-          if (exported)
-          {
-            for (auto &&name : constant->names())
-            {
-              mod->exports.push_back(name);
-            }
-          }
-          current_mod->definitions.push_back(std::move(constant));
+          addDefinition(current_mod, constDef(), exported);
           break;
         }
         case TokenType::KEYWORD_TYPE:
         {
-          auto type = typeDef();
-          if (exported)
-          {
-            for (auto &&name : type->names())
-            {
-              mod->exports.push_back(name);
-            }
-          }
-          current_mod->definitions.push_back(std::move(type));
+          addDefinition(current_mod, typeDef(), exported);
           break;
         }
         case TokenType::KEYWORD_TRAIT:
         {
-          auto trait = traitDef();
-          if (exported)
-          {
-            for (auto &&name : trait->names())
-            {
-              mod->exports.push_back(name);
-            }
-          }
-          current_mod->definitions.push_back(std::move(trait));
+          addDefinition(current_mod, traitDef(), exported);
           break;
         }
         case TokenType::KEYWORD_AUTO:
@@ -224,28 +188,12 @@ namespace NG::parsing
           {
             unexpected("Expected trait after auto");
           }
-          auto trait = autoTraitDef();
-          if (exported)
-          {
-            for (auto &&name : trait->names())
-            {
-              mod->exports.push_back(name);
-            }
-          }
-          current_mod->definitions.push_back(std::move(trait));
+          addDefinition(current_mod, autoTraitDef(), exported);
           break;
         }
         case TokenType::KEYWORD_IMPL:
         {
-          auto impl = implDef();
-          if (exported)
-          {
-            for (auto &&name : impl->names())
-            {
-              mod->exports.push_back(name);
-            }
-          }
-          current_mod->definitions.push_back(std::move(impl));
+          addDefinition(current_mod, implDef(), exported);
           break;
         }
         case TokenType::KEYWORD_USE:
