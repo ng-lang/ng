@@ -205,15 +205,15 @@ namespace NG::parsing
            character == '}';
   }
 
-  [[nodiscard]] inline auto withStream(LexState &state,
-                                       const std::function<void(LexState &state, Stream &stream)> &func) -> Str
+  template <typename F>
+  [[nodiscard]] inline auto withStream(LexState &state, F &&func) -> Str
   {
     auto current = state.index;
     try
     {
-      Stream stream{};
-      func(state, stream);
-      return stream.str();
+      Str result;
+      func(state, result);
+      return result;
     }
     catch (LexException &)
     {
@@ -373,11 +373,11 @@ namespace NG::parsing
   {
     TokenPosition pos{.line = state.line, .col = state.col};
     Str result = withStream(state,
-                            [](LexState &state, Stream &stream)
+                            [](LexState &state, Str &out)
                             {
                               while (isalnum(state.current()) || state.current() == '_')
                               {
-                                stream << state.current();
+                                out += state.current();
                                 state.next();
                               }
                             });
@@ -488,12 +488,12 @@ namespace NG::parsing
   static auto numberTypePostfix(LexState &state) -> int
   {
     Str postfix = withStream(state,
-                             [](LexState &state, Stream &stream)
+                             [](LexState &state, Str &out)
                              {
                                auto current = state.current();
                                while (isdigit(current))
                                {
-                                 stream << current;
+                                 out += current;
                                  state.next();
                                  current = state.current();
                                }
@@ -512,7 +512,7 @@ namespace NG::parsing
     TokenPosition pos{.line = state.line, .col = state.col};
     TokenType numTokenType = TokenType::NUMBER;
     Str result = withStream(state,
-                            [&numTokenType](LexState &state, Stream &stream)
+                            [&numTokenType](LexState &state, Str &out)
                             {
                               auto current = state.current();
                               bool decimalPointSet = false;
@@ -521,11 +521,11 @@ namespace NG::parsing
                               {
                                 if (isdigit(current))
                                 {
-                                  stream << state.current();
+                                  out += state.current();
                                 }
                                 else if (current == '_')
                                 {
-                                  // skip just as seperator.
+                                  // skip just as separator.
                                 }
                                 else if (current == '.' && !decimalPointSet && !exponentialSet)
                                 {
@@ -535,17 +535,17 @@ namespace NG::parsing
                                   }
                                   decimalPointSet = true;
                                   numTokenType = TokenType::FLOATING_POINT;
-                                  stream << current;
+                                  out += current;
                                 }
                                 else if (current == 'e' && !exponentialSet)
                                 {
                                   exponentialSet = true;
                                   numTokenType = TokenType::FLOATING_POINT;
-                                  stream << current;
+                                  out += current;
                                   if (state.lookAhead() == '-')
                                   {
                                     state.next();
-                                    stream << state.current();
+                                    out += state.current();
                                   }
                                 }
                                 else if ((tolower(current) == 'u' || tolower(current) == 'i') &&
@@ -665,18 +665,18 @@ namespace NG::parsing
     TokenPosition pos{.line = state.line, .col = state.col};
 
     Str result = withStream(state,
-                            [](LexState &state, Stream &stream)
+                            [](LexState &state, Str &out)
                             {
                               state.next();
                               while (!state.eof() && state.current() != '"')
                               {
                                 if (state.current() == '\\')
                                 {
-                                  stream << escapeCharacter(state);
+                                  out += escapeCharacter(state);
                                 }
                                 else
                                 {
-                                  stream << state.current();
+                                  out += state.current();
                                   state.next();
                                 }
                               }
@@ -693,12 +693,12 @@ namespace NG::parsing
   {
     TokenPosition pos{.line = state.line, .col = state.col};
     Str result = withStream(state,
-                            [](LexState &state, Stream &stream)
+                            [](LexState &state, Str &out)
                             {
                               auto current = state.current();
                               while (is(operators, current))
                               {
-                                stream << current;
+                                out += current;
                                 state.next();
                                 current = state.current();
                               }
