@@ -5,6 +5,8 @@
 #include <token.hpp>
 #include <typecheck/pattern_matching.hpp>
 #include <typecheck/overload_resolver.hpp>
+#include <typecheck/type_environment.hpp>
+#include <typecheck/trait_registry.hpp>
 #include <typecheck/mangling.hpp>
 #include <typecheck/typecheck.hpp>
 #include <runtime/value_access.hpp>
@@ -917,24 +919,20 @@ namespace NG::typecheck
 
   struct TypeChecker : DummyVisitor
   {
+    // ── Submodules ──────────────────────────────────────────────────────
+    TypeEnvironment env;
+    TraitRegistry traits;
+
+    // ── Type checking state ─────────────────────────────────────────────
     Map<Str, CheckingRef<TypeInfo>> type_index{};
-
-    Map<Str, CheckingRef<TypeInfo>> locals{};
-
     CheckingRef<TypeInfo> result;
-
     Vec<CheckingRef<TypeInfo>> spreadResult{};
-
     Vec<CheckingRef<TypeInfo>> contextRequirement;
-
-    CheckingRef<TypeInfo> expectedType; // For bidirectional type inference
-
-    Set<Str> movedBindings{};
-
-    bool allowMovedLvalueRead = false;
-    Map<Str, Vec<Str>> trait_impls_by_type;
+    CheckingRef<TypeInfo> expectedType;
     Str currentModuleId = "default";
     Str activeGenericInstanceName;
+
+    // ── Static global state ─────────────────────────────────────────────
     inline static Map<Str, Vec<TypeAliasDef *>> activeTypeAliasSpecializations{};
     inline static Map<Str, Vec<TypeAliasDef *>> preludeTypeAliasSpecializations{};
     inline static Map<Str, Vec<ConstDef *>> activeConstPredicates{};
@@ -945,6 +943,8 @@ namespace NG::typecheck
     inline static Set<Str> preludeAutoTraits{};
     inline static Set<Str> activeDerivedTraitImplKeys{};
     inline static Vec<ASTRef<ASTNode>> retainedPreludeImportAsts{};
+
+    // ── Module artifacts ────────────────────────────────────────────────
     struct TraitImplRecord
     {
       Str traitName;
@@ -968,19 +968,25 @@ namespace NG::typecheck
     Vec<TraitImplRecord> localTraitImpls;
     Map<Str, Vec<UseImplDecl *>> selectedTraitImpls;
     Set<Str> matchedSelectedTraitImpls;
-    Set<Str> autoTraitNames;
-    Set<Str> derivedTraitImplKeys;
-    Set<Str> importedSymbolNames;
-    Set<Str> importedImplNames;
-    Set<Str> exportedImportNames;
-    Map<Str, Str> importAliases;
-    Vec<Str> importedModuleIds;
     Vec<Str> modulePaths;
     inline static Map<Str, ModuleArtifacts> moduleArtifactsById{};
     inline static Set<Str> activeModuleChecks{};
 
-    // Sentinel key stored in locals to indicate wildcard imports are active.
-    // This propagates automatically when locals are copied to child checkers.
+    // ── Convenience aliases to env/traits members ───────────────────────
+    // These allow existing code to work without mass-renaming locals -> env.locals
+    Map<Str, CheckingRef<TypeInfo>> &locals = env.locals;
+    Set<Str> &movedBindings = env.movedBindings;
+    bool &allowMovedLvalueRead = env.allowMovedLvalueRead;
+    Map<Str, Vec<Str>> &trait_impls_by_type = traits.trait_impls_by_type;
+    Set<Str> &autoTraitNames = traits.autoTraitNames;
+    Set<Str> &derivedTraitImplKeys = traits.derivedTraitImplKeys;
+    Set<Str> &importedSymbolNames = env.importedSymbolNames;
+    Set<Str> &importedImplNames = env.importedImplNames;
+    Set<Str> &exportedImportNames = env.exportedImportNames;
+    Map<Str, Str> &importAliases = env.importAliases;
+    Vec<Str> &importedModuleIds = env.importedModuleIds;
+
+    // ── Constants ───────────────────────────────────────────────────────
     static constexpr const char *WILDCARD_IMPORT_KEY = "$$wildcard_import$$";
     static constexpr const char *COPY_TRAIT_NAME = "Copy";
     static constexpr const char *CLONE_TRAIT_NAME = "Clone";
@@ -990,8 +996,8 @@ namespace NG::typecheck
                          CheckingRef<TypeInfo> expectedType = nullptr, Set<Str> movedBindings = {},
                          bool allowMovedLvalueRead = false, Str activeGenericInstanceName = "",
                          Vec<Str> modulePaths = {})
-        : locals(std::move(locals)), contextRequirement(std::move(contextRequirement)), expectedType(std::move(expectedType)),
-          movedBindings(std::move(movedBindings)), allowMovedLvalueRead(allowMovedLvalueRead),
+        : env(std::move(locals), std::move(movedBindings), allowMovedLvalueRead),
+          contextRequirement(std::move(contextRequirement)), expectedType(std::move(expectedType)),
           activeGenericInstanceName(std::move(activeGenericInstanceName)), modulePaths(std::move(modulePaths))
     {
     }
