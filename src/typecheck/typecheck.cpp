@@ -4,6 +4,7 @@
 #include <intp/runtime_numerals.hpp>
 #include <token.hpp>
 #include <typecheck/pattern_matching.hpp>
+#include <typecheck/overload_resolver.hpp>
 #include <typecheck/mangling.hpp>
 #include <typecheck/typecheck.hpp>
 #include <runtime/value_access.hpp>
@@ -108,7 +109,7 @@ namespace NG::typecheck
     return type;
   }
 
-  static auto stripTypeInstanceSuffix(const Str &typeName) -> Str;
+
 
   static auto builtin_sequence_element_type(const CheckingRef<TypeInfo> &type) -> CheckingRef<TypeInfo>
   {
@@ -871,71 +872,6 @@ namespace NG::typecheck
     }
     result += ">";
     return result;
-  }
-
-  static auto stripTypeInstanceSuffix(const Str &typeName) -> Str
-  {
-    auto genericStart = typeName.find('<');
-    if (genericStart == Str::npos)
-    {
-      return typeName;
-    }
-    return typeName.substr(0, genericStart);
-  }
-
-  static auto parseTypeInstanceArgs(const Str &typeName) -> Vec<Str>
-  {
-    auto start = typeName.find('<');
-    auto end = typeName.rfind('>');
-    if (start == Str::npos || end == Str::npos || end <= start)
-    {
-      return {};
-    }
-    Vec<Str> args;
-    Str current;
-    int depth = 0;
-    for (size_t i = start + 1; i < end; ++i)
-    {
-      char ch = typeName[i];
-      if (ch == '<')
-      {
-        ++depth;
-        current.push_back(ch);
-      }
-      else if (ch == '>')
-      {
-        --depth;
-        current.push_back(ch);
-      }
-      else if (ch == ',' && depth == 0)
-      {
-        current.erase(current.begin(), std::find_if(current.begin(), current.end(), [](unsigned char c) {
-                        return !std::isspace(c);
-                      }));
-        current.erase(std::find_if(current.rbegin(), current.rend(), [](unsigned char c) {
-                        return !std::isspace(c);
-                      }).base(),
-                      current.end());
-        args.push_back(current);
-        current.clear();
-      }
-      else
-      {
-        current.push_back(ch);
-      }
-    }
-    current.erase(current.begin(), std::find_if(current.begin(), current.end(), [](unsigned char c) {
-                    return !std::isspace(c);
-                  }));
-    current.erase(std::find_if(current.rbegin(), current.rend(), [](unsigned char c) {
-                    return !std::isspace(c);
-                  }).base(),
-                  current.end());
-    if (!current.empty())
-    {
-      args.push_back(current);
-    }
-    return args;
   }
 
   static auto typeKindName(const TypeInfo &type) -> Str
@@ -1731,7 +1667,36 @@ namespace NG::typecheck
       return typeMatch(expected, actual) || refTraitCoercionMatches(expected, actual);
     }
 
-    // ── Overload resolution ─────────────────────────────────────────────
+    static auto genericTypeConstructorFixedArity(const GenericTypeDef &genericType) -> size_t
+    {
+      auto packIt = std::find(genericType.typeParamIsPack.begin(), genericType.typeParamIsPack.end(), true);
+      if (packIt == genericType.typeParamIsPack.end())
+      {
+        return genericType.typeParamNames.size();
+      }
+      return static_cast<size_t>(std::distance(genericType.typeParamIsPack.begin(), packIt));
+    }
+
+    static auto genericTypeConstructorVariadicTail(const GenericTypeDef &genericType) -> bool
+    {
+      return std::any_of(genericType.typeParamIsPack.begin(), genericType.typeParamIsPack.end(), [](bool isPack) {
+        return isPack;
+      });
+    }
+
+    static auto typeSpecializationMatches(const TypeAliasDef &specialization,
+                                          const Vec<CheckingRef<TypeInfo>> &typeArgs,
+                                          Map<Str, CheckingRef<TypeInfo>> &bindings) -> bool
+    {
+      if (!specialization.specializationPattern)
+      {
+        return false;
+      }
+      auto genericNames = genericParamNameSet(specialization.genericParams);
+      return typePatternArgListMatches(specialization.specializationPattern->genericArgs, typeArgs,
+                                       genericNames, bindings);
+    }
+
     auto functionApplyWithCoercions(const FunctionType &funcType,
                                     const Vec<CheckingRef<TypeInfo>> &argumentTypes) const -> bool
     {
@@ -1752,84 +1717,6 @@ namespace NG::typecheck
         }
       }
       return true;
-    }
-
-    static auto typeParamBoundName(const GenericParam &param) -> Str
-    {
-      return param.bound ? param.bound->repr() : "";
-    }
-
-    static auto genericParamKindArities(const Vec<ASTRef<GenericParam>> &genericParams) -> Vec<size_t>
-    {
-      Vec<size_t> kindArities;
-      kindArities.reserve(genericParams.size());
-      for (auto &param : genericParams)
-      {
-        kindArities.push_back(param->kindArity);
-      }
-      return kindArities;
-    }
-
-    static auto genericParamKindVariadicTails(const Vec<ASTRef<GenericParam>> &genericParams) -> Vec<bool>
-    {
-      Vec<bool> tails;
-      tails.reserve(genericParams.size());
-      for (auto &param : genericParams)
-      {
-        tails.push_back(param->kindVariadicTail);
-      }
-      return tails;
-    }
-
-    static auto genericParamIsConst(const Vec<ASTRef<GenericParam>> &genericParams) -> Vec<bool>
-    {
-      Vec<bool> flags;
-      flags.reserve(genericParams.size());
-      for (auto &param : genericParams)
-      {
-        flags.push_back(param->isConst);
-      }
-      return flags;
-    }
-
-    static auto genericTypeConstructorFixedArity(const GenericTypeDef &genericType) -> size_t
-    {
-      auto packIt = std::find(genericType.typeParamIsPack.begin(), genericType.typeParamIsPack.end(), true);
-      if (packIt == genericType.typeParamIsPack.end())
-      {
-        return genericType.typeParamNames.size();
-      }
-      return static_cast<size_t>(std::distance(genericType.typeParamIsPack.begin(), packIt));
-    }
-
-    static auto genericTypeConstructorVariadicTail(const GenericTypeDef &genericType) -> bool
-    {
-      return std::any_of(genericType.typeParamIsPack.begin(), genericType.typeParamIsPack.end(), [](bool isPack) {
-        return isPack;
-      });
-    }
-
-    static auto genericParamNameSet(const Vec<ASTRef<GenericParam>> &genericParams) -> Set<Str>
-    {
-      Set<Str> names;
-      for (auto &param : genericParams)
-      {
-        names.insert(param->name);
-      }
-      return names;
-    }
-
-    static auto typeSpecializationMatches(const TypeAliasDef &specialization,
-                                          const Vec<CheckingRef<TypeInfo>> &typeArgs,
-                                          Map<Str, CheckingRef<TypeInfo>> &bindings) -> bool
-    {
-      if (!specialization.specializationPattern)
-      {
-        return false;
-      }
-      auto genericNames = genericParamNameSet(specialization.genericParams);
-      return typePatternArgListMatches(specialization.specializationPattern->genericArgs, typeArgs,
-                                       genericNames, bindings);
     }
 
     auto typeAliasSpecializationWhereMatches(const TypeAliasDef &specialization,
@@ -2198,25 +2085,6 @@ namespace NG::typecheck
       {
         score += typePatternSpecificity(arg.get(), genericNames);
       }
-      return score;
-    }
-
-    static auto functionPatternSpecificity(const FunctionDef &candidate) -> size_t
-    {
-      auto genericNames = genericParamNameSet(candidate.genericParams);
-      size_t score = 0;
-      for (auto &param : candidate.params)
-      {
-        score += typePatternSpecificity(param ? param->annotatedType.get() : nullptr, genericNames);
-      }
-      for (auto &genericParam : candidate.genericParams)
-      {
-        if (genericParam && genericParam->bound)
-        {
-          ++score;
-        }
-      }
-      score += candidate.whereBounds.size();
       return score;
     }
 

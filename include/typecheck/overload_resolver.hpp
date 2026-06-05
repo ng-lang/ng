@@ -6,41 +6,57 @@
 
 namespace NG::typecheck
 {
-    // Forward declarations
-    struct TraitImplRecord;
+    using ast::ASTRef;
 
-    /**
-     * @brief Resolves function overloads by matching argument types to candidates.
-     *
-     * Extracted from TypeChecker to reduce the god class size and enable
-     * independent testing of overload resolution logic.
-     */
-    struct OverloadResolver
+    // ── Generic parameter utilities (extracted from TypeChecker) ────────
+
+    inline auto genericParamNameSet(const Vec<ASTRef<ast::GenericParam>> &genericParams) -> Set<Str>
     {
-        // Check if argument types can be applied to a function type with coercions.
-        static auto functionApplyWithCoercions(const FunctionType &funcType,
-                                               const Vec<CheckingRef<TypeInfo>> &argumentTypes) -> bool;
+        Set<Str> names;
+        for (auto &param : genericParams) names.insert(param->name);
+        return names;
+    }
 
-        // Check if a function candidate matches the given argument types.
-        // Populates bindings with generic parameter substitutions.
-        static auto functionCandidateMatches(ast::FunctionDef &candidate,
-                                             const Vec<CheckingRef<TypeInfo>> &argumentTypes,
-                                             const Set<Str> &genericParamNames,
-                                             Map<Str, CheckingRef<TypeInfo>> &bindings,
-                                             const Map<Str, Vec<ast::FunctionDef *>> &activeConstFunctions = {}) -> bool;
+    inline auto typeParamBoundName(const ast::GenericParam &param) -> Str
+    {
+        return param.bound ? param.bound->repr() : "";
+    }
 
-        // Select the best generic function candidate from a set of overloads.
-        static auto selectGenericFunctionCandidate(ast::GenericDefType &genericDef,
-                                                   const Vec<CheckingRef<TypeInfo>> &argumentTypes,
-                                                   const Map<Str, Vec<ast::FunctionDef *>> &activeConstFunctions = {},
-                                                   size_t explicitGenericArgCount = static_cast<size_t>(-1)) -> ast::FunctionDef *;
+    inline auto genericParamKindArities(const Vec<ASTRef<ast::GenericParam>> &genericParams) -> Vec<size_t>
+    {
+        Vec<size_t> arities;
+        arities.reserve(genericParams.size());
+        for (auto &param : genericParams) arities.push_back(param->kindArity);
+        return arities;
+    }
 
-        // Compute a specificity score for a function candidate (higher = more specific).
-        static auto functionPatternSpecificity(const ast::FunctionDef &candidate) -> size_t;
+    inline auto genericParamKindVariadicTails(const Vec<ASTRef<ast::GenericParam>> &genericParams) -> Vec<bool>
+    {
+        Vec<bool> tails;
+        tails.reserve(genericParams.size());
+        for (auto &param : genericParams) tails.push_back(param->kindVariadicTail);
+        return tails;
+    }
 
-        // Check if where-clause bounds are satisfied for a candidate.
-        static auto functionCandidateWhereMatches(const ast::FunctionDef &candidate,
-                                                  Map<Str, CheckingRef<TypeInfo>> &bindings,
-                                                  const Map<Str, Vec<ast::FunctionDef *>> &activeConstFunctions = {}) -> bool;
-    };
+    inline auto genericParamIsConst(const Vec<ASTRef<ast::GenericParam>> &genericParams) -> Vec<bool>
+    {
+        Vec<bool> flags;
+        flags.reserve(genericParams.size());
+        for (auto &param : genericParams) flags.push_back(param->isConst);
+        return flags;
+    }
+
+    // ── Type instance name utilities ────────────────────────────────────
+
+    inline auto stripTypeInstanceSuffix(const Str &typeName) -> Str
+    {
+        auto lt = typeName.find('<');
+        return lt == Str::npos ? typeName : typeName.substr(0, lt);
+    }
+
+    auto parseTypeInstanceArgs(const Str &name) -> Vec<Str>;
+
+    // ── Overload resolution ─────────────────────────────────────────────
+
+    auto functionPatternSpecificity(const ast::FunctionDef &candidate) -> size_t;
 } // namespace NG::typecheck
