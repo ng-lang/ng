@@ -6194,12 +6194,16 @@ namespace NG::typecheck
       {
         if (expectedType && isSequenceType(expectedType))
         {
-          if (auto expectedArray = std::dynamic_pointer_cast<ArrayType>(unwrap(expectedType));
-              expectedArray && expectedArray->length && !const_value_equals_size(expectedArray->length, 0))
+          auto unwrappedExpected = unwrap(expectedType);
+          if (unwrappedExpected && unwrappedExpected->tag() == typeinfo_tag::ARRAY)
           {
-            throw TypeCheckingException("Array literal length mismatch: expected " + expectedArray->length->repr() +
-                                            ", got 0",
-                                        arrayLit->pos);
+            auto &expectedArray = static_cast<ArrayType &>(*unwrappedExpected);
+            if (expectedArray.length && !const_value_equals_size(expectedArray.length, 0))
+            {
+              throw TypeCheckingException("Array literal length mismatch: expected " + expectedArray.length->repr() +
+                                              ", got 0",
+                                          arrayLit->pos);
+            }
           }
           result = expectedType;
         }
@@ -6294,11 +6298,13 @@ namespace NG::typecheck
         }
       }
       movedBindings = checker.movedBindings;
-      if (auto expectedArray = std::dynamic_pointer_cast<ArrayType>(unwrap(expectedType)); expectedArray)
+      auto unwrappedExpectedArr = unwrap(expectedType);
+      if (unwrappedExpectedArr && unwrappedExpectedArr->tag() == typeinfo_tag::ARRAY)
       {
-        if (expectedArray->length && !const_value_equals_size(expectedArray->length, arrayLit->elements.size()))
+        auto &expectedArray = static_cast<ArrayType &>(*unwrappedExpectedArr);
+        if (expectedArray.length && !const_value_equals_size(expectedArray.length, arrayLit->elements.size()))
         {
-          throw TypeCheckingException("Array literal length mismatch: expected " + expectedArray->length->repr() +
+          throw TypeCheckingException("Array literal length mismatch: expected " + expectedArray.length->repr() +
                                           ", got " + std::to_string(arrayLit->elements.size()),
                                       arrayLit->pos);
         }
@@ -6353,18 +6359,20 @@ namespace NG::typecheck
       auto type = checker.result;
       movedBindings = checker.movedBindings;
       spreadResult.clear();
-      if (auto tup = std::dynamic_pointer_cast<TupleType>(type); tup)
+      if (type && type->tag() == typeinfo_tag::TUPLE)
       {
-        result = tup;
-        for (auto &&elemType : tup->elementTypes)
+        auto &tup = static_cast<TupleType &>(*type);
+        result = type;
+        for (auto &&elemType : tup.elementTypes)
         {
           spreadResult.push_back(elemType);
         }
       }
-      else if (auto varargs = std::dynamic_pointer_cast<VarargsType>(type); varargs)
+      else if (type && type->tag() == typeinfo_tag::VARARGS)
       {
-        result = varargs;
-        for (auto &&elemType : varargs->elementTypes)
+        auto &varargs = static_cast<VarargsType &>(*type);
+        result = type;
+        for (auto &&elemType : varargs.elementTypes)
         {
           spreadResult.push_back(elemType);
         }
