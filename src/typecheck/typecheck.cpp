@@ -1339,13 +1339,15 @@ namespace NG::typecheck
     static auto byValueAbstractReason(const CheckingRef<TypeInfo> &type) -> Str
     {
       auto unwrapped = unwrap(type);
-      if (auto custom = std::dynamic_pointer_cast<CustomizedType>(unwrapped); custom && custom->abstract)
+      if (!unwrapped) return "";
+      if (unwrapped->tag() == typeinfo_tag::CUSTOMIZED)
       {
-        return "abstract type '" + custom->name + "'";
+        auto &custom = static_cast<CustomizedType &>(*unwrapped);
+        if (custom.abstract) return "abstract type '" + custom.name + "'";
       }
-      if (auto trait = std::dynamic_pointer_cast<TraitType>(unwrapped))
+      if (unwrapped->tag() == typeinfo_tag::TRAIT)
       {
-        return "trait type '" + trait->name + "'";
+        return "trait type '" + static_cast<TraitType &>(*unwrapped).name + "'";
       }
       return "";
     }
@@ -1362,35 +1364,21 @@ namespace NG::typecheck
 
     static auto typeKindArity(const CheckingRef<TypeInfo> &type) -> size_t
     {
-      if (!type)
-      {
-        return 0;
-      }
-      if (auto genericParam = std::dynamic_pointer_cast<GenericParamType>(type))
-      {
-        return genericParam->kindArity;
-      }
-      if (auto genericType = std::dynamic_pointer_cast<GenericTypeDef>(type))
-      {
-        return genericTypeConstructorFixedArity(*genericType);
-      }
+      if (!type) return 0;
+      if (type->tag() == typeinfo_tag::GENERIC_PARAM)
+        return static_cast<GenericParamType &>(*type).kindArity;
+      if (type->tag() == typeinfo_tag::GENERIC_TYPE_DEF)
+        return genericTypeConstructorFixedArity(static_cast<GenericTypeDef &>(*type));
       return 0;
     }
 
     static auto typeKindVariadicTail(const CheckingRef<TypeInfo> &type) -> bool
     {
-      if (!type)
-      {
-        return false;
-      }
-      if (auto genericParam = std::dynamic_pointer_cast<GenericParamType>(type))
-      {
-        return genericParam->kindVariadicTail;
-      }
-      if (auto genericType = std::dynamic_pointer_cast<GenericTypeDef>(type))
-      {
-        return genericTypeConstructorVariadicTail(*genericType);
-      }
+      if (!type) return false;
+      if (type->tag() == typeinfo_tag::GENERIC_PARAM)
+        return static_cast<GenericParamType &>(*type).kindVariadicTail;
+      if (type->tag() == typeinfo_tag::GENERIC_TYPE_DEF)
+        return genericTypeConstructorVariadicTail(static_cast<GenericTypeDef &>(*type));
       return false;
     }
 
