@@ -7387,35 +7387,34 @@ namespace NG::typecheck
         {
           targetType = type_from_repr(impl.targetPattern);
         }
-        auto custom = std::dynamic_pointer_cast<CustomizedType>(unwrap(targetType));
-        if (custom)
-        {
-          if (auto localTarget = locals.find(custom->name); localTarget != locals.end())
-          {
-            if (auto localCustom = std::dynamic_pointer_cast<CustomizedType>(unwrap(localTarget->second)))
-            {
-              custom = localCustom;
-            }
-          }
-        }
-        if (!custom)
+        auto unwrappedTarget = unwrap(targetType);
+        if (!unwrappedTarget || unwrappedTarget->tag() != typeinfo_tag::CUSTOMIZED)
         {
           continue;
         }
-        auto &implTraits = trait_impls_by_type[custom->name];
+        auto customPtr = std::static_pointer_cast<CustomizedType>(unwrappedTarget);
+        if (auto localTarget = locals.find(customPtr->name); localTarget != locals.end())
+        {
+          auto unwrappedLocal = unwrap(localTarget->second);
+          if (unwrappedLocal && unwrappedLocal->tag() == typeinfo_tag::CUSTOMIZED)
+          {
+            customPtr = std::static_pointer_cast<CustomizedType>(unwrappedLocal);
+          }
+        }
+        auto &implTraits = trait_impls_by_type[customPtr->name];
         if (std::ranges::find(implTraits, impl.traitName) == implTraits.end())
         {
           implTraits.push_back(impl.traitName);
         }
         auto traitIt = locals.find(impl.traitName);
-        auto trait = traitIt == locals.end() ? nullptr : std::dynamic_pointer_cast<TraitType>(traitIt->second);
-        if (trait)
+        if (traitIt != locals.end() && traitIt->second && traitIt->second->tag() == typeinfo_tag::TRAIT)
         {
-          auto &methods = trait->allMethods.empty() ? trait->methods : trait->allMethods;
+          auto &trait = static_cast<TraitType &>(*traitIt->second);
+          auto &methods = trait.allMethods.empty() ? trait.methods : trait.allMethods;
           for (const auto &[methodName, methodType] : methods)
           {
-            custom->traitMemberFunctions[trait->name][methodName] = methodType;
-            custom->memberFunctions[trait->name + "::" + methodName] = methodType;
+            customPtr->traitMemberFunctions[trait.name][methodName] = methodType;
+            customPtr->memberFunctions[trait.name + "::" + methodName] = methodType;
           }
         }
       }
