@@ -5,6 +5,7 @@
 #include <token.hpp>
 #include <typecheck/pattern_matching.hpp>
 #include <typecheck/overload_resolver.hpp>
+#include <typecheck/trait_resolution.hpp>
 #include <typecheck/type_environment.hpp>
 #include <typecheck/trait_registry.hpp>
 #include <typecheck/mangling.hpp>
@@ -87,7 +88,7 @@ namespace NG::typecheck
 
   using ConstValue = std::variant<bool, int64_t, Str>;
 
-  static auto unwrap(CheckingRef<TypeInfo> type) -> CheckingRef<TypeInfo>
+  auto unwrap(CheckingRef<TypeInfo> type) -> CheckingRef<TypeInfo>
   {
     if (!type) return type;
     switch (type->tag())
@@ -2805,248 +2806,29 @@ namespace NG::typecheck
       return true;
     }
 
-    auto typeSatisfiesAutoTrait(const CheckingRef<TypeInfo> &type, const TraitType &trait,
-                                Set<Str> &seen) const -> bool
-    {
-      auto candidate = unwrap(type);
-      if (!candidate)
-      {
-        return false;
-      }
-      if (isPrimitive(candidate->tag()) || candidate->tag() == typeinfo_tag::UNIT ||
-          candidate->tag() == typeinfo_tag::BOOL || candidate->tag() == typeinfo_tag::STRING)
-      {
-        return true;
-      }
-      switch (candidate->tag())
-      {
-      case typeinfo_tag::REFERENCE:
-        return typeSatisfiesAutoTrait(static_cast<const ReferenceType &>(*candidate).referencedType, trait, seen);
-      case typeinfo_tag::TUPLE:
-        return std::ranges::all_of(static_cast<const TupleType &>(*candidate).elementTypes, [&](const auto &element) {
-          return typeSatisfiesAutoTrait(element, trait, seen);
-        });
-      case typeinfo_tag::ARRAY:
-        return typeSatisfiesAutoTrait(static_cast<const ArrayType &>(*candidate).elementType, trait, seen);
-      case typeinfo_tag::VECTOR:
-        return typeSatisfiesAutoTrait(static_cast<const VectorType &>(*candidate).elementType, trait, seen);
-      case typeinfo_tag::SPAN:
-        return typeSatisfiesAutoTrait(static_cast<const SpanType &>(*candidate).elementType, trait, seen);
-      default:
-        break;
-      }
-      auto custom = std::dynamic_pointer_cast<CustomizedType>(candidate);
-      if (!custom)
-      {
-        return false;
-      }
-      if (auto implIt = trait_impls_by_type.find(custom->name); implIt != trait_impls_by_type.end())
-      {
-        if (std::ranges::any_of(implIt->second, [&](const Str &implemented) {
-              return implemented == trait.name || traitImplies(implemented, trait.name);
-            }))
-        {
-          return true;
-        }
-      }
-      if (!seen.insert(custom->name + "::" + trait.name).second)
-      {
-        return true;
-      }
-      for (const auto &[_, fieldType] : custom->properties)
-      {
-        if (!typeSatisfiesAutoTrait(fieldType, trait, seen))
-        {
-          return false;
-        }
-      }
-      return true;
-    }
-
     auto typeSatisfiesAutoTrait(const CheckingRef<TypeInfo> &type, const TraitType &trait) const -> bool
     {
       Set<Str> seen;
-      return typeSatisfiesAutoTrait(type, trait, seen);
-    }
-
-    auto typeCanDeriveTrait(const CheckingRef<TypeInfo> &type, const Str &traitName,
-                            Set<Str> &seen) const -> bool
-    {
-      auto candidate = unwrap(type);
-      if (!candidate)
-      {
-        return false;
-      }
-      if (isPrimitive(candidate->tag()) || candidate->tag() == typeinfo_tag::UNIT ||
-          candidate->tag() == typeinfo_tag::BOOL || candidate->tag() == typeinfo_tag::STRING)
-      {
-        return true;
-      }
-      switch (candidate->tag())
-      {
-      case typeinfo_tag::REFERENCE:
-        return traitName == COPY_TRAIT_NAME ||
-               typeCanDeriveTrait(static_cast<const ReferenceType &>(*candidate).referencedType, traitName, seen);
-      case typeinfo_tag::TUPLE:
-        return std::ranges::all_of(static_cast<const TupleType &>(*candidate).elementTypes, [&](const auto &element) {
-          return typeCanDeriveTrait(element, traitName, seen);
-        });
-      case typeinfo_tag::ARRAY:
-        return typeCanDeriveTrait(static_cast<const ArrayType &>(*candidate).elementType, traitName, seen);
-      case typeinfo_tag::SPAN:
-        return typeCanDeriveTrait(static_cast<const SpanType &>(*candidate).elementType, traitName, seen);
-      case typeinfo_tag::VECTOR:
-        return false;
-      default:
-        break;
-      }
-      auto custom = std::dynamic_pointer_cast<CustomizedType>(candidate);
-      if (!custom)
-      {
-        return false;
-      }
-      if (!seen.insert(custom->name + "::" + traitName).second)
-      {
-        return true;
-      }
-      if (auto implIt = trait_impls_by_type.find(custom->name); implIt != trait_impls_by_type.end())
-      {
-        if (std::ranges::find(implIt->second, traitName) != implIt->second.end())
-        {
-          return true;
-        }
-        if (traitName == COPY_TRAIT_NAME &&
-            std::ranges::find(implIt->second, DROP_TRAIT_NAME) != implIt->second.end())
-        {
-          return false;
-        }
-      }
-      return std::ranges::all_of(custom->properties, [&](const auto &entry) {
-        return typeCanDeriveTrait(entry.second, traitName, seen);
-      });
+      return NG::typecheck::typeSatisfiesAutoTrait(type, trait, trait_impls_by_type, locals, seen);
     }
 
     auto typeCanDeriveTrait(const CheckingRef<TypeInfo> &type, const Str &traitName) const -> bool
     {
       Set<Str> seen;
-      return typeCanDeriveTrait(type, traitName, seen);
+      return NG::typecheck::typeCanDeriveTrait(type, traitName, trait_impls_by_type, locals, seen);
     }
 
     auto typeSatisfiesTrait(const CheckingRef<TypeInfo> &type, const TraitType &trait) const -> bool
     {
-      if (activeAutoTraits.contains(trait.name))
-      {
-        return typeSatisfiesAutoTrait(type, trait);
-      }
-      auto candidate = unwrap(type);
-      if (trait.name == COPY_TRAIT_NAME || trait.name == CLONE_TRAIT_NAME)
-      {
-        if (isPrimitive(candidate->tag()) || candidate->tag() == typeinfo_tag::UNIT ||
-            candidate->tag() == typeinfo_tag::BOOL || candidate->tag() == typeinfo_tag::STRING)
-        {
-          return true;
-        }
-        switch (candidate->tag())
-        {
-        case typeinfo_tag::REFERENCE:
-          return trait.name == COPY_TRAIT_NAME ||
-                 typeSatisfiesTrait(static_cast<ReferenceType &>(*candidate).referencedType, trait);
-        case typeinfo_tag::TUPLE:
-          return std::ranges::all_of(static_cast<TupleType &>(*candidate).elementTypes, [&](const auto &element) {
-            return typeSatisfiesTrait(element, trait);
-          });
-        case typeinfo_tag::ARRAY:
-          return typeSatisfiesTrait(static_cast<ArrayType &>(*candidate).elementType, trait);
-        case typeinfo_tag::SPAN:
-          return typeSatisfiesTrait(static_cast<SpanType &>(*candidate).elementType, trait);
-        case typeinfo_tag::VECTOR:
-          return false;
-        default:
-          break;
-        }
-      }
-      if (candidate->tag() == typeinfo_tag::REFERENCE)
-      {
-        candidate = unwrap(static_cast<ReferenceType &>(*candidate).referencedType);
-      }
-      if (candidate && candidate->tag() == typeinfo_tag::GENERIC_PARAM)
-      {
-        auto &generic = static_cast<GenericParamType &>(*candidate);
-        return generic.bound == trait.name || traitImplies(generic.bound, trait.name);
-      }
-      if (trait.name == "Sequence" && isSequenceType(candidate))
-      {
-        return true;
-      }
-      if (!candidate || candidate->tag() != typeinfo_tag::CUSTOMIZED)
-      {
-        return false;
-      }
-      auto &custom = static_cast<CustomizedType &>(*candidate);
-      if (auto implIt = trait_impls_by_type.find(custom.name); implIt != trait_impls_by_type.end())
-      {
-        if (std::ranges::any_of(implIt->second, [&](const Str &implemented) {
-              return implemented == trait.name || traitImplies(implemented, trait.name);
-            }))
-        {
-          return true;
-        }
-      }
-      if (activeDerivedTraitImplKeys.contains(custom.name + "::" + trait.name))
-      {
-        return true;
-      }
-      if (trait.name == COPY_TRAIT_NAME || trait.name == CLONE_TRAIT_NAME)
-      {
-        return false;
-      }
-      auto &methods = trait.allMethods.empty() ? trait.methods : trait.allMethods;
-      for (auto &[methodName, methodType] : methods)
-      {
-        if (!custom.memberFunctions.contains(methodName) &&
-            (!custom.traitMemberFunctions.contains(trait.name) ||
-             !custom.traitMemberFunctions.at(trait.name).contains(methodName)))
-        {
-          return false;
-        }
-      }
-      return true;
+      // Handle Sequence trait specially (requires TypeChecker state for isSequenceType)
+      if (trait.name == "Sequence" && isSequenceType(type)) return true;
+      return NG::typecheck::typeSatisfiesTrait(type, trait, trait_impls_by_type,
+                                               activeAutoTraits, activeDerivedTraitImplKeys, locals);
     }
 
     auto traitImplies(const Str &candidateName, const Str &requiredName) const -> bool
     {
-      if (candidateName == requiredName)
-      {
-        return true;
-      }
-      auto it = locals.find(candidateName);
-      auto trait = it == locals.end() ? nullptr : std::dynamic_pointer_cast<TraitType>(it->second);
-      if (!trait)
-      {
-        return false;
-      }
-      Set<Str> seen;
-      return traitImplies(*trait, requiredName, seen);
-    }
-
-    auto traitImplies(const TraitType &candidate, const Str &requiredName, Set<Str> &seen) const -> bool
-    {
-      if (!seen.insert(candidate.name).second)
-      {
-        return false;
-      }
-      for (auto &superTrait : candidate.superTraits)
-      {
-        if (!superTrait)
-        {
-          continue;
-        }
-        if (superTrait->name == requiredName || traitImplies(*superTrait, requiredName, seen))
-        {
-          return true;
-        }
-      }
-      return false;
+      return NG::typecheck::traitImplies(candidateName, requiredName, locals);
     }
 
     void resolveTraitClosure(TraitType &trait, Set<Str> &visiting, Set<Str> &visited, TokenPosition pos)
