@@ -64,6 +64,18 @@ namespace NG::typecheck
     auto stripTypeInstanceSuffix(const Str &typeName) -> Str;
     auto parseTypeInstanceArgs(const Str &name) -> Vec<Str>;
 
+    // ── Type matching utilities ─────────────────────────────────────────
+
+    /// Match types with alias transparency.
+    auto typeMatch(const TypeInfo &a, const TypeInfo &b) -> bool;
+
+    /// Check if expected type matches actual type (including ref-trait coercion).
+    auto typeMatches(const TypeInfo &expected, const TypeInfo &actual,
+                     const Map<Str, Vec<Str>> &trait_impls_by_type,
+                     const Set<Str> &activeAutoTraits,
+                     const Set<Str> &activeDerivedTraitImplKeys,
+                     const Map<Str, CheckingRef<TypeInfo>> &locals) -> bool;
+
     // ── Overload resolution utilities ───────────────────────────────────
 
     auto functionPatternSpecificity(const ast::FunctionDef &candidate) -> size_t;

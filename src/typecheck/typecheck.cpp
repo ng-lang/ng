@@ -1630,36 +1630,10 @@ namespace NG::typecheck
       }
     }
 
-    auto refTraitCoercionMatches(const TypeInfo &expected, const TypeInfo &actual) const -> bool
-    {
-      const auto &unwrappedExpected = unwrapAlias(expected);
-      const auto &unwrappedActual = unwrapAlias(actual);
-      if (unwrappedExpected.tag() != typeinfo_tag::REFERENCE || unwrappedActual.tag() != typeinfo_tag::REFERENCE)
-      {
-        return false;
-      }
-      const auto &expectedRef = static_cast<const ReferenceType &>(unwrappedExpected);
-      const auto &actualRef = static_cast<const ReferenceType &>(unwrappedActual);
-      if (!expectedRef.referencedType || !actualRef.referencedType)
-      {
-        return false;
-      }
-      auto unwrappedRef = unwrap(expectedRef.referencedType);
-      if (!unwrappedRef || unwrappedRef->tag() != typeinfo_tag::TRAIT)
-      {
-        return false;
-      }
-      auto trait = std::static_pointer_cast<TraitType>(unwrappedRef);
-      if (!isObjectSafeTrait(*trait))
-      {
-        return false;
-      }
-      return typeSatisfiesTrait(actualRef.referencedType, *trait);
-    }
-
     auto typeMatches(const TypeInfo &expected, const TypeInfo &actual) const -> bool
     {
-      return typeMatch(expected, actual) || refTraitCoercionMatches(expected, actual);
+      return NG::typecheck::typeMatches(expected, actual, trait_impls_by_type,
+                                        activeAutoTraits, activeDerivedTraitImplKeys, locals);
     }
 
     static auto genericTypeConstructorFixedArity(const GenericTypeDef &genericType) -> size_t
