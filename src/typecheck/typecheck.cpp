@@ -6700,34 +6700,36 @@ namespace NG::typecheck
         }
       }
 
-      if (auto customType = std::dynamic_pointer_cast<CustomizedType>(primaryType))
+      if (primaryType && primaryType->tag() == typeinfo_tag::CUSTOMIZED)
       {
-        if (auto localType = locals.find(customType->name); localType != locals.end())
+        auto customPtr = std::dynamic_pointer_cast<CustomizedType>(primaryType);
+        if (auto localType = locals.find(customPtr->name); localType != locals.end())
         {
-          if (auto localCustom = std::dynamic_pointer_cast<CustomizedType>(unwrap(localType->second)))
+          auto unwrappedLocal = unwrap(localType->second);
+          if (unwrappedLocal && unwrappedLocal->tag() == typeinfo_tag::CUSTOMIZED)
           {
-            customType = localCustom;
+            customPtr = std::static_pointer_cast<CustomizedType>(unwrappedLocal);
           }
         }
-        if (customType->properties.contains(memberName))
+        if (customPtr->properties.contains(memberName))
         {
-          memberType = customType->properties[memberName];
+          memberType = customPtr->properties[memberName];
         }
-        else if (customType->memberFunctions.contains(memberName))
+        else if (customPtr->memberFunctions.contains(memberName))
         {
-          memberType = customType->memberFunctions[memberName];
+          memberType = customPtr->memberFunctions[memberName];
         }
-        if (!customType->properties.contains(memberName))
+        if (!customPtr->properties.contains(memberName))
         {
           Vec<Str> traitCandidates;
-          for (auto &[traitName, methods] : customType->traitMemberFunctions)
+          for (auto &[traitName, methods] : customPtr->traitMemberFunctions)
           {
             if (methods.contains(memberName))
             {
               traitCandidates.push_back(traitName);
             }
           }
-          if (traitCandidates.size() > 1 && !customType->memberFunctions.contains(memberName))
+          if (traitCandidates.size() > 1 && !customPtr->memberFunctions.contains(memberName))
           {
             Str candidates;
             for (size_t i = 0; i < traitCandidates.size(); ++i)
@@ -6738,9 +6740,9 @@ namespace NG::typecheck
             throw TypeCheckingException("Ambiguous trait method call " + memberName + ": candidates " + candidates,
                                         idAccExpr->pos);
           }
-          if (traitCandidates.size() == 1 && !customType->memberFunctions.contains(memberName))
+          if (traitCandidates.size() == 1 && !customPtr->memberFunctions.contains(memberName))
           {
-            memberType = customType->traitMemberFunctions[traitCandidates.front()][memberName];
+            memberType = customPtr->traitMemberFunctions[traitCandidates.front()][memberName];
           }
         }
       }
