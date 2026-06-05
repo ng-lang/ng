@@ -2940,47 +2940,44 @@ namespace NG::typecheck
         {
           return true;
         }
-        if (auto ref = std::dynamic_pointer_cast<ReferenceType>(candidate))
+        switch (candidate->tag())
         {
-          return trait.name == COPY_TRAIT_NAME || typeSatisfiesTrait(ref->referencedType, trait);
-        }
-        if (auto tuple = std::dynamic_pointer_cast<TupleType>(candidate))
-        {
-          return std::ranges::all_of(tuple->elementTypes, [&](const auto &element) {
+        case typeinfo_tag::REFERENCE:
+          return trait.name == COPY_TRAIT_NAME ||
+                 typeSatisfiesTrait(static_cast<ReferenceType &>(*candidate).referencedType, trait);
+        case typeinfo_tag::TUPLE:
+          return std::ranges::all_of(static_cast<TupleType &>(*candidate).elementTypes, [&](const auto &element) {
             return typeSatisfiesTrait(element, trait);
           });
-        }
-        if (auto array = std::dynamic_pointer_cast<ArrayType>(candidate))
-        {
-          return typeSatisfiesTrait(array->elementType, trait);
-        }
-        if (auto span = std::dynamic_pointer_cast<SpanType>(candidate))
-        {
-          return typeSatisfiesTrait(span->elementType, trait);
-        }
-        if (std::dynamic_pointer_cast<VectorType>(candidate))
-        {
+        case typeinfo_tag::ARRAY:
+          return typeSatisfiesTrait(static_cast<ArrayType &>(*candidate).elementType, trait);
+        case typeinfo_tag::SPAN:
+          return typeSatisfiesTrait(static_cast<SpanType &>(*candidate).elementType, trait);
+        case typeinfo_tag::VECTOR:
           return false;
+        default:
+          break;
         }
       }
-      if (auto ref = std::dynamic_pointer_cast<ReferenceType>(candidate))
+      if (candidate->tag() == typeinfo_tag::REFERENCE)
       {
-        candidate = unwrap(ref->referencedType);
+        candidate = unwrap(static_cast<ReferenceType &>(*candidate).referencedType);
       }
-      if (auto generic = std::dynamic_pointer_cast<GenericParamType>(candidate))
+      if (candidate && candidate->tag() == typeinfo_tag::GENERIC_PARAM)
       {
-        return generic->bound == trait.name || traitImplies(generic->bound, trait.name);
+        auto &generic = static_cast<GenericParamType &>(*candidate);
+        return generic.bound == trait.name || traitImplies(generic.bound, trait.name);
       }
       if (trait.name == "Sequence" && isSequenceType(candidate))
       {
         return true;
       }
-      auto custom = std::dynamic_pointer_cast<CustomizedType>(candidate);
-      if (!custom)
+      if (!candidate || candidate->tag() != typeinfo_tag::CUSTOMIZED)
       {
         return false;
       }
-      if (auto implIt = trait_impls_by_type.find(custom->name); implIt != trait_impls_by_type.end())
+      auto &custom = static_cast<CustomizedType &>(*candidate);
+      if (auto implIt = trait_impls_by_type.find(custom.name); implIt != trait_impls_by_type.end())
       {
         if (std::ranges::any_of(implIt->second, [&](const Str &implemented) {
               return implemented == trait.name || traitImplies(implemented, trait.name);
@@ -2989,7 +2986,7 @@ namespace NG::typecheck
           return true;
         }
       }
-      if (activeDerivedTraitImplKeys.contains(custom->name + "::" + trait.name))
+      if (activeDerivedTraitImplKeys.contains(custom.name + "::" + trait.name))
       {
         return true;
       }
@@ -3000,9 +2997,9 @@ namespace NG::typecheck
       auto &methods = trait.allMethods.empty() ? trait.methods : trait.allMethods;
       for (auto &[methodName, methodType] : methods)
       {
-        if (!custom->memberFunctions.contains(methodName) &&
-            (!custom->traitMemberFunctions.contains(trait.name) ||
-             !custom->traitMemberFunctions.at(trait.name).contains(methodName)))
+        if (!custom.memberFunctions.contains(methodName) &&
+            (!custom.traitMemberFunctions.contains(trait.name) ||
+             !custom.traitMemberFunctions.at(trait.name).contains(methodName)))
         {
           return false;
         }
