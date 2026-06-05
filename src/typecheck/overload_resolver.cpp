@@ -1,18 +1,20 @@
 
 #include <typecheck/overload_resolver.hpp>
 #include <typecheck/pattern_matching.hpp>
-#include <typecheck/typecheck.hpp>
 #include <ast.hpp>
 
 namespace NG::typecheck
 {
+    auto stripTypeInstanceSuffix(const Str &typeName) -> Str
+    {
+        auto lt = typeName.find('<');
+        return lt == Str::npos ? typeName : typeName.substr(0, lt);
+    }
+
     auto parseTypeInstanceArgs(const Str &name) -> Vec<Str>
     {
         auto lt = name.find('<');
-        if (lt == Str::npos || !name.ends_with('>'))
-        {
-            return {};
-        }
+        if (lt == Str::npos || !name.ends_with('>')) return {};
         auto inner = name.substr(lt + 1, name.size() - lt - 2);
         Vec<Str> args;
         int depth = 0;

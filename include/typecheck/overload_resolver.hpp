@@ -8,7 +8,20 @@ namespace NG::typecheck
 {
     using ast::ASTRef;
 
-    // ── Generic parameter utilities (extracted from TypeChecker) ────────
+    // Forward declarations
+    auto typePatternMatch(const ast::TypeAnnotation *pattern, const CheckingRef<TypeInfo> &actual,
+                          const Set<Str> &genericParamNames,
+                          Map<Str, CheckingRef<TypeInfo>> &bindings) -> bool;
+    auto typePatternArgListMatches(const Vec<std::shared_ptr<ast::TypeAnnotation>> &patterns,
+                                   const Vec<CheckingRef<TypeInfo>> &actuals,
+                                   const Set<Str> &genericParamNames,
+                                   Map<Str, CheckingRef<TypeInfo>> &bindings) -> bool;
+    auto bindPackPattern(const ast::TypeAnnotation *pattern,
+                         const Vec<CheckingRef<TypeInfo>> &actualTypes,
+                         Map<Str, CheckingRef<TypeInfo>> &bindings) -> bool;
+    auto isPackTypePattern(const ast::TypeAnnotation *pattern, const Set<Str> &genericParamNames) -> bool;
+
+    // ── Generic parameter utilities ─────────────────────────────────────
 
     inline auto genericParamNameSet(const Vec<ASTRef<ast::GenericParam>> &genericParams) -> Set<Str>
     {
@@ -48,15 +61,10 @@ namespace NG::typecheck
 
     // ── Type instance name utilities ────────────────────────────────────
 
-    inline auto stripTypeInstanceSuffix(const Str &typeName) -> Str
-    {
-        auto lt = typeName.find('<');
-        return lt == Str::npos ? typeName : typeName.substr(0, lt);
-    }
-
+    auto stripTypeInstanceSuffix(const Str &typeName) -> Str;
     auto parseTypeInstanceArgs(const Str &name) -> Vec<Str>;
 
-    // ── Overload resolution ─────────────────────────────────────────────
+    // ── Overload resolution utilities ───────────────────────────────────
 
     auto functionPatternSpecificity(const ast::FunctionDef &candidate) -> size_t;
 } // namespace NG::typecheck
