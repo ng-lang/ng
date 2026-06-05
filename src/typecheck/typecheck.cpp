@@ -6662,26 +6662,28 @@ namespace NG::typecheck
                                isSequenceType(primaryType));
       if (isCollectionType)
       {
-        if (auto tupleType = std::dynamic_pointer_cast<TupleType>(primaryType); tupleType)
+        if (tag == typeinfo_tag::TUPLE)
         {
+          auto &tupleType = static_cast<TupleType &>(*primaryType);
           if (auto index = numericMemberIndex(); index.has_value())
           {
-            if (*index >= tupleType->elementTypes.size())
+            if (*index >= tupleType.elementTypes.size())
             {
               throw TypeCheckingException("Tuple element index out of range: " + memberName, idAccExpr->pos);
             }
-            memberType = tupleType->elementTypes[*index];
+            memberType = tupleType.elementTypes[*index];
           }
         }
-        else if (auto varargsType = std::dynamic_pointer_cast<VarargsType>(primaryType); varargsType)
+        else if (tag == typeinfo_tag::VARARGS)
         {
+          auto &varargsType = static_cast<VarargsType &>(*primaryType);
           if (auto index = numericMemberIndex(); index.has_value())
           {
-            if (*index >= varargsType->elementTypes.size())
+            if (*index >= varargsType.elementTypes.size())
             {
               throw TypeCheckingException("Tuple element index out of range: " + memberName, idAccExpr->pos);
             }
-            memberType = varargsType->elementTypes[*index];
+            memberType = varargsType.elementTypes[*index];
           }
         }
         if (memberName == "size")
