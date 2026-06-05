@@ -7154,9 +7154,10 @@ namespace NG::typecheck
       }
 
       // Allow wrap: T -> NewType(T)
-      if (auto nt = std::dynamic_pointer_cast<NewTypeType>(targetType))
+      if (targetType && targetType->tag() == typeinfo_tag::NEW_TYPE)
       {
-        if (nt->wrappedType->match(*exprType) || exprType->tag() == typeinfo_tag::UNTYPED)
+        auto &nt = static_cast<NewTypeType &>(*targetType);
+        if (nt.wrappedType->match(*exprType) || exprType->tag() == typeinfo_tag::UNTYPED)
         {
           result = targetType;
           return;
@@ -7164,9 +7165,10 @@ namespace NG::typecheck
       }
 
       // Allow unwrap: NewType(T) -> T
-      if (auto nt = std::dynamic_pointer_cast<NewTypeType>(exprType))
+      if (exprType && exprType->tag() == typeinfo_tag::NEW_TYPE)
       {
-        if (targetType->match(*nt->wrappedType) || targetType->tag() == typeinfo_tag::UNTYPED)
+        auto &nt = static_cast<NewTypeType &>(*exprType);
+        if (targetType->match(*nt.wrappedType) || targetType->tag() == typeinfo_tag::UNTYPED)
         {
           result = targetType;
           return;
@@ -7174,9 +7176,10 @@ namespace NG::typecheck
       }
 
       // Allow cast through type alias (transparent)
-      if (auto alias = std::dynamic_pointer_cast<TypeAliasType>(exprType))
+      if (exprType && exprType->tag() == typeinfo_tag::TYPE_ALIAS)
       {
-        if (alias->underlyingType->match(*targetType) || targetType->match(*alias->underlyingType))
+        auto &alias = static_cast<TypeAliasType &>(*exprType);
+        if (alias.underlyingType->match(*targetType) || targetType->match(*alias.underlyingType))
         {
           result = targetType;
           return;
