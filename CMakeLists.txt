@@ -60,6 +60,7 @@ set(NG_LIB_SRC
         src/module/ModuleLoader.cpp
         src/module/ModuleRegistry.cpp
         src/typecheck/typecheck.cpp
+        src/typecheck/typecheck_utils.cpp
         src/typecheck/mangling.cpp
         src/typecheck/typeinfo.cpp
         src/typecheck/pattern_matching.cpp
