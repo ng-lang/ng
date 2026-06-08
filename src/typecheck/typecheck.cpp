@@ -19,6 +19,7 @@
 #include <cctype>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
 #include <variant>
 namespace NG::typecheck
 {
