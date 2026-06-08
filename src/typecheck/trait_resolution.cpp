@@ -24,19 +24,19 @@ namespace NG::typecheck
     namespace
     {
         auto traitImpliesRecursive(const TraitType &candidate, const Str &requiredName,
-                                   Set<Str> &seen, const Map<Str, CheckingRef<TypeInfo>> &locals) -> bool
+                                   Set<Str> &seen, const TypeEnvironment &env) -> bool
         {
             if (!seen.insert(candidate.name).second) return false;
             for (auto &superTrait : candidate.superTraits)
             {
                 if (!superTrait) continue;
                 if (superTrait->name == requiredName) return true;
-                auto superIt = locals.find(superTrait->name);
-                if (superIt != locals.end())
+                auto superIt = env.locals.find(superTrait->name);
+                if (superIt != env.locals.end())
                 {
                     if (auto st = std::dynamic_pointer_cast<TraitType>(superIt->second))
                     {
-                        if (traitImpliesRecursive(*st, requiredName, seen, locals)) return true;
+                        if (traitImpliesRecursive(*st, requiredName, seen, env)) return true;
                     }
                 }
             }
@@ -45,19 +45,19 @@ namespace NG::typecheck
     }
 
     auto traitImplies(const Str &candidateName, const Str &requiredName,
-                      const Map<Str, CheckingRef<TypeInfo>> &locals) -> bool
+                      const TypeEnvironment &env) -> bool
     {
         if (candidateName == requiredName) return true;
-        auto it = locals.find(candidateName);
-        auto trait = it == locals.end() ? nullptr : std::dynamic_pointer_cast<TraitType>(it->second);
+        auto it = env.locals.find(candidateName);
+        auto trait = it == env.locals.end() ? nullptr : std::dynamic_pointer_cast<TraitType>(it->second);
         if (!trait) return false;
         Set<Str> seen;
-        return traitImpliesRecursive(*trait, requiredName, seen, locals);
+        return traitImpliesRecursive(*trait, requiredName, seen, env);
     }
 
     auto typeSatisfiesAutoTrait(const CheckingRef<TypeInfo> &type, const TraitType &trait,
                                 const Map<Str, Vec<Str>> &trait_impls_by_type,
-                                const Map<Str, CheckingRef<TypeInfo>> &locals,
+                                const TypeEnvironment &env,
                                 Set<Str> &seen) -> bool
     {
         auto candidate = unwrap(type);
@@ -71,21 +71,21 @@ namespace NG::typecheck
         {
         case typeinfo_tag::REFERENCE:
             return typeSatisfiesAutoTrait(static_cast<const ReferenceType &>(*candidate).referencedType,
-                                          trait, trait_impls_by_type, locals, seen);
+                                          trait, trait_impls_by_type, env, seen);
         case typeinfo_tag::TUPLE:
             return std::ranges::all_of(static_cast<const TupleType &>(*candidate).elementTypes,
                                        [&](const auto &element) {
-                                           return typeSatisfiesAutoTrait(element, trait, trait_impls_by_type, locals, seen);
+                                           return typeSatisfiesAutoTrait(element, trait, trait_impls_by_type, env, seen);
                                        });
         case typeinfo_tag::ARRAY:
             return typeSatisfiesAutoTrait(static_cast<const ArrayType &>(*candidate).elementType,
-                                          trait, trait_impls_by_type, locals, seen);
+                                          trait, trait_impls_by_type, env, seen);
         case typeinfo_tag::VECTOR:
             return typeSatisfiesAutoTrait(static_cast<const VectorType &>(*candidate).elementType,
-                                          trait, trait_impls_by_type, locals, seen);
+                                          trait, trait_impls_by_type, env, seen);
         case typeinfo_tag::SPAN:
             return typeSatisfiesAutoTrait(static_cast<const SpanType &>(*candidate).elementType,
-                                          trait, trait_impls_by_type, locals, seen);
+                                          trait, trait_impls_by_type, env, seen);
         default:
             break;
         }
@@ -94,7 +94,7 @@ namespace NG::typecheck
         if (auto implIt = trait_impls_by_type.find(custom->name); implIt != trait_impls_by_type.end())
         {
             if (std::ranges::any_of(implIt->second, [&](const Str &implemented) {
-                return implemented == trait.name || traitImplies(implemented, trait.name, locals);
+                return implemented == trait.name || traitImplies(implemented, trait.name, env);
             }))
             {
                 return true;
@@ -103,7 +103,7 @@ namespace NG::typecheck
         if (!seen.insert(custom->name + "::" + trait.name).second) return true;
         for (const auto &[_, fieldType] : custom->properties)
         {
-            if (!typeSatisfiesAutoTrait(fieldType, trait, trait_impls_by_type, locals, seen))
+            if (!typeSatisfiesAutoTrait(fieldType, trait, trait_impls_by_type, env, seen))
                 return false;
         }
         return true;
@@ -113,12 +113,12 @@ namespace NG::typecheck
                             const Map<Str, Vec<Str>> &trait_impls_by_type,
                             const Set<Str> &activeAutoTraits,
                             const Set<Str> &activeDerivedTraitImplKeys,
-                            const Map<Str, CheckingRef<TypeInfo>> &locals) -> bool
+                            const TypeEnvironment &env) -> bool
     {
         if (activeAutoTraits.contains(trait.name))
         {
             Set<Str> seen;
-            return typeSatisfiesAutoTrait(type, trait, trait_impls_by_type, locals, seen);
+            return typeSatisfiesAutoTrait(type, trait, trait_impls_by_type, env, seen);
         }
         auto candidate = unwrap(type);
         if (trait.name == COPY_TRAIT_NAME || trait.name == CLONE_TRAIT_NAME)
@@ -134,21 +134,21 @@ namespace NG::typecheck
                 return trait.name == COPY_TRAIT_NAME ||
                        typeSatisfiesTrait(static_cast<ReferenceType &>(*candidate).referencedType,
                                           trait, trait_impls_by_type, activeAutoTraits,
-                                          activeDerivedTraitImplKeys, locals);
+                                          activeDerivedTraitImplKeys, env);
             case typeinfo_tag::TUPLE:
                 return std::ranges::all_of(static_cast<TupleType &>(*candidate).elementTypes,
                                            [&](const auto &element) {
                                                return typeSatisfiesTrait(element, trait, trait_impls_by_type,
-                                                                        activeAutoTraits, activeDerivedTraitImplKeys, locals);
+                                                                        activeAutoTraits, activeDerivedTraitImplKeys, env);
                                            });
             case typeinfo_tag::ARRAY:
                 return typeSatisfiesTrait(static_cast<ArrayType &>(*candidate).elementType,
                                           trait, trait_impls_by_type, activeAutoTraits,
-                                          activeDerivedTraitImplKeys, locals);
+                                          activeDerivedTraitImplKeys, env);
             case typeinfo_tag::SPAN:
                 return typeSatisfiesTrait(static_cast<SpanType &>(*candidate).elementType,
                                           trait, trait_impls_by_type, activeAutoTraits,
-                                          activeDerivedTraitImplKeys, locals);
+                                          activeDerivedTraitImplKeys, env);
             case typeinfo_tag::VECTOR:
                 return false;
             default:
@@ -162,7 +162,7 @@ namespace NG::typecheck
         if (candidate && candidate->tag() == typeinfo_tag::GENERIC_PARAM)
         {
             auto &generic = static_cast<GenericParamType &>(*candidate);
-            return generic.bound == trait.name || traitImplies(generic.bound, trait.name, locals);
+            return generic.bound == trait.name || traitImplies(generic.bound, trait.name, env);
         }
         if (!candidate || candidate->tag() != typeinfo_tag::CUSTOMIZED)
         {
@@ -172,7 +172,7 @@ namespace NG::typecheck
         if (auto implIt = trait_impls_by_type.find(custom.name); implIt != trait_impls_by_type.end())
         {
             if (std::ranges::any_of(implIt->second, [&](const Str &implemented) {
-                return implemented == trait.name || traitImplies(implemented, trait.name, locals);
+                return implemented == trait.name || traitImplies(implemented, trait.name, env);
             }))
             {
                 return true;
@@ -201,7 +201,7 @@ namespace NG::typecheck
 
     auto typeCanDeriveTrait(const CheckingRef<TypeInfo> &type, const Str &traitName,
                             const Map<Str, Vec<Str>> &trait_impls_by_type,
-                            const Map<Str, CheckingRef<TypeInfo>> &locals,
+                            const TypeEnvironment &env,
                             Set<Str> &seen) -> bool
     {
         auto candidate = unwrap(type);
@@ -216,18 +216,18 @@ namespace NG::typecheck
         case typeinfo_tag::REFERENCE:
             return traitName == COPY_TRAIT_NAME ||
                    typeCanDeriveTrait(static_cast<const ReferenceType &>(*candidate).referencedType,
-                                      traitName, trait_impls_by_type, locals, seen);
+                                      traitName, trait_impls_by_type, env, seen);
         case typeinfo_tag::TUPLE:
             return std::ranges::all_of(static_cast<const TupleType &>(*candidate).elementTypes,
                                        [&](const auto &element) {
-                                           return typeCanDeriveTrait(element, traitName, trait_impls_by_type, locals, seen);
+                                           return typeCanDeriveTrait(element, traitName, trait_impls_by_type, env, seen);
                                        });
         case typeinfo_tag::ARRAY:
             return typeCanDeriveTrait(static_cast<const ArrayType &>(*candidate).elementType,
-                                      traitName, trait_impls_by_type, locals, seen);
+                                      traitName, trait_impls_by_type, env, seen);
         case typeinfo_tag::SPAN:
             return typeCanDeriveTrait(static_cast<const SpanType &>(*candidate).elementType,
-                                      traitName, trait_impls_by_type, locals, seen);
+                                      traitName, trait_impls_by_type, env, seen);
         default:
             break;
         }
@@ -236,7 +236,7 @@ namespace NG::typecheck
         if (auto implIt = trait_impls_by_type.find(custom->name); implIt != trait_impls_by_type.end())
         {
             if (std::ranges::any_of(implIt->second, [&](const Str &implemented) {
-                return implemented == traitName || traitImplies(implemented, traitName, locals);
+                return implemented == traitName || traitImplies(implemented, traitName, env);
             }))
             {
                 return true;

@@ -11,7 +11,7 @@ namespace NG::typecheck
                             const Map<Str, Vec<Str>> &trait_impls_by_type,
                             const Set<Str> &activeAutoTraits,
                             const Set<Str> &activeDerivedTraitImplKeys,
-                            const Map<Str, CheckingRef<TypeInfo>> &locals) -> bool;
+                            const TypeEnvironment &env) -> bool;
     auto isObjectSafeTrait(const TraitType &trait) -> bool;
 
     namespace
@@ -57,7 +57,7 @@ namespace NG::typecheck
                      const Map<Str, Vec<Str>> &trait_impls_by_type,
                      const Set<Str> &activeAutoTraits,
                      const Set<Str> &activeDerivedTraitImplKeys,
-                     const Map<Str, CheckingRef<TypeInfo>> &locals) -> bool
+                     const TypeEnvironment &env) -> bool
     {
         if (typeMatch(expected, actual)) return true;
         // Check ref-trait coercion: ref<Concrete> can match ref<Trait>
@@ -73,7 +73,7 @@ namespace NG::typecheck
         auto trait = std::static_pointer_cast<TraitType>(unwrappedRef);
         if (!isObjectSafeTrait(*trait)) return false;
         return typeSatisfiesTrait(actualRef.referencedType, *trait, trait_impls_by_type,
-                                  activeAutoTraits, activeDerivedTraitImplKeys, locals);
+                                  activeAutoTraits, activeDerivedTraitImplKeys, env);
     }
 
     auto stripTypeInstanceSuffix(const Str &typeName) -> Str
@@ -171,7 +171,7 @@ namespace NG::typecheck
 
     void extractGenericBindingsImpl(CheckingRef<TypeInfo> paramType, CheckingRef<TypeInfo> argType,
                                     Map<Str, CheckingRef<TypeInfo>> &substitution, Set<uintptr_t> &seen,
-                                    const Map<Str, CheckingRef<TypeInfo>> &locals)
+                                    const TypeEnvironment &env)
     {
         if (!paramType || !argType) return;
         auto key = reinterpret_cast<uintptr_t>(paramType.get()) ^ (reinterpret_cast<uintptr_t>(argType.get()) << 1U);
@@ -182,12 +182,12 @@ namespace NG::typecheck
 
         if (auto paramAlias = std::dynamic_pointer_cast<TypeAliasType>(paramType))
         {
-            extractGenericBindingsImpl(paramAlias->underlyingType, argType, substitution, seen, locals);
+            extractGenericBindingsImpl(paramAlias->underlyingType, argType, substitution, seen, env);
             return;
         }
         if (auto argAlias = std::dynamic_pointer_cast<TypeAliasType>(argType))
         {
-            extractGenericBindingsImpl(paramType, argAlias->underlyingType, substitution, seen, locals);
+            extractGenericBindingsImpl(paramType, argAlias->underlyingType, substitution, seen, env);
             return;
         }
 
@@ -236,20 +236,20 @@ namespace NG::typecheck
         {
             auto &p = static_cast<ArrayType &>(*paramType);
             auto &a = static_cast<ArrayType &>(*argType);
-            extractGenericBindingsImpl(p.elementType, a.elementType, substitution, seen, locals);
-            if (p.length && a.length) extractGenericBindingsImpl(p.length, a.length, substitution, seen, locals);
+            extractGenericBindingsImpl(p.elementType, a.elementType, substitution, seen, env);
+            if (p.length && a.length) extractGenericBindingsImpl(p.length, a.length, substitution, seen, env);
             return;
         }
         if (paramType->tag() == typeinfo_tag::VECTOR && argType->tag() == typeinfo_tag::VECTOR)
         {
             extractGenericBindingsImpl(static_cast<VectorType &>(*paramType).elementType,
-                                       static_cast<VectorType &>(*argType).elementType, substitution, seen, locals);
+                                       static_cast<VectorType &>(*argType).elementType, substitution, seen, env);
             return;
         }
         if (paramType->tag() == typeinfo_tag::SPAN && argType->tag() == typeinfo_tag::SPAN)
         {
             extractGenericBindingsImpl(static_cast<SpanType &>(*paramType).elementType,
-                                       static_cast<SpanType &>(*argType).elementType, substitution, seen, locals);
+                                       static_cast<SpanType &>(*argType).elementType, substitution, seen, env);
             return;
         }
         if (paramType->tag() == typeinfo_tag::TUPLE && argType->tag() == typeinfo_tag::TUPLE)
@@ -257,13 +257,13 @@ namespace NG::typecheck
             auto &p = static_cast<TupleType &>(*paramType);
             auto &a = static_cast<TupleType &>(*argType);
             for (size_t i = 0; i < p.elementTypes.size() && i < a.elementTypes.size(); ++i)
-                extractGenericBindingsImpl(p.elementTypes[i], a.elementTypes[i], substitution, seen, locals);
+                extractGenericBindingsImpl(p.elementTypes[i], a.elementTypes[i], substitution, seen, env);
             return;
         }
         if (paramType->tag() == typeinfo_tag::REFERENCE && argType->tag() == typeinfo_tag::REFERENCE)
         {
             extractGenericBindingsImpl(static_cast<ReferenceType &>(*paramType).referencedType,
-                                       static_cast<ReferenceType &>(*argType).referencedType, substitution, seen, locals);
+                                       static_cast<ReferenceType &>(*argType).referencedType, substitution, seen, env);
             return;
         }
         if (paramType->tag() == typeinfo_tag::TYPE_CONSTRUCTOR_APPLICATION)
@@ -287,7 +287,7 @@ namespace NG::typecheck
             if (argBase.empty() || argArgs.size() != paramApp.typeArgs.size()) return;
             if (auto cp = std::dynamic_pointer_cast<GenericParamType>(paramApp.constructorType))
             {
-                if (auto it = locals.find(argBase); it != locals.end())
+                if (auto it = env.locals.find(argBase); it != env.locals.end())
                 {
                     if (typeKindArity(it->second) == cp->kindArity &&
                         typeKindVariadicTail(it->second) == cp->kindVariadicTail)
@@ -301,10 +301,10 @@ namespace NG::typecheck
             for (size_t i = 0; i < paramApp.typeArgs.size() && i < argArgs.size(); ++i)
             {
                 CheckingRef<TypeInfo> argConcrete;
-                if (auto it = locals.find(argArgs[i]); it != locals.end()) argConcrete = it->second;
+                if (auto it = env.locals.find(argArgs[i]); it != env.locals.end()) argConcrete = it->second;
                 else if (auto pr = PrimitiveType::from(argArgs[i])) argConcrete = pr;
                 else argConcrete = makecheck<CustomizedType>(argArgs[i]);
-                extractGenericBindingsImpl(paramApp.typeArgs[i], argConcrete, substitution, seen, locals);
+                extractGenericBindingsImpl(paramApp.typeArgs[i], argConcrete, substitution, seen, env);
             }
             return;
         }
@@ -319,10 +319,10 @@ namespace NG::typecheck
             {
                 auto pIt = substitution.find(pArgs[i]);
                 CheckingRef<TypeInfo> aConcrete;
-                if (auto aIt = locals.find(aArgs[i]); aIt != locals.end()) aConcrete = aIt->second;
+                if (auto aIt = env.locals.find(aArgs[i]); aIt != env.locals.end()) aConcrete = aIt->second;
                 else aConcrete = PrimitiveType::from(aArgs[i]);
                 if (pIt != substitution.end() && aConcrete)
-                    extractGenericBindingsImpl(pIt->second, aConcrete, substitution, seen, locals);
+                    extractGenericBindingsImpl(pIt->second, aConcrete, substitution, seen, env);
             }
             return;
         }
@@ -337,7 +337,7 @@ namespace NG::typecheck
                     if (!au.variants.contains(vn)) continue;
                     const auto &ap = au.variants.at(vn);
                     for (size_t i = 0; i < pp.size() && i < ap.size(); ++i)
-                        extractGenericBindingsImpl(pp[i], ap[i], substitution, seen, locals);
+                        extractGenericBindingsImpl(pp[i], ap[i], substitution, seen, env);
                 }
                 return;
             }
@@ -348,7 +348,7 @@ namespace NG::typecheck
                 {
                     const auto &pp = pu.variants.at(av.variantName);
                     for (size_t i = 0; i < pp.size() && i < av.payloadTypes.size(); ++i)
-                        extractGenericBindingsImpl(pp[i], av.payloadTypes[i], substitution, seen, locals);
+                        extractGenericBindingsImpl(pp[i], av.payloadTypes[i], substitution, seen, env);
                 }
                 return;
             }
@@ -360,13 +360,13 @@ namespace NG::typecheck
             {
                 auto &av = static_cast<VarargsType &>(*argType);
                 for (size_t i = 0; i < pv.elementTypes.size() && i < av.elementTypes.size(); ++i)
-                    extractGenericBindingsImpl(pv.elementTypes[i], av.elementTypes[i], substitution, seen, locals);
+                    extractGenericBindingsImpl(pv.elementTypes[i], av.elementTypes[i], substitution, seen, env);
             }
             else if (argType->tag() == typeinfo_tag::TUPLE)
             {
                 auto &at = static_cast<TupleType &>(*argType);
                 for (size_t i = 0; i < pv.elementTypes.size() && i < at.elementTypes.size(); ++i)
-                    extractGenericBindingsImpl(pv.elementTypes[i], at.elementTypes[i], substitution, seen, locals);
+                    extractGenericBindingsImpl(pv.elementTypes[i], at.elementTypes[i], substitution, seen, env);
             }
         }
     }

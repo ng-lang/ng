@@ -1633,7 +1633,7 @@ namespace NG::typecheck
     auto typeMatches(const TypeInfo &expected, const TypeInfo &actual) const -> bool
     {
       return NG::typecheck::typeMatches(expected, actual, trait_impls_by_type,
-                                        activeAutoTraits, activeDerivedTraitImplKeys, locals);
+                                        activeAutoTraits, activeDerivedTraitImplKeys, env);
     }
 
     static auto genericTypeConstructorFixedArity(const GenericTypeDef &genericType) -> size_t
@@ -2783,13 +2783,13 @@ namespace NG::typecheck
     auto typeSatisfiesAutoTrait(const CheckingRef<TypeInfo> &type, const TraitType &trait) const -> bool
     {
       Set<Str> seen;
-      return NG::typecheck::typeSatisfiesAutoTrait(type, trait, trait_impls_by_type, locals, seen);
+      return NG::typecheck::typeSatisfiesAutoTrait(type, trait, trait_impls_by_type, env, seen);
     }
 
     auto typeCanDeriveTrait(const CheckingRef<TypeInfo> &type, const Str &traitName) const -> bool
     {
       Set<Str> seen;
-      return NG::typecheck::typeCanDeriveTrait(type, traitName, trait_impls_by_type, locals, seen);
+      return NG::typecheck::typeCanDeriveTrait(type, traitName, trait_impls_by_type, env, seen);
     }
 
     auto typeSatisfiesTrait(const CheckingRef<TypeInfo> &type, const TraitType &trait) const -> bool
@@ -2797,12 +2797,12 @@ namespace NG::typecheck
       // Handle Sequence trait specially (requires TypeChecker state for isSequenceType)
       if (trait.name == "Sequence" && isSequenceType(type)) return true;
       return NG::typecheck::typeSatisfiesTrait(type, trait, trait_impls_by_type,
-                                               activeAutoTraits, activeDerivedTraitImplKeys, locals);
+                                               activeAutoTraits, activeDerivedTraitImplKeys, env);
     }
 
     auto traitImplies(const Str &candidateName, const Str &requiredName) const -> bool
     {
-      return NG::typecheck::traitImplies(candidateName, requiredName, locals);
+      return NG::typecheck::traitImplies(candidateName, requiredName, env);
     }
 
     void resolveTraitClosure(TraitType &trait, Set<Str> &visiting, Set<Str> &visited, TokenPosition pos)
@@ -7843,7 +7843,7 @@ namespace NG::typecheck
     void extractGenericBindingsImpl(CheckingRef<TypeInfo> paramType, CheckingRef<TypeInfo> argType,
                                     Map<Str, CheckingRef<TypeInfo>> &substitution, Set<uintptr_t> &seen)
     {
-      NG::typecheck::extractGenericBindingsImpl(std::move(paramType), std::move(argType), substitution, seen, locals);
+      NG::typecheck::extractGenericBindingsImpl(std::move(paramType), std::move(argType), substitution, seen, env);
     }
 
     // Legacy wrapper — delegates to the extracted version

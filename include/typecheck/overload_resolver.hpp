@@ -1,6 +1,7 @@
 #pragma once
 
 #include <typecheck/typeinfo.hpp>
+#include <typecheck/type_environment.hpp>
 #include <ast.hpp>
 #include <fwd.hpp>
 
@@ -74,15 +75,14 @@ namespace NG::typecheck
                      const Map<Str, Vec<Str>> &trait_impls_by_type,
                      const Set<Str> &activeAutoTraits,
                      const Set<Str> &activeDerivedTraitImplKeys,
-                     const Map<Str, CheckingRef<TypeInfo>> &locals) -> bool;
+                     const TypeEnvironment &env) -> bool;
 
     // ── Generic binding extraction ──────────────────────────────────────
 
     /// Extract generic parameter bindings by matching parameter type against argument type.
-    /// Pure function — no TypeChecker state required.
     void extractGenericBindingsImpl(CheckingRef<TypeInfo> paramType, CheckingRef<TypeInfo> argType,
                                     Map<Str, CheckingRef<TypeInfo>> &substitution, Set<uintptr_t> &seen,
-                                    const Map<Str, CheckingRef<TypeInfo>> &locals);
+                                    const TypeEnvironment &env);
 
     // ── Overload resolution utilities ───────────────────────────────────
 
