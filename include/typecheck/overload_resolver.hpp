@@ -76,6 +76,14 @@ namespace NG::typecheck
                      const Set<Str> &activeDerivedTraitImplKeys,
                      const Map<Str, CheckingRef<TypeInfo>> &locals) -> bool;
 
+    // ── Generic binding extraction ──────────────────────────────────────
+
+    /// Extract generic parameter bindings by matching parameter type against argument type.
+    /// Pure function — no TypeChecker state required.
+    void extractGenericBindingsImpl(CheckingRef<TypeInfo> paramType, CheckingRef<TypeInfo> argType,
+                                    Map<Str, CheckingRef<TypeInfo>> &substitution, Set<uintptr_t> &seen,
+                                    const Map<Str, CheckingRef<TypeInfo>> &locals);
+
     // ── Overload resolution utilities ───────────────────────────────────
 
     auto functionPatternSpecificity(const ast::FunctionDef &candidate) -> size_t;
