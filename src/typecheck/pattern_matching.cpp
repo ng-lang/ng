@@ -1,63 +1,18 @@
 
 #include <typecheck/pattern_matching.hpp>
+#include <typecheck/overload_resolver.hpp>
 #include <typecheck/typecheck.hpp>
 #include <ast.hpp>
 
 namespace NG::typecheck
 {
+    // Use shared utilities from overload_resolver
+    using NG::typecheck::typeMatch;
+    using NG::typecheck::stripTypeInstanceSuffix;
+    using NG::typecheck::parseTypeInstanceArgs;
+
     namespace
     {
-        auto typeMatch(const TypeInfo &a, const TypeInfo &b) -> bool;
-
-        inline auto unwrapAlias(const TypeInfo &t) -> const TypeInfo &
-        {
-            if (auto alias = dynamic_cast<const TypeAliasType *>(&t))
-            {
-                return unwrapAlias(*alias->underlyingType);
-            }
-            return t;
-        }
-
-        inline auto typeMatch(const TypeInfo &a, const TypeInfo &b) -> bool
-        {
-            const auto &ua = unwrapAlias(a);
-            const auto &ub = unwrapAlias(b);
-            return ua.match(ub);
-        }
-
-        auto stripTypeInstanceSuffix(const Str &name) -> Str
-        {
-            auto lt = name.find('<');
-            return lt == Str::npos ? name : name.substr(0, lt);
-        }
-
-        auto parseTypeInstanceArgs(const Str &name) -> Vec<Str>
-        {
-            auto lt = name.find('<');
-            if (lt == Str::npos || !name.ends_with('>'))
-            {
-                return {};
-            }
-            auto inner = name.substr(lt + 1, name.size() - lt - 2);
-            Vec<Str> args;
-            int depth = 0;
-            Str current;
-            for (char c : inner)
-            {
-                if (c == '<') depth++;
-                else if (c == '>') depth--;
-                else if (c == ',' && depth == 0)
-                {
-                    args.push_back(current);
-                    current.clear();
-                    continue;
-                }
-                current += c;
-            }
-            if (!current.empty()) args.push_back(current);
-            return args;
-        }
-
         auto unwrap(const CheckingRef<TypeInfo> &type) -> CheckingRef<TypeInfo>
         {
             auto current = type;
@@ -331,5 +286,57 @@ namespace NG::typecheck
             tailTypes.push_back(actuals[i]);
         }
         return bindPackPattern(patterns.back().get(), tailTypes, bindings);
+    }
+
+    // ── Specialization matching ─────────────────────────────────────────
+
+    auto typeSpecializationMatches(const ast::TypeAliasDef &specialization,
+                                   const Vec<CheckingRef<TypeInfo>> &typeArgs,
+                                   Map<Str, CheckingRef<TypeInfo>> &bindings) -> bool
+    {
+        if (!specialization.specializationPattern) return false;
+        auto genericNames = genericParamNameSet(specialization.genericParams);
+        return typePatternArgListMatches(specialization.specializationPattern->genericArgs, typeArgs,
+                                         genericNames, bindings);
+    }
+
+    auto constSpecializationMatches(const ast::ConstDef &specialization,
+                                    const Vec<CheckingRef<TypeInfo>> &typeArgs,
+                                    Map<Str, CheckingRef<TypeInfo>> &bindings) -> bool
+    {
+        if (!specialization.specializationPattern) return false;
+        auto genericNames = genericParamNameSet(specialization.genericParams);
+        return typePatternArgListMatches(specialization.specializationPattern->genericArgs, typeArgs,
+                                         genericNames, bindings);
+    }
+
+    // ── Pattern specificity ─────────────────────────────────────────────
+
+    auto isGenericPatternWildcard(const ast::TypeAnnotation *annotation, const Set<Str> &genericParamNames) -> bool
+    {
+        return annotation && annotation->genericArgs.empty() && annotation->arguments.empty() &&
+               genericParamNames.contains(annotation->name);
+    }
+
+    auto typePatternChildren(const ast::TypeAnnotation *annotation) -> Vec<const ast::TypeAnnotation *>
+    {
+        Vec<const ast::TypeAnnotation *> children;
+        if (!annotation) return children;
+        for (auto &arg : annotation->genericArgs) children.push_back(arg.get());
+        for (auto &arg : annotation->arguments)
+        {
+            if (auto child = dynamic_ast_cast<ast::TypeAnnotation>(arg))
+                children.push_back(child.get());
+        }
+        return children;
+    }
+
+    auto typePatternSpecificity(const ast::TypeAnnotation *annotation, const Set<Str> &genericParamNames) -> size_t
+    {
+        if (!annotation || isGenericPatternWildcard(annotation, genericParamNames)) return 0;
+        size_t score = 1;
+        for (auto *child : typePatternChildren(annotation))
+            score += typePatternSpecificity(child, genericParamNames);
+        return score;
     }
 } // namespace NG::typecheck

@@ -30,4 +30,27 @@ namespace NG::typecheck
                                    const Vec<CheckingRef<TypeInfo>> &actuals,
                                    const Set<Str> &genericParamNames,
                                    Map<Str, CheckingRef<TypeInfo>> &bindings) -> bool;
+
+    // ── Specialization matching ─────────────────────────────────────────
+
+    /// Check if a type alias specialization matches the given type arguments.
+    auto typeSpecializationMatches(const ast::TypeAliasDef &specialization,
+                                   const Vec<CheckingRef<TypeInfo>> &typeArgs,
+                                   Map<Str, CheckingRef<TypeInfo>> &bindings) -> bool;
+
+    /// Check if a const specialization matches the given type arguments.
+    auto constSpecializationMatches(const ast::ConstDef &specialization,
+                                    const Vec<CheckingRef<TypeInfo>> &typeArgs,
+                                    Map<Str, CheckingRef<TypeInfo>> &bindings) -> bool;
+
+    // ── Pattern specificity ─────────────────────────────────────────────
+
+    /// Check if a type annotation is a generic pattern wildcard.
+    auto isGenericPatternWildcard(const ast::TypeAnnotation *annotation, const Set<Str> &genericParamNames) -> bool;
+
+    /// Get child type annotations for specificity calculation.
+    auto typePatternChildren(const ast::TypeAnnotation *annotation) -> Vec<const ast::TypeAnnotation *>;
+
+    /// Compute specificity score for a type pattern.
+    auto typePatternSpecificity(const ast::TypeAnnotation *annotation, const Set<Str> &genericParamNames) -> size_t;
 } // namespace NG::typecheck

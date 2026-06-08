@@ -1657,13 +1657,7 @@ namespace NG::typecheck
                                           const Vec<CheckingRef<TypeInfo>> &typeArgs,
                                           Map<Str, CheckingRef<TypeInfo>> &bindings) -> bool
     {
-      if (!specialization.specializationPattern)
-      {
-        return false;
-      }
-      auto genericNames = genericParamNameSet(specialization.genericParams);
-      return typePatternArgListMatches(specialization.specializationPattern->genericArgs, typeArgs,
-                                       genericNames, bindings);
+      return NG::typecheck::typeSpecializationMatches(specialization, typeArgs, bindings);
     }
 
     auto functionApplyWithCoercions(const FunctionType &funcType,
@@ -1735,13 +1729,7 @@ namespace NG::typecheck
                                            const Vec<CheckingRef<TypeInfo>> &typeArgs,
                                            Map<Str, CheckingRef<TypeInfo>> &bindings) -> bool
     {
-      if (!specialization.specializationPattern)
-      {
-        return false;
-      }
-      auto genericNames = genericParamNameSet(specialization.genericParams);
-      return typePatternArgListMatches(specialization.specializationPattern->genericArgs, typeArgs,
-                                       genericNames, bindings);
+      return NG::typecheck::constSpecializationMatches(specialization, typeArgs, bindings);
     }
 
     auto constSpecializationWhereMatches(const ConstDef &specialization,
@@ -1987,44 +1975,18 @@ namespace NG::typecheck
 
     static auto isGenericPatternWildcard(const TypeAnnotation *annotation, const Set<Str> &genericParamNames) -> bool
     {
-      return annotation && annotation->genericArgs.empty() && annotation->arguments.empty() &&
-             genericParamNames.contains(annotation->name);
+      return NG::typecheck::isGenericPatternWildcard(annotation, genericParamNames);
     }
 
     static auto typePatternChildren(const TypeAnnotation *annotation) -> Vec<const TypeAnnotation *>
     {
-      Vec<const TypeAnnotation *> children;
-      if (!annotation)
-      {
-        return children;
-      }
-      for (auto &arg : annotation->genericArgs)
-      {
-        children.push_back(arg.get());
-      }
-      for (auto &arg : annotation->arguments)
-      {
-        if (auto child = dynamic_ast_cast<TypeAnnotation>(arg))
-        {
-          children.push_back(child.get());
-        }
-      }
-      return children;
+      return NG::typecheck::typePatternChildren(annotation);
     }
 
     static auto typePatternSpecificity(const TypeAnnotation *annotation,
                                        const Set<Str> &genericParamNames) -> size_t
     {
-      if (!annotation || isGenericPatternWildcard(annotation, genericParamNames))
-      {
-        return 0;
-      }
-      size_t score = 1;
-      for (auto *child : typePatternChildren(annotation))
-      {
-        score += typePatternSpecificity(child, genericParamNames);
-      }
-      return score;
+      return NG::typecheck::typePatternSpecificity(annotation, genericParamNames);
     }
 
     static auto constSpecializationSpecificity(const ConstDef &specialization) -> size_t
