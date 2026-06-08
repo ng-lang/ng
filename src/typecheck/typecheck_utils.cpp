@@ -54,6 +54,132 @@ namespace NG::typecheck
         return ua.match(ub);
     }
 
+    // ── Type display and lookup helpers ────────────────────────────────
+
+    auto findTaggedVariant(const Map<Str, CheckingRef<TypeInfo>> &locals, const Str &variantName)
+        -> std::optional<TaggedVariantLookup>
+    {
+        for (const auto &[_, type] : locals)
+        {
+            auto unionType = std::dynamic_pointer_cast<TaggedUnionType>(type);
+            if (!unionType || !unionType->variants.contains(variantName))
+            {
+                continue;
+            }
+
+            Vec<Str> payloadNames;
+            if (unionType->variantPayloadNames.contains(variantName))
+            {
+                payloadNames = unionType->variantPayloadNames.at(variantName);
+            }
+
+            return TaggedVariantLookup{
+                .unionType = unionType,
+                .payloadTypes = unionType->variants.at(variantName),
+                .payloadNames = payloadNames,
+            };
+        }
+
+        return std::nullopt;
+    }
+
+    auto widenVariantToUnionType(const Map<Str, CheckingRef<TypeInfo>> &locals, CheckingRef<TypeInfo> type)
+        -> CheckingRef<TypeInfo>
+    {
+        auto unwrapped = unwrap(type);
+        auto variantType = std::dynamic_pointer_cast<VariantType>(unwrapped);
+        if (!variantType)
+        {
+            return type;
+        }
+
+        auto it = locals.find(variantType->unionName);
+        if (it != locals.end() && it->second && it->second->tag() == typeinfo_tag::TAGGED_UNION)
+        {
+            return it->second;
+        }
+
+        return type;
+    }
+
+    auto formatTypeInstanceName(const Str &baseName, const Vec<CheckingRef<TypeInfo>> &args) -> Str
+    {
+        auto safeTypeName = [](const CheckingRef<TypeInfo> &type, const auto &self) -> Str {
+            if (!type) return "?";
+            switch (type->tag())
+            {
+            case typeinfo_tag::TAGGED_UNION: return static_cast<const TaggedUnionType &>(*type).name;
+            case typeinfo_tag::VARIANT:
+            {
+                const auto &variant = static_cast<const VariantType &>(*type);
+                return variant.unionName + "." + variant.variantName;
+            }
+            case typeinfo_tag::CUSTOMIZED: return static_cast<const CustomizedType &>(*type).name;
+            case typeinfo_tag::TYPE_ALIAS: return static_cast<const TypeAliasType &>(*type).name;
+            case typeinfo_tag::NEW_TYPE:   return static_cast<const NewTypeType &>(*type).name;
+            case typeinfo_tag::REFERENCE:
+                return "ref<" + self(static_cast<const ReferenceType &>(*type).referencedType, self) + ">";
+            case typeinfo_tag::ARRAY:
+            {
+                const auto &array = static_cast<const ArrayType &>(*type);
+                if (array.length) return "array<" + self(array.elementType, self) + ", " + self(array.length, self) + ">";
+                return "array<" + self(array.elementType, self) + ", ?>";
+            }
+            case typeinfo_tag::VECTOR:
+                return "vector<" + self(static_cast<const VectorType &>(*type).elementType, self) + ">";
+            case typeinfo_tag::SPAN:
+                return "span<" + self(static_cast<const SpanType &>(*type).elementType, self) + ">";
+            case typeinfo_tag::RANGE:
+                return "Range<" + self(static_cast<const RangeType &>(*type).elementType, self) + ">";
+            case typeinfo_tag::TUPLE:
+            {
+                const auto &tuple = static_cast<const TupleType &>(*type);
+                Str out = "(";
+                for (size_t i = 0; i < tuple.elementTypes.size(); ++i)
+                {
+                    if (i > 0) out += ", ";
+                    out += self(tuple.elementTypes[i], self);
+                }
+                return out + ")";
+            }
+            default: return type->repr();
+            }
+        };
+
+        Str result = baseName + "<";
+        for (size_t i = 0; i < args.size(); ++i)
+        {
+            if (i > 0) result += ", ";
+            result += safeTypeName(args[i], safeTypeName);
+        }
+        result += ">";
+        return result;
+    }
+
+    auto typeKindName(const TypeInfo &type) -> Str
+    {
+        switch (type.tag())
+        {
+        case typeinfo_tag::BOOL:          return "bool";
+        case typeinfo_tag::STRING:        return "string";
+        case typeinfo_tag::ARRAY:         return "array";
+        case typeinfo_tag::VECTOR:        return "vector";
+        case typeinfo_tag::SPAN:          return "span";
+        case typeinfo_tag::TUPLE:         return "tuple";
+        case typeinfo_tag::FUNCTION:      return "function";
+        case typeinfo_tag::CUSTOMIZED:    return "object";
+        case typeinfo_tag::TYPE_ALIAS:    return "alias";
+        case typeinfo_tag::NEW_TYPE:      return "newtype";
+        case typeinfo_tag::TAGGED_UNION:  return "tagged_union";
+        case typeinfo_tag::VARIANT:       return "variant";
+        case typeinfo_tag::UNION:         return "union";
+        case typeinfo_tag::GENERIC_PARAM: return "generic_param";
+        default:
+            if (isPrimitive(type.tag())) return "primitive";
+            return "type";
+        }
+    }
+
     // ── Sequence type utilities ─────────────────────────────────────────
 
     auto builtin_sequence_element_type(const CheckingRef<TypeInfo> &type) -> CheckingRef<TypeInfo>

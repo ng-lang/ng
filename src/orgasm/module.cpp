@@ -591,7 +591,7 @@ namespace NG::orgasm
                 }
             }
 
-            functions.push_back(std::move(remapped));
+            addFunction(std::move(remapped));
         }
 
         // Re-register exports with prefix
@@ -607,5 +607,6 @@ namespace NG::orgasm
         }
         traitMetadata.insert(traitMetadata.end(), other.traitMetadata.begin(), other.traitMetadata.end());
         implMetadata.insert(implMetadata.end(), other.implMetadata.begin(), other.implMetadata.end());
+        buildIndex();
     }
 } // namespace NG::orgasm

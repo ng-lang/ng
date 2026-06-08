@@ -76,7 +76,7 @@ namespace NG::orgasm
                 !functionDef->params.empty() && is_explicit_receiver_param(functionDef->params.front().get());
             fun.num_params = static_cast<int32_t>(functionDef->params.size() + (explicitReceiver ? 0 : 1));
             fun.explicit_receiver = explicitReceiver;
-            module.functions.push_back(std::move(fun));
+            module.addFunction(std::move(fun));
             functionDefs[functionName] = functionDef;
         }
 
@@ -255,7 +255,7 @@ namespace NG::orgasm
         Function startFun;
         startFun.name = "__start__";
         startFun.num_params = 0;
-        module.functions.push_back(std::move(startFun));
+        module.addFunction(std::move(startFun));
 
         for (auto &&import : mod->imports) {
             import->accept(this);
@@ -383,7 +383,7 @@ namespace NG::orgasm
                 Function fun;
                 fun.name = funDef->funName;
                 fun.num_params = static_cast<int32_t>(funDef->params.size());
-                module.functions.push_back(std::move(fun));
+                module.addFunction(std::move(fun));
                 functionDefs[funDef->funName] = funDef.get();
             }
             else if (auto valDef = dynamic_ast_cast<ValDef>(def))
@@ -435,7 +435,7 @@ namespace NG::orgasm
                     const bool explicitReceiver = !memFn->params.empty() && is_explicit_receiver_param(memFn->params.front().get());
                     fun.num_params = static_cast<int32_t>(memFn->params.size() + (explicitReceiver ? 0 : 1));
                     fun.explicit_receiver = explicitReceiver;
-                    module.functions.push_back(std::move(fun));
+                    module.addFunction(std::move(fun));
                     functionDefs[fun.name] = memFn.get();
                 }
             }
@@ -800,7 +800,7 @@ namespace NG::orgasm
         fun.name = symbolName;
         fun.num_params = static_cast<int32_t>(funDef->params.size());
         fun.explicit_receiver = false;
-        module.functions.push_back(std::move(fun));
+        module.addFunction(std::move(fun));
         functionDefs[symbolName] = funDef;
         genericFunctionInstances.push_back(symbolName);
     }

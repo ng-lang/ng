@@ -104,6 +104,19 @@ namespace NG::orgasm
         void merge(const BytecodeModule &other, const Str &prefix = "");
 
         /**
+         * @brief Appends a function and updates the function name index.
+         *
+         * @return The index of the appended function.
+         */
+        auto addFunction(Function function) -> size_t
+        {
+            functions.push_back(std::move(function));
+            const size_t index = functions.size() - 1;
+            functionIndex[functions[index].name] = index;
+            return index;
+        }
+
+        /**
          * @brief Builds the function name index for O(1) lookup.
          */
         void buildIndex()
@@ -120,8 +133,9 @@ namespace NG::orgasm
          */
         [[nodiscard]] auto findFunction(const Str &name) const -> int32_t
         {
-            // Use index if available, otherwise fall back to linear search.
-            if (!functionIndex.empty())
+            // Use the index only when it covers every function. Direct mutation of
+            // `functions` can otherwise leave a stale partial map behind.
+            if (!functionIndex.empty() && functionIndex.size() == functions.size())
             {
                 auto it = functionIndex.find(name);
                 return it != functionIndex.end() ? static_cast<int32_t>(it->second) : -1;

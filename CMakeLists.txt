@@ -66,6 +66,7 @@ set(NG_LIB_SRC
         src/typecheck/pattern_matching.cpp
         src/typecheck/overload_resolver.cpp
         src/typecheck/trait_resolution.cpp
+        src/typecheck/receiver_effect_collector.cpp
         src/typecheck/PrimitiveType.cpp
         src/typecheck/FunctionType.cpp
         src/typecheck/ArrayType.cpp

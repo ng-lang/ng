@@ -12,8 +12,8 @@
 2. [Phase 1: Lexer 重构](#2-phase-1-lexer-重构)
 3. [Phase 2: Parser 重构](#3-phase-2-parser-重构)
 4. [Phase 3: ORGASM VM 重构](#4-phase-3-orgasm-vm-重构)
-5. [Phase 4: ORGASM Compiler 重构](#5-phase-4-orgasm-compiler-重构)
-6. [Phase 5: TypeChecker 重构](#6-phase-5-typechecker-重构)
+5. [ORGASM Compiler 重构（Phase 5，依赖 Phase 4）](#5-orgasm-compiler-重构phase-5依赖-phase-4)
+6. [TypeChecker 重构（Phase 4）](#6-typechecker-重构phase-4)
 7. [Phase 6: 跨组件优化](#7-phase-6-跨组件优化)
 8. [测试策略](#8-测试策略)
 
@@ -31,39 +31,43 @@ Lexer → Parser → AST
             ORGASM VM → Runtime
 ```
 
-**依赖规则：** 从底层开始重构（Lexer → Parser → VM → Compiler → TypeChecker），每层完成后才进入下一层。这样每一步的测试都可以依赖下层的稳定性。
+**依赖规则：** 从底层开始重构（Lexer → Parser → VM → TypeChecker → Compiler），每层完成后才进入下一层。Compiler 依赖 TypeChecker 输出的 TypeInfo API，因此 TypeChecker 拆分必须先于 Compiler 拆分完成。
 
 **当前代码规模：**
 
 | 组件 | 主文件 | 行数 | 问题严重度 |
 |------|--------|------|-----------|
-| Lexer | `Lexer.cpp` | 837 | 中 |
-| Parser | `ParserImpl.cpp` | 2583 | 中 |
-| TypeChecker | `typecheck.cpp` | **9631** | **极高** |
-| Compiler | `Compiler.cpp` | 2925 | 高 |
-| VM | `VM.cpp` | 1546 | 高 |
-| **合计** | | **17522** | |
+| Lexer | `Lexer.cpp` | 727 | 中 |
+| Parser | `ParserImpl.cpp` | 2458 | 中 |
+| TypeChecker | `typecheck.cpp` | **8164** | **极高** |
+| Compiler | `Compiler.cpp` | 2771 | 高 |
+| VM | `VM.cpp` | 1541 | 高 |
+| **合计** | | **15661** | |
 
 ---
 
 ## 2. Phase 1: Lexer 重构
 
-### 2.1 当前问题
+### 2.1 当前状态
+
+**已完成（HEAD）：**
+- 已用 `operator_token_types` 取代重复的 `operator_types` 映射。
+- 已提取 `emitToken()`，统一 Token 构造和追加路径。
+- 已将 `withStream` 模板化，避免 `std::function` 调用开销。
+- 已简化 `hex2dec()`。
+- 已通过 `LexState::lineStarts` 修复跨行 `revert()` 并避免 O(n) 回退扫描。
+- `Lexer.cpp` 当前约 727 行。
+
+**剩余问题：**
 
 | 问题 | 影响 | 行数 |
 |------|------|------|
-| `operator_types` 与 `tokenType` 重复 | ~70 行冗余 | 35-67 |
-| `Lexer::next()` 巨函数（175 行） | 可读性差 | 247-421 |
-| Token 构造样板代码重复 12 次 | ~36 行冗余 | 多处 |
-| `withStream` 使用 `std::function` | 每次调用堆分配 | 225-240 |
-| `hex2dec()` 30-case switch | 可简化为 4 行 | 682-715 |
-| `revert()` 跨行回退 bug | 列号计算错误 | 67-82 |
-| `resetLineAndCol` O(n) 回退 | 性能问题 | 48-65 |
+| `Lexer::next()` 仍可继续瘦身 | 可读性仍可提升 | 247-359 |
 | `reserved.inc` 与关键字重复 | 9 处静默覆盖 | 207 |
 
-### 2.2 新设计
+### 2.2 设计与进度
 
-#### Step 1: 消除重复的 `operator_types` 映射（低风险，-70 行）
+#### Step 1: 消除重复的 `operator_types` 映射（已完成）
 
 **方案：** 将 `|>` 添加到 `tokenType` 映射，删除整个 `operator_types` 映射。重写 `is_operator()` 为 `Set<TokenType>` 查找。
 
@@ -74,7 +78,7 @@ After:   统一 tokenType + operator_token_types Set<TokenType> + O(1) 查找
 
 **测试：** 现有词法分析器测试应全部通过。新增测试验证 `|>` 正确词法化。
 
-#### Step 2: 提取 Token 构造辅助函数（低风险，-36 行）
+#### Step 2: 提取 Token 构造辅助函数（已完成）
 
 **方案：** 添加 `emitToken()` 辅助函数：
 
@@ -91,7 +95,7 @@ auto emitToken(Vec<Token> &tokens, TokenType type, const Str &repr, TokenPositio
 
 **测试：** 现有测试全部通过。
 
-#### Step 3: 拆分 `Lexer::next()` 巨函数（低风险，175→~80 行）
+#### Step 3: 拆分 `Lexer::next()` 巨函数（部分完成，继续收敛）
 
 **方案：** 提取以下子函数：
 
@@ -131,7 +135,7 @@ auto Lexer::next() -> Token
 
 **测试：** 现有测试全部通过。新增边界测试（注释嵌套、运算符组合）。
 
-#### Step 4: 修复 `revert()` 跨行 bug（正确性修复）
+#### Step 4: 修复 `revert()` 跨行 bug（已完成）
 
 **方案：** 将 `resetLineAndCol` 的 O(n) 全文扫描改为维护行起始偏移表：
 
@@ -150,7 +154,7 @@ struct LexState {
 
 **测试：** 新增跨行回退的精确列号测试。
 
-#### Step 5: 模板化 `withStream`（低风险，性能提升）
+#### Step 5: 模板化 `withStream`（已完成）
 
 **方案：**
 ```cpp
@@ -174,7 +178,7 @@ inline auto withStream(LexState &state, F &&func) -> Str
 
 **测试：** 现有测试全部通过。
 
-#### Step 6: 简化 `hex2dec`（低风险，-30 行）
+#### Step 6: 简化 `hex2dec`（已完成）
 
 **方案：**
 ```cpp
@@ -193,9 +197,9 @@ auto hex2dec(char c) -> int
 
 | 指标 | 重构前 | 重构后 |
 |------|--------|--------|
-| `Lexer.cpp` 行数 | 837 | ~650 |
-| `Lexer::next()` 行数 | 175 | ~25 |
-| 重复代码 | ~106 行 | ~0 |
+| `Lexer.cpp` 行数 | 837 | 727（继续目标：~650） |
+| `Lexer::next()` 行数 | 175 | ~80（继续目标：~50） |
+| 重复代码 | ~106 行 | 基本消除 |
 | `revert()` 复杂度 | O(n) | O(log n) |
 | `withStream` 堆分配 | 每次 1 次 | 0 次 |
 
@@ -295,18 +299,30 @@ auto structuralTypeDef(Str name, ...) -> ASTRef<TypeDef>;
 
 #### Step 5: `ParseState` 改为非拥有引用（中风险，性能提升）
 
-**方案：** 将 `ParseState.tokens` 从 `Vec<Token>` 改为 `const Vec<Token>*`（非拥有指针）或 `std::span<const Token>`。`ParseState` 的拷贝只复制 `index`，不再复制整个 token 向量。
+**方案：** 将 `ParseState.tokens` 从 `Vec<Token>` 改为 `std::span<const Token>` 或非拥有指针前，先收紧 Parser 构造 API，保证 token 生命周期由 `Parser` 或调用方显式持有，不能从临时 `Lexer(...).lex()` 或短生命周期 `Vec<Token>` 借用。
 
 ```cpp
+struct Parser {
+    Vec<Token> ownedTokens;
+    ParseState state;
+
+    explicit Parser(Vec<Token> tokens)
+        : ownedTokens(std::move(tokens)), state(std::span<const Token>(ownedTokens)) {}
+
+    explicit Parser(std::span<const Token> tokens)
+        : state(tokens) {}
+};
+
 struct ParseState {
-    const Vec<Token> &tokens;  // 改为引用
-    size_t size;
+    std::span<const Token> tokens;
     size_t index = 0;
-    // ...
 };
 ```
 
-**风险：** 需要确保 `Parser` 拥有 token 向量的生命周期长于 `ParseState`。当前 `Parser::parse()` 已经满足这个条件。
+**迁移约束：**
+- 先添加拥有型 `Parser(Vec<Token>)` 构造入口，并优先在 `parse(source)` 这类便捷 API 中使用。
+- 保留借用型入口时，文档和类型签名必须明确调用方负责 token 生命周期。
+- 禁止通过临时 token 向量直接构造可延迟执行的 `Parser`。
 
 **测试：** 现有测试全部通过。新增性能基准测试验证解析速度提升。
 
@@ -393,7 +409,7 @@ auto move_slot(Vec<RuntimeRef<StorageCell>> &source, size_t index,
 
 #### Step 3: 构建函数名索引（低风险，O(n)→O(1)）
 
-**方案：** 在 `BytecodeModule` 上添加 `Map<Str, size_t> functionIndex`，在模块加载时构建。
+**方案：** 在 `BytecodeModule` 上添加 `Map<Str, size_t> functionIndex`，并在所有修改 `functions` 的路径后维护索引。只在模块加载时构建是不够的，`merge()` 或后续追加函数会让非空索引变旧，导致 `findFunction()` 不再回退线性查找。
 
 ```cpp
 struct BytecodeModule {
@@ -401,20 +417,33 @@ struct BytecodeModule {
     Map<Str, size_t> functionIndex;  // 新增
 
     void buildIndex() {
+        functionIndex.clear();
         for (size_t i = 0; i < functions.size(); ++i) {
             functionIndex[functions[i].name] = i;
         }
     }
+
+    void addFunction(Function function) {
+        functions.push_back(std::move(function));
+        functionIndex[functions.back().name] = functions.size() - 1;
+    }
+
+    void merge(const BytecodeModule &other, const Str &prefix = "") {
+        // ... remap and append functions ...
+        buildIndex();
+    }
 };
 ```
 
-**测试：** 现有测试全部通过。
+**测试：** 现有测试全部通过。新增覆盖：先 `buildIndex()`，再 `merge()`，合并后的函数必须能被 `findFunction()` 查到。
 
 #### Step 4: 拆分 `execute_slots()` 为按类别分组的函数（中风险，1261→~200 调度）
 
 **方案：** 将 82 个 case 拆分为按类别分组的处理函数：
 
 ```cpp
+enum class DispatchResult { Continue, Return };
+
 auto VM::execute_slots(...) -> RuntimeRef<StorageCell>
 {
     while (call_stack.size() > baseFrameDepth) {
@@ -422,26 +451,33 @@ auto VM::execute_slots(...) -> RuntimeRef<StorageCell>
         switch (op) {
             // Stack ops
             case OpCode::PUSH_I8: case OpCode::PUSH_U8: /* ... */
-                return handle_push(op);
+                handle_push(op);
+                break;
             // Data access
             case OpCode::LOAD_LOCAL: case OpCode::STORE_LOCAL: /* ... */
-                return handle_data_access(op);
+                handle_data_access(op);
+                break;
             // Arithmetic
             case OpCode::ADD: case OpCode::SUB: /* ... */
-                return handle_arithmetic(op);
+                handle_arithmetic(op);
+                break;
             // Control flow
             case OpCode::JUMP: case OpCode::CALL: /* ... */
-                return handle_control_flow(op);
+                if (handle_control_flow(op) == DispatchResult::Return) {
+                    return pop_return_value();
+                }
+                break;
             // Object/Array
             case OpCode::NEW_OBJECT: case OpCode::GET_PROPERTY: /* ... */
-                return handle_object_ops(op);
+                handle_object_ops(op);
+                break;
             // ...
         }
     }
 }
 ```
 
-每个 `handle_*` 函数 50-150 行，独立可测试。
+每个 `handle_*` 函数 50-150 行，独立可测试。普通 opcode handler 只能更新 VM 状态并继续循环；只有 `RETURN`、致命错误或明确终止执行的控制流 handler 可以返回终结结果。
 
 **测试：** 全量测试通过。可按类别新增单元测试。
 
@@ -472,7 +508,7 @@ case OpCode::PUSH_I32: {
 
 ---
 
-## 5. Phase 4: ORGASM Compiler 重构
+## 5. ORGASM Compiler 重构（Phase 5，依赖 Phase 4）
 
 ### 5.1 当前问题
 
@@ -531,7 +567,7 @@ auto compileFoldCall(FunCallExpression *expr) -> void;
 
 #### Step 4: 构建函数名索引（与 VM 共享方案）
 
-**方案：** 在 `Compiler` 中也使用 `BytecodeModule::functionIndex`。
+**方案：** 在 `Compiler` 中也使用 `BytecodeModule::functionIndex`。所有编译阶段追加完函数后统一 `buildIndex()`；若中途需要查找刚追加的函数，则必须通过 `addFunction()` 或立即更新索引，不能依赖旧的非空 map。
 
 **测试：** 全量测试通过。
 
@@ -552,7 +588,7 @@ auto compileFoldCall(FunCallExpression *expr) -> void;
 
 ---
 
-## 6. Phase 5: TypeChecker 重构
+## 6. TypeChecker 重构（Phase 4）
 
 ### 6.1 当前问题（最严重）
 
@@ -801,15 +837,15 @@ Tests: <测试结果>
 ## 附录：依赖关系图
 
 ```
-Phase 1 (Lexer) ──→ Phase 2 (Parser) ──→ Phase 5 (TypeChecker)
+Phase 1 (Lexer) ──→ Phase 2 (Parser) ──→ Phase 4 (TypeChecker)
                                               ↓
-                                    Phase 4 (Compiler) ←── Phase 3 (VM)
+                                    Phase 5 (Compiler) ←── Phase 3 (VM)
                                               ↓
                                     Phase 6 (跨组件优化)
 ```
 
 **关键约束：**
 - Phase 2 依赖 Phase 1（Parser 使用 Lexer 的 token 输出）
-- Phase 4 依赖 Phase 3（Compiler 生成 VM 执行的字节码）
-- Phase 5 依赖 Phase 2（TypeChecker 遍历 Parser 生成的 AST）
+- Phase 4 依赖 Phase 2（TypeChecker 遍历 Parser 生成的 AST）
+- Phase 5 依赖 Phase 3 和 Phase 4（Compiler 生成 VM 执行的字节码，并消费 TypeChecker 生成的 TypeInfo）
 - Phase 6 依赖所有其他 Phase（跨组件变更需要各组件稳定）

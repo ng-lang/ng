@@ -194,6 +194,34 @@ TEST_CASE("bytecode module merge remaps tagged union type operands", "[OrgasmTes
   REQUIRE(read_u16(base.functions[0].code, 5) == 0);
 }
 
+TEST_CASE("bytecode module merge rebuilds function index", "[OrgasmTest][Module]")
+{
+  BytecodeModule base;
+  base.addFunction(Function{.name = "base_fn", .code = {static_cast<uint8_t>(OpCode::RETURN)}});
+  base.buildIndex();
+
+  BytecodeModule other;
+  other.addFunction(Function{.name = "merged_fn", .code = {static_cast<uint8_t>(OpCode::RETURN)}});
+
+  base.merge(other);
+
+  REQUIRE(base.findFunction("base_fn") == 0);
+  REQUIRE(base.findFunction("merged_fn") == 1);
+  REQUIRE(base.functionIndex.at("base_fn") == 0);
+  REQUIRE(base.functionIndex.at("merged_fn") == 1);
+}
+
+TEST_CASE("bytecode module findFunction falls back when index is stale", "[OrgasmTest][Module]")
+{
+  BytecodeModule module;
+  module.addFunction(Function{.name = "first", .code = {static_cast<uint8_t>(OpCode::RETURN)}});
+  module.buildIndex();
+  module.functions.push_back(Function{.name = "direct_push", .code = {static_cast<uint8_t>(OpCode::RETURN)}});
+
+  REQUIRE(module.findFunction("first") == 0);
+  REQUIRE(module.findFunction("direct_push") == 1);
+}
+
 TEST_CASE("bytecode module merge remaps mixed operands and prefixes exports", "[OrgasmTest][Module]")
 {
   BytecodeModule base;

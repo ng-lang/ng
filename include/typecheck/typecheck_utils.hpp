@@ -61,6 +61,25 @@ namespace NG::typecheck
     /// Match types with alias transparency (including unit-to-customized coercion).
     auto typeMatch(const TypeInfo &a, const TypeInfo &b) -> bool;
 
+    // ── Type display and lookup helpers ────────────────────────────────
+
+    struct TaggedVariantLookup
+    {
+        CheckingRef<TaggedUnionType> unionType;
+        Vec<CheckingRef<TypeInfo>> payloadTypes;
+        Vec<Str> payloadNames;
+    };
+
+    auto findTaggedVariant(const Map<Str, CheckingRef<TypeInfo>> &locals, const Str &variantName)
+        -> std::optional<TaggedVariantLookup>;
+
+    auto widenVariantToUnionType(const Map<Str, CheckingRef<TypeInfo>> &locals, CheckingRef<TypeInfo> type)
+        -> CheckingRef<TypeInfo>;
+
+    auto formatTypeInstanceName(const Str &baseName, const Vec<CheckingRef<TypeInfo>> &args) -> Str;
+
+    auto typeKindName(const TypeInfo &type) -> Str;
+
     // ── Sequence type utilities ─────────────────────────────────────────
 
     /// Get the element type of a builtin sequence type (array, vector, span, range, varargs).

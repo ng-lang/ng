@@ -1,76 +1,9 @@
-
 #include <typecheck/receiver_effect_collector.hpp>
-#include <ast.hpp>
+#include <typecheck/typecheck_utils.hpp>
 #include <token.hpp>
 
 namespace NG::typecheck
 {
-    auto staticPlaceKey(const ast::Expression *expr) -> std::optional<Str>
-    {
-        if (auto id = dynamic_cast<const ast::IdExpression *>(expr))
-        {
-            return id->id;
-        }
-        if (auto idAcc = dynamic_cast<const ast::IdAccessorExpression *>(expr))
-        {
-            if (!idAcc->arguments.empty())
-            {
-                return std::nullopt;
-            }
-            auto primary = staticPlaceKey(idAcc->primaryExpression.get());
-            if (!primary.has_value())
-            {
-                return std::nullopt;
-            }
-            return *primary + "." + idAcc->accessor->repr();
-        }
-        if (auto index = dynamic_cast<const ast::IndexAccessorExpression *>(expr))
-        {
-            auto primary = staticPlaceKey(index->primary.get());
-            if (!primary.has_value())
-            {
-                return std::nullopt;
-            }
-            if (auto intLit = dynamic_cast<const ast::IntegralValue<int32_t> *>(index->accessor.get()))
-            {
-                return *primary + "[" + std::to_string(intLit->value) + "]";
-            }
-            return std::nullopt;
-        }
-        if (auto index = dynamic_cast<const ast::IndexAssignmentExpression *>(expr))
-        {
-            auto primary = staticPlaceKey(index->primary.get());
-            if (!primary.has_value())
-            {
-                return std::nullopt;
-            }
-            if (auto intLit = dynamic_cast<const ast::IntegralValue<int32_t> *>(index->accessor.get()))
-            {
-                return *primary + "[" + std::to_string(intLit->value) + "]";
-            }
-            return std::nullopt;
-        }
-        return std::nullopt;
-    }
-
-    auto relativeReceiverPlace(const ast::Expression *expr, const Str &receiverName) -> std::optional<Str>
-    {
-        auto place = staticPlaceKey(expr);
-        if (!place.has_value())
-        {
-            return std::nullopt;
-        }
-        if (place->starts_with(receiverName + "."))
-        {
-            return place->substr(receiverName.size() + 1);
-        }
-        if (*place == receiverName)
-        {
-            return "";
-        }
-        return std::nullopt;
-    }
-
     void ReceiverEffectCollector::recordRead(ast::Expression *expr)
     {
         if (auto place = relativeReceiverPlace(expr, receiverName); place.has_value())
@@ -119,13 +52,16 @@ namespace NG::typecheck
 
     void ReceiverEffectCollector::visit(ast::LoopStatement *stmt)
     {
-        for (auto &b : stmt->bindings) if (b.target) b.target->accept(this);
+        for (auto &binding : stmt->bindings)
+        {
+            if (binding.target) binding.target->accept(this);
+        }
         if (stmt->loopBody) stmt->loopBody->accept(this);
     }
 
     void ReceiverEffectCollector::visit(ast::NextStatement *stmt)
     {
-        for (auto &e : stmt->expressions) e->accept(this);
+        for (auto &expr : stmt->expressions) expr->accept(this);
     }
 
     void ReceiverEffectCollector::visit(ast::ValDefStatement *stmt)
@@ -140,14 +76,21 @@ namespace NG::typecheck
 
     void ReceiverEffectCollector::visit(ast::UnaryExpression *expr)
     {
-        if (expr->optr && expr->optr->type == TokenType::KEYWORD_MOVE)
+        if (!expr->optr) return;
+        if (expr->optr->type == TokenType::KEYWORD_MOVE)
         {
             recordMove(expr->operand.get());
+            return;
         }
-        else if (expr->operand)
+        if (expr->optr->type == TokenType::KEYWORD_REF || expr->optr->type == TokenType::AMPERSAND)
         {
-            expr->operand->accept(this);
+            if (relativeReceiverPlace(expr->operand.get(), receiverName).has_value())
+            {
+                unknown = true;
+            }
+            return;
         }
+        if (expr->operand) expr->operand->accept(this);
     }
 
     void ReceiverEffectCollector::visit(ast::BinaryExpression *expr)
@@ -158,60 +101,80 @@ namespace NG::typecheck
 
     void ReceiverEffectCollector::visit(ast::AssignmentExpression *expr)
     {
-        recordWrite(expr->target.get());
         if (expr->value) expr->value->accept(this);
+        recordWrite(expr->target.get());
     }
 
     void ReceiverEffectCollector::visit(ast::IndexAssignmentExpression *expr)
     {
-        recordWrite(expr);
         if (expr->value) expr->value->accept(this);
+        recordWrite(expr);
     }
 
     void ReceiverEffectCollector::visit(ast::IdExpression *expr) { recordRead(expr); }
 
     void ReceiverEffectCollector::visit(ast::IdAccessorExpression *expr)
     {
-        if (expr->primaryExpression) expr->primaryExpression->accept(this);
+        const bool receiverPlace = relativeReceiverPlace(expr, receiverName).has_value();
+        recordRead(expr);
+        if (!receiverPlace && expr->primaryExpression) expr->primaryExpression->accept(this);
         for (auto &arg : expr->arguments) arg->accept(this);
     }
 
     void ReceiverEffectCollector::visit(ast::IndexAccessorExpression *expr)
     {
-        if (expr->primary) expr->primary->accept(this);
+        const bool receiverPlace = relativeReceiverPlace(expr, receiverName).has_value();
+        recordRead(expr);
+        if (!receiverPlace && expr->primary) expr->primary->accept(this);
         if (expr->accessor) expr->accessor->accept(this);
     }
 
     void ReceiverEffectCollector::visit(ast::FunCallExpression *expr)
     {
-        if (expr->primaryExpression) expr->primaryExpression->accept(this);
+        if (relativeReceiverPlace(expr->primaryExpression.get(), receiverName).has_value())
+        {
+            unknown = true;
+        }
+        else if (expr->primaryExpression)
+        {
+            expr->primaryExpression->accept(this);
+        }
         for (auto &arg : expr->arguments) arg->accept(this);
     }
 
     void ReceiverEffectCollector::visit(ast::QualifiedTraitCallExpression *expr)
     {
+        if (expr->receiver && relativeReceiverPlace(expr->receiver.get(), receiverName).has_value())
+        {
+            unknown = true;
+        }
         if (expr->receiver) expr->receiver->accept(this);
         for (auto &arg : expr->arguments) arg->accept(this);
     }
 
     void ReceiverEffectCollector::visit(ast::NewObjectExpression *expr)
     {
-        for (auto &[_, v] : expr->properties) v->accept(this);
+        for (auto &[_, value] : expr->properties) value->accept(this);
     }
 
     void ReceiverEffectCollector::visit(ast::ArrayLiteral *expr)
     {
-        for (auto &e : expr->elements) e->accept(this);
+        for (auto &element : expr->elements) element->accept(this);
     }
 
     void ReceiverEffectCollector::visit(ast::TupleLiteral *expr)
     {
-        for (auto &e : expr->elements) e->accept(this);
+        for (auto &element : expr->elements) element->accept(this);
     }
 
     void ReceiverEffectCollector::visit(ast::SpreadExpression *expr)
     {
         if (expr->expression) expr->expression->accept(this);
+    }
+
+    void ReceiverEffectCollector::visit(ast::TypeCheckingExpression *expr)
+    {
+        if (expr->value) expr->value->accept(this);
     }
 
     void ReceiverEffectCollector::visit(ast::CastExpression *expr)
@@ -222,9 +185,9 @@ namespace NG::typecheck
     void ReceiverEffectCollector::visit(ast::SwitchStatement *stmt)
     {
         if (stmt->scrutinee) stmt->scrutinee->accept(this);
-        for (auto &c : stmt->cases)
+        for (auto &caseBlock : stmt->cases)
         {
-            if (c.body) c.body->accept(this);
+            if (caseBlock.body) caseBlock.body->accept(this);
         }
     }
 } // namespace NG::typecheck

@@ -6,9 +6,6 @@
 
 namespace NG::typecheck
 {
-    // Compute a static place key for an expression (e.g. "self.field[0]")
-    auto staticPlaceKey(const ast::Expression *expr) -> std::optional<Str>;
-
     /**
      * @brief Collects read/write/move effects on a receiver's fields.
      *
@@ -48,6 +45,7 @@ namespace NG::typecheck
         void visit(ast::ArrayLiteral *expr) override;
         void visit(ast::TupleLiteral *expr) override;
         void visit(ast::SpreadExpression *expr) override;
+        void visit(ast::TypeCheckingExpression *expr) override;
         void visit(ast::CastExpression *expr) override;
         void visit(ast::SwitchStatement *stmt) override;
     };
