@@ -368,3 +368,20 @@ TEST_CASE("bytecode module merge remaps mixed operands and prefixes exports", "[
   REQUIRE(read_u16(merged, newObjectPos + 1) == 6);
   REQUIRE(read_u16(merged, newObjectPos + 3) == 2);
 }
+
+TEST_CASE("bytecode module merge rejects truncated remapped operands", "[OrgasmTest][Module]")
+{
+  BytecodeModule base;
+  BytecodeModule other;
+  Function truncated{};
+  truncated.name = "bad_new_object";
+  truncated.code = {
+      static_cast<uint8_t>(OpCode::NEW_OBJECT),
+      0,
+      0,
+  };
+  other.functions.push_back(std::move(truncated));
+
+  REQUIRE_THROWS_MATCHES(base.merge(other, ""), RuntimeException,
+                         MessageMatches(ContainsSubstring("Truncated bytecode")));
+}

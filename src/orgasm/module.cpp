@@ -415,10 +415,11 @@ namespace NG::orgasm
         // Copy functions with index remapping
         for (const auto &otherFun : other.functions)
         {
-            Function remapped;
+            Function remapped{};
             remapped.name = otherFun.name;
             remapped.num_locals = otherFun.num_locals;
             remapped.num_params = otherFun.num_params;
+            remapped.explicit_receiver = otherFun.explicit_receiver;
             remapped.code = otherFun.code;
 
             // Remap operand indices in the bytecode
@@ -429,8 +430,28 @@ namespace NG::orgasm
                 size_t opStart = i;
                 i++; // skip opcode
 
+                auto require_operand_range = [&](size_t offset, size_t length) {
+                    if (opStart + offset + length > code.size())
+                    {
+                        throw RuntimeException("Truncated bytecode while remapping module function '" + remapped.name + "'");
+                    }
+                };
+
+                auto require_operands = [&](size_t length) {
+                    if (i + length > code.size())
+                    {
+                        throw RuntimeException("Truncated bytecode while remapping module function '" + remapped.name + "'");
+                    }
+                };
+
+                auto advance_operands = [&](size_t length) {
+                    require_operands(length);
+                    i += length;
+                };
+
                 // Helper to remap a 16-bit operand
                 auto remap_u16 = [&](int32_t offset) {
+                    require_operand_range(static_cast<size_t>(offset), 2);
                     uint16_t idx = static_cast<uint16_t>(code[opStart + offset]) |
                                    (static_cast<uint16_t>(code[opStart + offset + 1]) << 8);
                     idx += static_cast<uint16_t>(strOffset);
@@ -439,6 +460,7 @@ namespace NG::orgasm
                 };
 
                 auto remap_u16_fun = [&](int32_t offset) {
+                    require_operand_range(static_cast<size_t>(offset), 2);
                     uint16_t idx = static_cast<uint16_t>(code[opStart + offset]) |
                                    (static_cast<uint16_t>(code[opStart + offset + 1]) << 8);
                     idx += static_cast<uint16_t>(funOffset);
@@ -447,6 +469,7 @@ namespace NG::orgasm
                 };
 
                 auto remap_u16_const = [&](int32_t offset) {
+                    require_operand_range(static_cast<size_t>(offset), 2);
                     uint16_t idx = static_cast<uint16_t>(code[opStart + offset]) |
                                    (static_cast<uint16_t>(code[opStart + offset + 1]) << 8);
                     idx += static_cast<uint16_t>(constOffset);
@@ -455,6 +478,7 @@ namespace NG::orgasm
                 };
 
                 auto remap_u16_type = [&](int32_t offset) {
+                    require_operand_range(static_cast<size_t>(offset), 2);
                     uint16_t idx = static_cast<uint16_t>(code[opStart + offset]) |
                                    (static_cast<uint16_t>(code[opStart + offset + 1]) << 8);
                     idx += static_cast<uint16_t>(typeOffset);
@@ -467,45 +491,45 @@ namespace NG::orgasm
                 // Instructions with string index operand
                 case OpCode::LOAD_STR:
                     remap_u16(1);
-                    i += 2;
+                    advance_operands(2);
                     break;
                 case OpCode::INSTANCE_OF:
                     remap_u16(1);
-                    i += 2;
+                    advance_operands(2);
                     break;
                 case OpCode::SET_PROPERTY:
-                    i += 2; // field index, no remap needed
+                    advance_operands(2); // field index, no remap needed
                     break;
                 case OpCode::GET_PROPERTY:
-                    i += 2; // field index, no remap needed
+                    advance_operands(2); // field index, no remap needed
                     break;
                 case OpCode::SET_PROPERTY_STR:
                 case OpCode::MAKE_PROPERTY_STR_REF:
                     remap_u16(1); // string index, needs remap
-                    i += 2;
+                    advance_operands(2);
                     break;
                 case OpCode::GET_PROPERTY_STR:
                     remap_u16(1); // string index, needs remap
-                    i += 2;
+                    advance_operands(2);
                     break;
                 case OpCode::INVOKE_MEMBER:
                     remap_u16(1);
-                    i += 4; // name + numArgs
+                    advance_operands(4); // name + numArgs
                     break;
                 case OpCode::NATIVE_CALL:
                     remap_u16(1);
-                    i += 4; // name + numArgs
+                    advance_operands(4); // name + numArgs
                     break;
                 case OpCode::WRAP_NEWTYPE:
                 case OpCode::MAKE_TRAIT_REF:
                     remap_u16(1);
-                    i += 2;
+                    advance_operands(2);
                     break;
 
                 // Instructions with constant index operand
                 case OpCode::LOAD_CONST:
                     remap_u16_const(1);
-                    i += 2;
+                    advance_operands(2);
                     break;
 
                 // Instructions with function index operand
@@ -515,16 +539,16 @@ namespace NG::orgasm
                 case OpCode::FOLD_LEFT_CALL:
                 case OpCode::FOLD_RIGHT_CALL:
                     remap_u16_fun(1);
-                    i += op == OpCode::CALL ? 4 : 2; // CALL has funIndex + numArgs; folds only funIndex.
+                    advance_operands(op == OpCode::CALL ? 4 : 2); // CALL has funIndex + numArgs; folds only funIndex.
                     break;
                 case OpCode::MAKE_RANGE:
-                    i += 1; // inclusive flag
+                    advance_operands(1); // inclusive flag
                     break;
                 case OpCode::SLICE_RANGE:
                     break;
                 case OpCode::CONSTRUCT_TAGGED:
                     remap_u16_type(1);
-                    i += 6; // typeIndex + variantIndex + payloadCount
+                    advance_operands(6); // typeIndex + variantIndex + payloadCount
                     break;
 
                 // Instructions with local/global index operand
@@ -533,60 +557,61 @@ namespace NG::orgasm
                 case OpCode::STORE_LOCAL:
                 case OpCode::LOAD_GLOBAL:
                 case OpCode::STORE_GLOBAL:
-                    i += 2;
+                    advance_operands(2);
                     break;
 
                 // Instructions with i32 operand (jump targets - no remap needed)
                 case OpCode::JUMP:
                 case OpCode::JUMP_IF_FALSE:
-                    i += 4;
+                    advance_operands(4);
                     break;
 
                 // Instructions with i64 operand
                 case OpCode::PUSH_I64:
                 case OpCode::PUSH_U64:
-                    i += 8;
+                    advance_operands(8);
                     break;
 
                 // Instructions with i32/f32 operand
                 case OpCode::PUSH_I32:
                 case OpCode::PUSH_U32:
                 case OpCode::PUSH_F32:
-                    i += 4;
+                    advance_operands(4);
                     break;
 
                 // Instructions with i16/u16 operand
                 case OpCode::PUSH_I16:
                 case OpCode::PUSH_U16:
-                    i += 2;
+                    advance_operands(2);
                     break;
 
                 // Instructions with single byte operand
                 case OpCode::PUSH_I8:
                 case OpCode::PUSH_U8:
                 case OpCode::PUSH_BOOL:
-                    i += 1;
+                    advance_operands(1);
                     break;
 
                 // Instructions with count + flags (spread)
                 case OpCode::NEW_TUPLE_SPREAD:
                 case OpCode::NEW_ARRAY_SPREAD:
                 {
+                    require_operands(2);
                     uint16_t num = static_cast<uint16_t>(code[i]) | (static_cast<uint16_t>(code[i + 1]) << 8);
-                    i += 2 + num; // count + flags
+                    advance_operands(2 + num); // count + flags
                     break;
                 }
 
                 // Instructions with u16 count operand
                 case OpCode::NEW_OBJECT:
                     remap_u16(1);
-                    i += 4; // type string index + field count
+                    advance_operands(4); // type string index + field count
                     break;
                 case OpCode::NEW_ARRAY:
                 case OpCode::NEW_TUPLE:
                 case OpCode::PRINT:
                 case OpCode::CALL_IMPORT:
-                    i += 2;
+                    advance_operands(2);
                     break;
 
                 // Single-byte instructions (no operand)

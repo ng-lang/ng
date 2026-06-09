@@ -3,6 +3,8 @@
 #include <typecheck/overload_resolver.hpp>
 #include <typecheck/typecheck.hpp>
 #include <ast.hpp>
+#include <algorithm>
+#include <cctype>
 
 namespace NG::typecheck
 {
@@ -32,6 +34,72 @@ namespace NG::typecheck
             }
             return current;
         }
+
+        auto trim(Str value) -> Str
+        {
+            auto isSpace = [](unsigned char ch) { return std::isspace(ch) != 0; };
+            value.erase(value.begin(), std::find_if(value.begin(), value.end(), [&](char ch) {
+                return !isSpace(static_cast<unsigned char>(ch));
+            }));
+            value.erase(std::find_if(value.rbegin(), value.rend(), [&](char ch) {
+                return !isSpace(static_cast<unsigned char>(ch));
+            }).base(), value.end());
+            return value;
+        }
+
+        auto isIntegerLiteral(const Str &value) -> bool
+        {
+            return !value.empty() && std::ranges::all_of(value, [](unsigned char ch) {
+                return std::isdigit(ch) != 0;
+            });
+        }
+
+        auto typeFromInstanceArg(const Str &rawName,
+                                 const Map<Str, CheckingRef<TypeInfo>> &currentBindings) -> CheckingRef<TypeInfo>
+        {
+            auto name = trim(rawName);
+            if (auto it = currentBindings.find(name); it != currentBindings.end())
+            {
+                return it->second;
+            }
+            if (auto primitive = PrimitiveType::from(name))
+            {
+                return primitive;
+            }
+            if (isIntegerLiteral(name))
+            {
+                return makecheck<ConstValueType>(name);
+            }
+            if (!name.contains('<') || !name.ends_with(">"))
+            {
+                return makecheck<CustomizedType>(name);
+            }
+
+            auto baseName = stripTypeInstanceSuffix(name);
+            auto args = parseTypeInstanceArgs(name);
+            if (baseName == "ref" && args.size() == 1)
+            {
+                return makecheck<ReferenceType>(typeFromInstanceArg(args[0], currentBindings));
+            }
+            if (baseName == "array" && (args.size() == 1 || args.size() == 2))
+            {
+                auto length = args.size() == 2 ? typeFromInstanceArg(args[1], currentBindings) : nullptr;
+                return makecheck<ArrayType>(typeFromInstanceArg(args[0], currentBindings), length);
+            }
+            if (baseName == "vector" && args.size() == 1)
+            {
+                return makecheck<VectorType>(typeFromInstanceArg(args[0], currentBindings));
+            }
+            if (baseName == "span" && args.size() == 1)
+            {
+                return makecheck<SpanType>(typeFromInstanceArg(args[0], currentBindings));
+            }
+            if (baseName == "Range" && args.size() == 1)
+            {
+                return makecheck<RangeType>(typeFromInstanceArg(args[0], currentBindings));
+            }
+            return makecheck<CustomizedType>(name);
+        }
     } // anonymous namespace
 
     auto bindPackPattern(const ast::TypeAnnotation *pattern,
@@ -57,31 +125,6 @@ namespace NG::typecheck
                           const Set<Str> &genericParamNames,
                           Map<Str, CheckingRef<TypeInfo>> &bindings) -> bool
     {
-        auto typeFromInstanceArg = [](const Str &name,
-                                      const Map<Str, CheckingRef<TypeInfo>> &currentBindings) -> CheckingRef<TypeInfo> {
-            if (auto it = currentBindings.find(name); it != currentBindings.end())
-            {
-                return it->second;
-            }
-            if (auto primitive = PrimitiveType::from(name))
-            {
-                return primitive;
-            }
-            if (name.starts_with("ref<") && name.ends_with(">"))
-            {
-                auto inner = name.substr(4, name.size() - 5);
-                if (auto innerPrimitive = PrimitiveType::from(inner))
-                {
-                    return makecheck<ReferenceType>(innerPrimitive);
-                }
-            }
-            if (name.contains('<') && name.ends_with(">"))
-            {
-                return makecheck<CustomizedType>(name);
-            }
-            return makecheck<CustomizedType>(name);
-        };
-
         if (!pattern || !actual)
         {
             return false;
