@@ -8,6 +8,8 @@ namespace NG::typecheck
 {
     // Forward declarations for functions defined in typecheck.cpp
     auto unwrap(CheckingRef<TypeInfo> type) -> CheckingRef<TypeInfo>;
+    auto is_self_type(const CheckingRef<TypeInfo> &type) -> bool;
+    auto is_ref_self_type(const CheckingRef<TypeInfo> &type) -> bool;
 
     namespace
     {
@@ -121,6 +123,10 @@ namespace NG::typecheck
             return typeSatisfiesAutoTrait(type, trait, trait_impls_by_type, env, seen);
         }
         auto candidate = unwrap(type);
+        if (!candidate)
+        {
+            return false;
+        }
         if (trait.name == COPY_TRAIT_NAME || trait.name == CLONE_TRAIT_NAME)
         {
             if (isPrimitive(candidate->tag()) || candidate->tag() == typeinfo_tag::UNIT ||
@@ -259,6 +265,10 @@ namespace NG::typecheck
             if (!funcType) return false;
             // Check that the first parameter is Self or ref<Self>
             if (funcType->parametersType.empty()) return false;
+            if (!is_self_type(funcType->parametersType.front()) && !is_ref_self_type(funcType->parametersType.front()))
+            {
+                return false;
+            }
         }
         return true;
     }

@@ -121,8 +121,12 @@ namespace NG::typecheck
         {
             TypeEnvironment child;
             child.locals = locals;
-            for (auto &[k, v] : extraLocals) child.locals[k] = v;
             child.movedBindings = movedBindings;
+            for (const auto &[k, v] : extraLocals)
+            {
+                child.locals[k] = v;
+                child.movedBindings.erase(k);
+            }
             child.allowMovedLvalueRead = allowMovedLvalueRead;
             child.importedSymbolNames = importedSymbolNames;
             child.importedImplNames = importedImplNames;

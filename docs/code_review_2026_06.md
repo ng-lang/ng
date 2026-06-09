@@ -256,16 +256,16 @@ explicit ParserImpl(ParseState &state) : state(state) {}  // 按值存储
 
 ### 5.1 命名问题
 
-| 问题 | 位置 |
-|------|------|
+| 问题 | 位置 | 状态 |
+|------|------|------|
 | ~~拼写错误 `moudleName`~~ | `ParserImpl.cpp:83` | ✅ 2026-06-03 |
 | ~~拼写错误 `isTermintator`~~ | `Lexer.cpp:219` | ✅ 2026-06-03 |
 | ~~拼写错误 `exponentalSet`~~ | `Lexer.cpp:584` | ✅ 2026-06-03 |
 | ~~拼写错误测试名 `"shoud be able to"`~~ | `interpreter_test.cpp:105,115` | ✅ 2026-06-03 |
 | ~~`hexoBase`/`octaBase` 应为 `hexBase`/`octalBase`~~ | `Lexer.cpp:667,720` | ✅ 2026-06-03 |
 | ~~`tokenType` 局部变量遮蔽同名静态映射和枚举类型~~ | `Lexer.cpp:578` | ✅ 2026-06-03 重命名为 `numTokenType` |
-| `Str`/`Vec`/`Map`/`Set` 别名遮蔽标准库类型名 | 全局 |
-| Opcode 命名不一致（有/无类型后缀混用） | `opcode.hpp` |
+| `Str`/`Vec`/`Map`/`Set` 别名遮蔽标准库类型名 | 全局 | 待评估 |
+| Opcode 命名不一致（有/无类型后缀混用） | `opcode.hpp` | 待评估 |
 
 ### 5.2 设计问题
 

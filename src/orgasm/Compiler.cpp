@@ -70,7 +70,7 @@ namespace NG::orgasm
                     return;
                 }
             }
-            Function fun;
+            Function fun{};
             fun.name = functionName;
             const bool explicitReceiver =
                 !functionDef->params.empty() && is_explicit_receiver_param(functionDef->params.front().get());
@@ -252,7 +252,7 @@ namespace NG::orgasm
 
     void Compiler::collectModuleDefinitions(Module *mod)
     {
-        Function startFun;
+        Function startFun{};
         startFun.name = "__start__";
         startFun.num_params = 0;
         module.addFunction(std::move(startFun));
@@ -380,7 +380,7 @@ namespace NG::orgasm
                     genericFunctionDefs[funDef->funName] = funDef.get();
                     continue;
                 }
-                Function fun;
+                Function fun{};
                 fun.name = funDef->funName;
                 fun.num_params = static_cast<int32_t>(funDef->params.size());
                 module.addFunction(std::move(fun));
@@ -430,13 +430,13 @@ namespace NG::orgasm
 
                 for (auto &&memFn : typeDef->memberFunctions)
                 {
-                    Function fun;
+                    Function fun{};
                     fun.name = typeDef->typeName + "." + memFn->funName;
                     const bool explicitReceiver = !memFn->params.empty() && is_explicit_receiver_param(memFn->params.front().get());
                     fun.num_params = static_cast<int32_t>(memFn->params.size() + (explicitReceiver ? 0 : 1));
                     fun.explicit_receiver = explicitReceiver;
                     module.addFunction(std::move(fun));
-                    functionDefs[fun.name] = memFn.get();
+                    functionDefs[typeDef->typeName + "." + memFn->funName] = memFn.get();
                 }
             }
             else if (auto implDef = dynamic_ast_cast<ImplDef>(def))
@@ -634,7 +634,6 @@ namespace NG::orgasm
 
     void Compiler::compileModuleFunctionBodies(Module *mod)
     {
-        int funIndex = 1;
         for (auto *importedDef : importedDefinitions)
         {
             auto *implDef = dynamic_cast<ImplDef *>(importedDef);
@@ -650,11 +649,11 @@ namespace NG::orgasm
                 activeTraitMethodOrigin = traitName;
                 if (auto *targetFunction = find_function(targetName + "." + traitName + "::" + method->funName))
                 {
-                    compile_function_body(method.get(), *targetFunction, false);
+                    compile_function_body(method.get(), *targetFunction, true);
                 }
                 if (auto *targetFunction = find_function(targetName + "." + method->funName))
                 {
-                    compile_function_body(method.get(), *targetFunction, false);
+                    compile_function_body(method.get(), *targetFunction, true);
                 }
                 activeTraitMethodOrigin = previousTraitMethodOrigin;
             }
@@ -671,14 +670,20 @@ namespace NG::orgasm
                 {
                     continue;
                 }
-                compile_function_body(funDef.get(), module.functions[funIndex++], false);
+                if (auto *targetFunction = find_function(funDef->funName))
+                {
+                    compile_function_body(funDef.get(), *targetFunction, false);
+                }
             }
             else if (auto typeDef = dynamic_ast_cast<TypeDef>(def))
             {
                 current_type_name = typeDef->typeName;
                 for (auto &&memFn : typeDef->memberFunctions)
                 {
-                    compile_function_body(memFn.get(), module.functions[funIndex++], true);
+                    if (auto *targetFunction = find_function(typeDef->typeName + "." + memFn->funName))
+                    {
+                        compile_function_body(memFn.get(), *targetFunction, true);
+                    }
                 }
             }
             else if (auto implDef = dynamic_ast_cast<ImplDef>(def))
@@ -691,14 +696,14 @@ namespace NG::orgasm
                     providedMethods[method->funName] = method.get();
                 }
                 auto compileMethodFunction = [&](FunctionDef *method, const Str &functionName, const Str &traitOrigin = Str{}) {
-                    if (funIndex >= static_cast<int>(module.functions.size()) ||
-                        module.functions[funIndex].name != functionName)
+                    auto *targetFunction = find_function(functionName);
+                    if (!targetFunction)
                     {
                         return;
                     }
                     auto previousTraitMethodOrigin = activeTraitMethodOrigin;
                     activeTraitMethodOrigin = traitOrigin;
-                    compile_function_body(method, module.functions[funIndex++], true);
+                    compile_function_body(method, *targetFunction, true);
                     activeTraitMethodOrigin = previousTraitMethodOrigin;
                 };
                 for (auto &&method : implDef->methods)
@@ -796,7 +801,7 @@ namespace NG::orgasm
         {
             return;
         }
-        Function fun;
+        Function fun{};
         fun.name = symbolName;
         fun.num_params = static_cast<int32_t>(funDef->params.size());
         fun.explicit_receiver = false;

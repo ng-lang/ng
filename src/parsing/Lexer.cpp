@@ -551,15 +551,23 @@ namespace NG::parsing
                                 else if ((tolower(current) == 'u' || tolower(current) == 'i') &&
                                          numTokenType != TokenType::FLOATING_POINT)
                                 {
+                                  auto suffix = current;
                                   state.next();
+                                  auto digitsStart = state.index;
                                   int bitlength = numberTypePostfix(state);
+                                  out += suffix;
+                                  out += state.source.substr(digitsStart, state.index - digitsStart);
                                   numTokenType = resolveIntegralType(current, from_code<Words>(bitlength));
                                   return;
                                 }
                                 else if ((tolower(current) == 'f'))
                                 {
+                                  auto suffix = current;
                                   state.next();
+                                  auto digitsStart = state.index;
                                   int bitlength = numberTypePostfix(state);
+                                  out += suffix;
+                                  out += state.source.substr(digitsStart, state.index - digitsStart);
                                   numTokenType = resolveFloatingPointType(from_code<Floats>(bitlength));
                                   return;
                                 }
@@ -645,7 +653,9 @@ namespace NG::parsing
       state.next();
       if (escapeCharValues.contains(state.current()))
       {
-        return escapeCharValues.at(state.current());
+        auto escaped = escapeCharValues.at(state.current());
+        state.next();
+        return escaped;
       }
       if (isdigit(state.current()) != 0)
       {
@@ -657,7 +667,9 @@ namespace NG::parsing
         return hexVal(state);
       }
     }
-    return state.current();
+    auto escaped = state.current();
+    state.next();
+    return escaped;
   }
 
   static Token lexString(LexState &state, Vec<Token> &tokens)

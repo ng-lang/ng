@@ -133,12 +133,22 @@ namespace NG::orgasm
          */
         [[nodiscard]] auto findFunction(const Str &name) const -> int32_t
         {
-            // Use the index only when it covers every function. Direct mutation of
-            // `functions` can otherwise leave a stale partial map behind.
-            if (!functionIndex.empty() && functionIndex.size() == functions.size())
+            if (!functionIndex.empty())
             {
-                auto it = functionIndex.find(name);
-                return it != functionIndex.end() ? static_cast<int32_t>(it->second) : -1;
+                bool indexValid = functionIndex.size() == functions.size();
+                for (const auto &[mappedName, idx] : functionIndex)
+                {
+                    if (idx >= functions.size() || functions[idx].name != mappedName)
+                    {
+                        indexValid = false;
+                        break;
+                    }
+                }
+                if (indexValid)
+                {
+                    auto it = functionIndex.find(name);
+                    return it != functionIndex.end() ? static_cast<int32_t>(it->second) : -1;
+                }
             }
             for (size_t i = 0; i < functions.size(); ++i)
             {

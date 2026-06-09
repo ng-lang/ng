@@ -45,7 +45,7 @@ TEST_CASE("parser should parse const generic parameters and arguments", "[Parser
   auto ast = parse(R"(
         type Buffer<T, const N: u32> = native;
         fun<const N: u32> make_repeat(value: i32) -> array<i32, N> = native;
-        val xs: array<i32, 4> = [1, 2, 3, 4];
+        val xs: array<i32, 4u8> = [1, 2, 3, 4];
     )");
   REQUIRE(ast != nullptr);
 
@@ -68,7 +68,8 @@ TEST_CASE("parser should parse const generic parameters and arguments", "[Parser
   REQUIRE(valStmt->typeAnnotation->name == "array");
   REQUIRE(valStmt->typeAnnotation->genericArgs.size() == 2);
   REQUIRE(valStmt->typeAnnotation->genericArgs[1]->constLiteral);
-  REQUIRE(valStmt->typeAnnotation->genericArgs[1]->name == "4");
+  REQUIRE(valStmt->typeAnnotation->genericArgs[1]->name == "4u8");
+  REQUIRE(valStmt->typeAnnotation->genericArgs[1]->constLiteralType == "u8");
 
   destroyast(ast);
 }

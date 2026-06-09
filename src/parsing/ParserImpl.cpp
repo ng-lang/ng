@@ -59,6 +59,45 @@ namespace NG::parsing
       TokenType::NUMBER_F256,  TokenType::FLOATING_POINT,
   };
 
+  [[nodiscard]] static auto numericLiteralConstType(TokenType type, const Str &repr) -> Str
+  {
+    switch (type)
+    {
+    case TokenType::FLOATING_POINT: return "f64";
+    case TokenType::NUMBER_U8:      return "u8";
+    case TokenType::NUMBER_I8:      return "i8";
+    case TokenType::NUMBER_U16:     return "u16";
+    case TokenType::NUMBER_I16:     return "i16";
+    case TokenType::NUMBER_U32:     return "u32";
+    case TokenType::NUMBER_I32:     return "i32";
+    case TokenType::NUMBER_U64:     return "u64";
+    case TokenType::NUMBER_I64:     return "i64";
+    case TokenType::NUMBER_U128:    return "u128";
+    case TokenType::NUMBER_I128:    return "i128";
+    case TokenType::NUMBER_F16:     return "f16";
+    case TokenType::NUMBER_F32:     return "f32";
+    case TokenType::NUMBER_F64:     return "f64";
+    case TokenType::NUMBER_F128:    return "f128";
+    case TokenType::NUMBER_F256:    return "f256";
+    default:                        break;
+    }
+    return repr.contains('.') ? Str{"f64"} : Str{"i64"};
+  }
+
+  [[nodiscard]] static auto numericLiteralValueText(TokenType type, const Str &repr) -> Str
+  {
+    if (type == TokenType::NUMBER || type == TokenType::FLOATING_POINT || type == TokenType::INTEGRAL)
+    {
+      return repr;
+    }
+    auto suffixStart = repr.find_last_not_of("0123456789");
+    if (suffixStart == Str::npos || suffixStart == 0)
+    {
+      return repr;
+    }
+    return repr.substr(0, suffixStart);
+  }
+
   class ParserImpl
   {
     ParseState &state;
@@ -91,7 +130,16 @@ namespace NG::parsing
           message = std::string{"Unexpected token "} + state->repr;
         }
       }
-      throw ParseException(message, state.eof() ? state.tokens.back().position : state->position);
+      TokenPosition position{};
+      if (!state.eof())
+      {
+        position = state->position;
+      }
+      else if (!state.tokens.empty())
+      {
+        position = state.tokens.back().position;
+      }
+      throw ParseException(message, position);
     }
 
   public:
@@ -537,7 +585,7 @@ namespace NG::parsing
       while (!expect(TokenType::GT) && !state.eof() && !expect(TokenType::RSHIFT))
       {
         std::shared_ptr<TypeAnnotation> arg;
-        if (expect(TokenType::NUMBER) || expect(TokenType::STRING) || expect(TokenType::KEYWORD_TRUE) ||
+        if (numeric_literal_types.contains(state->type) || expect(TokenType::STRING) || expect(TokenType::KEYWORD_TRUE) ||
             expect(TokenType::KEYWORD_FALSE))
         {
           auto literal = createNode<TypeAnnotation>(state->repr);
@@ -553,18 +601,7 @@ namespace NG::parsing
           }
           else
           {
-            static const Vec<Str> numericSuffixes{
-                "i8", "i16", "i32", "i64", "i128", "u8", "u16", "u32", "u64", "u128",
-                "f16", "f32", "f64", "f128"};
-            literal->constLiteralType = "i64";
-            for (const auto &suffix : numericSuffixes)
-            {
-              if (state->repr.ends_with(suffix))
-              {
-                literal->constLiteralType = suffix;
-                break;
-              }
-            }
+            literal->constLiteralType = numericLiteralConstType(state->type, state->repr);
           }
           accept(state->type);
           arg = std::shared_ptr<TypeAnnotation>(std::move(literal));
@@ -1598,7 +1635,7 @@ namespace NG::parsing
             if (next == TokenType::ID ||
                 builtin_type_keywords.contains(next) ||
                 next == TokenType::KEYWORD_UNIT || next == TokenType::KEYWORD_REF || next == TokenType::LEFT_SQUARE ||
-                next == TokenType::LEFT_PAREN || next == TokenType::NUMBER || next == TokenType::STRING ||
+                next == TokenType::LEFT_PAREN || numeric_literal_types.contains(next) || next == TokenType::STRING ||
                 next == TokenType::KEYWORD_TRUE || next == TokenType::KEYWORD_FALSE)
             {
               isGenericArgs = true;
@@ -2139,6 +2176,7 @@ namespace NG::parsing
       auto idacc = createNode<IdAccessorExpression>();
       idacc->primaryExpression = std::move(expr);
 
+      bool accessorAllowsCall = true;
       if (expect(TokenType::ID))
       {
         idacc->accessor = std::move(idExpression());
@@ -2147,16 +2185,17 @@ namespace NG::parsing
       {
         idacc->accessor = createNode<IdExpression>(stringValue()->value);
       }
-      else if (expect(TokenType::NUMBER))
+      else if (numeric_literal_types.contains(state->type))
       {
         idacc->accessor = createNode<IdExpression>(numberLiteral()->repr());
+        accessorAllowsCall = false;
       }
       else
       {
         unexpected("Expect identifier after '.'");
       }
 
-      if (expect(TokenType::LEFT_PAREN))
+      if (accessorAllowsCall && expect(TokenType::LEFT_PAREN))
       {
         idacc->arguments = parseExprList();
       }
@@ -2389,8 +2428,8 @@ namespace NG::parsing
 
     auto numberLiteral() -> ASTRef<Expression>
     {
-      auto integer = state->repr;
       auto type = state->type;
+      auto integer = numericLiteralValueText(type, state->repr);
       accept(type);
 
       // Integral types — table-driven dispatch

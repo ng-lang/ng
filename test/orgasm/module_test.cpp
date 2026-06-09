@@ -151,7 +151,7 @@ TEST_CASE("bytecode module reader rejects truncated function code", "[OrgasmTest
 {
   BytecodeModule module;
   module.name = "pkg.truncated";
-  Function function;
+  Function function{};
   function.name = "main";
   function.code = {static_cast<uint8_t>(OpCode::PUSH_I32), 1, 0, 0, 0, static_cast<uint8_t>(OpCode::RETURN)};
   module.functions.push_back(function);
@@ -277,6 +277,7 @@ TEST_CASE("bytecode module merge remaps mixed operands and prefixes exports", "[
   const size_t nativeCallPos = emit_u16_u16_op(OpCode::NATIVE_CALL, 2, 1);
   const size_t wrapNewtypePos = emit_u16_op(OpCode::WRAP_NEWTYPE, 3);
   const size_t makeTraitRefPos = emit_u16_op(OpCode::MAKE_TRAIT_REF, 4);
+  const size_t makePropertyStrRefPos = emit_u16_op(OpCode::MAKE_PROPERTY_STR_REF, 2);
   const size_t loadConstPos = emit_u16_op(OpCode::LOAD_CONST, 0);
   const size_t callPos = emit_u16_u16_op(OpCode::CALL, 0, 1);
   const size_t constructTaggedPos = emit_u16_u16_u16_op(OpCode::CONSTRUCT_TAGGED, 0, 0, 1);
@@ -321,7 +322,7 @@ TEST_CASE("bytecode module merge remaps mixed operands and prefixes exports", "[
   code.push_back(0);
   code.push_back(1);
 
-  emit_u16_op(OpCode::NEW_OBJECT, 4);
+  const size_t newObjectPos = emit_u16_u16_op(OpCode::NEW_OBJECT, 4, 2);
   emit_u16_op(OpCode::NEW_ARRAY, 5);
   emit_u16_op(OpCode::NEW_TUPLE, 6);
   emit_u16_op(OpCode::PRINT, 7);
@@ -352,6 +353,7 @@ TEST_CASE("bytecode module merge remaps mixed operands and prefixes exports", "[
   REQUIRE(read_u16(merged, nativeCallPos + 3) == 1);
   REQUIRE(read_u16(merged, wrapNewtypePos + 1) == 5);
   REQUIRE(read_u16(merged, makeTraitRefPos + 1) == 6);
+  REQUIRE(read_u16(merged, makePropertyStrRefPos + 1) == 4);
   REQUIRE(read_u16(merged, loadConstPos + 1) == 2);
   REQUIRE(read_u16(merged, callPos + 1) == 1);
   REQUIRE(read_u16(merged, callPos + 3) == 1);
@@ -363,4 +365,6 @@ TEST_CASE("bytecode module merge remaps mixed operands and prefixes exports", "[
   REQUIRE(read_u16(merged, storeLocalPos + 1) == 11);
   REQUIRE(read_u16(merged, loadGlobalPos + 1) == 12);
   REQUIRE(read_u16(merged, storeGlobalPos + 1) == 13);
+  REQUIRE(read_u16(merged, newObjectPos + 1) == 6);
+  REQUIRE(read_u16(merged, newObjectPos + 3) == 2);
 }

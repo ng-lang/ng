@@ -203,7 +203,7 @@ namespace NG::orgasm
 
         auto read_function(std::istream &in, const Str &field) -> Function
         {
-            Function function;
+            Function function{};
             function.name = read_string(in, field + ".name");
             function.num_locals = read_scalar<int32_t>(in, field + ".num_locals");
             function.num_params = read_scalar<int32_t>(in, field + ".num_params");
@@ -480,6 +480,7 @@ namespace NG::orgasm
                     i += 2; // field index, no remap needed
                     break;
                 case OpCode::SET_PROPERTY_STR:
+                case OpCode::MAKE_PROPERTY_STR_REF:
                     remap_u16(1); // string index, needs remap
                     i += 2;
                     break;
@@ -578,6 +579,9 @@ namespace NG::orgasm
 
                 // Instructions with u16 count operand
                 case OpCode::NEW_OBJECT:
+                    remap_u16(1);
+                    i += 4; // type string index + field count
+                    break;
                 case OpCode::NEW_ARRAY:
                 case OpCode::NEW_TUPLE:
                 case OpCode::PRINT:

@@ -21,7 +21,7 @@
 
 ## 1. 总体架构依赖关系
 
-```
+```text
 Lexer → Parser → AST
                    ↓
             TypeChecker → TypeInfo
@@ -71,7 +71,7 @@ Lexer → Parser → AST
 
 **方案：** 将 `|>` 添加到 `tokenType` 映射，删除整个 `operator_types` 映射。重写 `is_operator()` 为 `Set<TokenType>` 查找。
 
-```
+```text
 Before:  operator_types (27 entries) + tokenType (130+ entries) + is_operator() 线性扫描
 After:   统一 tokenType + operator_token_types Set<TokenType> + O(1) 查找
 ```
@@ -99,7 +99,7 @@ auto emitToken(Vec<Token> &tokens, TokenType type, const Str &repr, TokenPositio
 
 **方案：** 提取以下子函数：
 
-```
+```text
 Lexer::next()
 ├── lexWhitespace()      // 跳过空白
 ├── lexLineComment()     // // 和 # 注释
@@ -603,7 +603,7 @@ auto compileFoldCall(FunCallExpression *expr) -> void;
 
 ### 6.2 新设计：分层架构
 
-```
+```text
 TypeChecker (协调层，~1000 行)
 ├── TypeEnvironment      (作用域管理)
 ├── OverloadResolver     (过载解析)
@@ -785,7 +785,7 @@ class DefaultVisitor : public AstVisitor {
 
 **方案：** 建立统一的异常层次：
 
-```
+```text
 NGException
 ├── LexException (词法)
 ├── ParseException (语法)
@@ -823,7 +823,7 @@ NGException
 ### 8.3 提交规范
 
 每步提交格式：
-```
+```text
 refactor(<component>): <简短描述>
 
 - 具体变更 1
@@ -836,7 +836,7 @@ Tests: <测试结果>
 
 ## 附录：依赖关系图
 
-```
+```text
 Phase 1 (Lexer) ──→ Phase 2 (Parser) ──→ Phase 4 (TypeChecker)
                                               ↓
                                     Phase 5 (Compiler) ←── Phase 3 (VM)

@@ -15,6 +15,10 @@ namespace NG::typecheck
 
     inline auto packPatternName(const ast::TypeAnnotation *pattern) -> Str
     {
+        if (!pattern || pattern->name.size() < 3 || !pattern->name.ends_with("..."))
+        {
+            return {};
+        }
         return pattern->name.substr(0, pattern->name.size() - 3);
     }
 

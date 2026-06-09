@@ -138,9 +138,18 @@ TEST_CASE("withStream should only catch LexException for backtracking", "[Lexer]
   auto &&tokens = lexer.lex();
   REQUIRE(tokens.size() == 3);
   REQUIRE(tokens[0].type == TokenType::NUMBER_I16);
-  REQUIRE(tokens[0].repr == "42");
+  REQUIRE(tokens[0].repr == "42i16");
   REQUIRE(tokens[1].type == TokenType::PLUS);
   REQUIRE(tokens[2].type == TokenType::NUMBER);
+}
+
+TEST_CASE("lexer should consume simple string escapes once", "[Lexer][String][EscapeSequence]")
+{
+  auto tokens = Lexer{LexState{R"("\n" "\t" "\\")"}}.lex();
+  REQUIRE(tokens.size() == 3);
+  REQUIRE(tokens[0].repr == "\n");
+  REQUIRE(tokens[1].repr == "\t");
+  REQUIRE(tokens[2].repr == "\\");
 }
 
 TEST_CASE("lexer should lex pipe forward operator", "[Lexer][Operator]")

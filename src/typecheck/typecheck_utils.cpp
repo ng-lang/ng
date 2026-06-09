@@ -59,6 +59,7 @@ namespace NG::typecheck
     auto findTaggedVariant(const Map<Str, CheckingRef<TypeInfo>> &locals, const Str &variantName)
         -> std::optional<TaggedVariantLookup>
     {
+        std::optional<TaggedVariantLookup> found;
         for (const auto &[_, type] : locals)
         {
             auto unionType = std::dynamic_pointer_cast<TaggedUnionType>(type);
@@ -73,14 +74,19 @@ namespace NG::typecheck
                 payloadNames = unionType->variantPayloadNames.at(variantName);
             }
 
-            return TaggedVariantLookup{
+            TaggedVariantLookup candidate{
                 .unionType = unionType,
                 .payloadTypes = unionType->variants.at(variantName),
                 .payloadNames = payloadNames,
             };
+            if (found.has_value())
+            {
+                return std::nullopt;
+            }
+            found = std::move(candidate);
         }
 
-        return std::nullopt;
+        return found;
     }
 
     auto widenVariantToUnionType(const Map<Str, CheckingRef<TypeInfo>> &locals, CheckingRef<TypeInfo> type)

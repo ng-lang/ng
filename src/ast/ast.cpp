@@ -442,6 +442,10 @@ namespace NG::ast
     {
       destroyast(value);
     }
+    if (typeAnnotation != nullptr)
+    {
+      destroyast(typeAnnotation);
+    }
   }
 
   auto ValDefStatement::repr() const -> Str

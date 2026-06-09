@@ -109,28 +109,6 @@ namespace NG::typecheck
         return args;
     }
 
-    // ── Type pattern specificity ────────────────────────────────────────
-
-    inline auto typePatternSpecificity(const ast::TypeAnnotation *pattern, const Set<Str> &genericParamNames) -> size_t
-    {
-        if (!pattern) return 0;
-        if (pattern->constLiteral) return 10;
-        if (genericParamNames.contains(pattern->name) && pattern->genericArgs.empty() && pattern->arguments.empty())
-        {
-            return 1; // Generic param — low specificity
-        }
-        if (pattern->genericArgs.empty() && pattern->arguments.empty())
-        {
-            return 10; // Concrete type name — high specificity
-        }
-        size_t score = 5; // Parameterized type — medium specificity
-        for (auto &arg : pattern->genericArgs)
-        {
-            score += typePatternSpecificity(arg.get(), genericParamNames);
-        }
-        return score;
-    }
-
     // ── Overload resolution ─────────────────────────────────────────────
 
     // Forward declarations for functions defined in typecheck.cpp
@@ -160,22 +138,4 @@ namespace NG::typecheck
         return true;
     }
 
-    inline auto functionPatternSpecificity(const ast::FunctionDef &candidate) -> size_t
-    {
-        auto genericNames = genericParamNameSet(candidate.genericParams);
-        size_t score = 0;
-        for (auto &param : candidate.params)
-        {
-            score += typePatternSpecificity(param ? param->annotatedType.get() : nullptr, genericNames);
-        }
-        for (auto &genericParam : candidate.genericParams)
-        {
-            if (genericParam && genericParam->bound)
-            {
-                ++score;
-            }
-        }
-        score += candidate.whereBounds.size();
-        return score;
-    }
 } // namespace NG::typecheck

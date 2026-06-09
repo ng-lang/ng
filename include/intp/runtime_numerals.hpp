@@ -218,12 +218,20 @@ namespace NG::runtime
                      }},
                     {RuntimeBinaryOperator::Divide,
                      [](const RuntimeRef<StorageCell> &self, const RuntimeRef<StorageCell> &other) -> RuntimeRef<StorageCell> {
+                         auto dividend = read_inline_cell_bytes<T>(self);
                          auto divisor = read_numeric_cell_as<T>(other);
                          if (divisor == 0)
                          {
                              throw RuntimeException("Division by zero");
                          }
-                         return numeral_cell_from_value<T>(read_inline_cell_bytes<T>(self) / divisor);
+                         if constexpr (std::integral<T> && std::is_signed_v<T>)
+                         {
+                             if (dividend == std::numeric_limits<T>::min() && divisor == static_cast<T>(-1))
+                             {
+                                 throw RuntimeException("Integer overflow in division");
+                             }
+                         }
+                         return numeral_cell_from_value<T>(dividend / divisor);
                      }},
                     {RuntimeBinaryOperator::Modulus,
                      [](const RuntimeRef<StorageCell> &self, const RuntimeRef<StorageCell> &other) -> RuntimeRef<StorageCell> {
@@ -233,12 +241,20 @@ namespace NG::runtime
                          }
                          else
                          {
+                             auto dividend = read_inline_cell_bytes<T>(self);
                              auto divisor = read_numeric_cell_as<T>(other);
                              if (divisor == 0)
                              {
                                  throw RuntimeException("Modulus by zero");
                              }
-                             return numeral_cell_from_value<T>(read_inline_cell_bytes<T>(self) % divisor);
+                             if constexpr (std::integral<T> && std::is_signed_v<T>)
+                             {
+                                 if (dividend == std::numeric_limits<T>::min() && divisor == static_cast<T>(-1))
+                                 {
+                                     throw RuntimeException("Integer overflow in modulus");
+                                 }
+                             }
+                             return numeral_cell_from_value<T>(dividend % divisor);
                          }
                      }},
                 },

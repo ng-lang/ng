@@ -67,10 +67,6 @@ namespace NG::typecheck
             {
                 return primitive;
             }
-            if (name.contains('<') && name.ends_with(">"))
-            {
-                return makecheck<CustomizedType>(name);
-            }
             if (name.starts_with("ref<") && name.ends_with(">"))
             {
                 auto inner = name.substr(4, name.size() - 5);
@@ -78,6 +74,10 @@ namespace NG::typecheck
                 {
                     return makecheck<ReferenceType>(innerPrimitive);
                 }
+            }
+            if (name.contains('<') && name.ends_with(">"))
+            {
+                return makecheck<CustomizedType>(name);
             }
             return makecheck<CustomizedType>(name);
         };

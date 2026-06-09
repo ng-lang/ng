@@ -281,9 +281,16 @@ namespace NG::typecheck
                 auto pIt = substitution.find(pArgs[i]);
                 CheckingRef<TypeInfo> aConcrete;
                 if (auto aIt = env.locals.find(aArgs[i]); aIt != env.locals.end()) aConcrete = aIt->second;
-                else aConcrete = PrimitiveType::from(aArgs[i]);
-                if (pIt != substitution.end() && aConcrete)
+                else if (auto primitive = PrimitiveType::from(aArgs[i])) aConcrete = primitive;
+                else aConcrete = makecheck<CustomizedType>(aArgs[i]);
+                if (pIt == substitution.end())
+                {
+                    substitution[pArgs[i]] = aConcrete;
+                }
+                else
+                {
                     extractGenericBindingsImpl(pIt->second, aConcrete, substitution, seen, env);
+                }
             }
             return;
         }

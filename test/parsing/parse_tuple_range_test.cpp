@@ -21,10 +21,16 @@ TEST_CASE("parser should parse value like accessors", "[Parser][Type][Tuple][Acc
         val z = tup.2;
         val a = value."property";
         val b = value.123;
-        val c = value.123(1, "arg");
     )");
     REQUIRE(ast != nullptr);
     destroyast(ast);
+}
+
+TEST_CASE("parser should reject call arguments on numeric accessors", "[Parser][Type][Tuple][Accessor]")
+{
+    parseInvalid(R"(
+        val c = value.123(1, "arg");
+    )", "Unexpected token (");
 }
 
 TEST_CASE("parser should parse spread operator and multiple bindings", "[Parser][Type][Tuple][Accessor]")
