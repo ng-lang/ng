@@ -22,7 +22,7 @@ namespace NG::parsing
     return index >= size;
   }
 
-  void ParseState::next(int n)
+  void ParseState::next(size_t n)
   {
     if (!eof())
     {

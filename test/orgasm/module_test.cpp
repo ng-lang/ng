@@ -151,7 +151,7 @@ TEST_CASE("bytecode module reader rejects truncated function code", "[OrgasmTest
 {
   BytecodeModule module;
   module.name = "pkg.truncated";
-  Function function;
+  Function function{};
   function.name = "main";
   function.code = {static_cast<uint8_t>(OpCode::PUSH_I32), 1, 0, 0, 0, static_cast<uint8_t>(OpCode::RETURN)};
   module.functions.push_back(function);
@@ -192,6 +192,34 @@ TEST_CASE("bytecode module merge remaps tagged union type operands", "[OrgasmTes
   REQUIRE(read_u16(base.functions[0].code, 1) == 1);
   REQUIRE(read_u16(base.functions[0].code, 3) == 0);
   REQUIRE(read_u16(base.functions[0].code, 5) == 0);
+}
+
+TEST_CASE("bytecode module merge rebuilds function index", "[OrgasmTest][Module]")
+{
+  BytecodeModule base;
+  base.addFunction(Function{.name = "base_fn", .code = {static_cast<uint8_t>(OpCode::RETURN)}});
+  base.buildIndex();
+
+  BytecodeModule other;
+  other.addFunction(Function{.name = "merged_fn", .code = {static_cast<uint8_t>(OpCode::RETURN)}});
+
+  base.merge(other);
+
+  REQUIRE(base.findFunction("base_fn") == 0);
+  REQUIRE(base.findFunction("merged_fn") == 1);
+  REQUIRE(base.functionIndex.at("base_fn") == 0);
+  REQUIRE(base.functionIndex.at("merged_fn") == 1);
+}
+
+TEST_CASE("bytecode module findFunction falls back when index is stale", "[OrgasmTest][Module]")
+{
+  BytecodeModule module;
+  module.addFunction(Function{.name = "first", .code = {static_cast<uint8_t>(OpCode::RETURN)}});
+  module.buildIndex();
+  module.functions.push_back(Function{.name = "direct_push", .code = {static_cast<uint8_t>(OpCode::RETURN)}});
+
+  REQUIRE(module.findFunction("first") == 0);
+  REQUIRE(module.findFunction("direct_push") == 1);
 }
 
 TEST_CASE("bytecode module merge remaps mixed operands and prefixes exports", "[OrgasmTest][Module]")
@@ -249,6 +277,7 @@ TEST_CASE("bytecode module merge remaps mixed operands and prefixes exports", "[
   const size_t nativeCallPos = emit_u16_u16_op(OpCode::NATIVE_CALL, 2, 1);
   const size_t wrapNewtypePos = emit_u16_op(OpCode::WRAP_NEWTYPE, 3);
   const size_t makeTraitRefPos = emit_u16_op(OpCode::MAKE_TRAIT_REF, 4);
+  const size_t makePropertyStrRefPos = emit_u16_op(OpCode::MAKE_PROPERTY_STR_REF, 2);
   const size_t loadConstPos = emit_u16_op(OpCode::LOAD_CONST, 0);
   const size_t callPos = emit_u16_u16_op(OpCode::CALL, 0, 1);
   const size_t constructTaggedPos = emit_u16_u16_u16_op(OpCode::CONSTRUCT_TAGGED, 0, 0, 1);
@@ -293,7 +322,7 @@ TEST_CASE("bytecode module merge remaps mixed operands and prefixes exports", "[
   code.push_back(0);
   code.push_back(1);
 
-  emit_u16_op(OpCode::NEW_OBJECT, 4);
+  const size_t newObjectPos = emit_u16_u16_op(OpCode::NEW_OBJECT, 4, 2);
   emit_u16_op(OpCode::NEW_ARRAY, 5);
   emit_u16_op(OpCode::NEW_TUPLE, 6);
   emit_u16_op(OpCode::PRINT, 7);
@@ -324,6 +353,7 @@ TEST_CASE("bytecode module merge remaps mixed operands and prefixes exports", "[
   REQUIRE(read_u16(merged, nativeCallPos + 3) == 1);
   REQUIRE(read_u16(merged, wrapNewtypePos + 1) == 5);
   REQUIRE(read_u16(merged, makeTraitRefPos + 1) == 6);
+  REQUIRE(read_u16(merged, makePropertyStrRefPos + 1) == 4);
   REQUIRE(read_u16(merged, loadConstPos + 1) == 2);
   REQUIRE(read_u16(merged, callPos + 1) == 1);
   REQUIRE(read_u16(merged, callPos + 3) == 1);
@@ -335,4 +365,23 @@ TEST_CASE("bytecode module merge remaps mixed operands and prefixes exports", "[
   REQUIRE(read_u16(merged, storeLocalPos + 1) == 11);
   REQUIRE(read_u16(merged, loadGlobalPos + 1) == 12);
   REQUIRE(read_u16(merged, storeGlobalPos + 1) == 13);
+  REQUIRE(read_u16(merged, newObjectPos + 1) == 6);
+  REQUIRE(read_u16(merged, newObjectPos + 3) == 2);
+}
+
+TEST_CASE("bytecode module merge rejects truncated remapped operands", "[OrgasmTest][Module]")
+{
+  BytecodeModule base;
+  BytecodeModule other;
+  Function truncated{};
+  truncated.name = "bad_new_object";
+  truncated.code = {
+      static_cast<uint8_t>(OpCode::NEW_OBJECT),
+      0,
+      0,
+  };
+  other.functions.push_back(std::move(truncated));
+
+  REQUIRE_THROWS_MATCHES(base.merge(other, ""), RuntimeException,
+                         MessageMatches(ContainsSubstring("Truncated bytecode")));
 }

@@ -1,5 +1,6 @@
 #include "typecheck_utils.hpp"
 #include <typecheck/mangling.hpp>
+#include <typecheck/pattern_matching.hpp>
 
 using namespace NG::typecheck;
 
@@ -146,4 +147,21 @@ TEST_CASE("tagged union, variant, and structural union matching stays nominal", 
   REQUIRE(either.match(*i32));
   REQUIRE(either.match(*str));
   REQUIRE(!either.match(result));
+}
+
+TEST_CASE("type pattern matching parses nested structured instance arguments", "[TypeCheck][GenericTypeInfo]")
+{
+  auto pattern = std::make_shared<TypeAnnotation>("Box");
+  pattern->type = TypeAnnotationType::CUSTOMIZED;
+  pattern->genericArgs.push_back(std::make_shared<TypeAnnotation>("T"));
+
+  Map<Str, CheckingRef<TypeInfo>> bindings;
+  REQUIRE(typePatternMatch(pattern.get(), makecheck<CustomizedType>("Box<ref<vector<i32>>>"), Set<Str>{"T"}, bindings));
+  REQUIRE(bindings.contains("T"));
+
+  auto ref = std::dynamic_pointer_cast<ReferenceType>(bindings.at("T"));
+  REQUIRE(ref != nullptr);
+  auto vector = std::dynamic_pointer_cast<VectorType>(ref->referencedType);
+  REQUIRE(vector != nullptr);
+  REQUIRE(vector->elementType->tag() == typeinfo_tag::I32);
 }

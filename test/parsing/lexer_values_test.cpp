@@ -74,7 +74,9 @@ TEST_CASE("lexer should lex numbers with types and floating points", "[Lexer][Nu
   REQUIRE(tokens[2].type == TokenType::NUMBER);
   REQUIRE(tokens[3].type == TokenType::FLOATING_POINT);
   REQUIRE(tokens[4].type == TokenType::NUMBER_I8);
+  REQUIRE(tokens[4].repr == "123i8");
   REQUIRE(tokens[5].type == TokenType::NUMBER_U8);
+  REQUIRE(tokens[5].repr == "123u8");
   REQUIRE(tokens[6].type == TokenType::NUMBER_U16);
   REQUIRE(tokens[7].type == TokenType::NUMBER_I16);
   REQUIRE(tokens[8].type == TokenType::NUMBER_I32);
@@ -84,14 +86,17 @@ TEST_CASE("lexer should lex numbers with types and floating points", "[Lexer][Nu
   REQUIRE(tokens[12].type == TokenType::NUMBER_F16);
   REQUIRE(tokens[13].type == TokenType::NUMBER_F32);
   REQUIRE(tokens[14].type == TokenType::NUMBER_F64);
+  REQUIRE(tokens[14].repr == "123f64");
   REQUIRE(tokens[15].type == TokenType::NUMBER_F128);
   REQUIRE(tokens[16].type == TokenType::NUMBER_F16);
   REQUIRE(tokens[17].type == TokenType::NUMBER_F32);
   REQUIRE(tokens[18].type == TokenType::NUMBER_F64);
+  REQUIRE(tokens[18].repr == "123.0f64");
   REQUIRE(tokens[19].type == TokenType::NUMBER_F128);
   REQUIRE(tokens[20].type == TokenType::NUMBER_F16);
   REQUIRE(tokens[21].type == TokenType::NUMBER_F32);
   REQUIRE(tokens[22].type == TokenType::NUMBER_F64);
+  REQUIRE(tokens[22].repr == "1e1f64");
   REQUIRE(tokens[23].type == TokenType::NUMBER_F128);
 }
 

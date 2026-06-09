@@ -141,3 +141,54 @@ TEST_CASE("parser should fail when val definition not using binding operator `=`
 
   parseInvalid("val y;", "Unexpected token");
 }
+
+TEST_CASE("ASTNodeType enum values should be unique for distinct types", "[ParserTest]")
+{
+  // Previously RANGE_EXPRESSION and TAGGED_VALUE_EXPRESSION both had 0x215
+  REQUIRE(code(ASTNodeType::RANGE_EXPRESSION) != code(ASTNodeType::TAGGED_VALUE_EXPRESSION));
+  // Previously FROM_END_INDEX_EXPRESSION and PACK_EXPRESSION both had 0x216
+  REQUIRE(code(ASTNodeType::FROM_END_INDEX_EXPRESSION) != code(ASTNodeType::PACK_EXPRESSION));
+  // Verify the new values are in the expected range
+  REQUIRE(code(ASTNodeType::TAGGED_VALUE_EXPRESSION) == 0x219);
+  REQUIRE(code(ASTNodeType::PACK_EXPRESSION) == 0x21A);
+}
+
+TEST_CASE("PropertyDef destructor should not leak typeAnnotation", "[ParserTest][Memory]")
+{
+  // Parse a type with a property that has a type annotation
+  auto ast = parse(R"(
+        type Point {
+            property x: i32;
+            property y: i32;
+        }
+    )");
+  REQUIRE(ast != nullptr);
+  // destroyast triggers PropertyDef destructor — should not leak
+  destroyast(ast);
+}
+
+TEST_CASE("NewTypeDef destructor should clean up genericParams", "[ParserTest][Memory]")
+{
+  // Parse a generic newtype — destructor must clean up genericParams
+  auto ast = parse(R"(
+        type Id<T> wraps T;
+    )");
+  REQUIRE(ast != nullptr);
+  // destroyast triggers NewTypeDef destructor — should not leak genericParams
+  destroyast(ast);
+}
+
+TEST_CASE("ReturnStatement repr should handle null expression", "[ParserTest][Repr]")
+{
+  ReturnStatement stmt;
+  stmt.expression = nullptr;
+  // Should not crash — previously dereferenced null pointer
+  REQUIRE_NOTHROW(stmt.repr());
+  REQUIRE(stmt.repr() == "return ;");
+}
+
+TEST_CASE("accept should give descriptive error at EOF", "[ParserTest][Error]")
+{
+  // Previously threw generic "Error: end of file" instead of descriptive parse error
+  parseInvalid("fun foo() { return", "Unexpected end of file");
+}

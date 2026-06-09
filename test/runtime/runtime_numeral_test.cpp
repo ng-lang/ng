@@ -34,6 +34,17 @@ TEST_CASE("buffered numeral cells reject division and modulus by zero", "[Numera
                          MessageMatches(ContainsSubstring("Modulus by zero")));
 }
 
+TEST_CASE("buffered numeral cells reject signed min divided by negative one", "[Numeral][Runtime][Failure]")
+{
+  auto minValue = numeral_cell_from_value<int32_t>(std::numeric_limits<int32_t>::min());
+  auto negativeOne = numeral_cell_from_value<int32_t>(-1);
+
+  REQUIRE_THROWS_MATCHES(value_divide(minValue, negativeOne), NG::RuntimeException,
+                         MessageMatches(ContainsSubstring("Integer overflow in division")));
+  REQUIRE_THROWS_MATCHES(value_modulus(minValue, negativeOne), NG::RuntimeException,
+                         MessageMatches(ContainsSubstring("Integer overflow in modulus")));
+}
+
 TEST_CASE("buffered numeral cells cover supported inline widths and invalid reads",
           "[Numeral][Runtime][Buffered][Failure]")
 {

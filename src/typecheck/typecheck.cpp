@@ -3,6 +3,13 @@
 #include <intp/intp.hpp>
 #include <intp/runtime_numerals.hpp>
 #include <token.hpp>
+#include <typecheck/typecheck_utils.hpp>
+#include <typecheck/pattern_matching.hpp>
+#include <typecheck/overload_resolver.hpp>
+#include <typecheck/trait_resolution.hpp>
+#include <typecheck/type_environment.hpp>
+#include <typecheck/trait_registry.hpp>
+#include <typecheck/receiver_effect_collector.hpp>
 #include <typecheck/mangling.hpp>
 #include <typecheck/typecheck.hpp>
 #include <runtime/value_access.hpp>
@@ -12,1037 +19,28 @@
 #include <cctype>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
 #include <variant>
 namespace NG::typecheck
 {
   using namespace NG::ast;
 
-  constexpr inline bool isIntegralType(typeinfo_tag tag) noexcept
-  {
-    auto c = code(tag);
-    return c >= code(typeinfo_tag::SIGNED) && c < code(typeinfo_tag::FLOATING_POINT);
-  }
-  constexpr inline bool isSigned(typeinfo_tag tag) noexcept
-  {
-    auto c = code(tag);
-    return (c & 0xF0) == code(typeinfo_tag::SIGNED);
-  }
-  constexpr inline bool isPrimitive(typeinfo_tag tag) noexcept
-  {
-    auto c = code(tag);
-    return c >= code(typeinfo_tag::PRIMITIVES) && c < code(typeinfo_tag::COLLECTION_TYPE);
-  }
-  constexpr inline bool isFloatingPoint(typeinfo_tag tag) noexcept
-  {
-    auto c = code(tag);
-    return (c & 0xF0) == code(typeinfo_tag::FLOATING_POINT);
-  }
-
-  // Unwrap TypeAliasType to get the underlying concrete type
-  inline const TypeInfo &unwrapAlias(const TypeInfo &t)
-  {
-    if (auto alias = dynamic_cast<const TypeAliasType *>(&t))
-    {
-      return unwrapAlias(*alias->underlyingType);
-    }
-    return t;
-  }
-
-  // Match types with alias transparency: unwrap aliases on both sides before matching
-  inline bool typeMatch(const TypeInfo &a, const TypeInfo &b)
-  {
-    const auto &ua = unwrapAlias(a);
-    const auto &ub = unwrapAlias(b);
-
-    // Allow unit literal to match any custom (struct) type — acts like null
-    auto isUnit = [](const TypeInfo &t) {
-      if (auto p = dynamic_cast<const PrimitiveType *>(&t))
-        return p->tag() == typeinfo_tag::UNIT;
-      return false;
-    };
-    if (isUnit(ua) && dynamic_cast<const CustomizedType *>(&ub)) return true;
-    if (isUnit(ub) && dynamic_cast<const CustomizedType *>(&ua)) return true;
-
-    if (auto custom = dynamic_cast<const CustomizedType *>(&ua))
-    {
-      if (auto ref = dynamic_cast<const ReferenceType *>(&ub); ref && ref->referencedType)
-      {
-        return custom->match(*ref->referencedType);
-      }
-    }
-    if (auto custom = dynamic_cast<const CustomizedType *>(&ub))
-    {
-      if (auto ref = dynamic_cast<const ReferenceType *>(&ua); ref && ref->referencedType)
-      {
-        return custom->match(*ref->referencedType);
-      }
-    }
-
-    return ua.match(ub);
-  }
-
-  using ConstValue = std::variant<bool, int64_t, Str>;
-
-  static auto unwrap(CheckingRef<TypeInfo> type) -> CheckingRef<TypeInfo>
-  {
-    if (type && type->tag() == typeinfo_tag::PARAM_WITH_DEFAULT_VALUE)
-    {
-      return unwrap(static_cast<ParamWithDefaultValueType &>(*type).paramType);
-    }
-    if (auto alias = std::dynamic_pointer_cast<TypeAliasType>(type))
-    {
-      return unwrap(alias->underlyingType);
-    }
-    return type;
-  }
-
-  static auto deref_reference_type(CheckingRef<TypeInfo> type) -> CheckingRef<TypeInfo>
-  {
-    if (auto refType = std::dynamic_pointer_cast<ReferenceType>(unwrap(type)))
-    {
-      return refType->referencedType;
-    }
-    return type;
-  }
-
-  static auto stripTypeInstanceSuffix(const Str &typeName) -> Str;
-
-  static auto builtin_sequence_element_type(const CheckingRef<TypeInfo> &type) -> CheckingRef<TypeInfo>
-  {
-    auto unwrapped = unwrap(type);
-    if (auto array = std::dynamic_pointer_cast<ArrayType>(unwrapped))
-    {
-      return array->elementType;
-    }
-    if (auto vector = std::dynamic_pointer_cast<VectorType>(unwrapped))
-    {
-      return vector->elementType;
-    }
-    if (auto span = std::dynamic_pointer_cast<SpanType>(unwrapped))
-    {
-      return span->elementType;
-    }
-    if (auto range = std::dynamic_pointer_cast<RangeType>(unwrapped))
-    {
-      return range->elementType;
-    }
-    if (auto varargs = std::dynamic_pointer_cast<VarargsType>(unwrapped))
-    {
-      if (varargs->elementTypes.empty())
-      {
-        return nullptr;
-      }
-      auto elementType = varargs->elementTypes.front();
-      for (auto &nextType : varargs->elementTypes)
-      {
-        if (!typeMatch(*elementType, *nextType))
-        {
-          return makecheck<Untyped>();
-        }
-      }
-      return elementType;
-    }
-    return nullptr;
-  }
-
-  static auto is_builtin_sequence_type(const CheckingRef<TypeInfo> &type) -> bool
-  {
-    return builtin_sequence_element_type(type) != nullptr;
-  }
-
-  static auto const_value_equals_size(const CheckingRef<TypeInfo> &type, size_t value) -> bool
-  {
-    auto constValue = std::dynamic_pointer_cast<ConstValueType>(unwrap(type));
-    if (!constValue || constValue->isParam)
-    {
-      return true;
-    }
-    try
-    {
-      return std::stoull(constValue->value) == value;
-    }
-    catch (...)
-    {
-      return false;
-    }
-  }
-
-  static auto is_self_type(const CheckingRef<TypeInfo> &type) -> bool
-  {
-    auto generic = std::dynamic_pointer_cast<GenericParamType>(unwrap(type));
-    return generic && generic->name == "Self";
-  }
-
-  static auto is_ref_self_type(const CheckingRef<TypeInfo> &type) -> bool
-  {
-    auto ref = std::dynamic_pointer_cast<ReferenceType>(unwrap(type));
-    return ref && is_self_type(ref->referencedType);
-  }
-
-  static auto contains_non_receiver_self(const CheckingRef<TypeInfo> &type) -> bool
-  {
-    auto unwrapped = unwrap(type);
-    if (!unwrapped)
-    {
-      return false;
-    }
-    if (is_self_type(unwrapped))
-    {
-      return true;
-    }
-    if (auto ref = std::dynamic_pointer_cast<ReferenceType>(unwrapped))
-    {
-      return contains_non_receiver_self(ref->referencedType);
-    }
-    if (auto array = std::dynamic_pointer_cast<ArrayType>(unwrapped))
-    {
-      return contains_non_receiver_self(array->elementType);
-    }
-    if (auto vector = std::dynamic_pointer_cast<VectorType>(unwrapped))
-    {
-      return contains_non_receiver_self(vector->elementType);
-    }
-    if (auto span = std::dynamic_pointer_cast<SpanType>(unwrapped))
-    {
-      return contains_non_receiver_self(span->elementType);
-    }
-    if (auto tuple = std::dynamic_pointer_cast<TupleType>(unwrapped))
-    {
-      return std::ranges::any_of(tuple->elementTypes, contains_non_receiver_self);
-    }
-    if (auto unionType = std::dynamic_pointer_cast<UnionType>(unwrapped))
-    {
-      return std::ranges::any_of(unionType->types, contains_non_receiver_self);
-    }
-    return false;
-  }
-
-  static auto isReferenceableExpression(const Expression *expr) -> bool
-  {
-    return dynamic_cast<const IdExpression *>(expr) != nullptr ||
-           dynamic_cast<const IdAccessorExpression *>(expr) != nullptr ||
-           dynamic_cast<const IndexAccessorExpression *>(expr) != nullptr ||
-           (dynamic_cast<const UnaryExpression *>(expr) != nullptr &&
-            dynamic_cast<const UnaryExpression *>(expr)->optr != nullptr &&
-            dynamic_cast<const UnaryExpression *>(expr)->optr->type == TokenType::TIMES);
-  }
-
-  static auto isMovableExpression(const Expression *expr) -> bool
-  {
-    if (dynamic_cast<const IdExpression *>(expr) != nullptr)
-    {
-      return true;
-    }
-    if (dynamic_cast<const IdAccessorExpression *>(expr) != nullptr)
-    {
-      return true;
-    }
-    if (dynamic_cast<const IndexAccessorExpression *>(expr) != nullptr)
-    {
-      return true;
-    }
-    auto unaryExpr = dynamic_cast<const UnaryExpression *>(expr);
-    return unaryExpr != nullptr && unaryExpr->optr != nullptr && unaryExpr->optr->type == TokenType::TIMES;
-  }
-
-  static auto movedPlaceRoot(const Str &place) -> Str
-  {
-    auto borrowSeparator = place.find("->");
-    if (place.starts_with("$borrow:") && borrowSeparator != Str::npos)
-    {
-      return place.substr(std::string_view{"$borrow:"}.size(), borrowSeparator - std::string_view{"$borrow:"}.size());
-    }
-    auto dot = place.find('.');
-    auto bracket = place.find('[');
-    auto end = std::min(dot == Str::npos ? place.size() : dot,
-                        bracket == Str::npos ? place.size() : bracket);
-    return place.substr(0, end);
-  }
-
-  static auto isBorrowEntry(const Str &entry) -> bool
-  {
-    return entry.starts_with("$borrow:");
-  }
-
-  static auto borrowedAliasName(const Str &entry) -> Str
-  {
-    if (!isBorrowEntry(entry))
-    {
-      return {};
-    }
-    auto start = std::string_view{"$borrow:"}.size();
-    auto separator = entry.find("->", start);
-    return separator == Str::npos ? Str{} : entry.substr(start, separator - start);
-  }
-
-  static auto borrowedTargetPlace(const Str &entry) -> Str
-  {
-    if (!isBorrowEntry(entry))
-    {
-      return {};
-    }
-    auto separator = entry.find("->");
-    return separator == Str::npos ? Str{} : entry.substr(separator + 2);
-  }
-
-  static auto borrowEntry(Str alias, Str place) -> Str
-  {
-    return "$borrow:" + std::move(alias) + "->" + std::move(place);
-  }
-
-  static auto isMovedDescendantOf(const Str &moved, const Str &place) -> bool
-  {
-    if (isBorrowEntry(moved))
-    {
-      return false;
-    }
-    return moved.size() > place.size() && moved.starts_with(place) &&
-           (moved[place.size()] == '.' || moved[place.size()] == '[');
-  }
-
-  static auto previousPlaceComponent(const Str &place) -> std::optional<Str>
-  {
-    auto dot = place.rfind('.');
-    auto bracket = place.rfind('[');
-    if (dot == Str::npos && bracket == Str::npos)
-    {
-      return std::nullopt;
-    }
-    auto pos = std::max(dot == Str::npos ? size_t{0} : dot,
-                        bracket == Str::npos ? size_t{0} : bracket);
-    return place.substr(0, pos);
-  }
-
-  static auto movedAncestorOrSelf(const Set<Str> &moved, const Str &place) -> std::optional<Str>
-  {
-    auto current = std::optional<Str>{place};
-    while (current.has_value() && !current->empty())
-    {
-      if (moved.contains(*current))
-      {
-        return current;
-      }
-      current = previousPlaceComponent(*current);
-    }
-    return std::nullopt;
-  }
-
-  static auto hasMovedDescendant(const Set<Str> &moved, const Str &place) -> bool
-  {
-    return std::ranges::any_of(moved, [&](const auto &entry) { return isMovedDescendantOf(entry, place); });
-  }
-
-  static auto placesConflict(const Str &lhs, const Str &rhs) -> bool
-  {
-    return lhs == rhs || isMovedDescendantOf(lhs, rhs) || isMovedDescendantOf(rhs, lhs);
-  }
-
-  static auto borrowedConflict(const Set<Str> &state, const Str &place) -> std::optional<Str>
-  {
-    for (const auto &entry : state)
-    {
-      if (!isBorrowEntry(entry))
-      {
-        continue;
-      }
-      auto target = borrowedTargetPlace(entry);
-      if (!target.empty() && placesConflict(target, place))
-      {
-        return target;
-      }
-    }
-    return std::nullopt;
-  }
-
-  static auto borrowedAliasTarget(const Set<Str> &state, const Str &alias) -> std::optional<Str>
-  {
-    for (const auto &entry : state)
-    {
-      if (isBorrowEntry(entry) && borrowedAliasName(entry) == alias)
-      {
-        return borrowedTargetPlace(entry);
-      }
-    }
-    return std::nullopt;
-  }
-
-  static void clearMovedPlace(Set<Str> &moved, const Str &place)
-  {
-    for (auto it = moved.begin(); it != moved.end();)
-    {
-      if (*it == place || isMovedDescendantOf(*it, place) ||
-          (isBorrowEntry(*it) && borrowedAliasName(*it) == place))
-      {
-        it = moved.erase(it);
-      }
-      else
-      {
-        ++it;
-      }
-    }
-  }
-
-  static auto staticPlaceKey(const Expression *expr) -> std::optional<Str>
-  {
-    if (auto id = dynamic_cast<const IdExpression *>(expr))
-    {
-      return id->id;
-    }
-    if (auto idAcc = dynamic_cast<const IdAccessorExpression *>(expr))
-    {
-      if (!idAcc->arguments.empty())
-      {
-        return std::nullopt;
-      }
-      auto primary = staticPlaceKey(idAcc->primaryExpression.get());
-      if (!primary.has_value())
-      {
-        return std::nullopt;
-      }
-      return *primary + "." + idAcc->accessor->repr();
-    }
-    if (auto index = dynamic_cast<const IndexAccessorExpression *>(expr))
-    {
-      auto primary = staticPlaceKey(index->primary.get());
-      if (!primary.has_value())
-      {
-        return std::nullopt;
-      }
-      if (auto intLit = dynamic_cast<const IntegralValue<int32_t> *>(index->accessor.get()))
-      {
-        return *primary + "[" + std::to_string(intLit->value) + "]";
-      }
-      return std::nullopt;
-    }
-    if (auto index = dynamic_cast<const IndexAssignmentExpression *>(expr))
-    {
-      auto primary = staticPlaceKey(index->primary.get());
-      if (!primary.has_value())
-      {
-        return std::nullopt;
-      }
-      if (auto intLit = dynamic_cast<const IntegralValue<int32_t> *>(index->accessor.get()))
-      {
-        return *primary + "[" + std::to_string(intLit->value) + "]";
-      }
-      return std::nullopt;
-    }
-    return std::nullopt;
-  }
-
-  static auto borrowedPlaceFromRefExpression(const Expression *expr) -> std::optional<Str>
-  {
-    auto unary = dynamic_cast<const UnaryExpression *>(expr);
-    if (!unary || !unary->optr ||
-        (unary->optr->type != TokenType::KEYWORD_REF && unary->optr->type != TokenType::AMPERSAND))
-    {
-      return std::nullopt;
-    }
-    return staticPlaceKey(unary->operand.get());
-  }
-
-  static auto relativeReceiverPlace(const Expression *expr, const Str &receiverName) -> std::optional<Str>
-  {
-    auto place = staticPlaceKey(expr);
-    if (!place.has_value() || movedPlaceRoot(*place) != receiverName)
-    {
-      return std::nullopt;
-    }
-    if (*place == receiverName)
-    {
-      return Str{};
-    }
-    auto relative = place->substr(receiverName.size());
-    if (!relative.empty() && (relative.front() == '.' || relative.front() == '['))
-    {
-      relative.erase(relative.begin());
-    }
-    return relative;
-  }
-
-  static auto absoluteReceiverPlace(const Str &receiverPlace, const Str &relativePlace) -> Str
-  {
-    if (relativePlace.empty())
-    {
-      return receiverPlace;
-    }
-    if (relativePlace.front() == '[')
-    {
-      return receiverPlace + relativePlace;
-    }
-    return receiverPlace + "." + relativePlace;
-  }
-
-  static auto scopeNames(const Map<Str, CheckingRef<TypeInfo>> &scope) -> Set<Str>
-  {
-    Set<Str> names;
-    for (const auto &[name, _] : scope)
-    {
-      names.insert(name);
-    }
-    return names;
-  }
-
-  static auto filterMovedBindings(const Set<Str> &moved, const Set<Str> &allowed) -> Set<Str>
-  {
-    Set<Str> filtered;
-    for (const auto &name : moved)
-    {
-      if (isBorrowEntry(name))
-      {
-        if (allowed.contains(borrowedAliasName(name)))
-        {
-          filtered.insert(name);
-        }
-      }
-      else if (allowed.contains(name) || allowed.contains(movedPlaceRoot(name)))
-      {
-        filtered.insert(name);
-      }
-    }
-    return filtered;
-  }
-
-  struct ReceiverEffectCollector : DummyVisitor
-  {
-    Str receiverName;
-    Vec<PlaceEffect> effects;
-    bool unknown = false;
-
-    explicit ReceiverEffectCollector(Str receiverName) : receiverName(std::move(receiverName)) {}
-
-    void recordRead(Expression *expr)
-    {
-      if (auto place = relativeReceiverPlace(expr, receiverName); place.has_value())
-      {
-        effects.push_back(PlaceEffect{PlaceEffectKind::Read, *place});
-      }
-    }
-
-    void recordWrite(Expression *expr)
-    {
-      if (auto place = relativeReceiverPlace(expr, receiverName); place.has_value())
-      {
-        effects.push_back(PlaceEffect{PlaceEffectKind::Write, *place});
-      }
-    }
-
-    void recordMove(Expression *expr)
-    {
-      if (auto place = relativeReceiverPlace(expr, receiverName); place.has_value())
-      {
-        effects.push_back(PlaceEffect{PlaceEffectKind::Move, *place});
-      }
-    }
-
-    void visit(SimpleStatement *stmt) override
-    {
-      if (stmt->expression)
-      {
-        stmt->expression->accept(this);
-      }
-    }
-
-    void visit(CompoundStatement *stmt) override
-    {
-      for (auto &child : stmt->statements)
-      {
-        child->accept(this);
-      }
-    }
-
-    void visit(ReturnStatement *stmt) override
-    {
-      if (stmt->expression)
-      {
-        stmt->expression->accept(this);
-      }
-    }
-
-    void visit(IfStatement *stmt) override
-    {
-      if (stmt->testing)
-      {
-        stmt->testing->accept(this);
-      }
-      if (stmt->consequence)
-      {
-        stmt->consequence->accept(this);
-      }
-      if (stmt->alternative)
-      {
-        stmt->alternative->accept(this);
-      }
-    }
-
-    void visit(LoopStatement *stmt) override
-    {
-      for (auto &binding : stmt->bindings)
-      {
-        if (binding.target)
-        {
-          binding.target->accept(this);
-        }
-      }
-      if (stmt->loopBody)
-      {
-        stmt->loopBody->accept(this);
-      }
-    }
-
-    void visit(NextStatement *stmt) override
-    {
-      for (auto &expr : stmt->expressions)
-      {
-        expr->accept(this);
-      }
-    }
-
-    void visit(ValDefStatement *stmt) override
-    {
-      if (stmt->value)
-      {
-        stmt->value->accept(this);
-      }
-    }
-
-    void visit(ValueBindingStatement *stmt) override
-    {
-      if (stmt->value)
-      {
-        stmt->value->accept(this);
-      }
-    }
-
-    void visit(UnaryExpression *expr) override
-    {
-      if (!expr->optr)
-      {
-        return;
-      }
-      if (expr->optr->type == TokenType::KEYWORD_MOVE)
-      {
-        recordMove(expr->operand.get());
-        return;
-      }
-      if (expr->optr->type == TokenType::KEYWORD_REF || expr->optr->type == TokenType::AMPERSAND)
-      {
-        if (relativeReceiverPlace(expr->operand.get(), receiverName).has_value())
-        {
-          unknown = true;
-        }
-        return;
-      }
-      if (expr->operand)
-      {
-        expr->operand->accept(this);
-      }
-    }
-
-    void visit(BinaryExpression *expr) override
-    {
-      if (expr->left)
-      {
-        expr->left->accept(this);
-      }
-      if (expr->right)
-      {
-        expr->right->accept(this);
-      }
-    }
-
-    void visit(AssignmentExpression *expr) override
-    {
-      if (expr->value)
-      {
-        expr->value->accept(this);
-      }
-      recordWrite(expr->target.get());
-    }
-
-    void visit(IndexAssignmentExpression *expr) override
-    {
-      if (expr->value)
-      {
-        expr->value->accept(this);
-      }
-      recordWrite(expr);
-    }
-
-    void visit(IdExpression *expr) override { recordRead(expr); }
-
-    void visit(IdAccessorExpression *expr) override
-    {
-      const bool receiverPlace = relativeReceiverPlace(expr, receiverName).has_value();
-      recordRead(expr);
-      if (!receiverPlace && expr->primaryExpression)
-      {
-        expr->primaryExpression->accept(this);
-      }
-      for (auto &arg : expr->arguments)
-      {
-        arg->accept(this);
-      }
-    }
-
-    void visit(IndexAccessorExpression *expr) override
-    {
-      const bool receiverPlace = relativeReceiverPlace(expr, receiverName).has_value();
-      recordRead(expr);
-      if (!receiverPlace && expr->primary)
-      {
-        expr->primary->accept(this);
-      }
-      if (expr->accessor)
-      {
-        expr->accessor->accept(this);
-      }
-    }
-
-    void visit(FunCallExpression *expr) override
-    {
-      if (relativeReceiverPlace(expr->primaryExpression.get(), receiverName).has_value())
-      {
-        unknown = true;
-      }
-      else if (expr->primaryExpression)
-      {
-        expr->primaryExpression->accept(this);
-      }
-      for (auto &arg : expr->arguments)
-      {
-        arg->accept(this);
-      }
-    }
-
-    void visit(QualifiedTraitCallExpression *expr) override
-    {
-      if (expr->receiver && relativeReceiverPlace(expr->receiver.get(), receiverName).has_value())
-      {
-        unknown = true;
-      }
-      if (expr->receiver)
-      {
-        expr->receiver->accept(this);
-      }
-      for (auto &arg : expr->arguments)
-      {
-        arg->accept(this);
-      }
-    }
-
-    void visit(NewObjectExpression *expr) override
-    {
-      for (auto &[_, value] : expr->properties)
-      {
-        value->accept(this);
-      }
-    }
-
-    void visit(ArrayLiteral *expr) override
-    {
-      for (auto &element : expr->elements)
-      {
-        element->accept(this);
-      }
-    }
-
-    void visit(TupleLiteral *expr) override
-    {
-      for (auto &element : expr->elements)
-      {
-        element->accept(this);
-      }
-    }
-
-    void visit(SpreadExpression *expr) override
-    {
-      if (expr->expression)
-      {
-        expr->expression->accept(this);
-      }
-    }
-
-    void visit(TypeCheckingExpression *expr) override
-    {
-      if (expr->value)
-      {
-        expr->value->accept(this);
-      }
-    }
-
-    void visit(CastExpression *expr) override
-    {
-      if (expr->expression)
-      {
-        expr->expression->accept(this);
-      }
-    }
-  };
-
-  struct TaggedVariantLookup
-  {
-    CheckingRef<TaggedUnionType> unionType;
-    Vec<CheckingRef<TypeInfo>> payloadTypes;
-    Vec<Str> payloadNames;
-  };
-
-  static auto findTaggedVariant(const Map<Str, CheckingRef<TypeInfo>> &locals, const Str &variantName)
-      -> std::optional<TaggedVariantLookup>
-  {
-    for (const auto &[_, type] : locals)
-    {
-      auto unionType = std::dynamic_pointer_cast<TaggedUnionType>(type);
-      if (!unionType || !unionType->variants.contains(variantName))
-      {
-        continue;
-      }
-
-      Vec<Str> payloadNames;
-      if (unionType->variantPayloadNames.contains(variantName))
-      {
-        payloadNames = unionType->variantPayloadNames.at(variantName);
-      }
-
-      return TaggedVariantLookup{
-          .unionType = unionType,
-          .payloadTypes = unionType->variants.at(variantName),
-          .payloadNames = payloadNames,
-      };
-    }
-
-    return std::nullopt;
-  }
-
-  static auto widenVariantToUnionType(const Map<Str, CheckingRef<TypeInfo>> &locals, CheckingRef<TypeInfo> type)
-      -> CheckingRef<TypeInfo>
-  {
-    auto unwrapped = unwrap(type);
-    auto variantType = std::dynamic_pointer_cast<VariantType>(unwrapped);
-    if (!variantType)
-    {
-      return type;
-    }
-
-    auto it = locals.find(variantType->unionName);
-    if (it != locals.end() && it->second && it->second->tag() == typeinfo_tag::TAGGED_UNION)
-    {
-      return it->second;
-    }
-
-    return type;
-  }
-
-  static auto formatTypeInstanceName(const Str &baseName, const Vec<CheckingRef<TypeInfo>> &args) -> Str
-  {
-    auto safeTypeName = [](const CheckingRef<TypeInfo> &type, const auto &self) -> Str {
-      if (!type)
-      {
-        return "?";
-      }
-      if (auto tagged = std::dynamic_pointer_cast<TaggedUnionType>(type))
-      {
-        return tagged->name;
-      }
-      if (auto variant = std::dynamic_pointer_cast<VariantType>(type))
-      {
-        return variant->unionName + "." + variant->variantName;
-      }
-      if (auto custom = std::dynamic_pointer_cast<CustomizedType>(type))
-      {
-        return custom->name;
-      }
-      if (auto alias = std::dynamic_pointer_cast<TypeAliasType>(type))
-      {
-        return alias->name;
-      }
-      if (auto newType = std::dynamic_pointer_cast<NewTypeType>(type))
-      {
-        return newType->name;
-      }
-      if (auto ref = std::dynamic_pointer_cast<ReferenceType>(type))
-      {
-        return "ref<" + self(ref->referencedType, self) + ">";
-      }
-      if (auto array = std::dynamic_pointer_cast<ArrayType>(type))
-      {
-        if (array->length)
-        {
-          return "array<" + self(array->elementType, self) + ", " + self(array->length, self) + ">";
-        }
-        return "array<" + self(array->elementType, self) + ", ?>";
-      }
-      if (auto vector = std::dynamic_pointer_cast<VectorType>(type))
-      {
-        return "vector<" + self(vector->elementType, self) + ">";
-      }
-      if (auto span = std::dynamic_pointer_cast<SpanType>(type))
-      {
-        return "span<" + self(span->elementType, self) + ">";
-      }
-      if (auto range = std::dynamic_pointer_cast<RangeType>(type))
-      {
-        return "Range<" + self(range->elementType, self) + ">";
-      }
-      if (auto constValue = std::dynamic_pointer_cast<ConstValueType>(type))
-      {
-        return constValue->repr();
-      }
-      if (auto tuple = std::dynamic_pointer_cast<TupleType>(type))
-      {
-        Str out = "(";
-        for (size_t i = 0; i < tuple->elementTypes.size(); ++i)
-        {
-          if (i > 0)
-          {
-            out += ", ";
-          }
-          out += self(tuple->elementTypes[i], self);
-        }
-        return out + ")";
-      }
-      return type->repr();
-    };
-
-    Str result = baseName + "<";
-    for (size_t i = 0; i < args.size(); ++i)
-    {
-      if (i > 0)
-      {
-        result += ", ";
-      }
-      result += safeTypeName(args[i], safeTypeName);
-    }
-    result += ">";
-    return result;
-  }
-
-  static auto stripTypeInstanceSuffix(const Str &typeName) -> Str
-  {
-    auto genericStart = typeName.find('<');
-    if (genericStart == Str::npos)
-    {
-      return typeName;
-    }
-    return typeName.substr(0, genericStart);
-  }
-
-  static auto parseTypeInstanceArgs(const Str &typeName) -> Vec<Str>
-  {
-    auto start = typeName.find('<');
-    auto end = typeName.rfind('>');
-    if (start == Str::npos || end == Str::npos || end <= start)
-    {
-      return {};
-    }
-    Vec<Str> args;
-    Str current;
-    int depth = 0;
-    for (size_t i = start + 1; i < end; ++i)
-    {
-      char ch = typeName[i];
-      if (ch == '<')
-      {
-        ++depth;
-        current.push_back(ch);
-      }
-      else if (ch == '>')
-      {
-        --depth;
-        current.push_back(ch);
-      }
-      else if (ch == ',' && depth == 0)
-      {
-        current.erase(current.begin(), std::find_if(current.begin(), current.end(), [](unsigned char c) {
-                        return !std::isspace(c);
-                      }));
-        current.erase(std::find_if(current.rbegin(), current.rend(), [](unsigned char c) {
-                        return !std::isspace(c);
-                      }).base(),
-                      current.end());
-        args.push_back(current);
-        current.clear();
-      }
-      else
-      {
-        current.push_back(ch);
-      }
-    }
-    current.erase(current.begin(), std::find_if(current.begin(), current.end(), [](unsigned char c) {
-                    return !std::isspace(c);
-                  }));
-    current.erase(std::find_if(current.rbegin(), current.rend(), [](unsigned char c) {
-                    return !std::isspace(c);
-                  }).base(),
-                  current.end());
-    if (!current.empty())
-    {
-      args.push_back(current);
-    }
-    return args;
-  }
-
-  static auto typeKindName(const TypeInfo &type) -> Str
-  {
-    switch (type.tag())
-    {
-    case typeinfo_tag::BOOL:
-      return "bool";
-    case typeinfo_tag::STRING:
-      return "string";
-    case typeinfo_tag::ARRAY:
-      return "array";
-    case typeinfo_tag::VECTOR:
-      return "vector";
-    case typeinfo_tag::SPAN:
-      return "span";
-    case typeinfo_tag::TUPLE:
-      return "tuple";
-    case typeinfo_tag::FUNCTION:
-      return "function";
-    case typeinfo_tag::CUSTOMIZED:
-      return "object";
-    case typeinfo_tag::TYPE_ALIAS:
-      return "alias";
-    case typeinfo_tag::NEW_TYPE:
-      return "newtype";
-    case typeinfo_tag::TAGGED_UNION:
-      return "tagged_union";
-    case typeinfo_tag::VARIANT:
-      return "variant";
-    case typeinfo_tag::UNION:
-      return "union";
-    case typeinfo_tag::GENERIC_PARAM:
-      return "generic_param";
-    default:
-      if (isPrimitive(type.tag()))
-      {
-        return "primitive";
-      }
-      return "type";
-    }
-  }
-
   struct TypeChecker : DummyVisitor
   {
+    // ── Submodules ──────────────────────────────────────────────────────
+    TypeEnvironment env;
+    TraitRegistry traits;
+
+    // ── Type checking state ─────────────────────────────────────────────
     Map<Str, CheckingRef<TypeInfo>> type_index{};
-
-    Map<Str, CheckingRef<TypeInfo>> locals{};
-
     CheckingRef<TypeInfo> result;
-
     Vec<CheckingRef<TypeInfo>> spreadResult{};
-
     Vec<CheckingRef<TypeInfo>> contextRequirement;
-
-    CheckingRef<TypeInfo> expectedType; // For bidirectional type inference
-
-    Set<Str> movedBindings{};
-
-    bool allowMovedLvalueRead = false;
-    Map<Str, Vec<Str>> trait_impls_by_type;
+    CheckingRef<TypeInfo> expectedType;
     Str currentModuleId = "default";
     Str activeGenericInstanceName;
+
+    // ── Static global state ─────────────────────────────────────────────
     inline static Map<Str, Vec<TypeAliasDef *>> activeTypeAliasSpecializations{};
     inline static Map<Str, Vec<TypeAliasDef *>> preludeTypeAliasSpecializations{};
     inline static Map<Str, Vec<ConstDef *>> activeConstPredicates{};
@@ -1053,6 +51,8 @@ namespace NG::typecheck
     inline static Set<Str> preludeAutoTraits{};
     inline static Set<Str> activeDerivedTraitImplKeys{};
     inline static Vec<ASTRef<ASTNode>> retainedPreludeImportAsts{};
+
+    // ── Module artifacts ────────────────────────────────────────────────
     struct TraitImplRecord
     {
       Str traitName;
@@ -1076,19 +76,25 @@ namespace NG::typecheck
     Vec<TraitImplRecord> localTraitImpls;
     Map<Str, Vec<UseImplDecl *>> selectedTraitImpls;
     Set<Str> matchedSelectedTraitImpls;
-    Set<Str> autoTraitNames;
-    Set<Str> derivedTraitImplKeys;
-    Set<Str> importedSymbolNames;
-    Set<Str> importedImplNames;
-    Set<Str> exportedImportNames;
-    Map<Str, Str> importAliases;
-    Vec<Str> importedModuleIds;
     Vec<Str> modulePaths;
     inline static Map<Str, ModuleArtifacts> moduleArtifactsById{};
     inline static Set<Str> activeModuleChecks{};
 
-    // Sentinel key stored in locals to indicate wildcard imports are active.
-    // This propagates automatically when locals are copied to child checkers.
+    // ── Convenience aliases to env/traits members ───────────────────────
+    // These allow existing code to work without mass-renaming locals -> env.locals
+    Map<Str, CheckingRef<TypeInfo>> &locals = env.locals;
+    Set<Str> &movedBindings = env.movedBindings;
+    bool &allowMovedLvalueRead = env.allowMovedLvalueRead;
+    Map<Str, Vec<Str>> &trait_impls_by_type = traits.trait_impls_by_type;
+    Set<Str> &autoTraitNames = traits.autoTraitNames;
+    Set<Str> &derivedTraitImplKeys = traits.derivedTraitImplKeys;
+    Set<Str> &importedSymbolNames = env.importedSymbolNames;
+    Set<Str> &importedImplNames = env.importedImplNames;
+    Set<Str> &exportedImportNames = env.exportedImportNames;
+    Map<Str, Str> &importAliases = env.importAliases;
+    Vec<Str> &importedModuleIds = env.importedModuleIds;
+
+    // ── Constants ───────────────────────────────────────────────────────
     static constexpr const char *WILDCARD_IMPORT_KEY = "$$wildcard_import$$";
     static constexpr const char *COPY_TRAIT_NAME = "Copy";
     static constexpr const char *CLONE_TRAIT_NAME = "Clone";
@@ -1098,8 +104,8 @@ namespace NG::typecheck
                          CheckingRef<TypeInfo> expectedType = nullptr, Set<Str> movedBindings = {},
                          bool allowMovedLvalueRead = false, Str activeGenericInstanceName = "",
                          Vec<Str> modulePaths = {})
-        : locals(std::move(locals)), contextRequirement(std::move(contextRequirement)), expectedType(std::move(expectedType)),
-          movedBindings(std::move(movedBindings)), allowMovedLvalueRead(allowMovedLvalueRead),
+        : env(std::move(locals), std::move(movedBindings), allowMovedLvalueRead),
+          contextRequirement(std::move(contextRequirement)), expectedType(std::move(expectedType)),
           activeGenericInstanceName(std::move(activeGenericInstanceName)), modulePaths(std::move(modulePaths))
     {
     }
@@ -1447,13 +453,15 @@ namespace NG::typecheck
     static auto byValueAbstractReason(const CheckingRef<TypeInfo> &type) -> Str
     {
       auto unwrapped = unwrap(type);
-      if (auto custom = std::dynamic_pointer_cast<CustomizedType>(unwrapped); custom && custom->abstract)
+      if (!unwrapped) return "";
+      if (unwrapped->tag() == typeinfo_tag::CUSTOMIZED)
       {
-        return "abstract type '" + custom->name + "'";
+        auto &custom = static_cast<CustomizedType &>(*unwrapped);
+        if (custom.abstract) return "abstract type '" + custom.name + "'";
       }
-      if (auto trait = std::dynamic_pointer_cast<TraitType>(unwrapped))
+      if (unwrapped->tag() == typeinfo_tag::TRAIT)
       {
-        return "trait type '" + trait->name + "'";
+        return "trait type '" + static_cast<TraitType &>(*unwrapped).name + "'";
       }
       return "";
     }
@@ -1470,35 +478,21 @@ namespace NG::typecheck
 
     static auto typeKindArity(const CheckingRef<TypeInfo> &type) -> size_t
     {
-      if (!type)
-      {
-        return 0;
-      }
-      if (auto genericParam = std::dynamic_pointer_cast<GenericParamType>(type))
-      {
-        return genericParam->kindArity;
-      }
-      if (auto genericType = std::dynamic_pointer_cast<GenericTypeDef>(type))
-      {
-        return genericTypeConstructorFixedArity(*genericType);
-      }
+      if (!type) return 0;
+      if (type->tag() == typeinfo_tag::GENERIC_PARAM)
+        return static_cast<GenericParamType &>(*type).kindArity;
+      if (type->tag() == typeinfo_tag::GENERIC_TYPE_DEF)
+        return genericTypeConstructorFixedArity(static_cast<GenericTypeDef &>(*type));
       return 0;
     }
 
     static auto typeKindVariadicTail(const CheckingRef<TypeInfo> &type) -> bool
     {
-      if (!type)
-      {
-        return false;
-      }
-      if (auto genericParam = std::dynamic_pointer_cast<GenericParamType>(type))
-      {
-        return genericParam->kindVariadicTail;
-      }
-      if (auto genericType = std::dynamic_pointer_cast<GenericTypeDef>(type))
-      {
-        return genericTypeConstructorVariadicTail(*genericType);
-      }
+      if (!type) return false;
+      if (type->tag() == typeinfo_tag::GENERIC_PARAM)
+        return static_cast<GenericParamType &>(*type).kindVariadicTail;
+      if (type->tag() == typeinfo_tag::GENERIC_TYPE_DEF)
+        return genericTypeConstructorVariadicTail(static_cast<GenericTypeDef &>(*type));
       return false;
     }
 
@@ -1704,67 +698,73 @@ namespace NG::typecheck
       {
         return;
       }
-      if (auto ref = std::dynamic_pointer_cast<ReferenceType>(unwrapped))
+      switch (unwrapped->tag())
       {
-        if (auto trait = std::dynamic_pointer_cast<TraitType>(unwrap(ref->referencedType));
-            trait && !isObjectSafeTrait(*trait))
+      case typeinfo_tag::REFERENCE:
+      {
+        const auto &ref = static_cast<const ReferenceType &>(*unwrapped);
+        auto refUnwrapped = unwrap(ref.referencedType);
+        if (refUnwrapped && refUnwrapped->tag() == typeinfo_tag::TRAIT)
         {
-          throw TypeCheckingException("Trait is not object-safe for ref<" + trait->repr() + ">");
+          const auto &trait = static_cast<const TraitType &>(*refUnwrapped);
+          if (!isObjectSafeTrait(trait))
+          {
+            throw TypeCheckingException("Trait is not object-safe for ref<" + trait.repr() + ">");
+          }
         }
-        validateObjectSafeTraitRefs(ref->referencedType);
+        validateObjectSafeTraitRefs(ref.referencedType);
         return;
       }
-      if (auto array = std::dynamic_pointer_cast<ArrayType>(unwrapped))
-      {
-        validateObjectSafeTraitRefs(array->elementType);
+      case typeinfo_tag::ARRAY:
+        validateObjectSafeTraitRefs(static_cast<const ArrayType &>(*unwrapped).elementType);
         return;
-      }
-      if (auto vector = std::dynamic_pointer_cast<VectorType>(unwrapped))
-      {
-        validateObjectSafeTraitRefs(vector->elementType);
+      case typeinfo_tag::VECTOR:
+        validateObjectSafeTraitRefs(static_cast<const VectorType &>(*unwrapped).elementType);
         return;
-      }
-      if (auto span = std::dynamic_pointer_cast<SpanType>(unwrapped))
-      {
-        validateObjectSafeTraitRefs(span->elementType);
+      case typeinfo_tag::SPAN:
+        validateObjectSafeTraitRefs(static_cast<const SpanType &>(*unwrapped).elementType);
         return;
-      }
-      if (auto tuple = std::dynamic_pointer_cast<TupleType>(unwrapped))
-      {
-        for (auto &element : tuple->elementTypes)
-        {
+      case typeinfo_tag::TUPLE:
+        for (auto &element : static_cast<const TupleType &>(*unwrapped).elementTypes)
           validateObjectSafeTraitRefs(element);
-        }
+        return;
+      case typeinfo_tag::UNION:
+        for (auto &member : static_cast<const UnionType &>(*unwrapped).types)
+          validateObjectSafeTraitRefs(member);
+        return;
+      default:
         return;
       }
-      if (auto unionType = std::dynamic_pointer_cast<UnionType>(unwrapped))
-      {
-        for (auto &member : unionType->types)
-        {
-          validateObjectSafeTraitRefs(member);
-        }
-      }
-    }
-
-    auto refTraitCoercionMatches(const TypeInfo &expected, const TypeInfo &actual) const -> bool
-    {
-      auto expectedRef = dynamic_cast<const ReferenceType *>(&unwrapAlias(expected));
-      auto actualRef = dynamic_cast<const ReferenceType *>(&unwrapAlias(actual));
-      if (!expectedRef || !actualRef || !expectedRef->referencedType || !actualRef->referencedType)
-      {
-        return false;
-      }
-      auto trait = std::dynamic_pointer_cast<TraitType>(unwrap(expectedRef->referencedType));
-      if (!trait || !isObjectSafeTrait(*trait))
-      {
-        return false;
-      }
-      return typeSatisfiesTrait(actualRef->referencedType, *trait);
     }
 
     auto typeMatches(const TypeInfo &expected, const TypeInfo &actual) const -> bool
     {
-      return typeMatch(expected, actual) || refTraitCoercionMatches(expected, actual);
+      return NG::typecheck::typeMatches(expected, actual, trait_impls_by_type,
+                                        activeAutoTraits, activeDerivedTraitImplKeys, env);
+    }
+
+    static auto genericTypeConstructorFixedArity(const GenericTypeDef &genericType) -> size_t
+    {
+      auto packIt = std::find(genericType.typeParamIsPack.begin(), genericType.typeParamIsPack.end(), true);
+      if (packIt == genericType.typeParamIsPack.end())
+      {
+        return genericType.typeParamNames.size();
+      }
+      return static_cast<size_t>(std::distance(genericType.typeParamIsPack.begin(), packIt));
+    }
+
+    static auto genericTypeConstructorVariadicTail(const GenericTypeDef &genericType) -> bool
+    {
+      return std::any_of(genericType.typeParamIsPack.begin(), genericType.typeParamIsPack.end(), [](bool isPack) {
+        return isPack;
+      });
+    }
+
+    static auto typeSpecializationMatches(const TypeAliasDef &specialization,
+                                          const Vec<CheckingRef<TypeInfo>> &typeArgs,
+                                          Map<Str, CheckingRef<TypeInfo>> &bindings) -> bool
+    {
+      return NG::typecheck::typeSpecializationMatches(specialization, typeArgs, bindings);
     }
 
     auto functionApplyWithCoercions(const FunctionType &funcType,
@@ -1787,350 +787,6 @@ namespace NG::typecheck
         }
       }
       return true;
-    }
-
-    static auto typeParamBoundName(const GenericParam &param) -> Str
-    {
-      return param.bound ? param.bound->repr() : "";
-    }
-
-    static auto genericParamKindArities(const Vec<ASTRef<GenericParam>> &genericParams) -> Vec<size_t>
-    {
-      Vec<size_t> kindArities;
-      kindArities.reserve(genericParams.size());
-      for (auto &param : genericParams)
-      {
-        kindArities.push_back(param->kindArity);
-      }
-      return kindArities;
-    }
-
-    static auto genericParamKindVariadicTails(const Vec<ASTRef<GenericParam>> &genericParams) -> Vec<bool>
-    {
-      Vec<bool> tails;
-      tails.reserve(genericParams.size());
-      for (auto &param : genericParams)
-      {
-        tails.push_back(param->kindVariadicTail);
-      }
-      return tails;
-    }
-
-    static auto genericParamIsConst(const Vec<ASTRef<GenericParam>> &genericParams) -> Vec<bool>
-    {
-      Vec<bool> flags;
-      flags.reserve(genericParams.size());
-      for (auto &param : genericParams)
-      {
-        flags.push_back(param->isConst);
-      }
-      return flags;
-    }
-
-    static auto genericTypeConstructorFixedArity(const GenericTypeDef &genericType) -> size_t
-    {
-      auto packIt = std::find(genericType.typeParamIsPack.begin(), genericType.typeParamIsPack.end(), true);
-      if (packIt == genericType.typeParamIsPack.end())
-      {
-        return genericType.typeParamNames.size();
-      }
-      return static_cast<size_t>(std::distance(genericType.typeParamIsPack.begin(), packIt));
-    }
-
-    static auto genericTypeConstructorVariadicTail(const GenericTypeDef &genericType) -> bool
-    {
-      return std::any_of(genericType.typeParamIsPack.begin(), genericType.typeParamIsPack.end(), [](bool isPack) {
-        return isPack;
-      });
-    }
-
-    static auto genericParamNameSet(const Vec<ASTRef<GenericParam>> &genericParams) -> Set<Str>
-    {
-      Set<Str> names;
-      for (auto &param : genericParams)
-      {
-        names.insert(param->name);
-      }
-      return names;
-    }
-
-    static auto isPackTypePattern(const TypeAnnotation *pattern, const Set<Str> &genericParamNames) -> bool
-    {
-      return pattern && pattern->genericArgs.empty() && pattern->arguments.empty() &&
-             pattern->name.size() > 3 && pattern->name.ends_with("...") &&
-             genericParamNames.contains(pattern->name.substr(0, pattern->name.size() - 3));
-    }
-
-    static auto packPatternName(const TypeAnnotation *pattern) -> Str
-    {
-      return pattern->name.substr(0, pattern->name.size() - 3);
-    }
-
-    static auto bindPackPattern(const TypeAnnotation *pattern,
-                                const Vec<CheckingRef<TypeInfo>> &actualTypes,
-                                Map<Str, CheckingRef<TypeInfo>> &bindings) -> bool
-    {
-      auto name = packPatternName(pattern);
-      auto packed = makecheck<VarargsType>(actualTypes);
-      if (auto it = bindings.find(name); it != bindings.end())
-      {
-        if (it->second && it->second->tag() == typeinfo_tag::GENERIC_PARAM)
-        {
-          it->second = packed;
-          return true;
-        }
-        return it->second && typeMatch(*it->second, *packed);
-      }
-      bindings[name] = packed;
-      return true;
-    }
-
-    static auto typePatternMatch(const TypeAnnotation *pattern, const CheckingRef<TypeInfo> &actual,
-                                 const Set<Str> &genericParamNames,
-                                 Map<Str, CheckingRef<TypeInfo>> &bindings) -> bool
-    {
-      auto typeFromInstanceArg = [](const Str &name,
-                                    const Map<Str, CheckingRef<TypeInfo>> &currentBindings) -> CheckingRef<TypeInfo> {
-        if (auto it = currentBindings.find(name); it != currentBindings.end())
-        {
-          return it->second;
-        }
-        if (auto primitive = PrimitiveType::from(name))
-        {
-          return primitive;
-        }
-        if (name.contains('<') && name.ends_with(">"))
-        {
-          return makecheck<CustomizedType>(name);
-        }
-        if (name.starts_with("ref<") && name.ends_with(">"))
-        {
-          auto inner = name.substr(4, name.size() - 5);
-          if (auto innerPrimitive = PrimitiveType::from(inner))
-          {
-            return makecheck<ReferenceType>(innerPrimitive);
-          }
-        }
-        return makecheck<CustomizedType>(name);
-      };
-
-      if (!pattern || !actual)
-      {
-        return false;
-      }
-      if (isPackTypePattern(pattern, genericParamNames))
-      {
-        return bindPackPattern(pattern, Vec<CheckingRef<TypeInfo>>{actual}, bindings);
-      }
-      if (pattern->constLiteral)
-      {
-        auto constValue = std::dynamic_pointer_cast<ConstValueType>(unwrap(actual));
-        return constValue && constValue->value == pattern->name;
-      }
-      if (pattern->type == TypeAnnotationType::TUPLE)
-      {
-        auto tuple = std::dynamic_pointer_cast<TupleType>(unwrap(actual));
-        if (!tuple)
-        {
-          return false;
-        }
-        Vec<const TypeAnnotation *> patternElements;
-        patternElements.reserve(pattern->arguments.size());
-        for (auto &arg : pattern->arguments)
-        {
-          auto child = dynamic_ast_cast<TypeAnnotation>(arg);
-          if (!child)
-          {
-            return false;
-          }
-          patternElements.push_back(child.get());
-        }
-        const bool hasPackTail = !patternElements.empty() &&
-                                 isPackTypePattern(patternElements.back(), genericParamNames);
-        if (!hasPackTail && patternElements.size() != tuple->elementTypes.size())
-        {
-          return false;
-        }
-        if (hasPackTail && tuple->elementTypes.size() + 1 < patternElements.size())
-        {
-          return false;
-        }
-        const auto fixedCount = hasPackTail ? patternElements.size() - 1 : patternElements.size();
-        for (size_t i = 0; i < fixedCount; ++i)
-        {
-          if (!typePatternMatch(patternElements[i], tuple->elementTypes[i], genericParamNames, bindings))
-          {
-            return false;
-          }
-        }
-        if (hasPackTail)
-        {
-          Vec<CheckingRef<TypeInfo>> tailTypes;
-          tailTypes.reserve(tuple->elementTypes.size() - fixedCount);
-          for (size_t i = fixedCount; i < tuple->elementTypes.size(); ++i)
-          {
-            tailTypes.push_back(tuple->elementTypes[i]);
-          }
-          return bindPackPattern(patternElements.back(), tailTypes, bindings);
-        }
-        return true;
-      }
-      if (pattern->type == TypeAnnotationType::UNION)
-      {
-        for (auto &arg : pattern->arguments)
-        {
-          auto alternative = dynamic_ast_cast<TypeAnnotation>(arg);
-          if (!alternative)
-          {
-            continue;
-          }
-          auto candidateBindings = bindings;
-          if (typePatternMatch(alternative.get(), actual, genericParamNames, candidateBindings))
-          {
-            bindings = std::move(candidateBindings);
-            return true;
-          }
-        }
-        return false;
-      }
-      if (genericParamNames.contains(pattern->name) && pattern->genericArgs.empty() && pattern->arguments.empty())
-      {
-        if (auto it = bindings.find(pattern->name); it != bindings.end())
-        {
-          if (it->second && it->second->tag() == typeinfo_tag::GENERIC_PARAM)
-          {
-            it->second = actual;
-            return true;
-          }
-          return typeMatch(*it->second, *actual);
-        }
-        bindings[pattern->name] = actual;
-        return true;
-      }
-      if (pattern->name == "ref")
-      {
-        auto ref = std::dynamic_pointer_cast<ReferenceType>(unwrap(actual));
-        return ref && pattern->genericArgs.size() == 1 &&
-               typePatternMatch(pattern->genericArgs[0].get(), ref->referencedType, genericParamNames, bindings);
-      }
-      if (pattern->name == "array")
-      {
-        auto array = std::dynamic_pointer_cast<ArrayType>(unwrap(actual));
-        if (!array || pattern->genericArgs.size() != 2)
-        {
-          return false;
-        }
-        return typePatternMatch(pattern->genericArgs[0].get(), array->elementType, genericParamNames, bindings) &&
-               array->length &&
-               typePatternMatch(pattern->genericArgs[1].get(), array->length, genericParamNames, bindings);
-      }
-      if (pattern->name == "vector")
-      {
-        auto vector = std::dynamic_pointer_cast<VectorType>(unwrap(actual));
-        return vector && pattern->genericArgs.size() == 1 &&
-               typePatternMatch(pattern->genericArgs[0].get(), vector->elementType, genericParamNames, bindings);
-      }
-      if (pattern->name == "span")
-      {
-        auto span = std::dynamic_pointer_cast<SpanType>(unwrap(actual));
-        return span && pattern->genericArgs.size() == 1 &&
-               typePatternMatch(pattern->genericArgs[0].get(), span->elementType, genericParamNames, bindings);
-      }
-      if (pattern->name == "Range")
-      {
-        auto range = std::dynamic_pointer_cast<RangeType>(unwrap(actual));
-        return range && pattern->genericArgs.size() == 1 &&
-               typePatternMatch(pattern->genericArgs[0].get(), range->elementType, genericParamNames, bindings);
-      }
-      auto actualName = actual->repr();
-      if (auto custom = std::dynamic_pointer_cast<CustomizedType>(unwrap(actual)))
-      {
-        actualName = stripTypeInstanceSuffix(custom->name);
-      }
-      else if (auto alias = std::dynamic_pointer_cast<TypeAliasType>(unwrap(actual)))
-      {
-        actualName = stripTypeInstanceSuffix(alias->name);
-      }
-      else if (auto tagged = std::dynamic_pointer_cast<TaggedUnionType>(unwrap(actual)))
-      {
-        actualName = stripTypeInstanceSuffix(tagged->name);
-      }
-      if (pattern->name != actualName)
-      {
-        return false;
-      }
-      auto args = parseTypeInstanceArgs(actual->repr());
-      if (auto custom = std::dynamic_pointer_cast<CustomizedType>(unwrap(actual)))
-      {
-        args = parseTypeInstanceArgs(custom->name);
-      }
-      else if (auto alias = std::dynamic_pointer_cast<TypeAliasType>(unwrap(actual)))
-      {
-        args = parseTypeInstanceArgs(alias->name);
-      }
-      else if (auto tagged = std::dynamic_pointer_cast<TaggedUnionType>(unwrap(actual)))
-      {
-        args = parseTypeInstanceArgs(tagged->name);
-      }
-      if (pattern->genericArgs.size() != args.size())
-      {
-        return pattern->genericArgs.empty();
-      }
-      Vec<CheckingRef<TypeInfo>> actualArgs;
-      actualArgs.reserve(args.size());
-      for (auto &arg : args)
-      {
-        actualArgs.push_back(typeFromInstanceArg(arg, bindings));
-      }
-      return typePatternArgListMatches(pattern->genericArgs, actualArgs, genericParamNames, bindings);
-    }
-
-    static auto typePatternArgListMatches(const Vec<std::shared_ptr<TypeAnnotation>> &patterns,
-                                          const Vec<CheckingRef<TypeInfo>> &actuals,
-                                          const Set<Str> &genericParamNames,
-                                          Map<Str, CheckingRef<TypeInfo>> &bindings) -> bool
-    {
-      const bool hasPackTail = !patterns.empty() && isPackTypePattern(patterns.back().get(), genericParamNames);
-      if (!hasPackTail && patterns.size() != actuals.size())
-      {
-        return false;
-      }
-      if (hasPackTail && actuals.size() + 1 < patterns.size())
-      {
-        return false;
-      }
-      const auto fixedCount = hasPackTail ? patterns.size() - 1 : patterns.size();
-      for (size_t i = 0; i < fixedCount; ++i)
-      {
-        if (!typePatternMatch(patterns[i].get(), actuals[i], genericParamNames, bindings))
-        {
-          return false;
-        }
-      }
-      if (!hasPackTail)
-      {
-        return true;
-      }
-      Vec<CheckingRef<TypeInfo>> tailTypes;
-      tailTypes.reserve(actuals.size() - fixedCount);
-      for (size_t i = fixedCount; i < actuals.size(); ++i)
-      {
-        tailTypes.push_back(actuals[i]);
-      }
-      return bindPackPattern(patterns.back().get(), tailTypes, bindings);
-    }
-
-    static auto typeSpecializationMatches(const TypeAliasDef &specialization,
-                                          const Vec<CheckingRef<TypeInfo>> &typeArgs,
-                                          Map<Str, CheckingRef<TypeInfo>> &bindings) -> bool
-    {
-      if (!specialization.specializationPattern)
-      {
-        return false;
-      }
-      auto genericNames = genericParamNameSet(specialization.genericParams);
-      return typePatternArgListMatches(specialization.specializationPattern->genericArgs, typeArgs,
-                                       genericNames, bindings);
     }
 
     auto typeAliasSpecializationWhereMatches(const TypeAliasDef &specialization,
@@ -2180,13 +836,7 @@ namespace NG::typecheck
                                            const Vec<CheckingRef<TypeInfo>> &typeArgs,
                                            Map<Str, CheckingRef<TypeInfo>> &bindings) -> bool
     {
-      if (!specialization.specializationPattern)
-      {
-        return false;
-      }
-      auto genericNames = genericParamNameSet(specialization.genericParams);
-      return typePatternArgListMatches(specialization.specializationPattern->genericArgs, typeArgs,
-                                       genericNames, bindings);
+      return NG::typecheck::constSpecializationMatches(specialization, typeArgs, bindings);
     }
 
     auto constSpecializationWhereMatches(const ConstDef &specialization,
@@ -2432,44 +1082,18 @@ namespace NG::typecheck
 
     static auto isGenericPatternWildcard(const TypeAnnotation *annotation, const Set<Str> &genericParamNames) -> bool
     {
-      return annotation && annotation->genericArgs.empty() && annotation->arguments.empty() &&
-             genericParamNames.contains(annotation->name);
+      return NG::typecheck::isGenericPatternWildcard(annotation, genericParamNames);
     }
 
     static auto typePatternChildren(const TypeAnnotation *annotation) -> Vec<const TypeAnnotation *>
     {
-      Vec<const TypeAnnotation *> children;
-      if (!annotation)
-      {
-        return children;
-      }
-      for (auto &arg : annotation->genericArgs)
-      {
-        children.push_back(arg.get());
-      }
-      for (auto &arg : annotation->arguments)
-      {
-        if (auto child = dynamic_ast_cast<TypeAnnotation>(arg))
-        {
-          children.push_back(child.get());
-        }
-      }
-      return children;
+      return NG::typecheck::typePatternChildren(annotation);
     }
 
     static auto typePatternSpecificity(const TypeAnnotation *annotation,
                                        const Set<Str> &genericParamNames) -> size_t
     {
-      if (!annotation || isGenericPatternWildcard(annotation, genericParamNames))
-      {
-        return 0;
-      }
-      size_t score = 1;
-      for (auto *child : typePatternChildren(annotation))
-      {
-        score += typePatternSpecificity(child, genericParamNames);
-      }
-      return score;
+      return NG::typecheck::typePatternSpecificity(annotation, genericParamNames);
     }
 
     static auto constSpecializationSpecificity(const ConstDef &specialization) -> size_t
@@ -2499,25 +1123,6 @@ namespace NG::typecheck
       {
         score += typePatternSpecificity(arg.get(), genericNames);
       }
-      return score;
-    }
-
-    static auto functionPatternSpecificity(const FunctionDef &candidate) -> size_t
-    {
-      auto genericNames = genericParamNameSet(candidate.genericParams);
-      size_t score = 0;
-      for (auto &param : candidate.params)
-      {
-        score += typePatternSpecificity(param ? param->annotatedType.get() : nullptr, genericNames);
-      }
-      for (auto &genericParam : candidate.genericParams)
-      {
-        if (genericParam && genericParam->bound)
-        {
-          ++score;
-        }
-      }
-      score += candidate.whereBounds.size();
       return score;
     }
 
@@ -3244,260 +1849,29 @@ namespace NG::typecheck
       return true;
     }
 
-    auto typeSatisfiesAutoTrait(const CheckingRef<TypeInfo> &type, const TraitType &trait,
-                                Set<Str> &seen) const -> bool
-    {
-      auto candidate = unwrap(type);
-      if (!candidate)
-      {
-        return false;
-      }
-      if (isPrimitive(candidate->tag()) || candidate->tag() == typeinfo_tag::UNIT ||
-          candidate->tag() == typeinfo_tag::BOOL || candidate->tag() == typeinfo_tag::STRING)
-      {
-        return true;
-      }
-      if (auto ref = std::dynamic_pointer_cast<ReferenceType>(candidate))
-      {
-        return typeSatisfiesAutoTrait(ref->referencedType, trait, seen);
-      }
-      if (auto tuple = std::dynamic_pointer_cast<TupleType>(candidate))
-      {
-        return std::ranges::all_of(tuple->elementTypes, [&](const auto &element) {
-          return typeSatisfiesAutoTrait(element, trait, seen);
-        });
-      }
-      if (auto array = std::dynamic_pointer_cast<ArrayType>(candidate))
-      {
-        return typeSatisfiesAutoTrait(array->elementType, trait, seen);
-      }
-      if (auto vector = std::dynamic_pointer_cast<VectorType>(candidate))
-      {
-        return typeSatisfiesAutoTrait(vector->elementType, trait, seen);
-      }
-      if (auto span = std::dynamic_pointer_cast<SpanType>(candidate))
-      {
-        return typeSatisfiesAutoTrait(span->elementType, trait, seen);
-      }
-      auto custom = std::dynamic_pointer_cast<CustomizedType>(candidate);
-      if (!custom)
-      {
-        return false;
-      }
-      if (auto implIt = trait_impls_by_type.find(custom->name); implIt != trait_impls_by_type.end())
-      {
-        if (std::ranges::any_of(implIt->second, [&](const Str &implemented) {
-              return implemented == trait.name || traitImplies(implemented, trait.name);
-            }))
-        {
-          return true;
-        }
-      }
-      if (!seen.insert(custom->name + "::" + trait.name).second)
-      {
-        return true;
-      }
-      for (const auto &[_, fieldType] : custom->properties)
-      {
-        if (!typeSatisfiesAutoTrait(fieldType, trait, seen))
-        {
-          return false;
-        }
-      }
-      return true;
-    }
-
     auto typeSatisfiesAutoTrait(const CheckingRef<TypeInfo> &type, const TraitType &trait) const -> bool
     {
       Set<Str> seen;
-      return typeSatisfiesAutoTrait(type, trait, seen);
-    }
-
-    auto typeCanDeriveTrait(const CheckingRef<TypeInfo> &type, const Str &traitName,
-                            Set<Str> &seen) const -> bool
-    {
-      auto candidate = unwrap(type);
-      if (!candidate)
-      {
-        return false;
-      }
-      if (isPrimitive(candidate->tag()) || candidate->tag() == typeinfo_tag::UNIT ||
-          candidate->tag() == typeinfo_tag::BOOL || candidate->tag() == typeinfo_tag::STRING)
-      {
-        return true;
-      }
-      if (auto ref = std::dynamic_pointer_cast<ReferenceType>(candidate))
-      {
-        return traitName == COPY_TRAIT_NAME || typeCanDeriveTrait(ref->referencedType, traitName, seen);
-      }
-      if (auto tuple = std::dynamic_pointer_cast<TupleType>(candidate))
-      {
-        return std::ranges::all_of(tuple->elementTypes, [&](const auto &element) {
-          return typeCanDeriveTrait(element, traitName, seen);
-        });
-      }
-      if (auto array = std::dynamic_pointer_cast<ArrayType>(candidate))
-      {
-        return typeCanDeriveTrait(array->elementType, traitName, seen);
-      }
-      if (auto span = std::dynamic_pointer_cast<SpanType>(candidate))
-      {
-        return typeCanDeriveTrait(span->elementType, traitName, seen);
-      }
-      if (std::dynamic_pointer_cast<VectorType>(candidate))
-      {
-        return false;
-      }
-      auto custom = std::dynamic_pointer_cast<CustomizedType>(candidate);
-      if (!custom)
-      {
-        return false;
-      }
-      if (!seen.insert(custom->name + "::" + traitName).second)
-      {
-        return true;
-      }
-      if (auto implIt = trait_impls_by_type.find(custom->name); implIt != trait_impls_by_type.end())
-      {
-        if (std::ranges::find(implIt->second, traitName) != implIt->second.end())
-        {
-          return true;
-        }
-        if (traitName == COPY_TRAIT_NAME &&
-            std::ranges::find(implIt->second, DROP_TRAIT_NAME) != implIt->second.end())
-        {
-          return false;
-        }
-      }
-      return std::ranges::all_of(custom->properties, [&](const auto &entry) {
-        return typeCanDeriveTrait(entry.second, traitName, seen);
-      });
+      return NG::typecheck::typeSatisfiesAutoTrait(type, trait, trait_impls_by_type, env, seen);
     }
 
     auto typeCanDeriveTrait(const CheckingRef<TypeInfo> &type, const Str &traitName) const -> bool
     {
       Set<Str> seen;
-      return typeCanDeriveTrait(type, traitName, seen);
+      return NG::typecheck::typeCanDeriveTrait(type, traitName, trait_impls_by_type, env, seen);
     }
 
     auto typeSatisfiesTrait(const CheckingRef<TypeInfo> &type, const TraitType &trait) const -> bool
     {
-      if (activeAutoTraits.contains(trait.name))
-      {
-        return typeSatisfiesAutoTrait(type, trait);
-      }
-      auto candidate = unwrap(type);
-      if (trait.name == COPY_TRAIT_NAME || trait.name == CLONE_TRAIT_NAME)
-      {
-        if (isPrimitive(candidate->tag()) || candidate->tag() == typeinfo_tag::UNIT ||
-            candidate->tag() == typeinfo_tag::BOOL || candidate->tag() == typeinfo_tag::STRING)
-        {
-          return true;
-        }
-        if (auto ref = std::dynamic_pointer_cast<ReferenceType>(candidate))
-        {
-          return trait.name == COPY_TRAIT_NAME || typeSatisfiesTrait(ref->referencedType, trait);
-        }
-        if (auto tuple = std::dynamic_pointer_cast<TupleType>(candidate))
-        {
-          return std::ranges::all_of(tuple->elementTypes, [&](const auto &element) {
-            return typeSatisfiesTrait(element, trait);
-          });
-        }
-        if (auto array = std::dynamic_pointer_cast<ArrayType>(candidate))
-        {
-          return typeSatisfiesTrait(array->elementType, trait);
-        }
-        if (auto span = std::dynamic_pointer_cast<SpanType>(candidate))
-        {
-          return typeSatisfiesTrait(span->elementType, trait);
-        }
-        if (std::dynamic_pointer_cast<VectorType>(candidate))
-        {
-          return false;
-        }
-      }
-      if (auto ref = std::dynamic_pointer_cast<ReferenceType>(candidate))
-      {
-        candidate = unwrap(ref->referencedType);
-      }
-      if (auto generic = std::dynamic_pointer_cast<GenericParamType>(candidate))
-      {
-        return generic->bound == trait.name || traitImplies(generic->bound, trait.name);
-      }
-      if (trait.name == "Sequence" && isSequenceType(candidate))
-      {
-        return true;
-      }
-      auto custom = std::dynamic_pointer_cast<CustomizedType>(candidate);
-      if (!custom)
-      {
-        return false;
-      }
-      if (auto implIt = trait_impls_by_type.find(custom->name); implIt != trait_impls_by_type.end())
-      {
-        if (std::ranges::any_of(implIt->second, [&](const Str &implemented) {
-              return implemented == trait.name || traitImplies(implemented, trait.name);
-            }))
-        {
-          return true;
-        }
-      }
-      if (activeDerivedTraitImplKeys.contains(custom->name + "::" + trait.name))
-      {
-        return true;
-      }
-      if (trait.name == COPY_TRAIT_NAME || trait.name == CLONE_TRAIT_NAME)
-      {
-        return false;
-      }
-      auto &methods = trait.allMethods.empty() ? trait.methods : trait.allMethods;
-      for (auto &[methodName, methodType] : methods)
-      {
-        if (!custom->memberFunctions.contains(methodName) &&
-            (!custom->traitMemberFunctions.contains(trait.name) ||
-             !custom->traitMemberFunctions.at(trait.name).contains(methodName)))
-        {
-          return false;
-        }
-      }
-      return true;
+      // Handle Sequence trait specially (requires TypeChecker state for isSequenceType)
+      if (trait.name == "Sequence" && isSequenceType(type)) return true;
+      return NG::typecheck::typeSatisfiesTrait(type, trait, trait_impls_by_type,
+                                               activeAutoTraits, activeDerivedTraitImplKeys, env);
     }
 
     auto traitImplies(const Str &candidateName, const Str &requiredName) const -> bool
     {
-      if (candidateName == requiredName)
-      {
-        return true;
-      }
-      auto it = locals.find(candidateName);
-      auto trait = it == locals.end() ? nullptr : std::dynamic_pointer_cast<TraitType>(it->second);
-      if (!trait)
-      {
-        return false;
-      }
-      Set<Str> seen;
-      return traitImplies(*trait, requiredName, seen);
-    }
-
-    auto traitImplies(const TraitType &candidate, const Str &requiredName, Set<Str> &seen) const -> bool
-    {
-      if (!seen.insert(candidate.name).second)
-      {
-        return false;
-      }
-      for (auto &superTrait : candidate.superTraits)
-      {
-        if (!superTrait)
-        {
-          continue;
-        }
-        if (superTrait->name == requiredName || traitImplies(*superTrait, requiredName, seen))
-        {
-          return true;
-        }
-      }
-      return false;
+      return NG::typecheck::traitImplies(candidateName, requiredName, env);
     }
 
     void resolveTraitClosure(TraitType &trait, Set<Str> &visiting, Set<Str> &visited, TokenPosition pos)
@@ -4404,6 +2778,7 @@ namespace NG::typecheck
 
     void visit(CompileUnit *compileUnit) override { compileUnit->module->accept(this); }
 
+    // ── Module-level type checking ──────────────────────────────────────
     void visit(Module *module) override
     {
       installBuiltinLifecycleTraits();
@@ -5716,13 +4091,13 @@ namespace NG::typecheck
         movedBindings = checker.movedBindings;
         // Both TupleType and VarargsType have elementTypes and can be unpacked
         Vec<CheckingRef<TypeInfo>> *elementTypesPtr = nullptr;
-        if (auto tupleType = std::dynamic_pointer_cast<TupleType>(valType); tupleType)
+        if (valType && valType->tag() == typeinfo_tag::TUPLE)
         {
-          elementTypesPtr = &tupleType->elementTypes;
+          elementTypesPtr = &static_cast<TupleType &>(*valType).elementTypes;
         }
-        else if (auto varargsType = std::dynamic_pointer_cast<VarargsType>(valType); varargsType)
+        else if (valType && valType->tag() == typeinfo_tag::VARARGS)
         {
-          elementTypesPtr = &varargsType->elementTypes;
+          elementTypesPtr = &static_cast<VarargsType &>(*valType).elementTypes;
         }
         if (elementTypesPtr)
         {
@@ -5962,7 +4337,7 @@ namespace NG::typecheck
         {
           throw TypeCheckingException("Reference operator requires an lvalue.");
         }
-        if (std::dynamic_pointer_cast<ReferenceType>(unwrap(operandType)))
+        if (unwrap(operandType) && unwrap(operandType)->tag() == typeinfo_tag::REFERENCE)
         {
           throw TypeCheckingException("Reference operator cannot take a reference value.");
         }
@@ -5971,12 +4346,12 @@ namespace NG::typecheck
       }
       case TokenType::TIMES:
       {
-        auto refType = std::dynamic_pointer_cast<ReferenceType>(unwrap(operandType));
-        if (!refType)
+        auto unwrappedOp = unwrap(operandType);
+        if (!unwrappedOp || unwrappedOp->tag() != typeinfo_tag::REFERENCE)
         {
           throw TypeCheckingException("Cannot dereference non-reference type: " + operandType->repr());
         }
-        result = refType->referencedType;
+        result = static_cast<ReferenceType &>(*unwrappedOp).referencedType;
         return;
       }
       case TokenType::KEYWORD_MOVE:
@@ -6194,6 +4569,7 @@ namespace NG::typecheck
       }
     }
 
+    // ── Type annotation resolution ──────────────────────────────────────
     void visit(TypeAnnotation *annotation) override
     {
       if (annotation->constLiteral)
@@ -6411,21 +4787,24 @@ namespace NG::typecheck
           }
           TypeChecker checker{locals};
           annotation->genericArgs[0]->accept(&checker);
-          auto tupleType = std::dynamic_pointer_cast<TupleType>(unwrap(checker.result));
+          auto unwrappedTuple = unwrap(checker.result);
+          bool isTuple = unwrappedTuple && unwrappedTuple->tag() == typeinfo_tag::TUPLE;
           annotation->genericArgs[1]->accept(&checker);
-          auto indexValue = std::dynamic_pointer_cast<ConstValueType>(unwrap(checker.result));
-          if (!tupleType)
+          auto unwrappedIndex = unwrap(checker.result);
+          bool isConstValue = unwrappedIndex && unwrappedIndex->tag() == typeinfo_tag::CONST_VALUE;
+          if (!isTuple)
           {
             throw TypeCheckingException("tuple_element<T, I> expects a tuple type as T", annotation->pos);
           }
-          if (!indexValue || indexValue->isParam)
+          auto &indexValue = static_cast<ConstValueType &>(*unwrappedIndex);
+          if (!isConstValue || indexValue.isParam)
           {
             throw TypeCheckingException("tuple_element<T, I> expects a concrete const index", annotation->pos);
           }
           size_t index = 0;
           try
           {
-            auto parsed = std::stoll(indexValue->value);
+            auto parsed = std::stoll(indexValue.value);
             if (parsed < 0)
             {
               throw TypeCheckingException("tuple_element<T, I> index cannot be negative", annotation->pos);
@@ -6440,11 +4819,12 @@ namespace NG::typecheck
           {
             throw TypeCheckingException("tuple_element<T, I> expects an integer const index", annotation->pos);
           }
-          if (index >= tupleType->elementTypes.size())
+          auto &tupleRef = static_cast<TupleType &>(*unwrappedTuple);
+          if (index >= tupleRef.elementTypes.size())
           {
             throw TypeCheckingException("tuple_element<T, I> index out of range", annotation->pos);
           }
-          result = tupleType->elementTypes[index];
+          result = tupleRef.elementTypes[index];
           return;
         }
 
@@ -6456,15 +4836,18 @@ namespace NG::typecheck
           }
           TypeChecker checker{locals};
           annotation->genericArgs[0]->accept(&checker);
-          auto leftTuple = std::dynamic_pointer_cast<TupleType>(unwrap(checker.result));
+          auto unwrappedLeft = unwrap(checker.result);
           annotation->genericArgs[1]->accept(&checker);
-          auto rightTuple = std::dynamic_pointer_cast<TupleType>(unwrap(checker.result));
-          if (!leftTuple || !rightTuple)
+          auto unwrappedRight = unwrap(checker.result);
+          if (!unwrappedLeft || unwrappedLeft->tag() != typeinfo_tag::TUPLE ||
+              !unwrappedRight || unwrappedRight->tag() != typeinfo_tag::TUPLE)
           {
             throw TypeCheckingException("tuple_concat<A, B> expects tuple type arguments", annotation->pos);
           }
-          Vec<CheckingRef<TypeInfo>> elements = leftTuple->elementTypes;
-          elements.insert(elements.end(), rightTuple->elementTypes.begin(), rightTuple->elementTypes.end());
+          auto &leftTuple = static_cast<TupleType &>(*unwrappedLeft);
+          auto &rightTuple = static_cast<TupleType &>(*unwrappedRight);
+          Vec<CheckingRef<TypeInfo>> elements = leftTuple.elementTypes;
+          elements.insert(elements.end(), rightTuple.elementTypes.begin(), rightTuple.elementTypes.end());
           result = makecheck<TupleType>(elements);
           return;
         }
@@ -6520,21 +4903,22 @@ namespace NG::typecheck
               typeArgs.push_back(checker.result);
             }
 
-            if (auto genericParam = std::dynamic_pointer_cast<GenericParamType>(it->second))
+            if (it->second && it->second->tag() == typeinfo_tag::GENERIC_PARAM)
             {
-              if (genericParam->kindArity == 0 && !genericParam->kindVariadicTail)
+              auto &genericParam = static_cast<GenericParamType &>(*it->second);
+              if (genericParam.kindArity == 0 && !genericParam.kindVariadicTail)
               {
                 throw TypeCheckingException("Type parameter '" + annotation->name +
                                                 "' is not a type constructor",
                                             annotation->pos);
               }
-              if (!typeConstructorApplicationArityValid(genericParam->kindArity,
-                                                        genericParam->kindVariadicTail, typeArgs.size()))
+              if (!typeConstructorApplicationArityValid(genericParam.kindArity,
+                                                        genericParam.kindVariadicTail, typeArgs.size()))
               {
                 throw TypeCheckingException("Type constructor parameter '" + annotation->name + "' expects " +
-                                                std::to_string(genericParam->kindArity) +
+                                                std::to_string(genericParam.kindArity) +
                                                 " fixed type argument(s)" +
-                                                (genericParam->kindVariadicTail ? " and a variadic tail" : "") +
+                                                (genericParam.kindVariadicTail ? " and a variadic tail" : "") +
                                                 ", got " + std::to_string(typeArgs.size()),
                                             annotation->pos);
               }
@@ -6542,16 +4926,17 @@ namespace NG::typecheck
               return;
             }
 
-            if (auto traitType = std::dynamic_pointer_cast<TraitType>(it->second))
+            if (it->second && it->second->tag() == typeinfo_tag::TRAIT)
             {
-              if (traitType->typeParamNames.size() != typeArgs.size())
+              auto &traitType = static_cast<TraitType &>(*it->second);
+              if (traitType.typeParamNames.size() != typeArgs.size())
               {
                 throw TypeCheckingException("Trait '" + annotation->name + "' expects " +
-                                                std::to_string(traitType->typeParamNames.size()) +
+                                                std::to_string(traitType.typeParamNames.size()) +
                                                 " type argument(s), got " + std::to_string(typeArgs.size()),
                                             annotation->pos);
               }
-              result = traitType;
+              result = it->second;
               return;
             }
 
@@ -6640,12 +5025,16 @@ namespace NG::typecheck
       {
         if (expectedType && isSequenceType(expectedType))
         {
-          if (auto expectedArray = std::dynamic_pointer_cast<ArrayType>(unwrap(expectedType));
-              expectedArray && expectedArray->length && !const_value_equals_size(expectedArray->length, 0))
+          auto unwrappedExpected = unwrap(expectedType);
+          if (unwrappedExpected && unwrappedExpected->tag() == typeinfo_tag::ARRAY)
           {
-            throw TypeCheckingException("Array literal length mismatch: expected " + expectedArray->length->repr() +
-                                            ", got 0",
-                                        arrayLit->pos);
+            auto &expectedArray = static_cast<ArrayType &>(*unwrappedExpected);
+            if (expectedArray.length && !const_value_equals_size(expectedArray.length, 0))
+            {
+              throw TypeCheckingException("Array literal length mismatch: expected " + expectedArray.length->repr() +
+                                              ", got 0",
+                                          arrayLit->pos);
+            }
           }
           result = expectedType;
         }
@@ -6740,11 +5129,13 @@ namespace NG::typecheck
         }
       }
       movedBindings = checker.movedBindings;
-      if (auto expectedArray = std::dynamic_pointer_cast<ArrayType>(unwrap(expectedType)); expectedArray)
+      auto unwrappedExpectedArr = unwrap(expectedType);
+      if (unwrappedExpectedArr && unwrappedExpectedArr->tag() == typeinfo_tag::ARRAY)
       {
-        if (expectedArray->length && !const_value_equals_size(expectedArray->length, arrayLit->elements.size()))
+        auto &expectedArray = static_cast<ArrayType &>(*unwrappedExpectedArr);
+        if (expectedArray.length && !const_value_equals_size(expectedArray.length, arrayLit->elements.size()))
         {
-          throw TypeCheckingException("Array literal length mismatch: expected " + expectedArray->length->repr() +
+          throw TypeCheckingException("Array literal length mismatch: expected " + expectedArray.length->repr() +
                                           ", got " + std::to_string(arrayLit->elements.size()),
                                       arrayLit->pos);
         }
@@ -6799,18 +5190,20 @@ namespace NG::typecheck
       auto type = checker.result;
       movedBindings = checker.movedBindings;
       spreadResult.clear();
-      if (auto tup = std::dynamic_pointer_cast<TupleType>(type); tup)
+      if (type && type->tag() == typeinfo_tag::TUPLE)
       {
-        result = tup;
-        for (auto &&elemType : tup->elementTypes)
+        auto &tup = static_cast<TupleType &>(*type);
+        result = type;
+        for (auto &&elemType : tup.elementTypes)
         {
           spreadResult.push_back(elemType);
         }
       }
-      else if (auto varargs = std::dynamic_pointer_cast<VarargsType>(type); varargs)
+      else if (type && type->tag() == typeinfo_tag::VARARGS)
       {
-        result = varargs;
-        for (auto &&elemType : varargs->elementTypes)
+        auto &varargs = static_cast<VarargsType &>(*type);
+        result = type;
+        for (auto &&elemType : varargs.elementTypes)
         {
           spreadResult.push_back(elemType);
         }
@@ -7100,26 +5493,28 @@ namespace NG::typecheck
                                isSequenceType(primaryType));
       if (isCollectionType)
       {
-        if (auto tupleType = std::dynamic_pointer_cast<TupleType>(primaryType); tupleType)
+        if (tag == typeinfo_tag::TUPLE)
         {
+          auto &tupleType = static_cast<TupleType &>(*primaryType);
           if (auto index = numericMemberIndex(); index.has_value())
           {
-            if (*index >= tupleType->elementTypes.size())
+            if (*index >= tupleType.elementTypes.size())
             {
               throw TypeCheckingException("Tuple element index out of range: " + memberName, idAccExpr->pos);
             }
-            memberType = tupleType->elementTypes[*index];
+            memberType = tupleType.elementTypes[*index];
           }
         }
-        else if (auto varargsType = std::dynamic_pointer_cast<VarargsType>(primaryType); varargsType)
+        else if (tag == typeinfo_tag::VARARGS)
         {
+          auto &varargsType = static_cast<VarargsType &>(*primaryType);
           if (auto index = numericMemberIndex(); index.has_value())
           {
-            if (*index >= varargsType->elementTypes.size())
+            if (*index >= varargsType.elementTypes.size())
             {
               throw TypeCheckingException("Tuple element index out of range: " + memberName, idAccExpr->pos);
             }
-            memberType = varargsType->elementTypes[*index];
+            memberType = varargsType.elementTypes[*index];
           }
         }
         if (memberName == "size")
@@ -7136,34 +5531,36 @@ namespace NG::typecheck
         }
       }
 
-      if (auto customType = std::dynamic_pointer_cast<CustomizedType>(primaryType))
+      if (primaryType && primaryType->tag() == typeinfo_tag::CUSTOMIZED)
       {
-        if (auto localType = locals.find(customType->name); localType != locals.end())
+        auto customPtr = std::dynamic_pointer_cast<CustomizedType>(primaryType);
+        if (auto localType = locals.find(customPtr->name); localType != locals.end())
         {
-          if (auto localCustom = std::dynamic_pointer_cast<CustomizedType>(unwrap(localType->second)))
+          auto unwrappedLocal = unwrap(localType->second);
+          if (unwrappedLocal && unwrappedLocal->tag() == typeinfo_tag::CUSTOMIZED)
           {
-            customType = localCustom;
+            customPtr = std::static_pointer_cast<CustomizedType>(unwrappedLocal);
           }
         }
-        if (customType->properties.contains(memberName))
+        if (customPtr->properties.contains(memberName))
         {
-          memberType = customType->properties[memberName];
+          memberType = customPtr->properties[memberName];
         }
-        else if (customType->memberFunctions.contains(memberName))
+        else if (customPtr->memberFunctions.contains(memberName))
         {
-          memberType = customType->memberFunctions[memberName];
+          memberType = customPtr->memberFunctions[memberName];
         }
-        if (!customType->properties.contains(memberName))
+        if (!customPtr->properties.contains(memberName))
         {
           Vec<Str> traitCandidates;
-          for (auto &[traitName, methods] : customType->traitMemberFunctions)
+          for (auto &[traitName, methods] : customPtr->traitMemberFunctions)
           {
             if (methods.contains(memberName))
             {
               traitCandidates.push_back(traitName);
             }
           }
-          if (traitCandidates.size() > 1 && !customType->memberFunctions.contains(memberName))
+          if (traitCandidates.size() > 1 && !customPtr->memberFunctions.contains(memberName))
           {
             Str candidates;
             for (size_t i = 0; i < traitCandidates.size(); ++i)
@@ -7174,28 +5571,29 @@ namespace NG::typecheck
             throw TypeCheckingException("Ambiguous trait method call " + memberName + ": candidates " + candidates,
                                         idAccExpr->pos);
           }
-          if (traitCandidates.size() == 1 && !customType->memberFunctions.contains(memberName))
+          if (traitCandidates.size() == 1 && !customPtr->memberFunctions.contains(memberName))
           {
-            memberType = customType->traitMemberFunctions[traitCandidates.front()][memberName];
+            memberType = customPtr->traitMemberFunctions[traitCandidates.front()][memberName];
           }
         }
       }
-      else if (auto genericType = std::dynamic_pointer_cast<GenericParamType>(primaryType))
+      else if (primaryType && primaryType->tag() == typeinfo_tag::GENERIC_PARAM)
       {
-        if (!genericType->bound.empty())
+        auto &genericType = static_cast<GenericParamType &>(*primaryType);
+        if (!genericType.bound.empty())
         {
-          auto traitIt = locals.find(genericType->bound);
-          auto traitType = traitIt == locals.end() ? nullptr : std::dynamic_pointer_cast<TraitType>(traitIt->second);
-          if (traitType)
+          auto traitIt = locals.find(genericType.bound);
+          if (traitIt != locals.end() && traitIt->second && traitIt->second->tag() == typeinfo_tag::TRAIT)
           {
-            auto &methods = !traitType->allMethods.empty() ? traitType->allMethods : traitType->methods;
+            auto &traitType = static_cast<TraitType &>(*traitIt->second);
+            auto &methods = !traitType.allMethods.empty() ? traitType.allMethods : traitType.methods;
             if (methods.contains(memberName))
             {
               memberType = methods[memberName];
             }
           }
         }
-        if (genericType->name == "Self" && !std::dynamic_pointer_cast<FunctionType>(memberType))
+        if (genericType.name == "Self" && (!memberType || memberType->tag() != typeinfo_tag::FUNCTION))
         {
           throw TypeCheckingException("Trait default method cannot access member '" + memberName +
                                           "' on abstract Self",
@@ -7204,7 +5602,7 @@ namespace NG::typecheck
       }
 
       // Property access on tagged union variant types (after switch/case narrowing)
-      if (auto variantType = std::dynamic_pointer_cast<VariantType>(primaryType))
+      if (primaryType && primaryType->tag() == typeinfo_tag::VARIANT)
       {
         if (memberName == "tag")
         {
@@ -7214,15 +5612,19 @@ namespace NG::typecheck
         {
           memberType = makecheck<PrimitiveType>(typeinfo_tag::I32);
         }
-        else if (!variantType->payloadNames.empty())
+        else
         {
-          // Look up named payload field
-          for (size_t i = 0; i < variantType->payloadNames.size(); ++i)
+          auto &variantType = static_cast<VariantType &>(*primaryType);
+          if (!variantType.payloadNames.empty())
           {
-            if (i < variantType->payloadTypes.size() && variantType->payloadNames[i] == memberName)
+            // Look up named payload field
+            for (size_t i = 0; i < variantType.payloadNames.size(); ++i)
             {
-              memberType = variantType->payloadTypes[i];
-              break;
+              if (i < variantType.payloadTypes.size() && variantType.payloadNames[i] == memberName)
+              {
+                memberType = variantType.payloadTypes[i];
+                break;
+              }
             }
           }
         }
@@ -7533,6 +5935,7 @@ namespace NG::typecheck
       result = expectedElementType;
     }
 
+    // ── Expression visitors ─────────────────────────────────────────────
     void visit(IdExpression *id) override
     {
       auto it = locals.find(id->id);
@@ -7584,9 +5987,10 @@ namespace NG::typecheck
       }
 
       // Allow wrap: T -> NewType(T)
-      if (auto nt = std::dynamic_pointer_cast<NewTypeType>(targetType))
+      if (targetType && targetType->tag() == typeinfo_tag::NEW_TYPE)
       {
-        if (nt->wrappedType->match(*exprType) || exprType->tag() == typeinfo_tag::UNTYPED)
+        auto &nt = static_cast<NewTypeType &>(*targetType);
+        if (nt.wrappedType->match(*exprType) || exprType->tag() == typeinfo_tag::UNTYPED)
         {
           result = targetType;
           return;
@@ -7594,9 +5998,10 @@ namespace NG::typecheck
       }
 
       // Allow unwrap: NewType(T) -> T
-      if (auto nt = std::dynamic_pointer_cast<NewTypeType>(exprType))
+      if (exprType && exprType->tag() == typeinfo_tag::NEW_TYPE)
       {
-        if (targetType->match(*nt->wrappedType) || targetType->tag() == typeinfo_tag::UNTYPED)
+        auto &nt = static_cast<NewTypeType &>(*exprType);
+        if (targetType->match(*nt.wrappedType) || targetType->tag() == typeinfo_tag::UNTYPED)
         {
           result = targetType;
           return;
@@ -7604,9 +6009,10 @@ namespace NG::typecheck
       }
 
       // Allow cast through type alias (transparent)
-      if (auto alias = std::dynamic_pointer_cast<TypeAliasType>(exprType))
+      if (exprType && exprType->tag() == typeinfo_tag::TYPE_ALIAS)
       {
-        if (alias->underlyingType->match(*targetType) || targetType->match(*alias->underlyingType))
+        auto &alias = static_cast<TypeAliasType &>(*exprType);
+        if (alias.underlyingType->match(*targetType) || targetType->match(*alias.underlyingType))
         {
           result = targetType;
           return;
@@ -7812,35 +6218,34 @@ namespace NG::typecheck
         {
           targetType = type_from_repr(impl.targetPattern);
         }
-        auto custom = std::dynamic_pointer_cast<CustomizedType>(unwrap(targetType));
-        if (custom)
-        {
-          if (auto localTarget = locals.find(custom->name); localTarget != locals.end())
-          {
-            if (auto localCustom = std::dynamic_pointer_cast<CustomizedType>(unwrap(localTarget->second)))
-            {
-              custom = localCustom;
-            }
-          }
-        }
-        if (!custom)
+        auto unwrappedTarget = unwrap(targetType);
+        if (!unwrappedTarget || unwrappedTarget->tag() != typeinfo_tag::CUSTOMIZED)
         {
           continue;
         }
-        auto &implTraits = trait_impls_by_type[custom->name];
+        auto customPtr = std::static_pointer_cast<CustomizedType>(unwrappedTarget);
+        if (auto localTarget = locals.find(customPtr->name); localTarget != locals.end())
+        {
+          auto unwrappedLocal = unwrap(localTarget->second);
+          if (unwrappedLocal && unwrappedLocal->tag() == typeinfo_tag::CUSTOMIZED)
+          {
+            customPtr = std::static_pointer_cast<CustomizedType>(unwrappedLocal);
+          }
+        }
+        auto &implTraits = trait_impls_by_type[customPtr->name];
         if (std::ranges::find(implTraits, impl.traitName) == implTraits.end())
         {
           implTraits.push_back(impl.traitName);
         }
         auto traitIt = locals.find(impl.traitName);
-        auto trait = traitIt == locals.end() ? nullptr : std::dynamic_pointer_cast<TraitType>(traitIt->second);
-        if (trait)
+        if (traitIt != locals.end() && traitIt->second && traitIt->second->tag() == typeinfo_tag::TRAIT)
         {
-          auto &methods = trait->allMethods.empty() ? trait->methods : trait->allMethods;
+          auto &trait = static_cast<TraitType &>(*traitIt->second);
+          auto &methods = trait.allMethods.empty() ? trait.methods : trait.allMethods;
           for (const auto &[methodName, methodType] : methods)
           {
-            custom->traitMemberFunctions[trait->name][methodName] = methodType;
-            custom->memberFunctions[trait->name + "::" + methodName] = methodType;
+            customPtr->traitMemberFunctions[trait.name][methodName] = methodType;
+            customPtr->memberFunctions[trait.name + "::" + methodName] = methodType;
           }
         }
       }
@@ -8033,6 +6438,7 @@ namespace NG::typecheck
       result = makecheck<Untyped>();
     }
 
+    // ── Function call resolution ────────────────────────────────────────
     void visit(FunCallExpression *funCall) override
     {
       if (auto predicate = tryEvalConstPredicateCall(funCall); predicate.has_value())
@@ -8506,303 +6912,10 @@ namespace NG::typecheck
     void extractGenericBindingsImpl(CheckingRef<TypeInfo> paramType, CheckingRef<TypeInfo> argType,
                                     Map<Str, CheckingRef<TypeInfo>> &substitution, Set<uintptr_t> &seen)
     {
-      if (!paramType || !argType) return;
-      auto key = reinterpret_cast<uintptr_t>(paramType.get()) ^ (reinterpret_cast<uintptr_t>(argType.get()) << 1U);
-      if (!seen.insert(key).second)
-      {
-        return;
-      }
-
-      paramType = unwrap(paramType);
-      argType = unwrap(argType);
-
-      if (auto paramAlias = std::dynamic_pointer_cast<TypeAliasType>(paramType))
-      {
-        extractGenericBindingsImpl(paramAlias->underlyingType, argType, substitution, seen);
-        return;
-      }
-      if (auto argAlias = std::dynamic_pointer_cast<TypeAliasType>(argType))
-      {
-        extractGenericBindingsImpl(paramType, argAlias->underlyingType, substitution, seen);
-        return;
-      }
-
-      if (paramType->tag() == typeinfo_tag::CONST_VALUE)
-      {
-        auto &constParam = static_cast<ConstValueType &>(*paramType);
-        if (!constParam.isParam)
-        {
-          return;
-        }
-        if (auto existing = substitution.contains(constParam.value) ? substitution[constParam.value] : nullptr)
-        {
-          if (existing->tag() == typeinfo_tag::CONST_VALUE)
-          {
-            auto existingConst = std::static_pointer_cast<ConstValueType>(existing);
-            if (existingConst->isParam)
-            {
-              substitution[constParam.value] = argType;
-            }
-            else if (!existing->match(*argType))
-            {
-              throw TypeCheckingException("Inconsistent bindings for const generic parameter '" + constParam.value +
-                                          "': " + existing->repr() + " vs " + argType->repr());
-            }
-          }
-        }
-        else
-        {
-          substitution[constParam.value] = argType;
-        }
-        return;
-      }
-
-      if (paramType->tag() == typeinfo_tag::GENERIC_PARAM)
-      {
-        auto &gp = static_cast<GenericParamType &>(*paramType);
-        if (auto existing = substitution.contains(gp.name) ? substitution[gp.name] : nullptr)
-        {
-          if (existing->tag() == typeinfo_tag::GENERIC_PARAM)
-          {
-            substitution[gp.name] = argType;
-          }
-          else if (argType && argType->tag() != typeinfo_tag::GENERIC_PARAM && !typeMatch(*existing, *argType))
-          {
-            throw TypeCheckingException("Inconsistent bindings for generic parameter '" + gp.name + "': " +
-                                        existing->repr() + " vs " + argType->repr());
-          }
-        }
-        else
-        {
-          substitution[gp.name] = argType;
-        }
-        return;
-      }
-
-      if (paramType->tag() == typeinfo_tag::ARRAY && argType->tag() == typeinfo_tag::ARRAY)
-      {
-        auto &paramArr = static_cast<ArrayType &>(*paramType);
-        auto &argArr = static_cast<ArrayType &>(*argType);
-        extractGenericBindingsImpl(paramArr.elementType, argArr.elementType, substitution, seen);
-        if (paramArr.length && argArr.length)
-        {
-          extractGenericBindingsImpl(paramArr.length, argArr.length, substitution, seen);
-        }
-        return;
-      }
-
-      if (paramType->tag() == typeinfo_tag::VECTOR && argType->tag() == typeinfo_tag::VECTOR)
-      {
-        auto &paramVec = static_cast<VectorType &>(*paramType);
-        auto &argVec = static_cast<VectorType &>(*argType);
-        extractGenericBindingsImpl(paramVec.elementType, argVec.elementType, substitution, seen);
-        return;
-      }
-
-      if (paramType->tag() == typeinfo_tag::SPAN && argType->tag() == typeinfo_tag::SPAN)
-      {
-        auto &paramSpan = static_cast<SpanType &>(*paramType);
-        auto &argSpan = static_cast<SpanType &>(*argType);
-        extractGenericBindingsImpl(paramSpan.elementType, argSpan.elementType, substitution, seen);
-        return;
-      }
-
-      if (paramType->tag() == typeinfo_tag::TUPLE && argType->tag() == typeinfo_tag::TUPLE)
-      {
-        auto &paramTup = static_cast<TupleType &>(*paramType);
-        auto &argTup = static_cast<TupleType &>(*argType);
-        for (size_t i = 0; i < paramTup.elementTypes.size() && i < argTup.elementTypes.size(); ++i)
-        {
-          extractGenericBindingsImpl(paramTup.elementTypes[i], argTup.elementTypes[i], substitution, seen);
-        }
-        return;
-      }
-
-      if (paramType->tag() == typeinfo_tag::REFERENCE && argType->tag() == typeinfo_tag::REFERENCE)
-      {
-        auto &paramRef = static_cast<ReferenceType &>(*paramType);
-        auto &argRef = static_cast<ReferenceType &>(*argType);
-        extractGenericBindingsImpl(paramRef.referencedType, argRef.referencedType, substitution, seen);
-        return;
-      }
-
-      if (paramType->tag() == typeinfo_tag::TYPE_CONSTRUCTOR_APPLICATION)
-      {
-        auto &paramApp = static_cast<TypeConstructorApplicationType &>(*paramType);
-        Str argBase;
-        Vec<Str> argArgs;
-        if (auto argCustom = std::dynamic_pointer_cast<CustomizedType>(argType))
-        {
-          argBase = stripTypeInstanceSuffix(argCustom->name);
-          argArgs = parseTypeInstanceArgs(argCustom->name);
-        }
-        else if (auto argAlias = std::dynamic_pointer_cast<TypeAliasType>(argType))
-        {
-          argBase = stripTypeInstanceSuffix(argAlias->name);
-          argArgs = parseTypeInstanceArgs(argAlias->name);
-        }
-        else if (auto argNewType = std::dynamic_pointer_cast<NewTypeType>(argType))
-        {
-          argBase = stripTypeInstanceSuffix(argNewType->name);
-          argArgs = parseTypeInstanceArgs(argNewType->name);
-        }
-        else if (auto argTagged = std::dynamic_pointer_cast<TaggedUnionType>(argType))
-        {
-          argBase = stripTypeInstanceSuffix(argTagged->name);
-          argArgs = parseTypeInstanceArgs(argTagged->name);
-        }
-
-        if (argBase.empty() || argArgs.size() != paramApp.typeArgs.size())
-        {
-          return;
-        }
-
-        if (auto constructorParam = std::dynamic_pointer_cast<GenericParamType>(paramApp.constructorType))
-        {
-          if (auto constructorIt = locals.find(argBase); constructorIt != locals.end())
-          {
-            const size_t actualArity = typeKindArity(constructorIt->second);
-            const bool actualVariadicTail = typeKindVariadicTail(constructorIt->second);
-            if (actualArity == constructorParam->kindArity &&
-                actualVariadicTail == constructorParam->kindVariadicTail)
-            {
-              if (auto existing = substitution.contains(constructorParam->name) ? substitution[constructorParam->name] : nullptr;
-                  !existing || existing->tag() == typeinfo_tag::GENERIC_PARAM)
-              {
-                substitution[constructorParam->name] = constructorIt->second;
-              }
-            }
-          }
-        }
-
-        for (size_t i = 0; i < paramApp.typeArgs.size() && i < argArgs.size(); ++i)
-        {
-          CheckingRef<TypeInfo> argConcrete;
-          if (auto argIt = locals.find(argArgs[i]); argIt != locals.end())
-          {
-            argConcrete = argIt->second;
-          }
-          else if (auto primitive = PrimitiveType::from(argArgs[i]))
-          {
-            argConcrete = primitive;
-          }
-          else
-          {
-            argConcrete = makecheck<CustomizedType>(argArgs[i]);
-          }
-          extractGenericBindingsImpl(paramApp.typeArgs[i], argConcrete, substitution, seen);
-        }
-        return;
-      }
-
-      if (paramType->tag() == typeinfo_tag::CUSTOMIZED && argType->tag() == typeinfo_tag::CUSTOMIZED)
-      {
-        auto &paramCustom = static_cast<CustomizedType &>(*paramType);
-        auto &argCustom = static_cast<CustomizedType &>(*argType);
-        auto paramBase = stripTypeInstanceSuffix(paramCustom.name);
-        auto argBase = stripTypeInstanceSuffix(argCustom.name);
-        if (paramBase != argBase || paramCustom.name == argCustom.name)
-        {
-          return;
-        }
-
-        auto paramArgs = parseTypeInstanceArgs(paramCustom.name);
-        auto argArgs = parseTypeInstanceArgs(argCustom.name);
-        for (size_t i = 0; i < paramArgs.size() && i < argArgs.size(); ++i)
-        {
-          auto paramIt = substitution.find(paramArgs[i]);
-          CheckingRef<TypeInfo> argConcrete;
-          if (auto argIt = locals.find(argArgs[i]); argIt != locals.end())
-          {
-            argConcrete = argIt->second;
-          }
-          else
-          {
-            argConcrete = PrimitiveType::from(argArgs[i]);
-          }
-          if (paramIt != substitution.end() && argConcrete)
-          {
-            extractGenericBindingsImpl(paramIt->second, argConcrete, substitution, seen);
-          }
-        }
-        return;
-      }
-
-      if (paramType->tag() == typeinfo_tag::TAGGED_UNION)
-      {
-        auto &paramUnion = static_cast<TaggedUnionType &>(*paramType);
-        if (argType->tag() == typeinfo_tag::TAGGED_UNION)
-        {
-          auto &argUnion = static_cast<TaggedUnionType &>(*argType);
-          for (const auto &[variantName, paramPayload] : paramUnion.variants)
-          {
-            if (!argUnion.variants.contains(variantName))
-            {
-              continue;
-            }
-            const auto &argPayload = argUnion.variants.at(variantName);
-            for (size_t i = 0; i < paramPayload.size() && i < argPayload.size(); ++i)
-            {
-              extractGenericBindingsImpl(paramPayload[i], argPayload[i], substitution, seen);
-            }
-          }
-          return;
-        }
-        if (argType->tag() == typeinfo_tag::VARIANT)
-        {
-          auto &argVariant = static_cast<VariantType &>(*argType);
-          if (paramUnion.variants.contains(argVariant.variantName))
-          {
-            const auto &paramPayload = paramUnion.variants.at(argVariant.variantName);
-            for (size_t i = 0; i < paramPayload.size() && i < argVariant.payloadTypes.size(); ++i)
-            {
-              extractGenericBindingsImpl(paramPayload[i], argVariant.payloadTypes[i], substitution, seen);
-            }
-          }
-          return;
-        }
-      }
-
-      if (paramType->tag() == typeinfo_tag::VARIANT && argType->tag() == typeinfo_tag::VARIANT)
-      {
-        auto &paramVariant = static_cast<VariantType &>(*paramType);
-        auto &argVariant = static_cast<VariantType &>(*argType);
-        if (paramVariant.variantName != argVariant.variantName)
-        {
-          return;
-        }
-        for (size_t i = 0; i < paramVariant.payloadTypes.size() && i < argVariant.payloadTypes.size(); ++i)
-        {
-          extractGenericBindingsImpl(paramVariant.payloadTypes[i], argVariant.payloadTypes[i], substitution, seen);
-        }
-        return;
-      }
-
-      // Handle VarargsType: recurse into element types if argType is also VarargsType/TupleType
-      if (paramType->tag() == typeinfo_tag::VARARGS)
-      {
-        auto &paramVar = static_cast<VarargsType &>(*paramType);
-        if (argType->tag() == typeinfo_tag::VARARGS)
-        {
-          auto &argVar = static_cast<VarargsType &>(*argType);
-          for (size_t i = 0; i < paramVar.elementTypes.size() && i < argVar.elementTypes.size(); ++i)
-          {
-            extractGenericBindingsImpl(paramVar.elementTypes[i], argVar.elementTypes[i], substitution, seen);
-          }
-        }
-        else if (argType->tag() == typeinfo_tag::TUPLE)
-        {
-          auto &argTup = static_cast<TupleType &>(*argType);
-          for (size_t i = 0; i < paramVar.elementTypes.size() && i < argTup.elementTypes.size(); ++i)
-          {
-            extractGenericBindingsImpl(paramVar.elementTypes[i], argTup.elementTypes[i], substitution, seen);
-          }
-        }
-        return;
-      }
-
-      // For other types, no generic params to extract
+      NG::typecheck::extractGenericBindingsImpl(std::move(paramType), std::move(argType), substitution, seen, env);
     }
+
+    // Legacy wrapper — delegates to the extracted version
 
     void extractGenericBindings(CheckingRef<TypeInfo> paramType, CheckingRef<TypeInfo> argType,
                                 Map<Str, CheckingRef<TypeInfo>> &substitution)
@@ -9197,20 +7310,23 @@ namespace NG::typecheck
         }
         if (bound.empty())
         {
-          if (auto generic = std::dynamic_pointer_cast<GenericParamType>(substitution[name]))
+          if (substitution[name] && substitution[name]->tag() == typeinfo_tag::GENERIC_PARAM)
           {
-            bound = generic->bound;
+            bound = static_cast<GenericParamType &>(*substitution[name]).bound;
           }
         }
         if (!bound.empty())
         {
           auto traitIt = locals.find(bound);
-          auto trait = traitIt == locals.end() ? nullptr : std::dynamic_pointer_cast<TraitType>(traitIt->second);
-          if (trait && pi < instantiatedArgs.size() && !typeSatisfiesTrait(instantiatedArgs[pi], *trait))
+          if (traitIt != locals.end() && traitIt->second && traitIt->second->tag() == typeinfo_tag::TRAIT)
           {
-            throw TypeCheckingException("Type '" + instantiatedArgs[pi]->repr() + "' does not implement trait '" +
-                                            trait->name + "'",
-                                        funCall->pos);
+            auto &trait = static_cast<TraitType &>(*traitIt->second);
+            if (pi < instantiatedArgs.size() && !typeSatisfiesTrait(instantiatedArgs[pi], trait))
+            {
+              throw TypeCheckingException("Type '" + instantiatedArgs[pi]->repr() + "' does not implement trait '" +
+                                              trait.name + "'",
+                                          funCall->pos);
+            }
           }
         }
       }
@@ -9562,70 +7678,60 @@ namespace NG::typecheck
 
   TypeIndex build_prelude_type_index()
   {
-    static bool cached = false;
     static TypeIndex cachedResult;
     static ASTRef<ASTNode> retainedPreludeAst = nullptr;
+    static std::once_flag initFlag;
+    static bool initSucceeded = false;
 
-    if (cached)
+    std::call_once(initFlag, [&]()
     {
-      return cachedResult;
-    }
+      TypeIndex result;
 
-    TypeIndex result;
+      // Try to locate and load the prelude source file from known lib paths.
+      namespace fs = std::filesystem;
 
-    // Try to locate and load the prelude source file from known lib paths.
-    // This mirrors the search logic used by the interpreter's module loader.
-    namespace fs = std::filesystem;
+      Vec<Str> libPaths = {"[force-source-module-loader]", "lib", "../lib", "../../lib"};
+      fs::path preludePath;
 
-    Vec<Str> libPaths = {"[force-source-module-loader]", "lib", "../lib", "../../lib"};
-    fs::path preludePath;
-
-    for (const auto &base : libPaths)
-    {
-      fs::path candidate = fs::path(base) / "std" / "prelude.ng";
-      if (fs::exists(candidate))
+      for (const auto &base : libPaths)
       {
-        preludePath = candidate;
-        break;
+        fs::path candidate = fs::path(base) / "std" / "prelude.ng";
+        if (fs::exists(candidate))
+        {
+          preludePath = candidate;
+          break;
+        }
       }
-    }
 
-    if (preludePath.empty())
-    {
-      // Prelude not found — return empty index (tests/CLI that don't use
-      // the prelude will still work).
-      return result;
-    }
+      if (preludePath.empty()) return;
 
-    try
-    {
-      std::ifstream file{preludePath};
-      std::string source{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
-
-      using namespace NG::parsing;
-      auto ast = Parser(ParseState(Lexer(LexState{source}).lex())).parse(preludePath.string());
-
-      if (ast)
+      try
       {
-        TypeChecker::retainedPreludeImportAsts.clear();
-        result = type_check(ast, {}, libPaths);
-        TypeChecker::preludeTypeAliasSpecializations = TypeChecker::activeTypeAliasSpecializations;
-        TypeChecker::preludeConstPredicates = TypeChecker::activeConstPredicates;
-        TypeChecker::preludeConstFunctions = TypeChecker::activeConstFunctions;
-        TypeChecker::preludeAutoTraits = TypeChecker::activeAutoTraits;
-        retainedPreludeAst = ast;
-      }
-    }
-    catch (...)
-    {
-      // If prelude parsing/type-checking fails, do not cache the partial
-      // result. Tests and host tools can register incomplete module artifacts
-      // before the stdlib sources are available to the type checker.
-      return result;
-    }
+        std::ifstream file{preludePath};
+        std::string source{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
 
-    cachedResult = result;
-    cached = true;
-    return result;
+        using namespace NG::parsing;
+        auto ast = Parser(ParseState(Lexer(LexState{source}).lex())).parse(preludePath.string());
+
+        if (ast)
+        {
+          TypeChecker::retainedPreludeImportAsts.clear();
+          result = type_check(ast, {}, libPaths);
+          TypeChecker::preludeTypeAliasSpecializations = TypeChecker::activeTypeAliasSpecializations;
+          TypeChecker::preludeConstPredicates = TypeChecker::activeConstPredicates;
+          TypeChecker::preludeConstFunctions = TypeChecker::activeConstFunctions;
+          TypeChecker::preludeAutoTraits = TypeChecker::activeAutoTraits;
+          retainedPreludeAst = ast;
+          cachedResult = result;
+          initSucceeded = true;
+        }
+      }
+      catch (...)
+      {
+        // If prelude parsing/type-checking fails, do not cache.
+      }
+    });
+
+    return initSucceeded ? cachedResult : TypeIndex{};
   }
 } // namespace NG::typecheck

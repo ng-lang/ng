@@ -9,6 +9,73 @@
 
 namespace NG::runtime
 {
+    // Overflow-checked arithmetic for signed integers.
+    // For unsigned types, standard wrapping semantics are preserved.
+    // For floating-point types, standard IEEE semantics are preserved.
+    template <class T>
+    inline auto checked_add(T a, T b) -> T
+    {
+        if constexpr (std::integral<T> && std::is_signed_v<T>)
+        {
+            T result;
+            if (__builtin_add_overflow(a, b, &result))
+            {
+                throw RuntimeException("Integer overflow in addition");
+            }
+            return result;
+        }
+        else
+        {
+            return static_cast<T>(a + b);
+        }
+    }
+
+    template <class T>
+    inline auto checked_sub(T a, T b) -> T
+    {
+        if constexpr (std::integral<T> && std::is_signed_v<T>)
+        {
+            T result;
+            if (__builtin_sub_overflow(a, b, &result))
+            {
+                throw RuntimeException("Integer overflow in subtraction");
+            }
+            return result;
+        }
+        else
+        {
+            return static_cast<T>(a - b);
+        }
+    }
+
+    template <class T>
+    inline auto checked_mul(T a, T b) -> T
+    {
+        if constexpr (std::integral<T> && std::is_signed_v<T>)
+        {
+            T result;
+            if (__builtin_mul_overflow(a, b, &result))
+            {
+                throw RuntimeException("Integer overflow in multiplication");
+            }
+            return result;
+        }
+        else
+        {
+            return static_cast<T>(a * b);
+        }
+    }
+
+    template <class T>
+    inline auto checked_negate(T a) -> T
+    {
+        static_assert(std::is_signed_v<T>, "checked_negate only for signed types");
+        if (a == std::numeric_limits<T>::min())
+        {
+            throw RuntimeException("Integer overflow in negation");
+        }
+        return static_cast<T>(-a);
+    }
     template <class T>
     inline void write_inline_cell_bytes(const RuntimeRef<StorageCell> &cell, T value)
     {
@@ -99,10 +166,10 @@ namespace NG::runtime
     {
         auto type = cell ? cell->runtimeType : nullptr;
         auto name = type ? type->name : Str{};
-        if (name == "i8") return numeral_cell_from_value<int8_t>(-read_inline_cell_bytes<int8_t>(cell));
-        if (name == "i16") return numeral_cell_from_value<int16_t>(-read_inline_cell_bytes<int16_t>(cell));
-        if (name == "i32" || name == "int") return numeral_cell_from_value<int32_t>(-read_inline_cell_bytes<int32_t>(cell));
-        if (name == "i64") return numeral_cell_from_value<int64_t>(-read_inline_cell_bytes<int64_t>(cell));
+        if (name == "i8") return numeral_cell_from_value<int8_t>(checked_negate(read_inline_cell_bytes<int8_t>(cell)));
+        if (name == "i16") return numeral_cell_from_value<int16_t>(checked_negate(read_inline_cell_bytes<int16_t>(cell)));
+        if (name == "i32" || name == "int") return numeral_cell_from_value<int32_t>(checked_negate(read_inline_cell_bytes<int32_t>(cell)));
+        if (name == "i64") return numeral_cell_from_value<int64_t>(checked_negate(read_inline_cell_bytes<int64_t>(cell)));
         if (name == "f32" || name == "float") return numeral_cell_from_value<float>(-read_inline_cell_bytes<float>(cell));
         if (name == "f64" || name == "double") return numeral_cell_from_value<double>(-read_inline_cell_bytes<double>(cell));
         if (name == "u8" || name == "u16" || name == "u32" || name == "uint" || name == "u64")
@@ -139,24 +206,32 @@ namespace NG::runtime
                                                             runtime_value_show(other));
                              }
                          }
-                         return numeral_cell_from_value<T>(read_inline_cell_bytes<T>(self) + read_numeric_cell_as<T>(other));
+                         return numeral_cell_from_value<T>(checked_add(read_inline_cell_bytes<T>(self), read_numeric_cell_as<T>(other)));
                      }},
                     {RuntimeBinaryOperator::Subtract,
                      [](const RuntimeRef<StorageCell> &self, const RuntimeRef<StorageCell> &other) -> RuntimeRef<StorageCell> {
-                         return numeral_cell_from_value<T>(read_inline_cell_bytes<T>(self) - read_numeric_cell_as<T>(other));
+                         return numeral_cell_from_value<T>(checked_sub(read_inline_cell_bytes<T>(self), read_numeric_cell_as<T>(other)));
                      }},
                     {RuntimeBinaryOperator::Multiply,
                      [](const RuntimeRef<StorageCell> &self, const RuntimeRef<StorageCell> &other) -> RuntimeRef<StorageCell> {
-                         return numeral_cell_from_value<T>(read_inline_cell_bytes<T>(self) * read_numeric_cell_as<T>(other));
+                         return numeral_cell_from_value<T>(checked_mul(read_inline_cell_bytes<T>(self), read_numeric_cell_as<T>(other)));
                      }},
                     {RuntimeBinaryOperator::Divide,
                      [](const RuntimeRef<StorageCell> &self, const RuntimeRef<StorageCell> &other) -> RuntimeRef<StorageCell> {
+                         auto dividend = read_inline_cell_bytes<T>(self);
                          auto divisor = read_numeric_cell_as<T>(other);
                          if (divisor == 0)
                          {
                              throw RuntimeException("Division by zero");
                          }
-                         return numeral_cell_from_value<T>(read_inline_cell_bytes<T>(self) / divisor);
+                         if constexpr (std::integral<T> && std::is_signed_v<T>)
+                         {
+                             if (dividend == std::numeric_limits<T>::min() && divisor == static_cast<T>(-1))
+                             {
+                                 throw RuntimeException("Integer overflow in division");
+                             }
+                         }
+                         return numeral_cell_from_value<T>(dividend / divisor);
                      }},
                     {RuntimeBinaryOperator::Modulus,
                      [](const RuntimeRef<StorageCell> &self, const RuntimeRef<StorageCell> &other) -> RuntimeRef<StorageCell> {
@@ -166,12 +241,20 @@ namespace NG::runtime
                          }
                          else
                          {
+                             auto dividend = read_inline_cell_bytes<T>(self);
                              auto divisor = read_numeric_cell_as<T>(other);
                              if (divisor == 0)
                              {
                                  throw RuntimeException("Modulus by zero");
                              }
-                             return numeral_cell_from_value<T>(read_inline_cell_bytes<T>(self) % divisor);
+                             if constexpr (std::integral<T> && std::is_signed_v<T>)
+                             {
+                                 if (dividend == std::numeric_limits<T>::min() && divisor == static_cast<T>(-1))
+                                 {
+                                     throw RuntimeException("Integer overflow in modulus");
+                                 }
+                             }
+                             return numeral_cell_from_value<T>(dividend % divisor);
                          }
                      }},
                 },

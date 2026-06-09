@@ -45,30 +45,18 @@ namespace NG::orgasm
         LOAD_CONST,
         LOAD_STR,
 
-        // Arithmetic
+        // Arithmetic (generic — dispatch by runtime type)
         ADD,
         SUB,
         MUL,
         DIV,
-        ADD_I32,
-        SUB_I32,
-        MUL_I32,
-        DIV_I32,
-        MOD_I32,
-        ADD_F64,
-        SUB_F64,
-        MUL_F64,
-        DIV_F64,
-        NEG_I32,
-        NEG_F64,
+        MOD,
+        NEG,
 
-        // Comparison
-        EQ_I32,
-        LT_I32,
-        GT_I32,
-        EQ_F64,
-        LT_F64,
-        GT_F64,
+        // Comparison (generic — dispatch by runtime type)
+        EQ,
+        LT,
+        GT,
         NOT,
         INSTANCE_OF,
 

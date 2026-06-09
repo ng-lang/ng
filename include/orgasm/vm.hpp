@@ -78,5 +78,13 @@ namespace NG::orgasm
                         const Vec<RuntimeRef<StorageCell>> &argSlots);
         auto execute_slots(const BytecodeModule &module, const Function &fun,
                            const Vec<RuntimeRef<StorageCell>> &argSlots) -> RuntimeRef<StorageCell>;
+
+        // Stack helpers
+        auto pop_slot() -> RuntimeRef<StorageCell>;
+
+        // Helper: resolve a member function call (INVOKE_MEMBER logic)
+        auto resolve_member_call(const Str &typeName, const Str &memberName,
+                                 const RuntimeRef<StorageCell> &target,
+                                 Vec<RuntimeRef<StorageCell>> &callArgs) -> void;
     };
 } // namespace NG::orgasm

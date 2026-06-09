@@ -26,50 +26,32 @@ namespace NG::parsing
 
   constexpr std::array<int, 6> bitlengths{8, 16, 32, 64, 128, 256};
 
+  auto emitToken(Vec<Token> &tokens, TokenType type, const Str &repr, TokenPosition pos) -> Token
+  {
+    Token token{.type = type, .repr = repr, .position = pos};
+    tokens.push_back(token);
+    return token;
+  }
+
   template <class Container, class T>
   inline auto is(const Container &container, T item) -> bool
   {
     return std::find(container.begin(), container.end(), item) != container.end();
   }
 
-  static const Map<Str, TokenType> operator_types = {
-    {":=", TokenType::ASSIGN_EQUAL},
-
-    {"=", TokenType::BIND},
-    {"+", TokenType::PLUS},
-    {"-", TokenType::MINUS},
-    {"*", TokenType::TIMES},
-    {"/", TokenType::DIVIDE},
-    {"%", TokenType::MODULUS},
-    {"==", TokenType::EQUAL},
-    {"!=", TokenType::NOT_EQUAL},
-    {">", TokenType::GT},
-    {"<", TokenType::LT},
-    {">=", TokenType::GE},
-    {"<=", TokenType::LE},
-    {"<<", TokenType::LSHIFT},
-    {">>", TokenType::RSHIFT},
-
-    {"&", TokenType::AMPERSAND},
-    {"|>", TokenType::PIPE_FORWARD},
-    {"|", TokenType::PIPE},
-    {"^", TokenType::CARET},
-    {"~", TokenType::TILDE},
-
-    {"$", TokenType::DOLLAR},
-
-    {"&&", TokenType::AND},
-    {"||", TokenType::OR},
-
-    {"!", TokenType::NOT},
-    {"?", TokenType::QUERY},
-    {"???", TokenType::UNDEFINED},
+  // Set of token types that represent operators (used by parser for precedence parsing).
+  static const Set<TokenType> operator_token_types = {
+      TokenType::ASSIGN_EQUAL, TokenType::BIND, TokenType::PLUS, TokenType::MINUS,
+      TokenType::TIMES, TokenType::DIVIDE, TokenType::MODULUS, TokenType::EQUAL,
+      TokenType::NOT_EQUAL, TokenType::GT, TokenType::LT, TokenType::GE, TokenType::LE,
+      TokenType::LSHIFT, TokenType::RSHIFT, TokenType::AMPERSAND, TokenType::PIPE_FORWARD,
+      TokenType::PIPE, TokenType::CARET, TokenType::TILDE, TokenType::DOLLAR,
+      TokenType::AND, TokenType::OR, TokenType::NOT, TokenType::QUERY, TokenType::UNDEFINED,
   };
 
   auto is_operator(TokenType token) -> bool
   {
-    return std::any_of(operator_types.begin(), operator_types.end(),
-                       [token](const auto &pair) { return pair.second == token; });
+    return operator_token_types.contains(token);
   }
 
   const static Map<Str, TokenType> tokenType = {
@@ -184,6 +166,7 @@ namespace NG::parsing
     {">>", TokenType::RSHIFT},
 
     {"&", TokenType::AMPERSAND},
+    {"|>", TokenType::PIPE_FORWARD},
     {"|", TokenType::PIPE},
     {"^", TokenType::CARET},
     {"~", TokenType::TILDE},
@@ -216,23 +199,23 @@ namespace NG::parsing
 
   static Token lexString(LexState &state, Vec<Token> &tokens);
 
-  [[nodiscard]] inline auto isTermintator(char character) -> bool
+  [[nodiscard]] inline auto isTerminator(char character) -> bool
   {
     return character == ',' || character == ';' || character == '(' || character == ')' || character == ']' ||
            character == '}';
   }
 
-  [[nodiscard]] inline auto withStream(LexState &state,
-                                       const std::function<void(LexState &state, Stream &stream)> &func) -> Str
+  template <typename F>
+  [[nodiscard]] inline auto withStream(LexState &state, F &&func) -> Str
   {
     auto current = state.index;
     try
     {
-      Stream stream{};
-      func(state, stream);
-      return stream.str();
+      Str result;
+      func(state, result);
+      return result;
     }
-    catch (std::exception &)
+    catch (LexException &)
     {
       state.revert(current);
       return "";
@@ -241,7 +224,83 @@ namespace NG::parsing
 
   [[nodiscard]] inline auto isBlankSpaceTerminatorOrOperator(char current) -> bool
   {
-    return isblank(current) || isspace(current) || isTermintator(current) || is(operators, current);
+    return isblank(current) || isspace(current) || isTerminator(current) || is(operators, current);
+  }
+
+  // Skip a line comment (// or #) — consumes to end of line.
+  static void skipLineComment(LexState &state)
+  {
+    while (state.current() != '\n' && !state.eof())
+    {
+      state.next();
+    }
+    if (!state.eof())
+    {
+      state.nextLine();
+    }
+    state.next();
+  }
+
+  // Skip a block comment (/* ... */) — consumes to closing */.
+  static void skipBlockComment(LexState &state)
+  {
+    state.next(2); // consume '/*'
+    while (!state.eof())
+    {
+      if (state.current() == '\n')
+      {
+        state.next();
+        state.nextLine();
+        continue;
+      }
+      if (state.current() == '*' && state.lookAhead() == '/')
+      {
+        state.next(2);
+        return;
+      }
+      state.next();
+    }
+    throw LexException("Unterminated block comment");
+  }
+
+  // Lex colon variants: ::, :=, :
+  static auto lexColon(LexState &state, Vec<Token> &tokens, TokenPosition pos) -> Token
+  {
+    if (state.lookAhead() == ':')
+    {
+      state.next(2);
+      return emitToken(tokens, TokenType::SEPARATOR, "::", pos);
+    }
+    if (state.lookAhead() == '=')
+    {
+      state.next(2);
+      return emitToken(tokens, TokenType::ASSIGN_EQUAL, ":=", pos);
+    }
+    state.next();
+    return emitToken(tokens, TokenType::COLON, ":", pos);
+  }
+
+  // Lex dot variants: ..., ..=, .., .
+  static auto lexDot(LexState &state, Vec<Token> &tokens, TokenPosition pos) -> Token
+  {
+    if (state.lookAhead() == '.')
+    {
+      state.next();
+      if (state.lookAhead() == '.')
+      {
+        state.next(2);
+        return emitToken(tokens, TokenType::SPREAD, "...", pos);
+      }
+      if (state.lookAhead() == '=')
+      {
+        state.next(2);
+        return emitToken(tokens, TokenType::RANGE_INCLUSIVE, "..=", pos);
+      }
+      state.next();
+      return emitToken(tokens, TokenType::RANGE, "..", pos);
+    }
+    state.next();
+    return emitToken(tokens, TokenType::DOT, ".", pos);
   }
 
   auto Lexer::next() -> Token
@@ -249,173 +308,53 @@ namespace NG::parsing
     while (const char current = state.current())
     {
       TokenPosition pos{.line = state.line, .col = state.col};
+
+      // Whitespace
       if (isblank(current) || isspace(current))
       {
-        if (current == '\n')
-        {
-          state.nextLine();
-        }
+        if (current == '\n') state.nextLine();
         state.next();
         continue;
       }
-      if (isalpha(current) || current == '_')
+
+      // Identifiers and keywords
+      if (isalpha(current) || current == '_') return lexSymbol(state, tokens);
+
+      // Numbers
+      if (isdigit(current)) return lexNumber(state, tokens);
+
+      // Strings
+      if (current == '"') return lexString(state, tokens);
+
+      // Brackets
+      if (is(brackets, current))
       {
-        return lexSymbol(state, tokens);
-      }
-      else if (isdigit(current))
-      {
-        return lexNumber(state, tokens);
-      }
-      else if (current == '"')
-      {
-        return lexString(state, tokens);
-      }
-      else if (is(brackets, current))
-      {
-        Str result{};
-        result += current;
-        Token token{.type = tokenType.at(result), .repr = result, .position = pos};
-        tokens.push_back(token);
+        Str result(1, current);
         state.next();
-        return token;
+        return emitToken(tokens, tokenType.at(result), result, pos);
       }
-      else if (current == '/')
+
+      // Comments (// and /* */) and division operator
+      if (current == '/')
       {
-        if (state.lookAhead() == '/')
-        {
-          while (state.current() != '\n' && !state.eof())
-          {
-            state.next();
-          }
-          if (!state.eof())
-          {
-            state.nextLine();
-          }
-          state.next();
-        }
-        else if (state.lookAhead() == '*')
-        {
-          // consume '/*'
-          state.next(2);
-          while (!state.eof())
-          {
-            if (state.current() == '\n')
-            {
-              state.next();
-              state.nextLine();
-              continue;
-            }
-            if (state.current() == '*' && state.lookAhead() == '/')
-            {
-              state.next(2);
-              break;
-            }
-            state.next();
-          }
-          if (state.eof())
-          {
-            throw LexException("Unterminated block comment");
-          }
-        }
-        else
-        {
-          return lexOperator(state, tokens);
-        }
-      }
-      else if (current == '#')
-      {
-        while (state.current() != '\n' && !state.eof())
-        {
-          state.next();
-        }
-        if (!state.eof())
-        {
-          state.nextLine();
-        }
-        state.next();
-      }
-      else if (current == '-')
-      {
+        if (state.lookAhead() == '/') { skipLineComment(state); continue; }
+        if (state.lookAhead() == '*') { skipBlockComment(state); continue; }
         return lexOperator(state, tokens);
       }
-      else if (is(operators, current))
-      {
-        return lexOperator(state, tokens);
-      }
-      else if (current == ':')
-      {
-        if (state.lookAhead() == ':')
-        {
-          Token token{.type = TokenType::SEPARATOR, .repr = "::", .position = pos};
-          tokens.push_back(token);
-          state.next(2);
-          return token;
-        }
-        if (state.lookAhead() == '=')
-        {
-          Token token{.type = TokenType::ASSIGN_EQUAL, .repr = ":=", .position = pos};
-          tokens.push_back(token);
-          state.next(2);
-          return token;
-        }
-        else
-        {
-          Token token{.type = TokenType::COLON, .repr = ":", .position = pos};
-          tokens.push_back(token);
-          state.next();
-          return token;
-        }
-      }
-      else if (current == ';')
-      {
-        Token token{.type = TokenType::SEMICOLON, .repr = ";", .position = pos};
-        tokens.push_back(token);
-        state.next();
-        return token;
-      }
-      else if (current == ',')
-      {
-        Token token{.type = TokenType::COMMA, .repr = ",", .position = pos};
-        tokens.push_back(token);
-        state.next();
-        return token;
-      }
-      else if (current == '.')
-      {
-        if (state.lookAhead() == '.')
-        {
-          state.next();
-          if (state.lookAhead() == '.')
-          {
-            Token token{.type = TokenType::SPREAD, .repr = "...", .position = pos};
-            tokens.push_back(token);
-            state.next(2);
-            return token;
-          }
-          else if (state.lookAhead() == '=')
-          {
-            Token token{.type = TokenType::RANGE_INCLUSIVE, .repr = "..=", .position = pos};
-            tokens.push_back(token);
-            state.next(2);
-            return token;
-          }
-          else
-          {
-            Token token{.type = TokenType::RANGE, .repr = "..", .position = pos};
-            tokens.push_back(token);
-            state.next();
-            return token;
-          }
-        }
-        Token token{.type = TokenType::DOT, .repr = ".", .position = pos};
-        tokens.push_back(token);
-        state.next();
-        return token;
-      }
-      else
-      {
-        throw LexException("Unknown token: " + std::string(1, current));
-      }
+
+      // Hash comments
+      if (current == '#') { skipLineComment(state); continue; }
+
+      // Operators (including minus)
+      if (is(operators, current)) return lexOperator(state, tokens);
+
+      // Punctuation
+      if (current == ':') return lexColon(state, tokens, pos);
+      if (current == ';') { state.next(); return emitToken(tokens, TokenType::SEMICOLON, ";", pos); }
+      if (current == ',') { state.next(); return emitToken(tokens, TokenType::COMMA, ",", pos); }
+      if (current == '.') return lexDot(state, tokens, pos);
+
+      throw LexException("Unknown token: " + std::string(1, current));
     }
     return {};
   }
@@ -434,11 +373,11 @@ namespace NG::parsing
   {
     TokenPosition pos{.line = state.line, .col = state.col};
     Str result = withStream(state,
-                            [](LexState &state, Stream &stream)
+                            [](LexState &state, Str &out)
                             {
                               while (isalnum(state.current()) || state.current() == '_')
                               {
-                                stream << state.current();
+                                out += state.current();
                                 state.next();
                               }
                             });
@@ -450,15 +389,11 @@ namespace NG::parsing
       {
         throw LexException("You are using a reserved token: " + result);
       }
-      Token token{.type = tokenType.at(result), .repr = result, .position = pos};
-      tokens.push_back(token);
-      return token;
+      return emitToken(tokens, tokenType.at(result), result, pos);
     }
     else
     {
-      Token token{.type = TokenType::ID, .repr = result, .position = pos};
-      tokens.push_back(token);
-      return token;
+      return emitToken(tokens, TokenType::ID, result, pos);
     }
   }
 
@@ -553,12 +488,12 @@ namespace NG::parsing
   static auto numberTypePostfix(LexState &state) -> int
   {
     Str postfix = withStream(state,
-                             [](LexState &state, Stream &stream)
+                             [](LexState &state, Str &out)
                              {
                                auto current = state.current();
                                while (isdigit(current))
                                {
-                                 stream << current;
+                                 out += current;
                                  state.next();
                                  current = state.current();
                                }
@@ -575,57 +510,65 @@ namespace NG::parsing
   static Token lexNumber(LexState &state, Vec<Token> &tokens)
   {
     TokenPosition pos{.line = state.line, .col = state.col};
-    TokenType tokenType = TokenType::NUMBER;
+    TokenType numTokenType = TokenType::NUMBER;
     Str result = withStream(state,
-                            [&tokenType](LexState &state, Stream &stream)
+                            [&numTokenType](LexState &state, Str &out)
                             {
                               auto current = state.current();
                               bool decimalPointSet = false;
-                              bool exponentalSet = false;
+                              bool exponentialSet = false;
                               while (current && !(isBlankSpaceTerminatorOrOperator(current)))
                               {
                                 if (isdigit(current))
                                 {
-                                  stream << state.current();
+                                  out += state.current();
                                 }
                                 else if (current == '_')
                                 {
-                                  // skip just as seperator.
+                                  // skip just as separator.
                                 }
-                                else if (current == '.' && !decimalPointSet && !exponentalSet)
+                                else if (current == '.' && !decimalPointSet && !exponentialSet)
                                 {
                                   if (!isdigit(state.lookAhead()))
                                   {
                                     return;
                                   }
                                   decimalPointSet = true;
-                                  tokenType = TokenType::FLOATING_POINT;
-                                  stream << current;
+                                  numTokenType = TokenType::FLOATING_POINT;
+                                  out += current;
                                 }
-                                else if (current == 'e' && !exponentalSet)
+                                else if (current == 'e' && !exponentialSet)
                                 {
-                                  exponentalSet = true;
-                                  tokenType = TokenType::FLOATING_POINT;
-                                  stream << current;
+                                  exponentialSet = true;
+                                  numTokenType = TokenType::FLOATING_POINT;
+                                  out += current;
                                   if (state.lookAhead() == '-')
                                   {
                                     state.next();
-                                    stream << state.current();
+                                    out += state.current();
                                   }
                                 }
                                 else if ((tolower(current) == 'u' || tolower(current) == 'i') &&
-                                         tokenType != TokenType::FLOATING_POINT)
+                                         numTokenType != TokenType::FLOATING_POINT)
                                 {
+                                  auto suffix = current;
                                   state.next();
+                                  auto digitsStart = state.index;
                                   int bitlength = numberTypePostfix(state);
-                                  tokenType = resolveIntegralType(current, from_code<Words>(bitlength));
+                                  out += suffix;
+                                  out += state.source.substr(digitsStart, state.index - digitsStart);
+                                  numTokenType = resolveIntegralType(current, from_code<Words>(bitlength));
                                   return;
                                 }
                                 else if ((tolower(current) == 'f'))
                                 {
+                                  auto suffix = current;
                                   state.next();
+                                  auto digitsStart = state.index;
                                   int bitlength = numberTypePostfix(state);
-                                  tokenType = resolveFloatingPointType(from_code<Floats>(bitlength));
+                                  out += suffix;
+                                  out += state.source.substr(digitsStart, state.index - digitsStart);
+                                  numTokenType = resolveFloatingPointType(from_code<Floats>(bitlength));
                                   return;
                                 }
                                 else
@@ -639,9 +582,7 @@ namespace NG::parsing
 
     if (!result.empty())
     {
-      Token token{.type = tokenType, .repr = result, .position = pos};
-      tokens.push_back(token);
-      return token;
+      return emitToken(tokens, numTokenType, result, pos);
     }
     else
     {
@@ -664,11 +605,11 @@ namespace NG::parsing
   static auto octalVal(LexState &state) -> char
   {
     char val = 0;
-    constexpr int octaBase = 8;
+    constexpr int octalBase = 8;
     constexpr int charLimit = 256;
     while (isOctalDigit(state.current()))
     {
-      int newVal = (val * octaBase) + (state.current() - '0');
+      int newVal = (val * octalBase) + (state.current() - '0');
       if (newVal >= charLimit)
       {
         return val;
@@ -679,49 +620,22 @@ namespace NG::parsing
     return val;
   }
 
-  static auto hex2dec(char character) -> int
+  static auto hex2dec(char c) -> int
   {
-    constexpr int decimalBase = 10;
-    switch (character)
-    {
-    case '0':
-    case '1':
-    case '2':
-    case '3':
-    case '4':
-    case '5':
-    case '6':
-    case '7':
-    case '8':
-    case '9':
-      return character - '0';
-    case 'a':
-    case 'b':
-    case 'c':
-    case 'd':
-    case 'e':
-    case 'f':
-      return (character - 'a') + decimalBase;
-    case 'A':
-    case 'B':
-    case 'C':
-    case 'D':
-    case 'E':
-    case 'F':
-      return (character - 'A') + decimalBase;
-    default:
-      throw LexException("Unknown hex digit");
-    }
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    throw LexException("Unknown hex digit");
   }
 
   static auto hexVal(LexState &state) -> char
   {
     char val = 0;
-    constexpr int hexoBase = 16;
+    constexpr int hexBase = 16;
     constexpr int charLimit = 256;
     while (isxdigit(state.current()) != 0)
     {
-      int newVal = (val * hexoBase) + hex2dec(state.current());
+      int newVal = (val * hexBase) + hex2dec(state.current());
       if (newVal >= charLimit)
       {
         return val;
@@ -739,7 +653,9 @@ namespace NG::parsing
       state.next();
       if (escapeCharValues.contains(state.current()))
       {
-        return escapeCharValues.at(state.current());
+        auto escaped = escapeCharValues.at(state.current());
+        state.next();
+        return escaped;
       }
       if (isdigit(state.current()) != 0)
       {
@@ -751,7 +667,9 @@ namespace NG::parsing
         return hexVal(state);
       }
     }
-    return state.current();
+    auto escaped = state.current();
+    state.next();
+    return escaped;
   }
 
   static Token lexString(LexState &state, Vec<Token> &tokens)
@@ -759,38 +677,40 @@ namespace NG::parsing
     TokenPosition pos{.line = state.line, .col = state.col};
 
     Str result = withStream(state,
-                            [](LexState &state, Stream &stream)
+                            [](LexState &state, Str &out)
                             {
                               state.next();
-                              while (state.current() != '"')
+                              while (!state.eof() && state.current() != '"')
                               {
                                 if (state.current() == '\\')
                                 {
-                                  stream << escapeCharacter(state);
+                                  out += escapeCharacter(state);
                                 }
                                 else
                                 {
-                                  stream << state.current();
+                                  out += state.current();
                                   state.next();
                                 }
                               }
                             });
+    if (state.eof())
+    {
+      throw LexException("Unterminated string literal");
+    }
     state.next();
-    Token token{.type = TokenType::STRING, .repr = result, .position = pos};
-    tokens.push_back(token);
-    return token;
+    return emitToken(tokens, TokenType::STRING, result, pos);
   }
 
   static Token lexOperator(LexState &state, Vec<Token> &tokens)
   {
     TokenPosition pos{.line = state.line, .col = state.col};
     Str result = withStream(state,
-                            [](LexState &state, Stream &stream)
+                            [](LexState &state, Str &out)
                             {
                               auto current = state.current();
                               while (is(operators, current))
                               {
-                                stream << current;
+                                out += current;
                                 state.next();
                                 current = state.current();
                               }
@@ -810,24 +730,10 @@ namespace NG::parsing
       result = ">>";
     }
 
-    if (tokenType.contains(result))
-    {
-      Token token{.type = tokenType.at(result), .repr = result, .position = pos};
-      tokens.push_back(token);
-      return token;
-    }
-
-    TokenType operatorType = TokenType::NONE;
-    if (operator_types.contains(result))
-    {
-      operatorType = operator_types.at(result);
-    }
-    else
+    if (!tokenType.contains(result))
     {
       throw LexException("Unknown operator: " + result);
     }
-    Token token{.type = operatorType, .repr = result, .position = pos};
-    tokens.push_back(token);
-    return token;
+    return emitToken(tokens, tokenType.at(result), result, pos);
   }
 } // namespace NG::parsing

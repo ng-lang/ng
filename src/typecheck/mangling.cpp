@@ -66,97 +66,81 @@ namespace NG::typecheck
 
   auto canonical_type_name(const TypeInfo &type) -> Str
   {
-    if (auto alias = dynamic_cast<const TypeAliasType *>(&type))
+    // Use tag() dispatch instead of dynamic_cast for better performance.
+    // The default case handles types that just use repr().
+    switch (type.tag())
     {
-      return canonical_type_name(alias->underlyingType);
-    }
-    if (auto primitive = dynamic_cast<const PrimitiveType *>(&type))
+    case typeinfo_tag::TYPE_ALIAS:
+      return canonical_type_name(static_cast<const TypeAliasType &>(type).underlyingType);
+    case typeinfo_tag::REFERENCE:
+      return "ref<" + canonical_type_name(static_cast<const ReferenceType &>(type).referencedType) + ">";
+    case typeinfo_tag::ARRAY:
     {
-      return primitive->repr();
+      const auto &a = static_cast<const ArrayType &>(type);
+      return "array<" + canonical_type_name(a.elementType) + "," +
+             (a.length ? canonical_type_name(a.length) : Str{"?"}) + ">";
     }
-    if (auto ref = dynamic_cast<const ReferenceType *>(&type))
+    case typeinfo_tag::VECTOR:
+      return "vector<" + canonical_type_name(static_cast<const VectorType &>(type).elementType) + ">";
+    case typeinfo_tag::SPAN:
+      return "span<" + canonical_type_name(static_cast<const SpanType &>(type).elementType) + ">";
+    case typeinfo_tag::RANGE:
+      return "Range<" + canonical_type_name(static_cast<const RangeType &>(type).elementType) + ">";
+    case typeinfo_tag::TUPLE:
+      return "(" + join_canonical_types(static_cast<const TupleType &>(type).elementTypes, ",") + ")";
+    case typeinfo_tag::FUNCTION:
     {
-      return "ref<" + canonical_type_name(ref->referencedType) + ">";
+      const auto &f = static_cast<const FunctionType &>(type);
+      return "fun(" + join_canonical_types(f.parametersType, ",") + ")->" + canonical_type_name(f.returnType);
     }
-    if (auto array = dynamic_cast<const ArrayType *>(&type))
+    case typeinfo_tag::PARAM_WITH_DEFAULT_VALUE:
+      return canonical_type_name(static_cast<const ParamWithDefaultValueType &>(type).paramType) + "=default";
+    case typeinfo_tag::CUSTOMIZED:
     {
-      return "array<" + canonical_type_name(array->elementType) + "," +
-             (array->length ? canonical_type_name(array->length) : Str{"?"}) + ">";
+      const auto &c = static_cast<const CustomizedType &>(type);
+      return qualified_nominal_name(c.moduleId, c.name);
     }
-    if (auto vector = dynamic_cast<const VectorType *>(&type))
+    case typeinfo_tag::TRAIT:
     {
-      return "vector<" + canonical_type_name(vector->elementType) + ">";
+      const auto &t = static_cast<const TraitType &>(type);
+      return qualified_nominal_name(t.moduleId, t.name);
     }
-    if (auto span = dynamic_cast<const SpanType *>(&type))
+    case typeinfo_tag::NEW_TYPE:
     {
-      return "span<" + canonical_type_name(span->elementType) + ">";
+      const auto &n = static_cast<const NewTypeType &>(type);
+      return qualified_nominal_name(n.moduleId, n.name);
     }
-    if (auto range = dynamic_cast<const RangeType *>(&type))
+    case typeinfo_tag::TAGGED_UNION:
     {
-      return "Range<" + canonical_type_name(range->elementType) + ">";
+      const auto &t = static_cast<const TaggedUnionType &>(type);
+      return qualified_nominal_name(t.moduleId, t.name);
     }
-    if (auto tuple = dynamic_cast<const TupleType *>(&type))
+    case typeinfo_tag::VARIANT:
     {
-      return "(" + join_canonical_types(tuple->elementTypes, ",") + ")";
+      const auto &v = static_cast<const VariantType &>(type);
+      return qualified_nominal_name(v.moduleId, v.unionName) + "." + v.variantName;
     }
-    if (auto function = dynamic_cast<const FunctionType *>(&type))
+    case typeinfo_tag::UNION:
+      return join_canonical_types(static_cast<const UnionType &>(type).types, "|");
+    case typeinfo_tag::CONST_VALUE:
     {
-      return "fun(" + join_canonical_types(function->parametersType, ",") + ")->" +
-             canonical_type_name(function->returnType);
+      const auto &c = static_cast<const ConstValueType &>(type);
+      return "const<" + c.valueType + ":" + c.value + ">";
     }
-    if (auto paramWithDefault = dynamic_cast<const ParamWithDefaultValueType *>(&type))
+    case typeinfo_tag::VARARGS:
+      return "varargs<" + join_canonical_types(static_cast<const VarargsType &>(type).elementTypes, ",") + ">";
+    case typeinfo_tag::GENERIC_DEF:
+      return qualified_nominal_name(static_cast<const GenericDefType &>(type).moduleId, type.repr());
+    case typeinfo_tag::GENERIC_TYPE_DEF:
+      return qualified_nominal_name(static_cast<const GenericTypeDef &>(type).moduleId, type.repr());
+    case typeinfo_tag::TYPE_CONSTRUCTOR_APPLICATION:
     {
-      return canonical_type_name(paramWithDefault->paramType) + "=default";
+      const auto &app = static_cast<const TypeConstructorApplicationType &>(type);
+      return canonical_type_name(app.constructorType) + "<" + join_canonical_types(app.typeArgs, ",") + ">";
     }
-    if (auto custom = dynamic_cast<const CustomizedType *>(&type))
-    {
-      return qualified_nominal_name(custom->moduleId, custom->name);
+    default:
+      return type.repr();
     }
-    if (auto trait = dynamic_cast<const TraitType *>(&type))
-    {
-      return qualified_nominal_name(trait->moduleId, trait->name);
-    }
-    if (auto newType = dynamic_cast<const NewTypeType *>(&type))
-    {
-      return qualified_nominal_name(newType->moduleId, newType->name);
-    }
-    if (auto tagged = dynamic_cast<const TaggedUnionType *>(&type))
-    {
-      return qualified_nominal_name(tagged->moduleId, tagged->name);
-    }
-    if (auto variant = dynamic_cast<const VariantType *>(&type))
-    {
-      return qualified_nominal_name(variant->moduleId, variant->unionName) + "." + variant->variantName;
-    }
-    if (auto unionType = dynamic_cast<const UnionType *>(&type))
-    {
-      return join_canonical_types(unionType->types, "|");
-    }
-    if (auto generic = dynamic_cast<const GenericParamType *>(&type))
-    {
-      return generic->repr();
-    }
-    if (auto constValue = dynamic_cast<const ConstValueType *>(&type))
-    {
-      return "const<" + constValue->valueType + ":" + constValue->value + ">";
-    }
-    if (auto varargs = dynamic_cast<const VarargsType *>(&type))
-    {
-      return "varargs<" + join_canonical_types(varargs->elementTypes, ",") + ">";
-    }
-    if (auto genericDef = dynamic_cast<const GenericDefType *>(&type))
-    {
-      return qualified_nominal_name(genericDef->moduleId, genericDef->repr());
-    }
-    if (auto genericTypeDef = dynamic_cast<const GenericTypeDef *>(&type))
-    {
-      return qualified_nominal_name(genericTypeDef->moduleId, genericTypeDef->repr());
-    }
-    if (auto app = dynamic_cast<const TypeConstructorApplicationType *>(&type))
-    {
-      return canonical_type_name(app->constructorType) + "<" + join_canonical_types(app->typeArgs, ",") + ">";
-    }
-    return type.repr();
   }
 
   auto mangle_symbol(MangledSymbolKind kind,

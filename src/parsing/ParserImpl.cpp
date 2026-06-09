@@ -34,9 +34,73 @@ namespace NG::parsing
     return unary_operators.contains(optr);
   }
 
+  // Builtin type keywords in the KEYWORD_INT..KEYWORD_F128 enum range.
+  // Matches the original range check: code(KEYWORD_INT) <= x <= code(KEYWORD_F128)
+  static const Set<TokenType> builtin_type_keywords{
+      TokenType::KEYWORD_INT,        TokenType::KEYWORD_BOOL,      TokenType::KEYWORD_STRING,
+      TokenType::KEYWORD_FLOAT,
+      TokenType::KEYWORD_BYTE,       TokenType::KEYWORD_UBYTE,     TokenType::KEYWORD_SHORT,
+      TokenType::KEYWORD_USHORT,     TokenType::KEYWORD_UINT,      TokenType::KEYWORD_LONG,
+      TokenType::KEYWORD_ULONG,      TokenType::KEYWORD_U8,        TokenType::KEYWORD_I8,
+      TokenType::KEYWORD_U16,        TokenType::KEYWORD_I16,       TokenType::KEYWORD_U32,
+      TokenType::KEYWORD_I32,        TokenType::KEYWORD_U64,       TokenType::KEYWORD_I64,
+      TokenType::KEYWORD_UPTR,       TokenType::KEYWORD_IPTR,
+      TokenType::KEYWORD_HALF,       TokenType::KEYWORD_DOUBLE,    TokenType::KEYWORD_QUADRUPLE,
+      TokenType::KEYWORD_F16,        TokenType::KEYWORD_F32,       TokenType::KEYWORD_F64,
+      TokenType::KEYWORD_F128,
+  };
+
+  static const Set<TokenType> numeric_literal_types{
+      TokenType::NUMBER,       TokenType::NUMBER_U8,      TokenType::NUMBER_I8,
+      TokenType::NUMBER_U16,   TokenType::NUMBER_I16,     TokenType::NUMBER_U32,
+      TokenType::NUMBER_I32,   TokenType::NUMBER_U64,     TokenType::NUMBER_I64,
+      TokenType::NUMBER_U128,  TokenType::NUMBER_I128,    TokenType::NUMBER_F16,
+      TokenType::NUMBER_F32,   TokenType::NUMBER_F64,     TokenType::NUMBER_F128,
+      TokenType::NUMBER_F256,  TokenType::FLOATING_POINT,
+  };
+
+  [[nodiscard]] static auto numericLiteralConstType(TokenType type, const Str &repr) -> Str
+  {
+    switch (type)
+    {
+    case TokenType::FLOATING_POINT: return "f64";
+    case TokenType::NUMBER_U8:      return "u8";
+    case TokenType::NUMBER_I8:      return "i8";
+    case TokenType::NUMBER_U16:     return "u16";
+    case TokenType::NUMBER_I16:     return "i16";
+    case TokenType::NUMBER_U32:     return "u32";
+    case TokenType::NUMBER_I32:     return "i32";
+    case TokenType::NUMBER_U64:     return "u64";
+    case TokenType::NUMBER_I64:     return "i64";
+    case TokenType::NUMBER_U128:    return "u128";
+    case TokenType::NUMBER_I128:    return "i128";
+    case TokenType::NUMBER_F16:     return "f16";
+    case TokenType::NUMBER_F32:     return "f32";
+    case TokenType::NUMBER_F64:     return "f64";
+    case TokenType::NUMBER_F128:    return "f128";
+    case TokenType::NUMBER_F256:    return "f256";
+    default:                        break;
+    }
+    return repr.contains('.') ? Str{"f64"} : Str{"i64"};
+  }
+
+  [[nodiscard]] static auto numericLiteralValueText(TokenType type, const Str &repr) -> Str
+  {
+    if (type == TokenType::NUMBER || type == TokenType::FLOATING_POINT || type == TokenType::INTEGRAL)
+    {
+      return repr;
+    }
+    auto suffixStart = repr.find_last_not_of("0123456789");
+    if (suffixStart == Str::npos || suffixStart == 0)
+    {
+      return repr;
+    }
+    return repr.substr(0, suffixStart);
+  }
+
   class ParserImpl
   {
-    ParseState state;
+    ParseState &state;
 
         template <class T, class... Args>
         auto createNode(Args &&...args) -> ASTRef<T>
@@ -57,13 +121,56 @@ namespace NG::parsing
     {
       if (message.empty())
       {
-        message = std::string{"Unexpected token "} + state->repr;
+        if (state.eof())
+        {
+          message = "Unexpected end of file";
+        }
+        else
+        {
+          message = std::string{"Unexpected token "} + state->repr;
+        }
       }
-      throw ParseException(message, state->position);
+      TokenPosition position{};
+      if (!state.eof())
+      {
+        position = state->position;
+      }
+      else if (!state.tokens.empty())
+      {
+        position = state.tokens.back().position;
+      }
+      throw ParseException(message, position);
     }
 
   public:
     explicit ParserImpl(ParseState &state) : state(state) {}
+
+    // Parse a comma-separated list of expressions inside parentheses.
+    auto parseExprList() -> Vec<ASTRef<Expression>>
+    {
+      accept(TokenType::LEFT_PAREN);
+      Vec<ASTRef<Expression>> args;
+      while (!expect(TokenType::RIGHT_PAREN))
+      {
+        args.push_back(std::move(expression()));
+        if (!expect(TokenType::COMMA)) break;
+        accept(TokenType::COMMA);
+      }
+      accept(TokenType::RIGHT_PAREN);
+      return args;
+    }
+
+    void addDefinition(ASTRef<Module> &mod, ASTRef<Definition> def, bool exported)
+    {
+      if (exported)
+      {
+        for (auto &&name : def->names())
+        {
+          mod->exports.push_back(name);
+        }
+      }
+      mod->definitions.push_back(std::move(def));
+    }
 
     auto parse(const Str &fileName) -> ASTRef<ASTNode>
     {
@@ -79,14 +186,14 @@ namespace NG::parsing
       }
 
       Str fileWithoutPath{filePath.filename()};
-      Str moudleName = fileWithoutPath;
-      if (moudleName.ends_with(".ng"))
+      Str moduleName = fileWithoutPath;
+      if (moduleName.ends_with(".ng"))
       {
-        moudleName = fileWithoutPath.substr(0, fileWithoutPath.size() - 3);
+        moduleName = fileWithoutPath.substr(0, fileWithoutPath.size() - 3);
       }
 
       auto mod = createNode<Module>();
-      mod->name = moudleName;
+      mod->name = moduleName;
       ASTRef<Module> current_mod = mod;
       compileUnit->module = mod;
       bool moduleDeclared = false;
@@ -104,28 +211,12 @@ namespace NG::parsing
         {
         case TokenType::KEYWORD_FUN:
         {
-          auto fn = funDef();
-          if (exported)
-          {
-            for (auto &&name : fn->names())
-            {
-              mod->exports.push_back(name);
-            }
-          }
-          current_mod->definitions.push_back(std::move(fn));
+          addDefinition(current_mod, funDef(), exported);
           break;
         }
         case TokenType::KEYWORD_VAL:
         {
-          auto value = valDef();
-          if (exported)
-          {
-            for (auto &&name : value->names())
-            {
-              mod->exports.push_back(name);
-            }
-          }
-          current_mod->definitions.push_back(std::move(value));
+          addDefinition(current_mod, valDef(), exported);
           break;
         }
         case TokenType::KEYWORD_CONST:
@@ -138,52 +229,20 @@ namespace NG::parsing
           if (peekTokenType(1) == TokenType::KEYWORD_FUN)
           {
             accept(TokenType::KEYWORD_CONST);
-            auto fn = funDef(false, true);
-            if (exported)
-            {
-              for (auto &&name : fn->names())
-              {
-                mod->exports.push_back(name);
-              }
-            }
-            current_mod->definitions.push_back(std::move(fn));
+            addDefinition(current_mod, funDef(false, true), exported);
             break;
           }
-          auto constant = constDef();
-          if (exported)
-          {
-            for (auto &&name : constant->names())
-            {
-              mod->exports.push_back(name);
-            }
-          }
-          current_mod->definitions.push_back(std::move(constant));
+          addDefinition(current_mod, constDef(), exported);
           break;
         }
         case TokenType::KEYWORD_TYPE:
         {
-          auto type = typeDef();
-          if (exported)
-          {
-            for (auto &&name : type->names())
-            {
-              mod->exports.push_back(name);
-            }
-          }
-          current_mod->definitions.push_back(std::move(type));
+          addDefinition(current_mod, typeDef(), exported);
           break;
         }
         case TokenType::KEYWORD_TRAIT:
         {
-          auto trait = traitDef();
-          if (exported)
-          {
-            for (auto &&name : trait->names())
-            {
-              mod->exports.push_back(name);
-            }
-          }
-          current_mod->definitions.push_back(std::move(trait));
+          addDefinition(current_mod, traitDef(), exported);
           break;
         }
         case TokenType::KEYWORD_AUTO:
@@ -192,28 +251,12 @@ namespace NG::parsing
           {
             unexpected("Expected trait after auto");
           }
-          auto trait = autoTraitDef();
-          if (exported)
-          {
-            for (auto &&name : trait->names())
-            {
-              mod->exports.push_back(name);
-            }
-          }
-          current_mod->definitions.push_back(std::move(trait));
+          addDefinition(current_mod, autoTraitDef(), exported);
           break;
         }
         case TokenType::KEYWORD_IMPL:
         {
-          auto impl = implDef();
-          if (exported)
-          {
-            for (auto &&name : impl->names())
-            {
-              mod->exports.push_back(name);
-            }
-          }
-          current_mod->definitions.push_back(std::move(impl));
+          addDefinition(current_mod, implDef(), exported);
           break;
         }
         case TokenType::KEYWORD_USE:
@@ -389,6 +432,10 @@ namespace NG::parsing
     {
       if (!expect(type))
       {
+        if (state.eof())
+        {
+          return unexpected("Unexpected end of file, expected " + std::to_string(static_cast<int>(type)));
+        }
         return unexpected("Unexpected token " + state->repr);
       }
       state.next();
@@ -538,7 +585,7 @@ namespace NG::parsing
       while (!expect(TokenType::GT) && !state.eof() && !expect(TokenType::RSHIFT))
       {
         std::shared_ptr<TypeAnnotation> arg;
-        if (expect(TokenType::NUMBER) || expect(TokenType::STRING) || expect(TokenType::KEYWORD_TRUE) ||
+        if (numeric_literal_types.contains(state->type) || expect(TokenType::STRING) || expect(TokenType::KEYWORD_TRUE) ||
             expect(TokenType::KEYWORD_FALSE))
         {
           auto literal = createNode<TypeAnnotation>(state->repr);
@@ -554,18 +601,7 @@ namespace NG::parsing
           }
           else
           {
-            static const Vec<Str> numericSuffixes{
-                "i8", "i16", "i32", "i64", "i128", "u8", "u16", "u32", "u64", "u128",
-                "f16", "f32", "f64", "f128"};
-            literal->constLiteralType = "i64";
-            for (const auto &suffix : numericSuffixes)
-            {
-              if (state->repr.ends_with(suffix))
-              {
-                literal->constLiteralType = suffix;
-                break;
-              }
-            }
+            literal->constLiteralType = numericLiteralConstType(state->type, state->repr);
           }
           accept(state->type);
           arg = std::shared_ptr<TypeAnnotation>(std::move(literal));
@@ -1033,6 +1069,32 @@ namespace NG::parsing
       return traits;
     }
 
+    // Parse a single tagged union variant: VariantName(field: Type, ...)
+    auto parseVariant() -> VariantDef
+    {
+      VariantDef variant;
+      variant.variantName = state->repr;
+      accept(TokenType::ID);
+      if (expect(TokenType::LEFT_PAREN))
+      {
+        accept(TokenType::LEFT_PAREN);
+        while (!expect(TokenType::RIGHT_PAREN))
+        {
+          // Skip optional field name: "name: type" or just "type"
+          if (expect(TokenType::ID) && peekTokenType(1) == TokenType::COLON)
+          {
+            variant.payloadNames.push_back(state->repr);
+            accept(TokenType::ID);
+            accept(TokenType::COLON);
+          }
+          variant.payloadTypes.push_back(typeAnnotation());
+          if (expect(TokenType::COMMA)) accept(TokenType::COMMA);
+        }
+        accept(TokenType::RIGHT_PAREN);
+      }
+      return variant;
+    }
+
     auto typeDef() -> ASTRef<Definition>
     {
       accept(TokenType::KEYWORD_TYPE);
@@ -1104,52 +1166,13 @@ namespace NG::parsing
           taggedUnion->genericParams = std::move(typeGenericParams);
 
           // Parse first variant
-          VariantDef variant;
-          variant.variantName = state->repr;
-          accept(TokenType::ID);
-          if (expect(TokenType::LEFT_PAREN))
-          {
-            accept(TokenType::LEFT_PAREN);
-            while (!expect(TokenType::RIGHT_PAREN))
-            {
-              // Skip optional field name: "name: type" or just "type"
-              if (expect(TokenType::ID) && peekTokenType(1) == TokenType::COLON)
-              {
-                variant.payloadNames.push_back(state->repr); // store field name
-                accept(TokenType::ID);   // skip field name
-                accept(TokenType::COLON); // skip colon
-              }
-              variant.payloadTypes.push_back(typeAnnotation());
-              if (expect(TokenType::COMMA)) accept(TokenType::COMMA);
-            }
-            accept(TokenType::RIGHT_PAREN);
-          }
-          taggedUnion->variants.push_back(std::move(variant));
+          taggedUnion->variants.push_back(parseVariant());
 
           // Parse additional variants separated by PIPE
           while (expect(TokenType::PIPE))
           {
             accept(TokenType::PIPE);
-            VariantDef v;
-            v.variantName = state->repr;
-            accept(TokenType::ID);
-            if (expect(TokenType::LEFT_PAREN))
-            {
-              accept(TokenType::LEFT_PAREN);
-              while (!expect(TokenType::RIGHT_PAREN))
-              {
-                if (expect(TokenType::ID) && peekTokenType(1) == TokenType::COLON)
-                {
-                  v.payloadNames.push_back(state->repr); // store field name
-                  accept(TokenType::ID);
-                  accept(TokenType::COLON);
-                }
-                v.payloadTypes.push_back(typeAnnotation());
-                if (expect(TokenType::COMMA)) accept(TokenType::COMMA);
-              }
-              accept(TokenType::RIGHT_PAREN);
-            }
-            taggedUnion->variants.push_back(std::move(v));
+            taggedUnion->variants.push_back(parseVariant());
           }
 
           accept(TokenType::SEMICOLON);
@@ -1514,7 +1537,7 @@ namespace NG::parsing
     auto typeAnnotationBase() -> ASTRef<TypeAnnotation>
     {
       TokenType maybeBuiltin = state->type;
-      if (code(TokenType::KEYWORD_INT) <= code(maybeBuiltin) && code(TokenType::KEYWORD_F128) >= code(maybeBuiltin))
+      if (builtin_type_keywords.contains(maybeBuiltin))
       {
         ASTRef<TypeAnnotation> anno = createNode<TypeAnnotation>(state->repr);
         size_t builtin_type_code =
@@ -1610,9 +1633,9 @@ namespace NG::parsing
             // Try to see if next token could start a type annotation
             TokenType next = state->type;
             if (next == TokenType::ID ||
-                (code(TokenType::KEYWORD_INT) <= code(next) && code(TokenType::KEYWORD_F128) >= code(next)) ||
+                builtin_type_keywords.contains(next) ||
                 next == TokenType::KEYWORD_UNIT || next == TokenType::KEYWORD_REF || next == TokenType::LEFT_SQUARE ||
-                next == TokenType::LEFT_PAREN || next == TokenType::NUMBER || next == TokenType::STRING ||
+                next == TokenType::LEFT_PAREN || numeric_literal_types.contains(next) || next == TokenType::STRING ||
                 next == TokenType::KEYWORD_TRUE || next == TokenType::KEYWORD_FALSE)
             {
               isGenericArgs = true;
@@ -2122,18 +2145,7 @@ namespace NG::parsing
     auto funCallExpression(ASTRef<Expression> primaryExpression,
                            Vec<std::shared_ptr<TypeAnnotation>> genericArgs = {}) -> ASTRef<FunCallExpression>
     {
-      accept(TokenType::LEFT_PAREN);
-      Vec<ASTRef<Expression>> args{};
-      while (!expect(TokenType::RIGHT_PAREN))
-      {
-        args.push_back(std::move(expression()));
-        if (!expect(TokenType::COMMA))
-        {
-          break;
-        }
-        accept(TokenType::COMMA);
-      }
-      accept(TokenType::RIGHT_PAREN);
+      auto args = parseExprList();
       auto funcall = createNode<FunCallExpression>();
       funcall->primaryExpression = std::move(primaryExpression);
       funcall->genericArgs = std::move(genericArgs);
@@ -2157,23 +2169,14 @@ namespace NG::parsing
         }
         qualified->methodName = state->repr;
         accept(TokenType::ID);
-        accept(TokenType::LEFT_PAREN);
-        while (!expect(TokenType::RIGHT_PAREN))
-        {
-          qualified->arguments.push_back(std::move(expression()));
-          if (!expect(TokenType::COMMA))
-          {
-            break;
-          }
-          accept(TokenType::COMMA);
-        }
-        accept(TokenType::RIGHT_PAREN);
+        qualified->arguments = parseExprList();
         return qualified;
       }
 
       auto idacc = createNode<IdAccessorExpression>();
       idacc->primaryExpression = std::move(expr);
 
+      bool accessorAllowsCall = true;
       if (expect(TokenType::ID))
       {
         idacc->accessor = std::move(idExpression());
@@ -2182,33 +2185,19 @@ namespace NG::parsing
       {
         idacc->accessor = createNode<IdExpression>(stringValue()->value);
       }
-      else if (expect(TokenType::NUMBER))
+      else if (numeric_literal_types.contains(state->type))
       {
         idacc->accessor = createNode<IdExpression>(numberLiteral()->repr());
+        accessorAllowsCall = false;
       }
       else
       {
         unexpected("Expect identifier after '.'");
       }
 
-      if (expect(TokenType::LEFT_PAREN))
+      if (accessorAllowsCall && expect(TokenType::LEFT_PAREN))
       {
-        accept(TokenType::LEFT_PAREN);
-
-        Vec<ASTRef<Expression>> args{};
-
-        while (!expect(TokenType::RIGHT_PAREN))
-        {
-          args.push_back(std::move(expression()));
-          if (!expect(TokenType::COMMA))
-          {
-            break;
-          }
-          accept(TokenType::COMMA);
-        }
-        accept(TokenType::RIGHT_PAREN);
-
-        idacc->arguments = std::move(args);
+        idacc->arguments = parseExprList();
       }
       return idacc;
     }
@@ -2229,17 +2218,7 @@ namespace NG::parsing
       }
       qualified->methodName = state->repr;
       accept(TokenType::ID);
-      accept(TokenType::LEFT_PAREN);
-      while (!expect(TokenType::RIGHT_PAREN))
-      {
-        qualified->arguments.push_back(std::move(expression()));
-        if (!expect(TokenType::COMMA))
-        {
-          break;
-        }
-        accept(TokenType::COMMA);
-      }
-      accept(TokenType::RIGHT_PAREN);
+      qualified->arguments = parseExprList();
       destroyast(expr);
       return qualified;
     }
@@ -2328,8 +2307,7 @@ namespace NG::parsing
       {
         return idExpression();
       }
-      if (expect(TokenType::NUMBER) ||
-          (code(state->type) >= code(TokenType::NUMBER) && code(state->type) <= code(TokenType::NUMBER_F128)))
+      if (numeric_literal_types.contains(state->type))
       {
         return numberLiteral();
       }
@@ -2450,66 +2428,37 @@ namespace NG::parsing
 
     auto numberLiteral() -> ASTRef<Expression>
     {
-      auto integer = state->repr;
-      switch (state->type)
+      auto type = state->type;
+      auto integer = numericLiteralValueText(type, state->repr);
+      accept(type);
+
+      // Integral types — table-driven dispatch
+      switch (type)
       {
       case TokenType::NUMBER:
-        accept(state->type);
-        return createNode<IntegralValue<int32_t>>(std::stoi(integer));
       case TokenType::INTEGRAL:
-        accept(state->type);
-        return createNode<IntegralValue<int32_t>>(static_cast<int32_t>(std::stoi(integer)));
-      case TokenType::NUMBER_I8:
-        accept(state->type);
-        return createNode<IntegralValue<int8_t>>(static_cast<int8_t>(std::stoi(integer)));
-      case TokenType::NUMBER_U8:
-        accept(state->type);
-        return createNode<IntegralValue<uint8_t>>(static_cast<uint8_t>(std::stoi(integer)));
-      case TokenType::NUMBER_I16:
-        accept(state->type);
-        return createNode<IntegralValue<int16_t>>(static_cast<int16_t>(std::stoi(integer)));
-      case TokenType::NUMBER_U16:
-        accept(state->type);
-        return createNode<IntegralValue<uint16_t>>(static_cast<uint16_t>(std::stoi(integer)));
-      case TokenType::NUMBER_I32:
-        accept(state->type);
-        return createNode<IntegralValue<int32_t>>(static_cast<int32_t>(std::stoi(integer)));
-      case TokenType::NUMBER_U32:
-        accept(state->type);
-        return createNode<IntegralValue<uint32_t>>(static_cast<uint32_t>(std::stoul(integer)));
-      case TokenType::NUMBER_I64:
-        accept(state->type);
-        return createNode<IntegralValue<int64_t>>(static_cast<int64_t>(std::stoll(integer)));
-      case TokenType::NUMBER_U64:
-        accept(state->type);
-        return createNode<IntegralValue<uint64_t>>(static_cast<uint64_t>(std::stoull(integer)));
-      case TokenType::NUMBER_I128:
-        accept(state->type);
-        // todo: support i128 parsing properly
-        return createNode<IntegralValue<int64_t>>(static_cast<int64_t>(std::stoll(integer)));
-      case TokenType::NUMBER_U128:
-        accept(state->type);
-        // todo: support u128 parsing properly
-        return createNode<IntegralValue<uint64_t>>(static_cast<uint64_t>(std::stoull(integer)));
+      case TokenType::NUMBER_I32:  return createNode<IntegralValue<int32_t>>(std::stoi(integer));
+      case TokenType::NUMBER_I8:   return createNode<IntegralValue<int8_t>>(static_cast<int8_t>(std::stoi(integer)));
+      case TokenType::NUMBER_U8:   return createNode<IntegralValue<uint8_t>>(static_cast<uint8_t>(std::stoi(integer)));
+      case TokenType::NUMBER_I16:  return createNode<IntegralValue<int16_t>>(static_cast<int16_t>(std::stoi(integer)));
+      case TokenType::NUMBER_U16:  return createNode<IntegralValue<uint16_t>>(static_cast<uint16_t>(std::stoi(integer)));
+      case TokenType::NUMBER_U32:  return createNode<IntegralValue<uint32_t>>(static_cast<uint32_t>(std::stoul(integer)));
+      case TokenType::NUMBER_I64:  return createNode<IntegralValue<int64_t>>(std::stoll(integer));
+      case TokenType::NUMBER_U64:  return createNode<IntegralValue<uint64_t>>(std::stoull(integer));
+      case TokenType::NUMBER_I128: return createNode<IntegralValue<int64_t>>(std::stoll(integer)); // todo: i128
+      case TokenType::NUMBER_U128: return createNode<IntegralValue<uint64_t>>(std::stoull(integer)); // todo: u128
+
+      // Floating-point types
       case TokenType::FLOATING_POINT:
-        accept(state->type);
-        return createNode<FloatingPointValue<float>>(std::stof(integer));
-      case TokenType::NUMBER_F16:
-        unexpected("Float16 not supported");
-      case TokenType::NUMBER_F32:
-        accept(state->type);
-        return createNode<FloatingPointValue<float>>(std::stof(integer));
+      case TokenType::NUMBER_F32:  return createNode<FloatingPointValue<float>>(std::stof(integer));
       case TokenType::NUMBER_F64:
-        accept(state->type);
-        return createNode<FloatingPointValue<double>>(std::stod(integer));
-      case TokenType::NUMBER_F128:
-        accept(state->type);
-        return createNode<FloatingPointValue<double>>(std::stod(integer));
-      case TokenType::NUMBER_F256:
-        unexpected("Float256 not supported");
-      default:
-        unexpected("Invalid number literal");
+      case TokenType::NUMBER_F128: return createNode<FloatingPointValue<double>>(std::stod(integer));
+
+      case TokenType::NUMBER_F16:  unexpected("Float16 not supported");
+      case TokenType::NUMBER_F256: unexpected("Float256 not supported");
+      default:                     unexpected("Invalid number literal");
       }
+      return nullptr; // unreachable
     }
 
     auto idExpression() -> ASTRef<IdExpression>

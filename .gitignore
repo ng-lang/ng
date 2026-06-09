@@ -57,3 +57,4 @@ reports/
 .cache/
 
 imgui.ini
+ng_ide_scratch*.ng

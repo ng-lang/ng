@@ -70,13 +70,13 @@ namespace NG::orgasm
                     return;
                 }
             }
-            Function fun;
+            Function fun{};
             fun.name = functionName;
             const bool explicitReceiver =
                 !functionDef->params.empty() && is_explicit_receiver_param(functionDef->params.front().get());
             fun.num_params = static_cast<int32_t>(functionDef->params.size() + (explicitReceiver ? 0 : 1));
             fun.explicit_receiver = explicitReceiver;
-            module.functions.push_back(std::move(fun));
+            module.addFunction(std::move(fun));
             functionDefs[functionName] = functionDef;
         }
 
@@ -239,16 +239,23 @@ namespace NG::orgasm
                 });
             }
         }
+        module.buildIndex();
         return std::move(module);
     }
 
     void Compiler::visit(Module *mod)
     {
-        // First pass: collect all function signatures and create placeholders
-        Function startFun;
+        collectModuleDefinitions(mod);
+        compileModuleTopLevelCode(mod);
+        compileModuleFunctionBodies(mod);
+    }
+
+    void Compiler::collectModuleDefinitions(Module *mod)
+    {
+        Function startFun{};
         startFun.name = "__start__";
         startFun.num_params = 0;
-        module.functions.push_back(std::move(startFun));
+        module.addFunction(std::move(startFun));
 
         for (auto &&import : mod->imports) {
             import->accept(this);
@@ -373,10 +380,10 @@ namespace NG::orgasm
                     genericFunctionDefs[funDef->funName] = funDef.get();
                     continue;
                 }
-                Function fun;
+                Function fun{};
                 fun.name = funDef->funName;
                 fun.num_params = static_cast<int32_t>(funDef->params.size());
-                module.functions.push_back(std::move(fun));
+                module.addFunction(std::move(fun));
                 functionDefs[funDef->funName] = funDef.get();
             }
             else if (auto valDef = dynamic_ast_cast<ValDef>(def))
@@ -423,13 +430,13 @@ namespace NG::orgasm
 
                 for (auto &&memFn : typeDef->memberFunctions)
                 {
-                    Function fun;
+                    Function fun{};
                     fun.name = typeDef->typeName + "." + memFn->funName;
                     const bool explicitReceiver = !memFn->params.empty() && is_explicit_receiver_param(memFn->params.front().get());
                     fun.num_params = static_cast<int32_t>(memFn->params.size() + (explicitReceiver ? 0 : 1));
                     fun.explicit_receiver = explicitReceiver;
-                    module.functions.push_back(std::move(fun));
-                    functionDefs[fun.name] = memFn.get();
+                    module.addFunction(std::move(fun));
+                    functionDefs[typeDef->typeName + "." + memFn->funName] = memFn.get();
                 }
             }
             else if (auto implDef = dynamic_ast_cast<ImplDef>(def))
@@ -523,7 +530,10 @@ namespace NG::orgasm
                 module.types.push_back(std::move(type));
             }
         }
+    }
 
+    void Compiler::compileModuleTopLevelCode(Module *mod)
+    {
         for (auto &&def : mod->definitions)
         {
             collect_generic_function_instances(def);
@@ -620,9 +630,10 @@ namespace NG::orgasm
         module.functions[0].num_locals = static_cast<int32_t>(locals.size());
         emit(OpCode::PUSH_UNIT);
         emit(OpCode::RETURN);
+    }
 
-        // Third pass: compile function bodies
-        int funIndex = 1;
+    void Compiler::compileModuleFunctionBodies(Module *mod)
+    {
         for (auto *importedDef : importedDefinitions)
         {
             auto *implDef = dynamic_cast<ImplDef *>(importedDef);
@@ -638,11 +649,11 @@ namespace NG::orgasm
                 activeTraitMethodOrigin = traitName;
                 if (auto *targetFunction = find_function(targetName + "." + traitName + "::" + method->funName))
                 {
-                    compile_function_body(method.get(), *targetFunction, false);
+                    compile_function_body(method.get(), *targetFunction, true);
                 }
                 if (auto *targetFunction = find_function(targetName + "." + method->funName))
                 {
-                    compile_function_body(method.get(), *targetFunction, false);
+                    compile_function_body(method.get(), *targetFunction, true);
                 }
                 activeTraitMethodOrigin = previousTraitMethodOrigin;
             }
@@ -659,88 +670,19 @@ namespace NG::orgasm
                 {
                     continue;
                 }
-                current_function = &module.functions[funIndex++];
-                last_emit_was_return = false;
-                locals.clear();
-                localTraitObjectTypes.clear();
-                localValueTypes.clear();
-                loop_stack.clear();
-                
-                LoopInfo info;
-                info.startIp = 0; // Function start
-                for (int32_t i = 0; i < funDef->params.size(); ++i)
+                if (auto *targetFunction = find_function(funDef->funName))
                 {
-                    locals[funDef->params[i]->paramName] = i;
-                    if (funDef->params[i]->annotatedType)
-                    {
-                        localValueTypes[funDef->params[i]->paramName] = funDef->params[i]->annotatedType->repr();
-                    }
-                    if (auto traitName = trait_ref_name(funDef->params[i]->annotatedType.get()); !traitName.empty())
-                    {
-                        localTraitObjectTypes[funDef->params[i]->paramName] = traitName;
-                    }
-                    info.bindingSlots.push_back(i);
-                }
-                loop_stack.push_back(std::move(info));
-
-                if (funDef->body) funDef->body->accept(this);
-
-                loop_stack.pop_back();
-                current_function->num_locals = static_cast<int32_t>(locals.size());
-
-                if (!last_emit_was_return)
-                {
-                    emit(OpCode::PUSH_UNIT);
-                    emit(OpCode::RETURN);
+                    compile_function_body(funDef.get(), *targetFunction, false);
                 }
             }
             else if (auto typeDef = dynamic_ast_cast<TypeDef>(def))
             {
+                current_type_name = typeDef->typeName;
                 for (auto &&memFn : typeDef->memberFunctions)
                 {
-                    current_function = &module.functions[funIndex++];
-                    last_emit_was_return = false;
-                    locals.clear();
-                    localTraitObjectTypes.clear();
-                    localValueTypes.clear();
-                    loop_stack.clear();
-                    current_type_name = typeDef->typeName;
-                    const bool explicitReceiver = !memFn->params.empty() && is_explicit_receiver_param(memFn->params.front().get());
-                    
-                    LoopInfo info;
-                    info.startIp = 0;
-                    int32_t paramBase = 0;
-                    if (!explicitReceiver)
+                    if (auto *targetFunction = find_function(typeDef->typeName + "." + memFn->funName))
                     {
-                        locals["self"] = 0;
-                        info.bindingSlots.push_back(0); // self can be updated by next? maybe not, but keep slot.
-                        paramBase = 1;
-                    }
-                    
-                    for (int32_t i = 0; i < memFn->params.size(); ++i)
-                    {
-                        locals[memFn->params[i]->paramName] = i + paramBase;
-                        if (memFn->params[i]->annotatedType)
-                        {
-                            localValueTypes[memFn->params[i]->paramName] = memFn->params[i]->annotatedType->repr();
-                        }
-                        if (auto traitName = trait_ref_name(memFn->params[i]->annotatedType.get()); !traitName.empty())
-                        {
-                            localTraitObjectTypes[memFn->params[i]->paramName] = traitName;
-                        }
-                        info.bindingSlots.push_back(i + paramBase);
-                    }
-                    loop_stack.push_back(std::move(info));
-
-                    if (memFn->body) memFn->body->accept(this);
-
-                    loop_stack.pop_back();
-                    current_function->num_locals = static_cast<int32_t>(locals.size());
-
-                    if (!last_emit_was_return)
-                    {
-                        emit(OpCode::PUSH_UNIT);
-                        emit(OpCode::RETURN);
+                        compile_function_body(memFn.get(), *targetFunction, true);
                     }
                 }
             }
@@ -754,56 +696,15 @@ namespace NG::orgasm
                     providedMethods[method->funName] = method.get();
                 }
                 auto compileMethodFunction = [&](FunctionDef *method, const Str &functionName, const Str &traitOrigin = Str{}) {
-                    if (funIndex >= static_cast<int>(module.functions.size()) ||
-                        module.functions[funIndex].name != functionName)
+                    auto *targetFunction = find_function(functionName);
+                    if (!targetFunction)
                     {
                         return;
                     }
                     auto previousTraitMethodOrigin = activeTraitMethodOrigin;
                     activeTraitMethodOrigin = traitOrigin;
-                    current_function = &module.functions[funIndex++];
-                    last_emit_was_return = false;
-                    locals.clear();
-                    localTraitObjectTypes.clear();
-                    localValueTypes.clear();
-                    loop_stack.clear();
-
-                    const bool explicitReceiver =
-                        !method->params.empty() && is_explicit_receiver_param(method->params.front().get());
-                    LoopInfo info;
-                    info.startIp = 0;
-                    int32_t paramBase = 0;
-                    if (!explicitReceiver)
-                    {
-                        locals["self"] = 0;
-                        info.bindingSlots.push_back(0);
-                        paramBase = 1;
-                    }
-                    for (int32_t i = 0; i < method->params.size(); ++i)
-                    {
-                        locals[method->params[i]->paramName] = i + paramBase;
-                        if (method->params[i]->annotatedType)
-                        {
-                            localValueTypes[method->params[i]->paramName] = method->params[i]->annotatedType->repr();
-                        }
-                        if (auto traitName = trait_ref_name(method->params[i]->annotatedType.get()); !traitName.empty())
-                        {
-                            localTraitObjectTypes[method->params[i]->paramName] = traitName;
-                        }
-                        info.bindingSlots.push_back(i + paramBase);
-                    }
-                    loop_stack.push_back(std::move(info));
-
-                    if (method->body) method->body->accept(this);
+                    compile_function_body(method, *targetFunction, true);
                     activeTraitMethodOrigin = previousTraitMethodOrigin;
-
-                    loop_stack.pop_back();
-                    current_function->num_locals = static_cast<int32_t>(locals.size());
-                    if (!last_emit_was_return)
-                    {
-                        emit(OpCode::PUSH_UNIT);
-                        emit(OpCode::RETURN);
-                    }
                 };
                 for (auto &&method : implDef->methods)
                 {
@@ -900,11 +801,11 @@ namespace NG::orgasm
         {
             return;
         }
-        Function fun;
+        Function fun{};
         fun.name = symbolName;
         fun.num_params = static_cast<int32_t>(funDef->params.size());
         fun.explicit_receiver = false;
-        module.functions.push_back(std::move(fun));
+        module.addFunction(std::move(fun));
         functionDefs[symbolName] = funDef;
         genericFunctionInstances.push_back(symbolName);
     }
@@ -958,103 +859,17 @@ namespace NG::orgasm
         }
     }
 
-    void Compiler::collect_generic_function_instances(ASTRef<Definition> def, const Str &instanceContext)
+    // Visitor that traverses the AST to find and register generic function instances.
+    // Replaces the three overloaded collect_generic_function_instances() functions.
+    class GenericInstanceCollector : public DummyVisitor
     {
-        if (!def)
-        {
-            return;
-        }
-        if (auto funDef = dynamic_ast_cast<FunctionDef>(def))
-        {
-            collect_generic_function_instances(funDef->body, instanceContext);
-        }
-        else if (auto valDef = dynamic_ast_cast<ValDef>(def))
-        {
-            collect_generic_function_instances(valDef->body, instanceContext);
-        }
-        else if (auto typeDef = dynamic_ast_cast<TypeDef>(def))
-        {
-            for (auto &method : typeDef->memberFunctions)
-            {
-                collect_generic_function_instances(method->body, instanceContext);
-            }
-        }
-        else if (auto implDef = dynamic_ast_cast<ImplDef>(def))
-        {
-            for (auto &method : implDef->methods)
-            {
-                collect_generic_function_instances(method->body, instanceContext);
-            }
-        }
-    }
+        Compiler &compiler;
+        Str instanceContext;
+    public:
+        explicit GenericInstanceCollector(Compiler &compiler, const Str &ctx = "")
+            : compiler(compiler), instanceContext(ctx) {}
 
-    void Compiler::collect_generic_function_instances(ASTRef<Statement> stmt, const Str &instanceContext)
-    {
-        if (!stmt)
-        {
-            return;
-        }
-        if (auto compound = dynamic_ast_cast<CompoundStatement>(stmt))
-        {
-            for (auto &child : compound->statements)
-            {
-                collect_generic_function_instances(child, instanceContext);
-            }
-        }
-        else if (auto simple = dynamic_ast_cast<SimpleStatement>(stmt))
-        {
-            collect_generic_function_instances(simple->expression, instanceContext);
-        }
-        else if (auto ret = dynamic_ast_cast<ReturnStatement>(stmt))
-        {
-            collect_generic_function_instances(ret->expression, instanceContext);
-        }
-        else if (auto ifStmt = dynamic_ast_cast<IfStatement>(stmt))
-        {
-            collect_generic_function_instances(ifStmt->testing, instanceContext);
-            collect_generic_function_instances(ifStmt->consequence, instanceContext);
-            collect_generic_function_instances(ifStmt->alternative, instanceContext);
-        }
-        else if (auto val = dynamic_ast_cast<ValDefStatement>(stmt))
-        {
-            collect_generic_function_instances(val->value, instanceContext);
-        }
-        else if (auto bind = dynamic_ast_cast<ValueBindingStatement>(stmt))
-        {
-            collect_generic_function_instances(bind->value, instanceContext);
-        }
-        else if (auto loop = dynamic_ast_cast<LoopStatement>(stmt))
-        {
-            for (auto &binding : loop->bindings)
-            {
-                collect_generic_function_instances(binding.target, instanceContext);
-            }
-            collect_generic_function_instances(loop->loopBody, instanceContext);
-        }
-        else if (auto next = dynamic_ast_cast<NextStatement>(stmt))
-        {
-            for (auto &expr : next->expressions)
-            {
-                collect_generic_function_instances(expr, instanceContext);
-            }
-        }
-        else if (auto switchStmt = dynamic_ast_cast<SwitchStatement>(stmt))
-        {
-            collect_generic_function_instances(switchStmt->scrutinee, instanceContext);
-            for (auto &caseClause : switchStmt->cases)
-            {
-                collect_generic_function_instances(caseClause.body, instanceContext);
-            }
-        }
-    }
-
-    void Compiler::collect_generic_function_instances(ASTRef<Expression> expr, const Str &instanceContext)
-    {
-        if (!expr)
-        {
-            return;
-        }
-        if (auto call = dynamic_ast_cast<FunCallExpression>(expr))
+        void visit(FunCallExpression *call) override
         {
             Str symbol = call->mangledCalleeName;
             if (!instanceContext.empty())
@@ -1069,104 +884,136 @@ namespace NG::orgasm
             {
                 if (auto id = dynamic_ast_cast<IdExpression>(call->primaryExpression))
                 {
-                    if (auto defIt = genericFunctionDefs.find(id->id); defIt != genericFunctionDefs.end())
+                    if (auto defIt = compiler.genericFunctionDefs.find(id->id); defIt != compiler.genericFunctionDefs.end())
                     {
-                        register_generic_function_instance(symbol, defIt->second);
+                        compiler.register_generic_function_instance(symbol, defIt->second);
                     }
                 }
             }
-            collect_generic_function_instances(call->primaryExpression, instanceContext);
-            for (auto &arg : call->arguments)
-            {
-                collect_generic_function_instances(arg, instanceContext);
-            }
+            call->primaryExpression->accept(this);
+            for (auto &arg : call->arguments) arg->accept(this);
         }
-        else if (auto accessor = dynamic_ast_cast<IdAccessorExpression>(expr))
+
+        // Recurse into container nodes
+        void visit(Module *mod) override
         {
-            collect_generic_function_instances(accessor->primaryExpression, instanceContext);
-            collect_generic_function_instances(accessor->accessor, instanceContext);
-            for (auto &arg : accessor->arguments)
-            {
-                collect_generic_function_instances(arg, instanceContext);
-            }
+            for (auto &def : mod->definitions) def->accept(this);
+            for (auto &stmt : mod->statements) stmt->accept(this);
         }
-        else if (auto qualified = dynamic_ast_cast<QualifiedTraitCallExpression>(expr))
+        void visit(CompoundStatement *stmt) override
         {
-            collect_generic_function_instances(qualified->receiver, instanceContext);
-            for (auto &arg : qualified->arguments)
-            {
-                collect_generic_function_instances(arg, instanceContext);
-            }
+            for (auto &child : stmt->statements) child->accept(this);
         }
-        else if (auto index = dynamic_ast_cast<IndexAccessorExpression>(expr))
+        void visit(SimpleStatement *stmt) override { if (stmt->expression) stmt->expression->accept(this); }
+        void visit(ReturnStatement *stmt) override { if (stmt->expression) stmt->expression->accept(this); }
+        void visit(IfStatement *stmt) override
         {
-            collect_generic_function_instances(index->primary, instanceContext);
-            collect_generic_function_instances(index->accessor, instanceContext);
+            stmt->testing->accept(this);
+            stmt->consequence->accept(this);
+            if (stmt->alternative) stmt->alternative->accept(this);
         }
-        else if (auto indexAssign = dynamic_ast_cast<IndexAssignmentExpression>(expr))
+        void visit(ValDefStatement *stmt) override { if (stmt->value) stmt->value->accept(this); }
+        void visit(ValueBindingStatement *stmt) override { if (stmt->value) stmt->value->accept(this); }
+        void visit(LoopStatement *stmt) override
         {
-            collect_generic_function_instances(indexAssign->primary, instanceContext);
-            collect_generic_function_instances(indexAssign->accessor, instanceContext);
-            collect_generic_function_instances(indexAssign->value, instanceContext);
+            for (auto &b : stmt->bindings) if (b.target) b.target->accept(this);
+            if (stmt->loopBody) stmt->loopBody->accept(this);
         }
-        else if (auto typeCheck = dynamic_ast_cast<TypeCheckingExpression>(expr))
+        void visit(NextStatement *stmt) override
         {
-            collect_generic_function_instances(typeCheck->value, instanceContext);
+            for (auto &e : stmt->expressions) e->accept(this);
         }
-        else if (auto assign = dynamic_ast_cast<AssignmentExpression>(expr))
+        void visit(SwitchStatement *stmt) override
         {
-            collect_generic_function_instances(assign->target, instanceContext);
-            collect_generic_function_instances(assign->value, instanceContext);
+            stmt->scrutinee->accept(this);
+            for (auto &c : stmt->cases) c.body->accept(this);
         }
-        else if (auto unary = dynamic_ast_cast<UnaryExpression>(expr))
+        void visit(FunctionDef *def) override { if (def->body) def->body->accept(this); }
+        void visit(ValDef *def) override { if (def->body) def->body->accept(this); }
+        void visit(TypeDef *def) override
         {
-            collect_generic_function_instances(unary->operand, instanceContext);
+            for (auto &m : def->memberFunctions) if (m->body) m->body->accept(this);
         }
-        else if (auto binary = dynamic_ast_cast<BinaryExpression>(expr))
+        void visit(ImplDef *def) override
         {
-            collect_generic_function_instances(binary->left, instanceContext);
-            collect_generic_function_instances(binary->right, instanceContext);
+            for (auto &m : def->methods) if (m->body) m->body->accept(this);
         }
-        else if (auto array = dynamic_ast_cast<ArrayLiteral>(expr))
+
+        // Recurse into expression nodes
+        void visit(IdAccessorExpression *expr) override
         {
-            for (auto &element : array->elements)
-            {
-                collect_generic_function_instances(element, instanceContext);
-            }
+            expr->primaryExpression->accept(this);
+            if (expr->accessor) expr->accessor->accept(this);
+            for (auto &a : expr->arguments) a->accept(this);
         }
-        else if (auto tuple = dynamic_ast_cast<TupleLiteral>(expr))
+        void visit(QualifiedTraitCallExpression *expr) override
         {
-            for (auto &element : tuple->elements)
-            {
-                collect_generic_function_instances(element, instanceContext);
-            }
+            if (expr->receiver) expr->receiver->accept(this);
+            for (auto &a : expr->arguments) a->accept(this);
         }
-        else if (auto typeofExpr = dynamic_ast_cast<TypeOfExpression>(expr))
+        void visit(IndexAccessorExpression *expr) override
         {
-            collect_generic_function_instances(typeofExpr->expression, instanceContext);
+            expr->primary->accept(this);
+            if (expr->accessor) expr->accessor->accept(this);
         }
-        else if (auto spread = dynamic_ast_cast<SpreadExpression>(expr))
+        void visit(IndexAssignmentExpression *expr) override
         {
-            collect_generic_function_instances(spread->expression, instanceContext);
+            expr->primary->accept(this);
+            if (expr->accessor) expr->accessor->accept(this);
+            if (expr->value) expr->value->accept(this);
         }
-        else if (auto cast = dynamic_ast_cast<CastExpression>(expr))
+        void visit(TypeCheckingExpression *expr) override { if (expr->value) expr->value->accept(this); }
+        void visit(AssignmentExpression *expr) override
         {
-            collect_generic_function_instances(cast->expression, instanceContext);
+            expr->target->accept(this);
+            expr->value->accept(this);
         }
-        else if (auto newObj = dynamic_ast_cast<NewObjectExpression>(expr))
+        void visit(UnaryExpression *expr) override { if (expr->operand) expr->operand->accept(this); }
+        void visit(BinaryExpression *expr) override
         {
-            for (auto &[_, value] : newObj->properties)
-            {
-                collect_generic_function_instances(value, instanceContext);
-            }
+            expr->left->accept(this);
+            expr->right->accept(this);
         }
-        else if (auto tagged = dynamic_ast_cast<TaggedValueExpression>(expr))
+        void visit(ArrayLiteral *expr) override
         {
-            for (auto &payload : tagged->payload)
-            {
-                collect_generic_function_instances(payload, instanceContext);
-            }
+            for (auto &e : expr->elements) e->accept(this);
         }
+        void visit(TupleLiteral *expr) override
+        {
+            for (auto &e : expr->elements) e->accept(this);
+        }
+        void visit(TypeOfExpression *expr) override { if (expr->expression) expr->expression->accept(this); }
+        void visit(SpreadExpression *expr) override { if (expr->expression) expr->expression->accept(this); }
+        void visit(CastExpression *expr) override { if (expr->expression) expr->expression->accept(this); }
+        void visit(NewObjectExpression *expr) override
+        {
+            for (auto &[_, v] : expr->properties) v->accept(this);
+        }
+        void visit(TaggedValueExpression *expr) override
+        {
+            for (auto &p : expr->payload) p->accept(this);
+        }
+    };
+
+    void Compiler::collect_generic_function_instances(ASTRef<Definition> def, const Str &instanceContext)
+    {
+        if (!def) return;
+        GenericInstanceCollector collector(*this, instanceContext);
+        def->accept(&collector);
+    }
+
+    void Compiler::collect_generic_function_instances(ASTRef<Statement> stmt, const Str &instanceContext)
+    {
+        if (!stmt) return;
+        GenericInstanceCollector collector(*this, instanceContext);
+        stmt->accept(&collector);
+    }
+
+    void Compiler::collect_generic_function_instances(ASTRef<Expression> expr, const Str &instanceContext)
+    {
+        if (!expr) return;
+        GenericInstanceCollector collector(*this, instanceContext);
+        expr->accept(&collector);
     }
 
     void Compiler::visit(ast::CastExpression *castExpr)
@@ -1369,55 +1216,76 @@ namespace NG::orgasm
         return emitted;
     }
 
-    void Compiler::visit(ast::FunCallExpression *funCallExpr)
+    void Compiler::compileFoldCall(ast::FunCallExpression *funCallExpr, ast::IdExpression *target)
     {
         auto foldIt = std::find_if(funCallExpr->arguments.begin(), funCallExpr->arguments.end(), [](const auto &arg) {
             return dynamic_ast_cast<PostfixFoldExpression>(arg) != nullptr;
         });
-        if (foldIt != funCallExpr->arguments.end())
+        if (foldIt == funCallExpr->arguments.end()) return;
+
+        int32_t funIndex = find_function_index(target->id);
+        if (funIndex < 0)
         {
-            auto target = dynamic_ast_cast<IdExpression>(funCallExpr->primaryExpression);
-            if (!target)
-            {
-                throw NotImplementedException("ORGASM fold calls require a direct function name");
+            throw NotImplementedException("ORGASM fold calls only support local functions: " + target->id);
+        }
+        auto foldIndex = static_cast<size_t>(std::distance(funCallExpr->arguments.begin(), foldIt));
+        if (funCallExpr->arguments.size() != 2 || (foldIndex != 0 && foldIndex != 1))
+        {
+            throw NotImplementedException("Fold call expects `op(xs..., init)` or `op(init, xs...)`");
+        }
+        auto fold = dynamic_ast_cast<PostfixFoldExpression>(*foldIt);
+        if (fold->filter)
+        {
+            throw NotImplementedException("Filter marker `?...` is only supported in array literals");
+        }
+        if (foldIndex == 0)
+        {
+            fold->expression->accept(this);
+            funCallExpr->arguments[1]->accept(this);
+            emit(OpCode::FOLD_RIGHT_CALL);
+        }
+        else
+        {
+            funCallExpr->arguments[0]->accept(this);
+            fold->expression->accept(this);
+            emit(OpCode::FOLD_LEFT_CALL);
+        }
+        emit_u16(static_cast<uint16_t>(funIndex));
+    }
+
+    void Compiler::compileTaggedConstructor(ast::FunCallExpression *funCallExpr, const Str &variantName)
+    {
+        auto &info = variant_map[variantName];
+        int32_t typeIdx = -1;
+        for (size_t i = 0; i < module.types.size(); ++i) {
+            if (module.types[i].name == info.unionName) {
+                typeIdx = static_cast<int32_t>(i);
+                break;
             }
-            int32_t funIndex = -1;
-            for (size_t i = 0; i < module.functions.size(); ++i)
+        }
+        if (typeIdx == -1) throw NotImplementedException("Unknown tagged union type: " + info.unionName);
+
+        for (auto &&arg : funCallExpr->arguments) arg->accept(this);
+
+        emit(OpCode::CONSTRUCT_TAGGED);
+        emit_u16(static_cast<uint16_t>(typeIdx));
+        emit_u16(static_cast<uint16_t>(info.variantIndex));
+        emit_u16(static_cast<uint16_t>(funCallExpr->arguments.size()));
+    }
+
+    void Compiler::visit(ast::FunCallExpression *funCallExpr)
+    {
+        // Fold calls
+        if (auto idExpr = dynamic_ast_cast<IdExpression>(funCallExpr->primaryExpression))
+        {
+            auto foldIt = std::find_if(funCallExpr->arguments.begin(), funCallExpr->arguments.end(), [](const auto &arg) {
+                return dynamic_ast_cast<PostfixFoldExpression>(arg) != nullptr;
+            });
+            if (foldIt != funCallExpr->arguments.end())
             {
-                if (module.functions[i].name == target->id)
-                {
-                    funIndex = static_cast<int32_t>(i);
-                    break;
-                }
+                compileFoldCall(funCallExpr, idExpr.get());
+                return;
             }
-            if (funIndex < 0)
-            {
-                throw NotImplementedException("ORGASM fold calls only support local functions: " + target->id);
-            }
-            auto foldIndex = static_cast<size_t>(std::distance(funCallExpr->arguments.begin(), foldIt));
-            if (funCallExpr->arguments.size() != 2 || (foldIndex != 0 && foldIndex != 1))
-            {
-                throw NotImplementedException("Fold call expects `op(xs..., init)` or `op(init, xs...)`");
-            }
-            auto fold = dynamic_ast_cast<PostfixFoldExpression>(*foldIt);
-            if (fold->filter)
-            {
-                throw NotImplementedException("Filter marker `?...` is only supported in array literals");
-            }
-            if (foldIndex == 0)
-            {
-                fold->expression->accept(this);
-                funCallExpr->arguments[1]->accept(this);
-                emit(OpCode::FOLD_RIGHT_CALL);
-            }
-            else
-            {
-                funCallExpr->arguments[0]->accept(this);
-                fold->expression->accept(this);
-                emit(OpCode::FOLD_LEFT_CALL);
-            }
-            emit_u16(static_cast<uint16_t>(funIndex));
-            return;
         }
 
         if (auto idExpr = dynamic_ast_cast<IdExpression>(funCallExpr->primaryExpression))
@@ -1447,24 +1315,7 @@ namespace NG::orgasm
             // Check if this is a tagged value construction (e.g. Ok(42), Err("msg"))
             if (variant_map.contains(idExpr->id))
             {
-                auto &info = variant_map[idExpr->id];
-                // Find the type index
-                int32_t typeIdx = -1;
-                for (size_t i = 0; i < module.types.size(); ++i) {
-                    if (module.types[i].name == info.unionName) {
-                        typeIdx = static_cast<int32_t>(i);
-                        break;
-                    }
-                }
-                if (typeIdx == -1) throw NotImplementedException("Unknown tagged union type: " + info.unionName);
-
-                // Push payload values onto the stack
-                for (auto &&arg : funCallExpr->arguments) arg->accept(this);
-
-                emit(OpCode::CONSTRUCT_TAGGED);
-                emit_u16(static_cast<uint16_t>(typeIdx));
-                emit_u16(static_cast<uint16_t>(info.variantIndex));
-                emit_u16(static_cast<uint16_t>(funCallExpr->arguments.size()));
+                compileTaggedConstructor(funCallExpr, idExpr->id);
                 return;
             }
 
@@ -2490,7 +2341,7 @@ namespace NG::orgasm
             break;
         case TokenType::MINUS:
             unaryExpr->operand->accept(this);
-            emit(OpCode::NEG_I32);
+            emit(OpCode::NEG);
             break;
         case TokenType::NOT:
             unaryExpr->operand->accept(this);
@@ -2510,10 +2361,10 @@ namespace NG::orgasm
         case TokenType::MINUS: emit(OpCode::SUB); break;
         case TokenType::TIMES: emit(OpCode::MUL); break;
         case TokenType::DIVIDE:emit(OpCode::DIV); break;
-        case TokenType::MODULUS:emit(OpCode::MOD_I32); break;
-        case TokenType::EQUAL: emit(OpCode::EQ_I32);  break;
-        case TokenType::LT:    emit(OpCode::LT_I32);  break;
-        case TokenType::GT:    emit(OpCode::GT_I32);  break;
+        case TokenType::MODULUS:emit(OpCode::MOD); break;
+        case TokenType::EQUAL: emit(OpCode::EQ);  break;
+        case TokenType::LT:    emit(OpCode::LT);  break;
+        case TokenType::GT:    emit(OpCode::GT);  break;
         case TokenType::LSHIFT:emit(OpCode::LSHIFT);  break;
         case TokenType::RSHIFT:emit(OpCode::RSHIFT);  break;
         default: throw NotImplementedException("Binary op not implemented");
@@ -2642,10 +2493,10 @@ namespace NG::orgasm
         emit_u16(numFields);
     }
 
-    void Compiler::visit(ast::IntegralValue<int8_t> *intVal) { emit(OpCode::PUSH_I8); emit_i32(static_cast<int32_t>(intVal->value)); }
-    void Compiler::visit(ast::IntegralValue<uint8_t> *intVal) { emit(OpCode::PUSH_U8); emit_i32(static_cast<int32_t>(intVal->value)); }
-    void Compiler::visit(ast::IntegralValue<int16_t> *intVal) { emit(OpCode::PUSH_I16); emit_i32(static_cast<int32_t>(intVal->value)); }
-    void Compiler::visit(ast::IntegralValue<uint16_t> *intVal) { emit(OpCode::PUSH_U16); emit_i32(static_cast<int32_t>(intVal->value)); }
+    void Compiler::visit(ast::IntegralValue<int8_t> *intVal) { emit(OpCode::PUSH_I8); emit_u8(static_cast<uint8_t>(intVal->value)); }
+    void Compiler::visit(ast::IntegralValue<uint8_t> *intVal) { emit(OpCode::PUSH_U8); emit_u8(intVal->value); }
+    void Compiler::visit(ast::IntegralValue<int16_t> *intVal) { emit(OpCode::PUSH_I16); emit_u16(static_cast<uint16_t>(intVal->value)); }
+    void Compiler::visit(ast::IntegralValue<uint16_t> *intVal) { emit(OpCode::PUSH_U16); emit_u16(intVal->value); }
     void Compiler::visit(ast::IntegralValue<int32_t> *intVal) { emit(OpCode::PUSH_I32); emit_i32(intVal->value); }
     void Compiler::visit(ast::IntegralValue<uint32_t> *intVal) { emit(OpCode::PUSH_U32); emit_i32(static_cast<int32_t>(intVal->value)); }
     void Compiler::visit(ast::IntegralValue<int64_t> *intVal) { emit(OpCode::PUSH_I64); emit_i64(intVal->value); }

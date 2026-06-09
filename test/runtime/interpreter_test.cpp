@@ -102,7 +102,7 @@ TEST_CASE("interpreter should run complex recursion", "[InterpreterTest]")
     )");
 }
 
-TEST_CASE("shoud be able to interpret array literal", "[InterpreterTest]")
+TEST_CASE("should be able to interpret array literal", "[InterpreterTest]")
 {
 
   interpret(R"(
@@ -112,7 +112,7 @@ TEST_CASE("shoud be able to interpret array literal", "[InterpreterTest]")
     )");
 }
 
-TEST_CASE("shoud be able to interpret array index", "[InterpreterTest]")
+TEST_CASE("should be able to interpret array index", "[InterpreterTest]")
 {
 
   interpret(R"(
