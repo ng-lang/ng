@@ -222,13 +222,21 @@ src/dap/
 
 ### Effort Estimate
 
-| Component | Effort |
-|---|---|
-| Source map compiler changes | 1 week |
-| VM debug interface + suspension | 2 weeks |
-| Breakpoint patching | 1 week |
-| DAP JSON-RPC protocol | 2 weeks |
-| Stack trace + variable inspection | 2 weeks |
-| Continue/step/stop commands | 1 week |
-| Tests | 1 week |
-| **Total** | **10 weeks** |
+| Phase | Component | Effort |
+|---|---|---|
+| **Phase 1** | Source map compiler changes | 1 week |
+| | DAP server skeleton + source-map-based stack trace | 2 weeks |
+| **Phase 2** | VM debug interface + suspension | 3 weeks |
+| | Breakpoint patching | 1 week |
+| | DAP JSON-RPC protocol | 2 weeks |
+| **Phase 3** | Stack trace + variable inspection | 2 weeks |
+| | Continue/step/stop commands | 1 week |
+| | Tests | 1 week |
+| **Total** | | **13 weeks** |
+
+## Dependency on VM Suspension
+
+Phase 2 (VM suspension) depends on the same VM refactoring needed for [async/await](gap-concurrency.md). Until the VM supports suspension:
+- Breakpoints can be **set** (source map addresses known)
+- Breakpoints cannot be **hit** (no DEBUG_BREAK opcode execution)
+- Solution: Phase 1 delivers source maps + DAP skeleton (usable for error navigation)

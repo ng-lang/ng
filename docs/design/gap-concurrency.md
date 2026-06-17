@@ -1,286 +1,208 @@
-# Concurrency Model — Phase 1: Single-Threaded Async/Await
+# Concurrency: Spawn/Wait Model (MVP)
 
-> **Status:** Restructured from original monolithic proposal. Split into 4 sequential phases.
-> Phase 1 scope only: single-threaded async/await without Send/Sync checking.
+> **Status:** Feasibility review found that full async/await with state machine desugaring requires fundamental VM rework (suspension points, compiler-generated types). Replaced with a simpler spawn/wait model that uses C++ thread pools and does not require VM suspension.
 
 ## Order
 
-Recommended implementation order: **8** (after error handling, stdlib, and tooling are stable).
+Recommended implementation order: **8** (after error handling, stdlib, and tooling).
 
-## Goal (Phase 1)
+## Goal
 
-Introduce a minimal async/await model that enables non-blocking I/O on a **single thread**, without thread pools, Send/Sync checking, or channels.
+Introduce a minimal **spawn/wait** concurrency model that runs functions on a thread pool, enabling parallel CPU-bound computation without VM suspension changes.
 
 ## Motivation
 
-Phase 1 targets the 80% use case: **I/O-bound concurrency** where a single thread interleaves multiple tasks. This covers:
-- Reading multiple files concurrently
-- Handling multiple network connections
-- UI event loops (beyond ImGui)
+While the current architecture cannot support async/await, many use cases only need parallel execution:
 
-Full multi-threaded concurrency (Phase 2-4) can be added later without changing the async/await syntax.
+```ng
+fun compute() -> i32 {
+    val task1 = spawn heavyComputation(data1);
+    val task2 = spawn heavyComputation(data2);
+    return await(task1) + await(task2);  // Run in parallel
+}
+```
 
 ## Proposed Design
 
 ### 1. New Types
 
 ```ng
-// A Future represents a value that will be available later.
-// It's a state machine that can be polled.
-type Future<T> = Pending | Ready(value: T);
+type Task<T> = native opaque;  // A handle to a running computation
 ```
-
-- `Future<T>` is a tagged union (reuses existing infrastructure)
-- `Pending` — the computation has not completed yet
-- `Ready(value)` — the value is available
-- Futures are **lazy**: they don't start executing until polled
 
 ### 2. New Keywords
 
-Add to lexer: `KEYWORD_ASYNC`, `KEYWORD_AWAIT`, `KEYWORD_YIELD`.
-
-**Note:** An AST node `YIELD_STATEMENT = 0x504` already exists at line 90 of `include/ast.hpp` but has no parser support. The concurrency proposal adds `KEYWORD_YIELD` and implements the existing node rather than creating new infrastructure.
+Add to lexer: `KEYWORD_SPAWN`, `KEYWORD_AWAIT`.
 
 ### 3. AST Changes
 
 ```cpp
-// include/ast.hpp
-
-struct AsyncFunctionDef : FunctionDef {
-    // Same as FunctionDef but marked as async
-    // The return type is automatically wrapped in Future<T>
-    bool isAsync = true;
+struct SpawnExpression : Expression {
+    ASTRef<Expression> expr;  // Function call to spawn
 };
 
 struct AwaitExpression : Expression {
-    ASTRef<Expression> expr;  // The Future<T> to await
-
-    explicit AwaitExpression(SourcePosition pos, ASTRef<Expression> expr)
-        : Expression(ASTNodeType::AWAIT, std::move(pos)), expr(std::move(expr)) {}
+    ASTRef<Expression> expr;  // Task<T> to wait for
 };
 ```
 
 ### 4. Syntax
 
 ```ng
-// Declare an async function
-async fun fetchUrl(url: string) -> string {
-    // ... implementation ...
-}
+// Spawn a function call on the thread pool:
+val task = spawn compute(data);
 
-// Await a future
-async fun process() -> i32 {
-    val result = await fetchUrl("https://example.com");
-    return len(result);
-}
+// Wait for the result (blocks current thread):
+val result = await(task);
+
+// Type:
+// spawn compute(data) : Task<T>   (where compute returns T)
+// await(task)         : T
 ```
 
-### 5. Desugaring: State Machine Transformation
+### 5. Thread Pool (C++)
 
-An `async fun` is transformed into a state machine at compile time:
+A new component `src/runtime/thread_pool.cpp`:
 
-```ng
-// Source:
-async fun process() -> i32 {
-    val a = await fetchUrl("url1");
-    val b = await fetchUrl("url2");
-    return a + b;
-}
+```cpp
+class ThreadPool {
+    std::vector<std::thread> workers;
+    std::mutex queueMutex;
+    std::condition_variable condition;
+    std::queue<std::packaged_task<void()>> tasks;
+    bool stop = false;
 
-// Desugared to (conceptual):
-fun process() -> Future<i32> {
-    val state = new ProcessState {
-        __state: 0,
-        __a: unit,
-        __b: unit,
-    };
-    return state;
-}
+public:
+    ThreadPool(size_t numThreads = std::thread::hardware_concurrency());
+    ~ThreadPool();
 
-// State machine (generated):
-impl Future<i32> for ProcessState {
-    fun poll(self: ref<Self>) -> Future<i32> {
-        switch (self.__state) {
-            case 0 {
-                val fut1 = fetchUrl("url1");
-                switch (fut1) {
-                    case Pending { return Pending; }  // yield
-                    case Ready(v) {
-                        self.__a = v;
-                        self.__state = 1;
-                        return self.poll();  // tail-call next state
-                    }
-                }
-            }
-            case 1 {
-                val fut2 = fetchUrl("url2");
-                switch (fut2) {
-                    case Pending { return Pending; }
-                    case Ready(v) {
-                        self.__b = v;
-                        self.__state = 2;
-                        return self.poll();
-                    }
-                }
-            }
-            case 2 {
-                return Ready(self.__a + self.__b);
-            }
+    template<typename F>
+    auto enqueue(F&& f) -> std::future<decltype(f())> {
+        auto task = std::make_shared<std::packaged_task<decltype(f())()>>(std::forward<F>(f));
+        auto result = task->get_future();
+        {
+            std::lock_guard lock(queueMutex);
+            tasks.emplace([task]() { (*task)(); });
         }
+        condition.notify_one();
+        return result;
     }
-}
+};
 ```
 
-### 6. Type Checker Changes
-
-- `async fun` return type is automatically wrapped: `T` → `Future<T>`
-- `await expr` requires `expr: Future<T>`, produces `T`
-- `await` can only appear inside `async fun` bodies
-- `await` cannot appear inside `const if` or const functions
-
-### 7. ORGASM VM Changes
+### 6. ORGASM VM Changes
 
 **New opcodes:**
+
 ```
-CREATE_FRAME       // Create a resumable frame
-YIELD              // Suspend current task (return Pending)
-TASK_RESUME        // Resume a suspended task
+Opcode::SPAWN: {
+    // Pop function name + args, enqueue on thread pool
+    auto funcName = read_string();
+    auto args = pop_args(funcName);
+    auto future = threadPool.enqueue([this, funcName, args]() {
+        return execute_function(funcName, args);
+    });
+    auto task = makeTaskHandle(std::move(future));
+    stack.push(task);
+}
+
+Opcode::AWAIT: {
+    auto task = stack.pop();
+    auto result = task.wait();  // Block current thread until complete
+    stack.push(result);
+}
 ```
 
-The VM gets a **task queue**:
+### 7. Task Isolation
+
+Each spawn creates a **new VM scope** with its own locals, stack, and execution context. This avoids shared-state concurrency issues (GC safety, global mutation). Tasks communicate only through their return values.
 
 ```cpp
-class TaskQueue {
-    Vec<ResumableFrame> tasks;
-    
-    void spawn(ResumableFrame frame);
-    void runAll();  // Run until all tasks complete
-};
+// Each task runs in its own execution context:
+auto execute_function(const Str &name, const Vec<RuntimeRef<StorageCell>> &args) -> RuntimeRef<StorageCell> {
+    VM isolatedVm(modulePaths);
+    isolatedVm.registerNatives(native_functions);
+    return isolatedVm.callFunction(name, args);
+}
 ```
 
-The execution model:
-```
-vm.run(entry) → enters main task
-  main task calls async fun → CREATE_FRAME
-  main task calls await → polls future
-    if Pending → YIELD, push to task queue, switch to next task
-    if Ready → continue
-  YIELD → switch to next task in queue
-```
-
-### 8. Immutable Globals Restriction
-
-In Phase 1, `async fun` bodies cannot access mutable globals. This is a compile-time restriction to prevent data races on single thread (enforced by the type checker). This restriction is lifted in Phase 2 when the runtime supports detection.
-
-## Dependencies
-
-- Requires [Error Handling](gap-error-handling.md) for `Result<T, E>` used in fallible async operations.
-- ORGASM VM must support frame suspension and task queue.
-- No dependency on threading libraries (Phase 1 is single-threaded).
-
-## GC Thread-Safety — Impact Analysis
-
-The existing GC (`src/runtime/managed_heap.cpp`) is **single-threaded**:
-- No mutexes protecting heap structures
-- No atomic operations for reference counts
-- No concurrent marking algorithm
-- Finalizers run inline during collection
-
-**Impact on Concurrency Phases:**
-
-| Phase | GC Requirement | Effort |
-|---|---|---|
-| Phase 1 (single-thread) | **No changes needed** — single-threaded async is safe | 0 |
-| Phase 2a (multi-thread, stop-the-world) | Add global GC mutex. All allocation/marking/sweeping synchronized. Pause all threads during collection. | 2 weeks |
-| Phase 2b (concurrent marking, optional) | Tri-color marking with write barrier. Thread-local allocation buffers. | 2-3 months |
-| Phase 3 (Send/Sync) | No GC changes (only type-checker changes) | 0 |
-
-**Recommendation:** Phase 2a is sufficient for MVP multi-threaded execution. Phase 2b should only be attempted if GC pause times become a measured bottleneck.
-
-#### Phase 2a GC Changes
+### 8. Type Checker Changes
 
 ```cpp
-// src/runtime/managed_heap.cpp
+void visit(SpawnExpression *node) {
+    node->expr->accept(this);
+    // expr must be a function call
+    // return type becomes Task<return_type>
+    latestType = makecheck<TaskType>(latestType);
+}
 
-class ManagedHeap {
-    std::mutex heapMutex;          // NEW: protects all heap access
-
-    void collectGarbage() {
-        std::lock_guard lock(heapMutex);  // NEW: exclusive access during GC
-        mark();
-        sweep();
-    }
-
-    StorageCell* allocate(size_t size) {
-        std::lock_guard lock(heapMutex);  // NEW: synchronized allocation
-        // ... existing logic ...
-    }
-};
+void visit(AwaitExpression *node) {
+    node->expr->accept(this);
+    // expr must be Task<T>
+    // result type is T
+    auto taskType = std::dynamic_pointer_cast<TaskType>(latestType);
+    if (!taskType) throw error;
+    latestType = taskType->innerType;
+}
 ```
 
 ## Scope
 
-**Phase 1 in scope:**
-- `async fun` syntax
-- `await` expression
-- `Future<T>` tagged union
-- State machine desugaring at compile time
-- Single-threaded task queue in ORGASM VM
-- Compile-time restrictions (no mutable globals in async, no await in const)
-- Async `readFile` example
+**In scope:**
+- `spawn` keyword + expression
+- `await` keyword + expression  
+- `Task<T>` type (opaque native handle)
+- C++ thread pool (1-2 week effort)
+- GC-safe task isolation (separate VM instances)
 
-**Out of scope (Phase 1):**
-- Multi-threaded executor / thread pool
-- `spawn` keyword
-- `Send`/`Sync` checking
+**Explicitly out of scope (deferred to post-MVP):**
+- `async fun` / `await` syntactic sugar (state machine desugaring)
+- Single-threaded cooperative multitasking
 - Channels / message passing
-- Async I/O in stdlib beyond basic file operations
-- STUPID interpreter support (Phase 1 is ORGASM-only)
+- `Send`/`Sync` checking
+- Async I/O (readFile remains blocking)
+- Closure capture across `spawn` boundaries
 
-## Phase 1 Acceptance Criteria
+## Acceptance Criteria
 
-- `async fun` compiles and returns `Future<T>`
-- `await` correctly suspends and resumes the state machine
-- Two async tasks can interleave on a single thread (cooperative multitasking)
-- A task awaiting a `Pending` future does not block other tasks
-- `await` outside `async fun` is a compile error
-- Async functions with no `await` calls compile and return `Ready(value)` immediately
-- Deeply nested async calls (3+ levels) work correctly
-- All existing tests pass
+- `spawn heavyComputation(data)` runs the function on another thread
+- `await(task)` returns the correct result
+- Two spawned functions run in parallel (total time < sum of individual times)
+- A spawned function can call other functions normally
+- Spawned functions have isolated state (no shared mutable globals)
+- All existing tests pass (no regressions)
 
-## Phase 1 Effort Estimate
+## Effort Estimate
 
 | Component | Effort |
 |---|---|
-| New token + keyword changes | 0.5 day |
-| AST nodes (+ parser) | 1 day |
-| State machine desugaring (compiler) | 5 days |
-| `Future<T>` type checking | 2 days |
-| VM task queue | 3 days |
-| VM YIELD/RESUME opcodes | 2 days |
-| VM CREATE_FRAME opcode | 1 day |
-| Tests | 3 days |
-| **Total** | **~3 weeks** |
+| Thread pool implementation | 1 week |
+| AST nodes + parser | 1 day |
+| Type checker (Task<T>, spawn, await) | 2 days |
+| Compiler (emit SPAWN/AWAIT opcodes) | 2 days |
+| VM (SPAWN/AWAIT handlers) | 3 days |
+| Tests | 2 days |
+| **Total** | **~2.5 weeks** |
 
-## Future Phases
+## Dependencies
 
-### Phase 2: Multi-Threaded Executor + `spawn` (Q2 2027)
+- C++ standard library (thread, future, mutex) — no external dependencies
+- [Error Handling](gap-error-handling.md) for `Result<T,E>` in spawned functions
+- No changes to existing VM execution model
 
-- Thread pool with work-stealing
-- `spawn asyncFun()` → runs on thread pool
-- `spawn` returns `Future<T>` just like `async fun` calls
-- Mutex/atomic support for shared state
-- GC becomes thread-safe (stop-the-world)
+## Why Not Async/Await?
 
-### Phase 3: `Send`/`Sync` Checking (Q3 2027)
+Full async/await with state machine desugaring was the original design but was rejected after feasibility review:
 
-- Reuse existing `auto trait Send` declaration
-- Type checker enforces that values sent across threads are `Send`
-- Type checker enforces that shared borrows across threads are `Sync`
-- Auto-implemented for primitive types; opt-out for non-thread-safe types
+| Issue | Impact |
+|---|---|
+| VM has no suspension points | Requires refactoring `execute_slots()` to support suspend/resume — a 3-4 week effort with high risk of regressions |
+| Compiler cannot generate new types | State machine desugaring requires the compiler to create new type definitions, methods, and trait implementations at compile time — currently unsupported |
+| GC is not concurrent-capable | Adding GC thread safety for cooperative multitasking is complex |
+| YIELD opcode requires frame stack refactoring | The `call_stack` would need to be preserved across yields, requiring heap-allocated frames |
 
-### Phase 4: Channels / Message Passing (Q4 2027)
-
-- `Chan<T>` type with blocking send/receive
-- `select` over multiple channels
-- Work: `spawn processor(input, output)` pattern
+The spawn/wait model avoids all these issues by:
+- Running each task in a separate VM instance (no shared state)
+- Using C++ threads/processes for parallelism (not cooperative multitasking)
+- Blocking on `await` (not suspending)
+- Avoiding code generation (Tasks are runtime handles, not compiler-constructed types)

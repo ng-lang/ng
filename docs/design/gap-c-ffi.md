@@ -158,10 +158,37 @@ Opcode::CALL_EXTERN: {
 | `extern fun` syntax (parser + AST) | 1 week |
 | `*T` raw pointer type (type checker) | 1 week |
 | `unsafe` keyword + blocks | 1 week |
-| Calling convention bridge (x86-64) | 2 weeks |
+| Calling convention via `libffi` | 1 week |
 | Dynamic library loading | 1 week |
 | Type mapping and marshaling | 1 week |
 | Platform support (Windows ARM) | 2 weeks |
 | Tests | 1 week |
 | `ng-bindgen` tool (MVP) | 2 weeks |
-| **Total** | **12 weeks** |
+| **Total** | **11 weeks** |
+
+## Dependency: `libffi`
+
+Instead of hand-writing platform-specific assembly trampolines, the implementation uses **libffi** (Foreign Function Interface):
+
+```cpp
+#include <ffi.h>
+
+// libffi handles ABI details for all platforms:
+ffi_cif cif;
+ffi_prep_cif(&cif, FFI_DEFAULT_ABI, numArgs, &returnType, argTypes);
+ffi_call(&cif, funcPtr, &result, argValues);
+```
+
+Benefits:
+- Cross-platform: x86-64, ARM64, WASM, RISC-V
+- No assembly code to maintain
+- Well-tested (used by Python, LuaJIT, Ruby FFI)
+- Vendored as CMake dependency
+
+## GC Safety for `*T`
+
+`*T` raw pointers into GC-managed memory are **unsafe** by design:
+- A GC collection may move or free the memory pointed to by `*T`
+- Phase 1: `*T` only valid for non-GC memory (allocated by `malloc`, `dlopen`)
+- Phase 2 (future): GC pinning for `*T` to GC-managed objects
+- The `unsafe` keyword explicitly acknowledges this risk

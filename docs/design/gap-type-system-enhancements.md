@@ -202,13 +202,22 @@ struct MoveTracker {
 
 ### Sub-Proposal C Acceptance Criteria
 
-- `val y = move x; print(x[0]);` is a **compile error** (not runtime)
+- `val y = move x; print(x[0]);` is a **compile-time warning** (not runtime error — Phase 1 keeps runtime check)
 - Two simultaneous `ref<T>` to the same value is a compile error
 - `ref<T>` and `ref<const T>` cannot coexist
-- A reference doesn't outlive its referent (lexical scope)
-- Partial moves are compile-time errors on subsequent reads
-- Runtime use-after-move check is still present in debug mode
-- All existing tests pass (code that triggers runtime errors may need updating)
+- A reference doesn't outlive its referent (lexical scope) — compile-time warning
+- Partial moves are compile-time warnings on subsequent reads
+- Runtime use-after-move check is always present as a safety net
+- All existing tests pass unchanged
+
+### Scope Limit: Lexical Borrows Only
+
+This implementation limits itself to **lexical borrows** (reference scope = enclosing block). It does NOT attempt:
+- Non-lexical lifetimes (NLL) — would require flow-sensitive analysis
+- Two-phase borrows — future enhancement
+- Lifetime elision — future enhancement
+
+The existing runtime move checking remains as a safety net for any cases the compile-time checker cannot prove.
 
 ---
 
@@ -272,11 +281,24 @@ GATs are fundamentally higher-kinded: `Item` is a type constructor `Lifetime →
 
 ---
 
+## GAT Feasibility Note
+
+**Verdict: Not achievable without a lifetime system.** GATs require:
+- Lifetime parameter syntax in trait declarations
+- Lifetime inference and variance checking
+- Lifetime-aware type unification
+
+None of these exist in NG, and adding a lifetime system is a 12+ month project on its own.
+
+**Recommendation:** Defer indefinitely. Revisit when/if NG gains lifetime annotations.
+
+---
+
 ## Summary: Implementation Order
 
 | Order | Feature | Effort | Dependencies | Risk |
 |---|---|---|---|---|
 | 1 | `never` type | 2 weeks | None | 🟢 Low |
 | 2 | `impl Trait` | 3 weeks | Trait system (exists) | 🟡 Medium |
-| 3 | Borrow checker | 3-4 months | Partial move tracking (exists) | 🔴 High |
-| 4 | GAT | 4-6 months | HKT infrastructure (exists) | 🔴 Very High |
+| 3 | Borrow checker (lexical only) | 6-8 weeks | Partial move tracking (exists) | 🟡 Medium |
+| 4 | GAT | **Deferred indefinitely** | Needs lifetime system | 🔴 Very High |

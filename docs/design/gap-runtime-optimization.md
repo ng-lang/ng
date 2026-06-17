@@ -176,19 +176,25 @@ target_link_libraries(ngi PRIVATE ng)
 
 ---
 
-## Sub-Proposal B: LLVM AOT Compilation (3-6 months)
+## Sub-Proposal B: LLVM AOT Compilation — Deferred to Post-MVP
 
-### Goal
+**Verdict: NOT recommended for current phase.**
 
-Compile NG bytecode to native machine code via LLVM, producing standalone executables without the VM interpreter.
+Rationale:
+- LLVM backend is a 3-6 month project with high complexity (GC stack maps, trait dispatch, cross-platform)
+- The bytecode VM is sufficient for all current use cases
+- WASM via Emscripten provides browser deployment with far less effort
 
-### Motivation
+The proposal text below is preserved as a reference design for future contributors.
 
-- Native execution is 5-10x faster than bytecode interpretation
-- Standalone executables don't require the VM runtime
-- Enables deployment to embedded systems and resource-constrained environments
+### Architecture (Reference Design)
 
-### Architecture
+```
+NG Source → Type Checker → ORGASM Bytecode → LLVM IR → Native Code
+```
+
+### Key Challenges
+[Original text preserved below for reference]
 
 ```
 NG Source → Type Checker → ORGASM Bytecode → LLVM IR → Native Code (.exe, .so)

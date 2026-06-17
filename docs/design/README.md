@@ -11,35 +11,54 @@ Designs whose scoped implementation has landed are archived in [archive/](archiv
 3. [Ranges, Slicing, Fold, And Pipeline Syntax](ranges_slicing_pipeline.md)
 4. [Symbol Import Aliases](symbol_import_aliases.md)
 
-## Gap Analysis Proposals (2026-06)
+## Gap Analysis Proposals (2026-06 — Revised After Feasibility Review)
 
-The following 16 proposals address critical gaps in NG as a general-purpose programming language. Each includes motivation, design, scope, dependencies, and acceptance criteria.
+The following 15 proposals address critical gaps in NG as a general-purpose programming language. Each includes motivation, design, scope, dependencies, acceptance criteria, effort estimates, and feasibility ratings.
+
+### Feasibility Key
+
+| Rating | Meaning |
+|---|---|
+| 🟢 Feasible | Can be implemented with current architecture |
+| 🟡 Moderate | Needs architectural changes, but doable |
+| 🔴 Redesigned | Proposal scope changed after feasibility analysis |
 
 ### Tier 1 — Foundation (Language Usability)
 
-| # | Proposal | Priority | Dependencies |
-|---|---|---|---|
-| 1 | [Error Handling: Result, ?, try/catch](gap-error-handling.md) | 🔴 P0 | None (standalone) |
-| 2 | [Standard Library Expansion](gap-stdlib-expansion.md) | 🔴 P0 | Error handling (Result) |
-| 3 | [LSP Server and IDE Support](gap-lsp-ide.md) | 🔴 P0 | Stable parser API |
-| 4 | [Code Formatter (ng fmt)](gap-formatter.md) | 🔴 P0 | Tree-sitter or stable AST |
-| 5 | [Package Manager](gap-package-manager.md) | 🟡 P1 | Module path resolution |
-| 6 | [Concurrency Model (Async/Await)](gap-concurrency.md) | 🟡 P1 | Error handling, VM rework |
-| 7 | [Debugger (DAP Adapter)](gap-debugger.md) | 🟡 P1 | Source maps, VM suspension |
-| 8 | [C ABI / External FFI](gap-c-ffi.md) | 🟡 P1 | Raw pointer type, unsafe blocks |
+| # | Proposal | Priority | Feasibility | Effort |
+|---|---|---|---|---|
+| 1 | [Error Handling: Result, ?](gap-error-handling.md) | 🔴 P0 | 🟢 Feasible | 1-2 weeks |
+| 2 | [Standard Library Expansion](gap-stdlib-expansion.md) | 🔴 P0 | 🟢 Feasible | 12 weeks (parallelizable) |
+| 3 | [LSP Server and IDE Support](gap-lsp-ide.md) | 🔴 P0 | 🟡 Moderate | 6-10 weeks |
+| 4 | [Code Formatter (ng fmt)](gap-formatter.md) | 🔴 P0 | 🟢 Feasible | 5 weeks |
+| 5 | [Package Manager (git+path MVP)](gap-package-manager.md) | 🟡 P1 | 🟢 Feasible | 6 weeks |
+| 6 | [Concurrency: Spawn/Wait](gap-concurrency.md) | 🟡 P1 | 🔴 **Redesigned** | 2.5 weeks |
+| 7 | [Debugger (DAP — phased)](gap-debugger.md) | 🟡 P1 | 🟡 Moderate | 13 weeks (3 phases) |
+| 8 | [C ABI / External FFI](gap-c-ffi.md) | 🟡 P1 | 🟡 Moderate (libffi) | 11 weeks |
 
 ### Tier 2 — Ecosystem (Developer Experience)
 
-| # | Proposal | Priority | Dependencies |
+| # | Proposal | Priority | Feasibility | Effort |
+|---|---|---|---|---|
+| 9 | [Documentation Generator (ng doc)](gap-docgen.md) | 🟡 P1 | 🟢 Feasible | 9 weeks |
+| 10 | [Syntax Ergonomics (3 batches)](gap-syntax-ergonomics.md) | 🔵 P2 | 🟢 Feasible | 6-8 weeks total |
+| 11 | [Type System Enhancements](gap-type-system-enhancements.md) | 🔵 P2 | 🟡 Moderate | never: 2w, impl Trait: 3w, borrow: 6-8w |
+| 12 | [Build System & Project Config](gap-build-system.md) | 🟡 P1 | 🟢 Feasible | 5.5 weeks |
+| 13 | [Runtime Optimization (Embedding only)](gap-runtime-optimization.md) | 🔵 P2 | 🟡 Moderate | Embed: 6w; LLVM/WASM deferred |
+| 14 | [Testing Framework & Benchmarks](gap-test-framework.md) | 🟡 P1 | 🟢 Feasible | 6.5 weeks |
+| 15 | [Community Infrastructure](gap-community-infrastructure.md) | 🔵 P2 | 🟢 Feasible | Ongoing |
+
+### Key Changes After Feasibility Review
+
+| Proposal | Original | Revised | Reason |
 |---|---|---|---|
-| 9 | [Documentation Generator (ng doc)](gap-docgen.md) | 🟡 P1 | Stable parser, module resolution |
-| 10 | [Syntax Ergonomics](gap-syntax-ergonomics.md) | 🔵 P2 | Parser changes |
-| 11 | [Type System Enhancements](gap-type-system-enhancements.md) | 🔵 P2 | HKT infrastructure |
-| 12 | [Build System & Project Config](gap-build-system.md) | 🟡 P1 | Package manager |
-| 13 | [Runtime Optimization (AOT/WASM/Embed)](gap-runtime-optimization.md) | 🔵 P2 | LLVM, VM refactoring |
-| 14 | [Testing Framework & Benchmarks](gap-test-framework.md) | 🟡 P1 | Error handling |
-| 15 | [Community Infrastructure](gap-community-infrastructure.md) | 🔵 P2 | Documentation, website |
-| — | (User-level exceptions integrated into gap-error-handling.md) | — | — |
+| Concurrency | `async fun`/`await` (VM suspension) | `spawn`/`await` (thread pool) | VM cannot suspend; compiler cannot generate types |
+| GAT | 4-6 months | **Deferred indefinitely** | No lifetime system exists |
+| Borrow checker | Full Rust-style (3-4mo) | Lexical only (6-8w) | NLL is research-level complexity |
+| LLVM AOT | 3-6 months | **Deferred to post-MVP** | GC stack maps are high complexity |
+| C FFI | Assembly trampolines | Use `libffi` | Cross-platform, maintained |
+| Debugger | Single phase | 3 phases | VM suspension shared with concurrency |
+| Raise | `try`/`catch`/`throw` in Phase 1 | **Deferred to Phase 2** | `Result` + `?` covers 95% of needs |
 
 ### Priority Key
 
