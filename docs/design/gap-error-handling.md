@@ -31,18 +31,12 @@ This reuses the existing tagged union infrastructure. No new type system concept
 
 ### 2. Lexer Changes
 
-Add a new token `QUESTION = 0x0B00` for the `?` operator.
+**Use existing token:** The `QUERY` token already exists at `0x0B00` (line 148 in `include/token.hpp`). The `?` operator uses this existing token — no new token needed.
 
-In `include/token.hpp`:
-```cpp
-enum class TokenType : uint32_t {
-    // ... existing tokens ...
-    QUESTION_COLON,    // ?: — for future ternary
-    QUESTION = 0x0B00, // ?  — error propagation
-};
-```
-
-In `src/parsing/Lexer.cpp`, add `?` to the symbol/operator lexing path. `?` following an expression (not preceded by whitespace on the left) becomes a postfix operator.
+The lexer disambiguates `?` usage by context:
+- Postfix `?` → error propagation (when following an expression)
+- Infix `?` → ternary condition (when followed by `:` — future)
+- `???` → undefined/null operator (future, uses existing `UNDEFINED` token)
 
 ### 3. AST Changes
 
@@ -211,25 +205,29 @@ type IOError {
 fun readFile(path: string) -> Result<string, IOError> = native;
 ```
 
-Native C++ implementation change (in `src/stdlib/prelude.cpp`):
-```cpp
-// Before:
-REGISTER_NATIVE("readFile", [](const std::string &path) -> std::string {
-    std::ifstream file(path);
-    if (!file) throw RuntimeException("File not found: " + path);
-    return {std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
-});
+#### Breaking Change: Files to Migrate
 
-// After:
-REGISTER_NATIVE("readFile", [](const std::string &path) -> ResultValue {
-    std::ifstream file(path);
-    if (!file) {
-        return ResultValue::Err(/* IOError{path + ": not found", errno} */);
-    }
-    std::string content{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
-    return ResultValue::Ok(content);
-});
-```
+This change breaks every caller of `readFile`/`writeFile`. The following files must be updated:
+
+| File | Lines to Change |
+|---|---|
+| `lib/std/prelude.ng` | Uses `readFile` indirectly via re-export |
+| `example/18.stdlib_basics.ng` | `val content = readFile(path);` → `val content = readFile(path)?;` |
+| `example/56.stdlib_modules.ng` | Same pattern |
+| `example/ng_ide.ng` | Multiple `readFile` calls |
+| `src/stdlib/prelude.cpp` | Native implementation must return Result not string |
+
+#### Migration Strategy
+
+**Approach: Break once, fix all.** Since the project is young (< 100 NG files), a single coordinated migration is feasible:
+
+1. Add `Result<T,E>` and `?` operator
+2. Update C++ native `readFile` to return `Result<string, IOError>`
+3. Update all NG callers to use `readFile(path)?`
+4. Run all tests to verify correctness
+5. Document the change in release notes
+
+No deprecation period is needed — the old behavior (crashing on missing files) was never correct.
 
 ### Phase 1 Acceptance Criteria
 

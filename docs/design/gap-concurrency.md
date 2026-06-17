@@ -37,7 +37,9 @@ type Future<T> = Pending | Ready(value: T);
 
 ### 2. New Keywords
 
-Add to lexer: `KEYWORD_ASYNC`, `KEYWORD_AWAIT`.
+Add to lexer: `KEYWORD_ASYNC`, `KEYWORD_AWAIT`, `KEYWORD_YIELD`.
+
+**Note:** An AST node `YIELD_STATEMENT = 0x504` already exists at line 90 of `include/ast.hpp` but has no parser support. The concurrency proposal adds `KEYWORD_YIELD` and implements the existing node rather than creating new infrastructure.
 
 ### 3. AST Changes
 
@@ -175,6 +177,46 @@ In Phase 1, `async fun` bodies cannot access mutable globals. This is a compile-
 - Requires [Error Handling](gap-error-handling.md) for `Result<T, E>` used in fallible async operations.
 - ORGASM VM must support frame suspension and task queue.
 - No dependency on threading libraries (Phase 1 is single-threaded).
+
+## GC Thread-Safety — Impact Analysis
+
+The existing GC (`src/runtime/managed_heap.cpp`) is **single-threaded**:
+- No mutexes protecting heap structures
+- No atomic operations for reference counts
+- No concurrent marking algorithm
+- Finalizers run inline during collection
+
+**Impact on Concurrency Phases:**
+
+| Phase | GC Requirement | Effort |
+|---|---|---|
+| Phase 1 (single-thread) | **No changes needed** — single-threaded async is safe | 0 |
+| Phase 2a (multi-thread, stop-the-world) | Add global GC mutex. All allocation/marking/sweeping synchronized. Pause all threads during collection. | 2 weeks |
+| Phase 2b (concurrent marking, optional) | Tri-color marking with write barrier. Thread-local allocation buffers. | 2-3 months |
+| Phase 3 (Send/Sync) | No GC changes (only type-checker changes) | 0 |
+
+**Recommendation:** Phase 2a is sufficient for MVP multi-threaded execution. Phase 2b should only be attempted if GC pause times become a measured bottleneck.
+
+#### Phase 2a GC Changes
+
+```cpp
+// src/runtime/managed_heap.cpp
+
+class ManagedHeap {
+    std::mutex heapMutex;          // NEW: protects all heap access
+
+    void collectGarbage() {
+        std::lock_guard lock(heapMutex);  // NEW: exclusive access during GC
+        mark();
+        sweep();
+    }
+
+    StorageCell* allocate(size_t size) {
+        std::lock_guard lock(heapMutex);  // NEW: synchronized allocation
+        // ... existing logic ...
+    }
+};
+```
 
 ## Scope
 
