@@ -53,28 +53,97 @@ Content:
 
 ### 2. Online Playground
 
-```html
-<!-- Web-based NG editor and runner -->
-<div id="playground">
-  <div class="editor">
-    <textarea id="code">
-      print("Hello from NG in the browser!");
-    </textarea>
-  </div>
-  <div class="output" id="output"></div>
-  <button onclick="runCode()">Run</button>
-</div>
+**Chosen approach**: Server-side execution (MVP).
+**Rationale:** No WASM compilation needed. Works with existing ngi binary. Easy to deploy.
+
+#### Architecture
+
+```
+Browser (Monaco Editor)  ←HTTP→  Playground API Server  ←subprocess→  ngi
 ```
 
-Implementation options:
+#### API
 
-| Option | Pros | Cons |
-|---|---|---|
-| **WASM build of ngi** | Full NG experience | ~37 MB download, slow startup |
-| **Server-side execution** | Fast, always up-to-date | Requires server infra, network latency |
-| **Hybrid** | WASM for simple scripts, server for complex | Complex to maintain |
+```
+POST /api/run
+{
+  "code": "print(\"Hello\");",
+  "timeout_ms": 5000
+}
 
-Recommended approach: Start with server-side execution (NGI as a service), add WASM later.
+Response 200:
+{
+  "stdout": "Hello",
+  "stderr": "",
+  "exit_code": 0,
+  "duration_ms": 12
+}
+
+Response 422 (error):
+{
+  "stdout": "",
+  "stderr": "Type error: ...",
+  "exit_code": 1,
+  "error": {"line": 1, "column": 8, "message": "..."}
+}
+```
+
+#### Implementation
+
+```python
+# playground/server.py (MVP: ~100 lines of Python)
+
+import subprocess, json, tempfile, os
+
+app = Flask(__name__)
+
+@app.route("/api/run", methods=["POST"])
+def run_code():
+    data = request.json
+    code = data["code"]
+    
+    with tempfile.NamedTemporaryFile(suffix=".ng", mode="w", delete=False) as f:
+        f.write(code)
+        fpath = f.name
+    
+    try:
+        result = subprocess.run(
+            ["./build/ngi", fpath],
+            capture_output=True,
+            text=True,
+            timeout=data.get("timeout_ms", 5000) / 1000
+        )
+        return jsonify({
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "exit_code": result.returncode,
+        })
+    except subprocess.TimeoutExpired:
+        return jsonify({"error": "timeout"}), 408
+    finally:
+        os.unlink(fpath)
+```
+
+**Security sandboxing (MVP):**
+- Run ngi in a Linux container (Docker) with no network and read-only filesystem
+- Kill subprocess after timeout
+- Limit output size to 1MB
+- Rate limit: 10 requests/minute per IP
+
+#### Tech Stack (Website)
+
+| Component | Technology |
+|---|---|
+| Static site generator | Hugo (Go) — fast, single binary |
+| Theme | Custom (or Docsy for Hugo) |
+| Hosting | GitHub Pages + Cloudflare CDN |
+| Playground server | Python Flask → Node.js/Go (future) |
+| Code editor | Monaco Editor (VS Code's editor, browser-based) |
+
+#### Automation
+
+- GitHub Action: on push to `main`, rebuild website and deploy to GitHub Pages
+- GitHub Action: on release, regenerate API docs and
 
 ### 3. RFC Process
 

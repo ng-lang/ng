@@ -1,122 +1,157 @@
-# Package Manager (`ngpkg`)
+# Package Manager — MVP
+
+> **Status:** Refined. Scope reduced to git+path dependencies only. Registry deferred.
 
 ## Order
 
-Recommended implementation order: **5** (needed once libraries exist to distribute).
+Recommended implementation order: **5** (after tooling basics are stable).
 
-## Goal
+## Goal (MVP)
 
-Design and implement a package manager for NG, enabling distribution, discovery, and dependency resolution of NG libraries.
+Provide a minimal package manager for NG that handles **git and path dependencies** without a registry, lockfile, or publishing workflow.
 
 ## Motivation
 
-Currently, NG has **no mechanism to distribute or consume third-party code**. All code must live in a single repository. There is no:
-- Package registry or index
-- Dependency declaration format
-- Version resolution
-- Lockfile for reproducible builds
+Even without a registry, the ability to depend on git repositories and local paths enables:
+- Multi-project code organization
+- Sharing code via GitHub without manual copying
+- Reproducible builds via pinned commits
 
 ## Proposed Design
 
-### Manifest File: `ng.toml`
+### Manifest Format (`ng.toml`)
 
 ```toml
-[package]
-name = "my-project"
+[project]
+name = "my-app"
 version = "0.1.0"
-edition = "2026"
-authors = ["Author Name"]
+entry = "src/main.ng"
 
 [dependencies]
-std = ">=1.0"                       # built-in stdlib
+# Git dependency (branch, tag, or commit)
 json = { git = "https://github.com/user/json.ng", tag = "v1.2.0" }
-http = { path = "../libs/http" }
-regex = "0.2"                       # from default registry
 
-[dev-dependencies]
-test = "0.1"
+# Path dependency (relative or absolute)
+my-lib = { path = "../libs/my-lib" }
+
+# Short form (from default registry — future)
+# http = "0.2"
 ```
 
 ### Commands
 
 ```bash
-ng init                    # Create new ng.toml
-ng add json                # Add dependency
-ng remove json             # Remove dependency
-ng build                   # Resolve deps, build project
-ng run                     # Run main entry point
-ng test                    # Run tests
-ng publish                 # Publish to registry
-ng update                  # Update dependencies to latest compatible
-ng tree                    # Show dependency tree
+ng init                  # Create ng.toml interactively
+ng install               # Download all dependencies
+ng build                 # Build project (resolves deps first)
+ng run                   # Build and run
+ng update                # Update to latest matching version (git: latest commit on tag)
 ```
 
-### Registry
+### Dependency Resolution Algorithm
 
-- Default registry URL (e.g., `https://pkg.ng-lang.org`)
-- Simple HTTP API: `GET /api/v1/packages/{name}` returns metadata + tarball URL
-- Packages are versioned using SemVer 2.0
-- Authentication via API token (optional for publishing)
+```
+Input: ng.toml
+Output: resolved dependency graph
 
-### Dependency Resolution
-
-1. Read `ng.toml`
-2. For each dependency, check the registry / git / path
-3. Build a dependency graph
-4. Resolve version constraints using SemVer compatibility
-5. Produce a `ng.lock` file with pinned versions
-6. Download and cache packages in `~/.ng/cache/`
-7. Make packages available via `NG_MODULE_PATH`
-
-### Integration with Module System
-
-```ng
-// A package's exports are accessed through import:
-import json;
-
-val data = json::parse(text);
+1. Parse ng.toml
+2. For each dependency:
+   a. If path: resolve from file system
+   b. If git: git clone --depth 1 (or fetch if already cached)
+3. Check for duplicate package names → error if different sources
+4. Build module path order:
+   - Project root first
+   - Dependencies in insertion order
+5. Write resolved paths to .ngmodules (generated config, not committed)
 ```
 
-The package manager maps package names to module paths automatically. When `json` is a dependency, `import json;` resolves to the installed package's entry module.
+### Cache Structure
 
-## Dependencies
+```
+~/.ng/cache/
+├── git/
+│   ├── github.com_user_json.ng_v1.2.0/   # Cloned repository
+│   │   ├── ng.toml
+│   │   └── src/
+│   └── github.com_user_http.ng_main/
+└── download/                               # Future: registry packages
+```
 
-- Requires module path resolution to support virtual paths (not just file system paths).
-- [Standard Library Expansion](gap-stdlib-expansion.md) provides the HTTP client needed for registry access.
-- Unblocks: large-scale project organization, CI workflows.
+Each git dependency is cloned once and cached by `(url + ref)`. The cache key is a hash of the URL and the git ref.
 
-## Scope
+### Lockfile (`.ngmodules`)
 
-**In scope:**
-- `ng.toml` manifest format
-- Dependency resolution with SemVer
-- Git and path dependencies
-- `ng.lock` lockfile
-- Package cache in `~/.ng/cache/`
-- Basic registry protocol (HTTP API)
-- VM integration for module path resolution
+Simple generated file — not a full lockfile:
 
-**Out of scope:**
-- Private registries / authentication (MVP uses public registry only)
-- Workspaces / monorepo support
-- Build scripts / custom build steps
-- WASM distribution target
-- Native (C++) package distribution
+```toml
+# Auto-generated by ng install. Do not commit.
+[roots]
+project = "/Users/user/projects/my-app"
 
-## Acceptance Criteria
+[dependencies]
+json = { path = "/Users/user/.ng/cache/git/github.com_user_json.ng_v1.2.0" }
+my-lib = { path = "/Users/user/projects/libs/my-lib" }
+```
 
-- `ng init` creates a valid `ng.toml`
-- `ng add json` installs the latest version and updates `ng.lock`
-- `ng build` resolves all dependencies and runs the project
-- Two projects with the same `ng.lock` produce identical dependency trees
-- A published package can be installed by another project
-- Offline builds work when all packages are cached
-- Version conflicts produce clear error messages
+This maps dependency names to absolute paths. It's `.gitignore`-appropriate (machine-specific).
 
-## Potential Challenges
+### Module Path Integration
 
-- Registry infrastructure (server, storage, moderation) is a significant operational cost.
-- SemVer compliance relies on human discipline — automatic checking requires a stable API surface.
-- Git dependencies are slow for large repositories — need shallow clone or sparse checkout.
-- Dependency graph resolution is NP-hard in theory (though SemVer ranges keep it tractable).
-- Security: no code signing or integrity verification in MVP.
+When `ng build` or `ng run` executes, it sets `NG_MODULE_PATH` to include all resolved dependency paths. This leverages the existing module resolution:
+
+```
+NG_MODULE_PATH = [
+    project_root/src,
+    /Users/user/.ng/cache/.../json,
+    /Users/user/projects/libs/my-lib,
+]
+```
+
+The existing `ModuleLoader` already supports searching `NG_MODULE_PATH`. No changes needed to the module system.
+
+### Implementation
+
+```
+src/pkg/
+├── Manifest.cpp/h      # ng.toml parsing
+├── Resolver.cpp/h      # Dependency resolution
+├── Cache.cpp/h         # ~/.ng/cache management
+├── Git.cpp/h           # Git operations
+├── CLI.cpp/h           # Command-line interface
+└── Config.cpp/h        # Configuration
+```
+
+### Acceptance Criteria
+
+- `ng init` creates a valid `ng.toml` with name and entry
+- `ng install` clones a git dependency and caches it
+- `ng install [path]` copies/links a local dependency
+- `ng build` with dependencies sets correct module paths
+- Duplicate dependency names produce a clear error
+- A project without `ng.toml` still works (backward compatible)
+
+### Effort Estimate
+
+| Component | Effort |
+|---|---|
+| Manifest parsing (TOML) | 1 week |
+| Git integration (clone, fetch, cache) | 2 weeks |
+| Path dependency resolution | 0.5 week |
+| Module path integration | 0.5 week |
+| CLI interface | 1 week |
+| Tests | 1 week |
+| **Total** | **6 weeks** |
+
+### Dependencies
+
+- TOML parser for C++ (vendored: `toml11` or `cpptoml`)
+- Git CLI integration (can shell out to `git` command)
+- No changes to the existing module system
+
+### Out of Scope (MVP)
+
+- Registry / publishing
+- SemVer version resolution
+- Lockfile with hash verification
+- Dependency tree visualization
+- Authentication / private repos

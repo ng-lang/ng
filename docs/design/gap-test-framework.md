@@ -1,239 +1,208 @@
-# Testing Framework and Benchmarking
+# Testing Framework — Test Discovery & Isolation
 
-## Order
+> **Status:** Refined with algorithm details. INVEST: 5/5/5/4/4/5 after refinement.
 
-Recommended implementation order: **14**.
+## Test Discovery Algorithm
 
-## Goal
+```cpp
+// src/test/TestDiscovery.cpp
 
-Provide a built-in testing framework for NG, enabling unit tests, integration tests, benchmarks, and property-based testing without external tools.
+struct TestCase {
+    std::string name;
+    std::string file;
+    uint32_t line;
+    uint32_t column;
+    // The test body is compiled as a function:
+    // fun __test_<hash>() { ... body ... }
+    std::string functionName;
+};
 
-## Motivation
+struct TestSuite {
+    std::string name;         // From describe()
+    std::vector<TestCase> tests;
+    std::vector<std::string> beforeHooks;
+    std::vector<std::string> afterHooks;
+};
 
-NG currently has **no testing support in the language itself**. The project's own tests are written in C++ using Catch2. There is no:
-- `test` keyword or attribute
-- Assertion library beyond `assert()` (which aborts)
-- Test runner
-- Benchmarking tools
-- Property-based testing
-
-## Proposed Design
-
-### 1. Unit Testing
-
-```ng
-// test_math.ng
-import std.test;
-
-test "addition works" {
-    expectEq(add(2, 3), 5);
-    expect(add(0, 0) == 0);
-}
-
-test "subtraction is not commutative" {
-    expect(add(3, 1) != add(1, 3));  // Wait, it is commutative — test catches the bug!
-}
-```
-
-### 2. Test Runner
-
-```bash
-ng test                          # Run all tests in the project
-ng test test_math.ng             # Run tests in a specific file
-ng test --filter "addition"      # Run tests matching filter
-ng test --list                   # List all discovered tests
-ng test --verbose                # Show verbose output
-```
-
-### 3. Test Expectations
-
-```ng
-import std.test;
-
-expect(condition);               // Assert condition is true
-expectEq(a, b);                  // Assert a == b
-expectNe(a, b);                  // Assert a != b
-expectError(expr);               // Assert expression throws/runtime errors
-expectApprox(a, b, epsilon);     // Assert a ≈ b within epsilon (for floats)
-expectType<T>(value);            // Assert value has type T
-```
-
-### 4. Test Organization
-
-```ng
-// Grouping
-describe "Math operations" {
-    test "addition" { ... }
-    test "subtraction" { ... }
-}
-
-// Setup and teardown
-describe "Database" {
-    before {
-        db = connect();
-    }
+class TestDiscoverer {
+public:
+    // Scan all .ng files in a directory and discover tests
+    auto discoverTests(const std::string &directory) -> std::vector<TestSuite>;
     
-    after {
-        db.close();
-    }
+private:
+    // Strategy: parse source, scan for test(...) and describe(...) calls
+    // at top level. Extract the string literal argument as the test name.
+    auto parseTestDeclarations(const std::string &source) -> std::vector<TestSuite>;
+};
+```
+
+### Discovery Strategy
+
+**Approach Chosen:** Source-level scanning (not AST walking).
+
+The discoverer scans each `.ng` file for patterns:
+```
+test "name" {   // Line-start: test "string" {
+describe "name" {
+```
+
+This is simpler than full parsing and sufficient for test discovery. The test runner then compiles and executes only the discovered test files.
+
+### Test Execution Flow
+
+```
+1. ng test [--filter pattern] [files...]
+2. Discover tests in project files (or specified files)
+3. Filter tests by pattern (if --filter provided)
+4. For each test suite:
+   a. Compile the test file
+   b. For each test in the suite:
+      i.   Create a fresh VM (isolated state)
+      ii.  Run before hooks
+      iii. Run the test function
+      iv.  Run after hooks
+      v.   Record pass/fail (pass = clean exit, fail = exception/assertion)
+5. Report results
+6. Exit 0 if all pass, 1 if any fail
+```
+
+## Test Isolation Mechanism
+
+```cpp
+// Each test runs in its own VM instance:
+for (auto &test : tests) {
+    VM vm{modulePaths};
+    vm.registerNative("expect", expectNative);
+    vm.registerNative("expectEq", expectEqNative);
     
-    test "query returns results" {
-        expect(db.query("SELECT 1").len() > 0);
+    try {
+        vm.run(bytecode);      // Compile and run
+        vm.call(test.functionName, {});  // Call the test function
+        test.status = PASS;
+    } catch (const AssertionException &e) {
+        test.status = FAIL;
+        test.message = e.what();
+    } catch (const std::exception &e) {
+        test.status = ERROR;
+        test.message = e.what();
     }
 }
 ```
 
-### 5. Integration Testing
+**Why per-test VM instances:**
+- Complete isolation — no state leakage between tests
+- No need for teardown between tests
+- GC cycles between tests are naturally separated
+- Thread-safe for parallel execution (future)
 
-```ng
-// test_integration.ng
-import std.test;
+**Tradeoff:** Slower startup. Mitigated by caching compiled bytecode across tests in the same file.
 
-// Test that a module compiles and runs correctly
-test_integration "stdlib imports work" {
-    val result = runNgi("import std.io; print(readFile('test.txt'));");
-    expect(result == "file contents");
-}
-```
+## Benchmark Statistical Method
 
-### 6. Benchmarking
+```cpp
+struct BenchmarkResult {
+    std::string name;
+    Duration mean;
+    Duration median;
+    Duration min;
+    Duration max;
+    Duration stddev;
+    uint32_t iterations;
+};
 
-```ng
-import std.test;
-
-bench "sort 10,000 integers" {
-    val data = generateRandomArray(10000);
-    
-    // Time this block
-    measure {
-        sort(data);
+class BenchmarkRunner {
+public:
+    // Runs the benchmark body multiple times and collects statistics
+    auto run(const std::string &name, std::function<void()> body) -> BenchmarkResult {
+        // Phase 1: Warm-up (3 iterations, discarded)
+        for (int i = 0; i < 3; i++) { body(); }
+        
+        // Phase 2: Measurement (N iterations until stable)
+        std::vector<Duration> samples;
+        for (int i = 0; i < 100; i++) {
+            auto start = high_resolution_clock::now();
+            body();
+            auto end = high_resolution_clock::now();
+            samples.push_back(end - start);
+        }
+        
+        // Phase 3: Statistical analysis
+        return analyze(samples);
     }
-}
-
-// Compare implementations
-bench_comparison "sorting algorithms" {
-    val data = generateRandomArray(10000);
-    
-    group "quicksort" {
-        measure { quicksort(data.clone()); }
-    }
-    
-    group "mergesort" {
-        measure { mergesort(data.clone()); }
-    }
-}
+};
 ```
 
-### 7. Property-Based Testing
-
-```ng
-import std.test;
-
-// Verify that sorting is idempotent
-property "sort is idempotent" {
-    forAll (list: [i32]) {
-        val sorted = sort(list);
-        expectEq(sort(sorted), sorted);  // sorted twice = sorted once
-    }
-}
-
-// With custom generators
-property "addition commutes" {
-    forAll (a: i32, b: i32) {
-        expectEq(a + b, b + a);
-    }
-}
-```
-
-### 8. Test Output Format
+### Benchmark Output Format
 
 ```
-$ ng test
-running 12 tests
-  ✓ addition works (2ms)
-  ✓ subtraction works (1ms)
-  ✓ multiplication works (1ms)
-  ✗ division by zero panics (0ms)
-    expected: panic but got: Ok
-  ...
-
-test result: FAILED. 11 passed, 1 failed, 0 skipped
+$ ng bench
+Benchmarking 3 tests:
+  sort_10000          ... 2.34 ms  (±0.12 ms, 100 iterations)
+  hashmap_insert      ... 0.89 ms  (±0.05 ms, 100 iterations)
+  json_parse_large    ... 15.67 ms (±1.23 ms, 100 iterations)
 ```
 
-JUnit XML output for CI integration:
-
-```bash
-ng test --junit-xml results.xml
-```
-
-### The `std.test` Module
+## `std.test` Module Functions
 
 ```ng
 module std.test exports *;
 
-// Core test primitives
-fun describe(name: string, body: () -> unit) -> unit;
-fun test(name: string, body: () -> unit) -> unit;
-fun bench(name: string, body: () -> unit) -> unit;
-fun property(name: string, body: () -> unit) -> unit;
+// Register a test case
+export fun test(name: string, body: () -> unit);
+
+// Group tests
+export fun describe(name: string, body: () -> unit);
 
 // Assertions
-fun expect(condition: bool) -> unit;
-fun expectEq<T>(actual: T, expected: T) -> unit;
-fun expectNe<T>(actual: T, expected: T) -> unit;
-fun expectError(body: () -> unit) -> unit;
-fun expectApprox(actual: f64, expected: f64, epsilon: f64) -> unit;
+export fun expect(condition: bool);
+export fun expectEq<T>(actual: T, expected: T) where T: Eq;
+export fun expectNe<T>(actual: T, expected: T) where T: Eq;
+export fun expectError(body: () -> unit);
+export fun expectApprox(actual: f64, expected: f64, epsilon: f64 = 1e-9);
 
-// Setup/teardown
-fun before(body: () -> unit) -> unit;
-fun after(body: () -> unit) -> unit;
-
-// Benchmarking
-fun measure(body: () -> unit) -> Duration;
-
-// Property testing
-fun forAll<T>(generator: () -> T, property: (T) -> bool) -> unit;
+// Hooks
+export fun before(body: () -> unit);
+export fun after(body: () -> unit);
 ```
 
-## Dependencies
+### Implementation Note: `test` as a Special Form
 
-- Requires `describe`/`test`/`bench` as built-in syntax or library.
-- Property testing requires random number generation in stdlib.
-- Benchmark measurement requires high-resolution timers (already in `std.time`).
-- Unblocks: test-driven development, CI integration, regression prevention.
+Since NG doesn't have closures yet (see [Syntax Ergonomics Batch 2](gap-syntax-ergonomics.md)), `test "name" { body }` is implemented as a **special AST form** rather than a function call:
 
-## Scope
+```cpp
+// Parser recognizes:
+// test "name" { ... }  → TestStatement AST node
+// describe "name" { ... } → DescribeStatement AST node
 
-**In scope:**
-- `std.test` module with core assertion functions
-- `ng test` command (discover and run tests)
-- `describe`/`test` organization
-- `before`/`after` hooks
-- JUnit XML output
-- Benchmarking with `measure` block
-- Property-based testing with `forAll`
+struct TestStatement : Statement {
+    ASTRef<StringValue> name;
+    ASTRef<Statement> body;
+};
+```
 
-**Out of scope:**
-- Code coverage instrumentation (requires runtime tracking — future)
-- Mutation testing (far future)
-- Fuzz testing (requires harness generation — future)
-- Snapshot testing (future)
+These nodes are compiled by the ORGASM compiler but not executed during normal runs. They are only executed when run by the test runner (`ng test`).
 
 ## Acceptance Criteria
 
-- `ng test` discovers all `test "..." { ... }` blocks in a project
-- A passing test suite produces exit code 0
-- A failing test produces exit code 1 with the failure message
-- `expect` correctly reports assertion failures with source location
-- `bench` produces timing output in milliseconds
-- `property` finds counterexamples for false properties
-- Tests can be filtered by name
-- The test framework works in both STUPID and ORGASM modes
+- `ng test` discovers and runs all `test "..." { }` blocks in `tests/*.ng`
+- A passing test exits with code 0
+- A failing test exits with code 1 and prints the failure location
+- `expectEq(2+2, 4)` passes; `expectEq(2+2, 5)` fails with "expected 4, got 5"
+- Tests in the same file are isolated (one test cannot affect another)
+- `before`/`after` hooks run for each test
+- `bench` produces timing output with mean, min, max
+- Tests can be filtered by name pattern
 
-## Potential Challenges
+## Effort Estimate
 
-- Test discovery requires parsing source files without executing them — the NG parser already supports this.
-- `describe`/`test` blocks are currently not part of the language — they could be added as functions taking closure arguments, or as special AST nodes.
-- `expect` must capture source location for useful error messages.
-- Property-based testing requires shrinking (finding minimal counterexamples) — a non-trivial algorithm.
-- Benchmarks must account for VM warm-up and JIT compilation (if JIT is added).
+| Component | Effort |
+|---|---|
+| `test`/`describe` AST nodes + parser | 1 week |
+| Test discovery (source scanning) | 0.5 week |
+| Test runner (VM per test) | 1 week |
+| Assertion functions (C++ native + NG) | 1 week |
+| `before`/`after` hooks | 0.5 week |
+| Benchmark runner | 1 week |
+| CLI integration (`ng test`, `ng bench`) | 0.5 week |
+| Tests for the test framework | 1 week |
+| **Total** | **6.5 weeks** |

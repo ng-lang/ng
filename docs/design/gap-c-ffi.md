@@ -1,150 +1,167 @@
-# C ABI / External FFI
+# C ABI / External FFI — Calling Convention & Type Mapping
 
-## Order
+> **Status:** Refined with calling convention details and platform ABI mapping.
 
-Recommended implementation order: **8**.
+## Type Mapping Table
 
-## Goal
+```
+┌─────────────────┬────────────────────┬──────────────────────────────┐
+│ C Type          │ NG Declaration     │ Notes                        │
+├─────────────────┼────────────────────┼──────────────────────────────┤
+│ void            │ unit               │ Function return only         │
+│ int8_t          │ i8                 │                              │
+│ int16_t         │ i16                │                              │
+│ int32_t         │ i32                │                              │
+│ int64_t         │ i64                │                              │
+│ uint8_t         │ u8                 │                              │
+│ uint16_t        │ u16                │                              │
+│ uint32_t        │ u32                │                              │
+│ uint64_t        │ u64                │                              │
+│ float           │ f32                │                              │
+│ double          │ f64                │                              │
+│ char*           │ *u8 (raw)          │ Zero-copy, unsafe            │
+│ char*           │ string             │ Copy into NG string, safe    │
+│ void*           │ *u8                │ Opaque pointer               │
+│ int*            │ *i32               │ Pointer to int               │
+│ struct T        │ opaque type        │ Size-known opaque handle     │
+│ struct T*       │ *u8                │ Pointer to struct            │
+│ int32_t(*)()    │ *u8 (func ptr)     │ Raw function pointer         │
+└─────────────────┴────────────────────┴──────────────────────────────┘
+```
 
-Enable NG code to call C libraries directly without C++ wrapper code, through automatic C ABI binding generation.
+## Calling Convention Bridge
 
-## Motivation
+When an `extern fun` is called, the ORGASM VM must transition from its stack-based calling convention to the platform's C ABI.
 
-Currently, native functions require **explicit C++ registration** in the VM:
+### x86-64 (System V) ABI Mapping
+
+```
+NG Stack                     C ABI (x86-64 SysV)
+─────────                    ───────────────────
+Top of stack                 RDI (1st arg)
+2nd from top                 RSI (2nd arg)
+3rd                          RDX (3rd arg)
+4th                          RCX (4th arg)
+5th                          R8  (5th arg)
+6th                          R9  (6th arg)
+Remaining                    Stack (right-to-left)
+Return value → result        RAX (return value)
+```
+
+### Implementation
 
 ```cpp
-vm.register_native("my_function", [](int x) -> int { ... });
-```
+// src/orgasm/extern_bridge.cpp
 
-This means every C library needs a C++ shim. There is no way to:
-- Call `libcurl`, `libsqlite3`, `libssl`, or any C library directly
-- Bind to system APIs (POSIX, Win32) without writing C++ code
-- Auto-generate bindings from C header files
+#include <cstdint>
+#include <cstring>
 
-## Proposed Design
+// Platform-specific calling convention bridge
+#if defined(__x86_64__) && !defined(_WIN32)
+// System V ABI
 
-### `extern` Declaration
+struct SysVABIArgs {
+    uint64_t rdi, rsi, rdx, rcx, r8, r9;
+    std::vector<uint64_t> stackArgs;
+};
 
-```ng
-// Direct C ABI binding
-extern fun puts(s: string) -> i32;
-extern fun getenv(name: string) -> string;
-extern fun malloc(size: u64) -> *u8;
-extern fun free(ptr: *u8) -> unit;
-```
+extern "C" uint64_t sysv_call(const void* func, SysVABIArgs args);
 
-The `extern` keyword tells the compiler the function is available through C ABI, linked at runtime via `dlopen`/`dlsym`.
+// Assembly trampoline (in extern_bridge_amd64.S):
+//   mov rdi, args.rdi
+//   mov rsi, args.rsi
+//   mov rdx, args.rdx
+//   mov rcx, args.rcx
+//   mov r8,  args.r8
+//   mov r9,  args.r9
+//   ; push stack args (in reverse order)
+//   call func
+//   ret
 
-### Raw Pointer Type: `*T`
+#elif defined(_WIN64)
+// Windows x64 ABI (different register mapping)
+// RCX, RDX, R8, R9, then stack
+#endif
 
-```ng
-type Buffer {
-    data: *u8;
-    len: u64;
+// NG value → C value marshaling
+uint64_t marshalToC(const StorageCell &cell, ExternType targetType) {
+    switch (targetType) {
+        case ExternType::I32: return cell.as<int32_t>();
+        case ExternType::I64: return cell.as<int64_t>();
+        case ExternType::F32: return bit_cast<uint32_t>(cell.as<float>());
+        case ExternType::F64: return bit_cast<uint64_t>(cell.as<double>());
+        case ExternType::PTR: return cell.as<uint64_t>();  // Raw pointer
+    }
 }
 ```
-
-- `*T` is an unsafe raw pointer (no ownership tracking, no GC)
-- Dereferencing a raw pointer does not increment reference counts
-- Marked explicitly as an escape hatch, not for normal use
-
-### Bindings Generator: `ng-bindgen`
-
-A tool that reads C headers and generates NG bindings:
-
-```bash
-ng-bindgen /usr/include/sqlite3.h -o sqlite.ng
-```
-
-Generated output:
-
-```ng
-// Auto-generated from sqlite3.h
-extern fun sqlite3_open(filename: string, ppDb: **sqlite3) -> i32;
-extern fun sqlite3_close(db: *sqlite3) -> i32;
-extern fun sqlite3_exec(db: *sqlite3, sql: string, ...) -> i32;
-
-type sqlite3 is opaque;
-```
-
-### ABI Types
-
-C-to-NG type mapping:
-
-| C Type | NG Type |
-|---|---|
-| `int`, `int32_t` | `i32` |
-| `int64_t` | `i64` |
-| `float` | `f32` |
-| `double` | `f64` |
-| `char*` | `string` (copy) / `*u8` (zero-copy) |
-| `void*` | `*u8` |
-| `struct T` | `T` (opaque type) |
-| `int*` | `*i32` |
 
 ### Dynamic Library Loading
 
-```ng
-// Manual loading (if not linked statically)
-extern fun dlopen(path: string, flags: i32) -> *u8;
-extern fun dlsym(handle: *u8, symbol: string) -> *u8;
+```cpp
+// src/orgasm/dlloader.cpp
 
-val lib = dlopen("libcurl.so", RTLD_NOW);
-val curl_easy_init = dlsym(lib, "curl_easy_init") as () -> *u8;
+#include <dlfcn.h>   // POSIX
+// #include <windows.h>  // Windows
+
+struct DynamicLibrary {
+    void* handle;
+    
+    static auto open(const std::string &path) -> std::optional<DynamicLibrary> {
+        auto* handle = dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
+        if (!handle) return std::nullopt;
+        return DynamicLibrary{handle};
+    }
+    
+    auto symbol(const std::string &name) -> void* {
+        return dlsym(handle, name.c_str());
+    }
+    
+    ~DynamicLibrary() { if (handle) dlclose(handle); }
+};
 ```
 
-### Safety
+### Extern Function Resolution
 
-- All `extern` functions are inherently `unsafe`
-- Raw pointer arithmetic and dereference are `unsafe` operations
-- Calling `extern` from safe code requires an `unsafe` block:
+```cpp
+// VM opcode handler for CALL_EXTERN:
+// 1. Pop function name from stack
+// 2. Look up address in loaded libraries (dlsym)
+// 3. Marshal NG stack values to C ABI registers
+// 4. Call through assembly trampoline
+// 5. Marshal return value back to NG StorageCell
+// 6. Push result onto NG stack
 
-```ng
-unsafe {
-    val ptr = malloc(100);
-    // ... raw pointer operations ...
-    free(ptr);
+Opcode::CALL_EXTERN: {
+    auto funcName = stack.popString();
+    auto funcPtr = lookupExtern(funcName);
+    
+    // Marshal arguments
+    SysVABIArgs args;
+    args.rdi = marshalToC(stack.pop(), externParams[0].type);
+    args.rsi = marshalToC(stack.pop(), externParams[1].type);
+    // ...
+    
+    // Call
+    auto result = sysv_call(funcPtr, args);
+    
+    // Marshal back
+    auto ngResult = marshalFromC(result, externReturnType);
+    stack.push(ngResult);
+    break;
 }
 ```
 
-## Dependencies
+## Effort Estimate
 
-- Requires raw pointer type `*T` in the type system.
-- Requires `unsafe` keyword and semantic checking.
-- Requires dynamic library loading infrastructure in ORGASM VM.
-- Unblocks: binding to any C library, system call access.
-
-## Scope
-
-**In scope:**
-- `extern fun` declaration syntax
-- `*T` raw pointer type
-- `unsafe` keyword and block
-- `dlopen`/`dlsym` integration
-- ORGASM VM support for C ABI calls (via `dlsym` + FFI call)
-- `ng-bindgen` tool (MVP: basic struct and function parsing)
-
-**Out of scope:**
-- C++ ABI support (C only, C++ ABI is unstable)
-- COM / WinRT integration
-- `union` type support in bindgen
-- Callbacks from C into NG (function pointers as `extern` params)
-- Automatic memory management for `*T` (GC does not track raw pointers)
-
-## Acceptance Criteria
-
-- An `extern fun` call executes a real C library function (e.g., `puts`)
-- `*T` pointer arithmetic produces correct addresses
-- `unsafe` block is required for raw pointer operations
-- A compiled NG program can `dlopen` and call SQLite
-- `ng-bindgen` produces valid NG bindings from a simple C header
-- Native (C++) and `extern` (C ABI) functions can coexist in the same program
-
-## Potential Challenges
-
-- C ABI calling conventions vary by platform (x86-64 SysV vs Windows x64 vs ARM64).
-- String marshaling: C `char*` may be UTF-8, ASCII, or arbitrary binary data.
-- Struct layout must match the C compiler's ABI (alignment, padding).
-- `extern` functions cannot participate in GC tracing — must be handled manually.
-- Error handling: C functions typically return error codes, not `Result` — requires manual wrapping.
-- The VM's stack-based architecture must bridge to C's register-based calling convention.
+| Component | Effort |
+|---|---|
+| `extern fun` syntax (parser + AST) | 1 week |
+| `*T` raw pointer type (type checker) | 1 week |
+| `unsafe` keyword + blocks | 1 week |
+| Calling convention bridge (x86-64) | 2 weeks |
+| Dynamic library loading | 1 week |
+| Type mapping and marshaling | 1 week |
+| Platform support (Windows ARM) | 2 weeks |
+| Tests | 1 week |
+| `ng-bindgen` tool (MVP) | 2 weeks |
+| **Total** | **12 weeks** |
