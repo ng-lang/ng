@@ -145,7 +145,7 @@ fun main() {
             colorEdit3("Color", ref bg_color);
 
             if (button("Reset")) {
-                bg_color = (0.1f32, 0.2f32, 0.3f32, 1.0f32);
+                bg_color := (0.1f32, 0.2f32, 0.3f32, 1.0f32);
             }
 
             end();

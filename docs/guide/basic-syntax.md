@@ -15,11 +15,11 @@ There is no multi-line `/* ... */` syntax.
 
 ## Variables and Mutability
 
-Variables are declared with the `val` keyword. By default, variables are **mutable** — you can reassign them:
+Variables are declared with the `val` keyword. By default, variables are **mutable** — you can reassign them using the `:=` operator:
 
 ```ng
-val x = 1;   // x is 1
-x = 2;       // now x is 2
+val x = 1;   // x is 1 (initial binding via =)
+x := 2;      // now x is 2 (reassigned via :=)
 ```
 
 ### Immutability
@@ -118,8 +118,9 @@ val result = not(x > 0);   // logical NOT
 | `..=` | Range (inclusive end) | `0..=10` |
 | `...` | Spread / pack expansion | `...args` |
 | `.` | Property/method access | `obj.field` |
-| `=` | Assignment | `x = 42` |
-| `:=` | Deref assignment | `*ptr := value` |
+| `:=` | **Assignment / mutation** | `x := 42` |
+| `=` | **Binding** (in `val` declaration) | `val x = 42` |
+| `*ptr := value` | Deref assignment | mutate through a reference |
 
 ### Pipe Forward Operator
 
@@ -149,7 +150,7 @@ A block `{ ... }` groups statements and creates a new scope. Variables declared 
 val outer = 1;
 {
     val inner = 2;    // only visible inside this block
-    outer = inner;    // OK: outer is in scope
+    outer := inner;    // OK: outer is in scope (mutation via :=)
 }
 // inner is not accessible here
 ```

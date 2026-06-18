@@ -120,7 +120,7 @@ type Counter {
     property value: i32;
 
     fun increment(self: ref<Self>, delta: i32) {
-        self.value = self.value + delta;
+        self.value := self.value + delta;
     }
 
     fun get(self: ref<Self>) -> i32 {

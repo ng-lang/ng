@@ -71,67 +71,37 @@ fun abort() -> never = native;
 
 ---
 
-## Sub-Proposal B: `impl Trait` (3 weeks)
+## Sub-Proposal B: `impl Trait` — NOT APPLICABLE (Rejected by Design)
 
-### Goal
+> **Status: REJECTED.** NG's trait model already provides equivalent functionality without `impl Trait`.
 
-Allow functions to return opaque types that implement a trait, without naming the concrete type.
+### Why This Doesn't Fit NG
 
-### Motivation
+Rust's `impl Trait` syntax creates an anonymous/existential type: "some type T that implements Trait." This is necessary in Rust because traits are **not** types — they can only be used as bounds.
+
+In NG, traits **are** abstract types that can be used directly:
+
+1. **Traits as types** — `ref<Show>` or `Show` can be used as a parameter/return type directly
+2. **Trait objects** — `val view: ref<Show> = counter;` stores any `Show` implementor
+3. **Generic bounds** — `<T: Show>` constrains a type parameter
+
+### Equivalent NG Patterns
+
+Instead of Rust's `impl Trait`, NG uses existing constructs:
 
 ```ng
-// Without impl Trait: must name the concrete iterator type
-fun range(start: i32, end: i32) -> RangeIter<i32> { ... }
+// Return position: use trait reference or generic
+fun makeIterator() -> ref<Iterator<Item = i32>> { ... }
 
-// With impl Trait: return any type implementing Iterator
-fun range(start: i32, end: i32) -> impl Iterator<Item = i32> { ... }
+// Argument position: use trait reference or generic bound
+fun process(items: ref<Iterable>) { ... }
+// or:
+fun process<T: Iterable>(items: ref<T>) { ... }
 ```
 
-### Design
+### Conclusion
 
-#### Syntax
-
-Return position:
-```ng
-fun makeIterator() -> impl Iterator<Item = i32> {
-    return RangeIter<i32> { start: 0, end: 10 };
-}
-```
-
-Argument position:
-```ng
-fun process(items: impl Iterable) {
-    for item in items { ... }
-}
-```
-
-#### Type Checking
-
-- `impl Trait` in return position creates an **existential type**: "there exists some type T such that T: Trait"
-- The concrete type is inferred from the function body
-- The caller cannot name or depend on the concrete type
-- `impl Trait` in argument position is syntactic sugar for a generic parameter: `fun process<T: Iterable>(items: T)`
-
-#### Implementation
-
-```cpp
-struct ImplTraitType : TypeInfo {
-    CheckingRef<TraitBound> bound;  // The trait constraint
-};
-```
-
-The type checker:
-1. Creates an `ImplTraitType` as the return type
-2. Checks that the returned expression satisfies the trait bound
-3. When used by the caller, only the trait methods are visible
-
-### Sub-Proposal B Acceptance Criteria
-
-- `fun foo() -> impl Show { ... }` compiles and the returned value can call `.show()`
-- A different return type that still impl `Show` is accepted
-- A return type that does NOT impl `Show` is a compile error
-- `impl Trait` in argument position accepts any matching concrete type
-- Multiple calls to the same function with different concrete types both work
+No implementation needed. The existing trait system (`trait` as abstract type, `ref<Trait>` for dynamic dispatch, `<T: Trait>` for static dispatch) covers all use cases that `impl Trait` would address.
 
 ---
 
@@ -299,6 +269,6 @@ None of these exist in NG, and adding a lifetime system is a 12+ month project o
 | Order | Feature | Effort | Dependencies | Risk |
 |---|---|---|---|---|
 | 1 | `never` type | 2 weeks | None | 🟢 Low |
-| 2 | `impl Trait` | 3 weeks | Trait system (exists) | 🟡 Medium |
+| 2 | `impl Trait` | **Rejected** — covered by existing trait system | — | — |
 | 3 | Borrow checker (lexical only) | 6-8 weeks | Partial move tracking (exists) | 🟡 Medium |
 | 4 | GAT | **Deferred indefinitely** | Needs lifetime system | 🔴 Very High |

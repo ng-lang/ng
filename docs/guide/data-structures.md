@@ -137,7 +137,7 @@ print(person.fullName());  // "John Doe"
 Fields are accessed with `.` notation and can be mutated:
 
 ```ng
-person.lastName = "Smith";
+person.lastName := "Smith";
 ```
 
 > **Note:** The `property` keyword is optional when declaring fields — you can use just the field name and type:

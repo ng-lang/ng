@@ -51,7 +51,7 @@ The loop variable is initialized and updated on each `next`:
 fun sum(n: i32) -> i32 {
     val s = 0;
     loop i = 0 {
-        s = s + i;
+        s := s + i;
         if (i < n) {
             next i + 1;   // next iteration with new i
         }

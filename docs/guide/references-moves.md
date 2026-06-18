@@ -9,7 +9,7 @@ By default, bindings are independent copies:
 ```ng
 val a = [1, 2, 3];
 val b = a;        // b is a copy of a
-b[0] = 99;
+b[0] := 99;
 print(a[0]);      // 1 (a is unchanged)
 ```
 
@@ -17,7 +17,7 @@ This applies to function arguments and return values too:
 
 ```ng
 fun modify(arr: [i32]) {
-    arr[0] = 99;   // modifies the local copy only
+    arr[0] := 99;   // modifies the local copy only
 }
 
 val arr = [1, 2, 3];
