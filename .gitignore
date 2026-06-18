@@ -63,5 +63,5 @@ ng_ide_scratch*.ng
 node_modules/
 
 # VitePress build output
-.vitepress/dist/
-.vitepress/cache/
+docs/.vitepress/dist/**
+docs/.vitepress/cache/**
