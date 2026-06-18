@@ -33,9 +33,9 @@ The examples above should be resolved by the type checker and monomorphizer. ORG
 
 Prerequisites:
 
-- [Generalized `= delete` Declarations](archive/generalized_delete.md), for invalid projection fallbacks.
-- [Constant Generic Parameters](archive/constant_generic_parameters.md), for tuple element indexes and compile-time bounds.
-- [`const fun` And Compile-Time Computation](archive/const_fun.md), for the complete recursive/type-level form. Early intrinsic-only phases can start before full `const fun`.
+- [Generalized `= delete` Declarations](generalized_delete.md), for invalid projection fallbacks.
+- [Constant Generic Parameters](constant_generic_parameters.md), for tuple element indexes and compile-time bounds.
+- [`const fun` And Compile-Time Computation](const_fun.md), for the complete recursive/type-level form. Early intrinsic-only phases can start before full `const fun`.
 
 Related:
 

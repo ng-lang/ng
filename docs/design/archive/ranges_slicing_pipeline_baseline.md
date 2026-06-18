@@ -16,11 +16,11 @@ Prerequisites:
 
 - Current tuple and array value semantics.
 - [Enhanced Tuple Types](../enhanced_tuples.md), if tuple slicing must preserve exact tuple element types.
-- [Constant Generic Parameters](archive/constant_generic_parameters.md), for compile-time tuple slice bounds.
+- [Constant Generic Parameters](constant_generic_parameters.md), for compile-time tuple slice bounds.
 
 Optional:
 
-- [Standard Library Modularization](archive/stdlib_modularization.md), for exposing
+- [Standard Library Modularization](stdlib_modularization.md), for exposing
   sequence container APIs. Range, slice, and fold syntax is not implemented as
   stdlib helper calls.
 

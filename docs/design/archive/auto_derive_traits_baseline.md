@@ -23,13 +23,13 @@ auto trait Send;
 
 Prerequisites:
 
-- [Module Artifact And Typechecker Integration](archive/module_artifact_typechecker.md), for cross-module trait impl visibility and coherence.
-- [Generalized `= delete` Declarations](archive/generalized_delete.md), for negative or blocked auto-trait behavior.
+- [Module Artifact And Typechecker Integration](module_artifact_typechecker.md), for cross-module trait impl visibility and coherence.
+- [Generalized `= delete` Declarations](generalized_delete.md), for negative or blocked auto-trait behavior.
 - Existing trait dispatch, trait bounds, and impl coherence.
 
 Related:
 
-- [Standard Library Modularization](archive/stdlib_modularization.md), if core marker traits live in `std`.
+- [Standard Library Modularization](stdlib_modularization.md), if core marker traits live in `std`.
 
 ## Scope
 

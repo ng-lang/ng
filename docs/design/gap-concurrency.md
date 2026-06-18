@@ -178,7 +178,7 @@ void visit(AwaitExpression *node) {
 |---|---|
 | Thread pool implementation | 1 week |
 | AST nodes + parser | 1 day |
-| Type checker (Task<T>, spawn, await) | 2 days |
+| Type checker (`Task<T>`, spawn, await) | 2 days |
 | Compiler (emit SPAWN/AWAIT opcodes) | 2 days |
 | VM (SPAWN/AWAIT handlers) | 3 days |
 | Tests | 2 days |
@@ -188,6 +188,7 @@ void visit(AwaitExpression *node) {
 
 - C++ standard library (thread, future, mutex) — no external dependencies
 - [Error Handling](gap-error-handling.md) for `Result<T,E>` in spawned functions
+
 - No changes to existing VM execution model
 
 ## Why Not Async/Await?

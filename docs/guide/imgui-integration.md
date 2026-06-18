@@ -192,7 +192,7 @@ The VM bridges NG function calls to C++ implementations transparently.
 
 ## What's Next?
 
-Review the [Example Index](example-index.md) for a complete list of runnable programs, or check the [Language Guide Index](index.md) for other topics.
+Review the [example programs](https://github.com/ng-lang/ng/tree/main/example) for a complete list of runnable programs, or check the [Language Guide](language_guide.md) for other topics.
 
 > **Try it:** `example/imgui_example.ng` — ImGui basics
 > **Try it:** `example/ng_ide.ng` — Full NG IDE
