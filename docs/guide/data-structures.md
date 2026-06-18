@@ -16,7 +16,7 @@ val arr = [1, 2, 3, 4, 5];
 
 ```ng
 val first = arr[0];   // 1
-arr[0] = 10;          // mutate in place
+arr[0] := 10;         // mutate in place (via :=)
 ```
 
 ### Appending
@@ -33,12 +33,12 @@ arr << 6;             // arr is now [10, 2, 3, 4, 5, 6]
 print(len(arr));      // 6 (using prelude function)
 ```
 
-### Fixed Arrays
+### Array Type Annotation
 
-Fixed-size arrays use the `[T; N]` syntax:
+Array types are annotated as `vector<T>` (dynamic) or inferred:
 
 ```ng
-val fixed: [i32; 3] = [1, 2, 3];
+val explicit: i32 vector = [1, 2, 3];
 ```
 
 ### Array Slicing
@@ -156,7 +156,7 @@ person.lastName := "Smith";
 ```ng
 val a = new Point { x: 1, y: 2 };
 val b = a;            // b references the same object
-a.x = 10;
+a.x := 10;
 print(b.x);           // 10 (shared mutation)
 ```
 
@@ -231,13 +231,8 @@ val inclusive = 0..=10;     // 0,1,2,3,4,5,6,7,8,9,10
 val descending = 10..0;     // 10,9,8,7,6,5,4,3,2,1
 ```
 
-Use ranges for iteration:
-
-```ng
-loop i in 0..=5 {
-    print(i);  // 0, 1, 2, 3, 4, 5
-}
-```
+Use ranges with `loop i = 0 { ... next i + 1; }` for iteration.
+See [Control Flow](control-flow.md) for details.
 
 ## Union Types (Untagged)
 
@@ -264,13 +259,13 @@ val myAge: Age = 30;
 
 Type aliases are **transparent** — `Age` and `i32` are interchangeable.
 
-## Newtypes
+## Newtypes (Wrapped Types)
 
-For type safety with distinct types, use `newtype`:
+For type safety with distinct types, use the `wraps` keyword:
 
 ```ng
-newtype UserId = i32;
-newtype ProductId = i32;
+type UserId wraps i32;
+type ProductId wraps i32;
 
 val uid: UserId = UserId(1);
 val pid: ProductId = ProductId(2);

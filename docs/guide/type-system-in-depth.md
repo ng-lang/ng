@@ -45,11 +45,11 @@ val e = 3.14f64;             // e: f64
 
 A **nominal type** is a distinct type identified by its name, not its structure. NG supports two forms:
 
-### Newtypes
+### Wrapped Types (Newtypes)
 
 ```ng
-newtype UserId = i32;
-newtype ProductId = i32;
+type UserId wraps i32;
+type ProductId wraps i32;
 
 val uid: UserId = UserId(1);
 val pid: ProductId = ProductId(2);

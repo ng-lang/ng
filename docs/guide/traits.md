@@ -164,13 +164,15 @@ impl Show for Point { ... }
 type Circle { radius: i32; }
 impl Show for Circle { ... }
 
-val items: [ref dyn Show] = [
-    new Point { x: 1, y: 2 },
-    new Circle { radius: 5 }
-];
+```
 
-loop item in items {
-    print(item.show());  // dynamic dispatch
+Trait objects use `ref<TraitType>` syntax:
+
+```ng
+val view: ref<Show> = counter;   // dynamic dispatch via trait object
+
+fun render(item: ref<Show>) -> string {
+    return item.show();  // dynamic dispatch
 }
 ```
 

@@ -31,7 +31,7 @@ Heap objects are reference-counted. Assignment shares the reference:
 ```ng
 val a = new Point { x: 1, y: 2 };
 val b = a;         // b points to the same heap object
-a.x = 10;
+a.x := 10;
 print(b.x);        // 10 (same object)
 ```
 

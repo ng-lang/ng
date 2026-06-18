@@ -70,7 +70,8 @@ import std.io;
 | `readLine() -> string` | Read a line from stdin |
 | `readFile(path: string) -> string` | Read entire file contents |
 | `writeFile(path: string, content: string) -> unit` | Write string to file (overwrites) |
-| `fileExists(path: string) -> bool` | Check if file exists |
+| `currentExecutablePath() -> string` | Get path to the running ngi binary |
+| `runNgi(path: string) -> string` | Execute ngi on a file and return output |
 
 ### Example
 
@@ -98,6 +99,7 @@ import std.string;
 | `endsWith(s: string, suffix: string) -> bool` | Suffix check |
 | `toUpper(s: string) -> string` | Convert to uppercase |
 | `toLower(s: string) -> string` | Convert to lowercase |
+| `regexMatch(value: string, pattern: string) -> bool` | Regex match |
 
 ### Example
 
@@ -120,9 +122,8 @@ import std.array;
 | Function | Description |
 |---|---|
 | `reverse<T>(xs: vector<T>) -> vector<T>` | Return reversed copy |
-| `sort<T>(xs: vector<T>) -> vector<T>` | Return sorted copy |
-| `isEmpty<T>(xs: vector<T>) -> bool` | Check if empty |
-| `contains<T>(xs: vector<T>, value: T) -> bool` | Check element presence |
+
+> **Note:** Only `reverse` is currently available. Sort, isEmpty, and contains are not yet implemented in the stdlib.
 
 ### Example
 
@@ -140,20 +141,23 @@ print(rev);                         // [5, 1, 4, 1, 3]
 import std.list;
 ```
 
-```ng
-type List<T> = Nil | Cons(head: T, tail: ref<List<T>>);
+The `std.list` module provides a doubly-linked list:
 
-fun listFromArray<T>(arr: [T]) -> ref<List<T>> { ... }
-fun listLen<T>(list: ref<List<T>>) -> i32 { ... }
-```
+| Function | Description |
+|---|---|
+| `list<T>() -> List<T>` | Create empty list |
+| `listof<T>(args: T...) -> List<T>` | Create list from elements |
+| `pushBack<T>(list: ref<List<T>>, value: T) -> unit` | Append to end |
+| `append<T>(list: ref<List<T>>, value: T) -> unit` | Append (alias for pushBack) |
+| `get<T>(list: ref<List<T>>, index: i32) -> T` | Get element by index |
 
 ### Example
 
 ```ng
 import std.list;
 
-val lst = fromArray([1, 2, 3, 4, 5]);
-print(listLen(lst));     // 5
+val lst = listof(1, 2, 3, 4, 5);
+print(get(lst, 2));     // 3
 ```
 
 ## Sequence Operations (`std.seq`)
@@ -162,15 +166,16 @@ print(listLen(lst));     // 5
 import std.seq;
 ```
 
-Functional sequence operations:
+The `std.seq` module defines the `Sequence<T>` trait for indexable types:
 
-| Function | Description |
-|---|---|
-| `map<T, U>(xs: vector<T>, f: (T) -> U) -> vector<U>` | Transform each element |
-| `filter<T>(xs: vector<T>, pred: (T) -> bool) -> vector<T>` | Keep matching elements |
-| `fold<T, U>(xs: vector<T>, init: U, f: (U, T) -> U) -> U` | Left fold |
-| `reduce<T>(xs: vector<T>, f: (T, T) -> T) -> T` | Reduce |
-| `flatMap<T, U>(xs: vector<T>, f: (T) -> vector<U>) -> vector<U>` | Map then flatten |
+```ng
+trait Sequence<T> {
+    fun size(self: ref<Self>) -> u32;
+    fun get(self: ref<Self>, index: i32) -> T;
+}
+```
+
+Both `vector<T>` and `List<T>` implement `Sequence<T>`.
 
 ## Enhanced Tuple Operations (`std.tuple`)
 
@@ -207,16 +212,20 @@ import std.memory;
 
 Utilities for manual memory handling:
 
-| Function | Description |
+| Type / Function | Description |
 |---|---|
-| `Box<T>` | Heap-allocated box type |
-| `UniquePtr<T>` | Unique ownership pointer with Drop |
+| `UniquePtr<T>` | Unique ownership pointer (opaque native type) |
+| `nativeMalloc<T>(size: i32) -> UniquePtr<T>` | Allocate memory |
+| `nativeFree<T>(ptr: UniquePtr<T>) -> unit` | Free memory |
+| `nativeOutstandingAllocations() -> i32` | Debug: check live allocations |
+| `gcFree() -> unit` | Trigger garbage collector |
 
 ```ng
 import std.memory;
 
-val ptr: UniquePtr<i32> = nativeMalloc(8);
+val ptr = nativeMalloc<i32>(8);
 // ptr is automatically freed when it goes out of scope
+// or you can call nativeFree(ptr) explicitly
 ```
 
 ## Ranges and Slices (Language Built-in)

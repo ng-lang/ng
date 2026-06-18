@@ -90,13 +90,13 @@ import math (add);           // unqualified add
 import math;                 // also provides math:: prefix
 ```
 
-### Renaming Imports
+### Module-Level Alias
 
-You can alias imports to avoid name clashes:
+You can alias a module at import time:
 
 ```ng
-import std.prelude (print as show);
-show("Hello!");   // prints "Hello!"
+import std.prelude as prelude;
+prelude::print("Hello!");
 ```
 
 ## Module Resolution

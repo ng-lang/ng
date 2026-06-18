@@ -199,8 +199,8 @@ showType(ref num);      // "T is a reference type"
 Type parameters can accept compile-time constant values:
 
 ```ng
-fun makeArray<T, const N: i32>() -> [T; N] {
-    val result: [T; N] = [];
+fun makeArray<T, const N: i32>() -> array<T, N> {
+    val result: vector<T> = [];
     loop i = 0 {
         if (i < N) {
             result << T();
@@ -210,7 +210,7 @@ fun makeArray<T, const N: i32>() -> [T; N] {
     return result;
 }
 
-val arr: [i32; 5] = makeArray<i32, 5>();
+val arr: array<i32, 5> = makeArray<i32, 5>();
 ```
 
 This is used for fixed-size array types and dimension-dependent code.

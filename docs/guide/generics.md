@@ -113,10 +113,10 @@ type Pair<T> = (T, T);
 type Result<T, E> = Ok(value: T) | Err(error: E);
 ```
 
-## Generic Newtypes
+## Generic Wrapped Types
 
 ```ng
-newtype Wrapper<T> = T;
+type Wrapper<T> wraps T;
 
 val w = Wrapper<i32>(42);
 ```
@@ -140,11 +140,11 @@ val y = foo("hi");  // calls A::foo<string> — different instance
 Type parameters can be constrained by compile-time constant values:
 
 ```ng
-fun fixedArray<T, const N: i32>() -> [T; N] {
-    // Returns an array of type [T; N]
+fun fixedArray<T, const N: i32>() -> array<T, N> {
+    // Returns a fixed-size array of type array<T, N>
 }
 
-val arr: [i32; 5] = fixedArray<i32, 5>();
+val arr: array<i32, 5> = fixedArray<i32, 5>();
 ```
 
 ## What's Next?
