@@ -49,13 +49,10 @@ jobs:
         working-directory: ./build
 
   deploy-docs:
+    if: github.ref == 'refs/heads/main'
     permissions:
       contents: write
-      pages: write
-      id-token: write
     runs-on: ubuntu-latest
-    # Build docs only when docs/ or package.json changes
-    # Also skip if the push is a tag-only or certain patterns
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -69,10 +66,8 @@ jobs:
         run: npm ci
       - name: Build VitePress site
         run: npx vitepress build docs
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: docs/.vitepress/dist
       - name: Deploy to GitHub Pages
-        uses: actions/deploy-pages@v4
-        if: github.ref == 'refs/heads/main'
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: docs/.vitepress/dist
