@@ -10,6 +10,18 @@ This directory contains design proposals for NG. Designs are organized into thre
 
 ## Active Follow-Ups
 
+### Core architecture rework — **highest priority**
+
+The current compiler/runtime boundary redesign is tracked in the [vNext rearchitecture index](rearchitecture/README.md). It supersedes local cleanup plans as the prerequisite for new core-language, FFI, module, and concurrency work.
+
+- [Gap register](rearchitecture/00-gap-register.md)
+- [Target architecture and HIR](rearchitecture/01-target-architecture-hir.md)
+- [Runtime, modules, and native ABI](rearchitecture/02-runtime-module-ffi.md)
+- [Executable delivery plan](rearchitecture/03-delivery-plan.md)
+- [Language decisions required](rearchitecture/04-language-decisions.md)
+
+### Feature follow-ups
+
 Designs with partial implementation, tracking remaining work:
 
 1. [Enhanced Tuple Types](enhanced_tuples.md) — type-level tuple operations, remaining follow-ups
@@ -33,7 +45,7 @@ Designs with partial implementation, tracking remaining work:
 
 ### Codebase Quality Baseline
 
-Before implementing: the existing 28,804-line codebase was audited. **Verdict: no rewrite needed.** The architecture (Visitor pattern, clean dependency direction), test coverage (695 tests, 3,327 assertions), and code quality (modern C++23, RAII, no circular dependencies) are solid. Three minor technical debts exist (10 global statics in typecheck.cpp, 800-line VM opcode switch, 39 repetitive numeral type patterns) but none block feature delivery. Estimated fix time: ~2 weeks total, can be done incrementally.
+> **Historical assessment — superseded for core work.** The feature proposals below were evaluated against an earlier local-cleanup assessment. The current audit found stop-the-line parser correctness defects, incomplete bytecode remapping/verification, semantic AST mutation, duplicated backend semantics, and global runtime/module state. New work touching syntax, type checking, modules, runtime, FFI, or concurrency must first follow the [vNext rearchitecture plan](rearchitecture/README.md). Existing gap proposals remain useful as product requirements, but their implementation estimates and feasibility ratings must be revalidated against the phase dependencies in that plan.
 
 ### Proposals
 
