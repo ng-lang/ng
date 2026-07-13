@@ -93,7 +93,9 @@ namespace NG::vnext::syntax
         }
         const std::string text{source.substr(begin, offset - begin)};
         const TokenKind kind = text == "const" ? TokenKind::KeywordConst
+                             : text == "else" ? TokenKind::KeywordElse
                              : text == "fun" ? TokenKind::KeywordFun
+                             : text == "if" ? TokenKind::KeywordIf
                              : text == "let" ? TokenKind::KeywordLet
                              : text == "mut" ? TokenKind::KeywordMut
                              : text == "ref" ? TokenKind::KeywordRef

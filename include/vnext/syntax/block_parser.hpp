@@ -18,6 +18,8 @@ namespace NG::vnext::syntax
   private:
     [[nodiscard]] auto parseLetStatement() -> StatementPtr;
     [[nodiscard]] auto parseReturnStatement() -> StatementPtr;
+    [[nodiscard]] auto parseIfStatement() -> StatementPtr;
+    [[nodiscard]] auto parseNestedBlock() -> Block;
     [[nodiscard]] auto parseExpressionUntil(TokenKind terminator) -> ExpressionPtr;
     [[nodiscard]] auto current() const -> const Token &;
     [[nodiscard]] auto consume() -> Token;

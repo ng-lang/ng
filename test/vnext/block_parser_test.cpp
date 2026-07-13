@@ -20,6 +20,13 @@ namespace
     return *returnStatement;
   }
 
+  [[nodiscard]] auto asIf(const syntax::StatementPtr &statement) -> const syntax::IfStatement &
+  {
+    const auto *ifStatement = dynamic_cast<const syntax::IfStatement *>(statement.get());
+    REQUIRE(ifStatement != nullptr);
+    return *ifStatement;
+  }
+
   [[nodiscard]] auto asExpression(const syntax::StatementPtr &statement) -> const syntax::ExpressionStatement &
   {
     const auto *expression = dynamic_cast<const syntax::ExpressionStatement *>(statement.get());
@@ -57,6 +64,45 @@ TEST_CASE("vNext block parser keeps a final expression as the block value", "[vN
   REQUIRE(block.statements.size() == 1);
   REQUIRE(block.tailExpression != nullptr);
   REQUIRE(asBinary(block.tailExpression).operatorText == "+");
+}
+
+TEST_CASE("vNext block parser keeps if branches as nested block statements", "[vNext][Syntax][Block]")
+{
+  const auto block = syntax::parseBlock("{ if ready { return value; } else { return fallback; } }");
+  REQUIRE(block.statements.size() == 1);
+  const auto &ifStatement = asIf(block.statements[0]);
+  REQUIRE(ifStatement.condition->kind == syntax::ExpressionKind::Identifier);
+  REQUIRE(ifStatement.consequence.statements.size() == 1);
+  REQUIRE(asReturn(ifStatement.consequence.statements[0]).value != nullptr);
+  REQUIRE(ifStatement.alternative != nullptr);
+  REQUIRE(ifStatement.alternative->statements.size() == 1);
+  REQUIRE(asReturn(ifStatement.alternative->statements[0]).value != nullptr);
+  REQUIRE(ifStatement.span.begin == 2);
+  REQUIRE(ifStatement.span.end == 54);
+}
+
+TEST_CASE("vNext block parser supports an if statement without else", "[vNext][Syntax][Block]")
+{
+  const auto block = syntax::parseBlock("{ if enabled { return; } }");
+  REQUIRE(block.statements.size() == 1);
+  const auto &ifStatement = asIf(block.statements[0]);
+  REQUIRE(ifStatement.alternative == nullptr);
+  REQUIRE(ifStatement.consequence.statements.size() == 1);
+}
+
+TEST_CASE("vNext block parser diagnoses missing if branch blocks", "[vNext][Syntax][Block]")
+{
+  try
+  {
+    static_cast<void>(syntax::parseBlock("{ if enabled return; }"));
+    FAIL("expected if statement to require a consequence block");
+  }
+  catch (const syntax::ParseError &error)
+  {
+    REQUIRE(std::string{error.what()} == "unexpected token `return`");
+    REQUIRE(error.span().begin == 13);
+    REQUIRE(error.span().end == 19);
+  }
 }
 
 TEST_CASE("vNext block parser represents valued and valueless returns as statements", "[vNext][Syntax][Block]")

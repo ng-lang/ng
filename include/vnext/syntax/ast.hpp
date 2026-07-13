@@ -120,6 +120,7 @@ namespace NG::vnext::syntax
   {
     Let,
     Return,
+    If,
     Expression,
   };
 
@@ -172,6 +173,19 @@ namespace NG::vnext::syntax
     SourceSpan span;
     std::vector<StatementPtr> statements;
     ExpressionPtr tailExpression;
+  };
+
+  struct IfStatement final : Statement
+  {
+    ExpressionPtr condition;
+    Block consequence;
+    std::unique_ptr<Block> alternative;
+
+    IfStatement(ExpressionPtr test, Block thenBlock, std::unique_ptr<Block> elseBlock, SourceSpan sourceSpan)
+      : Statement(StatementKind::If, sourceSpan), condition(std::move(test)), consequence(std::move(thenBlock)),
+        alternative(std::move(elseBlock))
+    {
+    }
   };
 
   enum class TypeSyntaxKind

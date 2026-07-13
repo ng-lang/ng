@@ -41,6 +41,11 @@ namespace NG::vnext::syntax
         block.statements.push_back(parseReturnStatement());
         continue;
       }
+      if (current().kind == TokenKind::KeywordIf)
+      {
+        block.statements.push_back(parseIfStatement());
+        continue;
+      }
 
       auto expression = parseExpressionUntil(TokenKind::RightBrace);
       if (current().kind == TokenKind::Semicolon)
@@ -97,6 +102,58 @@ namespace NG::vnext::syntax
     const Token semicolon = current();
     expect(TokenKind::Semicolon, "expected `;` after return value");
     return std::make_unique<ReturnStatement>(std::move(value), SourceSpan{returnToken.span.begin, semicolon.span.end});
+  }
+
+  auto BlockParser::parseIfStatement() -> StatementPtr
+  {
+    const Token ifToken = consume();
+    auto condition = parseExpressionUntil(TokenKind::LeftBrace);
+    Block consequence = parseNestedBlock();
+
+    std::unique_ptr<Block> alternative;
+    size_t end = consequence.span.end;
+    if (current().kind == TokenKind::KeywordElse)
+    {
+      static_cast<void>(consume());
+      Block elseBlock = parseNestedBlock();
+      end = elseBlock.span.end;
+      alternative = std::make_unique<Block>(std::move(elseBlock));
+    }
+
+    return std::make_unique<IfStatement>(std::move(condition), std::move(consequence), std::move(alternative),
+                                         SourceSpan{ifToken.span.begin, end});
+  }
+
+  auto BlockParser::parseNestedBlock() -> Block
+  {
+    if (current().kind != TokenKind::LeftBrace)
+    {
+      throw ParseError("expected `{` to begin an if branch", current().span);
+    }
+
+    std::vector<Token> blockTokens;
+    size_t depth{};
+    do
+    {
+      const Token token = consume();
+      if (token.kind == TokenKind::LeftBrace)
+      {
+        ++depth;
+      }
+      else if (token.kind == TokenKind::RightBrace)
+      {
+        --depth;
+      }
+      else if (token.kind == TokenKind::End)
+      {
+        throw ParseError("expected `}` to close if branch", token.span);
+      }
+      blockTokens.push_back(token);
+    } while (depth != 0);
+
+    const size_t end = blockTokens.back().span.end;
+    blockTokens.push_back(Token{.kind = TokenKind::End, .text = {}, .span = SourceSpan{end, end}});
+    return BlockParser{std::move(blockTokens)}.parse();
   }
 
   auto BlockParser::parseExpressionUntil(TokenKind terminator) -> ExpressionPtr
