@@ -101,6 +101,7 @@ set(NG_TEST_SRC
         test/vnext/type_parser_test.cpp
         test/vnext/hir_resolver_test.cpp
         test/vnext/flowir_test.cpp
+        test/vnext/bytecode_test.cpp
         test/vnext/typecheck_next_test.cpp
         test/vnext/driver_test.cpp
         test/module/native_module_artifact_test.cpp
@@ -141,6 +142,7 @@ target_link_libraries(ng PRIVATE imgui SDL3::SDL3-static)
 
 set(NG_VNEXT_SRC
         src/vnext/driver.cpp
+        src/vnext/bytecode.cpp
         src/vnext/flowir.cpp
         src/vnext/hir.cpp
         src/vnext/typecheck.cpp
