@@ -36,6 +36,7 @@ set(NG_LIB_SRC
         src/parsing/Lexer.cpp
         src/parsing/ParseState.cpp
         src/parsing/ParserImpl.cpp
+        src/vnext/syntax/parser.cpp
         src/ast/AstVisitor.cpp
         src/ast/DummyVisitor.cpp
         src/intp/stupid.cpp
@@ -94,6 +95,7 @@ set(NG_TEST_SRC
         test/parsing/parser_ref_move_test.cpp
         test/parsing/parser_generics_test.cpp
         test/parsing/parser_traits_test.cpp
+        test/vnext/syntax_parser_test.cpp
         test/module/native_module_artifact_test.cpp
         test/integration_test.cpp
         test/runtime/interpreter_test.cpp
