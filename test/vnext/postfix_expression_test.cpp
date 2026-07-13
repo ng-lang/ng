@@ -60,6 +60,44 @@ TEST_CASE("vNext expression parser preserves left-to-right postfix nesting", "[v
   REQUIRE(innerMember.member == "b");
 }
 
+TEST_CASE("vNext expression parser accepts empty and trailing-comma call arguments", "[vNext][Syntax][Postfix]")
+{
+  const auto emptyCall = syntax::parseExpression("f()()");
+  const auto &outerCall = asCall(emptyCall);
+  REQUIRE(outerCall.arguments.empty());
+  REQUIRE(asCall(outerCall.callee).arguments.empty());
+  REQUIRE(outerCall.span.begin == 0);
+  REQUIRE(outerCall.span.end == 5);
+
+  const auto trailingCommaCall = syntax::parseExpression("f(1,)");
+  const auto &call = asCall(trailingCommaCall);
+  REQUIRE(call.arguments.size() == 1);
+  REQUIRE(call.span.begin == 0);
+  REQUIRE(call.span.end == 5);
+}
+
+TEST_CASE("vNext expression parser diagnoses incomplete postfix forms with exact spans", "[vNext][Syntax][Postfix]")
+{
+  const auto requireError = [](std::string_view source, std::string_view message, size_t begin, size_t end) {
+    try
+    {
+      static_cast<void>(syntax::parseExpression(source));
+      FAIL("expected vNext parser to reject incomplete postfix expression");
+    }
+    catch (const syntax::ParseError &error)
+    {
+      REQUIRE(std::string{error.what()} == message);
+      REQUIRE(error.span().begin == begin);
+      REQUIRE(error.span().end == end);
+    }
+  };
+
+  requireError("f(1", "expected `)` after call arguments", 3, 3);
+  requireError("f(, 1)", "expected an expression before `,` in call arguments", 2, 3);
+  requireError("items[]", "expected an index expression after `[`", 6, 7);
+  requireError("items[0", "expected `]` after index expression", 7, 7);
+}
+
 TEST_CASE("vNext expression parser diagnoses a missing member name", "[vNext][Syntax][Postfix]")
 {
   try

@@ -189,6 +189,10 @@ namespace NG::vnext::syntax
         {
           do
           {
+            if (current().kind == TokenKind::Comma)
+            {
+              throw ParseError("expected an expression before `,` in call arguments", current().span);
+            }
             arguments.push_back(parseExpression(0));
             if (current().kind != TokenKind::Comma)
             {
@@ -210,6 +214,10 @@ namespace NG::vnext::syntax
       if (current().kind == TokenKind::LeftSquare)
       {
         static_cast<void>(consume());
+        if (current().kind == TokenKind::RightSquare)
+        {
+          throw ParseError("expected an index expression after `[`", current().span);
+        }
         auto index = parseExpression(0);
         if (current().kind != TokenKind::RightSquare)
         {
