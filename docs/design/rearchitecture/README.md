@@ -36,7 +36,7 @@ This plan uses a **replacement-first rewrite**, not an additive shim strategy. E
 | ID | Phase | Status | Depends on | Exit artifact |
 |---|---|---|---|---|
 | R0 | Governance, invariants, and characterization | In progress — decisions accepted; characterization matrix continues | — | Baseline test matrix and RFC decisions |
-| R1 | Correctness and bytecode safety stop-the-line fixes | In progress — vNext expression-parser vertical slice | R0 | Pratt parser, verifier, safe VM reset/decoding |
+| R1 | Correctness and bytecode safety stop-the-line fixes | In progress — vNext expression parser and replacement `ngi` shell | R0 | Pratt parser, verifier, safe VM reset/decoding |
 | R2 | Source model, lexer, parser, and syntax AST | Not started | R1 | Immutable syntax tree with spans and recovery |
 | R3 | CompilationSession and module graph | Not started | R1 | Session-scoped resolver/artifact cache |
 | R4 | Symbols, types, resolved HIR, and typed HIR | Not started | R2, R3 | Canonical IDs and no semantic AST mutation |
@@ -55,13 +55,14 @@ Every phase must preserve or establish these invariants:
 1. **One-way dependencies.** Syntax does not depend on semantic analysis; semantic analysis does not depend on runtime execution; lowering does not infer types.
 2. **Syntax is immutable after parsing.** Semantic facts live in HIR, side tables, or arenas, never in parser AST nodes.
 3. **Stable identity is not text.** `ModuleId`, `DefId`, `TypeId`, and generic instances are canonical IDs; `repr()` is diagnostic output only.
-4. **One instruction schema.** Encoding, decoding, verification, disassembly, remapping, and bytecode tests use the same opcode descriptor.
-5. **One runtime value model.** A value cannot have competing `bytes`, layout offsets, and object-graph meanings without an explicit representation contract.
-6. **Artifact is immutable; instance is mutable.** A compiled module can be shared; globals, initialization state, and native state belong to a `ModuleInstance` in one `RuntimeSession`.
-7. **Compile-time evaluation is capability restricted.** It evaluates typed IR and `ConstValue`; it cannot accidentally invoke arbitrary runtime/module/IO behavior.
-8. **Native boundaries are declared.** Every host callable has a signature, ownership contract, ABI/capability declaration, and error policy.
-9. **Unsafe is explicit.** Raw pointers, arbitrary C ABI calls, unchecked layout casts, and shared mutable foreign state require an explicit unsafe boundary.
-10. **Concurrency is data-race safe by construction.** Cross-task transfer is governed by ownership/capabilities; process globals are not an implicit sharing mechanism.
+4. **Replacement executable boundary.** The `ngi` target links only the vNext frontend/runtime libraries. It must never call, link, or fall back to the legacy interpreter path.
+5. **One instruction schema.** Encoding, decoding, verification, disassembly, remapping, and bytecode tests use the same opcode descriptor.
+6. **One runtime value model.** A value cannot have competing `bytes`, layout offsets, and object-graph meanings without an explicit representation contract.
+7. **Artifact is immutable; instance is mutable.** A compiled module can be shared; globals, initialization state, and native state belong to a `ModuleInstance` in one `RuntimeSession`.
+8. **Compile-time evaluation is capability restricted.** It evaluates typed IR and `ConstValue`; it cannot accidentally invoke arbitrary runtime/module/IO behavior.
+9. **Native boundaries are declared.** Every host callable has a signature, ownership contract, ABI/capability declaration, and error policy.
+10. **Unsafe is explicit.** Raw pointers, arbitrary C ABI calls, unchecked layout casts, and shared mutable foreign state require an explicit unsafe boundary.
+11. **Concurrency is data-race safe by construction.** Cross-task transfer is governed by ownership/capabilities; process globals are not an implicit sharing mechanism.
 
 ## Relationship to older documents
 

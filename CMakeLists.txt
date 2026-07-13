@@ -36,7 +36,6 @@ set(NG_LIB_SRC
         src/parsing/Lexer.cpp
         src/parsing/ParseState.cpp
         src/parsing/ParserImpl.cpp
-        src/vnext/syntax/parser.cpp
         src/ast/AstVisitor.cpp
         src/ast/DummyVisitor.cpp
         src/intp/stupid.cpp
@@ -96,6 +95,7 @@ set(NG_TEST_SRC
         test/parsing/parser_generics_test.cpp
         test/parsing/parser_traits_test.cpp
         test/vnext/syntax_parser_test.cpp
+        test/vnext/driver_test.cpp
         test/module/native_module_artifact_test.cpp
         test/integration_test.cpp
         test/runtime/interpreter_test.cpp
@@ -132,10 +132,20 @@ add_library(ng ${NG_LIB_SRC})
 target_include_directories(ng PUBLIC include)
 target_link_libraries(ng PRIVATE imgui SDL3::SDL3-static)
 
+set(NG_VNEXT_SRC
+        src/vnext/driver.cpp
+        src/vnext/syntax/parser.cpp
+)
+
+add_library(ng_vnext ${NG_VNEXT_SRC})
+target_include_directories(ng_vnext PUBLIC include)
+
 # region ngi
 
-add_executable(ngi src/main.cpp)
-target_link_libraries(ngi PRIVATE ng)
+# `ngi` is the replacement frontend. It deliberately has no link dependency on
+# the legacy interpreter/runtime library.
+add_executable(ngi src/vnext/main.cpp)
+target_link_libraries(ngi PRIVATE ng_vnext)
 
 if (APPLE)
 target_compile_options(ng PRIVATE -fprofile-instr-generate -fcoverage-mapping -fcoverage-mcdc)
@@ -150,7 +160,7 @@ endif()
 # region ng_test
 
 add_executable(ng_test ${NG_TEST_SRC})
-target_link_libraries(ng_test PRIVATE ng Catch2::Catch2WithMain)
+target_link_libraries(ng_test PRIVATE ng ng_vnext Catch2::Catch2WithMain)
 
 if (APPLE)
 target_compile_options(ng_test PRIVATE -fprofile-instr-generate -fcoverage-mapping -fcoverage-mcdc)
