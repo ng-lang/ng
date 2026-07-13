@@ -124,6 +124,7 @@ namespace NG::vnext::hir
   struct Parameter
   {
     std::string name;
+    std::string typeName;
     LocalId local;
     syntax::SourceSpan span;
   };
@@ -134,6 +135,7 @@ namespace NG::vnext::hir
     std::string name;
     syntax::SourceSpan span;
     std::vector<Parameter> parameters;
+    std::optional<std::string> returnTypeName;
     Block body;
   };
 

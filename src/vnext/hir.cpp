@@ -6,6 +6,26 @@
 
 namespace NG::vnext::hir
 {
+  namespace
+  {
+    [[nodiscard]] auto renderTypeName(const syntax::TypeSyntax &type) -> std::string
+    {
+      if (const auto *named = dynamic_cast<const syntax::NamedTypeSyntax *>(&type))
+      {
+        return named->name;
+      }
+      if (const auto *reference = dynamic_cast<const syntax::ScopedReferenceTypeSyntax *>(&type))
+      {
+        return renderTypeName(*reference->target) + (reference->isMutable ? " ref mut" : " ref");
+      }
+      if (const auto *pointer = dynamic_cast<const syntax::RawPointerTypeSyntax *>(&type))
+      {
+        return renderTypeName(*pointer->pointee) + (pointer->isMutable ? " *mut" : " *const");
+      }
+      throw ResolutionError("unsupported type during name resolution", type.span);
+    }
+  } // namespace
+
   auto Resolver::resolve(const syntax::SourceUnit &unit) -> Module
   {
     functions_.clear();
@@ -49,7 +69,12 @@ namespace NG::vnext::hir
     for (const auto &parameter : function.parameters)
     {
       const LocalId local = declareLocal(parameter.name, parameter.span);
-      resolved.parameters.push_back(Parameter{.name = parameter.name, .local = local, .span = parameter.span});
+      resolved.parameters.push_back(
+          Parameter{.name = parameter.name, .typeName = renderTypeName(*parameter.type), .local = local, .span = parameter.span});
+    }
+    if (function.returnType != nullptr)
+    {
+      resolved.returnTypeName = renderTypeName(*function.returnType);
     }
     resolved.body = resolveBlock(function.body, false);
     currentFunction_.reset();
