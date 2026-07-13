@@ -10,8 +10,8 @@ namespace NG::vnext::bytecode
   namespace
   {
     constexpr std::array DESCRIPTORS{
-        OpcodeDescriptor{Opcode::Evaluate, "evaluate", OperandLayout::Fixed, 2},
-        OpcodeDescriptor{Opcode::BindLocal, "bind_local", OperandLayout::Fixed, 2},
+        OpcodeDescriptor{Opcode::Evaluate, "evaluate", OperandLayout::Fixed, 4},
+        OpcodeDescriptor{Opcode::BindLocal, "bind_local", OperandLayout::Fixed, 3},
         OpcodeDescriptor{Opcode::Return, "return", OperandLayout::CountPrefixedTail, 0},
         OpcodeDescriptor{Opcode::Jump, "jump", OperandLayout::CountPrefixedTail, 1},
         OpcodeDescriptor{Opcode::Branch, "branch", OperandLayout::Fixed, 3},
@@ -75,13 +75,15 @@ namespace NG::vnext::bytecode
       {
         if (instruction.kind == flowir::InstructionKind::Evaluate)
         {
+          const uint64_t payload = static_cast<uint64_t>(instruction.payload);
           appendInstruction(result.code, Opcode::Evaluate,
-                            {instruction.result.value, static_cast<uint32_t>(instruction.expressionKind)});
+                            {instruction.result.value, static_cast<uint32_t>(instruction.expressionKind),
+                             static_cast<uint32_t>(payload), static_cast<uint32_t>(payload >> 32)});
         }
         else
         {
           appendInstruction(result.code, Opcode::BindLocal,
-                            {instruction.result.value, instruction.local->value});
+                            {instruction.result.value, instruction.local->value, instruction.source->value});
         }
       }
 

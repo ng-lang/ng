@@ -34,6 +34,14 @@ TEST_CASE("vNext VM executes verified return control flow", "[vNext][VM]")
   REQUIRE(result.tailRecursions == 0);
 }
 
+TEST_CASE("vNext VM materializes integer literals and reads bound locals", "[vNext][VM]")
+{
+  const auto function = compile("fun main() -> i64 { let value = 42; return value; }");
+  const auto result = vm::VM{}.run(function);
+  REQUIRE(result.reason == vm::HaltReason::Return);
+  REQUIRE(result.returnValue == 42);
+}
+
 TEST_CASE("vNext VM tail recursion reuses the active frame until fuel exhaustion", "[vNext][VM]")
 {
   const auto function = compile("fun recur(value: i64) { next (value); }");

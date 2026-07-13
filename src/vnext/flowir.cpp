@@ -40,9 +40,24 @@ namespace NG::vnext::flowir
         {
           static_cast<void>(lowerExpression(*operand));
         }
+        int64_t payload{};
+        if (expression.kind == hir::ExpressionKind::IntegerLiteral)
+        {
+          payload = std::stoll(expression.text);
+        }
+        else if (expression.kind == hir::ExpressionKind::BooleanLiteral)
+        {
+          payload = expression.text == "true" ? 1 : 0;
+        }
+        else if (expression.kind == hir::ExpressionKind::ResolvedName &&
+                 expression.resolvedName->kind == hir::ResolvedNameKind::Local)
+        {
+          payload = expression.resolvedName->id;
+        }
+
         const ValueId value{nextValue_++};
         block().instructions.push_back(
-            Instruction{.kind = InstructionKind::Evaluate, .result = value, .expressionKind = expression.kind});
+            Instruction{.kind = InstructionKind::Evaluate, .result = value, .expressionKind = expression.kind, .payload = payload});
         return value;
       }
 
@@ -73,6 +88,7 @@ namespace NG::vnext::flowir
           block().instructions.push_back(Instruction{.kind = InstructionKind::BindLocal,
                                                      .result = binding,
                                                      .local = statement.local,
+                                                     .source = initializer,
                                                      .expressionKind = statement.expression->kind});
           static_cast<void>(initializer);
           return;

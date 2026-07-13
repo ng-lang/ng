@@ -3,6 +3,8 @@
 
 #include "vnext/bytecode.hpp"
 #include <cstddef>
+#include <optional>
+#include <cstdint>
 
 namespace NG::vnext::vm
 {
@@ -17,6 +19,7 @@ namespace NG::vnext::vm
     HaltReason reason;
     size_t executedInstructions;
     size_t tailRecursions;
+    std::optional<int64_t> returnValue;
   };
 
   /// Minimal frame-local vNext VM control core. Value execution is introduced

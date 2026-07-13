@@ -34,7 +34,9 @@ namespace NG::vnext::flowir
     InstructionKind kind;
     ValueId result;
     std::optional<hir::LocalId> local;
+    std::optional<ValueId> source;
     hir::ExpressionKind expressionKind;
+    int64_t payload{};
   };
 
   enum class TerminatorKind
