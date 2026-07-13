@@ -1,6 +1,7 @@
 // AI-generated code; reviewed for this repository's vNext rewrite.
 #include "vnext/bytecode.hpp"
 
+#include <algorithm>
 #include <array>
 #include <utility>
 
@@ -69,6 +70,7 @@ namespace NG::vnext::bytecode
     for (const auto &block : flow.blocks)
     {
       result.blockParameterCounts.push_back(static_cast<uint32_t>(block.parameterCount));
+      result.blockOffsets.push_back(static_cast<uint32_t>(result.code.size()));
       for (const auto &instruction : block.instructions)
       {
         if (instruction.kind == flowir::InstructionKind::Evaluate)
@@ -153,6 +155,19 @@ namespace NG::vnext::bytecode
   void Verifier::verify(const Function &function) const
   {
     const auto instructions = Decoder{}.decode(function);
+    if (function.blockOffsets.size() != function.blockParameterCounts.size())
+    {
+      throw BytecodeError("bytecode block offset table does not match block table");
+    }
+    for (const auto offset : function.blockOffsets)
+    {
+      const bool isInstructionBoundary = std::any_of(instructions.begin(), instructions.end(),
+                                                     [offset](const auto &instruction) { return instruction.offset == offset; });
+      if (!isInstructionBoundary)
+      {
+        throw BytecodeError("bytecode block offset is not an instruction boundary");
+      }
+    }
     for (const auto &instruction : instructions)
     {
       const auto targetAndCount = [&function, &instruction](bool hasTarget) {

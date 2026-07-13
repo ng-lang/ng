@@ -48,6 +48,7 @@ namespace NG::vnext::bytecode
   {
     std::vector<uint8_t> code;
     std::vector<uint32_t> blockParameterCounts;
+    std::vector<uint32_t> blockOffsets;
   };
 
   struct BytecodeError : std::runtime_error

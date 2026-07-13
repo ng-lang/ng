@@ -102,6 +102,7 @@ set(NG_TEST_SRC
         test/vnext/hir_resolver_test.cpp
         test/vnext/flowir_test.cpp
         test/vnext/bytecode_test.cpp
+        test/vnext/vm_test.cpp
         test/vnext/typecheck_next_test.cpp
         test/vnext/driver_test.cpp
         test/module/native_module_artifact_test.cpp
@@ -146,6 +147,7 @@ set(NG_VNEXT_SRC
         src/vnext/flowir.cpp
         src/vnext/hir.cpp
         src/vnext/typecheck.cpp
+        src/vnext/vm.cpp
         src/vnext/syntax/block_parser.cpp
         src/vnext/syntax/module_parser.cpp
         src/vnext/syntax/parser.cpp

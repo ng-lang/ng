@@ -53,10 +53,12 @@ TEST_CASE("vNext bytecode represents tail recursion without a call target", "[vN
 TEST_CASE("vNext bytecode verifier rejects malformed branch contracts", "[vNext][Bytecode]")
 {
   bytecode::Function malformed{.code = {static_cast<uint8_t>(bytecode::Opcode::Jump), 1, 0, 0, 0, 0, 0, 0, 0},
-                               .blockParameterCounts = {0}};
+                               .blockParameterCounts = {0},
+                               .blockOffsets = {0}};
   REQUIRE_THROWS_WITH(bytecode::Verifier{}.verify(malformed), "bytecode branch target is out of range");
 
   bytecode::Function truncated{.code = {static_cast<uint8_t>(bytecode::Opcode::Return), 1, 0},
-                               .blockParameterCounts = {0}};
+                               .blockParameterCounts = {0},
+                               .blockOffsets = {0}};
   REQUIRE_THROWS_WITH(bytecode::Decoder{}.decode(truncated), "truncated u32 operand");
 }
