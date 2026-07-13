@@ -36,6 +36,11 @@ namespace NG::vnext::syntax
       {
         throw ParseError("module declarations are not permitted in a block", current().span);
       }
+      if (current().kind == TokenKind::KeywordReturn)
+      {
+        block.statements.push_back(parseReturnStatement());
+        continue;
+      }
 
       auto expression = parseExpressionUntil(TokenKind::RightBrace);
       if (current().kind == TokenKind::Semicolon)
@@ -77,6 +82,21 @@ namespace NG::vnext::syntax
     expect(TokenKind::Semicolon, "expected `;` after let initializer");
     return std::make_unique<LetStatement>(name.text, isMutable, std::move(initializer),
                                           SourceSpan{letToken.span.begin, semicolon.span.end});
+  }
+
+  auto BlockParser::parseReturnStatement() -> StatementPtr
+  {
+    const Token returnToken = consume();
+    if (current().kind == TokenKind::Semicolon)
+    {
+      const Token semicolon = consume();
+      return std::make_unique<ReturnStatement>(nullptr, SourceSpan{returnToken.span.begin, semicolon.span.end});
+    }
+
+    auto value = parseExpressionUntil(TokenKind::Semicolon);
+    const Token semicolon = current();
+    expect(TokenKind::Semicolon, "expected `;` after return value");
+    return std::make_unique<ReturnStatement>(std::move(value), SourceSpan{returnToken.span.begin, semicolon.span.end});
   }
 
   auto BlockParser::parseExpressionUntil(TokenKind terminator) -> ExpressionPtr

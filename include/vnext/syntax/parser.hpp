@@ -19,6 +19,7 @@ namespace NG::vnext::syntax
     KeywordLet,
     KeywordMut,
     KeywordRef,
+    KeywordReturn,
     LeftParen,
     RightParen,
     LeftSquare,

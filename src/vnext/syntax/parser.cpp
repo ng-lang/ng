@@ -97,7 +97,8 @@ namespace NG::vnext::syntax
                              : text == "let" ? TokenKind::KeywordLet
                              : text == "mut" ? TokenKind::KeywordMut
                              : text == "ref" ? TokenKind::KeywordRef
-                                             : TokenKind::Identifier;
+                             : text == "return" ? TokenKind::KeywordReturn
+                                               : TokenKind::Identifier;
         tokens.push_back(Token{.kind = kind, .text = text, .span = SourceSpan{begin, offset}});
         continue;
       }

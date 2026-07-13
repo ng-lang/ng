@@ -119,6 +119,7 @@ namespace NG::vnext::syntax
   enum class StatementKind
   {
     Let,
+    Return,
     Expression,
   };
 
@@ -142,6 +143,16 @@ namespace NG::vnext::syntax
     LetStatement(std::string bindingName, bool mutableBinding, ExpressionPtr value, SourceSpan sourceSpan)
       : Statement(StatementKind::Let, sourceSpan), name(std::move(bindingName)), isMutable(mutableBinding),
         initializer(std::move(value))
+    {
+    }
+  };
+
+  struct ReturnStatement final : Statement
+  {
+    ExpressionPtr value;
+
+    ReturnStatement(ExpressionPtr returnValue, SourceSpan sourceSpan)
+      : Statement(StatementKind::Return, sourceSpan), value(std::move(returnValue))
     {
     }
   };
