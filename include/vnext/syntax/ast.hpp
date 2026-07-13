@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace NG::vnext::syntax
 {
@@ -77,5 +78,52 @@ namespace NG::vnext::syntax
         right(std::move(rhs))
     {
     }
+  };
+
+  enum class StatementKind
+  {
+    Let,
+    Expression,
+  };
+
+  struct Statement
+  {
+    StatementKind kind;
+    SourceSpan span;
+
+    explicit Statement(StatementKind statementKind, SourceSpan sourceSpan) : kind(statementKind), span(sourceSpan) {}
+    virtual ~Statement() = default;
+  };
+
+  using StatementPtr = std::unique_ptr<Statement>;
+
+  struct LetStatement final : Statement
+  {
+    std::string name;
+    bool isMutable;
+    ExpressionPtr initializer;
+
+    LetStatement(std::string bindingName, bool mutableBinding, ExpressionPtr value, SourceSpan sourceSpan)
+      : Statement(StatementKind::Let, sourceSpan), name(std::move(bindingName)), isMutable(mutableBinding),
+        initializer(std::move(value))
+    {
+    }
+  };
+
+  struct ExpressionStatement final : Statement
+  {
+    ExpressionPtr expression;
+
+    ExpressionStatement(ExpressionPtr value, SourceSpan sourceSpan)
+      : Statement(StatementKind::Expression, sourceSpan), expression(std::move(value))
+    {
+    }
+  };
+
+  struct Block final
+  {
+    SourceSpan span;
+    std::vector<StatementPtr> statements;
+    ExpressionPtr tailExpression;
   };
 } // namespace NG::vnext::syntax

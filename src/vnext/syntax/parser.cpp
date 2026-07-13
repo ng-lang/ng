@@ -25,6 +25,10 @@ namespace NG::vnext::syntax
       {
       case '(': return TokenKind::LeftParen;
       case ')': return TokenKind::RightParen;
+      case '{': return TokenKind::LeftBrace;
+      case '}': return TokenKind::RightBrace;
+      case '=': return TokenKind::Equal;
+      case ';': return TokenKind::Semicolon;
       case '+': return TokenKind::Plus;
       case '-': return TokenKind::Minus;
       case '*': return TokenKind::Star;
@@ -81,9 +85,11 @@ namespace NG::vnext::syntax
         {
           ++offset;
         }
-        tokens.push_back(Token{.kind = TokenKind::Identifier,
-                               .text = std::string{source.substr(begin, offset - begin)},
-                               .span = SourceSpan{begin, offset}});
+        const std::string text{source.substr(begin, offset - begin)};
+        const TokenKind kind = text == "let" ? TokenKind::KeywordLet
+                             : text == "mut" ? TokenKind::KeywordMut
+                                             : TokenKind::Identifier;
+        tokens.push_back(Token{.kind = kind, .text = text, .span = SourceSpan{begin, offset}});
         continue;
       }
 

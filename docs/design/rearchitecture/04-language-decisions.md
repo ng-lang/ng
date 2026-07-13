@@ -399,6 +399,42 @@ This supersedes any assumption that arbitrary C++ exceptions are the public lang
 
 ---
 
+## D-009 — Module items, declarations, and block statements
+
+**Status:** Accepted — 2026-07-13
+**Blocks:** R2 source grammar, R4 name resolution/HIR
+
+### Accepted rules
+
+Syntax distinguishes **module items** from **block statements**. This is a grammar and scope distinction, not a claim that all name introduction has one semantic representation.
+
+```ebnf
+SourceUnit      := ModuleDirective? ModuleItem*
+ModuleItem      := ImportItem | ExportItem | Declaration
+Declaration     := FunctionDecl | StructDecl | EnumDecl | NewtypeDecl
+                 | TypeAliasDecl | OpaqueTypeDecl | TraitDecl | ImplDecl | ConstDecl
+Block           := "{" Statement* TailExpression? "}"
+Statement       := LetStatement | ExpressionStatement | ControlStatement
+LetStatement    := "let" "mut"? Pattern (":" Type)? "=" Expression ";"
+```
+
+- A declaration is a module item that introduces one or more module-level `DefId`s. The initial vNext grammar has no arbitrary declaration statement inside a block.
+- `let` is a `LetStatement`, not a module declaration. It creates a lexical local that later resolves to `LocalId`/`Place`, and its initializer participates in ordinary control-flow, move, borrow, and drop analysis.
+- A block may contain `let` bindings, expression statements, and control statements. A final expression without `;` is the block value; all preceding expressions are statements.
+- Module-level executable statements and module-level `let` bindings are not in the initial vNext grammar. Use `const` for a module item with compile-time semantics, or an explicit future initialization item once module initialization has a RuntimeSession contract.
+- A named local callable is introduced through a `let` binding of a closure/function value. Local `fun` declarations are deferred; this avoids a second local-declaration scope model before closures and capture analysis are complete.
+- `import`/`export` are module directives/items, not block statements. Visibility belongs to declarations/exports, never to a local `let`.
+
+### HIR consequence
+
+The resolver maintains separate namespace ownership:
+
+- module declarations allocate stable `DefId`s and participate in module/interface artifacts;
+- `let` bindings allocate lexical `LocalId`s and lower to FlowIR `Place`/storage operations;
+- neither category is represented by mutating the immutable syntax tree.
+
+---
+
 ## Decision summary
 
 | ID | Topic | Status | Next owner action |
@@ -411,3 +447,4 @@ This supersedes any assumption that arbitrary C++ exceptions are the public lang
 | D-006 | Closures/effects | Accepted | `|params|` closure syntax, optional capture list, inferred capability effects. |
 | D-007 | Error model | Accepted | `Result<T, E>` + `?`; panic boundary separated; algebraic effects deferred. |
 | D-008 | Numeric model | Accepted | i8–i64/u8–u64, f32/f64, isize/usize, checked arithmetic. |
+| D-009 | Module items vs. block statements | Accepted | Module declarations create `DefId`; block `let` creates lexical `LocalId`; no local declarations in MVP. |
