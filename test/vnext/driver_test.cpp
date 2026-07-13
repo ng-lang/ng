@@ -26,13 +26,22 @@ TEST_CASE("vNext ngi driver parses an expression without loading the legacy runt
   REQUIRE(errors.empty());
 }
 
-TEST_CASE("vNext ngi driver parses a source unit through the replacement module parser", "[vNext][Driver]")
+TEST_CASE("vNext ngi driver runs the complete replacement compile-verify-execute pipeline", "[vNext][Driver]")
 {
   std::string output;
   std::string errors;
   REQUIRE(run({"--source", "fun main() { let value = 1; value }"}, output, errors) == 0);
-  REQUIRE(output == "parsed vNext source unit with 1 module item(s)\n");
+  REQUIRE(output == "compiled 1 vNext function(s); main returned after 4 instruction(s)\n");
   REQUIRE(errors.empty());
+}
+
+TEST_CASE("vNext ngi driver reports typed pipeline errors through its new frontend boundary", "[vNext][Driver]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(run({"--source", "fun main() { if 1 { return; } }"}, output, errors) == 1);
+  REQUIRE(output.empty());
+  REQUIRE(errors == "type error at bytes [16, 17): if condition type mismatch: expected bool, got i64\n");
 }
 
 TEST_CASE("vNext ngi driver reports syntax errors through its new frontend boundary", "[vNext][Driver]")

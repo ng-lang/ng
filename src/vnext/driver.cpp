@@ -1,8 +1,13 @@
 // AI-generated code; reviewed for this repository's vNext rewrite.
 #include "vnext/driver.hpp"
-
+#include "vnext/bytecode.hpp"
+#include "vnext/flowir.hpp"
+#include "vnext/hir.hpp"
 #include "vnext/syntax/module_parser.hpp"
+#include "vnext/typecheck.hpp"
+#include "vnext/vm.hpp"
 #include "vnext/syntax/parser.hpp"
+#include <algorithm>
 #include <fstream>
 #include <ostream>
 #include <string>
@@ -40,12 +45,54 @@ namespace NG::vnext
       try
       {
         const auto unit = syntax::parseSourceUnit(source);
-        output << "parsed vNext source unit with " << unit.items.size() << " module item(s)\n";
+        const auto resolved = hir::Resolver{}.resolve(unit);
+        typecheck::TypeChecker{}.check(resolved);
+
+        size_t verifiedFunctions{};
+        for (const auto &function : resolved.functions)
+        {
+          const auto flow = flowir::Lowerer{}.lower(function);
+          flowir::Verifier{}.verify(flow);
+          const auto artifact = bytecode::Compiler{}.compile(flow);
+          bytecode::Verifier{}.verify(artifact);
+          ++verifiedFunctions;
+        }
+
+        const auto main = std::find_if(resolved.functions.begin(), resolved.functions.end(), [](const auto &function) {
+          return function.name == "main" && function.parameters.empty();
+        });
+        if (main != resolved.functions.end())
+        {
+          const auto artifact = bytecode::Compiler{}.compile(flowir::Lowerer{}.lower(*main));
+          const auto result = vm::VM{}.run(artifact);
+          output << "compiled " << verifiedFunctions << " vNext function(s); main "
+                 << (result.reason == vm::HaltReason::Return ? "returned" : "exhausted fuel") << " after "
+                 << result.executedInstructions << " instruction(s)\n";
+        }
+        else
+        {
+          output << "compiled " << verifiedFunctions << " vNext function(s)\n";
+        }
         return 0;
       }
       catch (const syntax::ParseError &error)
       {
         errors << "syntax error at bytes [" << error.span().begin << ", " << error.span().end << "): " << error.what() << '\n';
+        return 1;
+      }
+      catch (const hir::ResolutionError &error)
+      {
+        errors << "resolution error at bytes [" << error.span.begin << ", " << error.span.end << "): " << error.what() << '\n';
+        return 1;
+      }
+      catch (const typecheck::TypeError &error)
+      {
+        errors << "type error at bytes [" << error.span.begin << ", " << error.span.end << "): " << error.what() << '\n';
+        return 1;
+      }
+      catch (const bytecode::BytecodeError &error)
+      {
+        errors << "bytecode error: " << error.what() << '\n';
         return 1;
       }
     }
