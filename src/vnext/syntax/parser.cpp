@@ -270,8 +270,7 @@ namespace NG::vnext::syntax
         throw ParseError("expected `)`", current().span);
       }
       const Token close = consume();
-      expression->span = SourceSpan{token.span.begin, close.span.end};
-      return expression;
+      return std::make_unique<GroupedExpression>(std::move(expression), SourceSpan{token.span.begin, close.span.end});
     }
     default:
       break;

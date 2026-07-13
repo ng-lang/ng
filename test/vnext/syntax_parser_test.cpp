@@ -19,6 +19,13 @@ namespace
     REQUIRE(prefix != nullptr);
     return *prefix;
   }
+
+  [[nodiscard]] auto asGrouped(const syntax::ExpressionPtr &expression) -> const syntax::GroupedExpression &
+  {
+    const auto *grouped = dynamic_cast<const syntax::GroupedExpression *>(expression.get());
+    REQUIRE(grouped != nullptr);
+    return *grouped;
+  }
 } // namespace
 
 TEST_CASE("vNext expression parser gives multiplication precedence over addition", "[vNext][Syntax][Expression]")
@@ -50,7 +57,10 @@ TEST_CASE("vNext expression parser preserves grouping spans and AST shape", "[vN
   const auto expression = syntax::parseExpression("(a + b) * c");
   const auto &multiply = asBinary(expression);
   REQUIRE(multiply.operatorText == "*");
-  REQUIRE(asBinary(multiply.left).operatorText == "+");
+  const auto &grouped = asGrouped(multiply.left);
+  REQUIRE(asBinary(grouped.expression).operatorText == "+");
+  REQUIRE(grouped.span.begin == 0);
+  REQUIRE(grouped.span.end == 7);
   REQUIRE(multiply.span.begin == 0);
   REQUIRE(multiply.span.end == 11);
 }

@@ -19,6 +19,7 @@ namespace NG::vnext::syntax
     Identifier,
     IntegerLiteral,
     Prefix,
+    Grouped,
     Call,
     Index,
     Member,
@@ -27,13 +28,10 @@ namespace NG::vnext::syntax
 
   struct Expression
   {
-    ExpressionKind kind;
-    SourceSpan span;
+    const ExpressionKind kind;
+    const SourceSpan span;
 
-    explicit Expression(ExpressionKind expressionKind, SourceSpan sourceSpan)
-      : kind(expressionKind), span(sourceSpan)
-    {
-    }
+    explicit Expression(ExpressionKind expressionKind, SourceSpan sourceSpan) : kind(expressionKind), span(sourceSpan) {}
     virtual ~Expression() = default;
   };
 
@@ -41,7 +39,7 @@ namespace NG::vnext::syntax
 
   struct IdentifierExpression final : Expression
   {
-    std::string name;
+    const std::string name;
 
     IdentifierExpression(std::string identifier, SourceSpan sourceSpan)
       : Expression(ExpressionKind::Identifier, sourceSpan), name(std::move(identifier))
@@ -51,7 +49,7 @@ namespace NG::vnext::syntax
 
   struct IntegerLiteralExpression final : Expression
   {
-    std::string text;
+    const std::string text;
 
     IntegerLiteralExpression(std::string literalText, SourceSpan sourceSpan)
       : Expression(ExpressionKind::IntegerLiteral, sourceSpan), text(std::move(literalText))
@@ -61,11 +59,21 @@ namespace NG::vnext::syntax
 
   struct PrefixExpression final : Expression
   {
-    std::string operatorText;
+    const std::string operatorText;
     ExpressionPtr operand;
 
     PrefixExpression(std::string op, ExpressionPtr value, SourceSpan sourceSpan)
       : Expression(ExpressionKind::Prefix, sourceSpan), operatorText(std::move(op)), operand(std::move(value))
+    {
+    }
+  };
+
+  struct GroupedExpression final : Expression
+  {
+    ExpressionPtr expression;
+
+    GroupedExpression(ExpressionPtr value, SourceSpan sourceSpan)
+      : Expression(ExpressionKind::Grouped, sourceSpan), expression(std::move(value))
     {
     }
   };
@@ -95,7 +103,7 @@ namespace NG::vnext::syntax
   struct MemberExpression final : Expression
   {
     ExpressionPtr receiver;
-    std::string member;
+    const std::string member;
 
     MemberExpression(ExpressionPtr target, std::string memberName, SourceSpan sourceSpan)
       : Expression(ExpressionKind::Member, sourceSpan), receiver(std::move(target)), member(std::move(memberName))
@@ -105,7 +113,7 @@ namespace NG::vnext::syntax
 
   struct BinaryExpression final : Expression
   {
-    std::string operatorText;
+    const std::string operatorText;
     ExpressionPtr left;
     ExpressionPtr right;
 
@@ -126,8 +134,8 @@ namespace NG::vnext::syntax
 
   struct Statement
   {
-    StatementKind kind;
-    SourceSpan span;
+    const StatementKind kind;
+    const SourceSpan span;
 
     explicit Statement(StatementKind statementKind, SourceSpan sourceSpan) : kind(statementKind), span(sourceSpan) {}
     virtual ~Statement() = default;
@@ -137,8 +145,8 @@ namespace NG::vnext::syntax
 
   struct LetStatement final : Statement
   {
-    std::string name;
-    bool isMutable;
+    const std::string name;
+    const bool isMutable;
     ExpressionPtr initializer;
 
     LetStatement(std::string bindingName, bool mutableBinding, ExpressionPtr value, SourceSpan sourceSpan)
@@ -170,9 +178,14 @@ namespace NG::vnext::syntax
 
   struct Block final
   {
-    SourceSpan span;
+    const SourceSpan span;
     std::vector<StatementPtr> statements;
     ExpressionPtr tailExpression;
+
+    Block(SourceSpan sourceSpan, std::vector<StatementPtr> blockStatements, ExpressionPtr blockTailExpression)
+      : span(sourceSpan), statements(std::move(blockStatements)), tailExpression(std::move(blockTailExpression))
+    {
+    }
   };
 
   struct IfStatement final : Statement
@@ -197,8 +210,8 @@ namespace NG::vnext::syntax
 
   struct TypeSyntax
   {
-    TypeSyntaxKind kind;
-    SourceSpan span;
+    const TypeSyntaxKind kind;
+    const SourceSpan span;
 
     explicit TypeSyntax(TypeSyntaxKind typeKind, SourceSpan sourceSpan) : kind(typeKind), span(sourceSpan) {}
     virtual ~TypeSyntax() = default;
@@ -208,7 +221,7 @@ namespace NG::vnext::syntax
 
   struct NamedTypeSyntax final : TypeSyntax
   {
-    std::string name;
+    const std::string name;
 
     NamedTypeSyntax(std::string typeName, SourceSpan sourceSpan)
       : TypeSyntax(TypeSyntaxKind::Named, sourceSpan), name(std::move(typeName))
@@ -219,7 +232,7 @@ namespace NG::vnext::syntax
   struct ScopedReferenceTypeSyntax final : TypeSyntax
   {
     TypeSyntaxPtr target;
-    bool isMutable;
+    const bool isMutable;
 
     ScopedReferenceTypeSyntax(TypeSyntaxPtr referencedType, bool mutableReference, SourceSpan sourceSpan)
       : TypeSyntax(TypeSyntaxKind::ScopedReference, sourceSpan), target(std::move(referencedType)),
@@ -231,7 +244,7 @@ namespace NG::vnext::syntax
   struct RawPointerTypeSyntax final : TypeSyntax
   {
     TypeSyntaxPtr pointee;
-    bool isMutable;
+    const bool isMutable;
 
     RawPointerTypeSyntax(TypeSyntaxPtr pointedToType, bool mutablePointee, SourceSpan sourceSpan)
       : TypeSyntax(TypeSyntaxKind::RawPointer, sourceSpan), pointee(std::move(pointedToType)),
@@ -242,9 +255,14 @@ namespace NG::vnext::syntax
 
   struct FunctionParameter final
   {
-    std::string name;
+    const std::string name;
     TypeSyntaxPtr type;
-    SourceSpan span;
+    const SourceSpan span;
+
+    FunctionParameter(std::string parameterName, TypeSyntaxPtr parameterType, SourceSpan sourceSpan)
+      : name(std::move(parameterName)), type(std::move(parameterType)), span(sourceSpan)
+    {
+    }
   };
 
   enum class ModuleItemKind
@@ -254,8 +272,8 @@ namespace NG::vnext::syntax
 
   struct ModuleItem
   {
-    ModuleItemKind kind;
-    SourceSpan span;
+    const ModuleItemKind kind;
+    const SourceSpan span;
 
     explicit ModuleItem(ModuleItemKind itemKind, SourceSpan sourceSpan) : kind(itemKind), span(sourceSpan) {}
     virtual ~ModuleItem() = default;
@@ -265,7 +283,7 @@ namespace NG::vnext::syntax
 
   struct FunctionDeclaration final : ModuleItem
   {
-    std::string name;
+    const std::string name;
     std::vector<FunctionParameter> parameters;
     TypeSyntaxPtr returnType;
     Block body;
@@ -280,7 +298,12 @@ namespace NG::vnext::syntax
 
   struct SourceUnit final
   {
-    SourceSpan span;
+    const SourceSpan span;
     std::vector<ModuleItemPtr> items;
+
+    SourceUnit(SourceSpan sourceSpan, std::vector<ModuleItemPtr> moduleItems)
+      : span(sourceSpan), items(std::move(moduleItems))
+    {
+    }
   };
 } // namespace NG::vnext::syntax

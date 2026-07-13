@@ -17,22 +17,18 @@ namespace NG::vnext::syntax
 
   auto ModuleParser::parse() -> SourceUnit
   {
-    SourceUnit unit{.span = SourceSpan{0, 0}};
+    std::vector<ModuleItemPtr> items;
     while (current().kind != TokenKind::End)
     {
       if (current().kind != TokenKind::KeywordFun)
       {
         throw ParseError("expected a module declaration", current().span);
       }
-      unit.items.push_back(parseFunctionDeclaration());
+      items.push_back(parseFunctionDeclaration());
     }
 
-    unit.span.end = current().span.end;
-    if (!unit.items.empty())
-    {
-      unit.span.begin = unit.items.front()->span.begin;
-    }
-    return unit;
+    const size_t begin = items.empty() ? 0 : items.front()->span.begin;
+    return SourceUnit{SourceSpan{begin, current().span.end}, std::move(items)};
   }
 
   auto ModuleParser::parseFunctionDeclaration() -> ModuleItemPtr
@@ -56,9 +52,7 @@ namespace NG::vnext::syntax
       expect(TokenKind::Colon, "expected `:` after parameter name");
       auto parameterType = parseTypeUntil({TokenKind::Comma, TokenKind::RightParen});
       const SourceSpan parameterSpan{parameterName.span.begin, parameterType->span.end};
-      parameters.push_back(FunctionParameter{.name = parameterName.text,
-                                             .type = std::move(parameterType),
-                                             .span = parameterSpan});
+      parameters.emplace_back(parameterName.text, std::move(parameterType), parameterSpan);
 
       if (current().kind != TokenKind::Comma)
       {

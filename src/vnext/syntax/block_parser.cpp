@@ -19,7 +19,8 @@ namespace NG::vnext::syntax
     const Token open = current();
     expect(TokenKind::LeftBrace, "expected `{` to begin a block");
 
-    Block block{.span = open.span};
+    std::vector<StatementPtr> statements;
+    ExpressionPtr tailExpression;
     while (current().kind != TokenKind::RightBrace)
     {
       if (current().kind == TokenKind::End)
@@ -29,7 +30,7 @@ namespace NG::vnext::syntax
 
       if (current().kind == TokenKind::KeywordLet)
       {
-        block.statements.push_back(parseLetStatement());
+        statements.push_back(parseLetStatement());
         continue;
       }
       if (current().kind == TokenKind::KeywordFun)
@@ -38,12 +39,12 @@ namespace NG::vnext::syntax
       }
       if (current().kind == TokenKind::KeywordReturn)
       {
-        block.statements.push_back(parseReturnStatement());
+        statements.push_back(parseReturnStatement());
         continue;
       }
       if (current().kind == TokenKind::KeywordIf)
       {
-        block.statements.push_back(parseIfStatement());
+        statements.push_back(parseIfStatement());
         continue;
       }
 
@@ -51,19 +52,18 @@ namespace NG::vnext::syntax
       if (current().kind == TokenKind::Semicolon)
       {
         const Token semicolon = consume();
-        block.statements.push_back(
+        statements.push_back(
             std::make_unique<ExpressionStatement>(std::move(expression), SourceSpan{expression->span.begin, semicolon.span.end}));
         continue;
       }
 
-      block.tailExpression = std::move(expression);
+      tailExpression = std::move(expression);
       break;
     }
 
     const Token close = current();
     expect(TokenKind::RightBrace, "expected `}` to close block");
-    block.span.end = close.span.end;
-    return block;
+    return Block{SourceSpan{open.span.begin, close.span.end}, std::move(statements), std::move(tailExpression)};
   }
 
   auto BlockParser::parseLetStatement() -> StatementPtr
