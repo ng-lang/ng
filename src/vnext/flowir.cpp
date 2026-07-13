@@ -143,6 +143,7 @@ namespace NG::vnext::flowir
         const BlockId body = appendBlock();
         const BlockId exit = appendBlock();
         block().terminator = Terminator{.kind = TerminatorKind::Jump, .targets = {header}, .arguments = std::move(initializers)};
+        function_.blocks[header.value].parameterCount = statement.loopBindings.size();
         function_.blocks[header.value].terminator = Terminator{.kind = TerminatorKind::Jump, .targets = {body}, .arguments = {}};
 
         loopHeaders_.emplace(statement.loop->value, header);
@@ -187,5 +188,75 @@ namespace NG::vnext::flowir
   auto Lowerer::lower(const hir::Function &function) -> Function
   {
     return FunctionLowerer{}.lower(function);
+  }
+
+  void Verifier::verify(const Function &function) const
+  {
+    if (function.blocks.empty())
+    {
+      throw VerificationError("FlowIR function has no blocks");
+    }
+    if (function.entry.value >= function.blocks.size())
+    {
+      throw VerificationError("FlowIR entry block is out of range");
+    }
+
+    for (size_t index = 0; index < function.blocks.size(); ++index)
+    {
+      const auto &block = function.blocks[index];
+      if (block.id.value != index)
+      {
+        throw VerificationError("FlowIR block id does not match block index");
+      }
+      if (!block.terminator.has_value())
+      {
+        throw VerificationError("FlowIR block has no terminator");
+      }
+
+      const auto &terminator = *block.terminator;
+      const auto requireTargetCount = [&terminator](size_t expected, std::string_view name) {
+        if (terminator.targets.size() != expected)
+        {
+          throw VerificationError(std::string{name} + " has invalid target count");
+        }
+      };
+      switch (terminator.kind)
+      {
+      case TerminatorKind::Return:
+        requireTargetCount(0, "return");
+        if (terminator.arguments.size() > 1)
+        {
+          throw VerificationError("return has too many values");
+        }
+        break;
+      case TerminatorKind::TailRecur:
+        requireTargetCount(0, "tail recursion");
+        break;
+      case TerminatorKind::Jump:
+      case TerminatorKind::LoopBackedge:
+        requireTargetCount(1, terminator.kind == TerminatorKind::Jump ? "jump" : "loop backedge");
+        break;
+      case TerminatorKind::Branch:
+        requireTargetCount(2, "branch");
+        if (terminator.arguments.size() != 1)
+        {
+          throw VerificationError("branch requires exactly one condition value");
+        }
+        break;
+      }
+
+      for (const auto target : terminator.targets)
+      {
+        if (target.value >= function.blocks.size())
+        {
+          throw VerificationError("FlowIR terminator target is out of range");
+        }
+      }
+      if ((terminator.kind == TerminatorKind::Jump || terminator.kind == TerminatorKind::LoopBackedge) &&
+          terminator.arguments.size() != function.blocks[terminator.targets[0].value].parameterCount)
+      {
+        throw VerificationError("FlowIR terminator argument count does not match target block parameters");
+      }
+    }
   }
 } // namespace NG::vnext::flowir

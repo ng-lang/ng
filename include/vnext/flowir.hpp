@@ -4,6 +4,9 @@
 #include "vnext/hir.hpp"
 #include <cstdint>
 #include <optional>
+#include <stdexcept>
+#include <string>
+#include <string_view>
 #include <vector>
 
 namespace NG::vnext::flowir
@@ -53,6 +56,7 @@ namespace NG::vnext::flowir
   struct Block
   {
     BlockId id;
+    size_t parameterCount{};
     std::vector<Instruction> instructions;
     std::optional<Terminator> terminator;
   };
@@ -70,5 +74,16 @@ namespace NG::vnext::flowir
   {
   public:
     [[nodiscard]] auto lower(const hir::Function &function) -> Function;
+  };
+
+  struct VerificationError : std::runtime_error
+  {
+    explicit VerificationError(std::string message) : std::runtime_error(std::move(message)) {}
+  };
+
+  class Verifier final
+  {
+  public:
+    void verify(const Function &function) const;
   };
 } // namespace NG::vnext::flowir

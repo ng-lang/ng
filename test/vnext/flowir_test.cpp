@@ -50,6 +50,7 @@ TEST_CASE("vNext FlowIR lowers loop next to a backedge with simultaneous argumen
   REQUIRE(backedge.terminator->targets.size() == 1);
   REQUIRE(backedge.terminator->targets[0].value == 1);
   REQUIRE(backedge.terminator->arguments.size() == 2);
+  REQUIRE_NOTHROW(flowir::Verifier{}.verify(function));
 }
 
 TEST_CASE("vNext FlowIR lowers function next to frame-reusing tail recursion terminator", "[vNext][FlowIR]")
@@ -59,6 +60,7 @@ TEST_CASE("vNext FlowIR lowers function next to frame-reusing tail recursion ter
   REQUIRE(function.blocks[0].terminator->kind == flowir::TerminatorKind::TailRecur);
   REQUIRE(function.blocks[0].terminator->targets.empty());
   REQUIRE(function.blocks[0].terminator->arguments.size() == 1);
+  REQUIRE_NOTHROW(flowir::Verifier{}.verify(function));
 }
 
 TEST_CASE("vNext FlowIR creates branch and join blocks without legacy control transfer", "[vNext][FlowIR]")
@@ -68,4 +70,28 @@ TEST_CASE("vNext FlowIR creates branch and join blocks without legacy control tr
   REQUIRE(function.blocks[0].terminator->kind == flowir::TerminatorKind::Branch);
   REQUIRE(function.blocks[0].terminator->targets.size() == 2);
   REQUIRE(countTerminators(function, flowir::TerminatorKind::Return) == 3);
+  REQUIRE_NOTHROW(flowir::Verifier{}.verify(function));
+}
+
+TEST_CASE("vNext FlowIR verifier rejects malformed targets and block arguments", "[vNext][FlowIR]")
+{
+  flowir::Function invalidTarget{.source = hir::DefId{0},
+                                 .entry = flowir::BlockId{0},
+                                 .blocks = {flowir::Block{.id = flowir::BlockId{0},
+                                                          .terminator = flowir::Terminator{.kind = flowir::TerminatorKind::Jump,
+                                                                                           .targets = {flowir::BlockId{1}},
+                                                                                           .arguments = {}}}}};
+  REQUIRE_THROWS_WITH(flowir::Verifier{}.verify(invalidTarget), "FlowIR terminator target is out of range");
+
+  flowir::Function invalidArguments{
+      .source = hir::DefId{0},
+      .entry = flowir::BlockId{0},
+      .blocks = {flowir::Block{.id = flowir::BlockId{0},
+                               .terminator = flowir::Terminator{.kind = flowir::TerminatorKind::Jump,
+                                                                .targets = {flowir::BlockId{1}},
+                                                                .arguments = {}}},
+                 flowir::Block{.id = flowir::BlockId{1}, .parameterCount = 1,
+                               .terminator = flowir::Terminator{.kind = flowir::TerminatorKind::Return}}}};
+  REQUIRE_THROWS_WITH(flowir::Verifier{}.verify(invalidArguments),
+                      "FlowIR terminator argument count does not match target block parameters");
 }
