@@ -26,6 +26,15 @@ TEST_CASE("vNext ngi driver parses an expression without loading the legacy runt
   REQUIRE(errors.empty());
 }
 
+TEST_CASE("vNext ngi driver parses a source unit through the replacement module parser", "[vNext][Driver]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(run({"--source", "fun main() { let value = 1; value }"}, output, errors) == 0);
+  REQUIRE(output == "parsed vNext source unit with 1 module item(s)\n");
+  REQUIRE(errors.empty());
+}
+
 TEST_CASE("vNext ngi driver reports syntax errors through its new frontend boundary", "[vNext][Driver]")
 {
   std::string output;

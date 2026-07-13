@@ -32,6 +32,10 @@ namespace NG::vnext::syntax
         block.statements.push_back(parseLetStatement());
         continue;
       }
+      if (current().kind == TokenKind::KeywordFun)
+      {
+        throw ParseError("module declarations are not permitted in a block", current().span);
+      }
 
       auto expression = parseExpressionUntil(TokenKind::RightBrace);
       if (current().kind == TokenKind::Semicolon)

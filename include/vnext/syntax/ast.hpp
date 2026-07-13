@@ -126,4 +126,37 @@ namespace NG::vnext::syntax
     std::vector<StatementPtr> statements;
     ExpressionPtr tailExpression;
   };
+
+  enum class ModuleItemKind
+  {
+    Function,
+  };
+
+  struct ModuleItem
+  {
+    ModuleItemKind kind;
+    SourceSpan span;
+
+    explicit ModuleItem(ModuleItemKind itemKind, SourceSpan sourceSpan) : kind(itemKind), span(sourceSpan) {}
+    virtual ~ModuleItem() = default;
+  };
+
+  using ModuleItemPtr = std::unique_ptr<ModuleItem>;
+
+  struct FunctionDeclaration final : ModuleItem
+  {
+    std::string name;
+    Block body;
+
+    FunctionDeclaration(std::string functionName, Block functionBody, SourceSpan sourceSpan)
+      : ModuleItem(ModuleItemKind::Function, sourceSpan), name(std::move(functionName)), body(std::move(functionBody))
+    {
+    }
+  };
+
+  struct SourceUnit final
+  {
+    SourceSpan span;
+    std::vector<ModuleItemPtr> items;
+  };
 } // namespace NG::vnext::syntax

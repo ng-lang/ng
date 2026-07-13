@@ -37,7 +37,7 @@ This plan uses a **replacement-first rewrite**, not an additive shim strategy. E
 |---|---|---|---|---|
 | R0 | Governance, invariants, and characterization | In progress — decisions accepted; characterization matrix continues | — | Baseline test matrix and RFC decisions |
 | R1 | Correctness and bytecode safety stop-the-line fixes | In progress — vNext expression parser and replacement `ngi` shell | R0 | Pratt parser, verifier, safe VM reset/decoding |
-| R2 | Source model, lexer, parser, and syntax AST | Not started | R1 | Immutable syntax tree with spans and recovery |
+| R2 | Source model, lexer, parser, and syntax AST | In progress — vNext expressions, blocks, module items, and immutable syntax nodes | R1 | Immutable syntax tree with spans and recovery |
 | R3 | CompilationSession and module graph | Not started | R1 | Session-scoped resolver/artifact cache |
 | R4 | Symbols, types, resolved HIR, and typed HIR | Not started | R2, R3 | Canonical IDs and no semantic AST mutation |
 | R5 | Const evaluator, ownership analysis, and FlowIR | Not started | R4 | Typed compile-time evaluation and CFG dataflow |

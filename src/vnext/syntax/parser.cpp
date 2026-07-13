@@ -25,6 +25,7 @@ namespace NG::vnext::syntax
       {
       case '(': return TokenKind::LeftParen;
       case ')': return TokenKind::RightParen;
+      case ',': return TokenKind::Comma;
       case '{': return TokenKind::LeftBrace;
       case '}': return TokenKind::RightBrace;
       case '=': return TokenKind::Equal;
@@ -86,7 +87,8 @@ namespace NG::vnext::syntax
           ++offset;
         }
         const std::string text{source.substr(begin, offset - begin)};
-        const TokenKind kind = text == "let" ? TokenKind::KeywordLet
+        const TokenKind kind = text == "fun" ? TokenKind::KeywordFun
+                             : text == "let" ? TokenKind::KeywordLet
                              : text == "mut" ? TokenKind::KeywordMut
                                              : TokenKind::Identifier;
         tokens.push_back(Token{.kind = kind, .text = text, .span = SourceSpan{begin, offset}});
