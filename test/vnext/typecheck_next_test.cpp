@@ -54,6 +54,53 @@ TEST_CASE("vNext type checker rejects loop next type mismatch", "[vNext][Typeche
   }
 }
 
+TEST_CASE("vNext type checker validates function call and boolean condition contracts", "[vNext][Typecheck][Call]")
+{
+  REQUIRE_NOTHROW(check(
+      "fun increment(value: i64) -> i64 { return value + 1; } fun entry() -> i64 { if true { return increment(1); } return 0; }"));
+}
+
+TEST_CASE("vNext type checker rejects non-boolean if conditions", "[vNext][Typecheck][Call]")
+{
+  try
+  {
+    check("fun invalid() { if 1 { return; } }");
+    FAIL("expected non-boolean if condition to fail");
+  }
+  catch (const typecheck::TypeError &error)
+  {
+    REQUIRE(std::string{error.what()} == "if condition type mismatch: expected bool, got i64");
+    REQUIRE(error.span.begin == 19);
+    REQUIRE(error.span.end == 20);
+  }
+}
+
+TEST_CASE("vNext type checker rejects call arity and argument type mismatch", "[vNext][Typecheck][Call]")
+{
+  try
+  {
+    check("fun target(left: i64, right: i64) { } fun invalid() { target(1); }");
+    FAIL("expected call arity mismatch");
+  }
+  catch (const typecheck::TypeError &error)
+  {
+    REQUIRE(std::string{error.what()} == "call argument count mismatch: expected 2, got 1");
+    REQUIRE(error.span.begin == 54);
+  }
+
+  try
+  {
+    check("fun target(value: u8) { } fun invalid() { target(1); }");
+    FAIL("expected call argument type mismatch");
+  }
+  catch (const typecheck::TypeError &error)
+  {
+    REQUIRE(std::string{error.what()} == "call argument 1 type mismatch: expected u8, got i64");
+    REQUIRE(error.span.begin == 49);
+    REQUIRE(error.span.end == 50);
+  }
+}
+
 TEST_CASE("vNext type checker rejects tail next arity mismatch", "[vNext][Typecheck][Next]")
 {
   try

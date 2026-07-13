@@ -24,6 +24,8 @@ namespace NG::vnext::syntax
     KeywordNext,
     KeywordRef,
     KeywordReturn,
+    KeywordTrue,
+    KeywordFalse,
     LeftParen,
     RightParen,
     LeftSquare,

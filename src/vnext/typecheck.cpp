@@ -80,6 +80,7 @@ namespace NG::vnext::typecheck
           }
           return;
         case hir::StatementKind::If:
+          requireType("bool", infer(*statement.expression, locals), statement.expression->span, "if condition");
           checkBlock(*statement.consequence, locals, loops, returnType);
           if (statement.alternative != nullptr)
           {
@@ -143,6 +144,7 @@ namespace NG::vnext::typecheck
         switch (expression.kind)
         {
         case hir::ExpressionKind::IntegerLiteral: return "i64";
+        case hir::ExpressionKind::BooleanLiteral: return "bool";
         case hir::ExpressionKind::ResolvedName:
           if (expression.resolvedName->kind == hir::ResolvedNameKind::Local)
           {
@@ -164,7 +166,20 @@ namespace NG::vnext::typecheck
           if (expression.operands[0]->resolvedName.has_value() &&
               expression.operands[0]->resolvedName->kind == hir::ResolvedNameKind::Function)
           {
-            return signatures_.at(expression.operands[0]->resolvedName->id).returnType;
+            const auto &signature = signatures_.at(expression.operands[0]->resolvedName->id);
+            const size_t suppliedCount = expression.operands.size() - 1;
+            if (suppliedCount != signature.parameters.size())
+            {
+              throw TypeError(std::format("call argument count mismatch: expected {}, got {}", signature.parameters.size(),
+                                          suppliedCount),
+                              expression.span);
+            }
+            for (size_t index = 0; index < suppliedCount; ++index)
+            {
+              requireType(signature.parameters[index], infer(*expression.operands[index + 1], locals),
+                          expression.operands[index + 1]->span, std::format("call argument {}", index + 1));
+            }
+            return signature.returnType;
           }
           return "unknown";
         case hir::ExpressionKind::Index:

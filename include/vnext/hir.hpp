@@ -55,6 +55,7 @@ namespace NG::vnext::hir
   enum class ExpressionKind
   {
     IntegerLiteral,
+    BooleanLiteral,
     ResolvedName,
     Prefix,
     Grouped,

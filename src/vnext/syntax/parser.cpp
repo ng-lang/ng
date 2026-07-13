@@ -102,6 +102,8 @@ namespace NG::vnext::syntax
                              : text == "next" ? TokenKind::KeywordNext
                              : text == "ref" ? TokenKind::KeywordRef
                              : text == "return" ? TokenKind::KeywordReturn
+                             : text == "true" ? TokenKind::KeywordTrue
+                             : text == "false" ? TokenKind::KeywordFalse
                                                : TokenKind::Identifier;
         tokens.push_back(Token{.kind = kind, .text = text, .span = SourceSpan{begin, offset}});
         continue;
@@ -264,6 +266,10 @@ namespace NG::vnext::syntax
       return std::make_unique<IdentifierExpression>(token.text, token.span);
     case TokenKind::IntegerLiteral:
       return std::make_unique<IntegerLiteralExpression>(token.text, token.span);
+    case TokenKind::KeywordTrue:
+      return std::make_unique<BooleanLiteralExpression>(true, token.span);
+    case TokenKind::KeywordFalse:
+      return std::make_unique<BooleanLiteralExpression>(false, token.span);
     case TokenKind::LeftParen:
     {
       auto expression = parseExpression(0);
