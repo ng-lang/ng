@@ -97,7 +97,9 @@ namespace NG::vnext::syntax
                              : text == "fun" ? TokenKind::KeywordFun
                              : text == "if" ? TokenKind::KeywordIf
                              : text == "let" ? TokenKind::KeywordLet
+                             : text == "loop" ? TokenKind::KeywordLoop
                              : text == "mut" ? TokenKind::KeywordMut
+                             : text == "next" ? TokenKind::KeywordNext
                              : text == "ref" ? TokenKind::KeywordRef
                              : text == "return" ? TokenKind::KeywordReturn
                                                : TokenKind::Identifier;

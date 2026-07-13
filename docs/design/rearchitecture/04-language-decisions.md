@@ -435,6 +435,63 @@ The resolver maintains separate namespace ownership:
 
 ---
 
+## D-010 — `loop`, `next`, and tail recursion
+
+**Status:** Accepted — 2026-07-13
+**Blocks:** R2 control-flow grammar, R4 resolution/type checking, R5 FlowIR, R7 VM lowering
+
+### Accepted rules
+
+`loop` and `next` are dedicated control-flow constructs. They never parse as ordinary function calls and are never lowered through the legacy interpreter's exception/control-transfer mechanism.
+
+```ng
+fun sum(limit: i64) -> i64 {
+    let mut total = 0;
+    loop (index = 0) {
+        total := total + index;
+        if index < limit {
+            next (index + 1);
+        }
+    }
+    total
+}
+
+fun sum_tail(index: i64, total: i64) -> i64 {
+    if index == 0 { return total; }
+    next (index - 1, total + index);  // self tail recursion
+}
+```
+
+- `loop (binding = initializer, ...) { ... }` introduces an ordered set of loop-local bindings. The initializers are evaluated once before the first iteration.
+- Each `next (value, ...)` inside a loop targets the **innermost active loop**. Its values are evaluated left-to-right in the current iteration, then all loop bindings are replaced simultaneously and control jumps to the loop header.
+- Falling out of a loop body completes the statement. The initial MVP has statement-valued loops; loop-as-expression and `break value` are deferred until typed HIR/FlowIR establishes their result and cleanup semantics.
+- `next (...)` when no loop is active targets the enclosing function itself and is a self-tail-recursion terminator. It is legal only in a function body and must provide one value per non-implicit function parameter. Parameter defaults are not part of the vNext MVP.
+- A loop shadows the enclosing function as the target of bare `next`. Tail self-recursion from inside a loop will receive an explicit spelling in a later design revision rather than silently changing the nearest-target rule.
+- `next` is a terminator: expressions/statements after it in the same basic block are unreachable for FlowIR purposes. The parser may preserve them for recovery; the resolver/type checker diagnoses unreachable code separately.
+- Loop binding annotations are optional. Inference uses initializer types; `next` values must match the corresponding resolved binding types. Tail-recursive `next` values must match the corresponding parameter types.
+- Borrow/move checks evaluate every `next` argument before rebinding. Iteration-local loans end at the back-edge; no scoped `ref` may be carried into the next iteration unless its declared origin remains valid across that back-edge.
+
+### HIR/FlowIR consequence
+
+Resolved HIR records `NextTarget::Loop(LoopId)` or `NextTarget::Function(DefId)`. FlowIR lowers them to distinct terminators:
+
+- `LoopBackedge { target: BlockId, arguments: Vec<ValueId> }`;
+- `TailRecur { function: InstanceId, arguments: Vec<ValueId> }`.
+
+The VM reuses the active frame for `TailRecur`; it does not push a normal call frame. Cleanup/drop edges execute before either terminator, and neither terminator may cross an active `ref mut`, foreign ABI boundary, or suspension point.
+
+### Required diagnostics/tests
+
+- `next` outside a function/loop;
+- loop `next` arity/type mismatch;
+- tail-recursive `next` arity/type mismatch;
+- nested-loop nearest-target selection;
+- simultaneous-rebinding behavior (`next (b, a)` swaps loop state);
+- moved/borrowed loop state and cleanup on exit/back-edge;
+- no C++ stack growth for tail recursion.
+
+---
+
 ## Decision summary
 
 | ID | Topic | Status | Next owner action |
@@ -448,3 +505,4 @@ The resolver maintains separate namespace ownership:
 | D-007 | Error model | Accepted | `Result<T, E>` + `?`; panic boundary separated; algebraic effects deferred. |
 | D-008 | Numeric model | Accepted | i8–i64/u8–u64, f32/f64, isize/usize, checked arithmetic. |
 | D-009 | Module items vs. block statements | Accepted | Module declarations create `DefId`; block `let` creates lexical `LocalId`; no local declarations in MVP. |
+| D-010 | `loop` / `next` / tail recursion | Accepted | Explicit loop binders; nearest-target `next`; self-tail recursion outside loops; dedicated HIR/FlowIR terminators. |

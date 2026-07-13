@@ -129,6 +129,8 @@ namespace NG::vnext::syntax
     Let,
     Return,
     If,
+    Loop,
+    Next,
     Expression,
   };
 
@@ -197,6 +199,39 @@ namespace NG::vnext::syntax
     IfStatement(ExpressionPtr test, Block thenBlock, std::unique_ptr<Block> elseBlock, SourceSpan sourceSpan)
       : Statement(StatementKind::If, sourceSpan), condition(std::move(test)), consequence(std::move(thenBlock)),
         alternative(std::move(elseBlock))
+    {
+    }
+  };
+
+  struct LoopBinding final
+  {
+    const std::string name;
+    ExpressionPtr initializer;
+    const SourceSpan span;
+
+    LoopBinding(std::string bindingName, ExpressionPtr initialValue, SourceSpan sourceSpan)
+      : name(std::move(bindingName)), initializer(std::move(initialValue)), span(sourceSpan)
+    {
+    }
+  };
+
+  struct LoopStatement final : Statement
+  {
+    std::vector<LoopBinding> bindings;
+    Block body;
+
+    LoopStatement(std::vector<LoopBinding> loopBindings, Block loopBody, SourceSpan sourceSpan)
+      : Statement(StatementKind::Loop, sourceSpan), bindings(std::move(loopBindings)), body(std::move(loopBody))
+    {
+    }
+  };
+
+  struct NextStatement final : Statement
+  {
+    std::vector<ExpressionPtr> arguments;
+
+    NextStatement(std::vector<ExpressionPtr> nextArguments, SourceSpan sourceSpan)
+      : Statement(StatementKind::Next, sourceSpan), arguments(std::move(nextArguments))
     {
     }
   };

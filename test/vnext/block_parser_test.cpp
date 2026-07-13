@@ -27,6 +27,20 @@ namespace
     return *ifStatement;
   }
 
+  [[nodiscard]] auto asLoop(const syntax::StatementPtr &statement) -> const syntax::LoopStatement &
+  {
+    const auto *loop = dynamic_cast<const syntax::LoopStatement *>(statement.get());
+    REQUIRE(loop != nullptr);
+    return *loop;
+  }
+
+  [[nodiscard]] auto asNext(const syntax::StatementPtr &statement) -> const syntax::NextStatement &
+  {
+    const auto *next = dynamic_cast<const syntax::NextStatement *>(statement.get());
+    REQUIRE(next != nullptr);
+    return *next;
+  }
+
   [[nodiscard]] auto asExpression(const syntax::StatementPtr &statement) -> const syntax::ExpressionStatement &
   {
     const auto *expression = dynamic_cast<const syntax::ExpressionStatement *>(statement.get());
@@ -64,6 +78,43 @@ TEST_CASE("vNext block parser keeps a final expression as the block value", "[vN
   REQUIRE(block.statements.size() == 1);
   REQUIRE(block.tailExpression != nullptr);
   REQUIRE(asBinary(block.tailExpression).operatorText == "+");
+}
+
+TEST_CASE("vNext block parser keeps loop state and next arguments as dedicated syntax", "[vNext][Syntax][Block]")
+{
+  const auto block = syntax::parseBlock("{ loop (left = first(1, 2), right = 2) { next (right, left); } }");
+  REQUIRE(block.statements.size() == 1);
+  const auto &loop = asLoop(block.statements[0]);
+  REQUIRE(loop.bindings.size() == 2);
+  REQUIRE(loop.bindings[0].name == "left");
+  REQUIRE(loop.bindings[0].initializer->kind == syntax::ExpressionKind::Call);
+  REQUIRE(loop.bindings[1].name == "right");
+  REQUIRE(loop.body.statements.size() == 1);
+  const auto &next = asNext(loop.body.statements[0]);
+  REQUIRE(next.arguments.size() == 2);
+  REQUIRE(next.arguments[0]->kind == syntax::ExpressionKind::Identifier);
+  REQUIRE(next.span.begin == 41);
+  REQUIRE(next.span.end == 60);
+}
+
+TEST_CASE("vNext block parser diagnoses malformed loop and next syntax", "[vNext][Syntax][Block]")
+{
+  const auto requireError = [](std::string_view source, std::string_view message) {
+    try
+    {
+      static_cast<void>(syntax::parseBlock(source));
+      FAIL("expected malformed loop or next syntax to fail");
+    }
+    catch (const syntax::ParseError &error)
+    {
+      REQUIRE(std::string{error.what()} == message);
+    }
+  };
+
+  requireError("{ loop state = 0 { } }", "expected `(` after `loop`");
+  requireError("{ loop (state = 0,) { } }", "expected a loop binding after `,`");
+  requireError("{ next value; }", "expected `(` after `next`");
+  requireError("{ next (value,) ; }", "expected a next argument after `,`");
 }
 
 TEST_CASE("vNext block parser keeps if branches as nested block statements", "[vNext][Syntax][Block]")

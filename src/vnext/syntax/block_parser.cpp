@@ -1,6 +1,7 @@
 // AI-generated code; reviewed for this repository's vNext rewrite.
 #include "vnext/syntax/block_parser.hpp"
 
+#include <algorithm>
 #include <format>
 #include <utility>
 
@@ -45,6 +46,16 @@ namespace NG::vnext::syntax
       if (current().kind == TokenKind::KeywordIf)
       {
         statements.push_back(parseIfStatement());
+        continue;
+      }
+      if (current().kind == TokenKind::KeywordLoop)
+      {
+        statements.push_back(parseLoopStatement());
+        continue;
+      }
+      if (current().kind == TokenKind::KeywordNext)
+      {
+        statements.push_back(parseNextStatement());
         continue;
       }
 
@@ -104,6 +115,68 @@ namespace NG::vnext::syntax
     return std::make_unique<ReturnStatement>(std::move(value), SourceSpan{returnToken.span.begin, semicolon.span.end});
   }
 
+  auto BlockParser::parseLoopStatement() -> StatementPtr
+  {
+    const Token loopToken = consume();
+    expect(TokenKind::LeftParen, "expected `(` after `loop`");
+
+    std::vector<LoopBinding> bindings;
+    while (current().kind != TokenKind::RightParen)
+    {
+      if (current().kind != TokenKind::Identifier)
+      {
+        throw ParseError("expected a loop binding name", current().span);
+      }
+      const Token name = consume();
+      expect(TokenKind::Equal, "expected `=` after loop binding name");
+      auto initializer = parseExpressionUntilAny({TokenKind::Comma, TokenKind::RightParen});
+      const SourceSpan span{name.span.begin, initializer->span.end};
+      bindings.emplace_back(name.text, std::move(initializer), span);
+
+      if (current().kind != TokenKind::Comma)
+      {
+        break;
+      }
+      static_cast<void>(consume());
+      if (current().kind == TokenKind::RightParen)
+      {
+        throw ParseError("expected a loop binding after `,`", current().span);
+      }
+    }
+    expect(TokenKind::RightParen, "expected `)` after loop bindings");
+    Block body = parseNestedBlock();
+    const SourceSpan span{loopToken.span.begin, body.span.end};
+    return std::make_unique<LoopStatement>(std::move(bindings), std::move(body), span);
+  }
+
+  auto BlockParser::parseNextStatement() -> StatementPtr
+  {
+    const Token nextToken = consume();
+    expect(TokenKind::LeftParen, "expected `(` after `next`");
+
+    std::vector<ExpressionPtr> arguments;
+    if (current().kind != TokenKind::RightParen)
+    {
+      do
+      {
+        arguments.push_back(parseExpressionUntilAny({TokenKind::Comma, TokenKind::RightParen}));
+        if (current().kind != TokenKind::Comma)
+        {
+          break;
+        }
+        static_cast<void>(consume());
+        if (current().kind == TokenKind::RightParen)
+        {
+          throw ParseError("expected a next argument after `,`", current().span);
+        }
+      } while (current().kind != TokenKind::RightParen);
+    }
+    expect(TokenKind::RightParen, "expected `)` after next arguments");
+    const Token semicolon = current();
+    expect(TokenKind::Semicolon, "expected `;` after next arguments");
+    return std::make_unique<NextStatement>(std::move(arguments), SourceSpan{nextToken.span.begin, semicolon.span.end});
+  }
+
   auto BlockParser::parseIfStatement() -> StatementPtr
   {
     const Token ifToken = consume();
@@ -158,10 +231,44 @@ namespace NG::vnext::syntax
 
   auto BlockParser::parseExpressionUntil(TokenKind terminator) -> ExpressionPtr
   {
+    return parseExpressionUntilAny({terminator});
+  }
+
+  auto BlockParser::parseExpressionUntilAny(const std::vector<TokenKind> &terminators) -> ExpressionPtr
+  {
     std::vector<Token> expressionTokens;
-    while (current().kind != terminator && current().kind != TokenKind::Semicolon &&
-           current().kind != TokenKind::RightBrace && current().kind != TokenKind::End)
+    size_t parenthesisDepth{};
+    size_t squareDepth{};
+    while (current().kind != TokenKind::End)
     {
+      const TokenKind kind = current().kind;
+      if (parenthesisDepth == 0 && squareDepth == 0 &&
+          std::find(terminators.begin(), terminators.end(), kind) != terminators.end())
+      {
+        break;
+      }
+      if (parenthesisDepth == 0 && squareDepth == 0 &&
+          (kind == TokenKind::Semicolon || kind == TokenKind::RightBrace))
+      {
+        break;
+      }
+
+      if (kind == TokenKind::LeftParen)
+      {
+        ++parenthesisDepth;
+      }
+      else if (kind == TokenKind::RightParen && parenthesisDepth != 0)
+      {
+        --parenthesisDepth;
+      }
+      else if (kind == TokenKind::LeftSquare)
+      {
+        ++squareDepth;
+      }
+      else if (kind == TokenKind::RightSquare && squareDepth != 0)
+      {
+        --squareDepth;
+      }
       expressionTokens.push_back(consume());
     }
 
