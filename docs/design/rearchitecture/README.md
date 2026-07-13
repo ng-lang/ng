@@ -38,8 +38,8 @@ This plan uses a **replacement-first rewrite**, not an additive shim strategy. E
 | R0 | Governance, invariants, and characterization | In progress — decisions accepted; characterization matrix continues | — | Baseline test matrix and RFC decisions |
 | R1 | Correctness and bytecode safety stop-the-line fixes | In progress — vNext expression parser and replacement `ngi` shell | R0 | Pratt parser, verifier, safe VM reset/decoding |
 | R2 | Source model, lexer, parser, and syntax AST | In progress — vNext expressions, blocks, module items, and immutable syntax nodes | R1 | Immutable syntax tree with spans and recovery |
-| R3 | CompilationSession and module graph | Not started | R1 | Session-scoped resolver/artifact cache |
-| R4 | Symbols, types, resolved HIR, and typed HIR | Not started | R2, R3 | Canonical IDs and no semantic AST mutation |
+| R3 | CompilationSession and module graph | In progress — vNext module name-resolution seed | R1 | Session-scoped resolver/artifact cache |
+| R4 | Symbols, types, resolved HIR, and typed HIR | In progress — name-only HIR lowering with `DefId` / `LocalId` | R2, R3 | Canonical IDs and no semantic AST mutation |
 | R5 | Const evaluator, ownership analysis, and FlowIR | Not started | R4 | Typed compile-time evaluation and CFG dataflow |
 | R6 | RuntimeSession and module instances | Not started | R3, R5 | One runtime value model and lifecycle service |
 | R7 | Bytecode v3 compiler, VM, and artifact format | Not started | R5, R6 | Verified bytecode consuming FlowIR |

@@ -99,6 +99,7 @@ set(NG_TEST_SRC
         test/vnext/block_parser_test.cpp
         test/vnext/module_parser_test.cpp
         test/vnext/type_parser_test.cpp
+        test/vnext/hir_resolver_test.cpp
         test/vnext/driver_test.cpp
         test/module/native_module_artifact_test.cpp
         test/integration_test.cpp
@@ -138,6 +139,7 @@ target_link_libraries(ng PRIVATE imgui SDL3::SDL3-static)
 
 set(NG_VNEXT_SRC
         src/vnext/driver.cpp
+        src/vnext/hir.cpp
         src/vnext/syntax/block_parser.cpp
         src/vnext/syntax/module_parser.cpp
         src/vnext/syntax/parser.cpp
