@@ -37,6 +37,38 @@ TEST_CASE("vNext resolver lowers lexical names into independent HIR identities",
   REQUIRE(ifStatement.alternative->tailExpression->resolvedName->id == 0);
 }
 
+TEST_CASE("vNext resolver targets the nearest loop and function tail next distinctly", "[vNext][HIR][Resolver]")
+{
+  const auto syntaxUnit = syntax::parseSourceUnit(
+      "fun step(seed: i32) { loop (outer = seed) { loop (inner = outer) { next (inner); } next (outer); } next (seed); }");
+  const auto module = hir::Resolver{}.resolve(syntaxUnit);
+  const auto &function = module.functions[0];
+  REQUIRE(function.body.statements.size() == 2);
+
+  const auto &outerLoop = function.body.statements[0];
+  REQUIRE(outerLoop.kind == hir::StatementKind::Loop);
+  REQUIRE(outerLoop.loop->value == 0);
+  REQUIRE(outerLoop.arguments[0]->resolvedName->kind == hir::ResolvedNameKind::Local);
+  REQUIRE(outerLoop.arguments[0]->resolvedName->id == 0);
+
+  const auto &innerLoop = outerLoop.body->statements[0];
+  REQUIRE(innerLoop.kind == hir::StatementKind::Loop);
+  REQUIRE(innerLoop.loop->value == 1);
+  REQUIRE(innerLoop.arguments[0]->resolvedName->id == outerLoop.loopBindings[0].value);
+  const auto &innerNext = innerLoop.body->statements[0];
+  REQUIRE(innerNext.nextTarget->kind == hir::NextTargetKind::Loop);
+  REQUIRE(innerNext.nextTarget->id == 1);
+
+  const auto &outerNext = outerLoop.body->statements[1];
+  REQUIRE(outerNext.nextTarget->kind == hir::NextTargetKind::Loop);
+  REQUIRE(outerNext.nextTarget->id == 0);
+
+  const auto &tailNext = function.body.statements[1];
+  REQUIRE(tailNext.kind == hir::StatementKind::Next);
+  REQUIRE(tailNext.nextTarget->kind == hir::NextTargetKind::Function);
+  REQUIRE(tailNext.nextTarget->id == function.id.value);
+}
+
 TEST_CASE("vNext resolver rejects unknown names with a source span", "[vNext][HIR][Resolver]")
 {
   const auto syntaxUnit = syntax::parseSourceUnit("fun entry() { missing }");

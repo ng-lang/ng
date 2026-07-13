@@ -39,7 +39,10 @@ namespace NG::vnext::hir
   {
     scopes_.clear();
     scopes_.emplace_back();
+    loops_.clear();
+    currentFunction_ = id;
     nextLocal_ = 0;
+    nextLoop_ = 0;
 
     Function resolved{.id = id, .name = function.name, .span = function.span};
     resolved.parameters.reserve(function.parameters.size());
@@ -49,6 +52,7 @@ namespace NG::vnext::hir
       resolved.parameters.push_back(Parameter{.name = parameter.name, .local = local, .span = parameter.span});
     }
     resolved.body = resolveBlock(function.body, false);
+    currentFunction_.reset();
     return resolved;
   }
 
@@ -105,6 +109,53 @@ namespace NG::vnext::hir
       if (ifStatement->alternative != nullptr)
       {
         resolved.alternative = std::make_unique<Block>(resolveBlock(*ifStatement->alternative, true));
+      }
+      return resolved;
+    }
+
+    if (const auto *loop = dynamic_cast<const syntax::LoopStatement *>(&statement))
+    {
+      Statement resolved{.kind = StatementKind::Loop, .span = loop->span};
+      std::vector<ExpressionPtr> initializers;
+      initializers.reserve(loop->bindings.size());
+      for (const auto &binding : loop->bindings)
+      {
+        initializers.push_back(resolveExpression(*binding.initializer));
+      }
+
+      scopes_.emplace_back();
+      resolved.loop = LoopId{nextLoop_++};
+      for (size_t index = 0; index < loop->bindings.size(); ++index)
+      {
+        resolved.loopBindings.push_back(declareLocal(loop->bindings[index].name, loop->bindings[index].span));
+        resolved.arguments.push_back(std::move(initializers[index]));
+      }
+      loops_.push_back(ActiveLoop{*resolved.loop});
+      resolved.body = std::make_unique<Block>(resolveBlock(loop->body, false));
+      loops_.pop_back();
+      scopes_.pop_back();
+      return resolved;
+    }
+
+    if (const auto *next = dynamic_cast<const syntax::NextStatement *>(&statement))
+    {
+      Statement resolved{.kind = StatementKind::Next, .span = next->span};
+      resolved.arguments.reserve(next->arguments.size());
+      for (const auto &argument : next->arguments)
+      {
+        resolved.arguments.push_back(resolveExpression(*argument));
+      }
+      if (!loops_.empty())
+      {
+        resolved.nextTarget = NextTarget{.kind = NextTargetKind::Loop, .id = loops_.back().id.value};
+      }
+      else if (currentFunction_.has_value())
+      {
+        resolved.nextTarget = NextTarget{.kind = NextTargetKind::Function, .id = currentFunction_->value};
+      }
+      else
+      {
+        throw ResolutionError("next has no enclosing loop or function", next->span);
       }
       return resolved;
     }

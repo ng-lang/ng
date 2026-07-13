@@ -24,6 +24,12 @@ namespace NG::vnext::hir
     auto operator==(const LocalId &) const -> bool = default;
   };
 
+  struct LoopId
+  {
+    uint32_t value{};
+    auto operator==(const LoopId &) const -> bool = default;
+  };
+
   struct ResolutionError : std::runtime_error
   {
     syntax::SourceSpan span;
@@ -74,7 +80,21 @@ namespace NG::vnext::hir
     Let,
     Return,
     If,
+    Loop,
+    Next,
     Expression,
+  };
+
+  enum class NextTargetKind
+  {
+    Loop,
+    Function,
+  };
+
+  struct NextTarget
+  {
+    NextTargetKind kind;
+    uint32_t id;
   };
 
   struct Block;
@@ -84,9 +104,14 @@ namespace NG::vnext::hir
     StatementKind kind;
     syntax::SourceSpan span;
     std::optional<LocalId> local;
+    std::optional<LoopId> loop;
+    std::optional<NextTarget> nextTarget;
     ExpressionPtr expression;
+    std::vector<ExpressionPtr> arguments;
+    std::vector<LocalId> loopBindings;
     std::unique_ptr<Block> consequence;
     std::unique_ptr<Block> alternative;
+    std::unique_ptr<Block> body;
   };
 
   struct Block
@@ -125,6 +150,11 @@ namespace NG::vnext::hir
   private:
     using Scope = std::unordered_map<std::string, LocalId>;
 
+    struct ActiveLoop
+    {
+      LoopId id;
+    };
+
     [[nodiscard]] auto resolveFunction(const syntax::FunctionDeclaration &function, DefId id) -> Function;
     [[nodiscard]] auto resolveBlock(const syntax::Block &block, bool introduceScope) -> Block;
     [[nodiscard]] auto resolveStatement(const syntax::Statement &statement) -> Statement;
@@ -134,6 +164,9 @@ namespace NG::vnext::hir
 
     std::unordered_map<std::string, DefId> functions_;
     std::vector<Scope> scopes_;
+    std::vector<ActiveLoop> loops_;
+    std::optional<DefId> currentFunction_;
     uint32_t nextLocal_{};
+    uint32_t nextLoop_{};
   };
 } // namespace NG::vnext::hir
