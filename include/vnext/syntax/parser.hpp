@@ -19,7 +19,10 @@ namespace NG::vnext::syntax
     KeywordMut,
     LeftParen,
     RightParen,
+    LeftSquare,
+    RightSquare,
     Comma,
+    Dot,
     LeftBrace,
     RightBrace,
     Equal,
@@ -79,6 +82,7 @@ namespace NG::vnext::syntax
   private:
     [[nodiscard]] auto parseExpression(int minimumBindingPower) -> ExpressionPtr;
     [[nodiscard]] auto parsePrefix() -> ExpressionPtr;
+    [[nodiscard]] auto parsePostfix(ExpressionPtr expression) -> ExpressionPtr;
     [[nodiscard]] auto current() const -> const Token &;
     [[nodiscard]] auto consume() -> Token;
     [[nodiscard]] auto prefixBindingPower(TokenKind kind) const -> int;

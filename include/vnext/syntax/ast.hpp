@@ -19,6 +19,9 @@ namespace NG::vnext::syntax
     Identifier,
     IntegerLiteral,
     Prefix,
+    Call,
+    Index,
+    Member,
     Binary,
   };
 
@@ -63,6 +66,39 @@ namespace NG::vnext::syntax
 
     PrefixExpression(std::string op, ExpressionPtr value, SourceSpan sourceSpan)
       : Expression(ExpressionKind::Prefix, sourceSpan), operatorText(std::move(op)), operand(std::move(value))
+    {
+    }
+  };
+
+  struct CallExpression final : Expression
+  {
+    ExpressionPtr callee;
+    std::vector<ExpressionPtr> arguments;
+
+    CallExpression(ExpressionPtr target, std::vector<ExpressionPtr> callArguments, SourceSpan sourceSpan)
+      : Expression(ExpressionKind::Call, sourceSpan), callee(std::move(target)), arguments(std::move(callArguments))
+    {
+    }
+  };
+
+  struct IndexExpression final : Expression
+  {
+    ExpressionPtr receiver;
+    ExpressionPtr index;
+
+    IndexExpression(ExpressionPtr target, ExpressionPtr indexExpression, SourceSpan sourceSpan)
+      : Expression(ExpressionKind::Index, sourceSpan), receiver(std::move(target)), index(std::move(indexExpression))
+    {
+    }
+  };
+
+  struct MemberExpression final : Expression
+  {
+    ExpressionPtr receiver;
+    std::string member;
+
+    MemberExpression(ExpressionPtr target, std::string memberName, SourceSpan sourceSpan)
+      : Expression(ExpressionKind::Member, sourceSpan), receiver(std::move(target)), member(std::move(memberName))
     {
     }
   };

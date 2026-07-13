@@ -25,7 +25,10 @@ namespace NG::vnext::syntax
       {
       case '(': return TokenKind::LeftParen;
       case ')': return TokenKind::RightParen;
+      case '[': return TokenKind::LeftSquare;
+      case ']': return TokenKind::RightSquare;
       case ',': return TokenKind::Comma;
+      case '.': return TokenKind::Dot;
       case '{': return TokenKind::LeftBrace;
       case '}': return TokenKind::RightBrace;
       case '=': return TokenKind::Equal;
@@ -154,7 +157,7 @@ namespace NG::vnext::syntax
 
   auto ExpressionParser::parseExpression(int minimumBindingPower) -> ExpressionPtr
   {
-    auto left = parsePrefix();
+    auto left = parsePostfix(parsePrefix());
 
     while (true)
     {
@@ -172,6 +175,67 @@ namespace NG::vnext::syntax
     }
 
     return left;
+  }
+
+  auto ExpressionParser::parsePostfix(ExpressionPtr expression) -> ExpressionPtr
+  {
+    while (true)
+    {
+      if (current().kind == TokenKind::LeftParen)
+      {
+        static_cast<void>(consume());
+        std::vector<ExpressionPtr> arguments;
+        if (current().kind != TokenKind::RightParen)
+        {
+          do
+          {
+            arguments.push_back(parseExpression(0));
+            if (current().kind != TokenKind::Comma)
+            {
+              break;
+            }
+            static_cast<void>(consume());
+          } while (current().kind != TokenKind::RightParen);
+        }
+        if (current().kind != TokenKind::RightParen)
+        {
+          throw ParseError("expected `)` after call arguments", current().span);
+        }
+        const Token close = consume();
+        const SourceSpan span{expression->span.begin, close.span.end};
+        expression = std::make_unique<CallExpression>(std::move(expression), std::move(arguments), span);
+        continue;
+      }
+
+      if (current().kind == TokenKind::LeftSquare)
+      {
+        static_cast<void>(consume());
+        auto index = parseExpression(0);
+        if (current().kind != TokenKind::RightSquare)
+        {
+          throw ParseError("expected `]` after index expression", current().span);
+        }
+        const Token close = consume();
+        const SourceSpan span{expression->span.begin, close.span.end};
+        expression = std::make_unique<IndexExpression>(std::move(expression), std::move(index), span);
+        continue;
+      }
+
+      if (current().kind == TokenKind::Dot)
+      {
+        static_cast<void>(consume());
+        if (current().kind != TokenKind::Identifier)
+        {
+          throw ParseError("expected a member name after `.`", current().span);
+        }
+        const Token member = consume();
+        const SourceSpan span{expression->span.begin, member.span.end};
+        expression = std::make_unique<MemberExpression>(std::move(expression), member.text, span);
+        continue;
+      }
+
+      return expression;
+    }
   }
 
   auto ExpressionParser::parsePrefix() -> ExpressionPtr

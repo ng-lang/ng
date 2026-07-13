@@ -95,6 +95,7 @@ set(NG_TEST_SRC
         test/parsing/parser_generics_test.cpp
         test/parsing/parser_traits_test.cpp
         test/vnext/syntax_parser_test.cpp
+        test/vnext/postfix_expression_test.cpp
         test/vnext/block_parser_test.cpp
         test/vnext/module_parser_test.cpp
         test/vnext/driver_test.cpp
