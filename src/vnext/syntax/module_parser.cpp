@@ -1,6 +1,8 @@
 // AI-generated code; reviewed for this repository's vNext rewrite.
 #include "vnext/syntax/module_parser.hpp"
+#include "vnext/syntax/type_parser.hpp"
 
+#include <algorithm>
 #include <utility>
 
 namespace NG::vnext::syntax
@@ -42,12 +44,60 @@ namespace NG::vnext::syntax
     }
     const Token name = consume();
     expect(TokenKind::LeftParen, "expected `(` after function name");
-    expect(TokenKind::RightParen, "vNext functions do not yet support parameters");
+
+    std::vector<FunctionParameter> parameters;
+    while (current().kind != TokenKind::RightParen)
+    {
+      if (current().kind != TokenKind::Identifier)
+      {
+        throw ParseError("expected a parameter name", current().span);
+      }
+      const Token parameterName = consume();
+      expect(TokenKind::Colon, "expected `:` after parameter name");
+      auto parameterType = parseTypeUntil({TokenKind::Comma, TokenKind::RightParen});
+      const SourceSpan parameterSpan{parameterName.span.begin, parameterType->span.end};
+      parameters.push_back(FunctionParameter{.name = parameterName.text,
+                                             .type = std::move(parameterType),
+                                             .span = parameterSpan});
+
+      if (current().kind != TokenKind::Comma)
+      {
+        break;
+      }
+      static_cast<void>(consume());
+      if (current().kind == TokenKind::RightParen)
+      {
+        break;
+      }
+    }
+    expect(TokenKind::RightParen, "expected `)` after function parameters");
+
+    TypeSyntaxPtr returnType;
+    if (current().kind == TokenKind::Arrow)
+    {
+      static_cast<void>(consume());
+      returnType = parseTypeUntil({TokenKind::LeftBrace});
+    }
 
     auto blockTokens = consumeBlockTokens();
     Block body = BlockParser{std::move(blockTokens)}.parse();
     const SourceSpan span{funToken.span.begin, body.span.end};
-    return std::make_unique<FunctionDeclaration>(name.text, std::move(body), span);
+    return std::make_unique<FunctionDeclaration>(name.text, std::move(parameters), std::move(returnType),
+                                                 std::move(body), span);
+  }
+
+  auto ModuleParser::parseTypeUntil(const std::vector<TokenKind> &terminators) -> TypeSyntaxPtr
+  {
+    std::vector<Token> typeTokens;
+    while (current().kind != TokenKind::End &&
+           std::find(terminators.begin(), terminators.end(), current().kind) == terminators.end())
+    {
+      typeTokens.push_back(consume());
+    }
+
+    const size_t position = typeTokens.empty() ? current().span.begin : typeTokens.back().span.end;
+    typeTokens.push_back(Token{.kind = TokenKind::End, .text = {}, .span = SourceSpan{position, position}});
+    return TypeParser{std::move(typeTokens)}.parse();
   }
 
   auto ModuleParser::consumeBlockTokens() -> std::vector<Token>

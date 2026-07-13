@@ -163,6 +163,65 @@ namespace NG::vnext::syntax
     ExpressionPtr tailExpression;
   };
 
+  enum class TypeSyntaxKind
+  {
+    Named,
+    ScopedReference,
+    RawPointer,
+  };
+
+  struct TypeSyntax
+  {
+    TypeSyntaxKind kind;
+    SourceSpan span;
+
+    explicit TypeSyntax(TypeSyntaxKind typeKind, SourceSpan sourceSpan) : kind(typeKind), span(sourceSpan) {}
+    virtual ~TypeSyntax() = default;
+  };
+
+  using TypeSyntaxPtr = std::unique_ptr<TypeSyntax>;
+
+  struct NamedTypeSyntax final : TypeSyntax
+  {
+    std::string name;
+
+    NamedTypeSyntax(std::string typeName, SourceSpan sourceSpan)
+      : TypeSyntax(TypeSyntaxKind::Named, sourceSpan), name(std::move(typeName))
+    {
+    }
+  };
+
+  struct ScopedReferenceTypeSyntax final : TypeSyntax
+  {
+    TypeSyntaxPtr target;
+    bool isMutable;
+
+    ScopedReferenceTypeSyntax(TypeSyntaxPtr referencedType, bool mutableReference, SourceSpan sourceSpan)
+      : TypeSyntax(TypeSyntaxKind::ScopedReference, sourceSpan), target(std::move(referencedType)),
+        isMutable(mutableReference)
+    {
+    }
+  };
+
+  struct RawPointerTypeSyntax final : TypeSyntax
+  {
+    TypeSyntaxPtr pointee;
+    bool isMutable;
+
+    RawPointerTypeSyntax(TypeSyntaxPtr pointedToType, bool mutablePointee, SourceSpan sourceSpan)
+      : TypeSyntax(TypeSyntaxKind::RawPointer, sourceSpan), pointee(std::move(pointedToType)),
+        isMutable(mutablePointee)
+    {
+    }
+  };
+
+  struct FunctionParameter final
+  {
+    std::string name;
+    TypeSyntaxPtr type;
+    SourceSpan span;
+  };
+
   enum class ModuleItemKind
   {
     Function,
@@ -182,10 +241,14 @@ namespace NG::vnext::syntax
   struct FunctionDeclaration final : ModuleItem
   {
     std::string name;
+    std::vector<FunctionParameter> parameters;
+    TypeSyntaxPtr returnType;
     Block body;
 
-    FunctionDeclaration(std::string functionName, Block functionBody, SourceSpan sourceSpan)
-      : ModuleItem(ModuleItemKind::Function, sourceSpan), name(std::move(functionName)), body(std::move(functionBody))
+    FunctionDeclaration(std::string functionName, std::vector<FunctionParameter> functionParameters,
+                        TypeSyntaxPtr functionReturnType, Block functionBody, SourceSpan sourceSpan)
+      : ModuleItem(ModuleItemKind::Function, sourceSpan), name(std::move(functionName)),
+        parameters(std::move(functionParameters)), returnType(std::move(functionReturnType)), body(std::move(functionBody))
     {
     }
   };

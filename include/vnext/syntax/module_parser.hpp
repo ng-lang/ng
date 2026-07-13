@@ -16,6 +16,7 @@ namespace NG::vnext::syntax
 
   private:
     [[nodiscard]] auto parseFunctionDeclaration() -> ModuleItemPtr;
+    [[nodiscard]] auto parseTypeUntil(const std::vector<TokenKind> &terminators) -> TypeSyntaxPtr;
     [[nodiscard]] auto consumeBlockTokens() -> std::vector<Token>;
     [[nodiscard]] auto current() const -> const Token &;
     [[nodiscard]] auto consume() -> Token;

@@ -29,6 +29,7 @@ namespace NG::vnext::syntax
       case ']': return TokenKind::RightSquare;
       case ',': return TokenKind::Comma;
       case '.': return TokenKind::Dot;
+      case ':': return TokenKind::Colon;
       case '{': return TokenKind::LeftBrace;
       case '}': return TokenKind::RightBrace;
       case '=': return TokenKind::Equal;
@@ -50,6 +51,7 @@ namespace NG::vnext::syntax
 
     [[nodiscard]] auto tokenKindForTwoCharacters(std::string_view text) -> TokenKind
     {
+      if (text == "->") return TokenKind::Arrow;
       if (text == "<<") return TokenKind::ShiftLeft;
       if (text == ">>") return TokenKind::ShiftRight;
       if (text == "<=") return TokenKind::LessEqual;
@@ -90,9 +92,11 @@ namespace NG::vnext::syntax
           ++offset;
         }
         const std::string text{source.substr(begin, offset - begin)};
-        const TokenKind kind = text == "fun" ? TokenKind::KeywordFun
+        const TokenKind kind = text == "const" ? TokenKind::KeywordConst
+                             : text == "fun" ? TokenKind::KeywordFun
                              : text == "let" ? TokenKind::KeywordLet
                              : text == "mut" ? TokenKind::KeywordMut
+                             : text == "ref" ? TokenKind::KeywordRef
                                              : TokenKind::Identifier;
         tokens.push_back(Token{.kind = kind, .text = text, .span = SourceSpan{begin, offset}});
         continue;

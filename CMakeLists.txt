@@ -98,6 +98,7 @@ set(NG_TEST_SRC
         test/vnext/postfix_expression_test.cpp
         test/vnext/block_parser_test.cpp
         test/vnext/module_parser_test.cpp
+        test/vnext/type_parser_test.cpp
         test/vnext/driver_test.cpp
         test/module/native_module_artifact_test.cpp
         test/integration_test.cpp
@@ -140,6 +141,7 @@ set(NG_VNEXT_SRC
         src/vnext/syntax/block_parser.cpp
         src/vnext/syntax/module_parser.cpp
         src/vnext/syntax/parser.cpp
+        src/vnext/syntax/type_parser.cpp
 )
 
 add_library(ng_vnext ${NG_VNEXT_SRC})
