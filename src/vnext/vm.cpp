@@ -52,6 +52,30 @@ namespace NG::vnext::vm
         {
           values[result] = locals.at(static_cast<uint32_t>(payload));
         }
+        else if (kind == hir::ExpressionKind::Grouped)
+        {
+          values[result] = values.at(instruction.operands[5]);
+        }
+        else if (kind == hir::ExpressionKind::Binary)
+        {
+          const int64_t left = values.at(instruction.operands[5]);
+          const int64_t right = values.at(instruction.operands[6]);
+          switch (payload)
+          {
+          case 1: values[result] = left + right; break;
+          case 2: values[result] = left - right; break;
+          case 3: values[result] = left * right; break;
+          case 4: values[result] = left / right; break;
+          case 5: values[result] = left % right; break;
+          case 6: values[result] = left == right; break;
+          case 7: values[result] = left != right; break;
+          case 8: values[result] = left < right; break;
+          case 9: values[result] = left <= right; break;
+          case 10: values[result] = left > right; break;
+          case 11: values[result] = left >= right; break;
+          default: throw bytecode::BytecodeError("unsupported binary operation");
+          }
+        }
         else
         {
           values[result] = 0;
@@ -85,9 +109,8 @@ namespace NG::vnext::vm
         programCounter = blockInstruction(instruction.operands[0]);
         break;
       case bytecode::Opcode::Branch:
-        // Runtime value execution is deliberately not part of this control-core
-        // slice. Until values are lowered, select the first (true) edge.
-        programCounter = blockInstruction(instruction.operands[1]);
+        programCounter = blockInstruction(values.at(instruction.operands[0]) != 0 ? instruction.operands[1]
+                                                                                   : instruction.operands[2]);
         break;
       case bytecode::Opcode::TailRecur:
         ++tailRecursions;

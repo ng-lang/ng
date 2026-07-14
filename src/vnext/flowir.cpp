@@ -36,9 +36,11 @@ namespace NG::vnext::flowir
 
       [[nodiscard]] auto lowerExpression(const hir::Expression &expression) -> ValueId
       {
+        std::vector<ValueId> operands;
+        operands.reserve(expression.operands.size());
         for (const auto &operand : expression.operands)
         {
-          static_cast<void>(lowerExpression(*operand));
+          operands.push_back(lowerExpression(*operand));
         }
         int64_t payload{};
         if (expression.kind == hir::ExpressionKind::IntegerLiteral)
@@ -54,10 +56,27 @@ namespace NG::vnext::flowir
         {
           payload = expression.resolvedName->id;
         }
+        else if (expression.kind == hir::ExpressionKind::Binary)
+        {
+          if (expression.text == "+") payload = 1;
+          else if (expression.text == "-") payload = 2;
+          else if (expression.text == "*") payload = 3;
+          else if (expression.text == "/") payload = 4;
+          else if (expression.text == "%") payload = 5;
+          else if (expression.text == "==") payload = 6;
+          else if (expression.text == "!=") payload = 7;
+          else if (expression.text == "<") payload = 8;
+          else if (expression.text == "<=") payload = 9;
+          else if (expression.text == ">") payload = 10;
+          else if (expression.text == ">=") payload = 11;
+        }
 
         const ValueId value{nextValue_++};
-        block().instructions.push_back(
-            Instruction{.kind = InstructionKind::Evaluate, .result = value, .expressionKind = expression.kind, .payload = payload});
+        block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
+                                                   .result = value,
+                                                   .expressionKind = expression.kind,
+                                                   .payload = payload,
+                                                   .operands = std::move(operands)});
         return value;
       }
 

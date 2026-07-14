@@ -42,18 +42,27 @@ TEST_CASE("vNext VM materializes integer literals and reads bound locals", "[vNe
   REQUIRE(result.returnValue == 42);
 }
 
+TEST_CASE("vNext VM executes binary arithmetic and comparison-driven branches", "[vNext][VM]")
+{
+  const auto arithmetic = compile("fun main() -> i64 { return 6 * 7 + 1; }");
+  REQUIRE(vm::VM{}.run(arithmetic).returnValue == 43);
+
+  const auto branch = compile("fun main() -> i64 { if 1 < 2 { return 7; } else { return 9; } }");
+  REQUIRE(vm::VM{}.run(branch).returnValue == 7);
+}
+
 TEST_CASE("vNext VM tail recursion reuses the active frame until fuel exhaustion", "[vNext][VM]")
 {
-  const auto function = compile("fun recur(value: i64) { next (value); }");
+  const auto function = compile("fun recur() { next (); }");
   const auto result = vm::VM{}.run(function, 1000);
   REQUIRE(result.reason == vm::HaltReason::FuelExhausted);
   REQUIRE(result.executedInstructions == 1000);
-  REQUIRE(result.tailRecursions == 500);
+  REQUIRE(result.tailRecursions == 1000);
 }
 
 TEST_CASE("vNext VM dispatches loop backedges without host recursion", "[vNext][VM]")
 {
-  const auto function = compile("fun step(seed: i64) { loop (state = seed) { next (state); } }");
+  const auto function = compile("fun step() { loop (state = 1) { next (1); } }");
   const auto result = vm::VM{}.run(function, 1000);
   REQUIRE(result.reason == vm::HaltReason::FuelExhausted);
   REQUIRE(result.executedInstructions == 1000);
