@@ -67,7 +67,12 @@ namespace NG::vnext
           const auto result = vm::VM{}.run(artifact);
           output << "compiled " << verifiedFunctions << " vNext function(s); main "
                  << (result.reason == vm::HaltReason::Return ? "returned" : "exhausted fuel") << " after "
-                 << result.executedInstructions << " instruction(s)\n";
+                 << result.executedInstructions << " instruction(s)";
+          if (result.returnValue.has_value())
+          {
+            output << " with value " << *result.returnValue;
+          }
+          output << '\n';
         }
         else
         {
