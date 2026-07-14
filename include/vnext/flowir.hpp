@@ -59,6 +59,7 @@ namespace NG::vnext::flowir
   struct Block
   {
     BlockId id;
+    std::vector<hir::LocalId> parameterLocals;
     size_t parameterCount{};
     std::vector<Instruction> instructions;
     std::optional<Terminator> terminator;
@@ -68,6 +69,7 @@ namespace NG::vnext::flowir
   {
     hir::DefId source;
     BlockId entry;
+    std::vector<hir::LocalId> parameterLocals;
     std::vector<Block> blocks;
   };
 

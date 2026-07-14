@@ -14,6 +14,10 @@ namespace NG::vnext::flowir
       [[nodiscard]] auto lower(const hir::Function &source) -> Function
       {
         function_ = Function{.source = source.id};
+        for (const auto &parameter : source.parameters)
+        {
+          function_.parameterLocals.push_back(parameter.local);
+        }
         function_.entry = appendBlock();
         current_ = function_.entry;
         lowerBlock(source.body);
@@ -179,6 +183,7 @@ namespace NG::vnext::flowir
         const BlockId exit = appendBlock();
         block().terminator = Terminator{.kind = TerminatorKind::Jump, .targets = {header}, .arguments = std::move(initializers)};
         function_.blocks[header.value].parameterCount = statement.loopBindings.size();
+        function_.blocks[header.value].parameterLocals = statement.loopBindings;
         function_.blocks[header.value].terminator = Terminator{.kind = TerminatorKind::Jump, .targets = {body}, .arguments = {}};
 
         loopHeaders_.emplace(statement.loop->value, header);

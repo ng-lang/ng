@@ -54,6 +54,7 @@ TEST_CASE("vNext bytecode verifier rejects malformed branch contracts", "[vNext]
 {
   bytecode::Function malformed{.code = {static_cast<uint8_t>(bytecode::Opcode::Jump), 1, 0, 0, 0, 0, 0, 0, 0},
                                .blockParameterCounts = {0},
+                               .blockParameterLocals = {{}},
                                .blockOffsets = {0}};
   REQUIRE_THROWS_WITH(bytecode::Verifier{}.verify(malformed), "bytecode branch target is out of range");
 

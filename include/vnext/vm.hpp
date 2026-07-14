@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <optional>
 #include <cstdint>
+#include <vector>
 
 namespace NG::vnext::vm
 {
@@ -29,5 +30,7 @@ namespace NG::vnext::vm
   {
   public:
     [[nodiscard]] auto run(const bytecode::Function &function, size_t fuel = 100000) const -> RunResult;
+    [[nodiscard]] auto run(const bytecode::Function &function, const std::vector<int64_t> &arguments,
+                           size_t fuel = 100000) const -> RunResult;
   };
 } // namespace NG::vnext::vm

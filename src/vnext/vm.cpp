@@ -8,7 +8,16 @@ namespace NG::vnext::vm
 {
   auto VM::run(const bytecode::Function &function, size_t fuel) const -> RunResult
   {
+    return run(function, {}, fuel);
+  }
+
+  auto VM::run(const bytecode::Function &function, const std::vector<int64_t> &arguments, size_t fuel) const -> RunResult
+  {
     bytecode::Verifier{}.verify(function);
+    if (arguments.size() != function.parameterLocals.size())
+    {
+      throw bytecode::BytecodeError("bytecode function argument count mismatch");
+    }
     const auto instructions = bytecode::Decoder{}.decode(function);
     std::unordered_map<size_t, size_t> offsetToInstruction;
     for (size_t index = 0; index < instructions.size(); ++index)
@@ -31,6 +40,22 @@ namespace NG::vnext::vm
     size_t tailRecursions{};
     std::vector<int64_t> values;
     std::unordered_map<uint32_t, int64_t> locals;
+    for (size_t index = 0; index < arguments.size(); ++index)
+    {
+      locals.emplace(function.parameterLocals[index], arguments[index]);
+    }
+
+    const auto jumpToBlock = [&function, &blockInstruction, &values, &locals](uint32_t target,
+                                                                                const std::vector<uint32_t> &argumentValues,
+                                                                                size_t firstArgument) {
+      const auto &parameterLocals = function.blockParameterLocals.at(target);
+      for (size_t index = 0; index < parameterLocals.size(); ++index)
+      {
+        locals[parameterLocals[index]] = values.at(argumentValues.at(firstArgument + index));
+      }
+      return blockInstruction(target);
+    };
+
     while (executed < fuel)
     {
       const auto &instruction = instructions.at(programCounter++);
@@ -106,13 +131,17 @@ namespace NG::vnext::vm
       }
       case bytecode::Opcode::Jump:
       case bytecode::Opcode::LoopBackedge:
-        programCounter = blockInstruction(instruction.operands[0]);
+        programCounter = jumpToBlock(instruction.operands[0], instruction.operands, 2);
         break;
       case bytecode::Opcode::Branch:
         programCounter = blockInstruction(values.at(instruction.operands[0]) != 0 ? instruction.operands[1]
                                                                                    : instruction.operands[2]);
         break;
       case bytecode::Opcode::TailRecur:
+        for (size_t index = 0; index < function.parameterLocals.size(); ++index)
+        {
+          locals[function.parameterLocals[index]] = values.at(instruction.operands.at(index + 1));
+        }
         ++tailRecursions;
         programCounter = blockInstruction(0);
         break;

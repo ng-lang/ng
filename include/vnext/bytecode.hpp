@@ -47,7 +47,9 @@ namespace NG::vnext::bytecode
   struct Function
   {
     std::vector<uint8_t> code;
+    std::vector<uint32_t> parameterLocals;
     std::vector<uint32_t> blockParameterCounts;
+    std::vector<std::vector<uint32_t>> blockParameterLocals;
     std::vector<uint32_t> blockOffsets;
   };
 

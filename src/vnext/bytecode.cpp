@@ -66,10 +66,15 @@ namespace NG::vnext::bytecode
   auto Compiler::compile(const flowir::Function &flow) const -> Function
   {
     Function result;
+    for (const auto local : flow.parameterLocals) result.parameterLocals.push_back(local.value);
     result.blockParameterCounts.reserve(flow.blocks.size());
+    result.blockParameterLocals.reserve(flow.blocks.size());
     for (const auto &block : flow.blocks)
     {
       result.blockParameterCounts.push_back(static_cast<uint32_t>(block.parameterCount));
+      std::vector<uint32_t> locals;
+      for (const auto local : block.parameterLocals) locals.push_back(local.value);
+      result.blockParameterLocals.push_back(std::move(locals));
       result.blockOffsets.push_back(static_cast<uint32_t>(result.code.size()));
       for (const auto &instruction : block.instructions)
       {
@@ -159,9 +164,17 @@ namespace NG::vnext::bytecode
   void Verifier::verify(const Function &function) const
   {
     const auto instructions = Decoder{}.decode(function);
-    if (function.blockOffsets.size() != function.blockParameterCounts.size())
+    if (function.blockOffsets.size() != function.blockParameterCounts.size() ||
+        function.blockParameterLocals.size() != function.blockParameterCounts.size())
     {
-      throw BytecodeError("bytecode block offset table does not match block table");
+      throw BytecodeError("bytecode block metadata tables do not match");
+    }
+    for (size_t index = 0; index < function.blockParameterCounts.size(); ++index)
+    {
+      if (function.blockParameterLocals[index].size() != function.blockParameterCounts[index])
+      {
+        throw BytecodeError("bytecode block parameter locals do not match parameter count");
+      }
     }
     for (const auto offset : function.blockOffsets)
     {

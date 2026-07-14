@@ -53,17 +53,17 @@ TEST_CASE("vNext VM executes binary arithmetic and comparison-driven branches", 
 
 TEST_CASE("vNext VM tail recursion reuses the active frame until fuel exhaustion", "[vNext][VM]")
 {
-  const auto function = compile("fun recur() { next (); }");
-  const auto result = vm::VM{}.run(function, 1000);
+  const auto function = compile("fun recur(value: i64) { next (value); }");
+  const auto result = vm::VM{}.run(function, std::vector<int64_t>{1}, 1000);
   REQUIRE(result.reason == vm::HaltReason::FuelExhausted);
   REQUIRE(result.executedInstructions == 1000);
-  REQUIRE(result.tailRecursions == 1000);
+  REQUIRE(result.tailRecursions == 500);
 }
 
 TEST_CASE("vNext VM dispatches loop backedges without host recursion", "[vNext][VM]")
 {
-  const auto function = compile("fun step() { loop (state = 1) { next (1); } }");
-  const auto result = vm::VM{}.run(function, 1000);
+  const auto function = compile("fun step(seed: i64) { loop (state = seed) { next (state); } }");
+  const auto result = vm::VM{}.run(function, std::vector<int64_t>{1}, 1000);
   REQUIRE(result.reason == vm::HaltReason::FuelExhausted);
   REQUIRE(result.executedInstructions == 1000);
   REQUIRE(result.tailRecursions == 0);
