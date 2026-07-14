@@ -203,9 +203,20 @@ namespace NG::vnext::syntax
     if (current().kind == TokenKind::KeywordElse)
     {
       static_cast<void>(consume());
-      Block elseBlock = parseNestedBlock();
-      end = elseBlock.span.end;
-      alternative = std::make_unique<Block>(std::move(elseBlock));
+      if (current().kind == TokenKind::KeywordIf)
+      {
+        auto nestedIf = parseIfStatement();
+        end = nestedIf->span.end;
+        std::vector<StatementPtr> statements;
+        statements.push_back(std::move(nestedIf));
+        alternative = std::make_unique<Block>(SourceSpan{statements.front()->span.begin, end}, std::move(statements), nullptr);
+      }
+      else
+      {
+        Block elseBlock = parseNestedBlock();
+        end = elseBlock.span.end;
+        alternative = std::make_unique<Block>(std::move(elseBlock));
+      }
     }
 
     return std::make_unique<IfStatement>(std::move(condition), std::move(consequence), std::move(alternative),

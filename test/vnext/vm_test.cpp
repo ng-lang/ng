@@ -97,6 +97,14 @@ TEST_CASE("vNext VM short-circuits logical operations", "[vNext][VM]")
   REQUIRE(vm::VM{}.run(orFunction).returnValue == 42);
 }
 
+TEST_CASE("vNext VM executes else-if control-flow chains", "[vNext][VM]")
+{
+  const auto function = compile(
+      "fun main(first: bool, second: bool) -> i64 { if first { return 1; } else if second { return 2; } else { return 3; } }");
+  REQUIRE(vm::VM{}.run(function, std::vector<int64_t>{0, 1}).returnValue == 2);
+  REQUIRE(vm::VM{}.run(function, std::vector<int64_t>{0, 0}).returnValue == 3);
+}
+
 TEST_CASE("vNext VM executes i64 bitwise and shift operations", "[vNext][VM]")
 {
   const auto function = compile("fun main() -> i64 { return ((12 & 10) | 1) ^ (1 << 3) >> 1; }");

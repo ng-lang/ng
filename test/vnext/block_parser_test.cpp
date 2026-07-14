@@ -132,6 +132,18 @@ TEST_CASE("vNext block parser keeps if branches as nested block statements", "[v
   REQUIRE(ifStatement.span.end == 54);
 }
 
+TEST_CASE("vNext block parser desugars else-if into a nested alternative block", "[vNext][Syntax][Block]")
+{
+  const auto block = syntax::parseBlock("{ if first { return 1; } else if second { return 2; } else { return 3; } }");
+  const auto &outer = asIf(block.statements.front());
+  REQUIRE(outer.alternative != nullptr);
+  REQUIRE(outer.alternative->statements.size() == 1);
+  const auto &nested = asIf(outer.alternative->statements.front());
+  REQUIRE(nested.alternative != nullptr);
+  REQUIRE(nested.consequence.statements.size() == 1);
+  REQUIRE(nested.alternative->statements.size() == 1);
+}
+
 TEST_CASE("vNext block parser supports an if statement without else", "[vNext][Syntax][Block]")
 {
   const auto block = syntax::parseBlock("{ if enabled { return; } }");
