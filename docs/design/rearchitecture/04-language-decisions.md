@@ -492,6 +492,83 @@ The VM reuses the active frame for `TailRecur`; it does not push a normal call f
 
 ---
 
+## D-011 — Traits as abstract types and dynamic `ref<Trait>` views
+
+**Status:** Accepted — 2026-07-13
+**Blocks:** R4 trait identity/solver, R5 ownership analysis, R6 runtime descriptors, R7 dispatch ABI, R9/R10 capability checking
+
+### Accepted rules
+
+A trait is both a capability contract and an **abstract type**. It is valid in
+trait bounds and in type positions, but it has no by-value runtime layout and
+cannot be instantiated directly:
+
+```ng
+trait Show {
+    fun show(self: Self ref) -> string;
+}
+
+// Invalid: Show is abstract, so it has no by-value value or constructor.
+// let value: Show = ...;
+// let value = new Show {};
+```
+
+A fully instantiated trait may be the target of a safe reference:
+
+```ng
+fun render(item: ref<Show>) -> string {
+    return item.show();
+}
+
+let counter = Counter { label: "seven" };
+let view: ref<Show> = ref counter;
+```
+
+`ref<Trait>` (equivalently `Trait ref`) is a non-owning abstract-reference
+view. Internally it contains a checked reference/typed handle to a concrete
+referent and an immutable dispatch descriptor selected from the referent's
+`ImplId`. It is not an erased by-value trait object, an owning box, or a
+second user-visible ownership domain.
+
+- The language introduces neither `dyn Trait` syntax nor `Box<dyn Trait>`.
+- A coercion from `Concrete ref` to `Trait ref` is legal only when the trait
+  solver proves the selected concrete `ImplId`; generic trait arguments must
+  be fully instantiated at the coercion site.
+- `ref<Trait>` preserves the existing hidden origin/loan contract of `ref`.
+  It cannot outlive, own, heap-store, globally store, or task-transfer its
+  referent; diagnostics must never expose lifetime names.
+- `ref mut<Trait>` is an exclusive mutable abstract-reference view. A method's
+  receiver capability is part of its typed ABI and controls whether it is
+  callable through shared or mutable references.
+- The initial dynamically callable trait subset is object-safe: no unbound
+  generic methods, no by-value `Self`, no returned/stored unconstrained
+  `Self`, and no method whose argument/result lacks a concrete reference-safe
+  ABI. Static/associated methods remain statically dispatched and cannot be
+  invoked through `ref<Trait>`.
+- Supertrait dispatch descriptors are composed deterministically; ambiguity is
+  a typecheck error. The selected method/impl descriptor is carried by Typed
+  HIR and FlowIR, never re-resolved by method-name strings in bytecode or VM.
+- The reference view itself has no independent referent lifecycle. Copy/move,
+  tracing, drop, native capability, and sendability are determined by the
+  concrete referent descriptor plus the reference capability.
+- Vtables/dispatch descriptors are immutable artifact/type metadata resolved
+  through session-owned descriptor registries; they are not mutable
+  process-global maps.
+
+### Completeness and conflict checks
+
+- This is compatible with D-001: `trait` is a distinct abstract declaration
+  kind, unlike `opaque type`, `struct`, `enum`, `newtype`, or alias.
+- This is compatible with D-002: `ref<Trait>` is a scoped safe reference, not
+  `Box`, `Gc`, `Arc`, an opaque handle, or a user-visible lifetime mechanism.
+- This is compatible with D-004/D-005: FFI and task transfer may only accept a
+  trait reference when the concrete descriptor and reference capability pass
+  the declared ownership/thread constraints.
+- Trait object coercion is deferred until the solver, descriptor runtime, and
+  hidden loan/origin checks exist. Parser support alone is insufficient.
+
+---
+
 ## Decision summary
 
 | ID | Topic | Status | Next owner action |
@@ -506,3 +583,4 @@ The VM reuses the active frame for `TailRecur`; it does not push a normal call f
 | D-008 | Numeric model | Accepted | i8–i64/u8–u64, f32/f64, isize/usize, checked arithmetic. |
 | D-009 | Module items vs. block statements | Accepted | Module declarations create `DefId`; block `let` creates lexical `LocalId`; no local declarations in MVP. |
 | D-010 | `loop` / `next` / tail recursion | Accepted | Explicit loop binders; nearest-target `next`; self-tail recursion outside loops; dedicated HIR/FlowIR terminators. |
+| D-011 | Trait abstract types and `ref<Trait>` | Accepted | Traits have no by-value instance; object-safe dynamic dispatch uses non-owning abstract reference views plus immutable selected dispatch descriptors. |

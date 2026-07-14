@@ -36,10 +36,15 @@ bytecode, VM, and negative diagnostics coverage in vNext.
 | 4 | Structs, enums, constructors, pattern matching | `07`, `11`, `16`, `20`, `21` | Explicit declaration grammar, type identities/layout descriptors, match exhaustiveness and enum runtime tags. | R4–R7 |
 | 5 | Source modules, imports, exports, prelude | `08`, `13`, `18`, `56`, `59` | `CompilationSession`, module graph/interface, immutable artifact versus runtime instance. | R3/R6/R7 |
 | 6 | `ref`, places, move/copy/drop | `11`, `21`–`24`, `39`, `41`, `50`, `51` | Place/move-path/loan dataflow, descriptor-directed lifecycle services. No user-visible lifetime syntax. | R5/R6 |
-| 7 | Type aliases/newtypes, generics, const-if | `15`, `17`, `42`–`54` | Type interner, instance graph, restricted typed const evaluator. | R4/R5 |
-| 8 | Traits, dynamic trait objects, standard collections | `25`–`41`, `55`, `59` | Trait evidence/dispatch, object-safe ABI, shared runtime descriptors. | R4/R6/R7 |
-| 9 | FFI and opaque/native handles | `39`, `45`, `51` | Declared native ABI, capabilities, handle descriptor/lifecycle policy. | R9 |
-| 10 | Concurrency | none in the stable legacy corpus | RuntimeSession isolation, ownership transfer/capabilities, experimental-only design. | R10 |
+| 7 | Ordinary generics and canonical specialization instances | `15`, `43`, `44` | Type interner, generic parameter/argument resolution, `InstanceId`, session-scoped instance graph. | R4 |
+| 8 | Restricted const execution and `const if` | `17`, `42`, `46`, `47`, `53` | `ConstValue`, deterministic typed evaluator, capability/fuel rules, per-instance branch elimination. | R5 |
+| 9 | Const generics | `46`, `47`, `53`, `54` | Const substitution in `InstanceId`, typed const parameter/value equality, ABI/layout rules. | R4/R5 |
+| 10 | Variadic type/value packs, ranges/slices, folds | `49`, `54`, `57`, `58`, `59` | Pack kinds/substitution, aggregate descriptors, checked slice places, effect/move-aware expansion and fold lowering. | R4–R7 |
+| 11 | Higher-kinded generics | `48`, `49` | Explicit kind system and kind-checked type constructor application. | R4 |
+| 12 | Static traits and generic bounds | `25`–`33`, `37`–`39`, `46`, `55`, `59` | `TraitId`/`ImplId`, coherence, solver evidence, selected static dispatch, lifecycle capability contracts. | R4–R7 |
+| 13 | Abstract trait types and `ref<Trait>` dispatch | `34`–`36`, `40`, `59` | Abstract-type legality, object-safety, checked reference coercion, immutable vtable descriptor, reference-view ABI. | R4–R7 |
+| 14 | FFI and opaque/native handles | `39`, `45`, `51` | Declared native ABI, capabilities, handle descriptor/lifecycle policy. | R9 |
+| 15 | Concurrency | none in the stable legacy corpus | RuntimeSession isolation, ownership transfer/capabilities, experimental-only design. | R10 |
 
 ## Deliberate non-goals during the scalar-to-aggregate transition
 
@@ -52,6 +57,10 @@ bytecode, VM, and negative diagnostics coverage in vNext.
 - Do not introduce source-visible lifetimes while adding `ref` and ownership.
 - Do not make imports, globals, or native state process-global in order to run
   legacy module examples.
+- Do not introduce `dyn Trait`, `Box<dyn Trait>`, or a separately owning erased
+  trait-value container. A trait is an abstract type; `ref<Trait>` is the only
+  dynamic-trait value form in the initial design and is a non-owning reference
+  view to a concrete referent plus immutable dispatch metadata.
 
 ## Acceptance gate for each ladder row
 
