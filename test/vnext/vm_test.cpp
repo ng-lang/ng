@@ -76,6 +76,21 @@ TEST_CASE("vNext VM executes binary arithmetic and comparison-driven branches", 
   REQUIRE(vm::VM{}.run(branch).returnValue == 7);
 }
 
+TEST_CASE("vNext VM executes terminating stateful tail recursion without host recursion", "[vNext][VM]")
+{
+  const auto syntaxUnit = syntax::parseSourceUnit(
+      "fun count(value: i64) -> i64 { if value == 0 { return 0; } next (value - 1); } fun main() -> i64 { return count(3); }");
+  const auto hirModule = hir::Resolver{}.resolve(syntaxUnit);
+  typecheck::TypeChecker{}.check(hirModule);
+  std::vector<flowir::Function> flows;
+  for (const auto &function : hirModule.functions) flows.push_back(flowir::Lowerer{}.lower(function));
+  const auto module = bytecode::ModuleCompiler{}.compile(flows);
+  const auto result = vm::VM{}.run(module, hir::DefId{1});
+  REQUIRE(result.reason == vm::HaltReason::Return);
+  REQUIRE(result.returnValue == 0);
+  REQUIRE(result.tailRecursions == 3);
+}
+
 TEST_CASE("vNext VM executes terminating loop state transitions", "[vNext][VM]")
 {
   const auto function = compile(
