@@ -1,0 +1,108 @@
+// AI-generated code; reviewed for this repository's vNext rewrite.
+#include "vnext/bytecode.hpp"
+
+#include <algorithm>
+#include <array>
+#include <limits>
+
+namespace NG::vnext::bytecode
+{
+  namespace
+  {
+    constexpr std::array<uint8_t, 4> ArtifactMagic{'N', 'G', 'V', 'X'};
+    constexpr uint32_t ArtifactVersion{1};
+
+    void appendU32(std::vector<uint8_t> &output, uint32_t value)
+    {
+      for (size_t index = 0; index < 4; ++index) output.push_back(static_cast<uint8_t>(value >> (index * 8)));
+    }
+
+    [[nodiscard]] auto readU32(const std::vector<uint8_t> &input, size_t &offset) -> uint32_t
+    {
+      if (input.size() - offset < 4) throw BytecodeError("truncated bytecode artifact");
+      uint32_t value{};
+      for (size_t index = 0; index < 4; ++index) value |= static_cast<uint32_t>(input[offset++]) << (index * 8);
+      return value;
+    }
+
+    [[nodiscard]] auto narrowSize(size_t value) -> uint32_t
+    {
+      if (value > std::numeric_limits<uint32_t>::max()) throw BytecodeError("bytecode artifact field is too large");
+      return static_cast<uint32_t>(value);
+    }
+
+    void appendU32Vector(std::vector<uint8_t> &output, const std::vector<uint32_t> &values)
+    {
+      appendU32(output, narrowSize(values.size()));
+      for (const auto value : values) appendU32(output, value);
+    }
+
+    [[nodiscard]] auto readU32Vector(const std::vector<uint8_t> &input, size_t &offset) -> std::vector<uint32_t>
+    {
+      const uint32_t count = readU32(input, offset);
+      if (count > (input.size() - offset) / 4) throw BytecodeError("truncated bytecode artifact");
+      std::vector<uint32_t> values;
+      values.reserve(count);
+      for (uint32_t index = 0; index < count; ++index) values.push_back(readU32(input, offset));
+      return values;
+    }
+
+    void appendFunction(std::vector<uint8_t> &output, const Function &function)
+    {
+      appendU32(output, function.source.value);
+      appendU32(output, narrowSize(function.code.size()));
+      output.insert(output.end(), function.code.begin(), function.code.end());
+      appendU32Vector(output, function.parameterLocals);
+      appendU32Vector(output, function.blockParameterCounts);
+      appendU32(output, narrowSize(function.blockParameterLocals.size()));
+      for (const auto &locals : function.blockParameterLocals) appendU32Vector(output, locals);
+      appendU32Vector(output, function.blockOffsets);
+    }
+
+    [[nodiscard]] auto readFunction(const std::vector<uint8_t> &input, size_t &offset) -> Function
+    {
+      Function function{.source = hir::DefId{readU32(input, offset)}};
+      const uint32_t codeSize = readU32(input, offset);
+      if (codeSize > input.size() - offset) throw BytecodeError("truncated bytecode artifact");
+      function.code.insert(function.code.end(), input.begin() + static_cast<std::ptrdiff_t>(offset),
+                           input.begin() + static_cast<std::ptrdiff_t>(offset + codeSize));
+      offset += codeSize;
+      function.parameterLocals = readU32Vector(input, offset);
+      function.blockParameterCounts = readU32Vector(input, offset);
+      const uint32_t blockLocalCount = readU32(input, offset);
+      function.blockParameterLocals.reserve(blockLocalCount);
+      for (uint32_t index = 0; index < blockLocalCount; ++index) function.blockParameterLocals.push_back(readU32Vector(input, offset));
+      function.blockOffsets = readU32Vector(input, offset);
+      Verifier{}.verify(function);
+      return function;
+    }
+  } // namespace
+
+  auto ArtifactCodec::serialize(const Module &module) const -> std::vector<uint8_t>
+  {
+    std::vector<uint8_t> artifact;
+    artifact.insert(artifact.end(), ArtifactMagic.begin(), ArtifactMagic.end());
+    appendU32(artifact, ArtifactVersion);
+    appendU32(artifact, narrowSize(module.functions.size()));
+    for (const auto &function : module.functions)
+    {
+      Verifier{}.verify(function);
+      appendFunction(artifact, function);
+    }
+    return artifact;
+  }
+
+  auto ArtifactCodec::deserialize(const std::vector<uint8_t> &artifact) const -> Module
+  {
+    if (artifact.size() < ArtifactMagic.size() || !std::equal(ArtifactMagic.begin(), ArtifactMagic.end(), artifact.begin()))
+      throw BytecodeError("invalid bytecode artifact magic");
+    size_t offset = ArtifactMagic.size();
+    if (readU32(artifact, offset) != ArtifactVersion) throw BytecodeError("unsupported bytecode artifact version");
+    const uint32_t functionCount = readU32(artifact, offset);
+    Module module;
+    module.functions.reserve(functionCount);
+    for (uint32_t index = 0; index < functionCount; ++index) module.functions.push_back(readFunction(artifact, offset));
+    if (offset != artifact.size()) throw BytecodeError("trailing bytes in bytecode artifact");
+    return module;
+  }
+} // namespace NG::vnext::bytecode

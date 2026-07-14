@@ -5,12 +5,14 @@
 #include "vnext/hir.hpp"
 #include "vnext/syntax/module_parser.hpp"
 #include "vnext/typecheck.hpp"
+#include "vnext/vm.hpp"
 
 namespace bytecode = NG::vnext::bytecode;
 namespace flowir = NG::vnext::flowir;
 namespace hir = NG::vnext::hir;
 namespace syntax = NG::vnext::syntax;
 namespace typecheck = NG::vnext::typecheck;
+namespace vm = NG::vnext::vm;
 
 namespace
 {
@@ -69,6 +71,31 @@ TEST_CASE("vNext bytecode module compiler preserves function identities and dire
   REQUIRE(call->operands[0] == 1);
   REQUIRE(call->operands[1] == 0);
   REQUIRE(call->operands[2] == 1);
+}
+
+TEST_CASE("vNext bytecode artifacts round-trip verified modules", "[vNext][Bytecode]")
+{
+  const auto syntaxUnit = syntax::parseSourceUnit(
+      "fun helper(value: i64) -> i64 { return value + 1; } fun main() -> i64 { return helper(41); }");
+  const auto hirModule = hir::Resolver{}.resolve(syntaxUnit);
+  static_cast<void>(typecheck::TypeChecker{}.check(hirModule));
+  std::vector<flowir::Function> flows;
+  for (const auto &function : hirModule.functions) flows.push_back(flowir::Lowerer{}.lower(function));
+  const auto module = bytecode::ModuleCompiler{}.compile(flows);
+  const auto artifact = bytecode::ArtifactCodec{}.serialize(module);
+  const auto restored = bytecode::ArtifactCodec{}.deserialize(artifact);
+  REQUIRE(restored.functions.size() == 2);
+  REQUIRE(restored.functions[0].code == module.functions[0].code);
+  REQUIRE(restored.functions[1].code == module.functions[1].code);
+  REQUIRE(vm::VM{}.run(restored, hir::DefId{1}).returnValue == 42);
+}
+
+TEST_CASE("vNext bytecode artifacts reject malformed framing", "[vNext][Bytecode]")
+{
+  REQUIRE_THROWS_WITH(bytecode::ArtifactCodec{}.deserialize({}), "invalid bytecode artifact magic");
+  REQUIRE_THROWS_WITH(bytecode::ArtifactCodec{}.deserialize({'N', 'G', 'V', 'X'}), "truncated bytecode artifact");
+  REQUIRE_THROWS_WITH(bytecode::ArtifactCodec{}.deserialize({'N', 'G', 'V', 'X', 2, 0, 0, 0}),
+                      "unsupported bytecode artifact version");
 }
 
 TEST_CASE("vNext bytecode verifier rejects malformed branch contracts", "[vNext][Bytecode]")

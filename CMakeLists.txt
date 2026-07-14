@@ -144,6 +144,7 @@ target_link_libraries(ng PRIVATE imgui SDL3::SDL3-static)
 set(NG_VNEXT_SRC
         src/vnext/driver.cpp
         src/vnext/bytecode.cpp
+        src/vnext/bytecode/artifact.cpp
         src/vnext/flowir.cpp
         src/vnext/hir.cpp
         src/vnext/typecheck.cpp

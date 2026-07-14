@@ -88,4 +88,13 @@ namespace NG::vnext::bytecode
   public:
     void verify(const Function &function) const;
   };
+
+  /// Stable, little-endian, versioned module artifact encoding. Deserialization
+  /// verifies every decoded function before returning executable bytecode.
+  class ArtifactCodec final
+  {
+  public:
+    [[nodiscard]] auto serialize(const Module &module) const -> std::vector<uint8_t>;
+    [[nodiscard]] auto deserialize(const std::vector<uint8_t> &artifact) const -> Module;
+  };
 } // namespace NG::vnext::bytecode
