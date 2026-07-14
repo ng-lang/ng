@@ -105,6 +105,7 @@ set(NG_TEST_SRC
         test/vnext/vm_test.cpp
         test/vnext/typecheck_next_test.cpp
         test/vnext/driver_test.cpp
+        test/vnext/value_test.cpp
         test/module/native_module_artifact_test.cpp
         test/integration_test.cpp
         test/runtime/interpreter_test.cpp
