@@ -7,6 +7,8 @@
 #include "vnext/typecheck.hpp"
 #include "vnext/vm.hpp"
 
+#include <limits>
+
 namespace bytecode = NG::vnext::bytecode;
 namespace flowir = NG::vnext::flowir;
 namespace hir = NG::vnext::hir;
@@ -65,6 +67,25 @@ TEST_CASE("vNext VM executes prefix and logical boolean operations", "[vNext][VM
 {
   const auto function = compile("fun main() -> i64 { if !(1 > 2) && (2 < 3) { return -42; } else { return 0; } }");
   REQUIRE(vm::VM{}.run(function).returnValue == -42);
+}
+
+TEST_CASE("vNext VM rejects checked i64 arithmetic overflow", "[vNext][VM]")
+{
+  const auto add = compile("fun main(value: i64) -> i64 { return value + 1; }");
+  REQUIRE_THROWS_WITH(vm::VM{}.run(add, std::vector<int64_t>{std::numeric_limits<int64_t>::max()}),
+                      "integer addition overflow");
+
+  const auto multiply = compile("fun main(value: i64) -> i64 { return value * 2; }");
+  REQUIRE_THROWS_WITH(vm::VM{}.run(multiply, std::vector<int64_t>{std::numeric_limits<int64_t>::max()}),
+                      "integer multiplication overflow");
+
+  const auto negate = compile("fun main(value: i64) -> i64 { return -value; }");
+  REQUIRE_THROWS_WITH(vm::VM{}.run(negate, std::vector<int64_t>{std::numeric_limits<int64_t>::min()}),
+                      "integer negation overflow");
+
+  const auto divide = compile("fun main(value: i64) -> i64 { return value / -1; }");
+  REQUIRE_THROWS_WITH(vm::VM{}.run(divide, std::vector<int64_t>{std::numeric_limits<int64_t>::min()}),
+                      "integer division overflow");
 }
 
 TEST_CASE("vNext VM short-circuits logical operations", "[vNext][VM]")

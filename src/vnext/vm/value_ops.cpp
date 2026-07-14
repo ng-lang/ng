@@ -1,8 +1,40 @@
 // AI-generated code; reviewed for this repository's vNext rewrite.
 #include "value_ops.hpp"
 
+#include <limits>
+
 namespace NG::vnext::vm::detail
 {
+  namespace
+  {
+    [[nodiscard]] auto checkedAdd(int64_t left, int64_t right) -> int64_t
+    {
+      if ((right > 0 && left > std::numeric_limits<int64_t>::max() - right) ||
+          (right < 0 && left < std::numeric_limits<int64_t>::min() - right))
+        throw bytecode::BytecodeError("integer addition overflow");
+      return left + right;
+    }
+
+    [[nodiscard]] auto checkedSubtract(int64_t left, int64_t right) -> int64_t
+    {
+      if ((right > 0 && left < std::numeric_limits<int64_t>::min() + right) ||
+          (right < 0 && left > std::numeric_limits<int64_t>::max() + right))
+        throw bytecode::BytecodeError("integer subtraction overflow");
+      return left - right;
+    }
+
+    [[nodiscard]] auto checkedMultiply(int64_t left, int64_t right) -> int64_t
+    {
+      if (left == 0 || right == 0) return 0;
+      if ((left > 0 && right > 0 && left > std::numeric_limits<int64_t>::max() / right) ||
+          (left > 0 && right < 0 && right < std::numeric_limits<int64_t>::min() / left) ||
+          (left < 0 && right > 0 && left < std::numeric_limits<int64_t>::min() / right) ||
+          (left < 0 && right < 0 && left < std::numeric_limits<int64_t>::max() / right))
+        throw bytecode::BytecodeError("integer multiplication overflow");
+      return left * right;
+    }
+  } // namespace
+
   void evaluateInstruction(const bytecode::DecodedInstruction &instruction, std::vector<int64_t> &values,
                            const std::unordered_map<uint32_t, int64_t> &locals)
   {
@@ -32,7 +64,10 @@ namespace NG::vnext::vm::detail
       switch (payload)
       {
       case 1: values[result] = operand == 0; return;
-      case 2: values[result] = -operand; return;
+      case 2:
+        if (operand == std::numeric_limits<int64_t>::min()) throw bytecode::BytecodeError("integer negation overflow");
+        values[result] = -operand;
+        return;
       case 3: values[result] = operand; return;
       default: throw bytecode::BytecodeError("unsupported prefix operation");
       }
@@ -46,15 +81,19 @@ namespace NG::vnext::vm::detail
     const int64_t right = values.at(instruction.operands[6]);
     switch (payload)
     {
-    case 1: values[result] = left + right; return;
-    case 2: values[result] = left - right; return;
-    case 3: values[result] = left * right; return;
+    case 1: values[result] = checkedAdd(left, right); return;
+    case 2: values[result] = checkedSubtract(left, right); return;
+    case 3: values[result] = checkedMultiply(left, right); return;
     case 4:
       if (right == 0) throw bytecode::BytecodeError("integer division by zero");
+      if (left == std::numeric_limits<int64_t>::min() && right == -1)
+        throw bytecode::BytecodeError("integer division overflow");
       values[result] = left / right;
       return;
     case 5:
       if (right == 0) throw bytecode::BytecodeError("integer remainder by zero");
+      if (left == std::numeric_limits<int64_t>::min() && right == -1)
+        throw bytecode::BytecodeError("integer remainder overflow");
       values[result] = left % right;
       return;
     case 6: values[result] = left == right; return;
