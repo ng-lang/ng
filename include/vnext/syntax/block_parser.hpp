@@ -17,6 +17,7 @@ namespace NG::vnext::syntax
 
   private:
     [[nodiscard]] auto parseLetStatement() -> StatementPtr;
+    [[nodiscard]] auto parseAssignStatement() -> StatementPtr;
     [[nodiscard]] auto parseReturnStatement() -> StatementPtr;
     [[nodiscard]] auto parseIfStatement() -> StatementPtr;
     [[nodiscard]] auto parseLoopStatement() -> StatementPtr;
@@ -25,6 +26,7 @@ namespace NG::vnext::syntax
     [[nodiscard]] auto parseExpressionUntil(TokenKind terminator) -> ExpressionPtr;
     [[nodiscard]] auto parseExpressionUntilAny(const std::vector<TokenKind> &terminators) -> ExpressionPtr;
     [[nodiscard]] auto current() const -> const Token &;
+    [[nodiscard]] auto peek(size_t offset) const -> const Token &;
     [[nodiscard]] auto consume() -> Token;
     void expect(TokenKind kind, std::string_view message);
 

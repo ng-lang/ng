@@ -33,6 +33,7 @@ namespace NG::vnext::syntax
     Comma,
     Dot,
     Colon,
+    Assign,
     Arrow,
     LeftBrace,
     RightBrace,

@@ -60,6 +60,7 @@ namespace NG::vnext::hir
     scopes_.clear();
     scopes_.emplace_back();
     loops_.clear();
+    localMutability_.clear();
     currentFunction_ = id;
     nextLocal_ = 0;
     nextLoop_ = 0;
@@ -69,6 +70,7 @@ namespace NG::vnext::hir
     for (const auto &parameter : function.parameters)
     {
       const LocalId local = declareLocal(parameter.name, parameter.span);
+      localMutability_.emplace(local.value, false);
       resolved.parameters.push_back(
           Parameter{.name = parameter.name, .typeName = renderTypeName(*parameter.type), .local = local, .span = parameter.span});
     }
@@ -113,7 +115,27 @@ namespace NG::vnext::hir
       Statement resolved{.kind = StatementKind::Let, .span = let->span};
       resolved.expression = resolveExpression(*let->initializer);
       resolved.local = declareLocal(let->name, let->span);
+      resolved.mutableBinding = let->isMutable;
+      localMutability_[resolved.local->value] = let->isMutable;
       return resolved;
+    }
+
+    if (const auto *assign = dynamic_cast<const syntax::AssignStatement *>(&statement))
+    {
+      const syntax::IdentifierExpression target{assign->name, assign->span};
+      const auto resolvedTarget = resolveName(target);
+      if (resolvedTarget.kind != ResolvedNameKind::Local)
+      {
+        throw ResolutionError(std::format("assignment target `{}` is not a local binding", assign->name), assign->span);
+      }
+      if (!localMutability_.at(resolvedTarget.id))
+      {
+        throw ResolutionError(std::format("cannot assign to immutable binding `{}`", assign->name), assign->span);
+      }
+      return Statement{.kind = StatementKind::Assign,
+                       .span = assign->span,
+                       .local = LocalId{resolvedTarget.id},
+                       .expression = resolveExpression(*assign->value)};
     }
 
     if (const auto *returnStatement = dynamic_cast<const syntax::ReturnStatement *>(&statement))
@@ -152,7 +174,9 @@ namespace NG::vnext::hir
       resolved.loop = LoopId{nextLoop_++};
       for (size_t index = 0; index < loop->bindings.size(); ++index)
       {
-        resolved.loopBindings.push_back(declareLocal(loop->bindings[index].name, loop->bindings[index].span));
+        const LocalId local = declareLocal(loop->bindings[index].name, loop->bindings[index].span);
+        localMutability_.emplace(local.value, false);
+        resolved.loopBindings.push_back(local);
         resolved.arguments.push_back(std::move(initializers[index]));
       }
       loops_.push_back(ActiveLoop{*resolved.loop});

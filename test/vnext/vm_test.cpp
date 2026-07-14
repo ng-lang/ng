@@ -55,6 +55,12 @@ TEST_CASE("vNext VM materializes integer literals and reads bound locals", "[vNe
   REQUIRE(result.returnValue == 42);
 }
 
+TEST_CASE("vNext VM executes mutable local assignment", "[vNext][VM]")
+{
+  const auto function = compile("fun main() -> i64 { let mut total = 1; total := total + 41; return total; }");
+  REQUIRE(vm::VM{}.run(function).returnValue == 42);
+}
+
 TEST_CASE("vNext VM executes binary arithmetic and comparison-driven branches", "[vNext][VM]")
 {
   const auto arithmetic = compile("fun main() -> i64 { return 6 * 7 + 1; }");

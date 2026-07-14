@@ -51,6 +51,7 @@ namespace NG::vnext::syntax
 
     [[nodiscard]] auto tokenKindForTwoCharacters(std::string_view text) -> TokenKind
     {
+      if (text == ":=") return TokenKind::Assign;
       if (text == "->") return TokenKind::Arrow;
       if (text == "<<") return TokenKind::ShiftLeft;
       if (text == ">>") return TokenKind::ShiftRight;

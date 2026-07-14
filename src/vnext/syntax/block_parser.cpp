@@ -34,6 +34,11 @@ namespace NG::vnext::syntax
         statements.push_back(parseLetStatement());
         continue;
       }
+      if (current().kind == TokenKind::Identifier && peek(1).kind == TokenKind::Assign)
+      {
+        statements.push_back(parseAssignStatement());
+        continue;
+      }
       if (current().kind == TokenKind::KeywordFun)
       {
         throw ParseError("module declarations are not permitted in a block", current().span);
@@ -98,6 +103,16 @@ namespace NG::vnext::syntax
     expect(TokenKind::Semicolon, "expected `;` after let initializer");
     return std::make_unique<LetStatement>(name.text, isMutable, std::move(initializer),
                                           SourceSpan{letToken.span.begin, semicolon.span.end});
+  }
+
+  auto BlockParser::parseAssignStatement() -> StatementPtr
+  {
+    const Token name = consume();
+    expect(TokenKind::Assign, "expected `:=` after assignment target");
+    auto value = parseExpressionUntil(TokenKind::Semicolon);
+    const Token semicolon = current();
+    expect(TokenKind::Semicolon, "expected `;` after assignment value");
+    return std::make_unique<AssignStatement>(name.text, std::move(value), SourceSpan{name.span.begin, semicolon.span.end});
   }
 
   auto BlockParser::parseReturnStatement() -> StatementPtr
@@ -285,6 +300,11 @@ namespace NG::vnext::syntax
   auto BlockParser::current() const -> const Token &
   {
     return tokens_[cursor_];
+  }
+
+  auto BlockParser::peek(size_t offset) const -> const Token &
+  {
+    return tokens_[std::min(cursor_ + offset, tokens_.size() - 1)];
   }
 
   auto BlockParser::consume() -> Token

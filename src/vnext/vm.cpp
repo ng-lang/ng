@@ -247,13 +247,14 @@ namespace NG::vnext::vm
       }
       if (instruction.opcode == bytecode::Opcode::Return)
       {
-        const int64_t value = instruction.operands[0] == 1 ? frame.values.at(instruction.operands[1]) : 0;
+        std::optional<int64_t> value;
+        if (instruction.operands[0] == 1) value = frame.values.at(instruction.operands[1]);
         const auto destination = frame.callerDestination;
         frames.pop_back();
         if (frames.empty()) return RunResult{.reason = HaltReason::Return, .executedInstructions = executed, .tailRecursions = tailRecursions, .returnValue = value};
         auto &caller = frames.back();
         if (caller.values.size() <= *destination) caller.values.resize(*destination + 1);
-        caller.values[*destination] = value;
+        caller.values[*destination] = value.value_or(0);
         continue;
       }
       if (instruction.opcode == bytecode::Opcode::Jump || instruction.opcode == bytecode::Opcode::LoopBackedge)

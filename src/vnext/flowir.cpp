@@ -126,6 +126,17 @@ namespace NG::vnext::flowir
           static_cast<void>(initializer);
           return;
         }
+        case hir::StatementKind::Assign:
+        {
+          const ValueId value = lowerExpression(*statement.expression);
+          const ValueId binding{nextValue_++};
+          block().instructions.push_back(Instruction{.kind = InstructionKind::BindLocal,
+                                                     .result = binding,
+                                                     .local = statement.local,
+                                                     .source = value,
+                                                     .expressionKind = statement.expression->kind});
+          return;
+        }
         case hir::StatementKind::Return:
         {
           std::vector<ValueId> values;

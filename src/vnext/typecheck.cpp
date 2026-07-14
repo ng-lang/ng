@@ -69,6 +69,10 @@ namespace NG::vnext::typecheck
         case hir::StatementKind::Let:
           locals.emplace(statement.local->value, infer(*statement.expression, locals));
           return;
+        case hir::StatementKind::Assign:
+          requireType(locals.at(statement.local->value), infer(*statement.expression, locals), statement.expression->span,
+                      "assignment value");
+          return;
         case hir::StatementKind::Return:
           if (statement.expression != nullptr)
           {

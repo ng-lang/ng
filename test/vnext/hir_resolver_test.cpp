@@ -69,6 +69,21 @@ TEST_CASE("vNext resolver targets the nearest loop and function tail next distin
   REQUIRE(tailNext.nextTarget->id == function.id.value);
 }
 
+TEST_CASE("vNext resolver rejects assignment to immutable lexical bindings", "[vNext][HIR][Resolver]")
+{
+  const auto syntaxUnit = syntax::parseSourceUnit("fun entry() { let value = 1; value := 2; }");
+  try
+  {
+    static_cast<void>(hir::Resolver{}.resolve(syntaxUnit));
+    FAIL("expected immutable assignment to fail");
+  }
+  catch (const hir::ResolutionError &error)
+  {
+    REQUIRE(std::string{error.what()} == "cannot assign to immutable binding `value`");
+    REQUIRE(error.span.begin == 29);
+  }
+}
+
 TEST_CASE("vNext resolver rejects unknown names with a source span", "[vNext][HIR][Resolver]")
 {
   const auto syntaxUnit = syntax::parseSourceUnit("fun entry() { missing }");

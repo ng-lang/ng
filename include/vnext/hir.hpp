@@ -79,6 +79,7 @@ namespace NG::vnext::hir
   enum class StatementKind
   {
     Let,
+    Assign,
     Return,
     If,
     Loop,
@@ -105,6 +106,7 @@ namespace NG::vnext::hir
     StatementKind kind;
     syntax::SourceSpan span;
     std::optional<LocalId> local;
+    bool mutableBinding{};
     std::optional<LoopId> loop;
     std::optional<NextTarget> nextTarget;
     ExpressionPtr expression;
@@ -168,6 +170,7 @@ namespace NG::vnext::hir
     std::unordered_map<std::string, DefId> functions_;
     std::vector<Scope> scopes_;
     std::vector<ActiveLoop> loops_;
+    std::unordered_map<uint32_t, bool> localMutability_;
     std::optional<DefId> currentFunction_;
     uint32_t nextLocal_{};
     uint32_t nextLoop_{};
