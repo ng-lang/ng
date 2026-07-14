@@ -8,6 +8,7 @@
 #include "vnext/vm.hpp"
 #include "vnext/syntax/parser.hpp"
 #include <algorithm>
+#include <charconv>
 #include <fstream>
 #include <ostream>
 #include <string>
@@ -40,7 +41,27 @@ namespace NG::vnext
       }
     }
 
-    [[nodiscard]] auto parseSourceAndReport(std::string_view source, std::ostream &output, std::ostream &errors) -> int
+    [[nodiscard]] auto parseIntegerArguments(const std::vector<std::string_view> &arguments, std::vector<int64_t> &values,
+                                             std::ostream &errors) -> bool
+    {
+      values.clear();
+      values.reserve(arguments.size());
+      for (const auto argument : arguments)
+      {
+        int64_t value{};
+        const auto [end, error] = std::from_chars(argument.data(), argument.data() + argument.size(), value);
+        if (error != std::errc{} || end != argument.data() + argument.size())
+        {
+          errors << "invalid i64 argument `" << argument << "`\n";
+          return false;
+        }
+        values.push_back(value);
+      }
+      return true;
+    }
+
+    [[nodiscard]] auto parseSourceAndReport(std::string_view source, const std::vector<std::string_view> &runtimeArguments,
+                                            std::ostream &output, std::ostream &errors) -> int
     {
       try
       {
@@ -60,11 +81,26 @@ namespace NG::vnext
         const size_t verifiedFunctions = artifact.functions.size();
 
         const auto main = std::find_if(resolved.functions.begin(), resolved.functions.end(), [](const auto &function) {
-          return function.name == "main" && function.parameters.empty();
+          return function.name == "main";
         });
         if (main != resolved.functions.end())
         {
-          const auto result = vm::VM{}.run(artifact, main->id);
+          std::vector<int64_t> values;
+          if (!parseIntegerArguments(runtimeArguments, values, errors)) return 1;
+          if (values.size() != main->parameters.size())
+          {
+            errors << "main argument count mismatch: expected " << main->parameters.size() << ", got " << values.size() << '\n';
+            return 1;
+          }
+          for (const auto &parameter : main->parameters)
+          {
+            if (parameter.typeName != "i64")
+            {
+              errors << "main parameter `" << parameter.name << "` must currently be i64\n";
+              return 1;
+            }
+          }
+          const auto result = vm::VM{}.run(artifact, main->id, values);
           output << "compiled " << verifiedFunctions << " vNext function(s); main "
                  << (result.reason == vm::HaltReason::Return ? "returned" : "exhausted fuel") << " after "
                  << result.executedInstructions << " instruction(s)";
@@ -123,12 +159,22 @@ namespace NG::vnext
 
     if (arguments[0] == "--source")
     {
-      if (arguments.size() != 2)
+      if (arguments.size() < 2)
       {
-        errors << "--source requires exactly one source-unit argument\n";
+        errors << "--source requires one source-unit argument\n";
         return 1;
       }
-      return parseSourceAndReport(arguments[1], output, errors);
+      std::vector<std::string_view> runtimeArguments;
+      if (arguments.size() > 2)
+      {
+        if (arguments[2] != "--")
+        {
+          errors << "runtime arguments must follow `--`\n";
+          return 1;
+        }
+        runtimeArguments.assign(arguments.begin() + 3, arguments.end());
+      }
+      return parseSourceAndReport(arguments[1], runtimeArguments, output, errors);
     }
 
     if (arguments[0].starts_with('-') || arguments.size() != 1)
@@ -146,6 +192,6 @@ namespace NG::vnext
     }
 
     const std::string source{std::istreambuf_iterator<char>{input}, std::istreambuf_iterator<char>{}};
-    return parseSourceAndReport(source, output, errors);
+    return parseSourceAndReport(source, {}, output, errors);
   }
 } // namespace NG::vnext

@@ -35,6 +35,24 @@ TEST_CASE("vNext ngi driver runs the complete replacement compile-verify-execute
   REQUIRE(errors.empty());
 }
 
+TEST_CASE("vNext ngi driver passes typed i64 arguments to main", "[vNext][Driver]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(run({"--source", "fun main(value: i64) -> i64 { return value + 1; }", "--", "41"}, output, errors) == 0);
+  REQUIRE(output == "compiled 1 vNext function(s); main returned after 4 instruction(s) with value 42\n");
+  REQUIRE(errors.empty());
+}
+
+TEST_CASE("vNext ngi driver rejects malformed runtime arguments", "[vNext][Driver]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(run({"--source", "fun main(value: i64) -> i64 { return value; }", "--", "nope"}, output, errors) == 1);
+  REQUIRE(output.empty());
+  REQUIRE(errors == "invalid i64 argument `nope`\n");
+}
+
 TEST_CASE("vNext ngi driver executes direct calls through the module VM", "[vNext][Driver]")
 {
   std::string output;
