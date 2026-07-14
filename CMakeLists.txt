@@ -148,6 +148,7 @@ set(NG_VNEXT_SRC
         src/vnext/hir.cpp
         src/vnext/typecheck.cpp
         src/vnext/vm.cpp
+        src/vnext/vm/value_ops.cpp
         src/vnext/syntax/block_parser.cpp
         src/vnext/syntax/module_parser.cpp
         src/vnext/syntax/parser.cpp
