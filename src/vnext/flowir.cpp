@@ -75,11 +75,20 @@ namespace NG::vnext::flowir
           else if (expression.text == ">=") payload = 11;
         }
 
+        std::optional<hir::DefId> callTarget;
+        if (expression.kind == hir::ExpressionKind::Call && !expression.operands.empty() &&
+            expression.operands[0]->resolvedName.has_value() &&
+            expression.operands[0]->resolvedName->kind == hir::ResolvedNameKind::Function)
+        {
+          callTarget = hir::DefId{expression.operands[0]->resolvedName->id};
+        }
+
         const ValueId value{nextValue_++};
         block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
                                                    .result = value,
                                                    .expressionKind = expression.kind,
                                                    .payload = payload,
+                                                   .callTarget = callTarget,
                                                    .operands = std::move(operands)});
         return value;
       }

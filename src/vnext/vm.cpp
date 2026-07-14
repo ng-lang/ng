@@ -107,6 +107,8 @@ namespace NG::vnext::vm
         }
         break;
       }
+      case bytecode::Opcode::Call:
+        throw bytecode::BytecodeError("direct calls require a bytecode module");
       case bytecode::Opcode::BindLocal:
       {
         const uint32_t result = instruction.operands[0];

@@ -11,6 +11,7 @@ namespace NG::vnext::bytecode
   {
     constexpr std::array DESCRIPTORS{
         OpcodeDescriptor{Opcode::Evaluate, "evaluate", OperandLayout::CountPrefixedTail, 4},
+        OpcodeDescriptor{Opcode::Call, "call", OperandLayout::CountPrefixedTail, 2},
         OpcodeDescriptor{Opcode::BindLocal, "bind_local", OperandLayout::Fixed, 3},
         OpcodeDescriptor{Opcode::Return, "return", OperandLayout::CountPrefixedTail, 0},
         OpcodeDescriptor{Opcode::Jump, "jump", OperandLayout::CountPrefixedTail, 1},
@@ -65,7 +66,7 @@ namespace NG::vnext::bytecode
 
   auto Compiler::compile(const flowir::Function &flow) const -> Function
   {
-    Function result;
+    Function result{.source = flow.source};
     for (const auto local : flow.parameterLocals) result.parameterLocals.push_back(local.value);
     result.blockParameterCounts.reserve(flow.blocks.size());
     result.blockParameterLocals.reserve(flow.blocks.size());
@@ -80,12 +81,22 @@ namespace NG::vnext::bytecode
       {
         if (instruction.kind == flowir::InstructionKind::Evaluate)
         {
-          const uint64_t payload = static_cast<uint64_t>(instruction.payload);
-          std::vector<uint32_t> operands{instruction.result.value, static_cast<uint32_t>(instruction.expressionKind),
-                                         static_cast<uint32_t>(payload), static_cast<uint32_t>(payload >> 32),
-                                         static_cast<uint32_t>(instruction.operands.size())};
-          for (const auto value : instruction.operands) operands.push_back(value.value);
-          appendInstruction(result.code, Opcode::Evaluate, operands);
+          if (instruction.callTarget.has_value())
+          {
+            std::vector<uint32_t> operands{instruction.result.value, instruction.callTarget->value,
+                                           static_cast<uint32_t>(instruction.operands.size() - 1)};
+            for (size_t index = 1; index < instruction.operands.size(); ++index) operands.push_back(instruction.operands[index].value);
+            appendInstruction(result.code, Opcode::Call, operands);
+          }
+          else
+          {
+            const uint64_t payload = static_cast<uint64_t>(instruction.payload);
+            std::vector<uint32_t> operands{instruction.result.value, static_cast<uint32_t>(instruction.expressionKind),
+                                           static_cast<uint32_t>(payload), static_cast<uint32_t>(payload >> 32),
+                                           static_cast<uint32_t>(instruction.operands.size())};
+            for (const auto value : instruction.operands) operands.push_back(value.value);
+            appendInstruction(result.code, Opcode::Evaluate, operands);
+          }
         }
         else
         {
@@ -133,6 +144,18 @@ namespace NG::vnext::bytecode
       }
     }
     return result;
+  }
+
+  auto ModuleCompiler::compile(const std::vector<flowir::Function> &functions) const -> Module
+  {
+    Module module;
+    module.functions.reserve(functions.size());
+    Compiler compiler;
+    for (const auto &function : functions)
+    {
+      module.functions.push_back(compiler.compile(function));
+    }
+    return module;
   }
 
   auto Decoder::decode(const Function &function) const -> std::vector<DecodedInstruction>

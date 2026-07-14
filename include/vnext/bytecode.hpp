@@ -13,6 +13,7 @@ namespace NG::vnext::bytecode
   enum class Opcode : uint8_t
   {
     Evaluate,
+    Call,
     BindLocal,
     Return,
     Jump,
@@ -46,11 +47,17 @@ namespace NG::vnext::bytecode
 
   struct Function
   {
+    hir::DefId source;
     std::vector<uint8_t> code;
     std::vector<uint32_t> parameterLocals;
     std::vector<uint32_t> blockParameterCounts;
     std::vector<std::vector<uint32_t>> blockParameterLocals;
     std::vector<uint32_t> blockOffsets;
+  };
+
+  struct Module
+  {
+    std::vector<Function> functions;
   };
 
   struct BytecodeError : std::runtime_error
@@ -62,6 +69,12 @@ namespace NG::vnext::bytecode
   {
   public:
     [[nodiscard]] auto compile(const flowir::Function &function) const -> Function;
+  };
+
+  class ModuleCompiler final
+  {
+  public:
+    [[nodiscard]] auto compile(const std::vector<flowir::Function> &functions) const -> Module;
   };
 
   class Decoder final
