@@ -67,6 +67,15 @@ TEST_CASE("vNext VM executes prefix and logical boolean operations", "[vNext][VM
   REQUIRE(vm::VM{}.run(function).returnValue == -42);
 }
 
+TEST_CASE("vNext VM short-circuits logical operations", "[vNext][VM]")
+{
+  const auto andFunction = compile("fun main() -> i64 { if false && (1 / 0 == 0) { return 1; } return 42; }");
+  REQUIRE(vm::VM{}.run(andFunction).returnValue == 42);
+
+  const auto orFunction = compile("fun main() -> i64 { if true || (1 / 0 == 0) { return 42; } return 1; }");
+  REQUIRE(vm::VM{}.run(orFunction).returnValue == 42);
+}
+
 TEST_CASE("vNext VM executes i64 bitwise and shift operations", "[vNext][VM]")
 {
   const auto function = compile("fun main() -> i64 { return ((12 & 10) | 1) ^ (1 << 3) >> 1; }");

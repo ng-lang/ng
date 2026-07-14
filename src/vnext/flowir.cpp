@@ -1,6 +1,8 @@
 // AI-generated code; reviewed for this repository's vNext rewrite.
 #include "vnext/flowir.hpp"
 
+#include <algorithm>
+#include <limits>
 #include <unordered_map>
 #include <utility>
 
@@ -14,6 +16,7 @@ namespace NG::vnext::flowir
       [[nodiscard]] auto lower(const hir::Function &source) -> Function
       {
         function_ = Function{.source = source.id};
+        reserveSyntheticLocalIds(source);
         for (const auto &parameter : source.parameters)
         {
           function_.parameterLocals.push_back(parameter.local);
@@ -40,6 +43,11 @@ namespace NG::vnext::flowir
 
       [[nodiscard]] auto lowerExpression(const hir::Expression &expression) -> ValueId
       {
+        if (expression.kind == hir::ExpressionKind::Binary && (expression.text == "&&" || expression.text == "||"))
+        {
+          return lowerLogicalExpression(expression);
+        }
+
         const bool directCall = expression.kind == hir::ExpressionKind::Call && !expression.operands.empty() &&
                                 expression.operands[0]->resolvedName.has_value() &&
                                 expression.operands[0]->resolvedName->kind == hir::ResolvedNameKind::Function;
@@ -105,6 +113,71 @@ namespace NG::vnext::flowir
                                                    .callTarget = callTarget,
                                                    .operands = std::move(operands)});
         return value;
+      }
+
+      [[nodiscard]] auto lowerLogicalExpression(const hir::Expression &expression) -> ValueId
+      {
+        const ValueId left = lowerExpression(*expression.operands[0]);
+        const BlockId rightBlock = appendBlock();
+        const BlockId shortCircuitBlock = appendBlock();
+        const BlockId joinBlock = appendBlock();
+        const hir::LocalId resultLocal{nextSyntheticLocal_++};
+        auto &join = function_.blocks[joinBlock.value];
+        join.parameterCount = 1;
+        join.parameterLocals = {resultLocal};
+
+        const bool isAnd = expression.text == "&&";
+        block().terminator = Terminator{.kind = TerminatorKind::Branch,
+                                        .targets = isAnd ? std::vector<BlockId>{rightBlock, shortCircuitBlock}
+                                                         : std::vector<BlockId>{shortCircuitBlock, rightBlock},
+                                        .arguments = {left}};
+
+        current_ = rightBlock;
+        const ValueId right = lowerExpression(*expression.operands[1]);
+        if (!block().terminator.has_value())
+        {
+          block().terminator = Terminator{.kind = TerminatorKind::Jump, .targets = {joinBlock}, .arguments = {right}};
+        }
+
+        current_ = shortCircuitBlock;
+        block().terminator = Terminator{.kind = TerminatorKind::Jump, .targets = {joinBlock}, .arguments = {left}};
+
+        current_ = joinBlock;
+        const ValueId result{nextValue_++};
+        block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
+                                                   .result = result,
+                                                   .expressionKind = hir::ExpressionKind::ResolvedName,
+                                                   .payload = resultLocal.value});
+        return result;
+      }
+
+      void reserveSyntheticLocalIds(const hir::Function &source)
+      {
+        uint32_t highest{};
+        const auto observe = [&highest](hir::LocalId local) { highest = std::max(highest, local.value); };
+        const auto visitExpression = [&observe](const auto &self, const hir::Expression &expression) -> void {
+          if (expression.resolvedName.has_value() && expression.resolvedName->kind == hir::ResolvedNameKind::Local)
+            observe(hir::LocalId{expression.resolvedName->id});
+          for (const auto &operand : expression.operands) self(self, *operand);
+        };
+        const auto visitBlock = [&observe, &visitExpression](const auto &self, const hir::Block &block) -> void {
+          for (const auto &statement : block.statements)
+          {
+            if (statement.local.has_value()) observe(*statement.local);
+            for (const auto local : statement.loopBindings) observe(local);
+            if (statement.expression != nullptr) visitExpression(visitExpression, *statement.expression);
+            for (const auto &argument : statement.arguments) visitExpression(visitExpression, *argument);
+            if (statement.consequence != nullptr) self(self, *statement.consequence);
+            if (statement.alternative != nullptr) self(self, *statement.alternative);
+            if (statement.body != nullptr) self(self, *statement.body);
+          }
+          if (block.tailExpression != nullptr) visitExpression(visitExpression, *block.tailExpression);
+        };
+        for (const auto &parameter : source.parameters) observe(parameter.local);
+        visitBlock(visitBlock, source.body);
+        if (highest == std::numeric_limits<uint32_t>::max())
+          throw VerificationError("FlowIR local id space is exhausted");
+        nextSyntheticLocal_ = highest + 1;
       }
 
       void lowerBlock(const hir::Block &source)
@@ -255,6 +328,7 @@ namespace NG::vnext::flowir
       Function function_;
       BlockId current_{};
       uint32_t nextValue_{};
+      uint32_t nextSyntheticLocal_{};
       std::unordered_map<uint32_t, BlockId> loopHeaders_;
     };
   } // namespace
