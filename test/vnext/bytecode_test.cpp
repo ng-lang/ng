@@ -18,7 +18,7 @@ namespace
   {
     const auto syntaxUnit = syntax::parseSourceUnit(source);
     const auto module = hir::Resolver{}.resolve(syntaxUnit);
-    typecheck::TypeChecker{}.check(module);
+    static_cast<void>(typecheck::TypeChecker{}.check(module));
     const auto flow = flowir::Lowerer{}.lower(module.functions.front());
     flowir::Verifier{}.verify(flow);
     return bytecode::Compiler{}.compile(flow);
@@ -54,7 +54,7 @@ TEST_CASE("vNext bytecode module compiler preserves function identities and dire
 {
   const auto syntaxUnit = syntax::parseSourceUnit("fun helper(value: i64) -> i64 { return value; } fun main() -> i64 { return helper(42); }");
   const auto hirModule = hir::Resolver{}.resolve(syntaxUnit);
-  typecheck::TypeChecker{}.check(hirModule);
+  static_cast<void>(typecheck::TypeChecker{}.check(hirModule));
   std::vector<flowir::Function> flows;
   for (const auto &function : hirModule.functions) flows.push_back(flowir::Lowerer{}.lower(function));
   const auto module = bytecode::ModuleCompiler{}.compile(flows);

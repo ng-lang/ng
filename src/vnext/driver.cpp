@@ -67,7 +67,7 @@ namespace NG::vnext
       {
         const auto unit = syntax::parseSourceUnit(source);
         const auto resolved = hir::Resolver{}.resolve(unit);
-        typecheck::TypeChecker{}.check(resolved);
+        static_cast<void>(typecheck::TypeChecker{}.check(resolved));
 
         std::vector<flowir::Function> flows;
         flows.reserve(resolved.functions.size());

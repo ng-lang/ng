@@ -20,7 +20,7 @@ namespace
   {
     const auto syntaxUnit = syntax::parseSourceUnit(source);
     const auto module = hir::Resolver{}.resolve(syntaxUnit);
-    typecheck::TypeChecker{}.check(module);
+    static_cast<void>(typecheck::TypeChecker{}.check(module));
     return bytecode::Compiler{}.compile(flowir::Lowerer{}.lower(module.functions.front()));
   }
 } // namespace
@@ -38,7 +38,7 @@ TEST_CASE("vNext VM executes direct calls through module frames", "[vNext][VM]")
 {
   const auto syntaxUnit = syntax::parseSourceUnit("fun helper(value: i64) -> i64 { return value + 1; } fun main() -> i64 { return helper(41); }");
   const auto hirModule = hir::Resolver{}.resolve(syntaxUnit);
-  typecheck::TypeChecker{}.check(hirModule);
+  static_cast<void>(typecheck::TypeChecker{}.check(hirModule));
   std::vector<flowir::Function> flows;
   for (const auto &function : hirModule.functions) flows.push_back(flowir::Lowerer{}.lower(function));
   const auto module = bytecode::ModuleCompiler{}.compile(flows);
@@ -102,7 +102,7 @@ TEST_CASE("vNext VM executes terminating stateful tail recursion without host re
   const auto syntaxUnit = syntax::parseSourceUnit(
       "fun count(value: i64) -> i64 { if value == 0 { return 0; } next (value - 1); } fun main() -> i64 { return count(3); }");
   const auto hirModule = hir::Resolver{}.resolve(syntaxUnit);
-  typecheck::TypeChecker{}.check(hirModule);
+  static_cast<void>(typecheck::TypeChecker{}.check(hirModule));
   std::vector<flowir::Function> flows;
   for (const auto &function : hirModule.functions) flows.push_back(flowir::Lowerer{}.lower(function));
   const auto module = bytecode::ModuleCompiler{}.compile(flows);

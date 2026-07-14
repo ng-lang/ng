@@ -18,7 +18,7 @@ namespace NG::vnext::typecheck
     class Checker final
     {
     public:
-      void check(const hir::Module &module)
+      [[nodiscard]] auto check(const hir::Module &module) -> TypeCheckResult
       {
         for (const auto &function : module.functions)
         {
@@ -36,6 +36,7 @@ namespace NG::vnext::typecheck
         {
           checkFunction(function);
         }
+        return TypeCheckResult{.expressionTypes = std::move(expressionTypes_)};
       }
 
     private:
@@ -146,7 +147,14 @@ namespace NG::vnext::typecheck
         }
       }
 
-      [[nodiscard]] auto infer(const hir::Expression &expression, const LocalTypes &locals) const -> std::string
+      [[nodiscard]] auto infer(const hir::Expression &expression, const LocalTypes &locals) -> std::string
+      {
+        auto type = inferUnrecorded(expression, locals);
+        expressionTypes_.insert_or_assign(&expression, type);
+        return type;
+      }
+
+      [[nodiscard]] auto inferUnrecorded(const hir::Expression &expression, const LocalTypes &locals) -> std::string
       {
         switch (expression.kind)
         {
@@ -232,11 +240,12 @@ namespace NG::vnext::typecheck
       }
 
       std::unordered_map<uint32_t, Signature> signatures_;
+      std::unordered_map<const hir::Expression *, std::string> expressionTypes_;
     };
   } // namespace
 
-  void TypeChecker::check(const hir::Module &module)
+  auto TypeChecker::check(const hir::Module &module) -> TypeCheckResult
   {
-    Checker{}.check(module);
+    return Checker{}.check(module);
   }
 } // namespace NG::vnext::typecheck

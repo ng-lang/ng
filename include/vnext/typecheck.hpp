@@ -4,6 +4,7 @@
 #include "vnext/hir.hpp"
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 
 namespace NG::vnext::typecheck
 {
@@ -17,11 +18,23 @@ namespace NG::vnext::typecheck
     }
   };
 
+  /// Immutable type side tables for a resolved HIR module. The table is keyed
+  /// by HIR node identity; neither syntax nor HIR nodes are checker-mutated.
+  struct TypeCheckResult
+  {
+    std::unordered_map<const hir::Expression *, std::string> expressionTypes;
+
+    [[nodiscard]] auto typeOf(const hir::Expression &expression) const -> const std::string &
+    {
+      return expressionTypes.at(&expression);
+    }
+  };
+
   /// First typed-HIR validation slice. It is intentionally a side-table-style
   /// pass over resolved HIR: syntax/HIR nodes remain free of checker mutation.
   class TypeChecker final
   {
   public:
-    void check(const hir::Module &module);
+    [[nodiscard]] auto check(const hir::Module &module) -> TypeCheckResult;
   };
 } // namespace NG::vnext::typecheck

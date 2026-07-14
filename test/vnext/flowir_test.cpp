@@ -16,7 +16,7 @@ namespace
   {
     const auto syntaxUnit = syntax::parseSourceUnit(source);
     const auto module = hir::Resolver{}.resolve(syntaxUnit);
-    typecheck::TypeChecker{}.check(module);
+    static_cast<void>(typecheck::TypeChecker{}.check(module));
     return flowir::Lowerer{}.lower(module.functions.front());
   }
 

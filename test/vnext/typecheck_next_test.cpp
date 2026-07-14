@@ -14,9 +14,19 @@ namespace
   {
     const auto syntaxUnit = syntax::parseSourceUnit(source);
     const auto module = hir::Resolver{}.resolve(syntaxUnit);
-    typecheck::TypeChecker{}.check(module);
+    static_cast<void>(typecheck::TypeChecker{}.check(module));
   }
 } // namespace
+
+TEST_CASE("vNext type checker exposes immutable expression type side tables", "[vNext][Typecheck]")
+{
+  const auto syntaxUnit = syntax::parseSourceUnit("fun entry(value: i64) -> i64 { return value + 1; }");
+  const auto module = hir::Resolver{}.resolve(syntaxUnit);
+  const auto result = typecheck::TypeChecker{}.check(module);
+  const auto &returnExpression = *module.functions.front().body.statements.front().expression;
+  REQUIRE(result.typeOf(returnExpression) == "i64");
+  REQUIRE(result.expressionTypes.size() == 3);
+}
 
 TEST_CASE("vNext type checker validates loop and tail next arguments", "[vNext][Typecheck][Next]")
 {
