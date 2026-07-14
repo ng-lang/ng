@@ -67,6 +67,18 @@ TEST_CASE("vNext VM executes prefix and logical boolean operations", "[vNext][VM
   REQUIRE(vm::VM{}.run(function).returnValue == -42);
 }
 
+TEST_CASE("vNext VM executes i64 bitwise and shift operations", "[vNext][VM]")
+{
+  const auto function = compile("fun main() -> i64 { return ((12 & 10) | 1) ^ (1 << 3) >> 1; }");
+  REQUIRE(vm::VM{}.run(function).returnValue == 13);
+}
+
+TEST_CASE("vNext VM rejects zero divisors and invalid shift counts", "[vNext][VM]")
+{
+  REQUIRE_THROWS_WITH(vm::VM{}.run(compile("fun main() -> i64 { return 1 / 0; }")), "integer division by zero");
+  REQUIRE_THROWS_WITH(vm::VM{}.run(compile("fun main() -> i64 { return 1 << -1; }")), "integer shift count is out of range");
+}
+
 TEST_CASE("vNext VM executes binary arithmetic and comparison-driven branches", "[vNext][VM]")
 {
   const auto arithmetic = compile("fun main() -> i64 { return 6 * 7 + 1; }");

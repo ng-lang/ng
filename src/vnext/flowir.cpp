@@ -84,6 +84,11 @@ namespace NG::vnext::flowir
           else if (expression.text == ">=") payload = 11;
           else if (expression.text == "&&") payload = 12;
           else if (expression.text == "||") payload = 13;
+          else if (expression.text == "&") payload = 14;
+          else if (expression.text == "|") payload = 15;
+          else if (expression.text == "^") payload = 16;
+          else if (expression.text == "<<") payload = 17;
+          else if (expression.text == ">>") payload = 18;
         }
 
         std::optional<hir::DefId> callTarget;

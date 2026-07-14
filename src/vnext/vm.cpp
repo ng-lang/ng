@@ -101,8 +101,14 @@ namespace NG::vnext::vm
           case 1: values[result] = left + right; break;
           case 2: values[result] = left - right; break;
           case 3: values[result] = left * right; break;
-          case 4: values[result] = left / right; break;
-          case 5: values[result] = left % right; break;
+          case 4:
+            if (right == 0) throw bytecode::BytecodeError("integer division by zero");
+            values[result] = left / right;
+            break;
+          case 5:
+            if (right == 0) throw bytecode::BytecodeError("integer remainder by zero");
+            values[result] = left % right;
+            break;
           case 6: values[result] = left == right; break;
           case 7: values[result] = left != right; break;
           case 8: values[result] = left < right; break;
@@ -111,6 +117,17 @@ namespace NG::vnext::vm
           case 11: values[result] = left >= right; break;
           case 12: values[result] = left != 0 && right != 0; break;
           case 13: values[result] = left != 0 || right != 0; break;
+          case 14: values[result] = left & right; break;
+          case 15: values[result] = left | right; break;
+          case 16: values[result] = left ^ right; break;
+          case 17:
+            if (right < 0 || right >= 64) throw bytecode::BytecodeError("integer shift count is out of range");
+            values[result] = static_cast<int64_t>(static_cast<uint64_t>(left) << right);
+            break;
+          case 18:
+            if (right < 0 || right >= 64) throw bytecode::BytecodeError("integer shift count is out of range");
+            values[result] = static_cast<int64_t>(static_cast<uint64_t>(left) >> right);
+            break;
           default: throw bytecode::BytecodeError("unsupported binary operation");
           }
         }
@@ -243,7 +260,7 @@ namespace NG::vnext::vm
         {
           const int64_t left = frame.values.at(instruction.operands[5]);
           const int64_t right = frame.values.at(instruction.operands[6]);
-          switch (payload) { case 1: frame.values[result] = left + right; break; case 2: frame.values[result] = left - right; break; case 3: frame.values[result] = left * right; break; case 4: frame.values[result] = left / right; break; case 5: frame.values[result] = left % right; break; case 6: frame.values[result] = left == right; break; case 7: frame.values[result] = left != right; break; case 8: frame.values[result] = left < right; break; case 9: frame.values[result] = left <= right; break; case 10: frame.values[result] = left > right; break; case 11: frame.values[result] = left >= right; break; case 12: frame.values[result] = left != 0 && right != 0; break; case 13: frame.values[result] = left != 0 || right != 0; break; default: throw bytecode::BytecodeError("unsupported binary operation"); }
+          switch (payload) { case 1: frame.values[result] = left + right; break; case 2: frame.values[result] = left - right; break; case 3: frame.values[result] = left * right; break; case 4: if (right == 0) throw bytecode::BytecodeError("integer division by zero"); frame.values[result] = left / right; break; case 5: if (right == 0) throw bytecode::BytecodeError("integer remainder by zero"); frame.values[result] = left % right; break; case 6: frame.values[result] = left == right; break; case 7: frame.values[result] = left != right; break; case 8: frame.values[result] = left < right; break; case 9: frame.values[result] = left <= right; break; case 10: frame.values[result] = left > right; break; case 11: frame.values[result] = left >= right; break; case 12: frame.values[result] = left != 0 && right != 0; break; case 13: frame.values[result] = left != 0 || right != 0; break; case 14: frame.values[result] = left & right; break; case 15: frame.values[result] = left | right; break; case 16: frame.values[result] = left ^ right; break; case 17: if (right < 0 || right >= 64) throw bytecode::BytecodeError("integer shift count is out of range"); frame.values[result] = static_cast<int64_t>(static_cast<uint64_t>(left) << right); break; case 18: if (right < 0 || right >= 64) throw bytecode::BytecodeError("integer shift count is out of range"); frame.values[result] = static_cast<int64_t>(static_cast<uint64_t>(left) >> right); break; default: throw bytecode::BytecodeError("unsupported binary operation"); }
         }
         else frame.values[result] = 0;
         continue;

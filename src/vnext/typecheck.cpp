@@ -177,6 +177,12 @@ namespace NG::vnext::typecheck
             requireType("bool", infer(*expression.operands[0], locals), expression.span, "logical operand");
             return "bool";
           }
+          if (expression.text == "&" || expression.text == "|" || expression.text == "^" || expression.text == "<<" ||
+              expression.text == ">>")
+          {
+            requireType("i64", infer(*expression.operands[0], locals), expression.span, "bitwise operand");
+            return "i64";
+          }
           return infer(*expression.operands[0], locals);
         case hir::ExpressionKind::Call:
           if (expression.operands[0]->resolvedName.has_value() &&
