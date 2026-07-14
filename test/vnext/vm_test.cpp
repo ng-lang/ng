@@ -51,6 +51,16 @@ TEST_CASE("vNext VM executes binary arithmetic and comparison-driven branches", 
   REQUIRE(vm::VM{}.run(branch).returnValue == 7);
 }
 
+TEST_CASE("vNext VM executes terminating loop state transitions", "[vNext][VM]")
+{
+  const auto function = compile(
+      "fun main(seed: i64) -> i64 { loop (state = seed) { if state < 3 { next (state + 1); } return state; } }");
+  const auto result = vm::VM{}.run(function, std::vector<int64_t>{0});
+  REQUIRE(result.reason == vm::HaltReason::Return);
+  REQUIRE(result.returnValue == 3);
+  REQUIRE(result.tailRecursions == 0);
+}
+
 TEST_CASE("vNext VM tail recursion reuses the active frame until fuel exhaustion", "[vNext][VM]")
 {
   const auto function = compile("fun recur(value: i64) { next (value); }");
