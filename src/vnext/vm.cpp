@@ -154,4 +154,123 @@ namespace NG::vnext::vm
                      .tailRecursions = tailRecursions,
                      .returnValue = std::nullopt};
   }
+
+  auto VM::run(const bytecode::Module &module, hir::DefId entry, const std::vector<int64_t> &arguments,
+               size_t fuel) const -> RunResult
+  {
+    struct Prepared
+    {
+      const bytecode::Function *function;
+      std::vector<bytecode::DecodedInstruction> instructions;
+      std::unordered_map<size_t, size_t> offsets;
+    };
+    struct Frame
+    {
+      size_t functionIndex;
+      size_t programCounter;
+      std::vector<int64_t> values;
+      std::unordered_map<uint32_t, int64_t> locals;
+      std::optional<uint32_t> callerDestination;
+    };
+
+    std::vector<Prepared> prepared;
+    prepared.reserve(module.functions.size());
+    for (const auto &function : module.functions)
+    {
+      bytecode::Verifier{}.verify(function);
+      Prepared item{.function = &function, .instructions = bytecode::Decoder{}.decode(function)};
+      for (size_t index = 0; index < item.instructions.size(); ++index) item.offsets.emplace(item.instructions[index].offset, index);
+      prepared.push_back(std::move(item));
+    }
+    if (entry.value >= prepared.size()) throw bytecode::BytecodeError("bytecode module entry is out of range");
+
+    const auto makeFrame = [&prepared](size_t functionIndex, const std::vector<int64_t> &args,
+                                       std::optional<uint32_t> destination) -> Frame {
+      const auto &function = *prepared.at(functionIndex).function;
+      if (args.size() != function.parameterLocals.size()) throw bytecode::BytecodeError("bytecode function argument count mismatch");
+      const auto entryOffset = function.blockOffsets.at(0);
+      const auto entryInstruction = prepared.at(functionIndex).offsets.at(entryOffset);
+      Frame frame{.functionIndex = functionIndex, .programCounter = entryInstruction, .callerDestination = destination};
+      for (size_t index = 0; index < args.size(); ++index) frame.locals.emplace(function.parameterLocals[index], args[index]);
+      return frame;
+    };
+
+    std::vector<Frame> frames;
+    frames.push_back(makeFrame(entry.value, arguments, std::nullopt));
+    size_t executed{};
+    size_t tailRecursions{};
+    while (executed < fuel)
+    {
+      auto &frame = frames.back();
+      const auto &preparedFunction = prepared.at(frame.functionIndex);
+      const auto &function = *preparedFunction.function;
+      const auto &instruction = preparedFunction.instructions.at(frame.programCounter++);
+      ++executed;
+      const auto blockInstruction = [&preparedFunction, &function](uint32_t block) { return preparedFunction.offsets.at(function.blockOffsets.at(block)); };
+      const auto bindBlockArguments = [&frame, &function](uint32_t target, const std::vector<uint32_t> &operands, size_t first) {
+        for (size_t index = 0; index < function.blockParameterLocals.at(target).size(); ++index)
+          frame.locals[function.blockParameterLocals[target][index]] = frame.values.at(operands.at(first + index));
+      };
+
+      if (instruction.opcode == bytecode::Opcode::Evaluate)
+      {
+        const uint32_t result = instruction.operands[0];
+        if (frame.values.size() <= result) frame.values.resize(result + 1);
+        const auto kind = static_cast<hir::ExpressionKind>(instruction.operands[1]);
+        const uint64_t payload = static_cast<uint64_t>(instruction.operands[2]) | (static_cast<uint64_t>(instruction.operands[3]) << 32);
+        if (kind == hir::ExpressionKind::IntegerLiteral || kind == hir::ExpressionKind::BooleanLiteral) frame.values[result] = static_cast<int64_t>(payload);
+        else if (kind == hir::ExpressionKind::ResolvedName) frame.values[result] = frame.locals.at(static_cast<uint32_t>(payload));
+        else if (kind == hir::ExpressionKind::Grouped) frame.values[result] = frame.values.at(instruction.operands[5]);
+        else if (kind == hir::ExpressionKind::Binary)
+        {
+          const int64_t left = frame.values.at(instruction.operands[5]);
+          const int64_t right = frame.values.at(instruction.operands[6]);
+          switch (payload) { case 1: frame.values[result] = left + right; break; case 2: frame.values[result] = left - right; break; case 3: frame.values[result] = left * right; break; case 4: frame.values[result] = left / right; break; case 5: frame.values[result] = left % right; break; case 6: frame.values[result] = left == right; break; case 7: frame.values[result] = left != right; break; case 8: frame.values[result] = left < right; break; case 9: frame.values[result] = left <= right; break; case 10: frame.values[result] = left > right; break; case 11: frame.values[result] = left >= right; break; default: throw bytecode::BytecodeError("unsupported binary operation"); }
+        }
+        else frame.values[result] = 0;
+        continue;
+      }
+      if (instruction.opcode == bytecode::Opcode::BindLocal)
+      {
+        const uint32_t result = instruction.operands[0];
+        if (frame.values.size() <= result) frame.values.resize(result + 1);
+        frame.values[result] = frame.values.at(instruction.operands[2]);
+        frame.locals[instruction.operands[1]] = frame.values[result];
+        continue;
+      }
+      if (instruction.opcode == bytecode::Opcode::Call)
+      {
+        std::vector<int64_t> callArguments;
+        for (size_t index = 0; index < instruction.operands[2]; ++index) callArguments.push_back(frame.values.at(instruction.operands[3 + index]));
+        frames.push_back(makeFrame(instruction.operands[1], callArguments, instruction.operands[0]));
+        continue;
+      }
+      if (instruction.opcode == bytecode::Opcode::Return)
+      {
+        const int64_t value = instruction.operands[0] == 1 ? frame.values.at(instruction.operands[1]) : 0;
+        const auto destination = frame.callerDestination;
+        frames.pop_back();
+        if (frames.empty()) return RunResult{.reason = HaltReason::Return, .executedInstructions = executed, .tailRecursions = tailRecursions, .returnValue = value};
+        auto &caller = frames.back();
+        if (caller.values.size() <= *destination) caller.values.resize(*destination + 1);
+        caller.values[*destination] = value;
+        continue;
+      }
+      if (instruction.opcode == bytecode::Opcode::Jump || instruction.opcode == bytecode::Opcode::LoopBackedge)
+      {
+        bindBlockArguments(instruction.operands[0], instruction.operands, 2);
+        frame.programCounter = blockInstruction(instruction.operands[0]);
+        continue;
+      }
+      if (instruction.opcode == bytecode::Opcode::Branch)
+      {
+        frame.programCounter = blockInstruction(frame.values.at(instruction.operands[0]) != 0 ? instruction.operands[1] : instruction.operands[2]);
+        continue;
+      }
+      for (size_t index = 0; index < function.parameterLocals.size(); ++index) frame.locals[function.parameterLocals[index]] = frame.values.at(instruction.operands[1 + index]);
+      ++tailRecursions;
+      frame.programCounter = blockInstruction(0);
+    }
+    return RunResult{.reason = HaltReason::FuelExhausted, .executedInstructions = executed, .tailRecursions = tailRecursions, .returnValue = std::nullopt};
+  }
 } // namespace NG::vnext::vm

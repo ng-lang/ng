@@ -34,6 +34,19 @@ TEST_CASE("vNext VM executes verified return control flow", "[vNext][VM]")
   REQUIRE(result.tailRecursions == 0);
 }
 
+TEST_CASE("vNext VM executes direct calls through module frames", "[vNext][VM]")
+{
+  const auto syntaxUnit = syntax::parseSourceUnit("fun helper(value: i64) -> i64 { return value + 1; } fun main() -> i64 { return helper(41); }");
+  const auto hirModule = hir::Resolver{}.resolve(syntaxUnit);
+  typecheck::TypeChecker{}.check(hirModule);
+  std::vector<flowir::Function> flows;
+  for (const auto &function : hirModule.functions) flows.push_back(flowir::Lowerer{}.lower(function));
+  const auto module = bytecode::ModuleCompiler{}.compile(flows);
+  const auto result = vm::VM{}.run(module, hir::DefId{1});
+  REQUIRE(result.reason == vm::HaltReason::Return);
+  REQUIRE(result.returnValue == 42);
+}
+
 TEST_CASE("vNext VM materializes integer literals and reads bound locals", "[vNext][VM]")
 {
   const auto function = compile("fun main() -> i64 { let value = 42; return value; }");

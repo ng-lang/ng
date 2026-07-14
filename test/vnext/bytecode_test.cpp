@@ -66,7 +66,7 @@ TEST_CASE("vNext bytecode module compiler preserves function identities and dire
     return instruction.opcode == bytecode::Opcode::Call;
   });
   REQUIRE(call != instructions.end());
-  REQUIRE(call->operands[0] == 2);
+  REQUIRE(call->operands[0] == 1);
   REQUIRE(call->operands[1] == 0);
   REQUIRE(call->operands[2] == 1);
 }

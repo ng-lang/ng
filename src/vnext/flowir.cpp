@@ -40,11 +40,14 @@ namespace NG::vnext::flowir
 
       [[nodiscard]] auto lowerExpression(const hir::Expression &expression) -> ValueId
       {
+        const bool directCall = expression.kind == hir::ExpressionKind::Call && !expression.operands.empty() &&
+                                expression.operands[0]->resolvedName.has_value() &&
+                                expression.operands[0]->resolvedName->kind == hir::ResolvedNameKind::Function;
         std::vector<ValueId> operands;
-        operands.reserve(expression.operands.size());
-        for (const auto &operand : expression.operands)
+        operands.reserve(expression.operands.size() - (directCall ? 1 : 0));
+        for (size_t index = directCall ? 1 : 0; index < expression.operands.size(); ++index)
         {
-          operands.push_back(lowerExpression(*operand));
+          operands.push_back(lowerExpression(*expression.operands[index]));
         }
         int64_t payload{};
         if (expression.kind == hir::ExpressionKind::IntegerLiteral)
@@ -76,9 +79,7 @@ namespace NG::vnext::flowir
         }
 
         std::optional<hir::DefId> callTarget;
-        if (expression.kind == hir::ExpressionKind::Call && !expression.operands.empty() &&
-            expression.operands[0]->resolvedName.has_value() &&
-            expression.operands[0]->resolvedName->kind == hir::ResolvedNameKind::Function)
+        if (directCall)
         {
           callTarget = hir::DefId{expression.operands[0]->resolvedName->id};
         }

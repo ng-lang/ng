@@ -84,8 +84,8 @@ namespace NG::vnext::bytecode
           if (instruction.callTarget.has_value())
           {
             std::vector<uint32_t> operands{instruction.result.value, instruction.callTarget->value,
-                                           static_cast<uint32_t>(instruction.operands.size() - 1)};
-            for (size_t index = 1; index < instruction.operands.size(); ++index) operands.push_back(instruction.operands[index].value);
+                                           static_cast<uint32_t>(instruction.operands.size())};
+            for (const auto value : instruction.operands) operands.push_back(value.value);
             appendInstruction(result.code, Opcode::Call, operands);
           }
           else

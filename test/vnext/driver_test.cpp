@@ -35,6 +35,16 @@ TEST_CASE("vNext ngi driver runs the complete replacement compile-verify-execute
   REQUIRE(errors.empty());
 }
 
+TEST_CASE("vNext ngi driver executes direct calls through the module VM", "[vNext][Driver]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(run({"--source", "fun helper(value: i64) -> i64 { return value + 1; } fun main() -> i64 { return helper(41); }"}, output,
+              errors) == 0);
+  REQUIRE(output == "compiled 2 vNext function(s); main returned after 7 instruction(s) with value 42\n");
+  REQUIRE(errors.empty());
+}
+
 TEST_CASE("vNext ngi driver exposes a concrete main return value", "[vNext][Driver]")
 {
   std::string output;

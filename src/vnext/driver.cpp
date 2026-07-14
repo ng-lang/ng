@@ -48,23 +48,23 @@ namespace NG::vnext
         const auto resolved = hir::Resolver{}.resolve(unit);
         typecheck::TypeChecker{}.check(resolved);
 
-        size_t verifiedFunctions{};
+        std::vector<flowir::Function> flows;
+        flows.reserve(resolved.functions.size());
         for (const auto &function : resolved.functions)
         {
-          const auto flow = flowir::Lowerer{}.lower(function);
-          flowir::Verifier{}.verify(flow);
-          const auto artifact = bytecode::Compiler{}.compile(flow);
-          bytecode::Verifier{}.verify(artifact);
-          ++verifiedFunctions;
+          flows.push_back(flowir::Lowerer{}.lower(function));
+          flowir::Verifier{}.verify(flows.back());
         }
+        const auto artifact = bytecode::ModuleCompiler{}.compile(flows);
+        for (const auto &function : artifact.functions) bytecode::Verifier{}.verify(function);
+        const size_t verifiedFunctions = artifact.functions.size();
 
         const auto main = std::find_if(resolved.functions.begin(), resolved.functions.end(), [](const auto &function) {
           return function.name == "main" && function.parameters.empty();
         });
         if (main != resolved.functions.end())
         {
-          const auto artifact = bytecode::Compiler{}.compile(flowir::Lowerer{}.lower(*main));
-          const auto result = vm::VM{}.run(artifact);
+          const auto result = vm::VM{}.run(artifact, main->id);
           output << "compiled " << verifiedFunctions << " vNext function(s); main "
                  << (result.reason == vm::HaltReason::Return ? "returned" : "exhausted fuel") << " after "
                  << result.executedInstructions << " instruction(s)";
