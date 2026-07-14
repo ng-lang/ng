@@ -26,6 +26,9 @@ TEST_CASE("vNext type checker exposes immutable expression type side tables", "[
   const auto &returnExpression = *module.functions.front().body.statements.front().expression;
   REQUIRE(result.typeOf(returnExpression) == "i64");
   REQUIRE(result.expressionTypes.size() == 3);
+  REQUIRE(result.localTypes.at(module.functions.front().parameters.front().local.value) == "i64");
+  REQUIRE(result.functionTypes.at(module.functions.front().id.value).parameters == std::vector<std::string>{"i64"});
+  REQUIRE(result.functionTypes.at(module.functions.front().id.value).returnType == "i64");
 }
 
 TEST_CASE("vNext type checker validates loop and tail next arguments", "[vNext][Typecheck][Next]")

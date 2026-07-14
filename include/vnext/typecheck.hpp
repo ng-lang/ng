@@ -5,6 +5,7 @@
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace NG::vnext::typecheck
 {
@@ -18,11 +19,20 @@ namespace NG::vnext::typecheck
     }
   };
 
+  struct FunctionType
+  {
+    std::vector<std::string> parameters;
+    std::string returnType;
+  };
+
   /// Immutable type side tables for a resolved HIR module. The table is keyed
-  /// by HIR node identity; neither syntax nor HIR nodes are checker-mutated.
+  /// by HIR node identity or stable resolved ids; neither syntax nor HIR nodes
+  /// are checker-mutated.
   struct TypeCheckResult
   {
     std::unordered_map<const hir::Expression *, std::string> expressionTypes;
+    std::unordered_map<uint32_t, std::string> localTypes;
+    std::unordered_map<uint32_t, FunctionType> functionTypes;
 
     [[nodiscard]] auto typeOf(const hir::Expression &expression) const -> const std::string &
     {

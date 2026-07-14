@@ -9,11 +9,7 @@ namespace NG::vnext::typecheck
 {
   namespace
   {
-    struct Signature
-    {
-      std::vector<std::string> parameters;
-      std::string returnType;
-    };
+    using Signature = FunctionType;
 
     class Checker final
     {
@@ -30,13 +26,16 @@ namespace NG::vnext::typecheck
           }
           signature.returnType = function.returnTypeName.value_or("unit");
           requireKnownType(signature.returnType, function.span);
+          functionTypes_.emplace(function.id.value, signature);
           signatures_.emplace(function.id.value, std::move(signature));
         }
         for (const auto &function : module.functions)
         {
           checkFunction(function);
         }
-        return TypeCheckResult{.expressionTypes = std::move(expressionTypes_)};
+        return TypeCheckResult{.expressionTypes = std::move(expressionTypes_),
+                               .localTypes = std::move(localTypes_),
+                               .functionTypes = std::move(functionTypes_)};
       }
 
     private:
@@ -49,6 +48,7 @@ namespace NG::vnext::typecheck
         for (const auto &parameter : function.parameters)
         {
           locals.emplace(parameter.local.value, parameter.typeName);
+          localTypes_.emplace(parameter.local.value, parameter.typeName);
         }
         checkBlock(function.body, locals, {}, function.returnTypeName.value_or("unit"));
       }
@@ -71,8 +71,12 @@ namespace NG::vnext::typecheck
         switch (statement.kind)
         {
         case hir::StatementKind::Let:
-          locals.emplace(statement.local->value, infer(*statement.expression, locals));
+        {
+          const auto type = infer(*statement.expression, locals);
+          locals.emplace(statement.local->value, type);
+          localTypes_.emplace(statement.local->value, std::move(type));
           return;
+        }
         case hir::StatementKind::Assign:
           requireType(locals.at(statement.local->value), infer(*statement.expression, locals), statement.expression->span,
                       "assignment value");
@@ -107,6 +111,7 @@ namespace NG::vnext::typecheck
           for (size_t index = 0; index < statement.loopBindings.size(); ++index)
           {
             loopLocals.emplace(statement.loopBindings[index].value, types[index]);
+            localTypes_.emplace(statement.loopBindings[index].value, types[index]);
           }
           LoopTypes loopTypes = loops;
           loopTypes.emplace(statement.loop->value, std::move(types));
@@ -241,6 +246,8 @@ namespace NG::vnext::typecheck
 
       std::unordered_map<uint32_t, Signature> signatures_;
       std::unordered_map<const hir::Expression *, std::string> expressionTypes_;
+      std::unordered_map<uint32_t, std::string> localTypes_;
+      std::unordered_map<uint32_t, FunctionType> functionTypes_;
     };
   } // namespace
 
