@@ -156,13 +156,25 @@ namespace NG::vnext::typecheck
           }
           return "function";
         case hir::ExpressionKind::Grouped: return infer(*expression.operands[0], locals);
-        case hir::ExpressionKind::Prefix: return infer(*expression.operands[0], locals);
+        case hir::ExpressionKind::Prefix:
+          if (expression.text == "!")
+          {
+            requireType("bool", infer(*expression.operands[0], locals), expression.span, "prefix operand");
+            return "bool";
+          }
+          requireType("i64", infer(*expression.operands[0], locals), expression.span, "prefix operand");
+          return "i64";
         case hir::ExpressionKind::Binary:
           requireType(infer(*expression.operands[0], locals), infer(*expression.operands[1], locals), expression.span,
                       "binary operands");
           if (expression.text == "==" || expression.text == "!=" || expression.text == "<" || expression.text == "<=" ||
               expression.text == ">" || expression.text == ">=")
           {
+            return "bool";
+          }
+          if (expression.text == "&&" || expression.text == "||")
+          {
+            requireType("bool", infer(*expression.operands[0], locals), expression.span, "logical operand");
             return "bool";
           }
           return infer(*expression.operands[0], locals);

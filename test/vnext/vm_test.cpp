@@ -61,6 +61,12 @@ TEST_CASE("vNext VM executes mutable local assignment", "[vNext][VM]")
   REQUIRE(vm::VM{}.run(function).returnValue == 42);
 }
 
+TEST_CASE("vNext VM executes prefix and logical boolean operations", "[vNext][VM]")
+{
+  const auto function = compile("fun main() -> i64 { if !(1 > 2) && (2 < 3) { return -42; } else { return 0; } }");
+  REQUIRE(vm::VM{}.run(function).returnValue == -42);
+}
+
 TEST_CASE("vNext VM executes binary arithmetic and comparison-driven branches", "[vNext][VM]")
 {
   const auto arithmetic = compile("fun main() -> i64 { return 6 * 7 + 1; }");

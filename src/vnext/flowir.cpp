@@ -63,6 +63,12 @@ namespace NG::vnext::flowir
         {
           payload = expression.resolvedName->id;
         }
+        else if (expression.kind == hir::ExpressionKind::Prefix)
+        {
+          if (expression.text == "!") payload = 1;
+          else if (expression.text == "-") payload = 2;
+          else if (expression.text == "+") payload = 3;
+        }
         else if (expression.kind == hir::ExpressionKind::Binary)
         {
           if (expression.text == "+") payload = 1;
@@ -76,6 +82,8 @@ namespace NG::vnext::flowir
           else if (expression.text == "<=") payload = 9;
           else if (expression.text == ">") payload = 10;
           else if (expression.text == ">=") payload = 11;
+          else if (expression.text == "&&") payload = 12;
+          else if (expression.text == "||") payload = 13;
         }
 
         std::optional<hir::DefId> callTarget;

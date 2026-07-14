@@ -81,6 +81,17 @@ namespace NG::vnext::vm
         {
           values[result] = values.at(instruction.operands[5]);
         }
+        else if (kind == hir::ExpressionKind::Prefix)
+        {
+          const int64_t operand = values.at(instruction.operands[5]);
+          switch (payload)
+          {
+          case 1: values[result] = operand == 0; break;
+          case 2: values[result] = -operand; break;
+          case 3: values[result] = operand; break;
+          default: throw bytecode::BytecodeError("unsupported prefix operation");
+          }
+        }
         else if (kind == hir::ExpressionKind::Binary)
         {
           const int64_t left = values.at(instruction.operands[5]);
@@ -98,6 +109,8 @@ namespace NG::vnext::vm
           case 9: values[result] = left <= right; break;
           case 10: values[result] = left > right; break;
           case 11: values[result] = left >= right; break;
+          case 12: values[result] = left != 0 && right != 0; break;
+          case 13: values[result] = left != 0 || right != 0; break;
           default: throw bytecode::BytecodeError("unsupported binary operation");
           }
         }
@@ -221,11 +234,16 @@ namespace NG::vnext::vm
         if (kind == hir::ExpressionKind::IntegerLiteral || kind == hir::ExpressionKind::BooleanLiteral) frame.values[result] = static_cast<int64_t>(payload);
         else if (kind == hir::ExpressionKind::ResolvedName) frame.values[result] = frame.locals.at(static_cast<uint32_t>(payload));
         else if (kind == hir::ExpressionKind::Grouped) frame.values[result] = frame.values.at(instruction.operands[5]);
+        else if (kind == hir::ExpressionKind::Prefix)
+        {
+          const int64_t operand = frame.values.at(instruction.operands[5]);
+          switch (payload) { case 1: frame.values[result] = operand == 0; break; case 2: frame.values[result] = -operand; break; case 3: frame.values[result] = operand; break; default: throw bytecode::BytecodeError("unsupported prefix operation"); }
+        }
         else if (kind == hir::ExpressionKind::Binary)
         {
           const int64_t left = frame.values.at(instruction.operands[5]);
           const int64_t right = frame.values.at(instruction.operands[6]);
-          switch (payload) { case 1: frame.values[result] = left + right; break; case 2: frame.values[result] = left - right; break; case 3: frame.values[result] = left * right; break; case 4: frame.values[result] = left / right; break; case 5: frame.values[result] = left % right; break; case 6: frame.values[result] = left == right; break; case 7: frame.values[result] = left != right; break; case 8: frame.values[result] = left < right; break; case 9: frame.values[result] = left <= right; break; case 10: frame.values[result] = left > right; break; case 11: frame.values[result] = left >= right; break; default: throw bytecode::BytecodeError("unsupported binary operation"); }
+          switch (payload) { case 1: frame.values[result] = left + right; break; case 2: frame.values[result] = left - right; break; case 3: frame.values[result] = left * right; break; case 4: frame.values[result] = left / right; break; case 5: frame.values[result] = left % right; break; case 6: frame.values[result] = left == right; break; case 7: frame.values[result] = left != right; break; case 8: frame.values[result] = left < right; break; case 9: frame.values[result] = left <= right; break; case 10: frame.values[result] = left > right; break; case 11: frame.values[result] = left >= right; break; case 12: frame.values[result] = left != 0 && right != 0; break; case 13: frame.values[result] = left != 0 || right != 0; break; default: throw bytecode::BytecodeError("unsupported binary operation"); }
         }
         else frame.values[result] = 0;
         continue;
