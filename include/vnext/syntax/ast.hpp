@@ -18,6 +18,7 @@ namespace NG::vnext::syntax
   {
     Identifier,
     IntegerLiteral,
+    StringLiteral,
     BooleanLiteral,
     Prefix,
     Grouped,
@@ -54,6 +55,16 @@ namespace NG::vnext::syntax
 
     IntegerLiteralExpression(std::string literalText, SourceSpan sourceSpan)
       : Expression(ExpressionKind::IntegerLiteral, sourceSpan), text(std::move(literalText))
+    {
+    }
+  };
+
+  struct StringLiteralExpression final : Expression
+  {
+    const std::string value;
+
+    StringLiteralExpression(std::string literalValue, SourceSpan sourceSpan)
+      : Expression(ExpressionKind::StringLiteral, sourceSpan), value(std::move(literalValue))
     {
     }
   };

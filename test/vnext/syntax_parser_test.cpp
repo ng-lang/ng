@@ -65,6 +65,22 @@ TEST_CASE("vNext expression parser preserves grouping spans and AST shape", "[vN
   REQUIRE(multiply.span.end == 11);
 }
 
+TEST_CASE("vNext expression parser decodes string literal escapes with exact spans", "[vNext][Syntax][Expression]")
+{
+  const auto expression = syntax::parseExpression("\"line\\n\\\"quote\\\"\\\\\"");
+  const auto *literal = dynamic_cast<const syntax::StringLiteralExpression *>(expression.get());
+  REQUIRE(literal != nullptr);
+  REQUIRE(literal->value == "line\n\"quote\"\\");
+  REQUIRE(literal->span.begin == 0);
+  REQUIRE(literal->span.end == 19);
+}
+
+TEST_CASE("vNext expression parser rejects malformed string literals", "[vNext][Syntax][Expression]")
+{
+  REQUIRE_THROWS_WITH(syntax::parseExpression("\"unterminated"), "unterminated string literal");
+  REQUIRE_THROWS_WITH(syntax::parseExpression("\"\\r\""), "unsupported string escape `\\r`");
+}
+
 TEST_CASE("vNext expression parser diagnoses invalid source with a source span", "[vNext][Syntax][Expression]")
 {
   try

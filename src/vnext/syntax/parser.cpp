@@ -110,6 +110,36 @@ namespace NG::vnext::syntax
         continue;
       }
 
+      if (character == '"')
+      {
+        ++offset;
+        std::string value;
+        while (offset < source.size() && source[offset] != '"')
+        {
+          if (source[offset] == '\\')
+          {
+            const size_t escapeOffset = offset++;
+            if (offset == source.size()) throw ParseError("unterminated string literal", SourceSpan{begin, offset});
+            switch (source[offset])
+            {
+            case '"': value.push_back('"'); break;
+            case '\\': value.push_back('\\'); break;
+            case 'n': value.push_back('\n'); break;
+            case 't': value.push_back('\t'); break;
+            default: throw ParseError(std::format("unsupported string escape `\\{}`", source[offset]),
+                                      SourceSpan{escapeOffset, offset + 1});
+            }
+            ++offset;
+            continue;
+          }
+          value.push_back(source[offset++]);
+        }
+        if (offset == source.size()) throw ParseError("unterminated string literal", SourceSpan{begin, offset});
+        ++offset;
+        tokens.push_back(Token{.kind = TokenKind::StringLiteral, .text = std::move(value), .span = SourceSpan{begin, offset}});
+        continue;
+      }
+
       if (std::isdigit(static_cast<unsigned char>(character)) != 0)
       {
         ++offset;
@@ -267,6 +297,8 @@ namespace NG::vnext::syntax
       return std::make_unique<IdentifierExpression>(token.text, token.span);
     case TokenKind::IntegerLiteral:
       return std::make_unique<IntegerLiteralExpression>(token.text, token.span);
+    case TokenKind::StringLiteral:
+      return std::make_unique<StringLiteralExpression>(token.text, token.span);
     case TokenKind::KeywordTrue:
       return std::make_unique<BooleanLiteralExpression>(true, token.span);
     case TokenKind::KeywordFalse:

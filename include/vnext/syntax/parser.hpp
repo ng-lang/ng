@@ -14,6 +14,7 @@ namespace NG::vnext::syntax
     End,
     Identifier,
     IntegerLiteral,
+    StringLiteral,
     KeywordConst,
     KeywordElse,
     KeywordFun,

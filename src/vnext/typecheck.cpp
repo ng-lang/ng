@@ -164,6 +164,8 @@ namespace NG::vnext::typecheck
         switch (expression.kind)
         {
         case hir::ExpressionKind::IntegerLiteral: return "i64";
+        case hir::ExpressionKind::StringLiteral:
+          throw TypeError("string runtime support is not yet implemented", expression.span);
         case hir::ExpressionKind::BooleanLiteral: return "bool";
         case hir::ExpressionKind::ResolvedName:
           if (expression.resolvedName->kind == hir::ResolvedNameKind::Local)

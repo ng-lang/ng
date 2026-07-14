@@ -114,6 +114,11 @@ TEST_CASE("vNext type checker rejects call arity and argument type mismatch", "[
   }
 }
 
+TEST_CASE("vNext type checker rejects string values until the tagged runtime value slice lands", "[vNext][Typecheck]")
+{
+  REQUIRE_THROWS_WITH(check("fun invalid() { return \"not yet\"; }"), "string runtime support is not yet implemented");
+}
+
 TEST_CASE("vNext type checker rejects unknown type annotations", "[vNext][Typecheck]")
 {
   try

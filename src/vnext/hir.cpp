@@ -236,6 +236,12 @@ namespace NG::vnext::hir
       resolved->text = integer->text;
       return resolved;
     }
+    if (const auto *string = dynamic_cast<const syntax::StringLiteralExpression *>(&expression))
+    {
+      resolved->kind = ExpressionKind::StringLiteral;
+      resolved->text = string->value;
+      return resolved;
+    }
     if (const auto *boolean = dynamic_cast<const syntax::BooleanLiteralExpression *>(&expression))
     {
       resolved->kind = ExpressionKind::BooleanLiteral;
