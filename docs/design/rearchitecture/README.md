@@ -28,6 +28,7 @@ This plan uses a **replacement-first rewrite**, not an additive shim strategy. E
 | [Runtime, modules, and native ABI](02-runtime-module-ffi.md) | RuntimeSession, ModuleArtifact/ModuleInstance split, values, GC, lifecycle, C ABI, opaque wrappers, and native registration. |
 | [Delivery plan](03-delivery-plan.md) | Executable phases, entry/exit criteria, concrete work packages, tests, and deletion gates. |
 | [Language decisions required](04-language-decisions.md) | Syntax and semantic choices that need owner confirmation before their phase begins. |
+| [Legacy example migration matrix](05-legacy-example-migration-matrix.md) | vNext feature ladder derived from the legacy example corpus; evidence, not compatibility policy. |
 
 ## Progress board
 
@@ -40,9 +41,9 @@ This plan uses a **replacement-first rewrite**, not an additive shim strategy. E
 | R2 | Source model, lexer, parser, and syntax AST | In progress — vNext expressions, blocks, module items, and immutable syntax nodes | R1 | Immutable syntax tree with spans and recovery |
 | R3 | CompilationSession and module graph | In progress — vNext module name-resolution seed | R1 | Session-scoped resolver/artifact cache |
 | R4 | Symbols, types, resolved HIR, and typed HIR | In progress — name-only HIR lowering with `DefId` / `LocalId` | R2, R3 | Canonical IDs and no semantic AST mutation |
-| R5 | Const evaluator, ownership analysis, and FlowIR | Not started | R4 | Typed compile-time evaluation and CFG dataflow |
+| R5 | Const evaluator, ownership analysis, and FlowIR | In progress — scalar FlowIR CFG and verifier; const/ownership remain pending | R4 | Typed compile-time evaluation and CFG dataflow |
 | R6 | RuntimeSession and module instances | Not started | R3, R5 | One runtime value model and lifecycle service |
-| R7 | Bytecode v3 compiler, VM, and artifact format | Not started | R5, R6 | Verified bytecode consuming FlowIR |
+| R7 | Bytecode v3 compiler, VM, and artifact format | In progress — scalar/module compiler, verifier, VM, and versioned artifact; runtime/module interface work remains pending | R5, R6 | Verified bytecode consuming FlowIR |
 | R8 | Reference interpreter convergence and legacy removal | Not started | R5, R6, R7 | Typed-HIR reference evaluator; old AST interpreter removed |
 | R9 | Native ABI, C FFI, opaque types, and bindgen | Not started | R4, R6, R7 | Declared ABI descriptors and safe C boundary |
 | R10 | Concurrency-native runtime and language layer | Not started | R5, R6, R7, R9 | Structured concurrency with ownership-aware transfer |
