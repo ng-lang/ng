@@ -34,7 +34,9 @@ namespace NG::vnext::typecheck
           checkFunction(function);
         }
         return TypeCheckResult{.expressionTypes = std::move(expressionTypes_),
+                               .expressionTypeIds = std::move(expressionTypeIds_),
                                .localTypes = std::move(localTypes_),
+                               .localTypeIds = std::move(localTypeIds_),
                                .functionTypes = std::move(functionTypes_)};
       }
 
@@ -49,6 +51,7 @@ namespace NG::vnext::typecheck
         {
           locals.emplace(parameter.local.value, parameter.typeName);
           localTypes_.emplace(parameter.local.value, parameter.typeName);
+          localTypeIds_.emplace(parameter.local.value, typeIdFor(parameter.typeName));
         }
         checkBlock(function.body, locals, {}, function.returnTypeName.value_or("unit"));
       }
@@ -74,6 +77,7 @@ namespace NG::vnext::typecheck
         {
           const auto type = infer(*statement.expression, locals);
           locals.emplace(statement.local->value, type);
+          localTypeIds_.emplace(statement.local->value, typeIdFor(type));
           localTypes_.emplace(statement.local->value, std::move(type));
           return;
         }
@@ -112,6 +116,7 @@ namespace NG::vnext::typecheck
           {
             loopLocals.emplace(statement.loopBindings[index].value, types[index]);
             localTypes_.emplace(statement.loopBindings[index].value, types[index]);
+            localTypeIds_.emplace(statement.loopBindings[index].value, typeIdFor(types[index]));
           }
           LoopTypes loopTypes = loops;
           loopTypes.emplace(statement.loop->value, std::move(types));
@@ -156,6 +161,7 @@ namespace NG::vnext::typecheck
       {
         auto type = inferUnrecorded(expression, locals);
         expressionTypes_.insert_or_assign(&expression, type);
+        expressionTypeIds_.insert_or_assign(&expression, typeIdFor(type));
         return type;
       }
 
@@ -228,9 +234,19 @@ namespace NG::vnext::typecheck
         return "unknown";
       }
 
+      [[nodiscard]] static auto typeIdFor(const std::string &type) -> TypeId
+      {
+        if (type == "i64") return builtin::I64;
+        if (type == "u8") return builtin::U8;
+        if (type == "bool") return builtin::Bool;
+        if (type == "unit") return builtin::Unit;
+        if (type == "string") return builtin::String;
+        throw std::logic_error("typecheck attempted to materialize an unknown type id");
+      }
+
       static void requireKnownType(const std::string &type, syntax::SourceSpan span)
       {
-        static const std::unordered_set<std::string> supportedTypes{"i64", "u8", "bool", "unit"};
+        static const std::unordered_set<std::string> supportedTypes{"i64", "u8", "bool", "unit", "string"};
         if (!supportedTypes.contains(type))
         {
           throw TypeError(std::format("unknown type `{}`", type), span);
@@ -248,7 +264,9 @@ namespace NG::vnext::typecheck
 
       std::unordered_map<uint32_t, Signature> signatures_;
       std::unordered_map<const hir::Expression *, std::string> expressionTypes_;
+      std::unordered_map<const hir::Expression *, TypeId> expressionTypeIds_;
       std::unordered_map<uint32_t, std::string> localTypes_;
+      std::unordered_map<uint32_t, TypeId> localTypeIds_;
       std::unordered_map<uint32_t, FunctionType> functionTypes_;
     };
   } // namespace

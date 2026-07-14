@@ -9,6 +9,21 @@
 
 namespace NG::vnext::typecheck
 {
+  struct TypeId
+  {
+    uint32_t value{};
+    auto operator==(const TypeId &) const -> bool = default;
+  };
+
+  namespace builtin
+  {
+    inline constexpr TypeId I64{1};
+    inline constexpr TypeId U8{2};
+    inline constexpr TypeId Bool{3};
+    inline constexpr TypeId Unit{4};
+    inline constexpr TypeId String{5};
+  } // namespace builtin
+
   struct TypeError : std::runtime_error
   {
     syntax::SourceSpan span;
@@ -31,12 +46,19 @@ namespace NG::vnext::typecheck
   struct TypeCheckResult
   {
     std::unordered_map<const hir::Expression *, std::string> expressionTypes;
+    std::unordered_map<const hir::Expression *, TypeId> expressionTypeIds;
     std::unordered_map<uint32_t, std::string> localTypes;
+    std::unordered_map<uint32_t, TypeId> localTypeIds;
     std::unordered_map<uint32_t, FunctionType> functionTypes;
 
     [[nodiscard]] auto typeOf(const hir::Expression &expression) const -> const std::string &
     {
       return expressionTypes.at(&expression);
+    }
+
+    [[nodiscard]] auto typeIdOf(const hir::Expression &expression) const -> TypeId
+    {
+      return expressionTypeIds.at(&expression);
     }
   };
 
