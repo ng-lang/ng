@@ -3,6 +3,7 @@
 
 #include <format>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace NG::vnext::typecheck
 {
@@ -24,9 +25,11 @@ namespace NG::vnext::typecheck
           Signature signature;
           for (const auto &parameter : function.parameters)
           {
+            requireKnownType(parameter.typeName, parameter.span);
             signature.parameters.push_back(parameter.typeName);
           }
           signature.returnType = function.returnTypeName.value_or("unit");
+          requireKnownType(signature.returnType, function.span);
           signatures_.emplace(function.id.value, std::move(signature));
         }
         for (const auto &function : module.functions)
@@ -154,7 +157,7 @@ namespace NG::vnext::typecheck
           {
             return locals.at(expression.resolvedName->id);
           }
-          return "function";
+          throw TypeError("function name cannot be used as a value", expression.span);
         case hir::ExpressionKind::Grouped: return infer(*expression.operands[0], locals);
         case hir::ExpressionKind::Prefix:
           if (expression.text == "!")
@@ -203,11 +206,20 @@ namespace NG::vnext::typecheck
             }
             return signature.returnType;
           }
-          return "unknown";
-        case hir::ExpressionKind::Index:
-        case hir::ExpressionKind::Member: return "unknown";
+          throw TypeError("call target is not a function", expression.operands[0]->span);
+        case hir::ExpressionKind::Index: throw TypeError("index expressions are not yet supported", expression.span);
+        case hir::ExpressionKind::Member: throw TypeError("member expressions are not yet supported", expression.span);
         }
         return "unknown";
+      }
+
+      static void requireKnownType(const std::string &type, syntax::SourceSpan span)
+      {
+        static const std::unordered_set<std::string> supportedTypes{"i64", "u8", "bool", "unit"};
+        if (!supportedTypes.contains(type))
+        {
+          throw TypeError(std::format("unknown type `{}`", type), span);
+        }
       }
 
       static void requireType(const std::string &expected, const std::string &actual, syntax::SourceSpan span,

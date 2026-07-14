@@ -101,6 +101,28 @@ TEST_CASE("vNext type checker rejects call arity and argument type mismatch", "[
   }
 }
 
+TEST_CASE("vNext type checker rejects unknown type annotations", "[vNext][Typecheck]")
+{
+  try
+  {
+    check("fun invalid(value: imaginary) { return; }");
+    FAIL("expected unknown type to fail");
+  }
+  catch (const typecheck::TypeError &error)
+  {
+    REQUIRE(std::string{error.what()} == "unknown type `imaginary`");
+    REQUIRE(error.span.begin == 12);
+    REQUIRE(error.span.end == 28);
+  }
+}
+
+TEST_CASE("vNext type checker rejects unsupported postfix operations", "[vNext][Typecheck]")
+{
+  REQUIRE_THROWS_WITH(check("fun invalid() { let value = 1; value(); }"), "call target is not a function");
+  REQUIRE_THROWS_WITH(check("fun invalid() { let value = 1; return value[0]; }"), "index expressions are not yet supported");
+  REQUIRE_THROWS_WITH(check("fun invalid() { let value = 1; return value.field; }"), "member expressions are not yet supported");
+}
+
 TEST_CASE("vNext type checker rejects tail next arity mismatch", "[vNext][Typecheck][Next]")
 {
   try
