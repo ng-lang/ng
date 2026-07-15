@@ -1,12 +1,13 @@
 // AI-generated code; reviewed for this repository's vNext rewrite.
 #pragma once
 
-#include "vnext/hir.hpp"
+#include "vnext/typecheck.hpp"
 #include <cstdint>
 #include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 namespace NG::vnext::flowir
@@ -72,6 +73,8 @@ namespace NG::vnext::flowir
     BlockId entry;
     std::vector<hir::LocalId> parameterLocals;
     std::vector<Block> blocks;
+    std::unordered_map<uint32_t, typecheck::TypeId> valueTypes;
+    std::unordered_map<uint32_t, typecheck::TypeId> localTypes;
   };
 
   /// Lowers resolved/type-validated control structure to a CFG. This is a new
@@ -80,6 +83,7 @@ namespace NG::vnext::flowir
   {
   public:
     [[nodiscard]] auto lower(const hir::Function &function) -> Function;
+    [[nodiscard]] auto lower(const hir::Function &function, const typecheck::TypeCheckResult &types) -> Function;
   };
 
   struct VerificationError : std::runtime_error

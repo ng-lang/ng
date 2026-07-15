@@ -13,6 +13,8 @@ namespace NG::vnext::flowir
     class FunctionLowerer final
     {
     public:
+      explicit FunctionLowerer(const typecheck::TypeCheckResult *types) : types_(types) {}
+
       [[nodiscard]] auto lower(const hir::Function &source) -> Function
       {
         function_ = Function{.source = source.id};
@@ -106,6 +108,7 @@ namespace NG::vnext::flowir
         }
 
         const ValueId value{nextValue_++};
+        if (types_ != nullptr) function_.valueTypes.emplace(value.value, types_->typeIdOf(expression));
         block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
                                                    .result = value,
                                                    .expressionKind = expression.kind,
@@ -203,6 +206,7 @@ namespace NG::vnext::flowir
         case hir::StatementKind::Let:
         {
           const ValueId initializer = lowerExpression(*statement.expression);
+          if (types_ != nullptr) function_.localTypes.emplace(statement.local->value, types_->localTypeIds.at(statement.local->value));
           const ValueId binding{nextValue_++};
           block().instructions.push_back(Instruction{.kind = InstructionKind::BindLocal,
                                                      .result = binding,
@@ -215,6 +219,7 @@ namespace NG::vnext::flowir
         case hir::StatementKind::Assign:
         {
           const ValueId value = lowerExpression(*statement.expression);
+          if (types_ != nullptr) function_.localTypes.emplace(statement.local->value, types_->localTypeIds.at(statement.local->value));
           const ValueId binding{nextValue_++};
           block().instructions.push_back(Instruction{.kind = InstructionKind::BindLocal,
                                                      .result = binding,
@@ -329,13 +334,19 @@ namespace NG::vnext::flowir
       BlockId current_{};
       uint32_t nextValue_{};
       uint32_t nextSyntheticLocal_{};
+      const typecheck::TypeCheckResult *types_{};
       std::unordered_map<uint32_t, BlockId> loopHeaders_;
     };
   } // namespace
 
   auto Lowerer::lower(const hir::Function &function) -> Function
   {
-    return FunctionLowerer{}.lower(function);
+    return FunctionLowerer{nullptr}.lower(function);
+  }
+
+  auto Lowerer::lower(const hir::Function &function, const typecheck::TypeCheckResult &types) -> Function
+  {
+    return FunctionLowerer{&types}.lower(function);
   }
 
   void Verifier::verify(const Function &function) const

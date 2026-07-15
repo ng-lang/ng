@@ -67,13 +67,13 @@ namespace NG::vnext
       {
         const auto unit = syntax::parseSourceUnit(source);
         const auto resolved = hir::Resolver{}.resolve(unit);
-        static_cast<void>(typecheck::TypeChecker{}.check(resolved));
+        const auto typed = typecheck::TypeChecker{}.check(resolved);
 
         std::vector<flowir::Function> flows;
         flows.reserve(resolved.functions.size());
         for (const auto &function : resolved.functions)
         {
-          flows.push_back(flowir::Lowerer{}.lower(function));
+          flows.push_back(flowir::Lowerer{}.lower(function, typed));
           flowir::Verifier{}.verify(flows.back());
         }
         const auto artifact = bytecode::ModuleCompiler{}.compile(flows);

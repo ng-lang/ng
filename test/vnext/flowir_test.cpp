@@ -16,8 +16,8 @@ namespace
   {
     const auto syntaxUnit = syntax::parseSourceUnit(source);
     const auto module = hir::Resolver{}.resolve(syntaxUnit);
-    static_cast<void>(typecheck::TypeChecker{}.check(module));
-    return flowir::Lowerer{}.lower(module.functions.front());
+    const auto typed = typecheck::TypeChecker{}.check(module);
+    return flowir::Lowerer{}.lower(module.functions.front(), typed);
   }
 
   [[nodiscard]] auto countTerminators(const flowir::Function &function, flowir::TerminatorKind kind) -> size_t
@@ -33,6 +33,19 @@ namespace
     return count;
   }
 } // namespace
+
+TEST_CASE("vNext FlowIR carries checked value type identities", "[vNext][FlowIR]")
+{
+  const auto function = lower("fun entry(value: i64) -> i64 { let total = value + 1; return total; }");
+  REQUIRE(function.valueTypes.size() == 4);
+  REQUIRE(function.localTypes.size() == 1);
+  REQUIRE(function.localTypes.begin()->second == typecheck::builtin::I64);
+  for (const auto &[value, type] : function.valueTypes)
+  {
+    static_cast<void>(value);
+    REQUIRE(type == typecheck::builtin::I64);
+  }
+}
 
 TEST_CASE("vNext FlowIR lowers loop next to a backedge with simultaneous arguments", "[vNext][FlowIR]")
 {
