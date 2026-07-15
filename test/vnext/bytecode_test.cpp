@@ -110,6 +110,10 @@ TEST_CASE("vNext bytecode verifier enforces typed register and local contracts",
 
   function.valueTypes.erase(0);
   REQUIRE_THROWS_WITH(bytecode::Verifier{}.verify(function), "bytecode value is missing type metadata");
+
+  function = bytecode::Compiler{}.compile(flowir::Lowerer{}.lower(hirModule.functions.front(), typed));
+  function.valueTypes.at(0) = typecheck::builtin::Bool;
+  REQUIRE_THROWS_WITH(bytecode::Verifier{}.verify(function), "bytecode operation result type mismatch");
 }
 
 TEST_CASE("vNext bytecode verifier rejects malformed branch contracts", "[vNext][Bytecode]")

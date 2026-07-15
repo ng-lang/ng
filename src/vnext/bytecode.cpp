@@ -222,12 +222,61 @@ namespace NG::vnext::bytecode
         {
           static_cast<void>(requireValueType(instruction.operands[0]));
           const auto kind = static_cast<hir::ExpressionKind>(instruction.operands[1]);
-          if (kind == hir::ExpressionKind::ResolvedName)
+          const auto resultType = requireValueType(instruction.operands[0]);
+          const auto requireOperandType = [&instruction, &requireValueType](size_t index, typecheck::TypeId expected) {
+            if (requireValueType(instruction.operands.at(5 + index)) != expected)
+              throw BytecodeError("bytecode operation operand type mismatch");
+          };
+          const auto requireResultType = [resultType](typecheck::TypeId expected) {
+            if (resultType != expected) throw BytecodeError("bytecode operation result type mismatch");
+          };
+          if (kind == hir::ExpressionKind::IntegerLiteral) requireResultType(typecheck::builtin::I64);
+          else if (kind == hir::ExpressionKind::BooleanLiteral) requireResultType(typecheck::builtin::Bool);
+          else if (kind == hir::ExpressionKind::ResolvedName)
           {
             const uint32_t local = instruction.operands[2];
             if (!function.localTypes.contains(local)) throw BytecodeError("bytecode local is missing type metadata");
-            if (requireValueType(instruction.operands[0]) != function.localTypes.at(local))
-              throw BytecodeError("bytecode local read type does not match result type");
+            if (resultType != function.localTypes.at(local)) throw BytecodeError("bytecode local read type does not match result type");
+          }
+          else if (kind == hir::ExpressionKind::Grouped)
+          {
+            if (resultType != requireValueType(instruction.operands.at(5)))
+              throw BytecodeError("bytecode operation result type mismatch");
+          }
+          else if (kind == hir::ExpressionKind::Prefix)
+          {
+            const uint64_t payload = static_cast<uint64_t>(instruction.operands[2]) | (static_cast<uint64_t>(instruction.operands[3]) << 32);
+            const auto expected = payload == 1 ? typecheck::builtin::Bool : typecheck::builtin::I64;
+            requireOperandType(0, expected);
+            requireResultType(expected);
+          }
+          else if (kind == hir::ExpressionKind::Binary)
+          {
+            const uint64_t payload = static_cast<uint64_t>(instruction.operands[2]) | (static_cast<uint64_t>(instruction.operands[3]) << 32);
+            if (payload >= 1 && payload <= 5 || payload >= 14 && payload <= 18)
+            {
+              requireOperandType(0, typecheck::builtin::I64);
+              requireOperandType(1, typecheck::builtin::I64);
+              requireResultType(typecheck::builtin::I64);
+            }
+            else if (payload >= 8 && payload <= 11)
+            {
+              requireOperandType(0, typecheck::builtin::I64);
+              requireOperandType(1, typecheck::builtin::I64);
+              requireResultType(typecheck::builtin::Bool);
+            }
+            else if (payload == 12 || payload == 13)
+            {
+              requireOperandType(0, typecheck::builtin::Bool);
+              requireOperandType(1, typecheck::builtin::Bool);
+              requireResultType(typecheck::builtin::Bool);
+            }
+            else if (payload == 6 || payload == 7)
+            {
+              if (requireValueType(instruction.operands.at(5)) != requireValueType(instruction.operands.at(6)))
+                throw BytecodeError("bytecode equality operand type mismatch");
+              requireResultType(typecheck::builtin::Bool);
+            }
           }
         }
         else if (instruction.opcode == Opcode::BindLocal)
