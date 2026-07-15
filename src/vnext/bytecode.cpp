@@ -212,6 +212,40 @@ namespace NG::vnext::bytecode
     }
     for (const auto &instruction : instructions)
     {
+      if (!function.valueTypes.empty())
+      {
+        const auto requireValueType = [&function](uint32_t value) -> typecheck::TypeId {
+          if (const auto type = function.valueTypes.find(value); type != function.valueTypes.end()) return type->second;
+          throw BytecodeError("bytecode value is missing type metadata");
+        };
+        if (instruction.opcode == Opcode::Evaluate)
+        {
+          static_cast<void>(requireValueType(instruction.operands[0]));
+          const auto kind = static_cast<hir::ExpressionKind>(instruction.operands[1]);
+          if (kind == hir::ExpressionKind::ResolvedName)
+          {
+            const uint32_t local = instruction.operands[2];
+            if (!function.localTypes.contains(local)) throw BytecodeError("bytecode local is missing type metadata");
+            if (requireValueType(instruction.operands[0]) != function.localTypes.at(local))
+              throw BytecodeError("bytecode local read type does not match result type");
+          }
+        }
+        else if (instruction.opcode == Opcode::BindLocal)
+        {
+          const uint32_t result = instruction.operands[0];
+          const uint32_t local = instruction.operands[1];
+          const uint32_t source = instruction.operands[2];
+          if (!function.localTypes.contains(local)) throw BytecodeError("bytecode local is missing type metadata");
+          if (requireValueType(result) != function.localTypes.at(local) ||
+              requireValueType(source) != function.localTypes.at(local))
+            throw BytecodeError("bytecode local binding type mismatch");
+        }
+        else if (instruction.opcode == Opcode::Branch)
+        {
+          if (requireValueType(instruction.operands[0]) != typecheck::builtin::Bool)
+            throw BytecodeError("bytecode branch condition is not bool");
+        }
+      }
       const auto targetAndCount = [&function, &instruction](bool hasTarget) {
         const uint32_t target = instruction.operands[0];
         if (target >= function.blockParameterCounts.size())

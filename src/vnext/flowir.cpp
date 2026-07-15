@@ -22,6 +22,7 @@ namespace NG::vnext::flowir
         for (const auto &parameter : source.parameters)
         {
           function_.parameterLocals.push_back(parameter.local);
+          if (types_ != nullptr) function_.localTypes.emplace(parameter.local.value, types_->localTypeIds.at(parameter.local.value));
         }
         function_.entry = appendBlock();
         current_ = function_.entry;
@@ -128,6 +129,7 @@ namespace NG::vnext::flowir
         auto &join = function_.blocks[joinBlock.value];
         join.parameterCount = 1;
         join.parameterLocals = {resultLocal};
+        if (types_ != nullptr) function_.localTypes.emplace(resultLocal.value, types_->typeIdOf(expression));
 
         const bool isAnd = expression.text == "&&";
         block().terminator = Terminator{.kind = TerminatorKind::Branch,
@@ -147,6 +149,7 @@ namespace NG::vnext::flowir
 
         current_ = joinBlock;
         const ValueId result{nextValue_++};
+        if (types_ != nullptr) function_.valueTypes.emplace(result.value, types_->typeIdOf(expression));
         block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
                                                    .result = result,
                                                    .expressionKind = hir::ExpressionKind::ResolvedName,
@@ -298,6 +301,11 @@ namespace NG::vnext::flowir
         block().terminator = Terminator{.kind = TerminatorKind::Jump, .targets = {header}, .arguments = std::move(initializers)};
         function_.blocks[header.value].parameterCount = statement.loopBindings.size();
         function_.blocks[header.value].parameterLocals = statement.loopBindings;
+        if (types_ != nullptr)
+        {
+          for (const auto local : statement.loopBindings)
+            function_.localTypes.emplace(local.value, types_->localTypeIds.at(local.value));
+        }
         function_.blocks[header.value].terminator = Terminator{.kind = TerminatorKind::Jump, .targets = {body}, .arguments = {}};
 
         loopHeaders_.emplace(statement.loop->value, header);

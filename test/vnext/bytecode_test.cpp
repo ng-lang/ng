@@ -100,6 +100,18 @@ TEST_CASE("vNext bytecode artifacts reject malformed framing", "[vNext][Bytecode
                       "unsupported bytecode artifact version");
 }
 
+TEST_CASE("vNext bytecode verifier enforces typed register and local contracts", "[vNext][Bytecode]")
+{
+  const auto syntaxUnit = syntax::parseSourceUnit("fun entry(flag: bool) -> i64 { let value = 1; if flag { return value; } return 0; }");
+  const auto hirModule = hir::Resolver{}.resolve(syntaxUnit);
+  const auto typed = typecheck::TypeChecker{}.check(hirModule);
+  auto function = bytecode::Compiler{}.compile(flowir::Lowerer{}.lower(hirModule.functions.front(), typed));
+  REQUIRE_NOTHROW(bytecode::Verifier{}.verify(function));
+
+  function.valueTypes.erase(0);
+  REQUIRE_THROWS_WITH(bytecode::Verifier{}.verify(function), "bytecode value is missing type metadata");
+}
+
 TEST_CASE("vNext bytecode verifier rejects malformed branch contracts", "[vNext][Bytecode]")
 {
   bytecode::Function malformed{.code = {static_cast<uint8_t>(bytecode::Opcode::Jump), 1, 0, 0, 0, 0, 0, 0, 0},
