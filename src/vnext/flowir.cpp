@@ -208,6 +208,7 @@ namespace NG::vnext::flowir
           const ValueId initializer = lowerExpression(*statement.expression);
           if (types_ != nullptr) function_.localTypes.emplace(statement.local->value, types_->localTypeIds.at(statement.local->value));
           const ValueId binding{nextValue_++};
+          if (types_ != nullptr) function_.valueTypes.emplace(binding.value, types_->typeIdOf(*statement.expression));
           block().instructions.push_back(Instruction{.kind = InstructionKind::BindLocal,
                                                      .result = binding,
                                                      .local = statement.local,
@@ -221,6 +222,7 @@ namespace NG::vnext::flowir
           const ValueId value = lowerExpression(*statement.expression);
           if (types_ != nullptr) function_.localTypes.emplace(statement.local->value, types_->localTypeIds.at(statement.local->value));
           const ValueId binding{nextValue_++};
+          if (types_ != nullptr) function_.valueTypes.emplace(binding.value, types_->typeIdOf(*statement.expression));
           block().instructions.push_back(Instruction{.kind = InstructionKind::BindLocal,
                                                      .result = binding,
                                                      .local = statement.local,

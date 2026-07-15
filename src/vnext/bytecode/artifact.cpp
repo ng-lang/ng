@@ -47,6 +47,33 @@ namespace NG::vnext::bytecode
       return values;
     }
 
+    void appendTypeMap(std::vector<uint8_t> &output, const std::unordered_map<uint32_t, typecheck::TypeId> &types)
+    {
+      std::vector<std::pair<uint32_t, typecheck::TypeId>> sorted{types.begin(), types.end()};
+      std::sort(sorted.begin(), sorted.end(), [](const auto &left, const auto &right) { return left.first < right.first; });
+      appendU32(output, narrowSize(sorted.size()));
+      for (const auto &[id, type] : sorted)
+      {
+        appendU32(output, id);
+        appendU32(output, type.value);
+      }
+    }
+
+    [[nodiscard]] auto readTypeMap(const std::vector<uint8_t> &input, size_t &offset)
+        -> std::unordered_map<uint32_t, typecheck::TypeId>
+    {
+      const uint32_t count = readU32(input, offset);
+      if (count > (input.size() - offset) / 8) throw BytecodeError("truncated bytecode artifact");
+      std::unordered_map<uint32_t, typecheck::TypeId> types;
+      for (uint32_t index = 0; index < count; ++index)
+      {
+        const uint32_t id = readU32(input, offset);
+        if (!types.emplace(id, typecheck::TypeId{readU32(input, offset)}).second)
+          throw BytecodeError("duplicate bytecode artifact type metadata");
+      }
+      return types;
+    }
+
     void appendFunction(std::vector<uint8_t> &output, const Function &function)
     {
       appendU32(output, function.source.value);
@@ -57,6 +84,8 @@ namespace NG::vnext::bytecode
       appendU32(output, narrowSize(function.blockParameterLocals.size()));
       for (const auto &locals : function.blockParameterLocals) appendU32Vector(output, locals);
       appendU32Vector(output, function.blockOffsets);
+      appendTypeMap(output, function.valueTypes);
+      appendTypeMap(output, function.localTypes);
     }
 
     [[nodiscard]] auto readFunction(const std::vector<uint8_t> &input, size_t &offset) -> Function
@@ -73,6 +102,8 @@ namespace NG::vnext::bytecode
       function.blockParameterLocals.reserve(blockLocalCount);
       for (uint32_t index = 0; index < blockLocalCount; ++index) function.blockParameterLocals.push_back(readU32Vector(input, offset));
       function.blockOffsets = readU32Vector(input, offset);
+      function.valueTypes = readTypeMap(input, offset);
+      function.localTypes = readTypeMap(input, offset);
       Verifier{}.verify(function);
       return function;
     }

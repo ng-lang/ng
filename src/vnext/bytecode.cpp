@@ -67,6 +67,8 @@ namespace NG::vnext::bytecode
   auto Compiler::compile(const flowir::Function &flow) const -> Function
   {
     Function result{.source = flow.source};
+    result.valueTypes = flow.valueTypes;
+    result.localTypes = flow.localTypes;
     for (const auto local : flow.parameterLocals) result.parameterLocals.push_back(local.value);
     result.blockParameterCounts.reserve(flow.blocks.size());
     result.blockParameterLocals.reserve(flow.blocks.size());

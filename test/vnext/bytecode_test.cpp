@@ -78,15 +78,17 @@ TEST_CASE("vNext bytecode artifacts round-trip verified modules", "[vNext][Bytec
   const auto syntaxUnit = syntax::parseSourceUnit(
       "fun helper(value: i64) -> i64 { return value + 1; } fun main() -> i64 { return helper(41); }");
   const auto hirModule = hir::Resolver{}.resolve(syntaxUnit);
-  static_cast<void>(typecheck::TypeChecker{}.check(hirModule));
+  const auto typed = typecheck::TypeChecker{}.check(hirModule);
   std::vector<flowir::Function> flows;
-  for (const auto &function : hirModule.functions) flows.push_back(flowir::Lowerer{}.lower(function));
+  for (const auto &function : hirModule.functions) flows.push_back(flowir::Lowerer{}.lower(function, typed));
   const auto module = bytecode::ModuleCompiler{}.compile(flows);
   const auto artifact = bytecode::ArtifactCodec{}.serialize(module);
   const auto restored = bytecode::ArtifactCodec{}.deserialize(artifact);
   REQUIRE(restored.functions.size() == 2);
   REQUIRE(restored.functions[0].code == module.functions[0].code);
   REQUIRE(restored.functions[1].code == module.functions[1].code);
+  REQUIRE(restored.functions[1].valueTypes == module.functions[1].valueTypes);
+  REQUIRE(restored.functions[1].localTypes == module.functions[1].localTypes);
   REQUIRE(vm::VM{}.run(restored, hir::DefId{1}).returnValue == 42);
 }
 

@@ -37,7 +37,7 @@ namespace
 TEST_CASE("vNext FlowIR carries checked value type identities", "[vNext][FlowIR]")
 {
   const auto function = lower("fun entry(value: i64) -> i64 { let total = value + 1; return total; }");
-  REQUIRE(function.valueTypes.size() == 4);
+  REQUIRE(function.valueTypes.size() == 5);
   REQUIRE(function.localTypes.size() == 1);
   REQUIRE(function.localTypes.begin()->second == typecheck::builtin::I64);
   for (const auto &[value, type] : function.valueTypes)

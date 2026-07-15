@@ -53,6 +53,8 @@ namespace NG::vnext::bytecode
     std::vector<uint32_t> blockParameterCounts;
     std::vector<std::vector<uint32_t>> blockParameterLocals;
     std::vector<uint32_t> blockOffsets;
+    std::unordered_map<uint32_t, typecheck::TypeId> valueTypes;
+    std::unordered_map<uint32_t, typecheck::TypeId> localTypes;
   };
 
   struct Module
