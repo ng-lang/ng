@@ -106,7 +106,9 @@ namespace NG::vnext
                  << result.executedInstructions << " instruction(s)";
           if (result.returnValue.has_value())
           {
-            output << " with value " << *result.returnValue;
+            output << " with value ";
+            if (result.returnValue->isInteger()) output << result.returnValue->asInteger();
+            else output << result.returnValue->asString();
           }
           output << '\n';
         }

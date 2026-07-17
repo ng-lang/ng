@@ -2,6 +2,7 @@
 #pragma once
 
 #include "vnext/bytecode.hpp"
+#include "vnext/value.hpp"
 #include <cstddef>
 #include <optional>
 #include <cstdint>
@@ -20,7 +21,7 @@ namespace NG::vnext::vm
     HaltReason reason;
     size_t executedInstructions;
     size_t tailRecursions;
-    std::optional<int64_t> returnValue;
+    std::optional<Value> returnValue;
   };
 
   /// Minimal frame-local vNext VM control core. Value execution is introduced

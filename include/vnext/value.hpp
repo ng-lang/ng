@@ -14,6 +14,7 @@ namespace NG::vnext
   class Value final
   {
   public:
+    Value() : storage_(int64_t{}) {}
     Value(int64_t integer) : storage_(integer) {}
     Value(std::string string) : storage_(std::move(string)) {}
 

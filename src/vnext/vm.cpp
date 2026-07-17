@@ -39,8 +39,8 @@ namespace NG::vnext::vm
     size_t programCounter = blockInstruction(0);
     size_t executed{};
     size_t tailRecursions{};
-    std::vector<int64_t> values;
-    std::unordered_map<uint32_t, int64_t> locals;
+    std::vector<Value> values;
+    std::unordered_map<uint32_t, Value> locals;
     for (size_t index = 0; index < arguments.size(); ++index)
     {
       locals.emplace(function.parameterLocals[index], arguments[index]);
@@ -80,7 +80,7 @@ namespace NG::vnext::vm
       }
       case bytecode::Opcode::Return:
       {
-        std::optional<int64_t> result;
+        std::optional<Value> result;
         if (instruction.operands[0] == 1)
         {
           result = values.at(instruction.operands[1]);
@@ -127,8 +127,8 @@ namespace NG::vnext::vm
     {
       size_t functionIndex;
       size_t programCounter;
-      std::vector<int64_t> values;
-      std::unordered_map<uint32_t, int64_t> locals;
+      std::vector<Value> values;
+      std::unordered_map<uint32_t, Value> locals;
       std::optional<uint32_t> callerDestination;
     };
 
@@ -187,13 +187,14 @@ namespace NG::vnext::vm
       if (instruction.opcode == bytecode::Opcode::Call)
       {
         std::vector<int64_t> callArguments;
-        for (size_t index = 0; index < instruction.operands[2]; ++index) callArguments.push_back(frame.values.at(instruction.operands[3 + index]));
+        for (size_t index = 0; index < instruction.operands[2]; ++index)
+          callArguments.push_back(frame.values.at(instruction.operands[3 + index]).asInteger());
         frames.push_back(makeFrame(instruction.operands[1], callArguments, instruction.operands[0]));
         continue;
       }
       if (instruction.opcode == bytecode::Opcode::Return)
       {
-        std::optional<int64_t> value;
+        std::optional<Value> value;
         if (instruction.operands[0] == 1) value = frame.values.at(instruction.operands[1]);
         const auto destination = frame.callerDestination;
         frames.pop_back();

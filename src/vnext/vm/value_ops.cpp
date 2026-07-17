@@ -35,8 +35,8 @@ namespace NG::vnext::vm::detail
     }
   } // namespace
 
-  void evaluateInstruction(const bytecode::DecodedInstruction &instruction, std::vector<int64_t> &values,
-                           const std::unordered_map<uint32_t, int64_t> &locals)
+  void evaluateInstruction(const bytecode::DecodedInstruction &instruction, std::vector<Value> &values,
+                           const std::unordered_map<uint32_t, Value> &locals)
   {
     const uint32_t result = instruction.operands[0];
     if (values.size() <= result) values.resize(result + 1);
@@ -60,7 +60,7 @@ namespace NG::vnext::vm::detail
     }
     if (kind == hir::ExpressionKind::Prefix)
     {
-      const int64_t operand = values.at(instruction.operands[5]);
+      const int64_t operand = values.at(instruction.operands[5]).asInteger();
       switch (payload)
       {
       case 1: values[result] = operand == 0; return;
@@ -77,8 +77,8 @@ namespace NG::vnext::vm::detail
       throw bytecode::BytecodeError("unsupported expression evaluation");
     }
 
-    const int64_t left = values.at(instruction.operands[5]);
-    const int64_t right = values.at(instruction.operands[6]);
+    const int64_t left = values.at(instruction.operands[5]).asInteger();
+    const int64_t right = values.at(instruction.operands[6]).asInteger();
     switch (payload)
     {
     case 1: values[result] = checkedAdd(left, right); return;
