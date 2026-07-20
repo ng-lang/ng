@@ -63,6 +63,12 @@ TEST_CASE("vNext VM executes mutable local assignment", "[vNext][VM]")
   REQUIRE(vm::VM{}.run(function).returnValue == 42);
 }
 
+TEST_CASE("vNext VM executes typed string constants and concatenation", "[vNext][VM]")
+{
+  const auto function = compile("fun greeting() -> string { return \"hello\" + \" world\"; }");
+  REQUIRE(vm::VM{}.run(function).returnValue == NG::vnext::Value::string("hello world"));
+}
+
 TEST_CASE("vNext VM executes prefix and logical boolean operations", "[vNext][VM]")
 {
   const auto function = compile("fun main() -> i64 { if !(1 > 2) && (2 < 3) { return -42; } else { return 0; } }");

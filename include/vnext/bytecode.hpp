@@ -49,6 +49,7 @@ namespace NG::vnext::bytecode
   {
     hir::DefId source;
     std::vector<uint8_t> code;
+    std::vector<std::string> stringConstants;
     std::vector<uint32_t> parameterLocals;
     std::vector<uint32_t> blockParameterCounts;
     std::vector<std::vector<uint32_t>> blockParameterLocals;

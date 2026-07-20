@@ -35,8 +35,8 @@ namespace NG::vnext::vm::detail
     }
   } // namespace
 
-  void evaluateInstruction(const bytecode::DecodedInstruction &instruction, std::vector<Value> &values,
-                           const std::unordered_map<uint32_t, Value> &locals)
+  void evaluateInstruction(const bytecode::DecodedInstruction &instruction, const std::vector<std::string> &stringConstants,
+                           std::vector<Value> &values, const std::unordered_map<uint32_t, Value> &locals)
   {
     const uint32_t result = instruction.operands[0];
     if (values.size() <= result) values.resize(result + 1);
@@ -46,6 +46,12 @@ namespace NG::vnext::vm::detail
     if (kind == hir::ExpressionKind::IntegerLiteral || kind == hir::ExpressionKind::BooleanLiteral)
     {
       values[result] = static_cast<int64_t>(payload);
+      return;
+    }
+    if (kind == hir::ExpressionKind::StringLiteral)
+    {
+      if (payload >= stringConstants.size()) throw bytecode::BytecodeError("string constant index is out of range");
+      values[result] = Value::string(stringConstants.at(payload));
       return;
     }
     if (kind == hir::ExpressionKind::ResolvedName)
@@ -77,6 +83,15 @@ namespace NG::vnext::vm::detail
       throw bytecode::BytecodeError("unsupported expression evaluation");
     }
 
+    if ((payload == 1 || payload == 6 || payload == 7) && values.at(instruction.operands[5]).isString())
+    {
+      const auto &left = values.at(instruction.operands[5]).asString();
+      const auto &right = values.at(instruction.operands[6]).asString();
+      if (payload == 1) values[result] = Value::string(left + right);
+      else if (payload == 6) values[result] = left == right;
+      else values[result] = left != right;
+      return;
+    }
     const int64_t left = values.at(instruction.operands[5]).asInteger();
     const int64_t right = values.at(instruction.operands[6]).asInteger();
     switch (payload)

@@ -92,7 +92,21 @@ namespace NG::vnext::bytecode
           }
           else
           {
-            const uint64_t payload = static_cast<uint64_t>(instruction.payload);
+            int64_t encodedPayload = instruction.payload;
+            if (instruction.expressionKind == hir::ExpressionKind::StringLiteral)
+            {
+              const auto existing = std::find(result.stringConstants.begin(), result.stringConstants.end(), instruction.text);
+              if (existing == result.stringConstants.end())
+              {
+                result.stringConstants.push_back(instruction.text);
+                encodedPayload = static_cast<int64_t>(result.stringConstants.size() - 1);
+              }
+              else
+              {
+                encodedPayload = static_cast<int64_t>(std::distance(result.stringConstants.begin(), existing));
+              }
+            }
+            const uint64_t payload = static_cast<uint64_t>(encodedPayload);
             std::vector<uint32_t> operands{instruction.result.value, static_cast<uint32_t>(instruction.expressionKind),
                                            static_cast<uint32_t>(payload), static_cast<uint32_t>(payload >> 32),
                                            static_cast<uint32_t>(instruction.operands.size())};
@@ -231,6 +245,7 @@ namespace NG::vnext::bytecode
             if (resultType != expected) throw BytecodeError("bytecode operation result type mismatch");
           };
           if (kind == hir::ExpressionKind::IntegerLiteral) requireResultType(typecheck::builtin::I64);
+          else if (kind == hir::ExpressionKind::StringLiteral) requireResultType(typecheck::builtin::String);
           else if (kind == hir::ExpressionKind::BooleanLiteral) requireResultType(typecheck::builtin::Bool);
           else if (kind == hir::ExpressionKind::ResolvedName)
           {
@@ -253,7 +268,12 @@ namespace NG::vnext::bytecode
           else if (kind == hir::ExpressionKind::Binary)
           {
             const uint64_t payload = static_cast<uint64_t>(instruction.operands[2]) | (static_cast<uint64_t>(instruction.operands[3]) << 32);
-            if (payload >= 1 && payload <= 5 || payload >= 14 && payload <= 18)
+            if (payload == 1 && requireValueType(instruction.operands.at(5)) == typecheck::builtin::String)
+            {
+              requireOperandType(1, typecheck::builtin::String);
+              requireResultType(typecheck::builtin::String);
+            }
+            else if ((payload >= 1 && payload <= 5) || (payload >= 14 && payload <= 18))
             {
               requireOperandType(0, typecheck::builtin::I64);
               requireOperandType(1, typecheck::builtin::I64);

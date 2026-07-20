@@ -37,6 +37,7 @@ namespace NG::vnext::flowir
     std::optional<hir::LocalId> local;
     std::optional<ValueId> source;
     hir::ExpressionKind expressionKind;
+    std::string text;
     int64_t payload{};
     std::optional<hir::DefId> callTarget;
     std::vector<ValueId> operands;

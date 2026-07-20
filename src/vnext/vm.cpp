@@ -64,7 +64,7 @@ namespace NG::vnext::vm
       switch (instruction.opcode)
       {
       case bytecode::Opcode::Evaluate:
-        detail::evaluateInstruction(instruction, values, locals);
+        detail::evaluateInstruction(instruction, function.stringConstants, values, locals);
         break;
       case bytecode::Opcode::Call:
         throw bytecode::BytecodeError("direct calls require a bytecode module");
@@ -173,7 +173,7 @@ namespace NG::vnext::vm
 
       if (instruction.opcode == bytecode::Opcode::Evaluate)
       {
-        detail::evaluateInstruction(instruction, frame.values, frame.locals);
+        detail::evaluateInstruction(instruction, function.stringConstants, frame.values, frame.locals);
         continue;
       }
       if (instruction.opcode == bytecode::Opcode::BindLocal)

@@ -113,6 +113,7 @@ namespace NG::vnext::flowir
         block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
                                                    .result = value,
                                                    .expressionKind = expression.kind,
+                                                   .text = expression.text,
                                                    .payload = payload,
                                                    .callTarget = callTarget,
                                                    .operands = std::move(operands)});
