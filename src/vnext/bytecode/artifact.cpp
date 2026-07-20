@@ -31,6 +31,32 @@ namespace NG::vnext::bytecode
       return static_cast<uint32_t>(value);
     }
 
+    void appendStringVector(std::vector<uint8_t> &output, const std::vector<std::string> &values)
+    {
+      appendU32(output, narrowSize(values.size()));
+      for (const auto &value : values)
+      {
+        appendU32(output, narrowSize(value.size()));
+        output.insert(output.end(), value.begin(), value.end());
+      }
+    }
+
+    [[nodiscard]] auto readStringVector(const std::vector<uint8_t> &input, size_t &offset) -> std::vector<std::string>
+    {
+      const uint32_t count = readU32(input, offset);
+      std::vector<std::string> values;
+      values.reserve(count);
+      for (uint32_t index = 0; index < count; ++index)
+      {
+        const uint32_t size = readU32(input, offset);
+        if (size > input.size() - offset) throw BytecodeError("truncated bytecode artifact");
+        values.emplace_back(input.begin() + static_cast<std::ptrdiff_t>(offset),
+                            input.begin() + static_cast<std::ptrdiff_t>(offset + size));
+        offset += size;
+      }
+      return values;
+    }
+
     void appendU32Vector(std::vector<uint8_t> &output, const std::vector<uint32_t> &values)
     {
       appendU32(output, narrowSize(values.size()));
@@ -79,6 +105,7 @@ namespace NG::vnext::bytecode
       appendU32(output, function.source.value);
       appendU32(output, narrowSize(function.code.size()));
       output.insert(output.end(), function.code.begin(), function.code.end());
+      appendStringVector(output, function.stringConstants);
       appendU32Vector(output, function.parameterLocals);
       appendU32Vector(output, function.blockParameterCounts);
       appendU32(output, narrowSize(function.blockParameterLocals.size()));
@@ -96,6 +123,7 @@ namespace NG::vnext::bytecode
       function.code.insert(function.code.end(), input.begin() + static_cast<std::ptrdiff_t>(offset),
                            input.begin() + static_cast<std::ptrdiff_t>(offset + codeSize));
       offset += codeSize;
+      function.stringConstants = readStringVector(input, offset);
       function.parameterLocals = readU32Vector(input, offset);
       function.blockParameterCounts = readU32Vector(input, offset);
       const uint32_t blockLocalCount = readU32(input, offset);

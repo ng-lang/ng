@@ -92,6 +92,18 @@ TEST_CASE("vNext bytecode artifacts round-trip verified modules", "[vNext][Bytec
   REQUIRE(vm::VM{}.run(restored, hir::DefId{1}).returnValue == 42);
 }
 
+TEST_CASE("vNext bytecode artifacts preserve string constant pools", "[vNext][Bytecode]")
+{
+  const auto syntaxUnit = syntax::parseSourceUnit("fun greeting() -> string { return \"hello\" + \" world\"; }");
+  const auto hirModule = hir::Resolver{}.resolve(syntaxUnit);
+  const auto typed = typecheck::TypeChecker{}.check(hirModule);
+  const auto function = bytecode::Compiler{}.compile(flowir::Lowerer{}.lower(hirModule.functions.front(), typed));
+  const auto artifact = bytecode::ArtifactCodec{}.serialize(bytecode::Module{.functions = {function}});
+  const auto restored = bytecode::ArtifactCodec{}.deserialize(artifact);
+  REQUIRE(restored.functions.front().stringConstants == function.stringConstants);
+  REQUIRE(vm::VM{}.run(restored.functions.front()).returnValue == NG::vnext::Value::string("hello world"));
+}
+
 TEST_CASE("vNext bytecode artifacts reject malformed framing", "[vNext][Bytecode]")
 {
   REQUIRE_THROWS_WITH(bytecode::ArtifactCodec{}.deserialize({}), "invalid bytecode artifact magic");
