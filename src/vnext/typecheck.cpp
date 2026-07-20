@@ -172,7 +172,12 @@ namespace NG::vnext::typecheck
         case hir::ExpressionKind::IntegerLiteral: return "i64";
         case hir::ExpressionKind::StringLiteral: return "string";
         case hir::ExpressionKind::ArrayLiteral:
-          throw TypeError("array runtime support is not yet implemented", expression.span);
+        {
+          if (expression.operands.empty()) throw TypeError("cannot infer the type of an empty array literal", expression.span);
+          for (const auto &element : expression.operands)
+            requireType("i64", infer(*element, locals), element->span, "array element");
+          return "array_i64";
+        }
         case hir::ExpressionKind::BooleanLiteral: return "bool";
         case hir::ExpressionKind::ResolvedName:
           if (expression.resolvedName->kind == hir::ResolvedNameKind::Local)
@@ -242,12 +247,13 @@ namespace NG::vnext::typecheck
         if (type == "bool") return builtin::Bool;
         if (type == "unit") return builtin::Unit;
         if (type == "string") return builtin::String;
+        if (type == "array_i64") return builtin::ArrayI64;
         throw std::logic_error("typecheck attempted to materialize an unknown type id");
       }
 
       static void requireKnownType(const std::string &type, syntax::SourceSpan span)
       {
-        static const std::unordered_set<std::string> supportedTypes{"i64", "u8", "bool", "unit", "string"};
+        static const std::unordered_set<std::string> supportedTypes{"i64", "u8", "bool", "unit", "string", "array_i64"};
         if (!supportedTypes.contains(type))
         {
           throw TypeError(std::format("unknown type `{}`", type), span);

@@ -22,6 +22,7 @@ namespace NG::vnext::typecheck
     inline constexpr TypeId Bool{3};
     inline constexpr TypeId Unit{4};
     inline constexpr TypeId String{5};
+    inline constexpr TypeId ArrayI64{6};
   } // namespace builtin
 
   struct TypeError : std::runtime_error

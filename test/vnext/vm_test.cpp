@@ -63,6 +63,16 @@ TEST_CASE("vNext VM executes mutable local assignment", "[vNext][VM]")
   REQUIRE(vm::VM{}.run(function).returnValue == 42);
 }
 
+TEST_CASE("vNext VM materializes typed homogeneous i64 arrays", "[vNext][VM]")
+{
+  const auto function = compile("fun values() -> array_i64 { return [1, 2, 3]; }");
+  const auto result = vm::VM{}.run(function);
+  REQUIRE(result.returnValue->isArray());
+  REQUIRE(result.returnValue->asArray().size() == 3);
+  REQUIRE(result.returnValue->asArray()[0] == 1);
+  REQUIRE(result.returnValue->asArray()[2] == 3);
+}
+
 TEST_CASE("vNext VM passes string values through direct module calls", "[vNext][VM]")
 {
   const auto syntaxUnit = syntax::parseSourceUnit(

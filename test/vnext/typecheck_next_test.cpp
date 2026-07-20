@@ -117,9 +117,11 @@ TEST_CASE("vNext type checker rejects call arity and argument type mismatch", "[
   }
 }
 
-TEST_CASE("vNext type checker rejects arrays until aggregate descriptors land", "[vNext][Typecheck]")
+TEST_CASE("vNext type checker infers homogeneous i64 array literals", "[vNext][Typecheck]")
 {
-  REQUIRE_THROWS_WITH(check("fun invalid() { return [1, 2]; }"), "array runtime support is not yet implemented");
+  REQUIRE_NOTHROW(check("fun values() -> array_i64 { return [1, 2]; }"));
+  REQUIRE_THROWS_WITH(check("fun invalid() -> array_i64 { return [1, true]; }"),
+                      "array element type mismatch: expected i64, got bool");
 }
 
 TEST_CASE("vNext type checker accepts string literals and concatenation", "[vNext][Typecheck]")

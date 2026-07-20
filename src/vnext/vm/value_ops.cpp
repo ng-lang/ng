@@ -54,6 +54,14 @@ namespace NG::vnext::vm::detail
       values[result] = Value::string(stringConstants.at(payload));
       return;
     }
+    if (kind == hir::ExpressionKind::ArrayLiteral)
+    {
+      std::vector<Value> elements;
+      elements.reserve(instruction.operands[4]);
+      for (size_t index = 0; index < instruction.operands[4]; ++index) elements.push_back(values.at(instruction.operands[5 + index]));
+      values[result] = Value::array(std::move(elements));
+      return;
+    }
     if (kind == hir::ExpressionKind::ResolvedName)
     {
       values[result] = locals.at(static_cast<uint32_t>(payload));

@@ -246,6 +246,12 @@ namespace NG::vnext::bytecode
           };
           if (kind == hir::ExpressionKind::IntegerLiteral) requireResultType(typecheck::builtin::I64);
           else if (kind == hir::ExpressionKind::StringLiteral) requireResultType(typecheck::builtin::String);
+          else if (kind == hir::ExpressionKind::ArrayLiteral)
+          {
+            requireResultType(typecheck::builtin::ArrayI64);
+            for (size_t index = 0; index < instruction.operands.at(4); ++index)
+              requireOperandType(index, typecheck::builtin::I64);
+          }
           else if (kind == hir::ExpressionKind::BooleanLiteral) requireResultType(typecheck::builtin::Bool);
           else if (kind == hir::ExpressionKind::ResolvedName)
           {

@@ -3,8 +3,10 @@
 
 #include <cstdint>
 #include <stdexcept>
+#include <memory>
 #include <string>
 #include <utility>
+#include <vector>
 #include <variant>
 
 namespace NG::vnext
@@ -17,16 +19,24 @@ namespace NG::vnext
     Value() : storage_(int64_t{}) {}
     Value(int64_t integer) : storage_(integer) {}
     Value(std::string string) : storage_(std::move(string)) {}
+    Value(std::vector<Value> elements) : storage_(std::make_shared<std::vector<Value>>(std::move(elements))) {}
 
     [[nodiscard]] static auto integer(int64_t value) -> Value { return Value{value}; }
     [[nodiscard]] static auto string(std::string value) -> Value { return Value{std::move(value)}; }
+    [[nodiscard]] static auto array(std::vector<Value> elements) -> Value { return Value{std::move(elements)}; }
 
     [[nodiscard]] auto isInteger() const -> bool { return std::holds_alternative<int64_t>(storage_); }
     [[nodiscard]] auto isString() const -> bool { return std::holds_alternative<std::string>(storage_); }
+    [[nodiscard]] auto isArray() const -> bool { return std::holds_alternative<std::shared_ptr<std::vector<Value>>>(storage_); }
     [[nodiscard]] auto asInteger() const -> int64_t
     {
       if (!isInteger()) throw std::runtime_error("runtime value is not an i64");
       return std::get<int64_t>(storage_);
+    }
+    [[nodiscard]] auto asArray() const -> const std::vector<Value> &
+    {
+      if (!isArray()) throw std::runtime_error("runtime value is not an array");
+      return *std::get<std::shared_ptr<std::vector<Value>>>(storage_);
     }
     [[nodiscard]] auto asString() const -> const std::string &
     {
@@ -39,6 +49,6 @@ namespace NG::vnext
     friend auto operator==(int64_t integer, const Value &value) -> bool { return value == integer; }
 
   private:
-    std::variant<int64_t, std::string> storage_;
+    std::variant<int64_t, std::string, std::shared_ptr<std::vector<Value>>> storage_;
   };
 } // namespace NG::vnext
