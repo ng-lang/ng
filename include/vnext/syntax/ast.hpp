@@ -19,6 +19,7 @@ namespace NG::vnext::syntax
     Identifier,
     IntegerLiteral,
     StringLiteral,
+    ArrayLiteral,
     BooleanLiteral,
     Prefix,
     Grouped,
@@ -65,6 +66,16 @@ namespace NG::vnext::syntax
 
     StringLiteralExpression(std::string literalValue, SourceSpan sourceSpan)
       : Expression(ExpressionKind::StringLiteral, sourceSpan), value(std::move(literalValue))
+    {
+    }
+  };
+
+  struct ArrayLiteralExpression final : Expression
+  {
+    std::vector<ExpressionPtr> elements;
+
+    ArrayLiteralExpression(std::vector<ExpressionPtr> literalElements, SourceSpan sourceSpan)
+      : Expression(ExpressionKind::ArrayLiteral, sourceSpan), elements(std::move(literalElements))
     {
     }
   };

@@ -65,6 +65,26 @@ TEST_CASE("vNext expression parser preserves grouping spans and AST shape", "[vN
   REQUIRE(multiply.span.end == 11);
 }
 
+TEST_CASE("vNext expression parser constructs nested array literals", "[vNext][Syntax][Expression]")
+{
+  const auto expression = syntax::parseExpression("[1, [2, 3],]");
+  const auto *array = dynamic_cast<const syntax::ArrayLiteralExpression *>(expression.get());
+  REQUIRE(array != nullptr);
+  REQUIRE(array->elements.size() == 2);
+  REQUIRE(array->elements[0]->kind == syntax::ExpressionKind::IntegerLiteral);
+  const auto *nested = dynamic_cast<const syntax::ArrayLiteralExpression *>(array->elements[1].get());
+  REQUIRE(nested != nullptr);
+  REQUIRE(nested->elements.size() == 2);
+  REQUIRE(array->span.begin == 0);
+  REQUIRE(array->span.end == 12);
+}
+
+TEST_CASE("vNext expression parser diagnoses malformed array literals", "[vNext][Syntax][Expression]")
+{
+  REQUIRE_THROWS_WITH(syntax::parseExpression("[,1]"), "expected an expression before `,` in array literal");
+  REQUIRE_THROWS_WITH(syntax::parseExpression("[1"), "expected `]` after array literal");
+}
+
 TEST_CASE("vNext expression parser decodes string literal escapes with exact spans", "[vNext][Syntax][Expression]")
 {
   const auto expression = syntax::parseExpression("\"line\\n\\\"quote\\\"\\\\\"");

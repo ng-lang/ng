@@ -303,6 +303,26 @@ namespace NG::vnext::syntax
       return std::make_unique<BooleanLiteralExpression>(true, token.span);
     case TokenKind::KeywordFalse:
       return std::make_unique<BooleanLiteralExpression>(false, token.span);
+    case TokenKind::LeftSquare:
+    {
+      std::vector<ExpressionPtr> elements;
+      if (current().kind != TokenKind::RightSquare)
+      {
+        do
+        {
+          if (current().kind == TokenKind::Comma)
+            throw ParseError("expected an expression before `,` in array literal", current().span);
+          elements.push_back(parseExpression(0));
+          if (current().kind != TokenKind::Comma) break;
+          static_cast<void>(consume());
+          if (current().kind == TokenKind::RightSquare) break;
+        } while (true);
+      }
+      if (current().kind != TokenKind::RightSquare)
+        throw ParseError("expected `]` after array literal", current().span);
+      const Token close = consume();
+      return std::make_unique<ArrayLiteralExpression>(std::move(elements), SourceSpan{token.span.begin, close.span.end});
+    }
     case TokenKind::LeftParen:
     {
       auto expression = parseExpression(0);

@@ -117,6 +117,11 @@ TEST_CASE("vNext type checker rejects call arity and argument type mismatch", "[
   }
 }
 
+TEST_CASE("vNext type checker rejects arrays until aggregate descriptors land", "[vNext][Typecheck]")
+{
+  REQUIRE_THROWS_WITH(check("fun invalid() { return [1, 2]; }"), "array runtime support is not yet implemented");
+}
+
 TEST_CASE("vNext type checker accepts string literals and concatenation", "[vNext][Typecheck]")
 {
   REQUIRE_NOTHROW(check("fun greeting() -> string { return \"hello\" + \" world\"; }"));

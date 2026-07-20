@@ -171,6 +171,8 @@ namespace NG::vnext::typecheck
         {
         case hir::ExpressionKind::IntegerLiteral: return "i64";
         case hir::ExpressionKind::StringLiteral: return "string";
+        case hir::ExpressionKind::ArrayLiteral:
+          throw TypeError("array runtime support is not yet implemented", expression.span);
         case hir::ExpressionKind::BooleanLiteral: return "bool";
         case hir::ExpressionKind::ResolvedName:
           if (expression.resolvedName->kind == hir::ResolvedNameKind::Local)
