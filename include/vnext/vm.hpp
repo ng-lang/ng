@@ -35,5 +35,7 @@ namespace NG::vnext::vm
                            size_t fuel = 100000) const -> RunResult;
     [[nodiscard]] auto run(const bytecode::Module &module, hir::DefId entry, const std::vector<int64_t> &arguments = {},
                            size_t fuel = 100000) const -> RunResult;
+    [[nodiscard]] auto run(const bytecode::Module &module, hir::DefId entry, const std::vector<Value> &arguments,
+                           size_t fuel = 100000) const -> RunResult;
   };
 } // namespace NG::vnext::vm

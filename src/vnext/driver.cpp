@@ -41,13 +41,26 @@ namespace NG::vnext
       }
     }
 
-    [[nodiscard]] auto parseIntegerArguments(const std::vector<std::string_view> &arguments, std::vector<int64_t> &values,
+    [[nodiscard]] auto parseRuntimeArguments(const std::vector<std::string_view> &arguments,
+                                             const std::vector<hir::Parameter> &parameters, std::vector<Value> &values,
                                              std::ostream &errors) -> bool
     {
       values.clear();
       values.reserve(arguments.size());
-      for (const auto argument : arguments)
+      for (size_t index = 0; index < arguments.size(); ++index)
       {
+        const auto argument = arguments[index];
+        const auto &parameter = parameters[index];
+        if (parameter.typeName == "string")
+        {
+          values.push_back(Value::string(std::string{argument}));
+          continue;
+        }
+        if (parameter.typeName != "i64")
+        {
+          errors << "main parameter `" << parameter.name << "` must currently be i64 or string\n";
+          return false;
+        }
         int64_t value{};
         const auto [end, error] = std::from_chars(argument.data(), argument.data() + argument.size(), value);
         if (error != std::errc{} || end != argument.data() + argument.size())
@@ -55,7 +68,7 @@ namespace NG::vnext
           errors << "invalid i64 argument `" << argument << "`\n";
           return false;
         }
-        values.push_back(value);
+        values.push_back(Value::integer(value));
       }
       return true;
     }
@@ -85,21 +98,13 @@ namespace NG::vnext
         });
         if (main != resolved.functions.end())
         {
-          std::vector<int64_t> values;
-          if (!parseIntegerArguments(runtimeArguments, values, errors)) return 1;
-          if (values.size() != main->parameters.size())
+          std::vector<Value> values;
+          if (runtimeArguments.size() != main->parameters.size())
           {
-            errors << "main argument count mismatch: expected " << main->parameters.size() << ", got " << values.size() << '\n';
+            errors << "main argument count mismatch: expected " << main->parameters.size() << ", got " << runtimeArguments.size() << '\n';
             return 1;
           }
-          for (const auto &parameter : main->parameters)
-          {
-            if (parameter.typeName != "i64")
-            {
-              errors << "main parameter `" << parameter.name << "` must currently be i64\n";
-              return 1;
-            }
-          }
+          if (!parseRuntimeArguments(runtimeArguments, main->parameters, values, errors)) return 1;
           const auto result = vm::VM{}.run(artifact, main->id, values);
           output << "compiled " << verifiedFunctions << " vNext function(s); main "
                  << (result.reason == vm::HaltReason::Return ? "returned" : "exhausted fuel") << " after "

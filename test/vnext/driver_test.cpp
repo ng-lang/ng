@@ -44,6 +44,15 @@ TEST_CASE("vNext ngi driver passes typed i64 arguments to main", "[vNext][Driver
   REQUIRE(errors.empty());
 }
 
+TEST_CASE("vNext ngi driver passes string arguments and reports string returns", "[vNext][Driver]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(run({"--source", "fun main(name: string) -> string { return \"hello, \" + name; }", "--", "Ada"}, output, errors) == 0);
+  REQUIRE(output == "compiled 1 vNext function(s); main returned after 4 instruction(s) with value hello, Ada\n");
+  REQUIRE(errors.empty());
+}
+
 TEST_CASE("vNext ngi driver rejects malformed runtime arguments", "[vNext][Driver]")
 {
   std::string output;

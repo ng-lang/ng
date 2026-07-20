@@ -117,6 +117,15 @@ namespace NG::vnext::vm
   auto VM::run(const bytecode::Module &module, hir::DefId entry, const std::vector<int64_t> &arguments,
                size_t fuel) const -> RunResult
   {
+    std::vector<Value> values;
+    values.reserve(arguments.size());
+    for (const auto argument : arguments) values.push_back(Value::integer(argument));
+    return run(module, entry, values, fuel);
+  }
+
+  auto VM::run(const bytecode::Module &module, hir::DefId entry, const std::vector<Value> &arguments,
+               size_t fuel) const -> RunResult
+  {
     struct Prepared
     {
       const bytecode::Function *function;
@@ -154,11 +163,8 @@ namespace NG::vnext::vm
       return frame;
     };
 
-    std::vector<Value> entryArguments;
-    entryArguments.reserve(arguments.size());
-    for (const auto argument : arguments) entryArguments.push_back(Value::integer(argument));
     std::vector<Frame> frames;
-    frames.push_back(makeFrame(entry.value, entryArguments, std::nullopt));
+    frames.push_back(makeFrame(entry.value, arguments, std::nullopt));
     size_t executed{};
     size_t tailRecursions{};
     while (executed < fuel)
