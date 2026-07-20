@@ -63,6 +63,18 @@ TEST_CASE("vNext VM executes mutable local assignment", "[vNext][VM]")
   REQUIRE(vm::VM{}.run(function).returnValue == 42);
 }
 
+TEST_CASE("vNext VM passes string values through direct module calls", "[vNext][VM]")
+{
+  const auto syntaxUnit = syntax::parseSourceUnit(
+      "fun greeting() -> string { return \"hello\"; } fun main() -> string { return greeting() + \" world\"; }");
+  const auto hirModule = hir::Resolver{}.resolve(syntaxUnit);
+  const auto typed = typecheck::TypeChecker{}.check(hirModule);
+  std::vector<flowir::Function> flows;
+  for (const auto &function : hirModule.functions) flows.push_back(flowir::Lowerer{}.lower(function, typed));
+  const auto module = bytecode::ModuleCompiler{}.compile(flows);
+  REQUIRE(vm::VM{}.run(module, hir::DefId{1}).returnValue == NG::vnext::Value::string("hello world"));
+}
+
 TEST_CASE("vNext VM executes typed string constants and concatenation", "[vNext][VM]")
 {
   const auto function = compile("fun greeting() -> string { return \"hello\" + \" world\"; }");

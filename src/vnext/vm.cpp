@@ -143,7 +143,7 @@ namespace NG::vnext::vm
     }
     if (entry.value >= prepared.size()) throw bytecode::BytecodeError("bytecode module entry is out of range");
 
-    const auto makeFrame = [&prepared](size_t functionIndex, const std::vector<int64_t> &args,
+    const auto makeFrame = [&prepared](size_t functionIndex, const std::vector<Value> &args,
                                        std::optional<uint32_t> destination) -> Frame {
       const auto &function = *prepared.at(functionIndex).function;
       if (args.size() != function.parameterLocals.size()) throw bytecode::BytecodeError("bytecode function argument count mismatch");
@@ -154,8 +154,11 @@ namespace NG::vnext::vm
       return frame;
     };
 
+    std::vector<Value> entryArguments;
+    entryArguments.reserve(arguments.size());
+    for (const auto argument : arguments) entryArguments.push_back(Value::integer(argument));
     std::vector<Frame> frames;
-    frames.push_back(makeFrame(entry.value, arguments, std::nullopt));
+    frames.push_back(makeFrame(entry.value, entryArguments, std::nullopt));
     size_t executed{};
     size_t tailRecursions{};
     while (executed < fuel)
@@ -186,9 +189,9 @@ namespace NG::vnext::vm
       }
       if (instruction.opcode == bytecode::Opcode::Call)
       {
-        std::vector<int64_t> callArguments;
+        std::vector<Value> callArguments;
         for (size_t index = 0; index < instruction.operands[2]; ++index)
-          callArguments.push_back(frame.values.at(instruction.operands[3 + index]).asInteger());
+          callArguments.push_back(frame.values.at(instruction.operands[3 + index]));
         frames.push_back(makeFrame(instruction.operands[1], callArguments, instruction.operands[0]));
         continue;
       }
@@ -201,7 +204,7 @@ namespace NG::vnext::vm
         if (frames.empty()) return RunResult{.reason = HaltReason::Return, .executedInstructions = executed, .tailRecursions = tailRecursions, .returnValue = value};
         auto &caller = frames.back();
         if (caller.values.size() <= *destination) caller.values.resize(*destination + 1);
-        caller.values[*destination] = value.value_or(0);
+        caller.values[*destination] = value.value_or(Value{});
         continue;
       }
       if (instruction.opcode == bytecode::Opcode::Jump || instruction.opcode == bytecode::Opcode::LoopBackedge)
