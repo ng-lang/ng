@@ -284,6 +284,7 @@ namespace NG::vnext::syntax
   enum class TypeSyntaxKind
   {
     Named,
+    Applied,
     ScopedReference,
     RawPointer,
   };
@@ -305,6 +306,31 @@ namespace NG::vnext::syntax
 
     NamedTypeSyntax(std::string typeName, SourceSpan sourceSpan)
       : TypeSyntax(TypeSyntaxKind::Named, sourceSpan), name(std::move(typeName))
+    {
+    }
+  };
+
+  enum class GenericArgumentKind
+  {
+    Type,
+    ConstInteger,
+  };
+
+  struct GenericArgumentSyntax
+  {
+    GenericArgumentKind kind;
+    TypeSyntaxPtr type;
+    std::string text;
+    SourceSpan span;
+  };
+
+  struct AppliedTypeSyntax final : TypeSyntax
+  {
+    TypeSyntaxPtr constructor;
+    std::vector<GenericArgumentSyntax> arguments;
+
+    AppliedTypeSyntax(TypeSyntaxPtr typeConstructor, std::vector<GenericArgumentSyntax> typeArguments, SourceSpan sourceSpan)
+      : TypeSyntax(TypeSyntaxKind::Applied, sourceSpan), constructor(std::move(typeConstructor)), arguments(std::move(typeArguments))
     {
     }
   };

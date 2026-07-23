@@ -36,6 +36,27 @@ namespace
   }
 } // namespace
 
+TEST_CASE("vNext type parser preserves applied type and const arguments structurally", "[vNext][Syntax][Type]")
+{
+  const auto type = syntax::TypeParser{syntax::Lexer{}.lex("array<i64, 3>")}.parse();
+  const auto *applied = dynamic_cast<const syntax::AppliedTypeSyntax *>(type.get());
+  REQUIRE(applied != nullptr);
+  REQUIRE(asNamed(applied->constructor).name == "array");
+  REQUIRE(applied->arguments.size() == 2);
+  REQUIRE(applied->arguments[0].kind == syntax::GenericArgumentKind::Type);
+  REQUIRE(asNamed(applied->arguments[0].type).name == "i64");
+  REQUIRE(applied->arguments[1].kind == syntax::GenericArgumentKind::ConstInteger);
+  REQUIRE(applied->arguments[1].text == "3");
+  REQUIRE(type->span.begin == 0);
+  REQUIRE(type->span.end == 13);
+
+  const auto nested = syntax::TypeParser{syntax::Lexer{}.lex("Result<array<i64>, Error>")}.parse();
+  const auto *result = dynamic_cast<const syntax::AppliedTypeSyntax *>(nested.get());
+  REQUIRE(result != nullptr);
+  REQUIRE(result->arguments.size() == 2);
+  REQUIRE(dynamic_cast<const syntax::AppliedTypeSyntax *>(result->arguments[0].type.get()) != nullptr);
+}
+
 TEST_CASE("vNext type parser supports canonical postfix ref and raw pointer syntax", "[vNext][Syntax][Type]")
 {
   const auto readReference = syntax::TypeParser{syntax::Lexer{}.lex("Value ref")}.parse();

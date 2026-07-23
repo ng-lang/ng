@@ -5,9 +5,8 @@
 
 namespace NG::vnext::syntax
 {
-  /// Parses canonical postfix type forms. The first slice deliberately keeps
-  /// named types nominal and delegates generic/tuple/array forms to later R2
-  /// slices.
+  /// Parses structural type syntax. Semantic type identity is assigned later
+  /// by the TypeInterner; this parser never encodes applied types as names.
   class TypeParser final
   {
   public:
@@ -16,6 +15,7 @@ namespace NG::vnext::syntax
     [[nodiscard]] auto parse() -> TypeSyntaxPtr;
 
   private:
+    [[nodiscard]] auto parsePrimary() -> TypeSyntaxPtr;
     [[nodiscard]] auto current() const -> const Token &;
     [[nodiscard]] auto consume() -> Token;
 

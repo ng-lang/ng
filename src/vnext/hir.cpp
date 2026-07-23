@@ -14,6 +14,17 @@ namespace NG::vnext::hir
       {
         return named->name;
       }
+      if (const auto *applied = dynamic_cast<const syntax::AppliedTypeSyntax *>(&type))
+      {
+        std::string result = renderTypeName(*applied->constructor) + "<";
+        for (size_t index = 0; index < applied->arguments.size(); ++index)
+        {
+          if (index != 0) result += ", ";
+          const auto &argument = applied->arguments[index];
+          result += argument.kind == syntax::GenericArgumentKind::Type ? renderTypeName(*argument.type) : argument.text;
+        }
+        return result + ">";
+      }
       if (const auto *reference = dynamic_cast<const syntax::ScopedReferenceTypeSyntax *>(&type))
       {
         return renderTypeName(*reference->target) + (reference->isMutable ? " ref mut" : " ref");
