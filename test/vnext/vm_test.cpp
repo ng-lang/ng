@@ -65,7 +65,7 @@ TEST_CASE("vNext VM executes mutable local assignment", "[vNext][VM]")
 
 TEST_CASE("vNext VM materializes typed homogeneous i64 arrays", "[vNext][VM]")
 {
-  const auto function = compile("fun values() -> array_i64 { return [1, 2, 3]; }");
+  const auto function = compile("fun values() -> array<i64> { return [1, 2, 3]; }");
   const auto result = vm::VM{}.run(function);
   REQUIRE(result.returnValue->isArray());
   REQUIRE(result.returnValue->asArray().size() == 3);

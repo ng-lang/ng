@@ -119,8 +119,8 @@ TEST_CASE("vNext type checker rejects call arity and argument type mismatch", "[
 
 TEST_CASE("vNext type checker infers homogeneous i64 array literals", "[vNext][Typecheck]")
 {
-  REQUIRE_NOTHROW(check("fun values() -> array_i64 { return [1, 2]; }"));
-  REQUIRE_THROWS_WITH(check("fun invalid() -> array_i64 { return [1, true]; }"),
+  REQUIRE_NOTHROW(check("fun values() -> array<i64> { return [1, 2]; }"));
+  REQUIRE_THROWS_WITH(check("fun invalid() -> array<i64> { return [1, true]; }"),
                       "array element type mismatch: expected i64, got bool");
 }
 
