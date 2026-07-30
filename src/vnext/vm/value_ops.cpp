@@ -38,8 +38,19 @@ namespace NG::vnext::vm::detail
 
   void assignIndexInstruction(const bytecode::DecodedInstruction &instruction, std::vector<Value> &values)
   {
-    auto &array = values.at(instruction.operands[0]).asArrayMut();
+    auto &receiver = values.at(instruction.operands[0]);
     const int64_t index = values.at(instruction.operands[1]).asInteger();
+    if (receiver.isTuple())
+    {
+      auto &tuple = receiver.asTupleMut();
+      if (index < 0 || static_cast<uint64_t>(index) >= tuple.size())
+        throw bytecode::BytecodeError(std::format("tuple index out of bounds: index {}, length {}", index, tuple.size()));
+      if (static_cast<uint64_t>(index) != instruction.operands[3])
+        throw bytecode::BytecodeError("tuple projection index does not match verified metadata");
+      tuple[static_cast<size_t>(index)] = values.at(instruction.operands[2]);
+      return;
+    }
+    auto &array = receiver.asArrayMut();
     if (index < 0 || static_cast<uint64_t>(index) >= array.size())
       throw bytecode::BytecodeError(std::format("array index out of bounds: index {}, length {}", index, array.size()));
     array[static_cast<size_t>(index)] = values.at(instruction.operands[2]);
@@ -64,12 +75,12 @@ namespace NG::vnext::vm::detail
       values[result] = Value::string(stringConstants.at(payload));
       return;
     }
-    if (kind == hir::ExpressionKind::ArrayLiteral)
+    if (kind == hir::ExpressionKind::ArrayLiteral || kind == hir::ExpressionKind::TupleLiteral)
     {
       std::vector<Value> elements;
       elements.reserve(instruction.operands[4]);
       for (size_t index = 0; index < instruction.operands[4]; ++index) elements.push_back(values.at(instruction.operands[5 + index]));
-      values[result] = Value::array(std::move(elements));
+      values[result] = kind == hir::ExpressionKind::ArrayLiteral ? Value::array(std::move(elements)) : Value::tuple(std::move(elements));
       return;
     }
     if (kind == hir::ExpressionKind::ResolvedName)
@@ -98,8 +109,19 @@ namespace NG::vnext::vm::detail
     }
     if (kind == hir::ExpressionKind::Index)
     {
-      const auto &array = values.at(instruction.operands[5]).asArray();
+      const auto &receiver = values.at(instruction.operands[5]);
       const int64_t index = values.at(instruction.operands[6]).asInteger();
+      if (receiver.isTuple())
+      {
+        const auto &tuple = receiver.asTuple();
+        if (index < 0 || static_cast<uint64_t>(index) >= tuple.size())
+          throw bytecode::BytecodeError(std::format("tuple index out of bounds: index {}, length {}", index, tuple.size()));
+        if (static_cast<uint64_t>(index) != payload)
+          throw bytecode::BytecodeError("tuple projection index does not match verified metadata");
+        values[result] = tuple[static_cast<size_t>(index)];
+        return;
+      }
+      const auto &array = receiver.asArray();
       if (index < 0 || static_cast<uint64_t>(index) >= array.size())
         throw bytecode::BytecodeError(std::format("array index out of bounds: index {}, length {}", index, array.size()));
       values[result] = array[static_cast<size_t>(index)];

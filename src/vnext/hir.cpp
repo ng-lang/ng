@@ -298,6 +298,12 @@ namespace NG::vnext::hir
       for (const auto &element : array->elements) resolved->operands.push_back(resolveExpression(*element));
       return resolved;
     }
+    if (const auto *tuple = dynamic_cast<const syntax::TupleLiteralExpression *>(&expression))
+    {
+      resolved->kind = ExpressionKind::TupleLiteral;
+      for (const auto &element : tuple->elements) resolved->operands.push_back(resolveExpression(*element));
+      return resolved;
+    }
     if (const auto *boolean = dynamic_cast<const syntax::BooleanLiteralExpression *>(&expression))
     {
       resolved->kind = ExpressionKind::BooleanLiteral;
@@ -330,6 +336,8 @@ namespace NG::vnext::hir
     if (const auto *index = dynamic_cast<const syntax::IndexExpression *>(&expression))
     {
       resolved->kind = ExpressionKind::Index;
+      if (const auto *integer = dynamic_cast<const syntax::IntegerLiteralExpression *>(index->index.get()))
+        resolved->text = integer->text;
       resolved->operands.push_back(resolveExpression(*index->receiver));
       resolved->operands.push_back(resolveExpression(*index->index));
       return resolved;

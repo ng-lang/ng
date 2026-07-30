@@ -274,13 +274,21 @@ namespace NG::vnext::syntax
       if (current().kind == TokenKind::Dot)
       {
         static_cast<void>(consume());
-        if (current().kind != TokenKind::Identifier)
+        if (current().kind != TokenKind::Identifier && current().kind != TokenKind::IntegerLiteral)
         {
           throw ParseError("expected a member name after `.`", current().span);
         }
         const Token member = consume();
         const SourceSpan span{expression->span.begin, member.span.end};
-        expression = std::make_unique<MemberExpression>(std::move(expression), member.text, span);
+        if (member.kind == TokenKind::IntegerLiteral)
+        {
+          auto index = std::make_unique<IntegerLiteralExpression>(member.text, member.span);
+          expression = std::make_unique<IndexExpression>(std::move(expression), std::move(index), span);
+        }
+        else
+        {
+          expression = std::make_unique<MemberExpression>(std::move(expression), member.text, span);
+        }
         continue;
       }
 
@@ -326,6 +334,23 @@ namespace NG::vnext::syntax
     case TokenKind::LeftParen:
     {
       auto expression = parseExpression(0);
+      if (current().kind == TokenKind::Comma)
+      {
+        std::vector<ExpressionPtr> elements;
+        elements.push_back(std::move(expression));
+        while (current().kind == TokenKind::Comma)
+        {
+          static_cast<void>(consume());
+          if (current().kind == TokenKind::RightParen) break;
+          if (current().kind == TokenKind::Comma)
+            throw ParseError("expected an expression before `,` in tuple literal", current().span);
+          elements.push_back(parseExpression(0));
+        }
+        if (current().kind != TokenKind::RightParen)
+          throw ParseError("expected `)` after tuple literal", current().span);
+        const Token close = consume();
+        return std::make_unique<TupleLiteralExpression>(std::move(elements), SourceSpan{token.span.begin, close.span.end});
+      }
       if (current().kind != TokenKind::RightParen)
       {
         throw ParseError("expected `)`", current().span);

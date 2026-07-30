@@ -75,6 +75,10 @@ namespace NG::vnext::flowir
         {
           payload = expression.resolvedName->id;
         }
+        else if (expression.kind == hir::ExpressionKind::Index && !expression.text.empty())
+        {
+          payload = std::stoll(expression.text);
+        }
         else if (expression.kind == hir::ExpressionKind::Prefix)
         {
           if (expression.text == "!") payload = 1;
@@ -232,6 +236,9 @@ namespace NG::vnext::flowir
             block().instructions.push_back(Instruction{.kind = InstructionKind::AssignIndex,
                                                        .result = ValueId{nextValue_++},
                                                        .expressionKind = hir::ExpressionKind::Index,
+                                                       .payload = statement.assignmentTarget->text.empty()
+                                                                      ? 0
+                                                                      : std::stoll(statement.assignmentTarget->text),
                                                        .operands = {receiver, index, value}});
             return;
           }

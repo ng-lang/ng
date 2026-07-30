@@ -37,6 +37,17 @@ namespace NG::vnext::typecheck
     return append(TypeDescriptor{.kind = TypeKind::FixedArray, .name = "array", .element = element, .length = length});
   }
 
+  auto TypeInterner::internTuple(const std::vector<TypeId> &elements) -> TypeId
+  {
+    for (uint32_t index = 6; index < descriptors_.size(); ++index)
+      if (descriptors_[index].kind == TypeKind::Tuple && descriptors_[index].elements == elements) return TypeId{index};
+    return append(TypeDescriptor{.kind = TypeKind::Tuple,
+                                 .name = "tuple",
+                                 .element = TypeId{},
+                                 .length = static_cast<uint64_t>(elements.size()),
+                                 .elements = elements});
+  }
+
   auto TypeInterner::resolve(const hir::Type &type) -> TypeId
   {
     if (type.kind == hir::TypeKind::Named)
@@ -50,6 +61,19 @@ namespace NG::vnext::typecheck
     }
     if (type.kind != hir::TypeKind::Applied || type.target == nullptr || type.target->kind != hir::TypeKind::Named)
       throw TypeError("unsupported type form", type.span);
+    if (type.target->name == "tuple")
+    {
+      if (type.arguments.empty()) throw TypeError("tuple type expects at least 1 argument, got 0", type.span);
+      std::vector<TypeId> elements;
+      elements.reserve(type.arguments.size());
+      for (const auto &argument : type.arguments)
+      {
+        if (argument.kind != syntax::GenericArgumentKind::Type || argument.type == nullptr)
+          throw TypeError("tuple arguments must be types", argument.span);
+        elements.push_back(resolve(*argument.type));
+      }
+      return internTuple(elements);
+    }
     if (type.target->name != "array") throw TypeError(std::format("unknown type constructor `{}`", type.target->name), type.span);
     if (type.arguments.size() != 1 && type.arguments.size() != 2)
       throw TypeError(std::format("array type expects 1 or 2 arguments, got {}", type.arguments.size()), type.span);
@@ -69,6 +93,13 @@ namespace NG::vnext::typecheck
     const auto &item = descriptor(type);
     if (item.kind == TypeKind::Builtin) return item.name;
     if (item.kind == TypeKind::DynamicArray) return std::format("array<{}>", display(item.element));
-    return std::format("array<{}, {}>", display(item.element), *item.length);
+    if (item.kind == TypeKind::FixedArray) return std::format("array<{}, {}>", display(item.element), *item.length);
+    std::string result{"tuple<"};
+    for (size_t index = 0; index < item.elements.size(); ++index)
+    {
+      if (index != 0) result += ", ";
+      result += display(item.elements[index]);
+    }
+    return result + ">";
   }
 } // namespace NG::vnext::typecheck

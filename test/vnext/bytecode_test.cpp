@@ -106,6 +106,21 @@ TEST_CASE("vNext bytecode artifacts round-trip verified modules", "[vNext][Bytec
   REQUIRE(vm::VM{}.run(restored, hir::DefId{1}).returnValue == 42);
 }
 
+TEST_CASE("vNext bytecode artifacts preserve tuple layouts", "[vNext][Bytecode]")
+{
+  const auto syntaxUnit = syntax::parseSourceUnit(
+      "fun pair() -> tuple<i64, bool, string> { return (1, true, \"value\"); }");
+  const auto hirModule = hir::Resolver{}.resolve(syntaxUnit);
+  const auto typed = typecheck::TypeChecker{}.check(hirModule);
+  const auto function = bytecode::Compiler{}.compile(flowir::Lowerer{}.lower(hirModule.functions.front(), typed));
+  const auto restored = bytecode::ArtifactCodec{}.deserialize(
+      bytecode::ArtifactCodec{}.serialize(bytecode::Module{.functions = {function}}));
+  REQUIRE(restored.functions.front().typeDescriptors == function.typeDescriptors);
+  const auto result = vm::VM{}.run(restored.functions.front());
+  REQUIRE(result.returnValue->isTuple());
+  REQUIRE(result.returnValue->asTuple()[2].asString() == "value");
+}
+
 TEST_CASE("vNext bytecode artifacts preserve fixed-array type descriptors", "[vNext][Bytecode]")
 {
   const auto syntaxUnit = syntax::parseSourceUnit("fun values() -> array<i64, 3> { return [1, 2, 3]; }");
@@ -135,7 +150,7 @@ TEST_CASE("vNext bytecode artifacts reject malformed framing", "[vNext][Bytecode
 {
   REQUIRE_THROWS_WITH(bytecode::ArtifactCodec{}.deserialize({}), "invalid bytecode artifact magic");
   REQUIRE_THROWS_WITH(bytecode::ArtifactCodec{}.deserialize({'N', 'G', 'V', 'X'}), "truncated bytecode artifact");
-  REQUIRE_THROWS_WITH(bytecode::ArtifactCodec{}.deserialize({'N', 'G', 'V', 'X', 2, 0, 0, 0}),
+  REQUIRE_THROWS_WITH(bytecode::ArtifactCodec{}.deserialize({'N', 'G', 'V', 'X', 3, 0, 0, 0}),
                       "unsupported bytecode artifact version");
 }
 

@@ -20,11 +20,14 @@ bytecode, VM, and negative diagnostics coverage in vNext.
 |---|---|---|---|
 | Typed functions, direct calls, returns | `01`, `03`, `12`, `58` | Supported for `i64`/`bool`/`unit` | Add general runtime values before non-scalar ABI. |
 | Local scopes and shadowing | `09` | Supported in function blocks | Module globals remain a module/session feature. |
-| Mutable local bindings | `09`, `10` | Supported as `let mut` / `:=` | Add places for member/index assignment. |
+| Mutable local bindings | `09`, `10` | Supported as `let mut` / `:=`, including checked array/tuple index places | Member/deref places follow nominal types and references. |
+| Strings | `04`, `05`, `07`, `11`, `18` | Supported for literals, concatenation, equality, calls, artifacts, and CLI values | Descriptor-directed storage and broader string APIs remain. |
+| Arrays and indexing | `06`, `18`, `24`, `56`, `58`, `59` | Dynamic/fixed canonical types, nested literals, reads, mutable index places, and checked bounds are supported | Affine move/clone policy, slices, and descriptor-directed storage remain. |
+| Structural tuples | `14`, `50`, `54` | Heterogeneous literals, canonical layouts, numeric projections, mutation, calls, and artifacts are supported | Spread, destructuring, partial move paths, and `.size` remain. |
 | Arithmetic, comparison, prefix, logical, bitwise | `03`, `10`, `58` | Supported for checked `i64` | Short-circuit and overflow diagnostics are implemented; no float/suffix compatibility. |
 | `if`, lexical `loop`, `next`, tail recursion | `02`, `10`, `12` | Supported in vNext grammar | Legacy shorthand loop grammar is intentionally not accepted. |
 | Bytecode modules and direct calls | `01`, `03` | Supported | Artifact now has a versioned verified scalar/module encoding. |
-| CLI integer `main` arguments | no dedicated example | Supported for `i64` | General typed value ABI follows RuntimeSession/Value work. |
+| CLI `main` arguments | no dedicated example | Supported for typed `i64` and `string` arguments | Aggregate CLI ABI follows RuntimeSession/descriptor work. |
 
 ## Ordered feature ladder
 

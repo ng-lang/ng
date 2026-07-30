@@ -13,7 +13,7 @@ namespace NG::vnext::bytecode
         OpcodeDescriptor{Opcode::Evaluate, "evaluate", OperandLayout::CountPrefixedTail, 4},
         OpcodeDescriptor{Opcode::Call, "call", OperandLayout::CountPrefixedTail, 2},
         OpcodeDescriptor{Opcode::BindLocal, "bind_local", OperandLayout::Fixed, 3},
-        OpcodeDescriptor{Opcode::AssignIndex, "assign_index", OperandLayout::Fixed, 3},
+        OpcodeDescriptor{Opcode::AssignIndex, "assign_index", OperandLayout::Fixed, 4},
         OpcodeDescriptor{Opcode::Return, "return", OperandLayout::CountPrefixedTail, 0},
         OpcodeDescriptor{Opcode::Jump, "jump", OperandLayout::CountPrefixedTail, 1},
         OpcodeDescriptor{Opcode::Branch, "branch", OperandLayout::Fixed, 3},
@@ -124,7 +124,8 @@ namespace NG::vnext::bytecode
         else
         {
           appendInstruction(result.code, Opcode::AssignIndex,
-                            {instruction.operands[0].value, instruction.operands[1].value, instruction.operands[2].value});
+                            {instruction.operands[0].value, instruction.operands[1].value, instruction.operands[2].value,
+                             static_cast<uint32_t>(instruction.payload)});
         }
       }
 
@@ -234,15 +235,21 @@ namespace NG::vnext::bytecode
     {
       const auto &descriptor = function.typeDescriptors[index];
       if (descriptor.kind != typecheck::TypeKind::Builtin && descriptor.kind != typecheck::TypeKind::DynamicArray &&
-          descriptor.kind != typecheck::TypeKind::FixedArray)
+          descriptor.kind != typecheck::TypeKind::FixedArray && descriptor.kind != typecheck::TypeKind::Tuple)
         throw BytecodeError("bytecode type descriptor kind is invalid");
-      if (descriptor.kind != typecheck::TypeKind::Builtin)
+      if (descriptor.kind == typecheck::TypeKind::DynamicArray || descriptor.kind == typecheck::TypeKind::FixedArray)
       {
         verifyTypeId(descriptor.element);
         if (descriptor.kind == typecheck::TypeKind::DynamicArray && descriptor.length.has_value())
           throw BytecodeError("bytecode dynamic array descriptor has a fixed length");
         if (descriptor.kind == typecheck::TypeKind::FixedArray && !descriptor.length.has_value())
           throw BytecodeError("bytecode fixed array descriptor has no length");
+      }
+      if (descriptor.kind == typecheck::TypeKind::Tuple)
+      {
+        if (!descriptor.length.has_value() || *descriptor.length != descriptor.elements.size())
+          throw BytecodeError("bytecode tuple descriptor length mismatch");
+        for (const auto element : descriptor.elements) verifyTypeId(element);
       }
     }
     for (const auto offset : function.blockOffsets)
@@ -287,17 +294,38 @@ namespace NG::vnext::bytecode
               throw BytecodeError("bytecode fixed array literal length mismatch");
             for (size_t index = 0; index < instruction.operands.at(4); ++index) requireOperandType(index, array.element);
           }
+          else if (kind == hir::ExpressionKind::TupleLiteral)
+          {
+            if (resultType.value >= function.typeDescriptors.size())
+              throw BytecodeError("bytecode value type descriptor is out of range");
+            const auto &tuple = function.typeDescriptors[resultType.value];
+            if (tuple.kind != typecheck::TypeKind::Tuple)
+              throw BytecodeError("bytecode tuple literal result is not a tuple type");
+            if (instruction.operands.at(4) != tuple.elements.size())
+              throw BytecodeError("bytecode tuple literal length mismatch");
+            for (size_t index = 0; index < tuple.elements.size(); ++index) requireOperandType(index, tuple.elements[index]);
+          }
           else if (kind == hir::ExpressionKind::BooleanLiteral) requireResultType(typecheck::builtin::Bool);
           else if (kind == hir::ExpressionKind::Index)
           {
             const auto receiver = requireValueType(instruction.operands.at(5));
             if (receiver.value >= function.typeDescriptors.size())
               throw BytecodeError("bytecode value type descriptor is out of range");
-            const auto &array = function.typeDescriptors[receiver.value];
-            if (array.kind != typecheck::TypeKind::DynamicArray && array.kind != typecheck::TypeKind::FixedArray)
-              throw BytecodeError("bytecode index receiver is not an array type");
+            const auto &aggregate = function.typeDescriptors[receiver.value];
             requireOperandType(1, typecheck::builtin::I64);
-            requireResultType(array.element);
+            if (aggregate.kind == typecheck::TypeKind::Tuple)
+            {
+              const uint64_t index = static_cast<uint64_t>(instruction.operands[2]) |
+                                     (static_cast<uint64_t>(instruction.operands[3]) << 32);
+              if (index >= aggregate.elements.size()) throw BytecodeError("bytecode tuple projection is out of range");
+              requireResultType(aggregate.elements[index]);
+            }
+            else
+            {
+              if (aggregate.kind != typecheck::TypeKind::DynamicArray && aggregate.kind != typecheck::TypeKind::FixedArray)
+                throw BytecodeError("bytecode index receiver is not an aggregate type");
+              requireResultType(aggregate.element);
+            }
           }
           else if (kind == hir::ExpressionKind::ResolvedName)
           {
@@ -366,13 +394,23 @@ namespace NG::vnext::bytecode
           const auto receiver = requireValueType(instruction.operands[0]);
           if (receiver.value >= function.typeDescriptors.size())
             throw BytecodeError("bytecode value type descriptor is out of range");
-          const auto &array = function.typeDescriptors[receiver.value];
-          if (array.kind != typecheck::TypeKind::DynamicArray && array.kind != typecheck::TypeKind::FixedArray)
-            throw BytecodeError("bytecode index receiver is not an array type");
+          const auto &aggregate = function.typeDescriptors[receiver.value];
           if (requireValueType(instruction.operands[1]) != typecheck::builtin::I64)
-            throw BytecodeError("bytecode array index is not i64");
-          if (requireValueType(instruction.operands[2]) != array.element)
-            throw BytecodeError("bytecode array assignment value type mismatch");
+            throw BytecodeError("bytecode aggregate index is not i64");
+          if (aggregate.kind == typecheck::TypeKind::Tuple)
+          {
+            const uint32_t index = instruction.operands[3];
+            if (index >= aggregate.elements.size()) throw BytecodeError("bytecode tuple projection is out of range");
+            if (requireValueType(instruction.operands[2]) != aggregate.elements[index])
+              throw BytecodeError("bytecode tuple assignment value type mismatch");
+          }
+          else
+          {
+            if (aggregate.kind != typecheck::TypeKind::DynamicArray && aggregate.kind != typecheck::TypeKind::FixedArray)
+              throw BytecodeError("bytecode index receiver is not an aggregate type");
+            if (requireValueType(instruction.operands[2]) != aggregate.element)
+              throw BytecodeError("bytecode array assignment value type mismatch");
+          }
         }
         else if (instruction.opcode == Opcode::Branch)
         {

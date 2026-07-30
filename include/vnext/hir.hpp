@@ -57,6 +57,7 @@ namespace NG::vnext::hir
     IntegerLiteral,
     StringLiteral,
     ArrayLiteral,
+    TupleLiteral,
     BooleanLiteral,
     ResolvedName,
     Prefix,

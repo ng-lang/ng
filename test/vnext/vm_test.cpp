@@ -22,8 +22,8 @@ namespace
   {
     const auto syntaxUnit = syntax::parseSourceUnit(source);
     const auto module = hir::Resolver{}.resolve(syntaxUnit);
-    static_cast<void>(typecheck::TypeChecker{}.check(module));
-    return bytecode::Compiler{}.compile(flowir::Lowerer{}.lower(module.functions.front()));
+    const auto typed = typecheck::TypeChecker{}.check(module);
+    return bytecode::Compiler{}.compile(flowir::Lowerer{}.lower(module.functions.front(), typed));
   }
 } // namespace
 
@@ -75,6 +75,39 @@ TEST_CASE("vNext VM materializes dynamic and fixed homogeneous arrays", "[vNext]
   REQUIRE(fixed.returnValue->isArray());
   REQUIRE(fixed.returnValue->asArray().size() == 3);
   REQUIRE(fixed.returnValue->asArray()[1] == 5);
+}
+
+TEST_CASE("vNext VM materializes heterogeneous tuples and executes projections", "[vNext][VM]")
+{
+  const auto function = compile(
+      "fun main() -> string { let mut value = (1, false, \"tuple\"); value.1 := true; "
+      "if value[1] { return value.2; } return \"invalid\"; }");
+  const auto result = vm::VM{}.run(function);
+  REQUIRE(result.returnValue->isString());
+  REQUIRE(result.returnValue->asString() == "tuple");
+}
+
+TEST_CASE("vNext VM transports tuples through typed module call frames", "[vNext][VM]")
+{
+  const auto syntaxUnit = syntax::parseSourceUnit(
+      "fun pair() -> tuple<i64, string> { return (7, \"called\"); } "
+      "fun main() -> string { return pair().1; }");
+  const auto hirModule = hir::Resolver{}.resolve(syntaxUnit);
+  const auto typed = typecheck::TypeChecker{}.check(hirModule);
+  std::vector<flowir::Function> flows;
+  for (const auto &function : hirModule.functions) flows.push_back(flowir::Lowerer{}.lower(function, typed));
+  const auto module = bytecode::ModuleCompiler{}.compile(flows);
+  REQUIRE(vm::VM{}.run(module, hir::DefId{1}).returnValue->asString() == "called");
+}
+
+TEST_CASE("vNext VM returns structural tuple values", "[vNext][VM]")
+{
+  const auto function = compile("fun pair() -> tuple<i64, bool, string> { return (7, true, \"value\"); }");
+  const auto result = vm::VM{}.run(function);
+  REQUIRE(result.returnValue->isTuple());
+  REQUIRE(result.returnValue->asTuple().size() == 3);
+  REQUIRE(result.returnValue->asTuple()[0] == 7);
+  REQUIRE(result.returnValue->asTuple()[2].asString() == "value");
 }
 
 TEST_CASE("vNext VM reads and mutates checked array index places", "[vNext][VM]")

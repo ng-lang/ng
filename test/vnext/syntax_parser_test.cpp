@@ -52,6 +52,36 @@ TEST_CASE("vNext expression parser gives prefix operators tighter precedence", "
   REQUIRE(asPrefix(multiply.left).operatorText == "-");
 }
 
+TEST_CASE("vNext expression parser distinguishes tuples from grouping", "[vNext][Syntax][Expression]")
+{
+  const auto tuple = syntax::parseExpression("(1, false, \"value\")");
+  REQUIRE(tuple->kind == syntax::ExpressionKind::TupleLiteral);
+  const auto *literal = dynamic_cast<const syntax::TupleLiteralExpression *>(tuple.get());
+  REQUIRE(literal != nullptr);
+  REQUIRE(literal->elements.size() == 3);
+
+  const auto projection = syntax::parseExpression("tuple.2");
+  REQUIRE(projection->kind == syntax::ExpressionKind::Index);
+  const auto *index = dynamic_cast<const syntax::IndexExpression *>(projection.get());
+  REQUIRE(index != nullptr);
+  REQUIRE(index->index->kind == syntax::ExpressionKind::IntegerLiteral);
+}
+
+TEST_CASE("vNext expression parser diagnoses malformed tuple literals", "[vNext][Syntax][Expression]")
+{
+  try
+  {
+    static_cast<void>(syntax::parseExpression("(1,, 2)"));
+    FAIL("expected malformed tuple to fail");
+  }
+  catch (const syntax::ParseError &error)
+  {
+    REQUIRE(std::string{error.what()} == "expected an expression before `,` in tuple literal");
+    REQUIRE(error.span().begin == 3);
+    REQUIRE(error.span().end == 4);
+  }
+}
+
 TEST_CASE("vNext expression parser preserves grouping spans and AST shape", "[vNext][Syntax][Expression]")
 {
   const auto expression = syntax::parseExpression("(a + b) * c");

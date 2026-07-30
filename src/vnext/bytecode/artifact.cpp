@@ -10,7 +10,7 @@ namespace NG::vnext::bytecode
   namespace
   {
     constexpr std::array<uint8_t, 4> ArtifactMagic{'N', 'G', 'V', 'X'};
-    constexpr uint32_t ArtifactVersion{1};
+    constexpr uint32_t ArtifactVersion{2};
 
     void appendU32(std::vector<uint8_t> &output, uint32_t value)
     {
@@ -71,6 +71,8 @@ namespace NG::vnext::bytecode
           appendU32(output, static_cast<uint32_t>(*descriptor.length));
           appendU32(output, static_cast<uint32_t>(*descriptor.length >> 32));
         }
+        appendU32(output, narrowSize(descriptor.elements.size()));
+        for (const auto element : descriptor.elements) appendU32(output, element.value);
       }
     }
 
@@ -94,7 +96,14 @@ namespace NG::vnext::bytecode
           const uint64_t low = readU32(input, offset);
           length = low | (static_cast<uint64_t>(readU32(input, offset)) << 32);
         }
-        descriptors.push_back(typecheck::TypeDescriptor{.kind = kind, .name = names.front(), .element = element, .length = length});
+        const uint32_t elementCount = readU32(input, offset);
+        if (elementCount > (input.size() - offset) / 4) throw BytecodeError("truncated bytecode artifact");
+        std::vector<typecheck::TypeId> elements;
+        elements.reserve(elementCount);
+        for (uint32_t elementIndex = 0; elementIndex < elementCount; ++elementIndex)
+          elements.push_back(typecheck::TypeId{readU32(input, offset)});
+        descriptors.push_back(typecheck::TypeDescriptor{
+            .kind = kind, .name = names.front(), .element = element, .length = length, .elements = std::move(elements)});
       }
       return descriptors;
     }

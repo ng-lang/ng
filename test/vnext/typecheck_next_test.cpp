@@ -146,6 +146,24 @@ TEST_CASE("vNext type checker validates homogeneous and fixed-length array liter
                       "fixed array length mismatch: expected 3, got 2");
 }
 
+TEST_CASE("vNext type checker interns structural tuples and validates projections", "[vNext][Typecheck]")
+{
+  const auto syntaxUnit = syntax::parseSourceUnit(
+      "fun pair() -> tuple<i64, bool, string> { return (1, false, \"value\"); }");
+  const auto module = hir::Resolver{}.resolve(syntaxUnit);
+  const auto result = typecheck::TypeChecker{}.check(module);
+  const auto tuple = result.functionTypeIds.at(0).returnType;
+  REQUIRE(result.typeDescriptors.at(tuple.value).kind == typecheck::TypeKind::Tuple);
+  REQUIRE(result.typeDescriptors.at(tuple.value).elements ==
+          std::vector<typecheck::TypeId>{typecheck::builtin::I64, typecheck::builtin::Bool, typecheck::builtin::String});
+
+  REQUIRE_NOTHROW(check("fun second() -> bool { let value = (1, true); return value.1; }"));
+  REQUIRE_THROWS_WITH(check("fun invalid(index: i64) -> i64 { let value = (1, true); return value[index]; }"),
+                      "tuple index must be an integer literal");
+  REQUIRE_THROWS_WITH(check("fun invalid() -> i64 { let value = (1, true); return value.2; }"),
+                      "tuple index 2 is out of range for length 2");
+}
+
 TEST_CASE("vNext type checker accepts string literals and concatenation", "[vNext][Typecheck]")
 {
   REQUIRE_NOTHROW(check("fun greeting() -> string { return \"hello\" + \" world\"; }"));

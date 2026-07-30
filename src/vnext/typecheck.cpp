@@ -1,6 +1,7 @@
 // AI-generated code; reviewed for this repository's vNext rewrite.
 #include "vnext/typecheck.hpp"
 
+#include <charconv>
 #include <format>
 #include <unordered_map>
 
@@ -152,6 +153,17 @@ namespace NG::vnext::typecheck
           record(expression, expected);
           return expected;
         }
+        if (expression.kind == hir::ExpressionKind::TupleLiteral && descriptor.kind == TypeKind::Tuple)
+        {
+          if (expression.operands.size() != descriptor.elements.size())
+            throw TypeError(std::format("tuple length mismatch: expected {}, got {}", descriptor.elements.size(),
+                                        expression.operands.size()), expression.span);
+          for (size_t index = 0; index < expression.operands.size(); ++index)
+            static_cast<void>(inferExpected(*expression.operands[index], descriptor.elements[index], locals,
+                                            std::format("tuple element {}", index)));
+          record(expression, expected);
+          return expected;
+        }
         const TypeId actual = infer(expression, locals);
         requireType(expected, actual, expression.span, context);
         return actual;
@@ -172,6 +184,14 @@ namespace NG::vnext::typecheck
           for (size_t index = 1; index < expression.operands.size(); ++index)
             requireType(element, infer(*expression.operands[index], locals), expression.operands[index]->span, "array element");
           type = interner_.internDynamicArray(element);
+          break;
+        }
+        case hir::ExpressionKind::TupleLiteral:
+        {
+          std::vector<TypeId> elements;
+          elements.reserve(expression.operands.size());
+          for (const auto &element : expression.operands) elements.push_back(infer(*element, locals));
+          type = interner_.internTuple(elements);
           break;
         }
         case hir::ExpressionKind::ResolvedName:
@@ -228,9 +248,22 @@ namespace NG::vnext::typecheck
           const TypeId receiver = infer(*expression.operands[0], locals);
           requireType(builtin::I64, infer(*expression.operands[1], locals), expression.operands[1]->span, "array index");
           const auto &descriptor = interner_.descriptor(receiver);
-          if (descriptor.kind != TypeKind::DynamicArray && descriptor.kind != TypeKind::FixedArray)
-            throw TypeError(std::format("cannot index value of type {}", interner_.display(receiver)), expression.span);
-          type = descriptor.element;
+          if (descriptor.kind == TypeKind::Tuple)
+          {
+            if (expression.text.empty()) throw TypeError("tuple index must be an integer literal", expression.operands[1]->span);
+            uint64_t index{};
+            const auto [end, error] = std::from_chars(expression.text.data(), expression.text.data() + expression.text.size(), index);
+            if (error != std::errc{} || end != expression.text.data() + expression.text.size() || index >= descriptor.elements.size())
+              throw TypeError(std::format("tuple index {} is out of range for length {}", expression.text,
+                                          descriptor.elements.size()), expression.operands[1]->span);
+            type = descriptor.elements[index];
+          }
+          else
+          {
+            if (descriptor.kind != TypeKind::DynamicArray && descriptor.kind != TypeKind::FixedArray)
+              throw TypeError(std::format("cannot index value of type {}", interner_.display(receiver)), expression.span);
+            type = descriptor.element;
+          }
           break;
         }
         case hir::ExpressionKind::Member: throw TypeError("member expressions are not yet supported", expression.span);

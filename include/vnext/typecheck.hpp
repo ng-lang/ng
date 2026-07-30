@@ -40,6 +40,7 @@ namespace NG::vnext::typecheck
     Builtin,
     DynamicArray,
     FixedArray,
+    Tuple,
   };
 
   struct TypeDescriptor
@@ -48,6 +49,7 @@ namespace NG::vnext::typecheck
     std::string name;
     TypeId element;
     std::optional<uint64_t> length;
+    std::vector<TypeId> elements;
     auto operator==(const TypeDescriptor &) const -> bool = default;
   };
 
@@ -59,6 +61,7 @@ namespace NG::vnext::typecheck
     [[nodiscard]] auto resolve(const hir::Type &type) -> TypeId;
     [[nodiscard]] auto internDynamicArray(TypeId element) -> TypeId;
     [[nodiscard]] auto internFixedArray(TypeId element, uint64_t length) -> TypeId;
+    [[nodiscard]] auto internTuple(const std::vector<TypeId> &elements) -> TypeId;
     [[nodiscard]] auto descriptor(TypeId type) const -> const TypeDescriptor &;
     [[nodiscard]] auto display(TypeId type) const -> std::string;
     [[nodiscard]] auto descriptors() const -> const std::vector<TypeDescriptor> & { return descriptors_; }
