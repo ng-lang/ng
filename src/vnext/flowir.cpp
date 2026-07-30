@@ -224,6 +224,17 @@ namespace NG::vnext::flowir
         }
         case hir::StatementKind::Assign:
         {
+          if (statement.assignmentTarget != nullptr)
+          {
+            const ValueId receiver = lowerExpression(*statement.assignmentTarget->operands[0]);
+            const ValueId index = lowerExpression(*statement.assignmentTarget->operands[1]);
+            const ValueId value = lowerExpression(*statement.expression);
+            block().instructions.push_back(Instruction{.kind = InstructionKind::AssignIndex,
+                                                       .result = ValueId{nextValue_++},
+                                                       .expressionKind = hir::ExpressionKind::Index,
+                                                       .operands = {receiver, index, value}});
+            return;
+          }
           const ValueId value = lowerExpression(*statement.expression);
           if (types_ != nullptr) function_.localTypes.emplace(statement.local->value, types_->localTypeIds.at(statement.local->value));
           const ValueId binding{nextValue_++};
@@ -382,6 +393,11 @@ namespace NG::vnext::flowir
       if (!block.terminator.has_value())
       {
         throw VerificationError("FlowIR block has no terminator");
+      }
+      for (const auto &instruction : block.instructions)
+      {
+        if (instruction.kind == InstructionKind::AssignIndex && instruction.operands.size() != 3)
+          throw VerificationError("FlowIR index assignment requires receiver, index, and value operands");
       }
 
       const auto &terminator = *block.terminator;

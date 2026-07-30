@@ -13,6 +13,7 @@ namespace NG::vnext::bytecode
         OpcodeDescriptor{Opcode::Evaluate, "evaluate", OperandLayout::CountPrefixedTail, 4},
         OpcodeDescriptor{Opcode::Call, "call", OperandLayout::CountPrefixedTail, 2},
         OpcodeDescriptor{Opcode::BindLocal, "bind_local", OperandLayout::Fixed, 3},
+        OpcodeDescriptor{Opcode::AssignIndex, "assign_index", OperandLayout::Fixed, 3},
         OpcodeDescriptor{Opcode::Return, "return", OperandLayout::CountPrefixedTail, 0},
         OpcodeDescriptor{Opcode::Jump, "jump", OperandLayout::CountPrefixedTail, 1},
         OpcodeDescriptor{Opcode::Branch, "branch", OperandLayout::Fixed, 3},
@@ -115,10 +116,15 @@ namespace NG::vnext::bytecode
             appendInstruction(result.code, Opcode::Evaluate, operands);
           }
         }
-        else
+        else if (instruction.kind == flowir::InstructionKind::BindLocal)
         {
           appendInstruction(result.code, Opcode::BindLocal,
                             {instruction.result.value, instruction.local->value, instruction.source->value});
+        }
+        else
+        {
+          appendInstruction(result.code, Opcode::AssignIndex,
+                            {instruction.operands[0].value, instruction.operands[1].value, instruction.operands[2].value});
         }
       }
 
@@ -282,6 +288,17 @@ namespace NG::vnext::bytecode
             for (size_t index = 0; index < instruction.operands.at(4); ++index) requireOperandType(index, array.element);
           }
           else if (kind == hir::ExpressionKind::BooleanLiteral) requireResultType(typecheck::builtin::Bool);
+          else if (kind == hir::ExpressionKind::Index)
+          {
+            const auto receiver = requireValueType(instruction.operands.at(5));
+            if (receiver.value >= function.typeDescriptors.size())
+              throw BytecodeError("bytecode value type descriptor is out of range");
+            const auto &array = function.typeDescriptors[receiver.value];
+            if (array.kind != typecheck::TypeKind::DynamicArray && array.kind != typecheck::TypeKind::FixedArray)
+              throw BytecodeError("bytecode index receiver is not an array type");
+            requireOperandType(1, typecheck::builtin::I64);
+            requireResultType(array.element);
+          }
           else if (kind == hir::ExpressionKind::ResolvedName)
           {
             const uint32_t local = instruction.operands[2];
@@ -343,6 +360,19 @@ namespace NG::vnext::bytecode
           if (requireValueType(result) != function.localTypes.at(local) ||
               requireValueType(source) != function.localTypes.at(local))
             throw BytecodeError("bytecode local binding type mismatch");
+        }
+        else if (instruction.opcode == Opcode::AssignIndex)
+        {
+          const auto receiver = requireValueType(instruction.operands[0]);
+          if (receiver.value >= function.typeDescriptors.size())
+            throw BytecodeError("bytecode value type descriptor is out of range");
+          const auto &array = function.typeDescriptors[receiver.value];
+          if (array.kind != typecheck::TypeKind::DynamicArray && array.kind != typecheck::TypeKind::FixedArray)
+            throw BytecodeError("bytecode index receiver is not an array type");
+          if (requireValueType(instruction.operands[1]) != typecheck::builtin::I64)
+            throw BytecodeError("bytecode array index is not i64");
+          if (requireValueType(instruction.operands[2]) != array.element)
+            throw BytecodeError("bytecode array assignment value type mismatch");
         }
         else if (instruction.opcode == Opcode::Branch)
         {

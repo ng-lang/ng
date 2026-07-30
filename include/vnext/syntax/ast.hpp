@@ -194,11 +194,11 @@ namespace NG::vnext::syntax
 
   struct AssignStatement final : Statement
   {
-    const std::string name;
+    ExpressionPtr target;
     ExpressionPtr value;
 
-    AssignStatement(std::string targetName, ExpressionPtr assignedValue, SourceSpan sourceSpan)
-      : Statement(StatementKind::Assign, sourceSpan), name(std::move(targetName)), value(std::move(assignedValue))
+    AssignStatement(ExpressionPtr assignedTarget, ExpressionPtr assignedValue, SourceSpan sourceSpan)
+      : Statement(StatementKind::Assign, sourceSpan), target(std::move(assignedTarget)), value(std::move(assignedValue))
     {
     }
   };

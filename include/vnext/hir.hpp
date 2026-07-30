@@ -112,6 +112,7 @@ namespace NG::vnext::hir
     std::optional<LoopId> loop;
     std::optional<NextTarget> nextTarget;
     ExpressionPtr expression;
+    ExpressionPtr assignmentTarget;
     std::vector<ExpressionPtr> arguments;
     std::vector<LocalId> loopBindings;
     std::unique_ptr<Block> consequence;

@@ -1,6 +1,7 @@
 // AI-generated code; reviewed for this repository's vNext rewrite.
 #include "value_ops.hpp"
 
+#include <format>
 #include <limits>
 
 namespace NG::vnext::vm::detail
@@ -34,6 +35,15 @@ namespace NG::vnext::vm::detail
       return left * right;
     }
   } // namespace
+
+  void assignIndexInstruction(const bytecode::DecodedInstruction &instruction, std::vector<Value> &values)
+  {
+    auto &array = values.at(instruction.operands[0]).asArrayMut();
+    const int64_t index = values.at(instruction.operands[1]).asInteger();
+    if (index < 0 || static_cast<uint64_t>(index) >= array.size())
+      throw bytecode::BytecodeError(std::format("array index out of bounds: index {}, length {}", index, array.size()));
+    array[static_cast<size_t>(index)] = values.at(instruction.operands[2]);
+  }
 
   void evaluateInstruction(const bytecode::DecodedInstruction &instruction, const std::vector<std::string> &stringConstants,
                            std::vector<Value> &values, const std::unordered_map<uint32_t, Value> &locals)
@@ -85,6 +95,15 @@ namespace NG::vnext::vm::detail
       case 3: values[result] = operand; return;
       default: throw bytecode::BytecodeError("unsupported prefix operation");
       }
+    }
+    if (kind == hir::ExpressionKind::Index)
+    {
+      const auto &array = values.at(instruction.operands[5]).asArray();
+      const int64_t index = values.at(instruction.operands[6]).asInteger();
+      if (index < 0 || static_cast<uint64_t>(index) >= array.size())
+        throw bytecode::BytecodeError(std::format("array index out of bounds: index {}, length {}", index, array.size()));
+      values[result] = array[static_cast<size_t>(index)];
+      return;
     }
     if (kind != hir::ExpressionKind::Binary)
     {

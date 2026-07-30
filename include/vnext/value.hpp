@@ -38,6 +38,11 @@ namespace NG::vnext
       if (!isArray()) throw std::runtime_error("runtime value is not an array");
       return *std::get<std::shared_ptr<std::vector<Value>>>(storage_);
     }
+    [[nodiscard]] auto asArrayMut() -> std::vector<Value> &
+    {
+      if (!isArray()) throw std::runtime_error("runtime value is not an array");
+      return *std::get<std::shared_ptr<std::vector<Value>>>(storage_);
+    }
     [[nodiscard]] auto asString() const -> const std::string &
     {
       if (!isString()) throw std::runtime_error("runtime value is not a string");

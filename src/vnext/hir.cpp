@@ -168,20 +168,24 @@ namespace NG::vnext::hir
 
     if (const auto *assign = dynamic_cast<const syntax::AssignStatement *>(&statement))
     {
-      const syntax::IdentifierExpression target{assign->name, assign->span};
-      const auto resolvedTarget = resolveName(target);
-      if (resolvedTarget.kind != ResolvedNameKind::Local)
-      {
-        throw ResolutionError(std::format("assignment target `{}` is not a local binding", assign->name), assign->span);
-      }
-      if (!localMutability_.at(resolvedTarget.id))
-      {
-        throw ResolutionError(std::format("cannot assign to immutable binding `{}`", assign->name), assign->span);
-      }
-      return Statement{.kind = StatementKind::Assign,
-                       .span = assign->span,
-                       .local = LocalId{resolvedTarget.id},
-                       .expression = resolveExpression(*assign->value)};
+      const syntax::Expression *root = assign->target.get();
+      while (const auto *index = dynamic_cast<const syntax::IndexExpression *>(root)) root = index->receiver.get();
+      const auto *identifier = dynamic_cast<const syntax::IdentifierExpression *>(root);
+      if (identifier == nullptr)
+        throw ResolutionError("assignment target is not a local place", assign->target->span);
+      const auto resolvedRoot = resolveName(*identifier);
+      if (resolvedRoot.kind != ResolvedNameKind::Local)
+        throw ResolutionError(std::format("assignment target `{}` is not a local binding", identifier->name), assign->target->span);
+      if (!localMutability_.at(resolvedRoot.id))
+        throw ResolutionError(std::format("cannot assign to immutable binding `{}`", identifier->name), assign->target->span);
+
+      Statement resolved{.kind = StatementKind::Assign,
+                         .span = assign->span,
+                         .local = LocalId{resolvedRoot.id},
+                         .expression = resolveExpression(*assign->value)};
+      if (assign->target->kind != syntax::ExpressionKind::Identifier)
+        resolved.assignmentTarget = resolveExpression(*assign->target);
+      return resolved;
     }
 
     if (const auto *returnStatement = dynamic_cast<const syntax::ReturnStatement *>(&statement))

@@ -166,10 +166,11 @@ TEST_CASE("vNext type checker rejects unknown type annotations", "[vNext][Typech
   }
 }
 
-TEST_CASE("vNext type checker rejects unsupported postfix operations", "[vNext][Typecheck]")
+TEST_CASE("vNext type checker validates array indexing and rejects unsupported postfix operations", "[vNext][Typecheck]")
 {
+  REQUIRE_NOTHROW(check("fun first() -> i64 { let values = [1, 2]; return values[0]; }"));
   REQUIRE_THROWS_WITH(check("fun invalid() { let value = 1; value(); }"), "call target is not a function");
-  REQUIRE_THROWS_WITH(check("fun invalid() { let value = 1; return value[0]; }"), "index expressions are not yet supported");
+  REQUIRE_THROWS_WITH(check("fun invalid() { let value = 1; return value[0]; }"), "cannot index value of type i64");
   REQUIRE_THROWS_WITH(check("fun invalid() { let value = 1; return value.field; }"), "member expressions are not yet supported");
 }
 

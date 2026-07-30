@@ -15,6 +15,7 @@ namespace NG::vnext::bytecode
     Evaluate,
     Call,
     BindLocal,
+    AssignIndex,
     Return,
     Jump,
     Branch,

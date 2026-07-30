@@ -77,6 +77,30 @@ TEST_CASE("vNext VM materializes dynamic and fixed homogeneous arrays", "[vNext]
   REQUIRE(fixed.returnValue->asArray()[1] == 5);
 }
 
+TEST_CASE("vNext VM reads and mutates checked array index places", "[vNext][VM]")
+{
+  const auto dynamic = compile(
+      "fun main() -> i64 { let mut items = [10, 20, 30]; items[1] := 42; return items[1]; }");
+  REQUIRE(vm::VM{}.run(dynamic).returnValue == 42);
+
+  const auto second = compile(
+      "fun main() -> i64 { let mut items = [10, 20, 30]; items[0] := 7; return items[0]; }");
+  REQUIRE(vm::VM{}.run(second).returnValue == 7);
+
+  const auto nested = compile(
+      "fun main() -> i64 { let mut rows = [[1, 2], [3, 4]]; rows[1][0] := 9; return rows[1][0]; }");
+  REQUIRE(vm::VM{}.run(nested).returnValue == 9);
+}
+
+TEST_CASE("vNext VM rejects out-of-bounds array reads and writes", "[vNext][VM]")
+{
+  const auto read = compile("fun main() -> i64 { let items = [1, 2]; return items[2]; }");
+  REQUIRE_THROWS_WITH(vm::VM{}.run(read), "array index out of bounds: index 2, length 2");
+
+  const auto write = compile("fun main() -> i64 { let mut items = [1, 2]; items[-1] := 3; return 0; }");
+  REQUIRE_THROWS_WITH(vm::VM{}.run(write), "array index out of bounds: index -1, length 2");
+}
+
 TEST_CASE("vNext VM passes string values through direct module calls", "[vNext][VM]")
 {
   const auto syntaxUnit = syntax::parseSourceUnit(

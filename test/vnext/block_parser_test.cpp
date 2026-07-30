@@ -56,6 +56,18 @@ namespace
   }
 } // namespace
 
+TEST_CASE("vNext block parser preserves index assignment targets", "[vNext][Syntax][Block]")
+{
+  const auto block = syntax::parseBlock("{ items[1] := 42; }");
+  REQUIRE(block.statements.size() == 1);
+  const auto *assignment = dynamic_cast<const syntax::AssignStatement *>(block.statements.front().get());
+  REQUIRE(assignment != nullptr);
+  REQUIRE(assignment->target->kind == syntax::ExpressionKind::Index);
+  REQUIRE(assignment->value->kind == syntax::ExpressionKind::IntegerLiteral);
+  REQUIRE(assignment->target->span.begin == 2);
+  REQUIRE(assignment->target->span.end == 10);
+}
+
 TEST_CASE("vNext block parser treats let as a lexical statement", "[vNext][Syntax][Block]")
 {
   const auto block = syntax::parseBlock("{ let mut total = 2 * 3 + 4; total; }");

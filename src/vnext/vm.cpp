@@ -78,6 +78,9 @@ namespace NG::vnext::vm
         locals[local] = values[result];
         break;
       }
+      case bytecode::Opcode::AssignIndex:
+        detail::assignIndexInstruction(instruction, values);
+        break;
       case bytecode::Opcode::Return:
       {
         std::optional<Value> result;
@@ -191,6 +194,11 @@ namespace NG::vnext::vm
         if (frame.values.size() <= result) frame.values.resize(result + 1);
         frame.values[result] = frame.values.at(instruction.operands[2]);
         frame.locals[instruction.operands[1]] = frame.values[result];
+        continue;
+      }
+      if (instruction.opcode == bytecode::Opcode::AssignIndex)
+      {
+        detail::assignIndexInstruction(instruction, frame.values);
         continue;
       }
       if (instruction.opcode == bytecode::Opcode::Call)

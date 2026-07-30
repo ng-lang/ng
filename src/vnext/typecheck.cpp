@@ -85,7 +85,15 @@ namespace NG::vnext::typecheck
           return;
         }
         case hir::StatementKind::Assign:
-          static_cast<void>(inferExpected(*statement.expression, locals.at(statement.local->value), locals, "assignment value"));
+          if (statement.assignmentTarget != nullptr)
+          {
+            const TypeId target = infer(*statement.assignmentTarget, locals);
+            static_cast<void>(inferExpected(*statement.expression, target, locals, "assignment value"));
+          }
+          else
+          {
+            static_cast<void>(inferExpected(*statement.expression, locals.at(statement.local->value), locals, "assignment value"));
+          }
           return;
         case hir::StatementKind::Return:
           if (statement.expression != nullptr) static_cast<void>(inferExpected(*statement.expression, returnType, locals, "return value"));
@@ -215,7 +223,16 @@ namespace NG::vnext::typecheck
           type = signature.returnType;
           break;
         }
-        case hir::ExpressionKind::Index: throw TypeError("index expressions are not yet supported", expression.span);
+        case hir::ExpressionKind::Index:
+        {
+          const TypeId receiver = infer(*expression.operands[0], locals);
+          requireType(builtin::I64, infer(*expression.operands[1], locals), expression.operands[1]->span, "array index");
+          const auto &descriptor = interner_.descriptor(receiver);
+          if (descriptor.kind != TypeKind::DynamicArray && descriptor.kind != TypeKind::FixedArray)
+            throw TypeError(std::format("cannot index value of type {}", interner_.display(receiver)), expression.span);
+          type = descriptor.element;
+          break;
+        }
         case hir::ExpressionKind::Member: throw TypeError("member expressions are not yet supported", expression.span);
         }
         record(expression, type);

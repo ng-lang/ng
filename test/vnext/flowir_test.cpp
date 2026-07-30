@@ -47,6 +47,16 @@ TEST_CASE("vNext FlowIR carries checked value type identities", "[vNext][FlowIR]
   }
 }
 
+TEST_CASE("vNext FlowIR lowers array index writes as place operations", "[vNext][FlowIR]")
+{
+  const auto function = lower("fun update() -> i64 { let mut values = [1, 2]; values[1] := 7; return values[1]; }");
+  const auto assignment = std::find_if(function.blocks.front().instructions.begin(), function.blocks.front().instructions.end(),
+                                       [](const auto &instruction) { return instruction.kind == flowir::InstructionKind::AssignIndex; });
+  REQUIRE(assignment != function.blocks.front().instructions.end());
+  REQUIRE(assignment->operands.size() == 3);
+  REQUIRE_NOTHROW(flowir::Verifier{}.verify(function));
+}
+
 TEST_CASE("vNext FlowIR lowers loop next to a backedge with simultaneous arguments", "[vNext][FlowIR]")
 {
   const auto function = lower("fun step(seed: i64) { loop (left = seed, right = 1) { next (right, left); } }");

@@ -28,6 +28,7 @@ namespace NG::vnext::flowir
   {
     Evaluate,
     BindLocal,
+    AssignIndex,
   };
 
   struct Instruction

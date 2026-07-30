@@ -34,7 +34,7 @@ namespace NG::vnext::syntax
         statements.push_back(parseLetStatement());
         continue;
       }
-      if (current().kind == TokenKind::Identifier && peek(1).kind == TokenKind::Assign)
+      if (current().kind == TokenKind::Identifier && hasTopLevelAssignment())
       {
         statements.push_back(parseAssignStatement());
         continue;
@@ -107,12 +107,13 @@ namespace NG::vnext::syntax
 
   auto BlockParser::parseAssignStatement() -> StatementPtr
   {
-    const Token name = consume();
+    auto target = parseExpressionUntil(TokenKind::Assign);
     expect(TokenKind::Assign, "expected `:=` after assignment target");
     auto value = parseExpressionUntil(TokenKind::Semicolon);
     const Token semicolon = current();
     expect(TokenKind::Semicolon, "expected `;` after assignment value");
-    return std::make_unique<AssignStatement>(name.text, std::move(value), SourceSpan{name.span.begin, semicolon.span.end});
+    const size_t begin = target->span.begin;
+    return std::make_unique<AssignStatement>(std::move(target), std::move(value), SourceSpan{begin, semicolon.span.end});
   }
 
   auto BlockParser::parseReturnStatement() -> StatementPtr
@@ -306,6 +307,25 @@ namespace NG::vnext::syntax
     const size_t end = expressionTokens.back().span.end;
     expressionTokens.push_back(Token{.kind = TokenKind::End, .text = {}, .span = SourceSpan{end, end}});
     return ExpressionParser{std::move(expressionTokens)}.parse();
+  }
+
+  auto BlockParser::hasTopLevelAssignment() const -> bool
+  {
+    size_t parenthesisDepth{};
+    size_t squareDepth{};
+    for (size_t index = cursor_; index < tokens_.size(); ++index)
+    {
+      const auto kind = tokens_[index].kind;
+      if (kind == TokenKind::LeftParen) ++parenthesisDepth;
+      else if (kind == TokenKind::RightParen && parenthesisDepth != 0) --parenthesisDepth;
+      else if (kind == TokenKind::LeftSquare) ++squareDepth;
+      else if (kind == TokenKind::RightSquare && squareDepth != 0) --squareDepth;
+      else if (parenthesisDepth == 0 && squareDepth == 0 && kind == TokenKind::Assign) return true;
+      if (parenthesisDepth == 0 && squareDepth == 0 &&
+          (kind == TokenKind::Semicolon || kind == TokenKind::RightBrace || kind == TokenKind::End))
+        return false;
+    }
+    return false;
   }
 
   auto BlockParser::current() const -> const Token &
