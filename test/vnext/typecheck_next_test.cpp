@@ -117,11 +117,33 @@ TEST_CASE("vNext type checker rejects call arity and argument type mismatch", "[
   }
 }
 
-TEST_CASE("vNext type checker infers homogeneous i64 array literals", "[vNext][Typecheck]")
+TEST_CASE("vNext type checker interns dynamic and fixed arrays as distinct types", "[vNext][Typecheck]")
+{
+  const auto syntaxUnit = syntax::parseSourceUnit(
+      "fun dynamic() -> array<i64> { return [1, 2, 3]; } "
+      "fun fixedThree() -> array<i64, 3> { return [1, 2, 3]; } "
+      "fun fixedFour() -> array<i64, 4> { return [1, 2, 3, 4]; }");
+  const auto module = hir::Resolver{}.resolve(syntaxUnit);
+  const auto result = typecheck::TypeChecker{}.check(module);
+  const auto dynamic = result.functionTypeIds.at(0).returnType;
+  const auto fixedThree = result.functionTypeIds.at(1).returnType;
+  const auto fixedFour = result.functionTypeIds.at(2).returnType;
+  REQUIRE(dynamic != fixedThree);
+  REQUIRE(fixedThree != fixedFour);
+  REQUIRE(result.typeDescriptors.at(dynamic.value).kind == typecheck::TypeKind::DynamicArray);
+  REQUIRE(result.typeDescriptors.at(fixedThree.value).kind == typecheck::TypeKind::FixedArray);
+  REQUIRE(result.typeDescriptors.at(fixedThree.value).length == 3);
+  REQUIRE(result.typeDescriptors.at(fixedFour.value).length == 4);
+}
+
+TEST_CASE("vNext type checker validates homogeneous and fixed-length array literals", "[vNext][Typecheck]")
 {
   REQUIRE_NOTHROW(check("fun values() -> array<i64> { return [1, 2]; }"));
+  REQUIRE_NOTHROW(check("fun values() -> array<i64, 2> { return [1, 2]; }"));
   REQUIRE_THROWS_WITH(check("fun invalid() -> array<i64> { return [1, true]; }"),
                       "array element type mismatch: expected i64, got bool");
+  REQUIRE_THROWS_WITH(check("fun invalid() -> array<i64, 3> { return [1, 2]; }"),
+                      "fixed array length mismatch: expected 3, got 2");
 }
 
 TEST_CASE("vNext type checker accepts string literals and concatenation", "[vNext][Typecheck]")
@@ -139,7 +161,7 @@ TEST_CASE("vNext type checker rejects unknown type annotations", "[vNext][Typech
   catch (const typecheck::TypeError &error)
   {
     REQUIRE(std::string{error.what()} == "unknown type `imaginary`");
-    REQUIRE(error.span.begin == 12);
+    REQUIRE(error.span.begin == 19);
     REQUIRE(error.span.end == 28);
   }
 }

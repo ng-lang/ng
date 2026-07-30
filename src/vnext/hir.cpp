@@ -1,6 +1,7 @@
 // AI-generated code; reviewed for this repository's vNext rewrite.
 #include "vnext/hir.hpp"
 
+#include <charconv>
 #include <format>
 #include <utility>
 
@@ -8,6 +9,36 @@ namespace NG::vnext::hir
 {
   namespace
   {
+    [[nodiscard]] auto lowerType(const syntax::TypeSyntax &type) -> Type
+    {
+      if (const auto *named = dynamic_cast<const syntax::NamedTypeSyntax *>(&type))
+        return Type{.kind = TypeKind::Named, .span = type.span, .name = named->name};
+      if (const auto *applied = dynamic_cast<const syntax::AppliedTypeSyntax *>(&type))
+      {
+        Type result{.kind = TypeKind::Applied, .span = type.span, .target = std::make_unique<Type>(lowerType(*applied->constructor))};
+        for (const auto &argument : applied->arguments)
+        {
+          TypeArgument lowered{.kind = argument.kind, .span = argument.span};
+          if (argument.kind == syntax::GenericArgumentKind::Type) lowered.type = std::make_unique<Type>(lowerType(*argument.type));
+          else
+          {
+            const auto [end, error] = std::from_chars(argument.text.data(), argument.text.data() + argument.text.size(), lowered.constInteger);
+            if (error != std::errc{} || end != argument.text.data() + argument.text.size())
+              throw ResolutionError("const generic integer is out of range", argument.span);
+          }
+          result.arguments.push_back(std::move(lowered));
+        }
+        return result;
+      }
+      if (const auto *reference = dynamic_cast<const syntax::ScopedReferenceTypeSyntax *>(&type))
+        return Type{.kind = TypeKind::ScopedReference, .span = type.span,
+                    .target = std::make_unique<Type>(lowerType(*reference->target)), .isMutable = reference->isMutable};
+      if (const auto *pointer = dynamic_cast<const syntax::RawPointerTypeSyntax *>(&type))
+        return Type{.kind = TypeKind::RawPointer, .span = type.span,
+                    .target = std::make_unique<Type>(lowerType(*pointer->pointee)), .isMutable = pointer->isMutable};
+      throw ResolutionError("unsupported type during name resolution", type.span);
+    }
+
     [[nodiscard]] auto renderTypeName(const syntax::TypeSyntax &type) -> std::string
     {
       if (const auto *named = dynamic_cast<const syntax::NamedTypeSyntax *>(&type))
@@ -82,12 +113,16 @@ namespace NG::vnext::hir
     {
       const LocalId local = declareLocal(parameter.name, parameter.span);
       localMutability_.emplace(local.value, false);
-      resolved.parameters.push_back(
-          Parameter{.name = parameter.name, .typeName = renderTypeName(*parameter.type), .local = local, .span = parameter.span});
+      resolved.parameters.push_back(Parameter{.name = parameter.name,
+                                               .typeName = renderTypeName(*parameter.type),
+                                               .type = lowerType(*parameter.type),
+                                               .local = local,
+                                               .span = parameter.span});
     }
     if (function.returnType != nullptr)
     {
       resolved.returnTypeName = renderTypeName(*function.returnType);
+      resolved.returnType = std::make_unique<Type>(lowerType(*function.returnType));
     }
     resolved.body = resolveBlock(function.body, false);
     currentFunction_.reset();

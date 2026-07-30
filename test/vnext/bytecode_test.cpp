@@ -92,6 +92,19 @@ TEST_CASE("vNext bytecode artifacts round-trip verified modules", "[vNext][Bytec
   REQUIRE(vm::VM{}.run(restored, hir::DefId{1}).returnValue == 42);
 }
 
+TEST_CASE("vNext bytecode artifacts preserve fixed-array type descriptors", "[vNext][Bytecode]")
+{
+  const auto syntaxUnit = syntax::parseSourceUnit("fun values() -> array<i64, 3> { return [1, 2, 3]; }");
+  const auto hirModule = hir::Resolver{}.resolve(syntaxUnit);
+  const auto typed = typecheck::TypeChecker{}.check(hirModule);
+  const auto function = bytecode::Compiler{}.compile(flowir::Lowerer{}.lower(hirModule.functions.front(), typed));
+  const auto artifact = bytecode::ArtifactCodec{}.serialize(bytecode::Module{.functions = {function}});
+  const auto restored = bytecode::ArtifactCodec{}.deserialize(artifact);
+  REQUIRE(restored.functions.front().typeDescriptors == function.typeDescriptors);
+  REQUIRE(restored.functions.front().typeDescriptors.at(function.valueTypes.at(3).value).kind == typecheck::TypeKind::FixedArray);
+  REQUIRE(vm::VM{}.run(restored.functions.front()).returnValue->asArray().size() == 3);
+}
+
 TEST_CASE("vNext bytecode artifacts preserve string constant pools", "[vNext][Bytecode]")
 {
   const auto syntaxUnit = syntax::parseSourceUnit("fun greeting() -> string { return \"hello\" + \" world\"; }");

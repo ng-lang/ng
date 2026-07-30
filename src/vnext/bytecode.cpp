@@ -69,6 +69,7 @@ namespace NG::vnext::bytecode
     Function result{.source = flow.source};
     result.valueTypes = flow.valueTypes;
     result.localTypes = flow.localTypes;
+    result.typeDescriptors = flow.typeDescriptors;
     for (const auto local : flow.parameterLocals) result.parameterLocals.push_back(local.value);
     result.blockParameterCounts.reserve(flow.blocks.size());
     result.blockParameterLocals.reserve(flow.blocks.size());
@@ -215,6 +216,29 @@ namespace NG::vnext::bytecode
         throw BytecodeError("bytecode block parameter locals do not match parameter count");
       }
     }
+    if ((!function.valueTypes.empty() || !function.localTypes.empty()) && function.typeDescriptors.empty())
+      throw BytecodeError("bytecode typed function has no type descriptors");
+    const auto verifyTypeId = [&function](typecheck::TypeId type) {
+      if (type.value == 0 || type.value >= function.typeDescriptors.size())
+        throw BytecodeError("bytecode type metadata is out of range");
+    };
+    for (const auto &[_, type] : function.valueTypes) verifyTypeId(type);
+    for (const auto &[_, type] : function.localTypes) verifyTypeId(type);
+    for (size_t index = 1; index < function.typeDescriptors.size(); ++index)
+    {
+      const auto &descriptor = function.typeDescriptors[index];
+      if (descriptor.kind != typecheck::TypeKind::Builtin && descriptor.kind != typecheck::TypeKind::DynamicArray &&
+          descriptor.kind != typecheck::TypeKind::FixedArray)
+        throw BytecodeError("bytecode type descriptor kind is invalid");
+      if (descriptor.kind != typecheck::TypeKind::Builtin)
+      {
+        verifyTypeId(descriptor.element);
+        if (descriptor.kind == typecheck::TypeKind::DynamicArray && descriptor.length.has_value())
+          throw BytecodeError("bytecode dynamic array descriptor has a fixed length");
+        if (descriptor.kind == typecheck::TypeKind::FixedArray && !descriptor.length.has_value())
+          throw BytecodeError("bytecode fixed array descriptor has no length");
+      }
+    }
     for (const auto offset : function.blockOffsets)
     {
       const bool isInstructionBoundary = std::any_of(instructions.begin(), instructions.end(),
@@ -248,9 +272,14 @@ namespace NG::vnext::bytecode
           else if (kind == hir::ExpressionKind::StringLiteral) requireResultType(typecheck::builtin::String);
           else if (kind == hir::ExpressionKind::ArrayLiteral)
           {
-            requireResultType(typecheck::builtin::ArrayI64);
-            for (size_t index = 0; index < instruction.operands.at(4); ++index)
-              requireOperandType(index, typecheck::builtin::I64);
+            if (resultType.value >= function.typeDescriptors.size())
+              throw BytecodeError("bytecode value type descriptor is out of range");
+            const auto &array = function.typeDescriptors[resultType.value];
+            if (array.kind != typecheck::TypeKind::DynamicArray && array.kind != typecheck::TypeKind::FixedArray)
+              throw BytecodeError("bytecode array literal result is not an array type");
+            if (array.kind == typecheck::TypeKind::FixedArray && instruction.operands.at(4) != *array.length)
+              throw BytecodeError("bytecode fixed array literal length mismatch");
+            for (size_t index = 0; index < instruction.operands.at(4); ++index) requireOperandType(index, array.element);
           }
           else if (kind == hir::ExpressionKind::BooleanLiteral) requireResultType(typecheck::builtin::Bool);
           else if (kind == hir::ExpressionKind::ResolvedName)

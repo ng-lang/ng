@@ -57,6 +57,48 @@ namespace NG::vnext::bytecode
       return values;
     }
 
+    void appendTypeDescriptors(std::vector<uint8_t> &output, const std::vector<typecheck::TypeDescriptor> &descriptors)
+    {
+      appendU32(output, narrowSize(descriptors.size()));
+      for (const auto &descriptor : descriptors)
+      {
+        appendU32(output, static_cast<uint32_t>(descriptor.kind));
+        appendStringVector(output, {descriptor.name});
+        appendU32(output, descriptor.element.value);
+        appendU32(output, descriptor.length.has_value() ? 1 : 0);
+        if (descriptor.length.has_value())
+        {
+          appendU32(output, static_cast<uint32_t>(*descriptor.length));
+          appendU32(output, static_cast<uint32_t>(*descriptor.length >> 32));
+        }
+      }
+    }
+
+    [[nodiscard]] auto readTypeDescriptors(const std::vector<uint8_t> &input, size_t &offset)
+        -> std::vector<typecheck::TypeDescriptor>
+    {
+      const uint32_t count = readU32(input, offset);
+      std::vector<typecheck::TypeDescriptor> descriptors;
+      descriptors.reserve(count);
+      for (uint32_t index = 0; index < count; ++index)
+      {
+        const auto kind = static_cast<typecheck::TypeKind>(readU32(input, offset));
+        const auto names = readStringVector(input, offset);
+        if (names.size() != 1) throw BytecodeError("invalid bytecode type descriptor name");
+        const typecheck::TypeId element{readU32(input, offset)};
+        const uint32_t hasLength = readU32(input, offset);
+        if (hasLength > 1) throw BytecodeError("invalid bytecode type descriptor length flag");
+        std::optional<uint64_t> length;
+        if (hasLength == 1)
+        {
+          const uint64_t low = readU32(input, offset);
+          length = low | (static_cast<uint64_t>(readU32(input, offset)) << 32);
+        }
+        descriptors.push_back(typecheck::TypeDescriptor{.kind = kind, .name = names.front(), .element = element, .length = length});
+      }
+      return descriptors;
+    }
+
     void appendU32Vector(std::vector<uint8_t> &output, const std::vector<uint32_t> &values)
     {
       appendU32(output, narrowSize(values.size()));
@@ -113,6 +155,7 @@ namespace NG::vnext::bytecode
       appendU32Vector(output, function.blockOffsets);
       appendTypeMap(output, function.valueTypes);
       appendTypeMap(output, function.localTypes);
+      appendTypeDescriptors(output, function.typeDescriptors);
     }
 
     [[nodiscard]] auto readFunction(const std::vector<uint8_t> &input, size_t &offset) -> Function
@@ -132,6 +175,7 @@ namespace NG::vnext::bytecode
       function.blockOffsets = readU32Vector(input, offset);
       function.valueTypes = readTypeMap(input, offset);
       function.localTypes = readTypeMap(input, offset);
+      function.typeDescriptors = readTypeDescriptors(input, offset);
       Verifier{}.verify(function);
       return function;
     }

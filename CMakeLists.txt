@@ -149,6 +149,7 @@ set(NG_VNEXT_SRC
         src/vnext/flowir.cpp
         src/vnext/hir.cpp
         src/vnext/typecheck.cpp
+        src/vnext/type_interner.cpp
         src/vnext/vm.cpp
         src/vnext/vm/value_ops.cpp
         src/vnext/syntax/block_parser.cpp

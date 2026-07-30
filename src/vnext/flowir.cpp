@@ -18,6 +18,7 @@ namespace NG::vnext::flowir
       [[nodiscard]] auto lower(const hir::Function &source) -> Function
       {
         function_ = Function{.source = source.id};
+        if (types_ != nullptr) function_.typeDescriptors = types_->typeDescriptors;
         reserveSyntheticLocalIds(source);
         for (const auto &parameter : source.parameters)
         {

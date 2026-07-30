@@ -3,14 +3,11 @@
 
 #include <format>
 #include <unordered_map>
-#include <unordered_set>
 
 namespace NG::vnext::typecheck
 {
   namespace
   {
-    using Signature = FunctionType;
-
     class Checker final
     {
     public:
@@ -18,268 +15,230 @@ namespace NG::vnext::typecheck
       {
         for (const auto &function : module.functions)
         {
-          Signature signature;
+          FunctionTypeIds signature;
+          FunctionType displaySignature;
           for (const auto &parameter : function.parameters)
           {
-            requireKnownType(parameter.typeName, parameter.span);
-            signature.parameters.push_back(parameter.typeName);
+            const TypeId type = interner_.resolve(parameter.type);
+            signature.parameters.push_back(type);
+            displaySignature.parameters.push_back(interner_.display(type));
           }
-          signature.returnType = function.returnTypeName.value_or("unit");
-          requireKnownType(signature.returnType, function.span);
-          functionTypes_.emplace(function.id.value, signature);
-          signatures_.emplace(function.id.value, std::move(signature));
+          signature.returnType = function.returnType != nullptr ? interner_.resolve(*function.returnType) : builtin::Unit;
+          displaySignature.returnType = interner_.display(signature.returnType);
+          signatures_.emplace(function.id.value, signature);
+          functionTypeIds_.emplace(function.id.value, signature);
+          functionTypes_.emplace(function.id.value, std::move(displaySignature));
         }
-        for (const auto &function : module.functions)
-        {
-          checkFunction(function);
-        }
+        for (const auto &function : module.functions) checkFunction(function);
         return TypeCheckResult{.expressionTypes = std::move(expressionTypes_),
                                .expressionTypeIds = std::move(expressionTypeIds_),
-                               .localTypes = std::move(localTypes_),
+                               .localTypes = std::move(localDisplayTypes_),
                                .localTypeIds = std::move(localTypeIds_),
-                               .functionTypes = std::move(functionTypes_)};
+                               .functionTypes = std::move(functionTypes_),
+                               .functionTypeIds = std::move(functionTypeIds_),
+                               .typeDescriptors = interner_.descriptors()};
       }
 
     private:
-      using LocalTypes = std::unordered_map<uint32_t, std::string>;
-      using LoopTypes = std::unordered_map<uint32_t, std::vector<std::string>>;
+      using LocalTypes = std::unordered_map<uint32_t, TypeId>;
+      using LoopTypes = std::unordered_map<uint32_t, std::vector<TypeId>>;
+
+      void record(const hir::Expression &expression, TypeId type)
+      {
+        expressionTypeIds_.insert_or_assign(&expression, type);
+        expressionTypes_.insert_or_assign(&expression, interner_.display(type));
+      }
+
+      void recordLocal(hir::LocalId local, TypeId type)
+      {
+        localTypeIds_.insert_or_assign(local.value, type);
+        localDisplayTypes_.insert_or_assign(local.value, interner_.display(type));
+      }
 
       void checkFunction(const hir::Function &function)
       {
         LocalTypes locals;
-        for (const auto &parameter : function.parameters)
+        const auto &signature = signatures_.at(function.id.value);
+        for (size_t index = 0; index < function.parameters.size(); ++index)
         {
-          locals.emplace(parameter.local.value, parameter.typeName);
-          localTypes_.emplace(parameter.local.value, parameter.typeName);
-          localTypeIds_.emplace(parameter.local.value, typeIdFor(parameter.typeName));
+          locals.emplace(function.parameters[index].local.value, signature.parameters[index]);
+          recordLocal(function.parameters[index].local, signature.parameters[index]);
         }
-        checkBlock(function.body, locals, {}, function.returnTypeName.value_or("unit"));
+        checkBlock(function.body, locals, {}, signature.returnType);
       }
 
-      void checkBlock(const hir::Block &block, LocalTypes locals, LoopTypes loops, const std::string &returnType)
+      void checkBlock(const hir::Block &block, LocalTypes locals, LoopTypes loops, TypeId returnType)
       {
-        for (const auto &statement : block.statements)
-        {
-          checkStatement(statement, locals, loops, returnType);
-        }
-        if (block.tailExpression != nullptr)
-        {
-          static_cast<void>(infer(*block.tailExpression, locals));
-        }
+        for (const auto &statement : block.statements) checkStatement(statement, locals, loops, returnType);
+        if (block.tailExpression != nullptr) static_cast<void>(infer(*block.tailExpression, locals));
       }
 
-      void checkStatement(const hir::Statement &statement, LocalTypes &locals, LoopTypes &loops,
-                          const std::string &returnType)
+      void checkStatement(const hir::Statement &statement, LocalTypes &locals, LoopTypes &loops, TypeId returnType)
       {
         switch (statement.kind)
         {
         case hir::StatementKind::Let:
         {
-          const auto type = infer(*statement.expression, locals);
+          const TypeId type = infer(*statement.expression, locals);
           locals.emplace(statement.local->value, type);
-          localTypeIds_.emplace(statement.local->value, typeIdFor(type));
-          localTypes_.emplace(statement.local->value, std::move(type));
+          recordLocal(*statement.local, type);
           return;
         }
         case hir::StatementKind::Assign:
-          requireType(locals.at(statement.local->value), infer(*statement.expression, locals), statement.expression->span,
-                      "assignment value");
+          static_cast<void>(inferExpected(*statement.expression, locals.at(statement.local->value), locals, "assignment value"));
           return;
         case hir::StatementKind::Return:
-          if (statement.expression != nullptr)
-          {
-            requireType(returnType, infer(*statement.expression, locals), statement.expression->span, "return value");
-          }
-          else
-          {
-            requireType(returnType, "unit", statement.span, "return value");
-          }
+          if (statement.expression != nullptr) static_cast<void>(inferExpected(*statement.expression, returnType, locals, "return value"));
+          else requireType(returnType, builtin::Unit, statement.span, "return value");
           return;
         case hir::StatementKind::If:
-          requireType("bool", infer(*statement.expression, locals), statement.expression->span, "if condition");
+          requireType(builtin::Bool, infer(*statement.expression, locals), statement.expression->span, "if condition");
           checkBlock(*statement.consequence, locals, loops, returnType);
-          if (statement.alternative != nullptr)
-          {
-            checkBlock(*statement.alternative, locals, loops, returnType);
-          }
+          if (statement.alternative != nullptr) checkBlock(*statement.alternative, locals, loops, returnType);
           return;
         case hir::StatementKind::Loop:
         {
-          std::vector<std::string> types;
-          types.reserve(statement.arguments.size());
-          for (const auto &initializer : statement.arguments)
-          {
-            types.push_back(infer(*initializer, locals));
-          }
+          std::vector<TypeId> types;
+          for (const auto &initializer : statement.arguments) types.push_back(infer(*initializer, locals));
           LocalTypes loopLocals = locals;
           for (size_t index = 0; index < statement.loopBindings.size(); ++index)
           {
             loopLocals.emplace(statement.loopBindings[index].value, types[index]);
-            localTypes_.emplace(statement.loopBindings[index].value, types[index]);
-            localTypeIds_.emplace(statement.loopBindings[index].value, typeIdFor(types[index]));
+            recordLocal(statement.loopBindings[index], types[index]);
           }
           LoopTypes loopTypes = loops;
-          loopTypes.emplace(statement.loop->value, std::move(types));
+          loopTypes.emplace(statement.loop->value, types);
           checkBlock(*statement.body, std::move(loopLocals), std::move(loopTypes), returnType);
           return;
         }
-        case hir::StatementKind::Next:
-          checkNext(statement, locals, loops);
-          return;
-        case hir::StatementKind::Expression:
-          static_cast<void>(infer(*statement.expression, locals));
-          return;
+        case hir::StatementKind::Next: checkNext(statement, locals, loops); return;
+        case hir::StatementKind::Expression: static_cast<void>(infer(*statement.expression, locals)); return;
         }
       }
 
       void checkNext(const hir::Statement &statement, const LocalTypes &locals, const LoopTypes &loops)
       {
-        const std::vector<std::string> *expected = nullptr;
-        if (statement.nextTarget->kind == hir::NextTargetKind::Loop)
-        {
-          expected = &loops.at(statement.nextTarget->id);
-        }
-        else
-        {
-          expected = &signatures_.at(statement.nextTarget->id).parameters;
-        }
-
+        const std::vector<TypeId> *expected = statement.nextTarget->kind == hir::NextTargetKind::Loop
+                                                ? &loops.at(statement.nextTarget->id)
+                                                : &signatures_.at(statement.nextTarget->id).parameters;
         if (statement.arguments.size() != expected->size())
-        {
-          throw TypeError(std::format("next argument count mismatch: expected {}, got {}", expected->size(),
-                                      statement.arguments.size()),
+          throw TypeError(std::format("next argument count mismatch: expected {}, got {}", expected->size(), statement.arguments.size()),
                           statement.span);
-        }
         for (size_t index = 0; index < expected->size(); ++index)
+          static_cast<void>(inferExpected(*statement.arguments[index], (*expected)[index], locals,
+                                          std::format("next argument {}", index + 1)));
+      }
+
+      [[nodiscard]] auto inferExpected(const hir::Expression &expression, TypeId expected, const LocalTypes &locals,
+                                       std::string_view context) -> TypeId
+      {
+        const auto &descriptor = interner_.descriptor(expected);
+        if (expression.kind == hir::ExpressionKind::ArrayLiteral &&
+            (descriptor.kind == TypeKind::DynamicArray || descriptor.kind == TypeKind::FixedArray))
         {
-          requireType((*expected)[index], infer(*statement.arguments[index], locals), statement.arguments[index]->span,
-                      std::format("next argument {}", index + 1));
+          if (descriptor.kind == TypeKind::FixedArray && expression.operands.size() != *descriptor.length)
+            throw TypeError(std::format("fixed array length mismatch: expected {}, got {}", *descriptor.length,
+                                        expression.operands.size()), expression.span);
+          for (const auto &element : expression.operands)
+            static_cast<void>(inferExpected(*element, descriptor.element, locals, "array element"));
+          record(expression, expected);
+          return expected;
         }
+        const TypeId actual = infer(expression, locals);
+        requireType(expected, actual, expression.span, context);
+        return actual;
       }
 
-      [[nodiscard]] auto infer(const hir::Expression &expression, const LocalTypes &locals) -> std::string
+      [[nodiscard]] auto infer(const hir::Expression &expression, const LocalTypes &locals) -> TypeId
       {
-        auto type = inferUnrecorded(expression, locals);
-        expressionTypes_.insert_or_assign(&expression, type);
-        expressionTypeIds_.insert_or_assign(&expression, typeIdFor(type));
-        return type;
-      }
-
-      [[nodiscard]] auto inferUnrecorded(const hir::Expression &expression, const LocalTypes &locals) -> std::string
-      {
+        TypeId type;
         switch (expression.kind)
         {
-        case hir::ExpressionKind::IntegerLiteral: return "i64";
-        case hir::ExpressionKind::StringLiteral: return "string";
+        case hir::ExpressionKind::IntegerLiteral: type = builtin::I64; break;
+        case hir::ExpressionKind::StringLiteral: type = builtin::String; break;
+        case hir::ExpressionKind::BooleanLiteral: type = builtin::Bool; break;
         case hir::ExpressionKind::ArrayLiteral:
         {
           if (expression.operands.empty()) throw TypeError("cannot infer the type of an empty array literal", expression.span);
-          for (const auto &element : expression.operands)
-            requireType("i64", infer(*element, locals), element->span, "array element");
-          return "array<i64>";
+          const TypeId element = infer(*expression.operands.front(), locals);
+          for (size_t index = 1; index < expression.operands.size(); ++index)
+            requireType(element, infer(*expression.operands[index], locals), expression.operands[index]->span, "array element");
+          type = interner_.internDynamicArray(element);
+          break;
         }
-        case hir::ExpressionKind::BooleanLiteral: return "bool";
         case hir::ExpressionKind::ResolvedName:
-          if (expression.resolvedName->kind == hir::ResolvedNameKind::Local)
-          {
-            return locals.at(expression.resolvedName->id);
-          }
-          throw TypeError("function name cannot be used as a value", expression.span);
-        case hir::ExpressionKind::Grouped: return infer(*expression.operands[0], locals);
+          if (expression.resolvedName->kind == hir::ResolvedNameKind::Function)
+            throw TypeError("function name cannot be used as a value", expression.span);
+          type = locals.at(expression.resolvedName->id);
+          break;
+        case hir::ExpressionKind::Grouped: type = infer(*expression.operands[0], locals); break;
         case hir::ExpressionKind::Prefix:
-          if (expression.text == "!")
-          {
-            requireType("bool", infer(*expression.operands[0], locals), expression.span, "prefix operand");
-            return "bool";
-          }
-          requireType("i64", infer(*expression.operands[0], locals), expression.span, "prefix operand");
-          return "i64";
+          type = expression.text == "!" ? builtin::Bool : builtin::I64;
+          requireType(type, infer(*expression.operands[0], locals), expression.span, "prefix operand");
+          break;
         case hir::ExpressionKind::Binary:
-          requireType(infer(*expression.operands[0], locals), infer(*expression.operands[1], locals), expression.span,
-                      "binary operands");
-          if (expression.text == "==" || expression.text == "!=" || expression.text == "<" || expression.text == "<=" ||
-              expression.text == ">" || expression.text == ">=")
+        {
+          const TypeId left = infer(*expression.operands[0], locals);
+          const TypeId right = infer(*expression.operands[1], locals);
+          requireType(left, right, expression.span, "binary operands");
+          if (expression.text == "==" || expression.text == "!=") type = builtin::Bool;
+          else if (expression.text == "<" || expression.text == "<=" || expression.text == ">" || expression.text == ">=")
           {
-            return "bool";
+            requireType(builtin::I64, left, expression.span, "comparison operand");
+            type = builtin::Bool;
           }
-          if (expression.text == "&&" || expression.text == "||")
+          else if (expression.text == "&&" || expression.text == "||")
           {
-            requireType("bool", infer(*expression.operands[0], locals), expression.span, "logical operand");
-            return "bool";
+            requireType(builtin::Bool, left, expression.span, "logical operand");
+            type = builtin::Bool;
           }
-          if (expression.text == "&" || expression.text == "|" || expression.text == "^" || expression.text == "<<" ||
-              expression.text == ">>")
+          else
           {
-            requireType("i64", infer(*expression.operands[0], locals), expression.span, "bitwise operand");
-            return "i64";
+            if (expression.text != "+" || left != builtin::String) requireType(builtin::I64, left, expression.span, "binary operand");
+            type = left;
           }
-          return infer(*expression.operands[0], locals);
+          break;
+        }
         case hir::ExpressionKind::Call:
-          if (expression.operands[0]->resolvedName.has_value() &&
-              expression.operands[0]->resolvedName->kind == hir::ResolvedNameKind::Function)
-          {
-            const auto &signature = signatures_.at(expression.operands[0]->resolvedName->id);
-            const size_t suppliedCount = expression.operands.size() - 1;
-            if (suppliedCount != signature.parameters.size())
-            {
-              throw TypeError(std::format("call argument count mismatch: expected {}, got {}", signature.parameters.size(),
-                                          suppliedCount),
-                              expression.span);
-            }
-            for (size_t index = 0; index < suppliedCount; ++index)
-            {
-              requireType(signature.parameters[index], infer(*expression.operands[index + 1], locals),
-                          expression.operands[index + 1]->span, std::format("call argument {}", index + 1));
-            }
-            return signature.returnType;
-          }
-          throw TypeError("call target is not a function", expression.operands[0]->span);
+        {
+          if (!expression.operands[0]->resolvedName.has_value() ||
+              expression.operands[0]->resolvedName->kind != hir::ResolvedNameKind::Function)
+            throw TypeError("call target is not a function", expression.operands[0]->span);
+          const auto &signature = signatures_.at(expression.operands[0]->resolvedName->id);
+          const size_t supplied = expression.operands.size() - 1;
+          if (supplied != signature.parameters.size())
+            throw TypeError(std::format("call argument count mismatch: expected {}, got {}", signature.parameters.size(), supplied),
+                            expression.span);
+          for (size_t index = 0; index < supplied; ++index)
+            static_cast<void>(inferExpected(*expression.operands[index + 1], signature.parameters[index], locals,
+                                            std::format("call argument {}", index + 1)));
+          type = signature.returnType;
+          break;
+        }
         case hir::ExpressionKind::Index: throw TypeError("index expressions are not yet supported", expression.span);
         case hir::ExpressionKind::Member: throw TypeError("member expressions are not yet supported", expression.span);
         }
-        return "unknown";
+        record(expression, type);
+        return type;
       }
 
-      [[nodiscard]] static auto typeIdFor(const std::string &type) -> TypeId
-      {
-        if (type == "i64") return builtin::I64;
-        if (type == "u8") return builtin::U8;
-        if (type == "bool") return builtin::Bool;
-        if (type == "unit") return builtin::Unit;
-        if (type == "string") return builtin::String;
-        if (type == "array<i64>") return builtin::ArrayI64;
-        throw std::logic_error("typecheck attempted to materialize an unknown type id");
-      }
-
-      static void requireKnownType(const std::string &type, syntax::SourceSpan span)
-      {
-        static const std::unordered_set<std::string> supportedTypes{"i64", "u8", "bool", "unit", "string", "array<i64>"};
-        if (!supportedTypes.contains(type))
-        {
-          throw TypeError(std::format("unknown type `{}`", type), span);
-        }
-      }
-
-      static void requireType(const std::string &expected, const std::string &actual, syntax::SourceSpan span,
-                              std::string_view context)
+      void requireType(TypeId expected, TypeId actual, syntax::SourceSpan span, std::string_view context) const
       {
         if (expected != actual)
-        {
-          throw TypeError(std::format("{} type mismatch: expected {}, got {}", context, expected, actual), span);
-        }
+          throw TypeError(std::format("{} type mismatch: expected {}, got {}", context, interner_.display(expected),
+                                      interner_.display(actual)), span);
       }
 
-      std::unordered_map<uint32_t, Signature> signatures_;
+      TypeInterner interner_;
+      std::unordered_map<uint32_t, FunctionTypeIds> signatures_;
       std::unordered_map<const hir::Expression *, std::string> expressionTypes_;
       std::unordered_map<const hir::Expression *, TypeId> expressionTypeIds_;
-      std::unordered_map<uint32_t, std::string> localTypes_;
+      std::unordered_map<uint32_t, std::string> localDisplayTypes_;
       std::unordered_map<uint32_t, TypeId> localTypeIds_;
       std::unordered_map<uint32_t, FunctionType> functionTypes_;
+      std::unordered_map<uint32_t, FunctionTypeIds> functionTypeIds_;
     };
   } // namespace
 
-  auto TypeChecker::check(const hir::Module &module) -> TypeCheckResult
-  {
-    return Checker{}.check(module);
-  }
+  auto TypeChecker::check(const hir::Module &module) -> TypeCheckResult { return Checker{}.check(module); }
 } // namespace NG::vnext::typecheck

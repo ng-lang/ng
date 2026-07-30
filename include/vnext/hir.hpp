@@ -126,10 +126,39 @@ namespace NG::vnext::hir
     ExpressionPtr tailExpression;
   };
 
+  enum class TypeKind
+  {
+    Named,
+    Applied,
+    ScopedReference,
+    RawPointer,
+  };
+
+  struct Type;
+
+  struct TypeArgument
+  {
+    syntax::GenericArgumentKind kind;
+    std::unique_ptr<Type> type;
+    uint64_t constInteger{};
+    syntax::SourceSpan span;
+  };
+
+  struct Type
+  {
+    TypeKind kind;
+    syntax::SourceSpan span;
+    std::string name;
+    std::vector<TypeArgument> arguments;
+    std::unique_ptr<Type> target;
+    bool isMutable{};
+  };
+
   struct Parameter
   {
     std::string name;
     std::string typeName;
+    Type type;
     LocalId local;
     syntax::SourceSpan span;
   };
@@ -141,6 +170,7 @@ namespace NG::vnext::hir
     syntax::SourceSpan span;
     std::vector<Parameter> parameters;
     std::optional<std::string> returnTypeName;
+    std::unique_ptr<Type> returnType;
     Block body;
   };
 

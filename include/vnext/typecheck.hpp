@@ -2,6 +2,7 @@
 #pragma once
 
 #include "vnext/hir.hpp"
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -22,7 +23,6 @@ namespace NG::vnext::typecheck
     inline constexpr TypeId Bool{3};
     inline constexpr TypeId Unit{4};
     inline constexpr TypeId String{5};
-    inline constexpr TypeId ArrayI64{6};
   } // namespace builtin
 
   struct TypeError : std::runtime_error
@@ -35,10 +35,49 @@ namespace NG::vnext::typecheck
     }
   };
 
+  enum class TypeKind
+  {
+    Builtin,
+    DynamicArray,
+    FixedArray,
+  };
+
+  struct TypeDescriptor
+  {
+    TypeKind kind;
+    std::string name;
+    TypeId element;
+    std::optional<uint64_t> length;
+    auto operator==(const TypeDescriptor &) const -> bool = default;
+  };
+
+  class TypeInterner final
+  {
+  public:
+    TypeInterner();
+
+    [[nodiscard]] auto resolve(const hir::Type &type) -> TypeId;
+    [[nodiscard]] auto internDynamicArray(TypeId element) -> TypeId;
+    [[nodiscard]] auto internFixedArray(TypeId element, uint64_t length) -> TypeId;
+    [[nodiscard]] auto descriptor(TypeId type) const -> const TypeDescriptor &;
+    [[nodiscard]] auto display(TypeId type) const -> std::string;
+    [[nodiscard]] auto descriptors() const -> const std::vector<TypeDescriptor> & { return descriptors_; }
+
+  private:
+    [[nodiscard]] auto append(TypeDescriptor descriptor) -> TypeId;
+    std::vector<TypeDescriptor> descriptors_;
+  };
+
   struct FunctionType
   {
     std::vector<std::string> parameters;
     std::string returnType;
+  };
+
+  struct FunctionTypeIds
+  {
+    std::vector<TypeId> parameters;
+    TypeId returnType;
   };
 
   /// Immutable type side tables for a resolved HIR module. The table is keyed
@@ -51,6 +90,8 @@ namespace NG::vnext::typecheck
     std::unordered_map<uint32_t, std::string> localTypes;
     std::unordered_map<uint32_t, TypeId> localTypeIds;
     std::unordered_map<uint32_t, FunctionType> functionTypes;
+    std::unordered_map<uint32_t, FunctionTypeIds> functionTypeIds;
+    std::vector<TypeDescriptor> typeDescriptors;
 
     [[nodiscard]] auto typeOf(const hir::Expression &expression) const -> const std::string &
     {
