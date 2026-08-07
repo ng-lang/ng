@@ -72,8 +72,11 @@ namespace NG::vnext::hir
   {
     functions_.clear();
     structs_.clear();
+    enums_.clear();
+    enumVariants_.clear();
     uint32_t functionCount{};
     uint32_t structCount{};
+    uint32_t enumCount{};
     for (const auto &item : unit.items)
     {
       if (const auto *function = dynamic_cast<const syntax::FunctionDeclaration *>(item.get()))
@@ -86,23 +89,47 @@ namespace NG::vnext::hir
         const auto [_, inserted] = structs_.emplace(structure->name, StructId{structCount++});
         if (!inserted) throw ResolutionError(std::format("duplicate module declaration `{}`", structure->name), structure->span);
       }
+      else if (const auto *enumeration = dynamic_cast<const syntax::EnumDeclaration *>(item.get()))
+      {
+        const auto [_, inserted] = enums_.emplace(enumeration->name, EnumId{enumCount++});
+        if (!inserted) throw ResolutionError(std::format("duplicate module declaration `{}`", enumeration->name), enumeration->span);
+        auto &variants = enumVariants_[enumeration->name];
+        for (const auto &variant : enumeration->variants) variants.push_back(variant.name);
+      }
       else throw ResolutionError("unsupported module item during name resolution", item->span);
     }
 
     Module module;
     module.functions.reserve(functionCount);
     module.structs.reserve(structCount);
+    module.enums.reserve(enumCount);
     for (const auto &item : unit.items)
     {
       if (const auto *function = dynamic_cast<const syntax::FunctionDeclaration *>(item.get()))
         module.functions.push_back(resolveFunction(*function, functions_.at(function->name)));
+      else if (const auto *structure = dynamic_cast<const syntax::StructDeclaration *>(item.get()))
+      {
+        module.structs.push_back(resolveStruct(*structure, structs_.at(structure->name)));
+      }
       else
       {
-        const auto *structure = static_cast<const syntax::StructDeclaration *>(item.get());
-        module.structs.push_back(resolveStruct(*structure, structs_.at(structure->name)));
+        const auto *enumeration = static_cast<const syntax::EnumDeclaration *>(item.get());
+        module.enums.push_back(resolveEnum(*enumeration, enums_.at(enumeration->name)));
       }
     }
     return module;
+  }
+
+  auto Resolver::resolveEnum(const syntax::EnumDeclaration &enumeration, EnumId id) -> Enum
+  {
+    Enum resolved{.id = id, .name = enumeration.name, .span = enumeration.span};
+    for (const auto &variant : enumeration.variants)
+    {
+      EnumVariant lowered{.name = variant.name, .span = variant.span};
+      if (variant.payloadType != nullptr) lowered.payloadType = std::make_unique<Type>(lowerType(*variant.payloadType));
+      resolved.variants.push_back(std::move(lowered));
+    }
+    return resolved;
   }
 
   auto Resolver::resolveStruct(const syntax::StructDeclaration &structure, StructId id) -> Struct
@@ -373,6 +400,25 @@ namespace NG::vnext::hir
     }
     if (const auto *call = dynamic_cast<const syntax::CallExpression *>(&expression))
     {
+      if (const auto *member = dynamic_cast<const syntax::MemberExpression *>(call->callee.get()))
+      {
+        if (const auto *owner = dynamic_cast<const syntax::IdentifierExpression *>(member->receiver.get()))
+        {
+          if (const auto enumeration = enums_.find(owner->name); enumeration != enums_.end())
+          {
+            const auto &variants = enumVariants_.at(owner->name);
+            const auto variant = std::find(variants.begin(), variants.end(), member->member);
+            if (variant == variants.end())
+              throw ResolutionError(std::format("unknown variant `{}` in enum `{}`", member->member, owner->name), member->span);
+            resolved->kind = ExpressionKind::EnumLiteral;
+            resolved->text = owner->name;
+            resolved->enumId = enumeration->second;
+            resolved->variant = static_cast<uint32_t>(std::distance(variants.begin(), variant));
+            for (const auto &argument : call->arguments) resolved->operands.push_back(resolveExpression(*argument));
+            return resolved;
+          }
+        }
+      }
       resolved->kind = ExpressionKind::Call;
       resolved->operands.push_back(resolveExpression(*call->callee));
       for (const auto &argument : call->arguments)
@@ -392,6 +438,21 @@ namespace NG::vnext::hir
     }
     if (const auto *member = dynamic_cast<const syntax::MemberExpression *>(&expression))
     {
+      if (const auto *owner = dynamic_cast<const syntax::IdentifierExpression *>(member->receiver.get()))
+      {
+        if (const auto enumeration = enums_.find(owner->name); enumeration != enums_.end())
+        {
+          const auto &variants = enumVariants_.at(owner->name);
+          const auto variant = std::find(variants.begin(), variants.end(), member->member);
+          if (variant == variants.end())
+            throw ResolutionError(std::format("unknown variant `{}` in enum `{}`", member->member, owner->name), member->span);
+          resolved->kind = ExpressionKind::EnumLiteral;
+          resolved->text = owner->name;
+          resolved->enumId = enumeration->second;
+          resolved->variant = static_cast<uint32_t>(std::distance(variants.begin(), variant));
+          return resolved;
+        }
+      }
       resolved->kind = ExpressionKind::Member;
       resolved->text = member->member;
       resolved->operands.push_back(resolveExpression(*member->receiver));

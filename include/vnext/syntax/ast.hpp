@@ -419,6 +419,7 @@ namespace NG::vnext::syntax
   {
     Function,
     Struct,
+    Enum,
   };
 
   struct ModuleItem
@@ -439,6 +440,29 @@ namespace NG::vnext::syntax
 
     StructDeclaration(std::string structName, std::vector<StructFieldDeclaration> structFields, SourceSpan sourceSpan)
       : ModuleItem(ModuleItemKind::Struct, sourceSpan), name(std::move(structName)), fields(std::move(structFields))
+    {
+    }
+  };
+
+  struct EnumVariantDeclaration final
+  {
+    const std::string name;
+    TypeSyntaxPtr payloadType;
+    const SourceSpan span;
+
+    EnumVariantDeclaration(std::string variantName, TypeSyntaxPtr type, SourceSpan sourceSpan)
+      : name(std::move(variantName)), payloadType(std::move(type)), span(sourceSpan)
+    {
+    }
+  };
+
+  struct EnumDeclaration final : ModuleItem
+  {
+    const std::string name;
+    std::vector<EnumVariantDeclaration> variants;
+
+    EnumDeclaration(std::string enumName, std::vector<EnumVariantDeclaration> enumVariants, SourceSpan sourceSpan)
+      : ModuleItem(ModuleItemKind::Enum, sourceSpan), name(std::move(enumName)), variants(std::move(enumVariants))
     {
     }
   };

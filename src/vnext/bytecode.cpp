@@ -248,7 +248,7 @@ namespace NG::vnext::bytecode
       const auto &descriptor = function.typeDescriptors[index];
       if (descriptor.kind != typecheck::TypeKind::Builtin && descriptor.kind != typecheck::TypeKind::DynamicArray &&
           descriptor.kind != typecheck::TypeKind::FixedArray && descriptor.kind != typecheck::TypeKind::Tuple &&
-          descriptor.kind != typecheck::TypeKind::Struct)
+          descriptor.kind != typecheck::TypeKind::Struct && descriptor.kind != typecheck::TypeKind::Enum)
         throw BytecodeError("bytecode type descriptor kind is invalid");
       if (descriptor.kind == typecheck::TypeKind::DynamicArray || descriptor.kind == typecheck::TypeKind::FixedArray)
       {
@@ -258,12 +258,16 @@ namespace NG::vnext::bytecode
         if (descriptor.kind == typecheck::TypeKind::FixedArray && !descriptor.length.has_value())
           throw BytecodeError("bytecode fixed array descriptor has no length");
       }
-      if (descriptor.kind == typecheck::TypeKind::Tuple || descriptor.kind == typecheck::TypeKind::Struct)
+      if (descriptor.kind == typecheck::TypeKind::Tuple || descriptor.kind == typecheck::TypeKind::Struct ||
+          descriptor.kind == typecheck::TypeKind::Enum)
       {
         if (!descriptor.length.has_value() || *descriptor.length != descriptor.elements.size())
           throw BytecodeError("bytecode product descriptor length mismatch");
-        if (descriptor.kind == typecheck::TypeKind::Struct && descriptor.fieldNames.size() != descriptor.elements.size())
-          throw BytecodeError("bytecode struct descriptor field count mismatch");
+        if ((descriptor.kind == typecheck::TypeKind::Struct || descriptor.kind == typecheck::TypeKind::Enum) &&
+            descriptor.fieldNames.size() != descriptor.elements.size())
+          throw BytecodeError("bytecode nominal descriptor member count mismatch");
+        if (descriptor.kind == typecheck::TypeKind::Enum && descriptor.variantHasPayload.size() != descriptor.elements.size())
+          throw BytecodeError("bytecode enum descriptor payload flag count mismatch");
         for (const auto element : descriptor.elements) verifyTypeId(element);
       }
     }
@@ -319,6 +323,17 @@ namespace NG::vnext::bytecode
             if (instruction.operands.at(4) != tuple.elements.size())
               throw BytecodeError("bytecode tuple literal length mismatch");
             for (size_t index = 0; index < tuple.elements.size(); ++index) requireOperandType(index, tuple.elements[index]);
+          }
+          else if (kind == hir::ExpressionKind::EnumLiteral)
+          {
+            if (resultType.value >= function.typeDescriptors.size()) throw BytecodeError("bytecode value type descriptor is out of range");
+            const auto &enumeration = function.typeDescriptors[resultType.value];
+            if (enumeration.kind != typecheck::TypeKind::Enum) throw BytecodeError("bytecode enum literal result is not an enum type");
+            const uint32_t variant = instruction.operands[3];
+            if (variant >= enumeration.elements.size()) throw BytecodeError("bytecode enum variant is out of range");
+            const size_t expected = enumeration.variantHasPayload[variant] ? 1 : 0;
+            if (instruction.operands.at(4) != expected) throw BytecodeError("bytecode enum payload count mismatch");
+            if (expected == 1) requireOperandType(0, enumeration.elements[variant]);
           }
           else if (kind == hir::ExpressionKind::StructLiteral)
           {

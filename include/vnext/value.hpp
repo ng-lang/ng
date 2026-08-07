@@ -21,6 +21,13 @@ namespace NG::vnext
       std::shared_ptr<std::vector<Value>> fields;
       auto operator==(const StructStorage &) const -> bool = default;
     };
+    struct EnumStorage
+    {
+      uint32_t type{};
+      uint32_t variant{};
+      std::shared_ptr<std::vector<Value>> payload;
+      auto operator==(const EnumStorage &) const -> bool = default;
+    };
 
   public:
     Value() : storage_(int64_t{}) {}
@@ -43,12 +50,19 @@ namespace NG::vnext
       value.storage_ = StructStorage{type, std::make_shared<std::vector<Value>>(std::move(fields))};
       return value;
     }
+    [[nodiscard]] static auto enumeration(uint32_t type, uint32_t variant, std::vector<Value> payload) -> Value
+    {
+      Value value;
+      value.storage_ = EnumStorage{type, variant, std::make_shared<std::vector<Value>>(std::move(payload))};
+      return value;
+    }
 
     [[nodiscard]] auto isInteger() const -> bool { return std::holds_alternative<int64_t>(storage_); }
     [[nodiscard]] auto isString() const -> bool { return std::holds_alternative<std::string>(storage_); }
     [[nodiscard]] auto isArray() const -> bool { return std::holds_alternative<ArrayStorage>(storage_); }
     [[nodiscard]] auto isTuple() const -> bool { return std::holds_alternative<TupleStorage>(storage_); }
     [[nodiscard]] auto isStruct() const -> bool { return std::holds_alternative<StructStorage>(storage_); }
+    [[nodiscard]] auto isEnum() const -> bool { return std::holds_alternative<EnumStorage>(storage_); }
     [[nodiscard]] auto asInteger() const -> int64_t
     {
       if (!isInteger()) throw std::runtime_error("runtime value is not an i64");
@@ -89,6 +103,21 @@ namespace NG::vnext
       if (!isStruct()) throw std::runtime_error("runtime value is not a struct");
       return *std::get<StructStorage>(storage_).fields;
     }
+    [[nodiscard]] auto asEnumType() const -> uint32_t
+    {
+      if (!isEnum()) throw std::runtime_error("runtime value is not an enum");
+      return std::get<EnumStorage>(storage_).type;
+    }
+    [[nodiscard]] auto asEnumVariant() const -> uint32_t
+    {
+      if (!isEnum()) throw std::runtime_error("runtime value is not an enum");
+      return std::get<EnumStorage>(storage_).variant;
+    }
+    [[nodiscard]] auto asEnumPayload() const -> const std::vector<Value> &
+    {
+      if (!isEnum()) throw std::runtime_error("runtime value is not an enum");
+      return *std::get<EnumStorage>(storage_).payload;
+    }
     [[nodiscard]] auto asString() const -> const std::string &
     {
       if (!isString()) throw std::runtime_error("runtime value is not a string");
@@ -100,6 +129,6 @@ namespace NG::vnext
     friend auto operator==(int64_t integer, const Value &value) -> bool { return value == integer; }
 
   private:
-    std::variant<int64_t, std::string, ArrayStorage, TupleStorage, StructStorage> storage_;
+    std::variant<int64_t, std::string, ArrayStorage, TupleStorage, StructStorage, EnumStorage> storage_;
   };
 } // namespace NG::vnext

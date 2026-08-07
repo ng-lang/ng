@@ -80,6 +80,31 @@ namespace NG::vnext::typecheck
     return structTypes_.at(id.value);
   }
 
+  auto TypeInterner::declareEnum(hir::EnumId id, std::string name) -> TypeId
+  {
+    if (const auto found = enumTypes_.find(id.value); found != enumTypes_.end()) return found->second;
+    const TypeId result = append(TypeDescriptor{.kind = TypeKind::Enum,
+                                                 .name = std::move(name),
+                                                 .element = TypeId{},
+                                                 .length = std::nullopt,
+                                                 .nominalId = id.value});
+    enumTypes_.emplace(id.value, result);
+    namedTypes_.emplace(descriptors_[result.value].name, result);
+    return result;
+  }
+
+  void TypeInterner::defineEnum(hir::EnumId id, std::vector<std::string> variants, std::vector<TypeId> payloads,
+                                std::vector<bool> hasPayload)
+  {
+    auto &descriptor = descriptors_.at(typeForEnum(id).value);
+    descriptor.fieldNames = std::move(variants);
+    descriptor.elements = std::move(payloads);
+    descriptor.variantHasPayload = std::move(hasPayload);
+    descriptor.length = descriptor.elements.size();
+  }
+
+  auto TypeInterner::typeForEnum(hir::EnumId id) const -> TypeId { return enumTypes_.at(id.value); }
+
   auto TypeInterner::resolve(const hir::Type &type) -> TypeId
   {
     if (type.kind == hir::TypeKind::Named)
@@ -122,7 +147,7 @@ namespace NG::vnext::typecheck
     if (item.kind == TypeKind::Builtin) return item.name;
     if (item.kind == TypeKind::DynamicArray) return std::format("array<{}>", display(item.element));
     if (item.kind == TypeKind::FixedArray) return std::format("array<{}, {}>", display(item.element), *item.length);
-    if (item.kind == TypeKind::Struct) return item.name;
+    if (item.kind == TypeKind::Struct || item.kind == TypeKind::Enum) return item.name;
     std::string result{"tuple<"};
     for (size_t index = 0; index < item.elements.size(); ++index)
     {

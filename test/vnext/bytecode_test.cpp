@@ -137,6 +137,22 @@ TEST_CASE("vNext bytecode artifacts round-trip verified modules", "[vNext][Bytec
   REQUIRE(vm::VM{}.run(restored, hir::DefId{1}).returnValue == 42);
 }
 
+TEST_CASE("vNext bytecode artifacts preserve enum variant layouts", "[vNext][Bytecode]")
+{
+  const auto syntaxUnit = syntax::parseSourceUnit(
+      "enum Result { Ok(i64), Empty } fun result() -> Result { return Result.Ok(7); }");
+  const auto hirModule = hir::Resolver{}.resolve(syntaxUnit);
+  const auto typed = typecheck::TypeChecker{}.check(hirModule);
+  const auto function = bytecode::Compiler{}.compile(flowir::Lowerer{}.lower(hirModule.functions.front(), typed));
+  const auto restored = bytecode::ArtifactCodec{}.deserialize(
+      bytecode::ArtifactCodec{}.serialize(bytecode::Module{.functions = {function}}));
+  REQUIRE(restored.functions.front().typeDescriptors == function.typeDescriptors);
+  const auto result = vm::VM{}.run(restored.functions.front());
+  REQUIRE(result.returnValue->isEnum());
+  REQUIRE(result.returnValue->asEnumVariant() == 0);
+  REQUIRE(result.returnValue->asEnumPayload()[0] == 7);
+}
+
 TEST_CASE("vNext bytecode artifacts preserve nominal struct layouts", "[vNext][Bytecode]")
 {
   const auto syntaxUnit = syntax::parseSourceUnit(
@@ -197,7 +213,7 @@ TEST_CASE("vNext bytecode artifacts reject malformed framing", "[vNext][Bytecode
 {
   REQUIRE_THROWS_WITH(bytecode::ArtifactCodec{}.deserialize({}), "invalid bytecode artifact magic");
   REQUIRE_THROWS_WITH(bytecode::ArtifactCodec{}.deserialize({'N', 'G', 'V', 'X'}), "truncated bytecode artifact");
-  REQUIRE_THROWS_WITH(bytecode::ArtifactCodec{}.deserialize({'N', 'G', 'V', 'X', 4, 0, 0, 0}),
+  REQUIRE_THROWS_WITH(bytecode::ArtifactCodec{}.deserialize({'N', 'G', 'V', 'X', 5, 0, 0, 0}),
                       "unsupported bytecode artifact version");
 }
 

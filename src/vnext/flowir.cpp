@@ -86,6 +86,11 @@ namespace NG::vnext::flowir
           const auto found = std::find(descriptor.fieldNames.begin(), descriptor.fieldNames.end(), expression.text);
           if (found != descriptor.fieldNames.end()) payload = static_cast<int64_t>(std::distance(descriptor.fieldNames.begin(), found));
         }
+        else if (expression.kind == hir::ExpressionKind::EnumLiteral && types_ != nullptr)
+        {
+          payload = static_cast<int64_t>(types_->typeIdOf(expression).value) |
+                    (static_cast<int64_t>(*expression.variant) << 32);
+        }
         else if (expression.kind == hir::ExpressionKind::StructLiteral && types_ != nullptr)
         {
           payload = types_->typeIdOf(expression).value;

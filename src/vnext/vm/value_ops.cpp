@@ -84,6 +84,14 @@ namespace NG::vnext::vm::detail
       values[result] = Value::string(stringConstants.at(payload));
       return;
     }
+    if (kind == hir::ExpressionKind::EnumLiteral)
+    {
+      std::vector<Value> enumPayload;
+      for (size_t index = 0; index < instruction.operands[4]; ++index)
+        enumPayload.push_back(values.at(instruction.operands[5 + index]));
+      values[result] = Value::enumeration(instruction.operands[2], instruction.operands[3], std::move(enumPayload));
+      return;
+    }
     if (kind == hir::ExpressionKind::ArrayLiteral || kind == hir::ExpressionKind::TupleLiteral ||
         kind == hir::ExpressionKind::StructLiteral)
     {

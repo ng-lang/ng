@@ -24,6 +24,12 @@ namespace NG::vnext::hir
     auto operator==(const StructId &) const -> bool = default;
   };
 
+  struct EnumId
+  {
+    uint32_t value{};
+    auto operator==(const EnumId &) const -> bool = default;
+  };
+
   struct LocalId
   {
     uint32_t value{};
@@ -65,6 +71,7 @@ namespace NG::vnext::hir
     ArrayLiteral,
     TupleLiteral,
     StructLiteral,
+    EnumLiteral,
     BooleanLiteral,
     ResolvedName,
     Prefix,
@@ -82,6 +89,8 @@ namespace NG::vnext::hir
     std::string text;
     std::optional<ResolvedName> resolvedName;
     std::optional<StructId> structId;
+    std::optional<EnumId> enumId;
+    std::optional<uint32_t> variant;
     std::vector<std::string> memberNames;
     std::vector<std::unique_ptr<Expression>> operands;
   };
@@ -202,10 +211,26 @@ namespace NG::vnext::hir
     std::vector<StructField> fields;
   };
 
+  struct EnumVariant
+  {
+    std::string name;
+    std::unique_ptr<Type> payloadType;
+    syntax::SourceSpan span;
+  };
+
+  struct Enum
+  {
+    EnumId id;
+    std::string name;
+    syntax::SourceSpan span;
+    std::vector<EnumVariant> variants;
+  };
+
   struct Module
   {
     std::vector<Function> functions;
     std::vector<Struct> structs;
+    std::vector<Enum> enums;
   };
 
   class Resolver final
@@ -223,6 +248,7 @@ namespace NG::vnext::hir
 
     [[nodiscard]] auto resolveFunction(const syntax::FunctionDeclaration &function, DefId id) -> Function;
     [[nodiscard]] auto resolveStruct(const syntax::StructDeclaration &structure, StructId id) -> Struct;
+    [[nodiscard]] auto resolveEnum(const syntax::EnumDeclaration &enumeration, EnumId id) -> Enum;
     [[nodiscard]] auto resolveBlock(const syntax::Block &block, bool introduceScope) -> Block;
     [[nodiscard]] auto resolveStatement(const syntax::Statement &statement) -> Statement;
     [[nodiscard]] auto resolveExpression(const syntax::Expression &expression) -> ExpressionPtr;
@@ -231,6 +257,8 @@ namespace NG::vnext::hir
 
     std::unordered_map<std::string, DefId> functions_;
     std::unordered_map<std::string, StructId> structs_;
+    std::unordered_map<std::string, EnumId> enums_;
+    std::unordered_map<std::string, std::vector<std::string>> enumVariants_;
     std::vector<Scope> scopes_;
     std::vector<ActiveLoop> loops_;
     std::unordered_map<uint32_t, bool> localMutability_;

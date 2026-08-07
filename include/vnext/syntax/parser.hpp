@@ -17,6 +17,7 @@ namespace NG::vnext::syntax
     StringLiteral,
     KeywordConst,
     KeywordElse,
+    KeywordEnum,
     KeywordFun,
     KeywordIf,
     KeywordLet,

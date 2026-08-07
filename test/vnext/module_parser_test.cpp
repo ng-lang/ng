@@ -21,6 +21,18 @@ namespace
   }
 } // namespace
 
+TEST_CASE("vNext module parser accepts enum declarations", "[vNext][Syntax][Module]")
+{
+  const auto source = syntax::parseSourceUnit("enum Result { Ok(i64), Error(string), Empty } fun empty() -> Result { return Result.Empty; }");
+  REQUIRE(source.items.size() == 2);
+  const auto *result = dynamic_cast<const syntax::EnumDeclaration *>(source.items[0].get());
+  REQUIRE(result != nullptr);
+  REQUIRE(result->name == "Result");
+  REQUIRE(result->variants.size() == 3);
+  REQUIRE(result->variants[0].payloadType != nullptr);
+  REQUIRE(result->variants[2].payloadType == nullptr);
+}
+
 TEST_CASE("vNext module parser accepts struct declarations", "[vNext][Syntax][Module]")
 {
   const auto source = syntax::parseSourceUnit("struct Point { x: i64, label: string } fun origin() -> Point { return Point { x: 0, label: \"origin\" }; }");

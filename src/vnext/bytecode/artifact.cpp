@@ -10,7 +10,7 @@ namespace NG::vnext::bytecode
   namespace
   {
     constexpr std::array<uint8_t, 4> ArtifactMagic{'N', 'G', 'V', 'X'};
-    constexpr uint32_t ArtifactVersion{3};
+    constexpr uint32_t ArtifactVersion{4};
 
     void appendU32(std::vector<uint8_t> &output, uint32_t value)
     {
@@ -67,6 +67,8 @@ namespace NG::vnext::bytecode
         appendU32(output, descriptor.nominalId.has_value() ? 1 : 0);
         if (descriptor.nominalId.has_value()) appendU32(output, *descriptor.nominalId);
         appendStringVector(output, descriptor.fieldNames);
+        appendU32(output, narrowSize(descriptor.variantHasPayload.size()));
+        for (const bool hasPayload : descriptor.variantHasPayload) appendU32(output, hasPayload ? 1 : 0);
         appendU32(output, descriptor.element.value);
         appendU32(output, descriptor.length.has_value() ? 1 : 0);
         if (descriptor.length.has_value())
@@ -95,6 +97,16 @@ namespace NG::vnext::bytecode
         std::optional<uint32_t> nominalId;
         if (hasNominalId == 1) nominalId = readU32(input, offset);
         const auto fieldNames = readStringVector(input, offset);
+        const uint32_t payloadFlagCount = readU32(input, offset);
+        if (payloadFlagCount > (input.size() - offset) / 4) throw BytecodeError("truncated bytecode artifact");
+        std::vector<bool> variantHasPayload;
+        variantHasPayload.reserve(payloadFlagCount);
+        for (uint32_t flag = 0; flag < payloadFlagCount; ++flag)
+        {
+          const uint32_t value = readU32(input, offset);
+          if (value > 1) throw BytecodeError("invalid bytecode enum payload flag");
+          variantHasPayload.push_back(value == 1);
+        }
         const typecheck::TypeId element{readU32(input, offset)};
         const uint32_t hasLength = readU32(input, offset);
         if (hasLength > 1) throw BytecodeError("invalid bytecode type descriptor length flag");
@@ -117,7 +129,8 @@ namespace NG::vnext::bytecode
             .length = length,
             .elements = std::move(elements),
             .nominalId = nominalId,
-            .fieldNames = fieldNames});
+            .fieldNames = fieldNames,
+            .variantHasPayload = std::move(variantHasPayload)});
       }
       return descriptors;
     }

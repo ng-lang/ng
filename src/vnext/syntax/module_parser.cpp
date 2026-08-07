@@ -28,6 +28,10 @@ namespace NG::vnext::syntax
       {
         items.push_back(parseStructDeclaration());
       }
+      else if (current().kind == TokenKind::KeywordEnum)
+      {
+        items.push_back(parseEnumDeclaration());
+      }
       else
       {
         throw ParseError("expected a module declaration", current().span);
@@ -36,6 +40,32 @@ namespace NG::vnext::syntax
 
     const size_t begin = items.empty() ? 0 : items.front()->span.begin;
     return SourceUnit{SourceSpan{begin, current().span.end}, std::move(items)};
+  }
+
+  auto ModuleParser::parseEnumDeclaration() -> ModuleItemPtr
+  {
+    const Token enumToken = consume();
+    if (current().kind != TokenKind::Identifier) throw ParseError("expected an enum name after `enum`", current().span);
+    const Token name = consume();
+    expect(TokenKind::LeftBrace, "expected `{` after enum name");
+    std::vector<EnumVariantDeclaration> variants;
+    while (current().kind != TokenKind::RightBrace)
+    {
+      if (current().kind != TokenKind::Identifier) throw ParseError("expected an enum variant name", current().span);
+      const Token variant = consume();
+      TypeSyntaxPtr payload;
+      if (current().kind == TokenKind::LeftParen)
+      {
+        static_cast<void>(consume());
+        payload = parseTypeUntil({TokenKind::RightParen});
+        expect(TokenKind::RightParen, "expected `)` after enum variant payload");
+      }
+      variants.emplace_back(variant.text, std::move(payload), SourceSpan{variant.span.begin, current().span.begin});
+      if (current().kind == TokenKind::Comma) static_cast<void>(consume());
+      else if (current().kind != TokenKind::RightBrace) throw ParseError("expected `,` between enum variants", current().span);
+    }
+    const Token close = consume();
+    return std::make_unique<EnumDeclaration>(name.text, std::move(variants), SourceSpan{enumToken.span.begin, close.span.end});
   }
 
   auto ModuleParser::parseStructDeclaration() -> ModuleItemPtr

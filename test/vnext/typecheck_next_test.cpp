@@ -146,6 +146,18 @@ TEST_CASE("vNext type checker validates homogeneous and fixed-length array liter
                       "fixed array length mismatch: expected 3, got 2");
 }
 
+TEST_CASE("vNext type checker validates nominal enum constructors", "[vNext][Typecheck]")
+{
+  REQUIRE_NOTHROW(check("enum Result { Ok(i64), Error(string), Empty } fun ok() -> Result { return Result.Ok(7); }"));
+  REQUIRE_NOTHROW(check("enum Result { Ok(i64), Error(string), Empty } fun empty() -> Result { return Result.Empty; }"));
+  REQUIRE_THROWS_WITH(check("enum Result { Ok(i64), Empty } fun invalid() -> Result { return Result.Ok(); }"),
+                      "enum variant `Ok` expects 1 payload values, got 0");
+  REQUIRE_THROWS_WITH(check("enum Result { Ok(i64), Empty } fun invalid() -> Result { return Result.Empty(1); }"),
+                      "enum variant `Empty` expects 0 payload values, got 1");
+  REQUIRE_THROWS_WITH(check("enum Result { Ok(i64) } fun invalid() -> Result { return Result.Ok(true); }"),
+                      "variant `Ok` payload type mismatch: expected i64, got bool");
+}
+
 TEST_CASE("vNext type checker validates nominal structs and member places", "[vNext][Typecheck]")
 {
   REQUIRE_NOTHROW(check("struct Point { x: i64, label: string } fun read() -> i64 { let point = Point { x: 7, label: \"p\" }; return point.x; }"));

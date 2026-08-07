@@ -16,6 +16,7 @@ namespace NG::vnext::typecheck
       [[nodiscard]] auto check(const hir::Module &module) -> TypeCheckResult
       {
         for (const auto &structure : module.structs) static_cast<void>(interner_.declareStruct(structure.id, structure.name));
+        for (const auto &enumeration : module.enums) static_cast<void>(interner_.declareEnum(enumeration.id, enumeration.name));
         for (const auto &structure : module.structs)
         {
           std::vector<std::string> fields;
@@ -26,6 +27,19 @@ namespace NG::vnext::typecheck
             types.push_back(interner_.resolve(field.type));
           }
           interner_.defineStruct(structure.id, std::move(fields), std::move(types));
+        }
+        for (const auto &enumeration : module.enums)
+        {
+          std::vector<std::string> variants;
+          std::vector<TypeId> payloads;
+          std::vector<bool> hasPayload;
+          for (const auto &variant : enumeration.variants)
+          {
+            variants.push_back(variant.name);
+            hasPayload.push_back(variant.payloadType != nullptr);
+            payloads.push_back(variant.payloadType != nullptr ? interner_.resolve(*variant.payloadType) : builtin::Unit);
+          }
+          interner_.defineEnum(enumeration.id, std::move(variants), std::move(payloads), std::move(hasPayload));
         }
         for (const auto &function : module.functions)
         {
@@ -250,6 +264,22 @@ namespace NG::vnext::typecheck
           if (!expression.structId.has_value()) throw TypeError("struct literal has no resolved type", expression.span);
           type = interner_.typeForStruct(*expression.structId);
           return inferExpectedStruct(expression, type, locals);
+        }
+        case hir::ExpressionKind::EnumLiteral:
+        {
+          if (!expression.enumId.has_value() || !expression.variant.has_value())
+            throw TypeError("enum constructor has no resolved variant", expression.span);
+          type = interner_.typeForEnum(*expression.enumId);
+          const auto &descriptor = interner_.descriptor(type);
+          const uint32_t variant = *expression.variant;
+          const size_t expected = descriptor.variantHasPayload.at(variant) ? 1 : 0;
+          if (expression.operands.size() != expected)
+            throw TypeError(std::format("enum variant `{}` expects {} payload values, got {}", descriptor.fieldNames.at(variant),
+                                        expected, expression.operands.size()), expression.span);
+          if (expected == 1)
+            static_cast<void>(inferExpected(*expression.operands[0], descriptor.elements.at(variant), locals,
+                                            std::format("variant `{}` payload", descriptor.fieldNames.at(variant))));
+          break;
         }
         case hir::ExpressionKind::TupleLiteral:
         {
