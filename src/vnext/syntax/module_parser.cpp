@@ -47,6 +47,19 @@ namespace NG::vnext::syntax
     const Token enumToken = consume();
     if (current().kind != TokenKind::Identifier) throw ParseError("expected an enum name after `enum`", current().span);
     const Token name = consume();
+    std::vector<std::string> genericParameters;
+    if (current().kind == TokenKind::Less)
+    {
+      static_cast<void>(consume());
+      while (current().kind != TokenKind::Greater)
+      {
+        if (current().kind != TokenKind::Identifier) throw ParseError("expected an enum generic parameter", current().span);
+        genericParameters.push_back(consume().text);
+        if (current().kind != TokenKind::Comma) break;
+        static_cast<void>(consume());
+      }
+      expect(TokenKind::Greater, "expected `>` after enum generic parameters");
+    }
     expect(TokenKind::LeftBrace, "expected `{` after enum name");
     std::vector<EnumVariantDeclaration> variants;
     while (current().kind != TokenKind::RightBrace)
@@ -57,6 +70,11 @@ namespace NG::vnext::syntax
       if (current().kind == TokenKind::LeftParen)
       {
         static_cast<void>(consume());
+        if (current().kind == TokenKind::Identifier && peek(1).kind == TokenKind::Colon)
+        {
+          static_cast<void>(consume());
+          static_cast<void>(consume());
+        }
         payload = parseTypeUntil({TokenKind::RightParen});
         expect(TokenKind::RightParen, "expected `)` after enum variant payload");
       }
@@ -65,7 +83,8 @@ namespace NG::vnext::syntax
       else if (current().kind != TokenKind::RightBrace) throw ParseError("expected `,` between enum variants", current().span);
     }
     const Token close = consume();
-    return std::make_unique<EnumDeclaration>(name.text, std::move(variants), SourceSpan{enumToken.span.begin, close.span.end});
+    return std::make_unique<EnumDeclaration>(name.text, std::move(genericParameters), std::move(variants),
+                                              SourceSpan{enumToken.span.begin, close.span.end});
   }
 
   auto ModuleParser::parseStructDeclaration() -> ModuleItemPtr
@@ -187,6 +206,11 @@ namespace NG::vnext::syntax
   auto ModuleParser::current() const -> const Token &
   {
     return tokens_[cursor_];
+  }
+
+  auto ModuleParser::peek(size_t offset) const -> const Token &
+  {
+    return tokens_[std::min(cursor_ + offset, tokens_.size() - 1)];
   }
 
   auto ModuleParser::consume() -> Token

@@ -10,7 +10,7 @@ namespace NG::vnext::bytecode
   namespace
   {
     constexpr std::array<uint8_t, 4> ArtifactMagic{'N', 'G', 'V', 'X'};
-    constexpr uint32_t ArtifactVersion{4};
+    constexpr uint32_t ArtifactVersion{5};
 
     void appendU32(std::vector<uint8_t> &output, uint32_t value)
     {
@@ -69,6 +69,8 @@ namespace NG::vnext::bytecode
         appendStringVector(output, descriptor.fieldNames);
         appendU32(output, narrowSize(descriptor.variantHasPayload.size()));
         for (const bool hasPayload : descriptor.variantHasPayload) appendU32(output, hasPayload ? 1 : 0);
+        appendU32(output, narrowSize(descriptor.typeArguments.size()));
+        for (const auto argument : descriptor.typeArguments) appendU32(output, argument.value);
         appendU32(output, descriptor.element.value);
         appendU32(output, descriptor.length.has_value() ? 1 : 0);
         if (descriptor.length.has_value())
@@ -107,6 +109,11 @@ namespace NG::vnext::bytecode
           if (value > 1) throw BytecodeError("invalid bytecode enum payload flag");
           variantHasPayload.push_back(value == 1);
         }
+        const uint32_t argumentCount = readU32(input, offset);
+        if (argumentCount > (input.size() - offset) / 4) throw BytecodeError("truncated bytecode artifact");
+        std::vector<typecheck::TypeId> typeArguments;
+        typeArguments.reserve(argumentCount);
+        for (uint32_t argument = 0; argument < argumentCount; ++argument) typeArguments.push_back(typecheck::TypeId{readU32(input, offset)});
         const typecheck::TypeId element{readU32(input, offset)};
         const uint32_t hasLength = readU32(input, offset);
         if (hasLength > 1) throw BytecodeError("invalid bytecode type descriptor length flag");
@@ -130,7 +137,8 @@ namespace NG::vnext::bytecode
             .elements = std::move(elements),
             .nominalId = nominalId,
             .fieldNames = fieldNames,
-            .variantHasPayload = std::move(variantHasPayload)});
+            .variantHasPayload = std::move(variantHasPayload),
+            .typeArguments = std::move(typeArguments)});
       }
       return descriptors;
     }

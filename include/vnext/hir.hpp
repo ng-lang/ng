@@ -223,6 +223,7 @@ namespace NG::vnext::hir
     EnumId id;
     std::string name;
     syntax::SourceSpan span;
+    std::vector<std::string> genericParameters;
     std::vector<EnumVariant> variants;
   };
 

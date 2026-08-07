@@ -21,6 +21,16 @@ namespace
   }
 } // namespace
 
+TEST_CASE("vNext module parser accepts generic enum declarations", "[vNext][Syntax][Module]")
+{
+  const auto source = syntax::parseSourceUnit("enum Result<T, E> { Ok(value: T), Err(error: E) } fun ok() -> Result<i64, string> { return Result.Ok(7); }");
+  const auto *result = dynamic_cast<const syntax::EnumDeclaration *>(source.items[0].get());
+  REQUIRE(result != nullptr);
+  REQUIRE(result->genericParameters == std::vector<std::string>{"T", "E"});
+  REQUIRE(result->variants[0].payloadType != nullptr);
+  REQUIRE(result->variants[1].payloadType != nullptr);
+}
+
 TEST_CASE("vNext module parser accepts enum declarations", "[vNext][Syntax][Module]")
 {
   const auto source = syntax::parseSourceUnit("enum Result { Ok(i64), Error(string), Empty } fun empty() -> Result { return Result.Empty; }");

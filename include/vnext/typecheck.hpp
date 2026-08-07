@@ -55,6 +55,7 @@ namespace NG::vnext::typecheck
     std::optional<uint32_t> nominalId;
     std::vector<std::string> fieldNames;
     std::vector<bool> variantHasPayload;
+    std::vector<TypeId> typeArguments;
     auto operator==(const TypeDescriptor &) const -> bool = default;
   };
 
@@ -70,7 +71,8 @@ namespace NG::vnext::typecheck
     [[nodiscard]] auto declareStruct(hir::StructId id, std::string name) -> TypeId;
     void defineStruct(hir::StructId id, std::vector<std::string> fields, std::vector<TypeId> types);
     [[nodiscard]] auto typeForStruct(hir::StructId id) const -> TypeId;
-    [[nodiscard]] auto declareEnum(hir::EnumId id, std::string name) -> TypeId;
+    [[nodiscard]] auto declareEnum(hir::EnumId id, std::string name, std::vector<std::string> genericParameters = {}) -> TypeId;
+    void registerEnumTemplate(const hir::Enum &enumeration);
     void defineEnum(hir::EnumId id, std::vector<std::string> variants, std::vector<TypeId> payloads,
                     std::vector<bool> hasPayload);
     [[nodiscard]] auto typeForEnum(hir::EnumId id) const -> TypeId;
@@ -80,10 +82,13 @@ namespace NG::vnext::typecheck
 
   private:
     [[nodiscard]] auto append(TypeDescriptor descriptor) -> TypeId;
+    [[nodiscard]] auto resolveWithBindings(const hir::Type &type, const std::unordered_map<std::string, TypeId> &bindings) -> TypeId;
     std::vector<TypeDescriptor> descriptors_;
     std::unordered_map<std::string, TypeId> namedTypes_;
     std::unordered_map<uint32_t, TypeId> structTypes_;
     std::unordered_map<uint32_t, TypeId> enumTypes_;
+    std::unordered_map<uint32_t, std::vector<std::string>> enumGenericParameters_;
+    std::unordered_map<uint32_t, const hir::Enum *> enumTemplates_;
   };
 
   struct FunctionType

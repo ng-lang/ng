@@ -137,6 +137,22 @@ TEST_CASE("vNext bytecode artifacts round-trip verified modules", "[vNext][Bytec
   REQUIRE(vm::VM{}.run(restored, hir::DefId{1}).returnValue == 42);
 }
 
+TEST_CASE("vNext bytecode artifacts preserve generic enum instances", "[vNext][Bytecode]")
+{
+  const auto syntaxUnit = syntax::parseSourceUnit(
+      "enum Result<T, E> { Ok(value: T), Err(error: E) } fun result() -> Result<i64, string> { return Result.Ok(7); }");
+  const auto hirModule = hir::Resolver{}.resolve(syntaxUnit);
+  const auto typed = typecheck::TypeChecker{}.check(hirModule);
+  const auto function = bytecode::Compiler{}.compile(flowir::Lowerer{}.lower(hirModule.functions.front(), typed));
+  const auto restored = bytecode::ArtifactCodec{}.deserialize(
+      bytecode::ArtifactCodec{}.serialize(bytecode::Module{.functions = {function}}));
+  const auto result = std::ranges::find_if(restored.functions.front().typeDescriptors, [](const auto &descriptor) {
+    return descriptor.kind == typecheck::TypeKind::Enum && descriptor.typeArguments.size() == 2;
+  });
+  REQUIRE(result != restored.functions.front().typeDescriptors.end());
+  REQUIRE(result->typeArguments == std::vector<typecheck::TypeId>{typecheck::builtin::I64, typecheck::builtin::String});
+}
+
 TEST_CASE("vNext bytecode artifacts preserve enum variant layouts", "[vNext][Bytecode]")
 {
   const auto syntaxUnit = syntax::parseSourceUnit(
@@ -213,7 +229,7 @@ TEST_CASE("vNext bytecode artifacts reject malformed framing", "[vNext][Bytecode
 {
   REQUIRE_THROWS_WITH(bytecode::ArtifactCodec{}.deserialize({}), "invalid bytecode artifact magic");
   REQUIRE_THROWS_WITH(bytecode::ArtifactCodec{}.deserialize({'N', 'G', 'V', 'X'}), "truncated bytecode artifact");
-  REQUIRE_THROWS_WITH(bytecode::ArtifactCodec{}.deserialize({'N', 'G', 'V', 'X', 5, 0, 0, 0}),
+  REQUIRE_THROWS_WITH(bytecode::ArtifactCodec{}.deserialize({'N', 'G', 'V', 'X', 6, 0, 0, 0}),
                       "unsupported bytecode artifact version");
 }
 

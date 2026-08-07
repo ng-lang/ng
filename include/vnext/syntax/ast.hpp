@@ -459,10 +459,13 @@ namespace NG::vnext::syntax
   struct EnumDeclaration final : ModuleItem
   {
     const std::string name;
+    std::vector<std::string> genericParameters;
     std::vector<EnumVariantDeclaration> variants;
 
-    EnumDeclaration(std::string enumName, std::vector<EnumVariantDeclaration> enumVariants, SourceSpan sourceSpan)
-      : ModuleItem(ModuleItemKind::Enum, sourceSpan), name(std::move(enumName)), variants(std::move(enumVariants))
+    EnumDeclaration(std::string enumName, std::vector<std::string> parameters,
+                    std::vector<EnumVariantDeclaration> enumVariants, SourceSpan sourceSpan)
+      : ModuleItem(ModuleItemKind::Enum, sourceSpan), name(std::move(enumName)), genericParameters(std::move(parameters)),
+        variants(std::move(enumVariants))
     {
     }
   };

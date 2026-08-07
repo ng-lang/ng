@@ -16,7 +16,11 @@ namespace NG::vnext::typecheck
       [[nodiscard]] auto check(const hir::Module &module) -> TypeCheckResult
       {
         for (const auto &structure : module.structs) static_cast<void>(interner_.declareStruct(structure.id, structure.name));
-        for (const auto &enumeration : module.enums) static_cast<void>(interner_.declareEnum(enumeration.id, enumeration.name));
+        for (const auto &enumeration : module.enums)
+        {
+          static_cast<void>(interner_.declareEnum(enumeration.id, enumeration.name, enumeration.genericParameters));
+          interner_.registerEnumTemplate(enumeration);
+        }
         for (const auto &structure : module.structs)
         {
           std::vector<std::string> fields;
@@ -37,7 +41,9 @@ namespace NG::vnext::typecheck
           {
             variants.push_back(variant.name);
             hasPayload.push_back(variant.payloadType != nullptr);
-            payloads.push_back(variant.payloadType != nullptr ? interner_.resolve(*variant.payloadType) : builtin::Unit);
+            payloads.push_back(variant.payloadType != nullptr && enumeration.genericParameters.empty()
+                                   ? interner_.resolve(*variant.payloadType)
+                                   : builtin::Unit);
           }
           interner_.defineEnum(enumeration.id, std::move(variants), std::move(payloads), std::move(hasPayload));
         }
@@ -197,6 +203,8 @@ namespace NG::vnext::typecheck
           record(expression, expected);
           return expected;
         }
+        if (expression.kind == hir::ExpressionKind::EnumLiteral && descriptor.kind == TypeKind::Enum)
+          return inferExpectedEnum(expression, expected, locals);
         if (expression.kind == hir::ExpressionKind::StructLiteral && descriptor.kind == TypeKind::Struct)
         {
           return inferExpectedStruct(expression, expected, locals);
@@ -215,6 +223,22 @@ namespace NG::vnext::typecheck
         const TypeId actual = infer(expression, locals);
         requireType(expected, actual, expression.span, context);
         return actual;
+      }
+
+      [[nodiscard]] auto inferExpectedEnum(const hir::Expression &expression, TypeId expected, const LocalTypes &locals) -> TypeId
+      {
+        const auto &descriptor = interner_.descriptor(expected);
+        if (!expression.enumId.has_value() || descriptor.nominalId != expression.enumId->value)
+          throw TypeError(std::format("enum constructor type mismatch: expected {}, got {}", interner_.display(expected), expression.text), expression.span);
+        const uint32_t variant = expression.variant.value();
+        if (variant >= descriptor.elements.size()) throw TypeError("enum variant is out of range", expression.span);
+        const size_t wanted = descriptor.variantHasPayload[variant] ? 1 : 0;
+        if (expression.operands.size() != wanted)
+          throw TypeError(std::format("enum variant `{}` expects {} payload values, got {}", descriptor.fieldNames[variant], wanted,
+                                      expression.operands.size()), expression.span);
+        if (wanted == 1) static_cast<void>(inferExpected(*expression.operands[0], descriptor.elements[variant], locals, "variant payload"));
+        record(expression, expected);
+        return expected;
       }
 
       [[nodiscard]] auto inferExpectedStruct(const hir::Expression &expression, TypeId expected, const LocalTypes &locals) -> TypeId

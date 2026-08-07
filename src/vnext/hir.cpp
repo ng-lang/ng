@@ -123,7 +123,8 @@ namespace NG::vnext::hir
 
   auto Resolver::resolveEnum(const syntax::EnumDeclaration &enumeration, EnumId id) -> Enum
   {
-    Enum resolved{.id = id, .name = enumeration.name, .span = enumeration.span};
+    Enum resolved{.id = id, .name = enumeration.name, .span = enumeration.span,
+                  .genericParameters = enumeration.genericParameters};
     std::unordered_set<std::string> names;
     for (const auto &variant : enumeration.variants)
     {

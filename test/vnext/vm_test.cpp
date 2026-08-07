@@ -77,6 +77,16 @@ TEST_CASE("vNext VM materializes dynamic and fixed homogeneous arrays", "[vNext]
   REQUIRE(fixed.returnValue->asArray()[1] == 5);
 }
 
+TEST_CASE("vNext VM materializes generic enum instances", "[vNext][VM]")
+{
+  const auto result = vm::VM{}.run(compile(
+      "enum Result<T, E> { Ok(value: T), Err(error: E) } "
+      "fun main() -> Result<i64, string> { return Result.Ok(7); }"));
+  REQUIRE(result.returnValue->isEnum());
+  REQUIRE(result.returnValue->asEnumVariant() == 0);
+  REQUIRE(result.returnValue->asEnumPayload()[0] == 7);
+}
+
 TEST_CASE("vNext VM materializes nominal enum variants", "[vNext][VM]")
 {
   const auto payload = vm::VM{}.run(compile(

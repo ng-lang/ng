@@ -80,7 +80,7 @@ namespace NG::vnext::typecheck
     return structTypes_.at(id.value);
   }
 
-  auto TypeInterner::declareEnum(hir::EnumId id, std::string name) -> TypeId
+  auto TypeInterner::declareEnum(hir::EnumId id, std::string name, std::vector<std::string> genericParameters) -> TypeId
   {
     if (const auto found = enumTypes_.find(id.value); found != enumTypes_.end()) return found->second;
     const TypeId result = append(TypeDescriptor{.kind = TypeKind::Enum,
@@ -89,8 +89,14 @@ namespace NG::vnext::typecheck
                                                  .length = std::nullopt,
                                                  .nominalId = id.value});
     enumTypes_.emplace(id.value, result);
+    enumGenericParameters_.emplace(id.value, std::move(genericParameters));
     namedTypes_.emplace(descriptors_[result.value].name, result);
     return result;
+  }
+
+  void TypeInterner::registerEnumTemplate(const hir::Enum &enumeration)
+  {
+    enumTemplates_[enumeration.id.value] = &enumeration;
   }
 
   void TypeInterner::defineEnum(hir::EnumId id, std::vector<std::string> variants, std::vector<TypeId> payloads,
@@ -105,6 +111,15 @@ namespace NG::vnext::typecheck
 
   auto TypeInterner::typeForEnum(hir::EnumId id) const -> TypeId { return enumTypes_.at(id.value); }
 
+  auto TypeInterner::resolveWithBindings(const hir::Type &type, const std::unordered_map<std::string, TypeId> &bindings) -> TypeId
+  {
+    if (type.kind == hir::TypeKind::Named)
+    {
+      if (const auto found = bindings.find(type.name); found != bindings.end()) return found->second;
+    }
+    return resolve(type);
+  }
+
   auto TypeInterner::resolve(const hir::Type &type) -> TypeId
   {
     if (type.kind == hir::TypeKind::Named)
@@ -114,6 +129,44 @@ namespace NG::vnext::typecheck
     }
     if (type.kind != hir::TypeKind::Applied || type.target == nullptr || type.target->kind != hir::TypeKind::Named)
       throw TypeError("unsupported type form", type.span);
+    if (type.target->name != "array" && type.target->name != "tuple")
+    {
+      const auto constructor = namedTypes_.find(type.target->name);
+      if (constructor == namedTypes_.end() || descriptors_[constructor->second.value].kind != TypeKind::Enum)
+        throw TypeError(std::format("unknown type constructor `{}`", type.target->name), type.span);
+      const auto enumId = descriptors_[constructor->second.value].nominalId.value();
+      const auto &parameters = enumGenericParameters_.at(enumId);
+      if (type.arguments.size() != parameters.size())
+        throw TypeError(std::format("enum type `{}` expects {} arguments, got {}", type.target->name, parameters.size(), type.arguments.size()), type.span);
+      std::unordered_map<std::string, TypeId> bindings;
+      for (size_t index = 0; index < parameters.size(); ++index)
+      {
+        if (type.arguments[index].kind != syntax::GenericArgumentKind::Type || type.arguments[index].type == nullptr)
+          throw TypeError("enum type arguments must be types", type.arguments[index].span);
+        bindings.emplace(parameters[index], resolve(*type.arguments[index].type));
+      }
+      const auto *enumeration = enumTemplates_.at(enumId);
+      std::vector<TypeId> payloads;
+      std::vector<bool> hasPayload;
+      for (const auto &variant : enumeration->variants)
+      {
+        hasPayload.push_back(variant.payloadType != nullptr);
+        payloads.push_back(variant.payloadType != nullptr ? resolveWithBindings(*variant.payloadType, bindings) : builtin::Unit);
+      }
+      for (uint32_t index = 6; index < descriptors_.size(); ++index)
+        if (descriptors_[index].kind == TypeKind::Enum && descriptors_[index].nominalId == enumId && descriptors_[index].typeArguments.size() == bindings.size())
+        {
+          bool same = true;
+          for (size_t arg = 0; arg < type.arguments.size(); ++arg) same = same && descriptors_[index].typeArguments[arg] == bindings.at(parameters[arg]);
+          if (same) return TypeId{index};
+        }
+      std::vector<TypeId> arguments;
+      for (const auto &parameter : parameters) arguments.push_back(bindings.at(parameter));
+      return append(TypeDescriptor{.kind = TypeKind::Enum, .name = type.target->name, .element = TypeId{},
+                                   .length = payloads.size(), .elements = std::move(payloads),
+                                   .nominalId = enumId, .fieldNames = [&enumeration] { std::vector<std::string> names; for (const auto &v : enumeration->variants) names.push_back(v.name); return names; }(),
+                                   .variantHasPayload = std::move(hasPayload), .typeArguments = std::move(arguments)});
+    }
     if (type.target->name == "tuple")
     {
       if (type.arguments.empty()) throw TypeError("tuple type expects at least 1 argument, got 0", type.span);

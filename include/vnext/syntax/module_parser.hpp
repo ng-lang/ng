@@ -21,6 +21,7 @@ namespace NG::vnext::syntax
     [[nodiscard]] auto parseTypeUntil(const std::vector<TokenKind> &terminators) -> TypeSyntaxPtr;
     [[nodiscard]] auto consumeBlockTokens() -> std::vector<Token>;
     [[nodiscard]] auto current() const -> const Token &;
+    [[nodiscard]] auto peek(size_t offset) const -> const Token &;
     [[nodiscard]] auto consume() -> Token;
     void expect(TokenKind kind, std::string_view message);
 

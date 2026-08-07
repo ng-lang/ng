@@ -146,6 +146,24 @@ TEST_CASE("vNext type checker validates homogeneous and fixed-length array liter
                       "fixed array length mismatch: expected 3, got 2");
 }
 
+TEST_CASE("vNext type checker interns generic enum instances", "[vNext][Typecheck]")
+{
+  const auto syntaxUnit = syntax::parseSourceUnit(
+      "enum Result<T, E> { Ok(value: T), Err(error: E) } "
+      "fun numbers() -> Result<i64, string> { return Result.Ok(7); } "
+      "fun bytes(value: u8) -> Result<u8, string> { return Result.Ok(value); }");
+  const auto module = hir::Resolver{}.resolve(syntaxUnit);
+  const auto result = typecheck::TypeChecker{}.check(module);
+  const auto numbers = result.functionTypeIds.at(0).returnType;
+  const auto bytes = result.functionTypeIds.at(1).returnType;
+  REQUIRE(numbers != bytes);
+  REQUIRE(result.typeDescriptors.at(numbers.value).kind == typecheck::TypeKind::Enum);
+  REQUIRE(result.typeDescriptors.at(numbers.value).elements[0] == typecheck::builtin::I64);
+  REQUIRE(result.typeDescriptors.at(bytes.value).elements[0] == typecheck::builtin::U8);
+  REQUIRE_THROWS_WITH(check("enum Result<T, E> { Ok(value: T), Err(error: E) } fun ok() -> Result<i64, string> { return Result.Ok(true); }"),
+                      "variant payload type mismatch: expected i64, got bool");
+}
+
 TEST_CASE("vNext type checker validates nominal enum constructors", "[vNext][Typecheck]")
 {
   REQUIRE_NOTHROW(check("enum Result { Ok(i64), Error(string), Empty } fun ok() -> Result { return Result.Ok(7); }"));
@@ -155,7 +173,7 @@ TEST_CASE("vNext type checker validates nominal enum constructors", "[vNext][Typ
   REQUIRE_THROWS_WITH(check("enum Result { Ok(i64), Empty } fun invalid() -> Result { return Result.Empty(1); }"),
                       "enum variant `Empty` expects 0 payload values, got 1");
   REQUIRE_THROWS_WITH(check("enum Result { Ok(i64) } fun invalid() -> Result { return Result.Ok(true); }"),
-                      "variant `Ok` payload type mismatch: expected i64, got bool");
+                      "variant payload type mismatch: expected i64, got bool");
 }
 
 TEST_CASE("vNext type checker validates nominal structs and member places", "[vNext][Typecheck]")
