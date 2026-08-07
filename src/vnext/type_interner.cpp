@@ -116,8 +116,55 @@ namespace NG::vnext::typecheck
     if (type.kind == hir::TypeKind::Named)
     {
       if (const auto found = bindings.find(type.name); found != bindings.end()) return found->second;
+      return resolve(type);
     }
-    return resolve(type);
+    if (type.kind != hir::TypeKind::Applied || type.target == nullptr || type.target->kind != hir::TypeKind::Named)
+      return resolve(type);
+    if (type.target->name == "array")
+    {
+      if (type.arguments.size() != 1 && type.arguments.size() != 2)
+        throw TypeError(std::format("array type expects 1 or 2 arguments, got {}", type.arguments.size()), type.span);
+      const TypeId element = resolveWithBindings(*type.arguments[0].type, bindings);
+      return type.arguments.size() == 1 ? internDynamicArray(element)
+                                        : internFixedArray(element, type.arguments[1].constInteger);
+    }
+    if (type.target->name == "tuple")
+    {
+      std::vector<TypeId> elements;
+      for (const auto &argument : type.arguments) elements.push_back(resolveWithBindings(*argument.type, bindings));
+      return internTuple(elements);
+    }
+    const auto constructor = namedTypes_.find(type.target->name);
+    if (constructor == namedTypes_.end() || descriptors_[constructor->second.value].kind != TypeKind::Enum) return resolve(type);
+    const uint32_t enumId = *descriptors_[constructor->second.value].nominalId;
+    const auto &parameters = enumGenericParameters_.at(enumId);
+    if (type.arguments.size() != parameters.size())
+      throw TypeError(std::format("enum type `{}` expects {} arguments, got {}", type.target->name, parameters.size(), type.arguments.size()), type.span);
+    std::unordered_map<std::string, TypeId> nested;
+    std::vector<TypeId> arguments;
+    for (size_t index = 0; index < parameters.size(); ++index)
+    {
+      const TypeId argument = resolveWithBindings(*type.arguments[index].type, bindings);
+      nested.emplace(parameters[index], argument);
+      arguments.push_back(argument);
+    }
+    for (uint32_t index = 6; index < descriptors_.size(); ++index)
+      if (descriptors_[index].kind == TypeKind::Enum && descriptors_[index].nominalId == enumId &&
+          descriptors_[index].typeArguments == arguments) return TypeId{index};
+    const auto *enumeration = enumTemplates_.at(enumId);
+    std::vector<TypeId> payloads;
+    std::vector<bool> hasPayload;
+    std::vector<std::string> names;
+    for (const auto &variant : enumeration->variants)
+    {
+      names.push_back(variant.name);
+      hasPayload.push_back(variant.payloadType != nullptr);
+      payloads.push_back(variant.payloadType != nullptr ? resolveWithBindings(*variant.payloadType, nested) : builtin::Unit);
+    }
+    return append(TypeDescriptor{.kind = TypeKind::Enum, .name = type.target->name, .element = TypeId{},
+                                 .length = payloads.size(), .elements = std::move(payloads), .nominalId = enumId,
+                                 .fieldNames = std::move(names), .variantHasPayload = std::move(hasPayload),
+                                 .typeArguments = std::move(arguments)});
   }
 
   auto TypeInterner::resolve(const hir::Type &type) -> TypeId
