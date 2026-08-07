@@ -3,6 +3,7 @@
 
 #include <charconv>
 #include <format>
+#include <unordered_set>
 #include <utility>
 
 namespace NG::vnext::hir
@@ -123,8 +124,11 @@ namespace NG::vnext::hir
   auto Resolver::resolveEnum(const syntax::EnumDeclaration &enumeration, EnumId id) -> Enum
   {
     Enum resolved{.id = id, .name = enumeration.name, .span = enumeration.span};
+    std::unordered_set<std::string> names;
     for (const auto &variant : enumeration.variants)
     {
+      if (!names.insert(variant.name).second)
+        throw ResolutionError(std::format("duplicate variant `{}` in enum `{}`", variant.name, enumeration.name), variant.span);
       EnumVariant lowered{.name = variant.name, .span = variant.span};
       if (variant.payloadType != nullptr) lowered.payloadType = std::make_unique<Type>(lowerType(*variant.payloadType));
       resolved.variants.push_back(std::move(lowered));
@@ -135,8 +139,13 @@ namespace NG::vnext::hir
   auto Resolver::resolveStruct(const syntax::StructDeclaration &structure, StructId id) -> Struct
   {
     Struct resolved{.id = id, .name = structure.name, .span = structure.span};
+    std::unordered_set<std::string> names;
     for (const auto &field : structure.fields)
+    {
+      if (!names.insert(field.name).second)
+        throw ResolutionError(std::format("duplicate field `{}` in struct `{}`", field.name, structure.name), field.span);
       resolved.fields.push_back(StructField{.name = field.name, .type = lowerType(*field.type), .span = field.span});
+    }
     return resolved;
   }
 
