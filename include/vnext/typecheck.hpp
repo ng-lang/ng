@@ -76,6 +76,7 @@ namespace NG::vnext::typecheck
     void defineEnum(hir::EnumId id, std::vector<std::string> variants, std::vector<TypeId> payloads,
                     std::vector<bool> hasPayload);
     [[nodiscard]] auto typeForEnum(hir::EnumId id) const -> TypeId;
+    [[nodiscard]] auto enumGenericArity(hir::EnumId id) const -> size_t;
     [[nodiscard]] auto descriptor(TypeId type) const -> const TypeDescriptor &;
     [[nodiscard]] auto display(TypeId type) const -> std::string;
     [[nodiscard]] auto descriptors() const -> const std::vector<TypeDescriptor> & { return descriptors_; }

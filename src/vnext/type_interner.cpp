@@ -111,6 +111,11 @@ namespace NG::vnext::typecheck
 
   auto TypeInterner::typeForEnum(hir::EnumId id) const -> TypeId { return enumTypes_.at(id.value); }
 
+  auto TypeInterner::enumGenericArity(hir::EnumId id) const -> size_t
+  {
+    return enumGenericParameters_.at(id.value).size();
+  }
+
   auto TypeInterner::resolveWithBindings(const hir::Type &type, const std::unordered_map<std::string, TypeId> &bindings) -> TypeId
   {
     if (type.kind == hir::TypeKind::Named)
@@ -171,7 +176,17 @@ namespace NG::vnext::typecheck
   {
     if (type.kind == hir::TypeKind::Named)
     {
-      if (const auto found = namedTypes_.find(type.name); found != namedTypes_.end()) return found->second;
+      if (const auto found = namedTypes_.find(type.name); found != namedTypes_.end())
+      {
+        const auto &descriptor = descriptors_[found->second.value];
+        if (descriptor.kind == TypeKind::Enum && descriptor.nominalId.has_value())
+        {
+          const size_t arity = enumGenericParameters_.at(*descriptor.nominalId).size();
+          if (arity != 0)
+            throw TypeError(std::format("enum type `{}` expects {} arguments, got 0", type.name, arity), type.span);
+        }
+        return found->second;
+      }
       throw TypeError(std::format("unknown type `{}`", type.name), type.span);
     }
     if (type.kind != hir::TypeKind::Applied || type.target == nullptr || type.target->kind != hir::TypeKind::Named)

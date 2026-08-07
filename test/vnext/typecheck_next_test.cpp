@@ -169,6 +169,10 @@ TEST_CASE("vNext type checker interns generic enum instances", "[vNext][Typechec
       "fun nested() -> Nested<i64> { return Nested.Value(Result.Ok(7)); }"));
   REQUIRE_THROWS_WITH(check("enum Result<T, E> { Ok(value: T), Err(error: E) } fun ok() -> Result<i64, string> { return Result.Ok(true); }"),
                       "variant payload type mismatch: expected i64, got bool");
+  REQUIRE_THROWS_WITH(check("enum Result<T, E> { Ok(value: T), Err(error: E) } fun invalid(value: Result) { return; }"),
+                      "enum type `Result` expects 2 arguments, got 0");
+  REQUIRE_THROWS_WITH(check("enum Result<T, E> { Ok(value: T), Err(error: E) } fun invalid() { let value = Result.Ok(1); return; }"),
+                      "cannot infer generic arguments for enum constructor `Result`");
 }
 
 TEST_CASE("vNext type checker validates nominal enum constructors", "[vNext][Typecheck]")

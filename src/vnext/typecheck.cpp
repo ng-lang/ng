@@ -293,6 +293,8 @@ namespace NG::vnext::typecheck
         {
           if (!expression.enumId.has_value() || !expression.variant.has_value())
             throw TypeError("enum constructor has no resolved variant", expression.span);
+          if (interner_.enumGenericArity(*expression.enumId) != 0)
+            throw TypeError(std::format("cannot infer generic arguments for enum constructor `{}`", expression.text), expression.span);
           type = interner_.typeForEnum(*expression.enumId);
           const auto &descriptor = interner_.descriptor(type);
           const uint32_t variant = *expression.variant;
