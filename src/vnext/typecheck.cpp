@@ -81,8 +81,25 @@ namespace NG::vnext::typecheck
         case hir::StatementKind::Let:
         {
           const TypeId type = infer(*statement.expression, locals);
-          locals.emplace(statement.local->value, type);
-          recordLocal(*statement.local, type);
+          if (!statement.destructuredLocals.empty())
+          {
+            const auto &tuple = interner_.descriptor(type);
+            if (tuple.kind != TypeKind::Tuple)
+              throw TypeError(std::format("cannot destructure value of type {}", interner_.display(type)), statement.expression->span);
+            if (tuple.elements.size() != statement.destructuredLocals.size())
+              throw TypeError(std::format("tuple destructuring length mismatch: expected {}, got {}", tuple.elements.size(),
+                                          statement.destructuredLocals.size()), statement.span);
+            for (size_t index = 0; index < statement.destructuredLocals.size(); ++index)
+            {
+              locals.emplace(statement.destructuredLocals[index].value, tuple.elements[index]);
+              recordLocal(statement.destructuredLocals[index], tuple.elements[index]);
+            }
+          }
+          else
+          {
+            locals.emplace(statement.local->value, type);
+            recordLocal(*statement.local, type);
+          }
           return;
         }
         case hir::StatementKind::Assign:

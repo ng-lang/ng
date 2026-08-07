@@ -109,6 +109,8 @@ namespace NG::vnext::hir
     StatementKind kind;
     syntax::SourceSpan span;
     std::optional<LocalId> local;
+    std::vector<LocalId> destructuredLocals;
+    std::vector<size_t> destructuredIndices;
     bool mutableBinding{};
     std::optional<LoopId> loop;
     std::optional<NextTarget> nextTarget;

@@ -91,18 +91,36 @@ namespace NG::vnext::syntax
       static_cast<void>(consume());
     }
 
-    if (current().kind != TokenKind::Identifier)
+    std::vector<std::string> destructuredNames;
+    Token name{.kind = TokenKind::Identifier, .text = {}, .span = current().span};
+    if (current().kind == TokenKind::LeftParen)
     {
-      throw ParseError("expected a binding name after `let`", current().span);
+      static_cast<void>(consume());
+      if (current().kind == TokenKind::RightParen) throw ParseError("tuple binding cannot be empty", current().span);
+      while (true)
+      {
+        if (current().kind != TokenKind::Identifier) throw ParseError("expected a binding name in tuple pattern", current().span);
+        destructuredNames.push_back(consume().text);
+        if (current().kind != TokenKind::Comma) break;
+        static_cast<void>(consume());
+      }
+      expect(TokenKind::RightParen, "expected `)` after tuple binding");
+      name.text = destructuredNames.front();
     }
-    const Token name = consume();
+    else
+    {
+      if (current().kind != TokenKind::Identifier)
+        throw ParseError("expected a binding name after `let`", current().span);
+      name = consume();
+    }
     expect(TokenKind::Equal, "expected `=` after let binding name");
 
     auto initializer = parseExpressionUntil(TokenKind::Semicolon);
     const Token semicolon = current();
     expect(TokenKind::Semicolon, "expected `;` after let initializer");
     return std::make_unique<LetStatement>(name.text, isMutable, std::move(initializer),
-                                          SourceSpan{letToken.span.begin, semicolon.span.end});
+                                          SourceSpan{letToken.span.begin, semicolon.span.end},
+                                          std::move(destructuredNames));
   }
 
   auto BlockParser::parseAssignStatement() -> StatementPtr

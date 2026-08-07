@@ -56,6 +56,16 @@ namespace
   }
 } // namespace
 
+TEST_CASE("vNext block parser preserves tuple binding patterns", "[vNext][Syntax][Block]")
+{
+  const auto block = syntax::parseBlock("{ let mut (first, second) = (1, true); }");
+  const auto *let = dynamic_cast<const syntax::LetStatement *>(block.statements.front().get());
+  REQUIRE(let != nullptr);
+  REQUIRE(let->isMutable);
+  REQUIRE(let->destructuredNames == std::vector<std::string>{"first", "second"});
+  REQUIRE(let->initializer->kind == syntax::ExpressionKind::TupleLiteral);
+}
+
 TEST_CASE("vNext block parser preserves index assignment targets", "[vNext][Syntax][Block]")
 {
   const auto block = syntax::parseBlock("{ items[1] := 42; }");

@@ -42,6 +42,19 @@ TEST_CASE("vNext bytecode compiler and decoder share loop backedge schema", "[vN
   REQUIRE(backedge->operands.size() == 4);
 }
 
+TEST_CASE("vNext bytecode encodes tuple extraction", "[vNext][Bytecode]")
+{
+  const auto syntaxUnit = syntax::parseSourceUnit("fun unpack() -> i64 { let (first, second) = (1, true); return first; }");
+  const auto hirModule = hir::Resolver{}.resolve(syntaxUnit);
+  const auto typed = typecheck::TypeChecker{}.check(hirModule);
+  const auto function = bytecode::Compiler{}.compile(flowir::Lowerer{}.lower(hirModule.functions.front(), typed));
+  const auto instructions = bytecode::Decoder{}.decode(function);
+  REQUIRE(std::ranges::count_if(instructions, [](const auto &instruction) {
+            return instruction.opcode == bytecode::Opcode::ExtractTuple;
+          }) == 2);
+  REQUIRE_NOTHROW(bytecode::Verifier{}.verify(function));
+}
+
 TEST_CASE("vNext bytecode encodes and verifies array index places", "[vNext][Bytecode]")
 {
   const auto syntaxUnit = syntax::parseSourceUnit(

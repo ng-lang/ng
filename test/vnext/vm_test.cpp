@@ -77,6 +77,13 @@ TEST_CASE("vNext VM materializes dynamic and fixed homogeneous arrays", "[vNext]
   REQUIRE(fixed.returnValue->asArray()[1] == 5);
 }
 
+TEST_CASE("vNext VM extracts tuple bindings and preserves mutability", "[vNext][VM]")
+{
+  const auto function = compile(
+      "fun main() -> bool { let mut (number, flag) = (1, false); flag := true; return flag; }");
+  REQUIRE(vm::VM{}.run(function).returnValue == 1);
+}
+
 TEST_CASE("vNext VM materializes heterogeneous tuples and executes projections", "[vNext][VM]")
 {
   const auto function = compile(

@@ -13,6 +13,7 @@ namespace NG::vnext::bytecode
         OpcodeDescriptor{Opcode::Evaluate, "evaluate", OperandLayout::CountPrefixedTail, 4},
         OpcodeDescriptor{Opcode::Call, "call", OperandLayout::CountPrefixedTail, 2},
         OpcodeDescriptor{Opcode::BindLocal, "bind_local", OperandLayout::Fixed, 3},
+        OpcodeDescriptor{Opcode::ExtractTuple, "extract_tuple", OperandLayout::Fixed, 3},
         OpcodeDescriptor{Opcode::AssignIndex, "assign_index", OperandLayout::Fixed, 4},
         OpcodeDescriptor{Opcode::Return, "return", OperandLayout::CountPrefixedTail, 0},
         OpcodeDescriptor{Opcode::Jump, "jump", OperandLayout::CountPrefixedTail, 1},
@@ -120,6 +121,11 @@ namespace NG::vnext::bytecode
         {
           appendInstruction(result.code, Opcode::BindLocal,
                             {instruction.result.value, instruction.local->value, instruction.source->value});
+        }
+        else if (instruction.kind == flowir::InstructionKind::ExtractTuple)
+        {
+          appendInstruction(result.code, Opcode::ExtractTuple,
+                            {instruction.result.value, instruction.source->value, static_cast<uint32_t>(instruction.payload)});
         }
         else
         {
@@ -388,6 +394,19 @@ namespace NG::vnext::bytecode
           if (requireValueType(result) != function.localTypes.at(local) ||
               requireValueType(source) != function.localTypes.at(local))
             throw BytecodeError("bytecode local binding type mismatch");
+        }
+        else if (instruction.opcode == Opcode::ExtractTuple)
+        {
+          const auto receiver = requireValueType(instruction.operands[1]);
+          if (receiver.value >= function.typeDescriptors.size())
+            throw BytecodeError("bytecode value type descriptor is out of range");
+          const auto &tuple = function.typeDescriptors[receiver.value];
+          if (tuple.kind != typecheck::TypeKind::Tuple)
+            throw BytecodeError("bytecode tuple extraction source is not a tuple");
+          const uint32_t index = instruction.operands[2];
+          if (index >= tuple.elements.size()) throw BytecodeError("bytecode tuple extraction is out of range");
+          if (requireValueType(instruction.operands[0]) != tuple.elements[index])
+            throw BytecodeError("bytecode tuple extraction result type mismatch");
         }
         else if (instruction.opcode == Opcode::AssignIndex)
         {

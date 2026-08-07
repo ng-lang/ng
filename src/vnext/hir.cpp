@@ -160,9 +160,22 @@ namespace NG::vnext::hir
     {
       Statement resolved{.kind = StatementKind::Let, .span = let->span};
       resolved.expression = resolveExpression(*let->initializer);
-      resolved.local = declareLocal(let->name, let->span);
       resolved.mutableBinding = let->isMutable;
-      localMutability_[resolved.local->value] = let->isMutable;
+      if (!let->destructuredNames.empty())
+      {
+        for (size_t index = 0; index < let->destructuredNames.size(); ++index)
+        {
+          const LocalId local = declareLocal(let->destructuredNames[index], let->span);
+          resolved.destructuredLocals.push_back(local);
+          resolved.destructuredIndices.push_back(index);
+          localMutability_[local.value] = let->isMutable;
+        }
+      }
+      else
+      {
+        resolved.local = declareLocal(let->name, let->span);
+        localMutability_[resolved.local->value] = let->isMutable;
+      }
       return resolved;
     }
 

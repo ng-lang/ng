@@ -176,6 +176,7 @@ namespace NG::vnext::flowir
           for (const auto &statement : block.statements)
           {
             if (statement.local.has_value()) observe(*statement.local);
+            for (const auto local : statement.destructuredLocals) observe(local);
             for (const auto local : statement.loopBindings) observe(local);
             if (statement.expression != nullptr) visitExpression(visitExpression, *statement.expression);
             for (const auto &argument : statement.arguments) visitExpression(visitExpression, *argument);
@@ -215,15 +216,44 @@ namespace NG::vnext::flowir
         case hir::StatementKind::Let:
         {
           const ValueId initializer = lowerExpression(*statement.expression);
-          if (types_ != nullptr) function_.localTypes.emplace(statement.local->value, types_->localTypeIds.at(statement.local->value));
-          const ValueId binding{nextValue_++};
-          if (types_ != nullptr) function_.valueTypes.emplace(binding.value, types_->typeIdOf(*statement.expression));
-          block().instructions.push_back(Instruction{.kind = InstructionKind::BindLocal,
-                                                     .result = binding,
-                                                     .local = statement.local,
-                                                     .source = initializer,
-                                                     .expressionKind = statement.expression->kind});
-          static_cast<void>(initializer);
+          if (!statement.destructuredLocals.empty())
+          {
+            for (size_t index = 0; index < statement.destructuredLocals.size(); ++index)
+            {
+              const ValueId extracted{nextValue_++};
+              if (types_ != nullptr)
+              {
+                const auto tuple = types_->typeIdOf(*statement.expression);
+                function_.valueTypes.emplace(extracted.value, types_->typeDescriptors.at(tuple.value).elements.at(index));
+                function_.localTypes.emplace(statement.destructuredLocals[index].value,
+                                             types_->localTypeIds.at(statement.destructuredLocals[index].value));
+              }
+              block().instructions.push_back(Instruction{.kind = InstructionKind::ExtractTuple,
+                                                         .result = extracted,
+                                                         .source = initializer,
+                                                         .payload = static_cast<int64_t>(index),
+                                                         .expressionKind = hir::ExpressionKind::Index,
+                                                         .operands = {initializer}});
+              const ValueId binding{nextValue_++};
+              if (types_ != nullptr) function_.valueTypes.emplace(binding.value, function_.valueTypes.at(extracted.value));
+              block().instructions.push_back(Instruction{.kind = InstructionKind::BindLocal,
+                                                         .result = binding,
+                                                         .local = statement.destructuredLocals[index],
+                                                         .source = extracted,
+                                                         .expressionKind = hir::ExpressionKind::ResolvedName});
+            }
+          }
+          else
+          {
+            if (types_ != nullptr) function_.localTypes.emplace(statement.local->value, types_->localTypeIds.at(statement.local->value));
+            const ValueId binding{nextValue_++};
+            if (types_ != nullptr) function_.valueTypes.emplace(binding.value, types_->typeIdOf(*statement.expression));
+            block().instructions.push_back(Instruction{.kind = InstructionKind::BindLocal,
+                                                       .result = binding,
+                                                       .local = statement.local,
+                                                       .source = initializer,
+                                                       .expressionKind = statement.expression->kind});
+          }
           return;
         }
         case hir::StatementKind::Assign:
@@ -405,6 +435,8 @@ namespace NG::vnext::flowir
       {
         if (instruction.kind == InstructionKind::AssignIndex && instruction.operands.size() != 3)
           throw VerificationError("FlowIR index assignment requires receiver, index, and value operands");
+        if (instruction.kind == InstructionKind::ExtractTuple && instruction.operands.size() != 1)
+          throw VerificationError("FlowIR tuple extraction requires one source operand");
       }
 
       const auto &terminator = *block.terminator;

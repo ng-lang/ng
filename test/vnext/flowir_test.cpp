@@ -47,6 +47,15 @@ TEST_CASE("vNext FlowIR carries checked value type identities", "[vNext][FlowIR]
   }
 }
 
+TEST_CASE("vNext FlowIR lowers tuple destructuring to typed extraction operations", "[vNext][FlowIR]")
+{
+  const auto function = lower("fun unpack() -> i64 { let (first, second) = (1, true); return first; }");
+  REQUIRE(std::ranges::count_if(function.blocks.front().instructions, [](const auto &instruction) {
+            return instruction.kind == flowir::InstructionKind::ExtractTuple;
+          }) == 2);
+  REQUIRE_NOTHROW(flowir::Verifier{}.verify(function));
+}
+
 TEST_CASE("vNext FlowIR lowers array index writes as place operations", "[vNext][FlowIR]")
 {
   const auto function = lower("fun update() -> i64 { let mut values = [1, 2]; values[1] := 7; return values[1]; }");

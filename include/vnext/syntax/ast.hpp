@@ -195,10 +195,12 @@ namespace NG::vnext::syntax
     const std::string name;
     const bool isMutable;
     ExpressionPtr initializer;
+    std::vector<std::string> destructuredNames;
 
-    LetStatement(std::string bindingName, bool mutableBinding, ExpressionPtr value, SourceSpan sourceSpan)
+    LetStatement(std::string bindingName, bool mutableBinding, ExpressionPtr value, SourceSpan sourceSpan,
+                 std::vector<std::string> names = {})
       : Statement(StatementKind::Let, sourceSpan), name(std::move(bindingName)), isMutable(mutableBinding),
-        initializer(std::move(value))
+        initializer(std::move(value)), destructuredNames(std::move(names))
     {
     }
   };

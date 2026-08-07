@@ -2,6 +2,7 @@
 #include "vnext/vm.hpp"
 #include "vm/value_ops.hpp"
 
+#include <format>
 #include <unordered_map>
 #include <vector>
 
@@ -76,6 +77,15 @@ namespace NG::vnext::vm
         if (values.size() <= result) values.resize(result + 1);
         values[result] = values.at(source);
         locals[local] = values[result];
+        break;
+      }
+      case bytecode::Opcode::ExtractTuple:
+      {
+        const auto &tuple = values.at(instruction.operands[1]).asTuple();
+        const uint32_t index = instruction.operands[2];
+        if (index >= tuple.size())
+          throw bytecode::BytecodeError(std::format("tuple index out of bounds: index {}, length {}", index, tuple.size()));
+        values[instruction.operands[0]] = tuple[index];
         break;
       }
       case bytecode::Opcode::AssignIndex:
@@ -194,6 +204,15 @@ namespace NG::vnext::vm
         if (frame.values.size() <= result) frame.values.resize(result + 1);
         frame.values[result] = frame.values.at(instruction.operands[2]);
         frame.locals[instruction.operands[1]] = frame.values[result];
+        continue;
+      }
+      if (instruction.opcode == bytecode::Opcode::ExtractTuple)
+      {
+        const auto &tuple = frame.values.at(instruction.operands[1]).asTuple();
+        const uint32_t index = instruction.operands[2];
+        if (index >= tuple.size())
+          throw bytecode::BytecodeError(std::format("tuple index out of bounds: index {}, length {}", index, tuple.size()));
+        frame.values[instruction.operands[0]] = tuple[index];
         continue;
       }
       if (instruction.opcode == bytecode::Opcode::AssignIndex)

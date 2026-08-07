@@ -146,6 +146,15 @@ TEST_CASE("vNext type checker validates homogeneous and fixed-length array liter
                       "fixed array length mismatch: expected 3, got 2");
 }
 
+TEST_CASE("vNext type checker validates tuple destructuring", "[vNext][Typecheck]")
+{
+  REQUIRE_NOTHROW(check("fun values() -> bool { let mut (number, flag) = (1, false); flag := true; return flag; }"));
+  REQUIRE_THROWS_WITH(check("fun invalid() { let (first, second) = (1, true, \"extra\"); return; }"),
+                      "tuple destructuring length mismatch: expected 3, got 2");
+  REQUIRE_THROWS_WITH(check("fun invalid() { let (first, second) = [1, 2]; return; }"),
+                      "cannot destructure value of type array<i64>");
+}
+
 TEST_CASE("vNext type checker interns structural tuples and validates projections", "[vNext][Typecheck]")
 {
   const auto syntaxUnit = syntax::parseSourceUnit(
