@@ -10,7 +10,7 @@ namespace NG::vnext::bytecode
   namespace
   {
     constexpr std::array<uint8_t, 4> ArtifactMagic{'N', 'G', 'V', 'X'};
-    constexpr uint32_t ArtifactVersion{5};
+    constexpr uint32_t ArtifactVersion{1};
 
     void appendU32(std::vector<uint8_t> &output, uint32_t value)
     {

@@ -229,7 +229,7 @@ TEST_CASE("vNext bytecode artifacts reject malformed framing", "[vNext][Bytecode
 {
   REQUIRE_THROWS_WITH(bytecode::ArtifactCodec{}.deserialize({}), "invalid bytecode artifact magic");
   REQUIRE_THROWS_WITH(bytecode::ArtifactCodec{}.deserialize({'N', 'G', 'V', 'X'}), "truncated bytecode artifact");
-  REQUIRE_THROWS_WITH(bytecode::ArtifactCodec{}.deserialize({'N', 'G', 'V', 'X', 6, 0, 0, 0}),
+  REQUIRE_THROWS_WITH(bytecode::ArtifactCodec{}.deserialize({'N', 'G', 'V', 'X', 2, 0, 0, 0}),
                       "unsupported bytecode artifact version");
 }
 
