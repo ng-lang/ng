@@ -88,6 +88,9 @@ namespace NG::vnext::vm
         values[instruction.operands[0]] = tuple[index];
         break;
       }
+      case bytecode::Opcode::AssignMember:
+        detail::assignMemberInstruction(instruction, values);
+        break;
       case bytecode::Opcode::AssignIndex:
         detail::assignIndexInstruction(instruction, values);
         break;
@@ -213,6 +216,11 @@ namespace NG::vnext::vm
         if (index >= tuple.size())
           throw bytecode::BytecodeError(std::format("tuple index out of bounds: index {}, length {}", index, tuple.size()));
         frame.values[instruction.operands[0]] = tuple[index];
+        continue;
+      }
+      if (instruction.opcode == bytecode::Opcode::AssignMember)
+      {
+        detail::assignMemberInstruction(instruction, frame.values);
         continue;
       }
       if (instruction.opcode == bytecode::Opcode::AssignIndex)

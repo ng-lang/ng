@@ -284,6 +284,7 @@ namespace NG::vnext::syntax
     std::vector<Token> expressionTokens;
     size_t parenthesisDepth{};
     size_t squareDepth{};
+    size_t braceDepth{};
     while (current().kind != TokenKind::End)
     {
       const TokenKind kind = current().kind;
@@ -292,7 +293,7 @@ namespace NG::vnext::syntax
       {
         break;
       }
-      if (parenthesisDepth == 0 && squareDepth == 0 &&
+      if (parenthesisDepth == 0 && squareDepth == 0 && braceDepth == 0 &&
           (kind == TokenKind::Semicolon || kind == TokenKind::RightBrace))
       {
         break;
@@ -313,6 +314,14 @@ namespace NG::vnext::syntax
       else if (kind == TokenKind::RightSquare && squareDepth != 0)
       {
         --squareDepth;
+      }
+      else if (kind == TokenKind::LeftBrace)
+      {
+        ++braceDepth;
+      }
+      else if (kind == TokenKind::RightBrace && braceDepth != 0)
+      {
+        --braceDepth;
       }
       expressionTokens.push_back(consume());
     }

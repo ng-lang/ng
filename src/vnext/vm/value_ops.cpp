@@ -36,6 +36,15 @@ namespace NG::vnext::vm::detail
     }
   } // namespace
 
+  void assignMemberInstruction(const bytecode::DecodedInstruction &instruction, std::vector<Value> &values)
+  {
+    auto &structure = values.at(instruction.operands[0]);
+    auto &fields = structure.asStructMut();
+    const uint32_t field = instruction.operands[2];
+    if (field >= fields.size()) throw bytecode::BytecodeError("struct field is out of range");
+    fields[field] = values.at(instruction.operands[1]);
+  }
+
   void assignIndexInstruction(const bytecode::DecodedInstruction &instruction, std::vector<Value> &values)
   {
     auto &receiver = values.at(instruction.operands[0]);
@@ -75,12 +84,15 @@ namespace NG::vnext::vm::detail
       values[result] = Value::string(stringConstants.at(payload));
       return;
     }
-    if (kind == hir::ExpressionKind::ArrayLiteral || kind == hir::ExpressionKind::TupleLiteral)
+    if (kind == hir::ExpressionKind::ArrayLiteral || kind == hir::ExpressionKind::TupleLiteral ||
+        kind == hir::ExpressionKind::StructLiteral)
     {
       std::vector<Value> elements;
       elements.reserve(instruction.operands[4]);
       for (size_t index = 0; index < instruction.operands[4]; ++index) elements.push_back(values.at(instruction.operands[5 + index]));
-      values[result] = kind == hir::ExpressionKind::ArrayLiteral ? Value::array(std::move(elements)) : Value::tuple(std::move(elements));
+      if (kind == hir::ExpressionKind::ArrayLiteral) values[result] = Value::array(std::move(elements));
+      else if (kind == hir::ExpressionKind::TupleLiteral) values[result] = Value::tuple(std::move(elements));
+      else values[result] = Value::structure(static_cast<uint32_t>(payload), std::move(elements));
       return;
     }
     if (kind == hir::ExpressionKind::ResolvedName)
@@ -106,6 +118,15 @@ namespace NG::vnext::vm::detail
       case 3: values[result] = operand; return;
       default: throw bytecode::BytecodeError("unsupported prefix operation");
       }
+    }
+    if (kind == hir::ExpressionKind::Member)
+    {
+      const auto &structure = values.at(instruction.operands[5]);
+      const uint32_t field = static_cast<uint32_t>(payload);
+      const auto &fields = structure.asStruct();
+      if (field >= fields.size()) throw bytecode::BytecodeError("struct field is out of range");
+      values[result] = fields[field];
+      return;
     }
     if (kind == hir::ExpressionKind::Index)
     {

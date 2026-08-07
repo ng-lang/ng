@@ -13,6 +13,11 @@ namespace NG::vnext::typecheck
                    TypeDescriptor{.kind = TypeKind::Builtin, .name = "unit", .element = TypeId{}, .length = std::nullopt},
                    TypeDescriptor{.kind = TypeKind::Builtin, .name = "string", .element = TypeId{}, .length = std::nullopt}})
   {
+    namedTypes_.emplace("i64", builtin::I64);
+    namedTypes_.emplace("u8", builtin::U8);
+    namedTypes_.emplace("bool", builtin::Bool);
+    namedTypes_.emplace("unit", builtin::Unit);
+    namedTypes_.emplace("string", builtin::String);
   }
 
   auto TypeInterner::append(TypeDescriptor descriptor) -> TypeId
@@ -48,15 +53,38 @@ namespace NG::vnext::typecheck
                                  .elements = elements});
   }
 
+  auto TypeInterner::declareStruct(hir::StructId id, std::string name) -> TypeId
+  {
+    if (const auto found = structTypes_.find(id.value); found != structTypes_.end()) return found->second;
+    const TypeId result = append(TypeDescriptor{.kind = TypeKind::Struct,
+                                                 .name = std::move(name),
+                                                 .element = TypeId{},
+                                                 .length = std::nullopt,
+                                                 .nominalId = id.value});
+    structTypes_.emplace(id.value, result);
+    namedTypes_.emplace(descriptors_[result.value].name, result);
+    return result;
+  }
+
+  void TypeInterner::defineStruct(hir::StructId id, std::vector<std::string> fields, std::vector<TypeId> types)
+  {
+    const auto type = typeForStruct(id);
+    auto &descriptor = descriptors_.at(type.value);
+    descriptor.fieldNames = std::move(fields);
+    descriptor.elements = std::move(types);
+    descriptor.length = descriptor.elements.size();
+  }
+
+  auto TypeInterner::typeForStruct(hir::StructId id) const -> TypeId
+  {
+    return structTypes_.at(id.value);
+  }
+
   auto TypeInterner::resolve(const hir::Type &type) -> TypeId
   {
     if (type.kind == hir::TypeKind::Named)
     {
-      if (type.name == "i64") return builtin::I64;
-      if (type.name == "u8") return builtin::U8;
-      if (type.name == "bool") return builtin::Bool;
-      if (type.name == "unit") return builtin::Unit;
-      if (type.name == "string") return builtin::String;
+      if (const auto found = namedTypes_.find(type.name); found != namedTypes_.end()) return found->second;
       throw TypeError(std::format("unknown type `{}`", type.name), type.span);
     }
     if (type.kind != hir::TypeKind::Applied || type.target == nullptr || type.target->kind != hir::TypeKind::Named)
@@ -94,6 +122,7 @@ namespace NG::vnext::typecheck
     if (item.kind == TypeKind::Builtin) return item.name;
     if (item.kind == TypeKind::DynamicArray) return std::format("array<{}>", display(item.element));
     if (item.kind == TypeKind::FixedArray) return std::format("array<{}, {}>", display(item.element), *item.length);
+    if (item.kind == TypeKind::Struct) return item.name;
     std::string result{"tuple<"};
     for (size_t index = 0; index < item.elements.size(); ++index)
     {

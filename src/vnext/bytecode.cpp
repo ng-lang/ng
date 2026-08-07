@@ -15,6 +15,7 @@ namespace NG::vnext::bytecode
         OpcodeDescriptor{Opcode::BindLocal, "bind_local", OperandLayout::Fixed, 3},
         OpcodeDescriptor{Opcode::ExtractTuple, "extract_tuple", OperandLayout::Fixed, 3},
         OpcodeDescriptor{Opcode::AssignIndex, "assign_index", OperandLayout::Fixed, 4},
+        OpcodeDescriptor{Opcode::AssignMember, "assign_member", OperandLayout::Fixed, 3},
         OpcodeDescriptor{Opcode::Return, "return", OperandLayout::CountPrefixedTail, 0},
         OpcodeDescriptor{Opcode::Jump, "jump", OperandLayout::CountPrefixedTail, 1},
         OpcodeDescriptor{Opcode::Branch, "branch", OperandLayout::Fixed, 3},
@@ -126,6 +127,11 @@ namespace NG::vnext::bytecode
         {
           appendInstruction(result.code, Opcode::ExtractTuple,
                             {instruction.result.value, instruction.source->value, static_cast<uint32_t>(instruction.payload)});
+        }
+        else if (instruction.kind == flowir::InstructionKind::AssignMember)
+        {
+          appendInstruction(result.code, Opcode::AssignMember,
+                            {instruction.operands[0].value, instruction.operands[1].value, static_cast<uint32_t>(instruction.payload)});
         }
         else
         {
@@ -241,7 +247,8 @@ namespace NG::vnext::bytecode
     {
       const auto &descriptor = function.typeDescriptors[index];
       if (descriptor.kind != typecheck::TypeKind::Builtin && descriptor.kind != typecheck::TypeKind::DynamicArray &&
-          descriptor.kind != typecheck::TypeKind::FixedArray && descriptor.kind != typecheck::TypeKind::Tuple)
+          descriptor.kind != typecheck::TypeKind::FixedArray && descriptor.kind != typecheck::TypeKind::Tuple &&
+          descriptor.kind != typecheck::TypeKind::Struct)
         throw BytecodeError("bytecode type descriptor kind is invalid");
       if (descriptor.kind == typecheck::TypeKind::DynamicArray || descriptor.kind == typecheck::TypeKind::FixedArray)
       {
@@ -251,10 +258,12 @@ namespace NG::vnext::bytecode
         if (descriptor.kind == typecheck::TypeKind::FixedArray && !descriptor.length.has_value())
           throw BytecodeError("bytecode fixed array descriptor has no length");
       }
-      if (descriptor.kind == typecheck::TypeKind::Tuple)
+      if (descriptor.kind == typecheck::TypeKind::Tuple || descriptor.kind == typecheck::TypeKind::Struct)
       {
         if (!descriptor.length.has_value() || *descriptor.length != descriptor.elements.size())
-          throw BytecodeError("bytecode tuple descriptor length mismatch");
+          throw BytecodeError("bytecode product descriptor length mismatch");
+        if (descriptor.kind == typecheck::TypeKind::Struct && descriptor.fieldNames.size() != descriptor.elements.size())
+          throw BytecodeError("bytecode struct descriptor field count mismatch");
         for (const auto element : descriptor.elements) verifyTypeId(element);
       }
     }
@@ -311,7 +320,28 @@ namespace NG::vnext::bytecode
               throw BytecodeError("bytecode tuple literal length mismatch");
             for (size_t index = 0; index < tuple.elements.size(); ++index) requireOperandType(index, tuple.elements[index]);
           }
+          else if (kind == hir::ExpressionKind::StructLiteral)
+          {
+            if (resultType.value >= function.typeDescriptors.size()) throw BytecodeError("bytecode value type descriptor is out of range");
+            const auto &structure = function.typeDescriptors[resultType.value];
+            if (structure.kind != typecheck::TypeKind::Struct)
+              throw BytecodeError("bytecode struct literal result is not a struct type");
+            if (instruction.operands.at(4) != structure.elements.size())
+              throw BytecodeError("bytecode struct literal field count mismatch");
+            for (size_t index = 0; index < structure.elements.size(); ++index) requireOperandType(index, structure.elements[index]);
+          }
           else if (kind == hir::ExpressionKind::BooleanLiteral) requireResultType(typecheck::builtin::Bool);
+          else if (kind == hir::ExpressionKind::Member)
+          {
+            const auto receiver = requireValueType(instruction.operands.at(5));
+            if (receiver.value >= function.typeDescriptors.size()) throw BytecodeError("bytecode value type descriptor is out of range");
+            const auto &structure = function.typeDescriptors[receiver.value];
+            if (structure.kind != typecheck::TypeKind::Struct) throw BytecodeError("bytecode member receiver is not a struct");
+            const uint64_t field = static_cast<uint64_t>(instruction.operands[2]) |
+                                   (static_cast<uint64_t>(instruction.operands[3]) << 32);
+            if (field >= structure.elements.size()) throw BytecodeError("bytecode struct field is out of range");
+            requireResultType(structure.elements[field]);
+          }
           else if (kind == hir::ExpressionKind::Index)
           {
             const auto receiver = requireValueType(instruction.operands.at(5));
@@ -407,6 +437,17 @@ namespace NG::vnext::bytecode
           if (index >= tuple.elements.size()) throw BytecodeError("bytecode tuple extraction is out of range");
           if (requireValueType(instruction.operands[0]) != tuple.elements[index])
             throw BytecodeError("bytecode tuple extraction result type mismatch");
+        }
+        else if (instruction.opcode == Opcode::AssignMember)
+        {
+          const auto receiver = requireValueType(instruction.operands[0]);
+          if (receiver.value >= function.typeDescriptors.size()) throw BytecodeError("bytecode value type descriptor is out of range");
+          const auto &structure = function.typeDescriptors[receiver.value];
+          const uint32_t field = instruction.operands[2];
+          if (structure.kind != typecheck::TypeKind::Struct) throw BytecodeError("bytecode member receiver is not a struct");
+          if (field >= structure.elements.size()) throw BytecodeError("bytecode struct field is out of range");
+          if (requireValueType(instruction.operands[1]) != structure.elements[field])
+            throw BytecodeError("bytecode struct field assignment value type mismatch");
         }
         else if (instruction.opcode == Opcode::AssignIndex)
         {

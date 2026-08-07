@@ -146,6 +146,18 @@ TEST_CASE("vNext type checker validates homogeneous and fixed-length array liter
                       "fixed array length mismatch: expected 3, got 2");
 }
 
+TEST_CASE("vNext type checker validates nominal structs and member places", "[vNext][Typecheck]")
+{
+  REQUIRE_NOTHROW(check("struct Point { x: i64, label: string } fun read() -> i64 { let point = Point { x: 7, label: \"p\" }; return point.x; }"));
+  REQUIRE_NOTHROW(check("struct Point { x: i64, label: string } fun update() -> i64 { let mut point = Point { x: 7, label: \"p\" }; point.x := 9; return point.x; }"));
+  REQUIRE_THROWS_WITH(check("struct Point { x: i64, label: string } fun invalid() { return Point { x: 1 }; }"),
+                      "missing field in struct `Point`");
+  REQUIRE_THROWS_WITH(check("struct Point { x: i64, label: string } fun invalid() { return Point { x: true, label: \"p\" }; }"),
+                      "field `x` type mismatch: expected i64, got bool");
+  REQUIRE_THROWS_WITH(check("struct Point { x: i64, label: string } fun invalid() { let point = Point { x: 1, label: \"p\" }; return point.z; }"),
+                      "unknown field `z` in struct `Point`");
+}
+
 TEST_CASE("vNext type checker validates tuple destructuring", "[vNext][Typecheck]")
 {
   REQUIRE_NOTHROW(check("fun values() -> bool { let mut (number, flag) = (1, false); flag := true; return flag; }"));
@@ -198,7 +210,7 @@ TEST_CASE("vNext type checker validates array indexing and rejects unsupported p
   REQUIRE_NOTHROW(check("fun first() -> i64 { let values = [1, 2]; return values[0]; }"));
   REQUIRE_THROWS_WITH(check("fun invalid() { let value = 1; value(); }"), "call target is not a function");
   REQUIRE_THROWS_WITH(check("fun invalid() { let value = 1; return value[0]; }"), "cannot index value of type i64");
-  REQUIRE_THROWS_WITH(check("fun invalid() { let value = 1; return value.field; }"), "member expressions are not yet supported");
+  REQUIRE_THROWS_WITH(check("fun invalid() { let value = 1; return value.field; }"), "cannot access member `field` on value of type i64");
 }
 
 TEST_CASE("vNext type checker rejects tail next arity mismatch", "[vNext][Typecheck][Next]")

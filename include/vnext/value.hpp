@@ -11,20 +11,15 @@
 
 namespace NG::vnext
 {
-  /// The initial tagged vNext runtime value. Aggregate alternatives are added
-  /// here rather than creating parallel VM-specific representations.
   class Value final
   {
-    struct ArrayStorage
+    struct ArrayStorage { std::shared_ptr<std::vector<Value>> elements; auto operator==(const ArrayStorage &) const -> bool = default; };
+    struct TupleStorage { std::shared_ptr<std::vector<Value>> elements; auto operator==(const TupleStorage &) const -> bool = default; };
+    struct StructStorage
     {
-      std::shared_ptr<std::vector<Value>> elements;
-      auto operator==(const ArrayStorage &) const -> bool = default;
-    };
-
-    struct TupleStorage
-    {
-      std::shared_ptr<std::vector<Value>> elements;
-      auto operator==(const TupleStorage &) const -> bool = default;
+      uint32_t type{};
+      std::shared_ptr<std::vector<Value>> fields;
+      auto operator==(const StructStorage &) const -> bool = default;
     };
 
   public:
@@ -42,11 +37,18 @@ namespace NG::vnext
       value.storage_ = TupleStorage{std::make_shared<std::vector<Value>>(std::move(elements))};
       return value;
     }
+    [[nodiscard]] static auto structure(uint32_t type, std::vector<Value> fields) -> Value
+    {
+      Value value;
+      value.storage_ = StructStorage{type, std::make_shared<std::vector<Value>>(std::move(fields))};
+      return value;
+    }
 
     [[nodiscard]] auto isInteger() const -> bool { return std::holds_alternative<int64_t>(storage_); }
     [[nodiscard]] auto isString() const -> bool { return std::holds_alternative<std::string>(storage_); }
     [[nodiscard]] auto isArray() const -> bool { return std::holds_alternative<ArrayStorage>(storage_); }
     [[nodiscard]] auto isTuple() const -> bool { return std::holds_alternative<TupleStorage>(storage_); }
+    [[nodiscard]] auto isStruct() const -> bool { return std::holds_alternative<StructStorage>(storage_); }
     [[nodiscard]] auto asInteger() const -> int64_t
     {
       if (!isInteger()) throw std::runtime_error("runtime value is not an i64");
@@ -72,6 +74,21 @@ namespace NG::vnext
       if (!isTuple()) throw std::runtime_error("runtime value is not a tuple");
       return *std::get<TupleStorage>(storage_).elements;
     }
+    [[nodiscard]] auto asStructType() const -> uint32_t
+    {
+      if (!isStruct()) throw std::runtime_error("runtime value is not a struct");
+      return std::get<StructStorage>(storage_).type;
+    }
+    [[nodiscard]] auto asStruct() const -> const std::vector<Value> &
+    {
+      if (!isStruct()) throw std::runtime_error("runtime value is not a struct");
+      return *std::get<StructStorage>(storage_).fields;
+    }
+    [[nodiscard]] auto asStructMut() -> std::vector<Value> &
+    {
+      if (!isStruct()) throw std::runtime_error("runtime value is not a struct");
+      return *std::get<StructStorage>(storage_).fields;
+    }
     [[nodiscard]] auto asString() const -> const std::string &
     {
       if (!isString()) throw std::runtime_error("runtime value is not a string");
@@ -83,6 +100,6 @@ namespace NG::vnext
     friend auto operator==(int64_t integer, const Value &value) -> bool { return value == integer; }
 
   private:
-    std::variant<int64_t, std::string, ArrayStorage, TupleStorage> storage_;
+    std::variant<int64_t, std::string, ArrayStorage, TupleStorage, StructStorage> storage_;
   };
 } // namespace NG::vnext

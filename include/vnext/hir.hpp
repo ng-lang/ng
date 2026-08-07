@@ -18,6 +18,12 @@ namespace NG::vnext::hir
     auto operator==(const DefId &) const -> bool = default;
   };
 
+  struct StructId
+  {
+    uint32_t value{};
+    auto operator==(const StructId &) const -> bool = default;
+  };
+
   struct LocalId
   {
     uint32_t value{};
@@ -58,6 +64,7 @@ namespace NG::vnext::hir
     StringLiteral,
     ArrayLiteral,
     TupleLiteral,
+    StructLiteral,
     BooleanLiteral,
     ResolvedName,
     Prefix,
@@ -74,6 +81,8 @@ namespace NG::vnext::hir
     syntax::SourceSpan span;
     std::string text;
     std::optional<ResolvedName> resolvedName;
+    std::optional<StructId> structId;
+    std::vector<std::string> memberNames;
     std::vector<std::unique_ptr<Expression>> operands;
   };
 
@@ -178,9 +187,25 @@ namespace NG::vnext::hir
     Block body;
   };
 
+  struct StructField
+  {
+    std::string name;
+    Type type;
+    syntax::SourceSpan span;
+  };
+
+  struct Struct
+  {
+    StructId id;
+    std::string name;
+    syntax::SourceSpan span;
+    std::vector<StructField> fields;
+  };
+
   struct Module
   {
     std::vector<Function> functions;
+    std::vector<Struct> structs;
   };
 
   class Resolver final
@@ -197,6 +222,7 @@ namespace NG::vnext::hir
     };
 
     [[nodiscard]] auto resolveFunction(const syntax::FunctionDeclaration &function, DefId id) -> Function;
+    [[nodiscard]] auto resolveStruct(const syntax::StructDeclaration &structure, StructId id) -> Struct;
     [[nodiscard]] auto resolveBlock(const syntax::Block &block, bool introduceScope) -> Block;
     [[nodiscard]] auto resolveStatement(const syntax::Statement &statement) -> Statement;
     [[nodiscard]] auto resolveExpression(const syntax::Expression &expression) -> ExpressionPtr;
@@ -204,6 +230,7 @@ namespace NG::vnext::hir
     auto declareLocal(const std::string &name, syntax::SourceSpan span) -> LocalId;
 
     std::unordered_map<std::string, DefId> functions_;
+    std::unordered_map<std::string, StructId> structs_;
     std::vector<Scope> scopes_;
     std::vector<ActiveLoop> loops_;
     std::unordered_map<uint32_t, bool> localMutability_;

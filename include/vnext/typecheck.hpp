@@ -41,6 +41,7 @@ namespace NG::vnext::typecheck
     DynamicArray,
     FixedArray,
     Tuple,
+    Struct,
   };
 
   struct TypeDescriptor
@@ -50,6 +51,8 @@ namespace NG::vnext::typecheck
     TypeId element;
     std::optional<uint64_t> length;
     std::vector<TypeId> elements;
+    std::optional<uint32_t> nominalId;
+    std::vector<std::string> fieldNames;
     auto operator==(const TypeDescriptor &) const -> bool = default;
   };
 
@@ -62,6 +65,9 @@ namespace NG::vnext::typecheck
     [[nodiscard]] auto internDynamicArray(TypeId element) -> TypeId;
     [[nodiscard]] auto internFixedArray(TypeId element, uint64_t length) -> TypeId;
     [[nodiscard]] auto internTuple(const std::vector<TypeId> &elements) -> TypeId;
+    [[nodiscard]] auto declareStruct(hir::StructId id, std::string name) -> TypeId;
+    void defineStruct(hir::StructId id, std::vector<std::string> fields, std::vector<TypeId> types);
+    [[nodiscard]] auto typeForStruct(hir::StructId id) const -> TypeId;
     [[nodiscard]] auto descriptor(TypeId type) const -> const TypeDescriptor &;
     [[nodiscard]] auto display(TypeId type) const -> std::string;
     [[nodiscard]] auto descriptors() const -> const std::vector<TypeDescriptor> & { return descriptors_; }
@@ -69,6 +75,8 @@ namespace NG::vnext::typecheck
   private:
     [[nodiscard]] auto append(TypeDescriptor descriptor) -> TypeId;
     std::vector<TypeDescriptor> descriptors_;
+    std::unordered_map<std::string, TypeId> namedTypes_;
+    std::unordered_map<uint32_t, TypeId> structTypes_;
   };
 
   struct FunctionType

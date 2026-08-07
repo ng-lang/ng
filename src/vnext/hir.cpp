@@ -71,30 +71,46 @@ namespace NG::vnext::hir
   auto Resolver::resolve(const syntax::SourceUnit &unit) -> Module
   {
     functions_.clear();
+    structs_.clear();
+    uint32_t functionCount{};
+    uint32_t structCount{};
     for (const auto &item : unit.items)
     {
-      const auto *function = dynamic_cast<const syntax::FunctionDeclaration *>(item.get());
-      if (function == nullptr)
+      if (const auto *function = dynamic_cast<const syntax::FunctionDeclaration *>(item.get()))
       {
-        throw ResolutionError("unsupported module item during name resolution", item->span);
+        const auto [_, inserted] = functions_.emplace(function->name, DefId{functionCount++});
+        if (!inserted) throw ResolutionError(std::format("duplicate module declaration `{}`", function->name), function->span);
       }
-
-      const DefId id{static_cast<uint32_t>(functions_.size())};
-      const auto [_, inserted] = functions_.emplace(function->name, id);
-      if (!inserted)
+      else if (const auto *structure = dynamic_cast<const syntax::StructDeclaration *>(item.get()))
       {
-        throw ResolutionError(std::format("duplicate module declaration `{}`", function->name), function->span);
+        const auto [_, inserted] = structs_.emplace(structure->name, StructId{structCount++});
+        if (!inserted) throw ResolutionError(std::format("duplicate module declaration `{}`", structure->name), structure->span);
       }
+      else throw ResolutionError("unsupported module item during name resolution", item->span);
     }
 
     Module module;
-    module.functions.reserve(unit.items.size());
+    module.functions.reserve(functionCount);
+    module.structs.reserve(structCount);
     for (const auto &item : unit.items)
     {
-      const auto &function = static_cast<const syntax::FunctionDeclaration &>(*item);
-      module.functions.push_back(resolveFunction(function, functions_.at(function.name)));
+      if (const auto *function = dynamic_cast<const syntax::FunctionDeclaration *>(item.get()))
+        module.functions.push_back(resolveFunction(*function, functions_.at(function->name)));
+      else
+      {
+        const auto *structure = static_cast<const syntax::StructDeclaration *>(item.get());
+        module.structs.push_back(resolveStruct(*structure, structs_.at(structure->name)));
+      }
     }
     return module;
+  }
+
+  auto Resolver::resolveStruct(const syntax::StructDeclaration &structure, StructId id) -> Struct
+  {
+    Struct resolved{.id = id, .name = structure.name, .span = structure.span};
+    for (const auto &field : structure.fields)
+      resolved.fields.push_back(StructField{.name = field.name, .type = lowerType(*field.type), .span = field.span});
+    return resolved;
   }
 
   auto Resolver::resolveFunction(const syntax::FunctionDeclaration &function, DefId id) -> Function
@@ -182,7 +198,12 @@ namespace NG::vnext::hir
     if (const auto *assign = dynamic_cast<const syntax::AssignStatement *>(&statement))
     {
       const syntax::Expression *root = assign->target.get();
-      while (const auto *index = dynamic_cast<const syntax::IndexExpression *>(root)) root = index->receiver.get();
+      while (true)
+      {
+        if (const auto *index = dynamic_cast<const syntax::IndexExpression *>(root)) root = index->receiver.get();
+        else if (const auto *member = dynamic_cast<const syntax::MemberExpression *>(root)) root = member->receiver.get();
+        else break;
+      }
       const auto *identifier = dynamic_cast<const syntax::IdentifierExpression *>(root);
       if (identifier == nullptr)
         throw ResolutionError("assignment target is not a local place", assign->target->span);
@@ -309,6 +330,20 @@ namespace NG::vnext::hir
     {
       resolved->kind = ExpressionKind::ArrayLiteral;
       for (const auto &element : array->elements) resolved->operands.push_back(resolveExpression(*element));
+      return resolved;
+    }
+    if (const auto *structure = dynamic_cast<const syntax::StructLiteralExpression *>(&expression))
+    {
+      const auto found = structs_.find(structure->typeName);
+      if (found == structs_.end()) throw ResolutionError(std::format("unknown struct `{}`", structure->typeName), expression.span);
+      resolved->kind = ExpressionKind::StructLiteral;
+      resolved->text = structure->typeName;
+      resolved->structId = found->second;
+      for (const auto &field : structure->fields)
+      {
+        resolved->memberNames.push_back(field.name);
+        resolved->operands.push_back(resolveExpression(*field.value));
+      }
       return resolved;
     }
     if (const auto *tuple = dynamic_cast<const syntax::TupleLiteralExpression *>(&expression))

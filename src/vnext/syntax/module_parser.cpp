@@ -20,15 +20,43 @@ namespace NG::vnext::syntax
     std::vector<ModuleItemPtr> items;
     while (current().kind != TokenKind::End)
     {
-      if (current().kind != TokenKind::KeywordFun)
+      if (current().kind == TokenKind::KeywordFun)
+      {
+        items.push_back(parseFunctionDeclaration());
+      }
+      else if (current().kind == TokenKind::KeywordStruct)
+      {
+        items.push_back(parseStructDeclaration());
+      }
+      else
       {
         throw ParseError("expected a module declaration", current().span);
       }
-      items.push_back(parseFunctionDeclaration());
     }
 
     const size_t begin = items.empty() ? 0 : items.front()->span.begin;
     return SourceUnit{SourceSpan{begin, current().span.end}, std::move(items)};
+  }
+
+  auto ModuleParser::parseStructDeclaration() -> ModuleItemPtr
+  {
+    const Token structToken = consume();
+    if (current().kind != TokenKind::Identifier) throw ParseError("expected a struct name after `struct`", current().span);
+    const Token name = consume();
+    expect(TokenKind::LeftBrace, "expected `{` after struct name");
+    std::vector<StructFieldDeclaration> fields;
+    while (current().kind != TokenKind::RightBrace)
+    {
+      if (current().kind != TokenKind::Identifier) throw ParseError("expected a struct field name", current().span);
+      const Token field = consume();
+      expect(TokenKind::Colon, "expected `:` after struct field name");
+      auto type = parseTypeUntil({TokenKind::Comma, TokenKind::RightBrace});
+      fields.emplace_back(field.text, std::move(type), SourceSpan{field.span.begin, fields.empty() ? field.span.end : current().span.begin});
+      if (current().kind == TokenKind::Comma) static_cast<void>(consume());
+      else if (current().kind != TokenKind::RightBrace) throw ParseError("expected `,` between struct fields", current().span);
+    }
+    const Token close = consume();
+    return std::make_unique<StructDeclaration>(name.text, std::move(fields), SourceSpan{structToken.span.begin, close.span.end});
   }
 
   auto ModuleParser::parseFunctionDeclaration() -> ModuleItemPtr

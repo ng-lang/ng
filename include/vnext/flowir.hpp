@@ -30,6 +30,7 @@ namespace NG::vnext::flowir
     BindLocal,
     ExtractTuple,
     AssignIndex,
+    AssignMember,
   };
 
   struct Instruction

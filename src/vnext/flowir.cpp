@@ -79,6 +79,25 @@ namespace NG::vnext::flowir
         {
           payload = std::stoll(expression.text);
         }
+        else if (expression.kind == hir::ExpressionKind::Member && types_ != nullptr)
+        {
+          const auto receiver = types_->typeIdOf(*expression.operands[0]);
+          const auto &descriptor = types_->typeDescriptors.at(receiver.value);
+          const auto found = std::find(descriptor.fieldNames.begin(), descriptor.fieldNames.end(), expression.text);
+          if (found != descriptor.fieldNames.end()) payload = static_cast<int64_t>(std::distance(descriptor.fieldNames.begin(), found));
+        }
+        else if (expression.kind == hir::ExpressionKind::StructLiteral && types_ != nullptr)
+        {
+          payload = types_->typeIdOf(expression).value;
+          std::vector<ValueId> ordered;
+          const auto &descriptor = types_->typeDescriptors.at(static_cast<size_t>(payload));
+          for (const auto &field : descriptor.fieldNames)
+          {
+            const auto found = std::find(expression.memberNames.begin(), expression.memberNames.end(), field);
+            ordered.push_back(operands.at(static_cast<size_t>(std::distance(expression.memberNames.begin(), found))));
+          }
+          operands = std::move(ordered);
+        }
         else if (expression.kind == hir::ExpressionKind::Prefix)
         {
           if (expression.text == "!") payload = 1;
@@ -261,15 +280,34 @@ namespace NG::vnext::flowir
           if (statement.assignmentTarget != nullptr)
           {
             const ValueId receiver = lowerExpression(*statement.assignmentTarget->operands[0]);
-            const ValueId index = lowerExpression(*statement.assignmentTarget->operands[1]);
             const ValueId value = lowerExpression(*statement.expression);
-            block().instructions.push_back(Instruction{.kind = InstructionKind::AssignIndex,
-                                                       .result = ValueId{nextValue_++},
-                                                       .expressionKind = hir::ExpressionKind::Index,
-                                                       .payload = statement.assignmentTarget->text.empty()
-                                                                      ? 0
-                                                                      : std::stoll(statement.assignmentTarget->text),
-                                                       .operands = {receiver, index, value}});
+            if (statement.assignmentTarget->kind == hir::ExpressionKind::Member)
+            {
+              int64_t field = -1;
+              if (types_ != nullptr)
+              {
+                const auto receiverType = types_->typeIdOf(*statement.assignmentTarget->operands[0]);
+                const auto &descriptor = types_->typeDescriptors.at(receiverType.value);
+                const auto found = std::find(descriptor.fieldNames.begin(), descriptor.fieldNames.end(), statement.assignmentTarget->text);
+                if (found != descriptor.fieldNames.end()) field = std::distance(descriptor.fieldNames.begin(), found);
+              }
+              block().instructions.push_back(Instruction{.kind = InstructionKind::AssignMember,
+                                                         .result = ValueId{nextValue_++},
+                                                         .expressionKind = hir::ExpressionKind::Member,
+                                                         .payload = field,
+                                                         .operands = {receiver, value}});
+            }
+            else
+            {
+              const ValueId index = lowerExpression(*statement.assignmentTarget->operands[1]);
+              block().instructions.push_back(Instruction{.kind = InstructionKind::AssignIndex,
+                                                         .result = ValueId{nextValue_++},
+                                                         .expressionKind = hir::ExpressionKind::Index,
+                                                         .payload = statement.assignmentTarget->text.empty()
+                                                                        ? 0
+                                                                        : std::stoll(statement.assignmentTarget->text),
+                                                         .operands = {receiver, index, value}});
+            }
             return;
           }
           const ValueId value = lowerExpression(*statement.expression);
@@ -437,6 +475,8 @@ namespace NG::vnext::flowir
           throw VerificationError("FlowIR index assignment requires receiver, index, and value operands");
         if (instruction.kind == InstructionKind::ExtractTuple && instruction.operands.size() != 1)
           throw VerificationError("FlowIR tuple extraction requires one source operand");
+        if (instruction.kind == InstructionKind::AssignMember && instruction.operands.size() != 2)
+          throw VerificationError("FlowIR member assignment requires receiver and value operands");
       }
 
       const auto &terminator = *block.terminator;

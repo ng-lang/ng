@@ -17,6 +17,7 @@ namespace NG::vnext::bytecode
     BindLocal,
     ExtractTuple,
     AssignIndex,
+    AssignMember,
     Return,
     Jump,
     Branch,

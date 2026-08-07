@@ -42,6 +42,24 @@ TEST_CASE("vNext bytecode compiler and decoder share loop backedge schema", "[vN
   REQUIRE(backedge->operands.size() == 4);
 }
 
+TEST_CASE("vNext bytecode encodes nominal struct member operations", "[vNext][Bytecode]")
+{
+  const auto syntaxUnit = syntax::parseSourceUnit(
+      "struct Point { x: i64, label: string } fun update() -> i64 { let mut point = Point { x: 1, label: \"p\" }; point.x := 2; return point.x; }");
+  const auto hirModule = hir::Resolver{}.resolve(syntaxUnit);
+  const auto typed = typecheck::TypeChecker{}.check(hirModule);
+  const auto function = bytecode::Compiler{}.compile(flowir::Lowerer{}.lower(hirModule.functions.front(), typed));
+  const auto instructions = bytecode::Decoder{}.decode(function);
+  REQUIRE(std::ranges::count_if(instructions, [](const auto &instruction) {
+            return instruction.opcode == bytecode::Opcode::AssignMember;
+          }) == 1);
+  REQUIRE(std::ranges::count_if(instructions, [](const auto &instruction) {
+            return instruction.opcode == bytecode::Opcode::Evaluate &&
+                   instruction.operands[1] == static_cast<uint32_t>(hir::ExpressionKind::StructLiteral);
+          }) == 1);
+  REQUIRE_NOTHROW(bytecode::Verifier{}.verify(function));
+}
+
 TEST_CASE("vNext bytecode encodes tuple extraction", "[vNext][Bytecode]")
 {
   const auto syntaxUnit = syntax::parseSourceUnit("fun unpack() -> i64 { let (first, second) = (1, true); return first; }");
@@ -119,6 +137,22 @@ TEST_CASE("vNext bytecode artifacts round-trip verified modules", "[vNext][Bytec
   REQUIRE(vm::VM{}.run(restored, hir::DefId{1}).returnValue == 42);
 }
 
+TEST_CASE("vNext bytecode artifacts preserve nominal struct layouts", "[vNext][Bytecode]")
+{
+  const auto syntaxUnit = syntax::parseSourceUnit(
+      "struct Point { x: i64, label: string } fun point() -> Point { return Point { x: 7, label: \"value\" }; }");
+  const auto hirModule = hir::Resolver{}.resolve(syntaxUnit);
+  const auto typed = typecheck::TypeChecker{}.check(hirModule);
+  const auto function = bytecode::Compiler{}.compile(flowir::Lowerer{}.lower(hirModule.functions.front(), typed));
+  const auto artifact = bytecode::ArtifactCodec{}.serialize(bytecode::Module{.functions = {function}});
+  const auto restored = bytecode::ArtifactCodec{}.deserialize(artifact);
+  REQUIRE(restored.functions.front().typeDescriptors == function.typeDescriptors);
+  const auto &structure = restored.functions.front().typeDescriptors.at(6);
+  REQUIRE(structure.kind == typecheck::TypeKind::Struct);
+  REQUIRE(structure.fieldNames == std::vector<std::string>{"x", "label"});
+  REQUIRE(vm::VM{}.run(restored.functions.front()).returnValue->asStruct()[0] == 7);
+}
+
 TEST_CASE("vNext bytecode artifacts preserve tuple layouts", "[vNext][Bytecode]")
 {
   const auto syntaxUnit = syntax::parseSourceUnit(
@@ -163,7 +197,7 @@ TEST_CASE("vNext bytecode artifacts reject malformed framing", "[vNext][Bytecode
 {
   REQUIRE_THROWS_WITH(bytecode::ArtifactCodec{}.deserialize({}), "invalid bytecode artifact magic");
   REQUIRE_THROWS_WITH(bytecode::ArtifactCodec{}.deserialize({'N', 'G', 'V', 'X'}), "truncated bytecode artifact");
-  REQUIRE_THROWS_WITH(bytecode::ArtifactCodec{}.deserialize({'N', 'G', 'V', 'X', 3, 0, 0, 0}),
+  REQUIRE_THROWS_WITH(bytecode::ArtifactCodec{}.deserialize({'N', 'G', 'V', 'X', 4, 0, 0, 0}),
                       "unsupported bytecode artifact version");
 }
 

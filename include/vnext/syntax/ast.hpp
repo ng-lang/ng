@@ -21,6 +21,7 @@ namespace NG::vnext::syntax
     StringLiteral,
     ArrayLiteral,
     TupleLiteral,
+    StructLiteral,
     BooleanLiteral,
     Prefix,
     Grouped,
@@ -87,6 +88,24 @@ namespace NG::vnext::syntax
 
     TupleLiteralExpression(std::vector<ExpressionPtr> literalElements, SourceSpan sourceSpan)
       : Expression(ExpressionKind::TupleLiteral, sourceSpan), elements(std::move(literalElements))
+    {
+    }
+  };
+
+  struct StructFieldInitializer final
+  {
+    std::string name;
+    ExpressionPtr value;
+    SourceSpan span;
+  };
+
+  struct StructLiteralExpression final : Expression
+  {
+    const std::string typeName;
+    std::vector<StructFieldInitializer> fields;
+
+    StructLiteralExpression(std::string name, std::vector<StructFieldInitializer> initializers, SourceSpan sourceSpan)
+      : Expression(ExpressionKind::StructLiteral, sourceSpan), typeName(std::move(name)), fields(std::move(initializers))
     {
     }
   };
@@ -384,9 +403,22 @@ namespace NG::vnext::syntax
     }
   };
 
+  struct StructFieldDeclaration final
+  {
+    const std::string name;
+    TypeSyntaxPtr type;
+    const SourceSpan span;
+
+    StructFieldDeclaration(std::string fieldName, TypeSyntaxPtr fieldType, SourceSpan sourceSpan)
+      : name(std::move(fieldName)), type(std::move(fieldType)), span(sourceSpan)
+    {
+    }
+  };
+
   enum class ModuleItemKind
   {
     Function,
+    Struct,
   };
 
   struct ModuleItem
@@ -399,6 +431,17 @@ namespace NG::vnext::syntax
   };
 
   using ModuleItemPtr = std::unique_ptr<ModuleItem>;
+
+  struct StructDeclaration final : ModuleItem
+  {
+    const std::string name;
+    std::vector<StructFieldDeclaration> fields;
+
+    StructDeclaration(std::string structName, std::vector<StructFieldDeclaration> structFields, SourceSpan sourceSpan)
+      : ModuleItem(ModuleItemKind::Struct, sourceSpan), name(std::move(structName)), fields(std::move(structFields))
+    {
+    }
+  };
 
   struct FunctionDeclaration final : ModuleItem
   {

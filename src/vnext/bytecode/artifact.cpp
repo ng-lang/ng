@@ -10,7 +10,7 @@ namespace NG::vnext::bytecode
   namespace
   {
     constexpr std::array<uint8_t, 4> ArtifactMagic{'N', 'G', 'V', 'X'};
-    constexpr uint32_t ArtifactVersion{2};
+    constexpr uint32_t ArtifactVersion{3};
 
     void appendU32(std::vector<uint8_t> &output, uint32_t value)
     {
@@ -64,6 +64,9 @@ namespace NG::vnext::bytecode
       {
         appendU32(output, static_cast<uint32_t>(descriptor.kind));
         appendStringVector(output, {descriptor.name});
+        appendU32(output, descriptor.nominalId.has_value() ? 1 : 0);
+        if (descriptor.nominalId.has_value()) appendU32(output, *descriptor.nominalId);
+        appendStringVector(output, descriptor.fieldNames);
         appendU32(output, descriptor.element.value);
         appendU32(output, descriptor.length.has_value() ? 1 : 0);
         if (descriptor.length.has_value())
@@ -87,6 +90,11 @@ namespace NG::vnext::bytecode
         const auto kind = static_cast<typecheck::TypeKind>(readU32(input, offset));
         const auto names = readStringVector(input, offset);
         if (names.size() != 1) throw BytecodeError("invalid bytecode type descriptor name");
+        const uint32_t hasNominalId = readU32(input, offset);
+        if (hasNominalId > 1) throw BytecodeError("invalid bytecode type descriptor nominal flag");
+        std::optional<uint32_t> nominalId;
+        if (hasNominalId == 1) nominalId = readU32(input, offset);
+        const auto fieldNames = readStringVector(input, offset);
         const typecheck::TypeId element{readU32(input, offset)};
         const uint32_t hasLength = readU32(input, offset);
         if (hasLength > 1) throw BytecodeError("invalid bytecode type descriptor length flag");
@@ -103,7 +111,13 @@ namespace NG::vnext::bytecode
         for (uint32_t elementIndex = 0; elementIndex < elementCount; ++elementIndex)
           elements.push_back(typecheck::TypeId{readU32(input, offset)});
         descriptors.push_back(typecheck::TypeDescriptor{
-            .kind = kind, .name = names.front(), .element = element, .length = length, .elements = std::move(elements)});
+            .kind = kind,
+            .name = names.front(),
+            .element = element,
+            .length = length,
+            .elements = std::move(elements),
+            .nominalId = nominalId,
+            .fieldNames = fieldNames});
       }
       return descriptors;
     }

@@ -103,6 +103,7 @@ namespace NG::vnext::syntax
                              : text == "next" ? TokenKind::KeywordNext
                              : text == "ref" ? TokenKind::KeywordRef
                              : text == "return" ? TokenKind::KeywordReturn
+                             : text == "struct" ? TokenKind::KeywordStruct
                              : text == "true" ? TokenKind::KeywordTrue
                              : text == "false" ? TokenKind::KeywordFalse
                                                : TokenKind::Identifier;
@@ -250,6 +251,31 @@ namespace NG::vnext::syntax
         const Token close = consume();
         const SourceSpan span{expression->span.begin, close.span.end};
         expression = std::make_unique<CallExpression>(std::move(expression), std::move(arguments), span);
+        continue;
+      }
+
+      if (current().kind == TokenKind::LeftBrace)
+      {
+        const auto *identifier = dynamic_cast<const IdentifierExpression *>(expression.get());
+        if (identifier == nullptr) throw ParseError("struct literal type must be an identifier", current().span);
+        static_cast<void>(consume());
+        std::vector<StructFieldInitializer> fields;
+        while (current().kind != TokenKind::RightBrace)
+        {
+          if (current().kind != TokenKind::Identifier) throw ParseError("expected a struct field initializer", current().span);
+          const Token field = consume();
+          if (current().kind != TokenKind::Colon) throw ParseError("expected `:` after struct field initializer", current().span);
+          static_cast<void>(consume());
+          auto value = parseExpression(0);
+          const SourceSpan fieldSpan{field.span.begin, value->span.end};
+          fields.push_back(StructFieldInitializer{.name = field.text, .value = std::move(value), .span = fieldSpan});
+          if (current().kind == TokenKind::Comma) static_cast<void>(consume());
+          else if (current().kind != TokenKind::RightBrace)
+            throw ParseError("expected `,` between struct field initializers", current().span);
+        }
+        const Token close = consume();
+        expression = std::make_unique<StructLiteralExpression>(identifier->name, std::move(fields),
+                                                                SourceSpan{expression->span.begin, close.span.end});
         continue;
       }
 

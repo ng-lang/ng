@@ -21,6 +21,18 @@ namespace
   }
 } // namespace
 
+TEST_CASE("vNext module parser accepts struct declarations", "[vNext][Syntax][Module]")
+{
+  const auto source = syntax::parseSourceUnit("struct Point { x: i64, label: string } fun origin() -> Point { return Point { x: 0, label: \"origin\" }; }");
+  REQUIRE(source.items.size() == 2);
+  const auto *point = dynamic_cast<const syntax::StructDeclaration *>(source.items[0].get());
+  REQUIRE(point != nullptr);
+  REQUIRE(point->name == "Point");
+  REQUIRE(point->fields.size() == 2);
+  REQUIRE(point->fields[0].name == "x");
+  REQUIRE(point->fields[1].name == "label");
+}
+
 TEST_CASE("vNext module parser accepts declarations and keeps bindings inside blocks", "[vNext][Syntax][Module]")
 {
   const auto source = syntax::parseSourceUnit("fun compute() { let result = 2 * 3; result } fun empty() { }");

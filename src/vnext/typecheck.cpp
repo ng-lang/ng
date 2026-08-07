@@ -1,6 +1,7 @@
 // AI-generated code; reviewed for this repository's vNext rewrite.
 #include "vnext/typecheck.hpp"
 
+#include <algorithm>
 #include <charconv>
 #include <format>
 #include <unordered_map>
@@ -14,6 +15,18 @@ namespace NG::vnext::typecheck
     public:
       [[nodiscard]] auto check(const hir::Module &module) -> TypeCheckResult
       {
+        for (const auto &structure : module.structs) static_cast<void>(interner_.declareStruct(structure.id, structure.name));
+        for (const auto &structure : module.structs)
+        {
+          std::vector<std::string> fields;
+          std::vector<TypeId> types;
+          for (const auto &field : structure.fields)
+          {
+            fields.push_back(field.name);
+            types.push_back(interner_.resolve(field.type));
+          }
+          interner_.defineStruct(structure.id, std::move(fields), std::move(types));
+        }
         for (const auto &function : module.functions)
         {
           FunctionTypeIds signature;
@@ -170,6 +183,10 @@ namespace NG::vnext::typecheck
           record(expression, expected);
           return expected;
         }
+        if (expression.kind == hir::ExpressionKind::StructLiteral && descriptor.kind == TypeKind::Struct)
+        {
+          return inferExpectedStruct(expression, expected, locals);
+        }
         if (expression.kind == hir::ExpressionKind::TupleLiteral && descriptor.kind == TypeKind::Tuple)
         {
           if (expression.operands.size() != descriptor.elements.size())
@@ -184,6 +201,31 @@ namespace NG::vnext::typecheck
         const TypeId actual = infer(expression, locals);
         requireType(expected, actual, expression.span, context);
         return actual;
+      }
+
+      [[nodiscard]] auto inferExpectedStruct(const hir::Expression &expression, TypeId expected, const LocalTypes &locals) -> TypeId
+      {
+        const auto &descriptor = interner_.descriptor(expected);
+        if (!expression.structId.has_value() || descriptor.nominalId != expression.structId->value)
+          throw TypeError(std::format("struct literal type mismatch: expected {}, got {}", interner_.display(expected), expression.text),
+                          expression.span);
+        std::vector<bool> seen(descriptor.fieldNames.size());
+        for (size_t index = 0; index < expression.operands.size(); ++index)
+        {
+          const auto found = std::find(descriptor.fieldNames.begin(), descriptor.fieldNames.end(), expression.memberNames[index]);
+          if (found == descriptor.fieldNames.end())
+            throw TypeError(std::format("unknown field `{}` in struct `{}`", expression.memberNames[index], descriptor.name),
+                            expression.span);
+          const size_t field = static_cast<size_t>(std::distance(descriptor.fieldNames.begin(), found));
+          if (seen[field]) throw TypeError(std::format("duplicate field `{}` in struct literal", expression.memberNames[index]), expression.span);
+          seen[field] = true;
+          static_cast<void>(inferExpected(*expression.operands[index], descriptor.elements[field], locals,
+                                          std::format("field `{}`", expression.memberNames[index])));
+        }
+        if (std::find(seen.begin(), seen.end(), false) != seen.end())
+          throw TypeError(std::format("missing field in struct `{}`", descriptor.name), expression.span);
+        record(expression, expected);
+        return expected;
       }
 
       [[nodiscard]] auto infer(const hir::Expression &expression, const LocalTypes &locals) -> TypeId
@@ -202,6 +244,12 @@ namespace NG::vnext::typecheck
             requireType(element, infer(*expression.operands[index], locals), expression.operands[index]->span, "array element");
           type = interner_.internDynamicArray(element);
           break;
+        }
+        case hir::ExpressionKind::StructLiteral:
+        {
+          if (!expression.structId.has_value()) throw TypeError("struct literal has no resolved type", expression.span);
+          type = interner_.typeForStruct(*expression.structId);
+          return inferExpectedStruct(expression, type, locals);
         }
         case hir::ExpressionKind::TupleLiteral:
         {
@@ -283,7 +331,19 @@ namespace NG::vnext::typecheck
           }
           break;
         }
-        case hir::ExpressionKind::Member: throw TypeError("member expressions are not yet supported", expression.span);
+        case hir::ExpressionKind::Member:
+        {
+          const TypeId receiver = infer(*expression.operands[0], locals);
+          const auto &descriptor = interner_.descriptor(receiver);
+          if (descriptor.kind != TypeKind::Struct)
+            throw TypeError(std::format("cannot access member `{}` on value of type {}", expression.text,
+                                        interner_.display(receiver)), expression.span);
+          const auto found = std::find(descriptor.fieldNames.begin(), descriptor.fieldNames.end(), expression.text);
+          if (found == descriptor.fieldNames.end())
+            throw TypeError(std::format("unknown field `{}` in struct `{}`", expression.text, descriptor.name), expression.span);
+          type = descriptor.elements[static_cast<size_t>(std::distance(descriptor.fieldNames.begin(), found))];
+          break;
+        }
         }
         record(expression, type);
         return type;
