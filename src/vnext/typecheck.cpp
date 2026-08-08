@@ -230,7 +230,15 @@ namespace NG::vnext::typecheck
               const auto &candidateSignature = signatures_.at(candidate.value);
               if (candidateSignature.parameters.size() != expression.operands.size() - 1) continue;
               const int score = candidateSignature.genericParameters.empty() ? 2 : 1;
-              if (score > bestScore) { bestScore = score; selected = candidate; }
+              if (score > bestScore)
+              {
+                bestScore = score;
+                selected = candidate;
+              }
+              else if (score == bestScore && candidate != selected)
+              {
+                throw TypeError("ambiguous function specialization", expression.span);
+              }
             }
           }
           const auto &signature = signatures_.at(selected.value);
@@ -433,7 +441,15 @@ namespace NG::vnext::typecheck
                 }
                 catch (const TypeError &) { continue; }
               }
-              if (score > bestScore) { bestScore = score; selected = candidate; }
+              if (score > bestScore)
+              {
+                bestScore = score;
+                selected = candidate;
+              }
+              else if (score == bestScore && candidate != selected)
+              {
+                throw TypeError("ambiguous function specialization", expression.span);
+              }
             }
             if (bestScore < 0) throw TypeError("no matching function specialization", expression.span);
           }
