@@ -134,7 +134,9 @@ namespace NG::vnext::flowir
         std::optional<hir::DefId> callTarget;
         if (directCall)
         {
-          callTarget = hir::DefId{expression.operands[0]->resolvedName->id};
+          callTarget = types_ != nullptr && types_->callTargets.contains(&expression)
+                         ? types_->callTargets.at(&expression)
+                         : hir::DefId{expression.operands[0]->resolvedName->id};
         }
 
         const ValueId value{nextValue_++};

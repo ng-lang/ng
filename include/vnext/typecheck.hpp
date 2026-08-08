@@ -120,6 +120,7 @@ namespace NG::vnext::typecheck
     std::unordered_map<uint32_t, TypeId> localTypeIds;
     std::unordered_map<uint32_t, FunctionType> functionTypes;
     std::unordered_map<uint32_t, FunctionTypeIds> functionTypeIds;
+    std::unordered_map<const hir::Expression *, hir::DefId> callTargets;
     std::vector<TypeDescriptor> typeDescriptors;
 
     [[nodiscard]] auto typeOf(const hir::Expression &expression) const -> const std::string &

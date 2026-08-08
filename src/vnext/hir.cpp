@@ -72,6 +72,7 @@ namespace NG::vnext::hir
   auto Resolver::resolve(const syntax::SourceUnit &unit) -> Module
   {
     functions_.clear();
+    functionIds_.clear();
     structs_.clear();
     enums_.clear();
     enumVariants_.clear();
@@ -82,8 +83,9 @@ namespace NG::vnext::hir
     {
       if (const auto *function = dynamic_cast<const syntax::FunctionDeclaration *>(item.get()))
       {
-        const auto [_, inserted] = functions_.emplace(function->name, DefId{functionCount++});
-        if (!inserted) throw ResolutionError(std::format("duplicate module declaration `{}`", function->name), function->span);
+        const DefId id{functionCount++};
+        functions_[function->name].push_back(id);
+        functionIds_.emplace(function, id);
       }
       else if (const auto *structure = dynamic_cast<const syntax::StructDeclaration *>(item.get()))
       {
@@ -107,7 +109,7 @@ namespace NG::vnext::hir
     for (const auto &item : unit.items)
     {
       if (const auto *function = dynamic_cast<const syntax::FunctionDeclaration *>(item.get()))
-        module.functions.push_back(resolveFunction(*function, functions_.at(function->name)));
+        module.functions.push_back(resolveFunction(*function, functionIds_.at(function)));
       else if (const auto *structure = dynamic_cast<const syntax::StructDeclaration *>(item.get()))
       {
         module.structs.push_back(resolveStruct(*structure, structs_.at(structure->name)));
@@ -351,6 +353,8 @@ namespace NG::vnext::hir
       resolved->kind = ExpressionKind::ResolvedName;
       resolved->text = identifier->name;
       resolved->resolvedName = resolveName(*identifier);
+      if (resolved->resolvedName->kind == ResolvedNameKind::Function)
+        resolved->functionCandidates = functions_.at(identifier->name);
       return resolved;
     }
     if (const auto *integer = dynamic_cast<const syntax::IntegerLiteralExpression *>(&expression))
@@ -493,7 +497,7 @@ namespace NG::vnext::hir
     }
     if (const auto function = functions_.find(expression.name); function != functions_.end())
     {
-      return ResolvedName{.kind = ResolvedNameKind::Function, .id = function->second.value};
+      return ResolvedName{.kind = ResolvedNameKind::Function, .id = function->second.front().value};
     }
     throw ResolutionError(std::format("unresolved name `{}`", expression.name), expression.span);
   }

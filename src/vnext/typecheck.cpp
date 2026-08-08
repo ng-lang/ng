@@ -79,6 +79,7 @@ namespace NG::vnext::typecheck
                                .localTypeIds = std::move(localTypeIds_),
                                .functionTypes = std::move(functionTypes_),
                                .functionTypeIds = std::move(functionTypeIds_),
+                               .callTargets = std::move(callTargets_),
                                .typeDescriptors = interner_.descriptors()};
       }
 
@@ -220,7 +221,19 @@ namespace NG::vnext::typecheck
             expression.operands[0]->resolvedName.has_value() &&
             expression.operands[0]->resolvedName->kind == hir::ResolvedNameKind::Function)
         {
-          const auto &signature = signatures_.at(expression.operands[0]->resolvedName->id);
+          hir::DefId selected{expression.operands[0]->resolvedName->id};
+          if (expression.operands[0]->functionCandidates.size() > 1)
+          {
+            int bestScore{-1};
+            for (const auto candidate : expression.operands[0]->functionCandidates)
+            {
+              const auto &candidateSignature = signatures_.at(candidate.value);
+              if (candidateSignature.parameters.size() != expression.operands.size() - 1) continue;
+              const int score = candidateSignature.genericParameters.empty() ? 2 : 1;
+              if (score > bestScore) { bestScore = score; selected = candidate; }
+            }
+          }
+          const auto &signature = signatures_.at(selected.value);
           if (!signature.genericParameters.empty())
           {
             std::unordered_map<uint32_t, TypeId> substitution;
@@ -249,6 +262,7 @@ namespace NG::vnext::typecheck
             const TypeId specialized = specialize(signature.returnType, substitution);
             requireType(expected, specialized, expression.span, context);
             record(expression, specialized);
+            callTargets_.insert_or_assign(&expression, selected);
             return specialized;
           }
         }
@@ -400,7 +414,30 @@ namespace NG::vnext::typecheck
           if (!expression.operands[0]->resolvedName.has_value() ||
               expression.operands[0]->resolvedName->kind != hir::ResolvedNameKind::Function)
             throw TypeError("call target is not a function", expression.operands[0]->span);
-          const auto &signature = signatures_.at(expression.operands[0]->resolvedName->id);
+          hir::DefId selected{expression.operands[0]->resolvedName->id};
+          if (expression.operands[0]->functionCandidates.size() > 1)
+          {
+            int bestScore{-1};
+            for (const auto candidate : expression.operands[0]->functionCandidates)
+            {
+              const auto &candidateSignature = signatures_.at(candidate.value);
+              if (candidateSignature.parameters.size() != expression.operands.size() - 1) continue;
+              int score = candidateSignature.genericParameters.empty() ? 2 : 1;
+              if (candidateSignature.genericParameters.empty())
+              {
+                try
+                {
+                  for (size_t index = 0; index < candidateSignature.parameters.size(); ++index)
+                    requireType(candidateSignature.parameters[index], infer(*expression.operands[index + 1], locals),
+                                expression.operands[index + 1]->span, "specialization argument");
+                }
+                catch (const TypeError &) { continue; }
+              }
+              if (score > bestScore) { bestScore = score; selected = candidate; }
+            }
+            if (bestScore < 0) throw TypeError("no matching function specialization", expression.span);
+          }
+          const auto &signature = signatures_.at(selected.value);
           const size_t supplied = expression.operands.size() - 1;
           if (supplied != signature.parameters.size())
             throw TypeError(std::format("call argument count mismatch: expected {}, got {}", signature.parameters.size(), supplied),
@@ -437,6 +474,7 @@ namespace NG::vnext::typecheck
           type = specialize(signature.returnType, substitution);
           if (!signature.genericParameters.empty() && interner_.descriptor(type).kind == TypeKind::TypeParameter)
             throw TypeError(std::format("cannot infer generic arguments for function `{}`", expression.operands[0]->text), expression.span);
+          callTargets_.insert_or_assign(&expression, selected);
           break;
         }
         case hir::ExpressionKind::Index:
@@ -536,6 +574,7 @@ namespace NG::vnext::typecheck
       std::unordered_map<uint32_t, TypeId> localTypeIds_;
       std::unordered_map<uint32_t, FunctionType> functionTypes_;
       std::unordered_map<uint32_t, FunctionTypeIds> functionTypeIds_;
+      std::unordered_map<const hir::Expression *, hir::DefId> callTargets_;
     };
   } // namespace
 

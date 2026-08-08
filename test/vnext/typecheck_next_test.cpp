@@ -146,6 +146,11 @@ TEST_CASE("vNext type checker validates homogeneous and fixed-length array liter
                       "fixed array length mismatch: expected 3, got 2");
 }
 
+TEST_CASE("vNext type checker selects concrete function specialization over generic fallback", "[vNext][Typecheck]")
+{
+  REQUIRE_NOTHROW(check("fun choose<T>(value: T) -> i64 { return 1; } fun choose(value: i64) -> i64 { return 2; } fun main() -> i64 { return choose(42); }"));
+}
+
 TEST_CASE("vNext type checker uses expected type to infer zero-argument generic returns", "[vNext][Typecheck]")
 {
   REQUIRE_NOTHROW(check("fun something<T>() -> T { } fun main() -> i64 { let x: i64 = something(); return x; }"));

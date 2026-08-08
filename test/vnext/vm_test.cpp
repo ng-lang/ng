@@ -77,6 +77,22 @@ TEST_CASE("vNext VM materializes dynamic and fixed homogeneous arrays", "[vNext]
   REQUIRE(fixed.returnValue->asArray()[1] == 5);
 }
 
+TEST_CASE("vNext VM executes selected concrete function specialization", "[vNext][VM]")
+{
+  const auto syntaxUnit = syntax::parseSourceUnit(
+      "fun choose<T>(value: T) -> i64 { return 1; } "
+      "fun choose(value: i64) -> i64 { return 2; } "
+      "fun main() -> i64 { return choose(42); }");
+  const auto hirModule = hir::Resolver{}.resolve(syntaxUnit);
+  const auto typed = typecheck::TypeChecker{}.check(hirModule);
+  REQUIRE(typed.callTargets.size() == 1);
+  REQUIRE(typed.callTargets.begin()->second.value == 1);
+  std::vector<flowir::Function> flows;
+  for (const auto &function : hirModule.functions) flows.push_back(flowir::Lowerer{}.lower(function, typed));
+  const auto module = bytecode::ModuleCompiler{}.compile(flows);
+  REQUIRE(vm::VM{}.run(module, hir::DefId{2}).returnValue == 2);
+}
+
 TEST_CASE("vNext VM executes instantiated generic function calls", "[vNext][VM]")
 {
   const auto syntaxUnit = syntax::parseSourceUnit(

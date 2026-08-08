@@ -88,6 +88,7 @@ namespace NG::vnext::hir
     syntax::SourceSpan span;
     std::string text;
     std::optional<ResolvedName> resolvedName;
+    std::vector<DefId> functionCandidates;
     std::optional<StructId> structId;
     std::optional<EnumId> enumId;
     std::optional<uint32_t> variant;
@@ -260,7 +261,8 @@ namespace NG::vnext::hir
     [[nodiscard]] auto resolveName(const syntax::IdentifierExpression &expression) const -> ResolvedName;
     auto declareLocal(const std::string &name, syntax::SourceSpan span) -> LocalId;
 
-    std::unordered_map<std::string, DefId> functions_;
+    std::unordered_map<std::string, std::vector<DefId>> functions_;
+    std::unordered_map<const syntax::FunctionDeclaration *, DefId> functionIds_;
     std::unordered_map<std::string, StructId> structs_;
     std::unordered_map<std::string, EnumId> enums_;
     std::unordered_map<std::string, std::vector<std::string>> enumVariants_;

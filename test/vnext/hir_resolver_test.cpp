@@ -116,9 +116,9 @@ TEST_CASE("vNext resolver rejects unknown names with a source span", "[vNext][HI
   }
 }
 
-TEST_CASE("vNext resolver rejects duplicate module and lexical declarations", "[vNext][HIR][Resolver]")
+TEST_CASE("vNext resolver rejects duplicate nominal and lexical declarations", "[vNext][HIR][Resolver]")
 {
-  const auto duplicateModule = syntax::parseSourceUnit("fun same() { } fun same() { }");
+  const auto duplicateModule = syntax::parseSourceUnit("struct Same { value: i64 } struct Same { value: i64 }");
   try
   {
     static_cast<void>(hir::Resolver{}.resolve(duplicateModule));
@@ -126,8 +126,8 @@ TEST_CASE("vNext resolver rejects duplicate module and lexical declarations", "[
   }
   catch (const hir::ResolutionError &error)
   {
-    REQUIRE(std::string{error.what()} == "duplicate module declaration `same`");
-    REQUIRE(error.span.begin == 15);
+    REQUIRE(std::string{error.what()} == "duplicate module declaration `Same`");
+    REQUIRE(error.span.begin == 27);
   }
 
   const auto duplicateLocal = syntax::parseSourceUnit("fun entry() { let value = 1; let value = 2; }");
