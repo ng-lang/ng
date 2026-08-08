@@ -146,6 +146,13 @@ TEST_CASE("vNext type checker validates homogeneous and fixed-length array liter
                       "fixed array length mismatch: expected 3, got 2");
 }
 
+TEST_CASE("vNext type checker uses local annotations as constructor context", "[vNext][Typecheck]")
+{
+  REQUIRE_NOTHROW(check(
+      "enum Result<T, E> { Ok(value: T), Err(error: E) } "
+      "fun local() -> Result<i64, string> { let result: Result<i64, string> = Result.Ok(7); return result; }"));
+}
+
 TEST_CASE("vNext type checker interns generic enum instances", "[vNext][Typecheck]")
 {
   const auto syntaxUnit = syntax::parseSourceUnit(

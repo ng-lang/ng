@@ -113,7 +113,9 @@ namespace NG::vnext::typecheck
         {
         case hir::StatementKind::Let:
         {
-          const TypeId type = infer(*statement.expression, locals);
+          const TypeId type = statement.bindingType != nullptr
+                                  ? inferExpected(*statement.expression, interner_.resolve(*statement.bindingType), locals, "let initializer")
+                                  : infer(*statement.expression, locals);
           if (!statement.destructuredLocals.empty())
           {
             const auto &tuple = interner_.descriptor(type);

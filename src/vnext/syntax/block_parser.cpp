@@ -1,5 +1,6 @@
 // AI-generated code; reviewed for this repository's vNext rewrite.
 #include "vnext/syntax/block_parser.hpp"
+#include "vnext/syntax/type_parser.hpp"
 
 #include <algorithm>
 #include <format>
@@ -113,12 +114,18 @@ namespace NG::vnext::syntax
         throw ParseError("expected a binding name after `let`", current().span);
       name = consume();
     }
+    std::shared_ptr<TypeSyntax> annotation;
+    if (current().kind == TokenKind::Colon)
+    {
+      static_cast<void>(consume());
+      annotation = std::shared_ptr<TypeSyntax>{parseTypeUntil(TokenKind::Equal).release()};
+    }
     expect(TokenKind::Equal, "expected `=` after let binding name");
 
     auto initializer = parseExpressionUntil(TokenKind::Semicolon);
     const Token semicolon = current();
     expect(TokenKind::Semicolon, "expected `;` after let initializer");
-    return std::make_unique<LetStatement>(name.text, isMutable, std::move(initializer),
+    return std::make_unique<LetStatement>(name.text, isMutable, std::move(annotation), std::move(initializer),
                                           SourceSpan{letToken.span.begin, semicolon.span.end},
                                           std::move(destructuredNames));
   }
@@ -334,6 +341,15 @@ namespace NG::vnext::syntax
     const size_t end = expressionTokens.back().span.end;
     expressionTokens.push_back(Token{.kind = TokenKind::End, .text = {}, .span = SourceSpan{end, end}});
     return ExpressionParser{std::move(expressionTokens)}.parse();
+  }
+
+  auto BlockParser::parseTypeUntil(TokenKind terminator) -> TypeSyntaxPtr
+  {
+    std::vector<Token> typeTokens;
+    while (current().kind != TokenKind::End && current().kind != terminator) typeTokens.push_back(consume());
+    const size_t position = typeTokens.empty() ? current().span.begin : typeTokens.back().span.end;
+    typeTokens.push_back(Token{.kind = TokenKind::End, .text = {}, .span = SourceSpan{position, position}});
+    return TypeParser{std::move(typeTokens)}.parse();
   }
 
   auto BlockParser::hasTopLevelAssignment() const -> bool

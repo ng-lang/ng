@@ -14,6 +14,9 @@ namespace NG::vnext::syntax
     size_t end{};
   };
 
+  struct TypeSyntax;
+  using TypeSyntaxPtr = std::unique_ptr<TypeSyntax>;
+
   enum class ExpressionKind
   {
     Identifier,
@@ -213,13 +216,14 @@ namespace NG::vnext::syntax
   {
     const std::string name;
     const bool isMutable;
+    std::shared_ptr<TypeSyntax> annotation;
     ExpressionPtr initializer;
     std::vector<std::string> destructuredNames;
 
-    LetStatement(std::string bindingName, bool mutableBinding, ExpressionPtr value, SourceSpan sourceSpan,
+    LetStatement(std::string bindingName, bool mutableBinding, std::shared_ptr<TypeSyntax> typeAnnotation, ExpressionPtr value, SourceSpan sourceSpan,
                  std::vector<std::string> names = {})
       : Statement(StatementKind::Let, sourceSpan), name(std::move(bindingName)), isMutable(mutableBinding),
-        initializer(std::move(value)), destructuredNames(std::move(names))
+        annotation(std::move(typeAnnotation)), initializer(std::move(value)), destructuredNames(std::move(names))
     {
     }
   };
@@ -329,8 +333,6 @@ namespace NG::vnext::syntax
     explicit TypeSyntax(TypeSyntaxKind typeKind, SourceSpan sourceSpan) : kind(typeKind), span(sourceSpan) {}
     virtual ~TypeSyntax() = default;
   };
-
-  using TypeSyntaxPtr = std::unique_ptr<TypeSyntax>;
 
   struct NamedTypeSyntax final : TypeSyntax
   {

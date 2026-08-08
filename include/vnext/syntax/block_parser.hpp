@@ -25,6 +25,7 @@ namespace NG::vnext::syntax
     [[nodiscard]] auto parseNestedBlock() -> Block;
     [[nodiscard]] auto parseExpressionUntil(TokenKind terminator) -> ExpressionPtr;
     [[nodiscard]] auto parseExpressionUntilAny(const std::vector<TokenKind> &terminators) -> ExpressionPtr;
+    [[nodiscard]] auto parseTypeUntil(TokenKind terminator) -> TypeSyntaxPtr;
     [[nodiscard]] auto hasTopLevelAssignment() const -> bool;
     [[nodiscard]] auto current() const -> const Token &;
     [[nodiscard]] auto peek(size_t offset) const -> const Token &;

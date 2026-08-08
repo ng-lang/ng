@@ -122,11 +122,14 @@ namespace NG::vnext::hir
 
   struct Block;
 
+  struct Type;
+
   struct Statement
   {
     StatementKind kind;
     syntax::SourceSpan span;
     std::optional<LocalId> local;
+    std::shared_ptr<Type> bindingType;
     std::vector<LocalId> destructuredLocals;
     std::vector<size_t> destructuredIndices;
     bool mutableBinding{};

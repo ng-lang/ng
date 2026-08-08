@@ -212,6 +212,7 @@ namespace NG::vnext::hir
     if (const auto *let = dynamic_cast<const syntax::LetStatement *>(&statement))
     {
       Statement resolved{.kind = StatementKind::Let, .span = let->span};
+      if (let->annotation != nullptr) resolved.bindingType = std::make_shared<Type>(lowerType(*let->annotation));
       resolved.expression = resolveExpression(*let->initializer);
       resolved.mutableBinding = let->isMutable;
       if (!let->destructuredNames.empty())
