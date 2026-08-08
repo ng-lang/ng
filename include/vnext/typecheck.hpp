@@ -43,6 +43,7 @@ namespace NG::vnext::typecheck
     Tuple,
     Struct,
     Enum,
+    TypeParameter,
   };
 
   struct TypeDescriptor
@@ -64,10 +65,13 @@ namespace NG::vnext::typecheck
   public:
     TypeInterner();
 
+    [[nodiscard]] auto specialize(TypeId type, const std::unordered_map<uint32_t, TypeId> &bindings) -> TypeId;
+    [[nodiscard]] auto resolveInScope(const hir::Type &type, const std::unordered_map<std::string, TypeId> &bindings) -> TypeId;
     [[nodiscard]] auto resolve(const hir::Type &type) -> TypeId;
     [[nodiscard]] auto internDynamicArray(TypeId element) -> TypeId;
     [[nodiscard]] auto internFixedArray(TypeId element, uint64_t length) -> TypeId;
     [[nodiscard]] auto internTuple(const std::vector<TypeId> &elements) -> TypeId;
+    [[nodiscard]] auto internTypeParameter(std::string name, uint32_t index) -> TypeId;
     [[nodiscard]] auto declareStruct(hir::StructId id, std::string name) -> TypeId;
     void defineStruct(hir::StructId id, std::vector<std::string> fields, std::vector<TypeId> types);
     [[nodiscard]] auto typeForStruct(hir::StructId id) const -> TypeId;
@@ -101,6 +105,7 @@ namespace NG::vnext::typecheck
   struct FunctionTypeIds
   {
     std::vector<TypeId> parameters;
+    std::vector<TypeId> genericParameters;
     TypeId returnType;
   };
 

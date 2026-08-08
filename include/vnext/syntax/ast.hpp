@@ -475,14 +475,16 @@ namespace NG::vnext::syntax
   struct FunctionDeclaration final : ModuleItem
   {
     const std::string name;
+    std::vector<std::string> genericParameters;
     std::vector<FunctionParameter> parameters;
     TypeSyntaxPtr returnType;
     Block body;
 
-    FunctionDeclaration(std::string functionName, std::vector<FunctionParameter> functionParameters,
+    FunctionDeclaration(std::string functionName, std::vector<std::string> genericParameterNames,
+                        std::vector<FunctionParameter> functionParameters,
                         TypeSyntaxPtr functionReturnType, Block functionBody, SourceSpan sourceSpan)
       : ModuleItem(ModuleItemKind::Function, sourceSpan), name(std::move(functionName)),
-        parameters(std::move(functionParameters)), returnType(std::move(functionReturnType)), body(std::move(functionBody))
+        genericParameters(std::move(genericParameterNames)), parameters(std::move(functionParameters)), returnType(std::move(functionReturnType)), body(std::move(functionBody))
     {
     }
   };

@@ -346,7 +346,14 @@ namespace NG::vnext::syntax
   auto BlockParser::parseTypeUntil(TokenKind terminator) -> TypeSyntaxPtr
   {
     std::vector<Token> typeTokens;
-    while (current().kind != TokenKind::End && current().kind != terminator) typeTokens.push_back(consume());
+    size_t angleDepth{};
+    while (current().kind != TokenKind::End)
+    {
+      if (current().kind == TokenKind::Less) ++angleDepth;
+      else if (current().kind == TokenKind::Greater && angleDepth != 0) --angleDepth;
+      if (angleDepth == 0 && current().kind == terminator) break;
+      typeTokens.push_back(consume());
+    }
     const size_t position = typeTokens.empty() ? current().span.begin : typeTokens.back().span.end;
     typeTokens.push_back(Token{.kind = TokenKind::End, .text = {}, .span = SourceSpan{position, position}});
     return TypeParser{std::move(typeTokens)}.parse();

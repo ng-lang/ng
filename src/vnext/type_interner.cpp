@@ -116,6 +116,41 @@ namespace NG::vnext::typecheck
     return enumGenericParameters_.at(id.value).size();
   }
 
+  auto TypeInterner::specialize(TypeId type, const std::unordered_map<uint32_t, TypeId> &bindings) -> TypeId
+  {
+    const auto parameter = bindings.find(type.value);
+    if (parameter != bindings.end()) return parameter->second;
+    const auto &source = descriptor(type);
+    if (source.kind == TypeKind::DynamicArray) return internDynamicArray(specialize(source.element, bindings));
+    if (source.kind == TypeKind::FixedArray) return internFixedArray(specialize(source.element, bindings), *source.length);
+    if (source.kind == TypeKind::Tuple)
+    {
+      std::vector<TypeId> elements;
+      for (const auto element : source.elements) elements.push_back(specialize(element, bindings));
+      return internTuple(elements);
+    }
+    if (source.kind == TypeKind::Enum && !source.typeArguments.empty())
+    {
+      std::vector<TypeId> arguments;
+      for (const auto argument : source.typeArguments) arguments.push_back(specialize(argument, bindings));
+      for (uint32_t index = 6; index < descriptors_.size(); ++index)
+        if (descriptors_[index].kind == TypeKind::Enum && descriptors_[index].nominalId == source.nominalId &&
+            descriptors_[index].typeArguments == arguments) return TypeId{index};
+      std::vector<TypeId> payloads;
+      for (const auto payload : source.elements) payloads.push_back(specialize(payload, bindings));
+      auto copy = source;
+      copy.typeArguments = std::move(arguments);
+      copy.elements = std::move(payloads);
+      return append(std::move(copy));
+    }
+    return type;
+  }
+
+  auto TypeInterner::resolveInScope(const hir::Type &type, const std::unordered_map<std::string, TypeId> &bindings) -> TypeId
+  {
+    return resolveWithBindings(type, bindings);
+  }
+
   auto TypeInterner::resolveWithBindings(const hir::Type &type, const std::unordered_map<std::string, TypeId> &bindings) -> TypeId
   {
     if (type.kind == hir::TypeKind::Named)
@@ -170,6 +205,12 @@ namespace NG::vnext::typecheck
                                  .length = payloads.size(), .elements = std::move(payloads), .nominalId = enumId,
                                  .fieldNames = std::move(names), .variantHasPayload = std::move(hasPayload),
                                  .typeArguments = std::move(arguments)});
+  }
+
+  auto TypeInterner::internTypeParameter(std::string name, uint32_t index) -> TypeId
+  {
+    return append(TypeDescriptor{.kind = TypeKind::TypeParameter, .name = std::move(name), .element = TypeId{},
+                                 .length = std::nullopt, .nominalId = index});
   }
 
   auto TypeInterner::resolve(const hir::Type &type) -> TypeId
@@ -262,7 +303,7 @@ namespace NG::vnext::typecheck
     if (item.kind == TypeKind::Builtin) return item.name;
     if (item.kind == TypeKind::DynamicArray) return std::format("array<{}>", display(item.element));
     if (item.kind == TypeKind::FixedArray) return std::format("array<{}, {}>", display(item.element), *item.length);
-    if (item.kind == TypeKind::Struct || item.kind == TypeKind::Enum) return item.name;
+    if (item.kind == TypeKind::Struct || item.kind == TypeKind::Enum || item.kind == TypeKind::TypeParameter) return item.name;
     std::string result{"tuple<"};
     for (size_t index = 0; index < item.elements.size(); ++index)
     {

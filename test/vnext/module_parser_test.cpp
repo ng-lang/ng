@@ -21,6 +21,14 @@ namespace
   }
 } // namespace
 
+TEST_CASE("vNext module parser accepts generic function declarations", "[vNext][Syntax][Module]")
+{
+  const auto source = syntax::parseSourceUnit("fun identity<T>(value: T) -> T { return value; }");
+  const auto *function = dynamic_cast<const syntax::FunctionDeclaration *>(source.items.front().get());
+  REQUIRE(function != nullptr);
+  REQUIRE(function->genericParameters == std::vector<std::string>{"T"});
+}
+
 TEST_CASE("vNext module parser accepts generic enum declarations", "[vNext][Syntax][Module]")
 {
   const auto source = syntax::parseSourceUnit("enum Result<T, E> { Ok(value: T), Err(error: E) } fun ok() -> Result<i64, string> { return Result.Ok(7); }");

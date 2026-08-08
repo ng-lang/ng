@@ -193,6 +193,7 @@ namespace NG::vnext::hir
     DefId id;
     std::string name;
     syntax::SourceSpan span;
+    std::vector<std::string> genericParameters;
     std::vector<Parameter> parameters;
     std::optional<std::string> returnTypeName;
     std::unique_ptr<Type> returnType;

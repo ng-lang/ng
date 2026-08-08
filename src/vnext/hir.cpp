@@ -160,7 +160,8 @@ namespace NG::vnext::hir
     nextLocal_ = 0;
     nextLoop_ = 0;
 
-    Function resolved{.id = id, .name = function.name, .span = function.span};
+    Function resolved{.id = id, .name = function.name, .span = function.span,
+                      .genericParameters = function.genericParameters};
     resolved.parameters.reserve(function.parameters.size());
     for (const auto &parameter : function.parameters)
     {

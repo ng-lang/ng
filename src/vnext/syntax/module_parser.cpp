@@ -116,6 +116,19 @@ namespace NG::vnext::syntax
       throw ParseError("expected a function name after `fun`", current().span);
     }
     const Token name = consume();
+    std::vector<std::string> genericParameters;
+    if (current().kind == TokenKind::Less)
+    {
+      static_cast<void>(consume());
+      while (current().kind != TokenKind::Greater)
+      {
+        if (current().kind != TokenKind::Identifier) throw ParseError("expected a function generic parameter", current().span);
+        genericParameters.push_back(consume().text);
+        if (current().kind != TokenKind::Comma) break;
+        static_cast<void>(consume());
+      }
+      expect(TokenKind::Greater, "expected `>` after function generic parameters");
+    }
     expect(TokenKind::LeftParen, "expected `(` after function name");
 
     std::vector<FunctionParameter> parameters;
@@ -153,16 +166,19 @@ namespace NG::vnext::syntax
     auto blockTokens = consumeBlockTokens();
     Block body = BlockParser{std::move(blockTokens)}.parse();
     const SourceSpan span{funToken.span.begin, body.span.end};
-    return std::make_unique<FunctionDeclaration>(name.text, std::move(parameters), std::move(returnType),
+    return std::make_unique<FunctionDeclaration>(name.text, std::move(genericParameters), std::move(parameters), std::move(returnType),
                                                  std::move(body), span);
   }
 
   auto ModuleParser::parseTypeUntil(const std::vector<TokenKind> &terminators) -> TypeSyntaxPtr
   {
     std::vector<Token> typeTokens;
-    while (current().kind != TokenKind::End &&
-           std::find(terminators.begin(), terminators.end(), current().kind) == terminators.end())
+    size_t angleDepth{};
+    while (current().kind != TokenKind::End)
     {
+      if (current().kind == TokenKind::Less) ++angleDepth;
+      else if (current().kind == TokenKind::Greater && angleDepth != 0) --angleDepth;
+      if (angleDepth == 0 && std::find(terminators.begin(), terminators.end(), current().kind) != terminators.end()) break;
       typeTokens.push_back(consume());
     }
 

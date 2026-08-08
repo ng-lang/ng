@@ -146,6 +146,16 @@ TEST_CASE("vNext type checker validates homogeneous and fixed-length array liter
                       "fixed array length mismatch: expected 3, got 2");
 }
 
+TEST_CASE("vNext type checker instantiates generic identity calls", "[vNext][Typecheck]")
+{
+  REQUIRE_NOTHROW(check("fun identity<T>(value: T) -> T { return value; } fun main() -> i64 { return identity(42); }"));
+  REQUIRE_NOTHROW(check("enum Result<T, E> { Ok(value: T), Err(error: E) } "
+                        "fun unwrap<T>(result: Result<T, string>) -> Result<T, string> { return result; } "
+                        "fun main() -> Result<i64, string> { return unwrap(Result.Ok(42)); }"));
+  REQUIRE_THROWS_WITH(check("fun identity<T>(value: T) -> T { return value; } fun main() -> bool { return identity(42); }"),
+                      "return value type mismatch: expected bool, got i64");
+}
+
 TEST_CASE("vNext type checker uses local annotations as constructor context", "[vNext][Typecheck]")
 {
   REQUIRE_NOTHROW(check(
