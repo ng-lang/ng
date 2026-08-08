@@ -151,6 +151,15 @@ TEST_CASE("vNext type checker selects concrete function specialization over gene
   REQUIRE_NOTHROW(check("fun choose<T>(value: T) -> i64 { return 1; } fun choose(value: i64) -> i64 { return 2; } fun main() -> i64 { return choose(42); }"));
 }
 
+TEST_CASE("vNext type checker selects more specific generic patterns", "[vNext][Typecheck]")
+{
+  REQUIRE_NOTHROW(check(
+      "enum Result<T, E> { Ok(value: T), Err(error: E) } "
+      "fun describe<T>(value: T) -> i64 { return 1; } "
+      "fun describe<T>(value: Result<T, string>) -> i64 { return 2; } "
+      "fun main() -> i64 { return describe(Result.Ok(42)); }"));
+}
+
 TEST_CASE("vNext type checker rejects ambiguous function specializations", "[vNext][Typecheck]")
 {
   REQUIRE_THROWS_WITH(check("fun choose(value: i64) -> i64 { return 1; } fun choose(value: i64) -> i64 { return 2; } "

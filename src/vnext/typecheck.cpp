@@ -229,7 +229,8 @@ namespace NG::vnext::typecheck
             {
               const auto &candidateSignature = signatures_.at(candidate.value);
               if (candidateSignature.parameters.size() != expression.operands.size() - 1) continue;
-              const int score = candidateSignature.genericParameters.empty() ? 2 : 1;
+              int score = candidateSignature.genericParameters.empty() ? 100 : 0;
+              for (const auto parameter : candidateSignature.parameters) score += specificity(parameter);
               if (score > bestScore)
               {
                 bestScore = score;
@@ -430,7 +431,8 @@ namespace NG::vnext::typecheck
             {
               const auto &candidateSignature = signatures_.at(candidate.value);
               if (candidateSignature.parameters.size() != expression.operands.size() - 1) continue;
-              int score = candidateSignature.genericParameters.empty() ? 2 : 1;
+              int score = candidateSignature.genericParameters.empty() ? 100 : 0;
+              for (const auto parameter : candidateSignature.parameters) score += specificity(parameter);
               if (candidateSignature.genericParameters.empty())
               {
                 try
@@ -534,8 +536,18 @@ namespace NG::vnext::typecheck
         return type;
       }
 
+      [[nodiscard]] auto specificity(TypeId type) const -> int
+      {
+        const auto &descriptor = interner_.descriptor(type);
+        if (descriptor.kind == TypeKind::TypeParameter) return 0;
+        int score = descriptor.kind == TypeKind::Builtin ? 1 : 0;
+        for (const auto element : descriptor.elements) score += specificity(element);
+        for (const auto argument : descriptor.typeArguments) score += specificity(argument);
+        if (descriptor.kind == TypeKind::DynamicArray || descriptor.kind == TypeKind::FixedArray) score += specificity(descriptor.element);
+        return score;
+      }
       auto unify(TypeId expected, TypeId actual, std::unordered_map<uint32_t, TypeId> &substitution,
-                               syntax::SourceSpan span) -> void
+                 syntax::SourceSpan span) -> void
       {
         const auto &expectedDescriptor = interner_.descriptor(expected);
         if (expectedDescriptor.kind == TypeKind::TypeParameter)
