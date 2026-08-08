@@ -39,7 +39,7 @@ bytecode, VM, and negative diagnostics coverage in vNext.
 | 4 | Structs, enums, constructors, pattern matching | `07`, `11`, `16`, `20`, `21` | Explicit declaration grammar, type identities/layout descriptors, match exhaustiveness and enum runtime tags. | R4–R7 |
 | 5 | Source modules, imports, exports, prelude | `08`, `13`, `18`, `56`, `59` | `CompilationSession`, module graph/interface, immutable artifact versus runtime instance. | R3/R6/R7 |
 | 6 | `ref`, places, move/copy/drop | `11`, `21`–`24`, `39`, `41`, `50`, `51` | Place/move-path/loan dataflow, descriptor-directed lifecycle services. No user-visible lifetime syntax. | R5/R6 |
-| 7 | Ordinary generics and canonical specialization instances | `15`, `43`, `44` | Type interner, generic parameter/argument resolution, `InstanceId`, session-scoped instance graph. | R4 |
+| 7 | Ordinary generics and canonical specialization instances | `15`, `43`, `44` | Generic enum instances, generic function definitions, direct call inference, and type substitution are supported in the vNext slice | `GenericDefId`/`InstanceId` graph, overload sets, partial specialization, and monomorphized artifacts remain. | R4 |
 | 8 | Restricted const execution and `const if` | `17`, `42`, `46`, `47`, `53` | `ConstValue`, deterministic typed evaluator, capability/fuel rules, per-instance branch elimination. | R5 |
 | 9 | Const generics | `46`, `47`, `53`, `54` | Const substitution in `InstanceId`, typed const parameter/value equality, ABI/layout rules. | R4/R5 |
 | 10 | Variadic type/value packs, ranges/slices, folds | `49`, `54`, `57`, `58`, `59` | Pack kinds/substitution, aggregate descriptors, checked slice places, effect/move-aware expansion and fold lowering. | R4–R7 |

@@ -1,0 +1,12 @@
+enum Result<T, E> {
+    Ok(value: T),
+    Err(error: E),
+}
+
+fun identity<T>(value: T) -> T {
+    return value;
+}
+
+fun main() -> i64 {
+    return identity(42);
+}
