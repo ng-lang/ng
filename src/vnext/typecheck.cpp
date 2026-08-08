@@ -216,6 +216,42 @@ namespace NG::vnext::typecheck
         }
         if (expression.kind == hir::ExpressionKind::EnumLiteral && descriptor.kind == TypeKind::Enum)
           return inferExpectedEnum(expression, expected, locals);
+        if (expression.kind == hir::ExpressionKind::Call && !expression.operands.empty() &&
+            expression.operands[0]->resolvedName.has_value() &&
+            expression.operands[0]->resolvedName->kind == hir::ResolvedNameKind::Function)
+        {
+          const auto &signature = signatures_.at(expression.operands[0]->resolvedName->id);
+          if (!signature.genericParameters.empty())
+          {
+            std::unordered_map<uint32_t, TypeId> substitution;
+            unify(signature.returnType, expected, substitution, expression.span);
+            const size_t supplied = expression.operands.size() - 1;
+            if (supplied != signature.parameters.size())
+              throw TypeError(std::format("call argument count mismatch: expected {}, got {}", signature.parameters.size(), supplied), expression.span);
+            for (size_t index = 0; index < supplied; ++index)
+            {
+              const auto &argument = *expression.operands[index + 1];
+              const auto &parameterDescriptor = interner_.descriptor(signature.parameters[index]);
+              if (argument.kind == hir::ExpressionKind::EnumLiteral && parameterDescriptor.kind == TypeKind::Enum)
+              {
+                const uint32_t variant = argument.variant.value();
+                if (argument.operands.size() != (parameterDescriptor.variantHasPayload[variant] ? 1u : 0u))
+                  throw TypeError("generic enum constructor payload arity mismatch", argument.span);
+                if (!argument.operands.empty())
+                  unify(parameterDescriptor.elements[variant], infer(*argument.operands.front(), locals), substitution,
+                        argument.operands.front()->span);
+              }
+              else
+              {
+                unify(signature.parameters[index], infer(argument, locals), substitution, argument.span);
+              }
+            }
+            const TypeId specialized = specialize(signature.returnType, substitution);
+            requireType(expected, specialized, expression.span, context);
+            record(expression, specialized);
+            return specialized;
+          }
+        }
         if (expression.kind == hir::ExpressionKind::StructLiteral && descriptor.kind == TypeKind::Struct)
         {
           return inferExpectedStruct(expression, expected, locals);
@@ -399,6 +435,8 @@ namespace NG::vnext::typecheck
             }
           }
           type = specialize(signature.returnType, substitution);
+          if (!signature.genericParameters.empty() && interner_.descriptor(type).kind == TypeKind::TypeParameter)
+            throw TypeError(std::format("cannot infer generic arguments for function `{}`", expression.operands[0]->text), expression.span);
           break;
         }
         case hir::ExpressionKind::Index:
