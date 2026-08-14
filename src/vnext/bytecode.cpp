@@ -23,6 +23,7 @@ namespace NG::vnext::bytecode
         OpcodeDescriptor{Opcode::Slice, "slice", OperandLayout::Fixed, 3},
         OpcodeDescriptor{Opcode::ArrayLength, "array_length", OperandLayout::Fixed, 2},
         OpcodeDescriptor{Opcode::AppendArray, "append_array", OperandLayout::Fixed, 3},
+        OpcodeDescriptor{Opcode::RangeStart, "range_start", OperandLayout::Fixed, 2},
         OpcodeDescriptor{Opcode::Return, "return", OperandLayout::CountPrefixedTail, 0},
         OpcodeDescriptor{Opcode::Jump, "jump", OperandLayout::CountPrefixedTail, 1},
         OpcodeDescriptor{Opcode::Branch, "branch", OperandLayout::Fixed, 3},
@@ -151,6 +152,10 @@ namespace NG::vnext::bytecode
         else if (instruction.kind == flowir::InstructionKind::LoadRef)
         {
           appendInstruction(result.code, Opcode::LoadRef, {instruction.result.value, instruction.operands[0].value});
+        }
+        else if (instruction.kind == flowir::InstructionKind::RangeStart)
+        {
+          appendInstruction(result.code, Opcode::RangeStart, {instruction.result.value, instruction.source->value});
         }
         else if (instruction.kind == flowir::InstructionKind::ArrayLength)
         {
@@ -614,6 +619,15 @@ namespace NG::vnext::bytecode
           }
           if (requireValueType(instruction.operands[2]) != current)
             throw BytecodeError("bytecode place assignment value type mismatch");
+        }
+        else if (instruction.opcode == Opcode::RangeStart)
+        {
+          const auto source = requireValueType(instruction.operands[1]);
+          if (source.value >= function.typeDescriptors.size()) throw BytecodeError("bytecode value type descriptor is out of range");
+          if (function.typeDescriptors[source.value].kind != typecheck::TypeKind::Range)
+            throw BytecodeError("bytecode range start source is not a range");
+          if (requireValueType(instruction.operands[0]) != typecheck::builtin::I64)
+            throw BytecodeError("bytecode range start result is not i64");
         }
         else if (instruction.opcode == Opcode::ArrayLength)
         {

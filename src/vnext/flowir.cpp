@@ -357,7 +357,14 @@ namespace NG::vnext::flowir
         }
         if (mapSpread == nullptr || expression.operands.size() != 1)
           throw VerificationError("array map literals support exactly one map spread");
-        const auto &call = *mapSpread->operands[0];
+        bool filterMode = false;
+        const hir::Expression *callNode = mapSpread->operands[0].get();
+        if (callNode->kind == hir::ExpressionKind::Prefix && callNode->text == "?")
+        {
+          filterMode = true;
+          callNode = callNode->operands[0].get();
+        }
+        const auto &call = *callNode;
         const ValueId source = lowerExpression(*call.operands[1]);
         std::optional<hir::DefId> target;
         if (types_ != nullptr && types_->callTargets.contains(&call)) target = types_->callTargets.at(&call);
@@ -421,15 +428,35 @@ namespace NG::vnext::flowir
 
         current_ = body;
         const ValueId element{nextValue_++};
-        if (types_ != nullptr)
+        const bool rangeSource = types_ != nullptr &&
+                                 types_->typeDescriptors.at(types_->typeIdOf(*call.operands[1]).value).kind ==
+                                     typecheck::TypeKind::Range;
+        if (rangeSource)
         {
-          const auto sourceType = types_->typeDescriptors.at(types_->typeIdOf(*call.operands[1]).value);
-          function_.valueTypes.emplace(element.value, sourceType.element);
+          const ValueId start{nextValue_++};
+          if (types_ != nullptr) function_.valueTypes.emplace(start.value, typecheck::builtin::I64);
+          block().instructions.push_back(
+              Instruction{.kind = InstructionKind::RangeStart, .result = start, .source = source});
+          if (types_ != nullptr) function_.valueTypes.emplace(element.value, typecheck::builtin::I64);
+          block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
+                                                     .result = element,
+                                                     .expressionKind = hir::ExpressionKind::Binary,
+                                                     .text = "+",
+                                                     .payload = 1,
+                                                     .operands = {start, indexRead}});
         }
-        block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
-                                                   .result = element,
-                                                   .expressionKind = hir::ExpressionKind::Index,
-                                                   .operands = {source, indexRead}});
+        else
+        {
+          if (types_ != nullptr)
+          {
+            const auto sourceType = types_->typeDescriptors.at(types_->typeIdOf(*call.operands[1]).value);
+            function_.valueTypes.emplace(element.value, sourceType.element);
+          }
+          block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
+                                                     .result = element,
+                                                     .expressionKind = hir::ExpressionKind::Index,
+                                                     .operands = {source, indexRead}});
+        }
         const ValueId mapped{nextValue_++};
         if (types_ != nullptr) function_.valueTypes.emplace(mapped.value, types_->typeIdOf(call));
         block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
@@ -437,6 +464,53 @@ namespace NG::vnext::flowir
                                                    .expressionKind = hir::ExpressionKind::Call,
                                                    .callTarget = target,
                                                    .operands = {element}});
+        if (filterMode)
+        {
+          const BlockId appendPart = appendBlock();
+          const BlockId skipPart = appendBlock();
+          block().terminator = Terminator{.kind = TerminatorKind::Branch,
+                                          .targets = {appendPart, skipPart},
+                                          .arguments = {mapped}};
+
+          current_ = appendPart;
+          const ValueId appended{nextValue_++};
+          if (types_ != nullptr) function_.valueTypes.emplace(appended.value, types_->typeIdOf(expression));
+          block().instructions.push_back(Instruction{.kind = InstructionKind::AppendArray,
+                                                     .result = appended,
+                                                     .operands = {empty, element}});
+          const ValueId nextIndex{nextValue_++};
+          if (types_ != nullptr) function_.valueTypes.emplace(nextIndex.value, typecheck::builtin::I64);
+          block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
+                                                     .result = nextIndex,
+                                                     .expressionKind = hir::ExpressionKind::Binary,
+                                                     .text = "+",
+                                                     .payload = 1,
+                                                     .operands = {indexRead, one}});
+          block().terminator = Terminator{.kind = TerminatorKind::LoopBackedge,
+                                          .targets = {header},
+                                          .arguments = {nextIndex, appended}};
+
+          current_ = skipPart;
+          const ValueId skipNext{nextValue_++};
+          if (types_ != nullptr) function_.valueTypes.emplace(skipNext.value, typecheck::builtin::I64);
+          block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
+                                                     .result = skipNext,
+                                                     .expressionKind = hir::ExpressionKind::Binary,
+                                                     .text = "+",
+                                                     .payload = 1,
+                                                     .operands = {indexRead, one}});
+          block().terminator = Terminator{.kind = TerminatorKind::LoopBackedge,
+                                          .targets = {header},
+                                          .arguments = {skipNext, empty}};
+          current_ = exit;
+          const ValueId result{nextValue_++};
+          if (types_ != nullptr) function_.valueTypes.emplace(result.value, types_->typeIdOf(expression));
+          block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
+                                                     .result = result,
+                                                     .expressionKind = hir::ExpressionKind::ResolvedName,
+                                                     .payload = resultLocal.value});
+          return result;
+        }
         const ValueId appended{nextValue_++};
         if (types_ != nullptr) function_.valueTypes.emplace(appended.value, types_->typeIdOf(expression));
         block().instructions.push_back(Instruction{.kind = InstructionKind::AppendArray,
@@ -1008,6 +1082,8 @@ namespace NG::vnext::flowir
           throw VerificationError("FlowIR slice requires receiver and range operands");
         if (instruction.kind == InstructionKind::ArrayLength && !instruction.source.has_value())
           throw VerificationError("FlowIR array length requires a source operand");
+        if (instruction.kind == InstructionKind::RangeStart && !instruction.source.has_value())
+          throw VerificationError("FlowIR range start requires a source operand");
         if (instruction.kind == InstructionKind::AppendArray && instruction.operands.size() != 2)
           throw VerificationError("FlowIR array append requires array and element operands");
         if ((instruction.kind == InstructionKind::EnumVariantIndex || instruction.kind == InstructionKind::ExtractEnumPayload) &&

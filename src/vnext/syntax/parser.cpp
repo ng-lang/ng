@@ -47,6 +47,7 @@ namespace NG::vnext::syntax
       case '^': return TokenKind::Caret;
       case '|': return TokenKind::Pipe;
       case '!': return TokenKind::Bang;
+      case '?': return TokenKind::QuestionMark;
       default:  return TokenKind::End;
       }
     }
@@ -325,6 +326,14 @@ namespace NG::vnext::syntax
   {
     while (true)
     {
+      if (current().kind == TokenKind::QuestionMark)
+      {
+        // Filter marker in map spreads: `f(xs)?...` keeps matching elements.
+        const Token question = consume();
+        expression = std::make_unique<PrefixExpression>("?", std::move(expression),
+                                                        SourceSpan{expression->span.begin, question.span.end});
+        continue;
+      }
       if (current().kind == TokenKind::Ellipsis)
       {
         // Map spread in array literals: `f(xs)...` applies elementwise.

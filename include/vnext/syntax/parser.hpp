@@ -72,6 +72,7 @@ namespace NG::vnext::syntax
     NotEqual,
     Ellipsis,
     DotDot,
+    QuestionMark,
     Ampersand,
     Caret,
     Pipe,

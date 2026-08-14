@@ -103,6 +103,12 @@ namespace NG::vnext::vm
       case bytecode::Opcode::LoadVariant:
         detail::loadVariantInstruction(instruction, values);
         break;
+      case bytecode::Opcode::RangeStart:
+      {
+        if (values.size() <= instruction.operands[0]) values.resize(instruction.operands[0] + 1);
+        values[instruction.operands[0]] = Value::integer(values.at(instruction.operands[1]).asRange().start);
+        break;
+      }
       case bytecode::Opcode::ArrayLength:
       {
         const auto &source = values.at(instruction.operands[1]);
@@ -298,6 +304,12 @@ namespace NG::vnext::vm
       if (instruction.opcode == bytecode::Opcode::LoadVariant)
       {
         detail::loadVariantInstruction(instruction, frame.values);
+        continue;
+      }
+      if (instruction.opcode == bytecode::Opcode::RangeStart)
+      {
+        if (frame.values.size() <= instruction.operands[0]) frame.values.resize(instruction.operands[0] + 1);
+        frame.values[instruction.operands[0]] = Value::integer(frame.values.at(instruction.operands[1]).asRange().start);
         continue;
       }
       if (instruction.opcode == bytecode::Opcode::ArrayLength)

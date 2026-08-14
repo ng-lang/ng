@@ -25,6 +25,7 @@ namespace NG::vnext::bytecode
     Slice,
     ArrayLength,
     AppendArray,
+    RangeStart,
     Return,
     Jump,
     Branch,

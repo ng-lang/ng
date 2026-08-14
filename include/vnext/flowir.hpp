@@ -42,6 +42,8 @@ namespace NG::vnext::flowir
     Slice,
     /// Reads the element count of an array/range value.
     ArrayLength,
+    /// Reads the start bound of a range value.
+    RangeStart,
     /// Appends an element to an array value (aliases its storage).
     AppendArray,
     /// Reads the variant ordinal of an enum value as i64.

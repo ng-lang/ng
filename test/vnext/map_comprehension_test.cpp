@@ -88,7 +88,7 @@ TEST_CASE("vNext map comprehension validation reports malformed spreads", "[vNex
   }
   catch (const typecheck::TypeError &error)
   {
-    REQUIRE(std::string{error.what()} == "map spread source must be an array, got i64");
+    REQUIRE(std::string{error.what()} == "map spread source must be an array or range, got i64");
   }
 
   try
@@ -103,6 +103,15 @@ TEST_CASE("vNext map comprehension validation reports malformed spreads", "[vNex
   }
 }
 
+TEST_CASE("vNext map comprehensions filter and iterate ranges", "[vNext][Map][Runtime]")
+{
+  expectValue("fun inc(value: i64) -> i64 { return value + 1; } "
+              "fun even(value: i64) -> bool { return (value % 2) == 0; } "
+              "fun main() -> i64 { let xs = [1, 2, 3, 4]; let evens = [even(xs)?...]; "
+              "let mapped = [inc(0..3)...]; return evens[0] + evens[1] + mapped[0] + mapped[2]; }",
+              "10");
+}
+
 TEST_CASE("vNext map comprehension example file runs end to end through ngi", "[vNext][Map][Examples]")
 {
   std::string output;
@@ -110,5 +119,5 @@ TEST_CASE("vNext map comprehension example file runs end to end through ngi", "[
   REQUIRE(runExample("example/vnext/map_comprehension.ng", output, errors) == 0);
   INFO("errors: " << errors);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("with value 3") != std::string::npos);
+  REQUIRE(output.find("with value 15") != std::string::npos);
 }
