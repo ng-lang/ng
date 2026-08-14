@@ -71,6 +71,11 @@ namespace NG::vnext::vm
         break;
       case bytecode::Opcode::Call:
         throw bytecode::BytecodeError("direct calls require a bytecode module");
+      case bytecode::Opcode::CallTrait:
+        throw bytecode::BytecodeError("trait dispatch requires a bytecode module");
+      case bytecode::Opcode::MakeTraitView:
+        detail::makeTraitViewInstruction(instruction, values, locals);
+        break;
       case bytecode::Opcode::BindLocal:
       {
         const uint32_t result = instruction.operands[0];
@@ -360,6 +365,27 @@ namespace NG::vnext::vm
       if (instruction.opcode == bytecode::Opcode::ExtractPayload)
       {
         detail::extractPayloadInstruction(instruction, frame.values);
+        continue;
+      }
+      if (instruction.opcode == bytecode::Opcode::CallTrait)
+      {
+        const auto &view = frame.values.at(instruction.operands[1]).asTraitView();
+        const uint64_t key = (static_cast<uint64_t>(view.trait) << 32) | view.concrete;
+        const auto table = module.vtables.find(key);
+        if (table == module.vtables.end()) throw bytecode::BytecodeError("trait dispatch table is missing");
+        if (instruction.operands[2] >= table->second.size())
+          throw bytecode::BytecodeError("trait method index is out of range");
+        const uint32_t target = table->second[instruction.operands[2]];
+        std::vector<Value> callArguments;
+        callArguments.push_back(Value::reference(view.root, view.steps, false));
+        for (uint32_t index = 0; index < instruction.operands[3]; ++index)
+          callArguments.push_back(frame.values.at(instruction.operands[4 + index]).deepCopy());
+        frames.push_back(makeFrame(target, callArguments, instruction.operands[0]));
+        continue;
+      }
+      if (instruction.opcode == bytecode::Opcode::MakeTraitView)
+      {
+        detail::makeTraitViewInstruction(instruction, frame.values, frame.locals);
         continue;
       }
       if (instruction.opcode == bytecode::Opcode::Call)

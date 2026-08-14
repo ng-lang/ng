@@ -130,6 +130,34 @@ namespace NG::vnext::vm::detail
     }
   } // namespace
 
+  void makeTraitViewInstruction(const bytecode::DecodedInstruction &instruction, std::vector<Value> &values,
+                                const LocalCells &locals)
+  {
+    const uint32_t result = instruction.operands[0];
+    if (values.size() <= result) values.resize(result + 1);
+    std::shared_ptr<Value> root;
+    std::vector<PlaceStep> steps;
+    if (instruction.operands[2] != 0)
+    {
+      const auto &base = values.at(instruction.operands[1]).asReference();
+      root = base.root;
+      steps = base.steps;
+    }
+    else
+    {
+      root = locals.at(instruction.operands[1]);
+    }
+    const uint32_t count = instruction.operands[5];
+    for (uint32_t index = 0; index < count; index += 2)
+    {
+      const uint32_t kind = instruction.operands[6 + index];
+      const uint32_t payload = instruction.operands[6 + index + 1];
+      steps.push_back(kind == 0 ? PlaceStep{.kind = PlaceStep::Kind::Member, .field = payload}
+                                : PlaceStep{.kind = PlaceStep::Kind::Index, .index = values.at(payload).asInteger()});
+    }
+    values[result] = Value::traitView(std::move(root), std::move(steps), instruction.operands[3], instruction.operands[4]);
+  }
+
   void makeRefInstruction(const bytecode::DecodedInstruction &instruction, std::vector<Value> &values,
                           const LocalCells &locals)
   {

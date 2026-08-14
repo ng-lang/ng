@@ -60,6 +60,16 @@ namespace NG::vnext
       bool mutableRef{};
       auto operator==(const ReferenceStorage &) const -> bool = default;
     };
+    /// A dynamic trait view (`ref<Trait>`): a shared-borrowed root cell plus
+    /// the trait/concrete type ids that select the dispatch table.
+    struct TraitViewStorage
+    {
+      std::shared_ptr<Value> root;
+      std::vector<PlaceStep> steps;
+      uint32_t trait{};
+      uint32_t concrete{};
+      auto operator==(const TraitViewStorage &) const -> bool = default;
+    };
 
   public:
     Value() : storage_(int64_t{}) {}
@@ -102,6 +112,13 @@ namespace NG::vnext
       value.storage_ = ReferenceStorage{std::move(root), std::move(steps), mutableRef};
       return value;
     }
+    [[nodiscard]] static auto traitView(std::shared_ptr<Value> root, std::vector<PlaceStep> steps, uint32_t trait,
+                                        uint32_t concrete) -> Value
+    {
+      Value value;
+      value.storage_ = TraitViewStorage{std::move(root), std::move(steps), trait, concrete};
+      return value;
+    }
 
     [[nodiscard]] auto isInteger() const -> bool { return std::holds_alternative<int64_t>(storage_); }
     [[nodiscard]] auto isDouble() const -> bool { return std::holds_alternative<double>(storage_); }
@@ -111,6 +128,7 @@ namespace NG::vnext
     [[nodiscard]] auto isStruct() const -> bool { return std::holds_alternative<StructStorage>(storage_); }
     [[nodiscard]] auto isEnum() const -> bool { return std::holds_alternative<EnumStorage>(storage_); }
     [[nodiscard]] auto isReference() const -> bool { return std::holds_alternative<ReferenceStorage>(storage_); }
+    [[nodiscard]] auto isTraitView() const -> bool { return std::holds_alternative<TraitViewStorage>(storage_); }
     [[nodiscard]] auto isRange() const -> bool { return std::holds_alternative<RangeStorage>(storage_); }
     [[nodiscard]] auto asInteger() const -> int64_t
     {
@@ -188,6 +206,11 @@ namespace NG::vnext
       if (!isReference()) throw std::runtime_error("runtime value is not a reference");
       return std::get<ReferenceStorage>(storage_);
     }
+    [[nodiscard]] auto asTraitView() const -> const TraitViewStorage &
+    {
+      if (!isTraitView()) throw std::runtime_error("runtime value is not a trait view");
+      return std::get<TraitViewStorage>(storage_);
+    }
     [[nodiscard]] auto asRange() const -> const RangeStorage &
     {
       if (!isRange()) throw std::runtime_error("runtime value is not a range");
@@ -204,7 +227,7 @@ namespace NG::vnext
 
   private:
     std::variant<int64_t, double, std::string, ArrayStorage, TupleStorage, StructStorage, EnumStorage, ReferenceStorage,
-                 RangeStorage>
+                 TraitViewStorage, RangeStorage>
         storage_;
   };
 

@@ -99,6 +99,23 @@ namespace NG::vnext::typecheck
     return append(TypeDescriptor{.kind = TypeKind::Range, .name = "range", .element = element});
   }
 
+  auto TypeInterner::declareTraitType(std::string name) -> TypeId
+  {
+    if (namedTypes_.contains(name))
+      throw TypeError(std::format("duplicate type declaration `{}`", name), syntax::SourceSpan{0, 0});
+    TypeId type = append(TypeDescriptor{.kind = TypeKind::Trait, .name = name});
+    namedTypes_.emplace(std::move(name), type);
+    return type;
+  }
+
+  auto TypeInterner::internTraitReference(std::string traitName) -> TypeId
+  {
+    for (uint32_t index = 6; index < descriptors_.size(); ++index)
+      if (descriptors_[index].kind == TypeKind::TraitReference && descriptors_[index].name == traitName)
+        return TypeId{index};
+    return append(TypeDescriptor{.kind = TypeKind::TraitReference, .name = std::move(traitName)});
+  }
+
   auto TypeInterner::internTuple(const std::vector<TypeId> &elements) -> TypeId
   {
     for (uint32_t index = 6; index < descriptors_.size(); ++index)
@@ -330,7 +347,12 @@ namespace NG::vnext::typecheck
       return resolve(type);
     }
     if (type.kind == hir::TypeKind::ScopedReference && type.target != nullptr)
-      return internReference(resolveWithBindings(*type.target, bindings, constBindings), type.isMutable);
+    {
+      const TypeId target = resolveWithBindings(*type.target, bindings, constBindings);
+      if (descriptors_[target.value].kind == TypeKind::Trait)
+        return internTraitReference(descriptors_[target.value].name);
+      return internReference(target, type.isMutable);
+    }
     if (type.kind == hir::TypeKind::Pack && type.target != nullptr)
       return internTypePack(resolveWithBindings(*type.target, bindings, constBindings));
     if (type.kind == hir::TypeKind::RawPointer && type.target != nullptr)
@@ -524,7 +546,12 @@ namespace NG::vnext::typecheck
       throw TypeError(std::format("unknown type `{}`", type.name), type.span);
     }
     if (type.kind == hir::TypeKind::ScopedReference && type.target != nullptr)
-      return internReference(resolve(*type.target), type.isMutable);
+    {
+      const TypeId target = resolve(*type.target);
+      if (descriptors_[target.value].kind == TypeKind::Trait)
+        return internTraitReference(descriptors_[target.value].name);
+      return internReference(target, type.isMutable);
+    }
     if (type.kind == hir::TypeKind::RawPointer && type.target != nullptr)
       return internRawPointer(resolve(*type.target), type.isMutable);
     if (type.kind != hir::TypeKind::Applied || type.target == nullptr || type.target->kind != hir::TypeKind::Named)
@@ -664,8 +691,9 @@ namespace NG::vnext::typecheck
     if (item.kind == TypeKind::RawPointer)
       return std::format("{} {}", display(item.element), item.referenceMutable ? "*mut" : "*const");
     if (item.kind == TypeKind::Struct || item.kind == TypeKind::Enum || item.kind == TypeKind::TypeParameter ||
-        item.kind == TypeKind::Opaque || item.kind == TypeKind::TypeConstructor)
+        item.kind == TypeKind::Opaque || item.kind == TypeKind::TypeConstructor || item.kind == TypeKind::Trait)
       return item.name;
+    if (item.kind == TypeKind::TraitReference) return std::format("ref<{}>", item.name);
     if (item.kind == TypeKind::TypeApplication) return std::format("{}<{}>", item.name, display(item.element));
     if (item.kind == TypeKind::TypePack) return display(item.element) + "...";
     if (item.kind == TypeKind::Range) return "range<" + display(item.element) + ">";

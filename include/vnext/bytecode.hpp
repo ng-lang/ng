@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace NG::vnext::bytecode
@@ -26,6 +27,8 @@ namespace NG::vnext::bytecode
     ArrayLength,
     AppendArray,
     RangeStart,
+    MakeTraitView,
+    CallTrait,
     Return,
     Jump,
     Branch,
@@ -75,6 +78,9 @@ namespace NG::vnext::bytecode
   struct Module
   {
     std::vector<Function> functions;
+    /// Dynamic dispatch tables: (trait type id << 32 | concrete type id) ->
+    /// method function indexes in trait declaration order.
+    std::unordered_map<uint64_t, std::vector<uint32_t>> vtables;
   };
 
   struct BytecodeError : std::runtime_error
@@ -91,7 +97,8 @@ namespace NG::vnext::bytecode
   class ModuleCompiler final
   {
   public:
-    [[nodiscard]] auto compile(const std::vector<flowir::Function> &functions) const -> Module;
+    [[nodiscard]] auto compile(const std::vector<flowir::Function> &functions,
+                               const std::unordered_map<uint64_t, std::vector<uint32_t>> &vtables = {}) const -> Module;
   };
 
   class Decoder final

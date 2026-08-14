@@ -1,0 +1,46 @@
+// vNext dynamic trait views (D-011 stage 2, legacy 34/40): `ref<Trait>` is a
+// shared-borrowed view over a value implementing the trait; method calls
+// through views dispatch dynamically through per-concrete dispatch tables.
+
+struct Counter {
+    label: string,
+}
+
+struct Number {
+    value: i64,
+}
+
+trait Show {
+    fun show(self: Self ref) -> string;
+}
+
+impl Show for Counter {
+    fun show(self: Self ref) -> string {
+        return (*self).label;
+    }
+}
+
+impl Show for Number {
+    fun show(self: Self ref) -> string {
+        return "number";
+    }
+}
+
+fun render(item: ref<Show>) -> string {
+    return item.show();
+}
+
+fun main() -> i64 {
+    let counter = Counter { label: "seven" };
+    let number = Number { value: 9 };
+    let view: ref<Show> = counter;
+    let views: array<ref<Show>> = [counter, number];
+
+    let mut total = 0;
+    if (view.show() == "seven") { total := total + 1; }
+    if (render(counter) == "seven") { total := total + 2; }
+    if (render(number) == "number") { total := total + 4; }
+    if (views[0].show() == "seven") { total := total + 8; }
+    if (views[1].show() == "number") { total := total + 16; }
+    return total;
+}

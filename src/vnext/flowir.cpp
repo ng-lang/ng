@@ -107,6 +107,34 @@ namespace NG::vnext::flowir
           return result;
         }
 
+        if (types_ != nullptr && types_->traitViewCoercions.contains(&expression))
+        {
+          const auto &[traitName, concrete] = types_->traitViewCoercions.at(&expression);
+          uint32_t traitType = 0;
+          for (size_t index = 0; index < types_->typeDescriptors.size(); ++index)
+            if (types_->typeDescriptors[index].kind == typecheck::TypeKind::Trait &&
+                types_->typeDescriptors[index].name == traitName)
+            {
+              traitType = static_cast<uint32_t>(index);
+              break;
+            }
+          auto place = lowerPlace(expression);
+          std::vector<ValueId> indexValues;
+          for (const auto &step : place.steps)
+            if (step.kind == PlaceStep::Kind::Index) indexValues.push_back(step.indexValue);
+          const ValueId result{nextValue_++};
+          if (types_ != nullptr) function_.valueTypes.emplace(result.value, types_->typeIdOf(expression));
+          block().instructions.push_back(Instruction{.kind = InstructionKind::MakeTraitView,
+                                                     .result = result,
+                                                     .placeRootLocal = place.rootLocal,
+                                                     .placeRootRef = place.rootRef,
+                                                     .placeSteps = std::move(place.steps),
+                                                     .traitType = traitType,
+                                                     .payload = concrete.value,
+                                                     .operands = std::move(indexValues)});
+          return result;
+        }
+
         const bool directCall = expression.kind == hir::ExpressionKind::Call && !expression.operands.empty() &&
                                 expression.operands[0]->resolvedName.has_value() &&
                                 expression.operands[0]->resolvedName->kind == hir::ResolvedNameKind::Function;
@@ -750,8 +778,23 @@ namespace NG::vnext::flowir
       {
         const auto &callee = *expression.operands[0];
         const auto &receiverNode = *callee.operands[0];
-        const bool qualified = !receiverNode.resolvedName.has_value();
+        const bool qualified = receiverNode.kind == hir::ExpressionKind::ResolvedName &&
+                               !receiverNode.resolvedName.has_value();
         const hir::Expression &receiver = qualified ? *expression.operands[1] : receiverNode;
+        if (types_ != nullptr && types_->traitViewCalls.contains(&expression))
+        {
+          const ValueId view = lowerExpression(receiver);
+          std::vector<ValueId> operands{view};
+          for (size_t index = qualified ? 2 : 1; index < expression.operands.size(); ++index)
+            operands.push_back(lowerExpression(*expression.operands[index]));
+          const ValueId value{nextValue_++};
+          if (types_ != nullptr) function_.valueTypes.emplace(value.value, types_->typeIdOf(expression));
+          block().instructions.push_back(Instruction{.kind = InstructionKind::CallTrait,
+                                                     .result = value,
+                                                     .payload = static_cast<int64_t>(types_->traitViewCalls.at(&expression).second),
+                                                     .operands = std::move(operands)});
+          return value;
+        }
         ValueId receiverValue;
         if (types_ != nullptr && types_->typeIdOf(receiver).value != 0 &&
             types_->typeDescriptors.at(types_->typeIdOf(receiver).value).kind == typecheck::TypeKind::Reference)

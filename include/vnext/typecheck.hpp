@@ -84,6 +84,12 @@ namespace NG::vnext::typecheck
     TypeConstructor,
     /// `F<T>` application of a type constructor to one type argument.
     TypeApplication,
+    /// Declaration-only trait placeholder (D-011 stage 2); not a value type,
+    /// only usable under `ref<...>` as a trait view.
+    Trait,
+    /// `ref<Trait>` dynamic view: a reference to a value implementing the
+    /// named trait plus a dispatch table index.
+    TraitReference,
   };
 
   struct TypeDescriptor
@@ -140,6 +146,8 @@ namespace NG::vnext::typecheck
     [[nodiscard]] auto internTuple(const std::vector<TypeId> &elements) -> TypeId;
     [[nodiscard]] auto internTypePack(TypeId element) -> TypeId;
     [[nodiscard]] auto internRange(TypeId element) -> TypeId;
+    [[nodiscard]] auto declareTraitType(std::string name) -> TypeId;
+    [[nodiscard]] auto internTraitReference(std::string traitName) -> TypeId;
     [[nodiscard]] auto internTypeParameter(std::string name, uint32_t index) -> TypeId;
     [[nodiscard]] auto internTypeConstructor(std::string name, uint32_t index) -> TypeId;
     [[nodiscard]] auto internTypeApplication(std::string constructorName, uint32_t constructorIndex, TypeId argument) -> TypeId;
@@ -258,6 +266,13 @@ namespace NG::vnext::typecheck
     /// Derived `clone()` calls: expression -> receiver type; lowered to a
     /// shared borrow followed by a deep-copying load.
     std::unordered_map<const hir::Expression *, TypeId> derivedCloneCalls;
+    /// Trait-view coercions (`ref<Trait>`): expression -> (trait, concrete type).
+    std::unordered_map<const hir::Expression *, std::pair<std::string, TypeId>> traitViewCoercions;
+    /// Dynamic method calls through trait views: expression -> (trait, method index).
+    std::unordered_map<const hir::Expression *, std::pair<std::string, size_t>> traitViewCalls;
+    /// Dispatch tables: trait name -> concrete type id -> method DefIds in
+    /// trait declaration order.
+    std::unordered_map<std::string, std::unordered_map<uint32_t, std::vector<hir::DefId>>> traitViewTables;
     std::vector<TypeDescriptor> typeDescriptors;
 
     [[nodiscard]] auto typeOf(const hir::Expression &expression) const -> const std::string &

@@ -25,6 +25,8 @@ namespace NG::vnext::vm::detail
                            const LocalCells &locals);
   void makeRefInstruction(const bytecode::DecodedInstruction &instruction, std::vector<Value> &values,
                           const LocalCells &locals);
+  void makeTraitViewInstruction(const bytecode::DecodedInstruction &instruction, std::vector<Value> &values,
+                                const LocalCells &locals);
   void loadRefInstruction(const bytecode::DecodedInstruction &instruction, std::vector<Value> &values);
   void assignPlaceInstruction(const bytecode::DecodedInstruction &instruction, std::vector<Value> &values,
                               const LocalCells &locals);

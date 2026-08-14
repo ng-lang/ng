@@ -46,6 +46,11 @@ namespace NG::vnext::flowir
     RangeStart,
     /// Appends an element to an array value (aliases its storage).
     AppendArray,
+    /// Creates a trait view (`ref<Trait>`) over a place: shared root cell plus
+    /// the trait/concrete type ids for dynamic dispatch.
+    MakeTraitView,
+    /// Dynamically dispatches a trait method through a view value.
+    CallTrait,
     /// Reads the variant ordinal of an enum value as i64.
     EnumVariantIndex,
     /// Reads the payload of an enum value (unit for payloadless variants).
@@ -83,6 +88,8 @@ namespace NG::vnext::flowir
     std::optional<ValueId> placeRootRef;
     bool placeMutable{};
     std::vector<PlaceStep> placeSteps;
+    /// Trait placeholder type id for MakeTraitView.
+    uint32_t traitType{};
   };
 
   enum class TerminatorKind

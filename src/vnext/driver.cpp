@@ -110,7 +110,26 @@ namespace NG::vnext
           flows.push_back(flowir::Lowerer{}.lower(instance, typed));
           flowir::Verifier{}.verify(flows.back());
         }
-        const auto artifact = bytecode::ModuleCompiler{}.compile(flows);
+        std::unordered_map<uint64_t, std::vector<uint32_t>> vtables;
+        for (const auto &[traitName, tables] : typed.traitViewTables)
+        {
+          uint32_t traitId = 0;
+          for (size_t index = 0; index < typed.typeDescriptors.size(); ++index)
+            if (typed.typeDescriptors[index].kind == typecheck::TypeKind::Trait &&
+                typed.typeDescriptors[index].name == traitName)
+            {
+              traitId = static_cast<uint32_t>(index);
+              break;
+            }
+          for (const auto &[concrete, methods] : tables)
+          {
+            std::vector<uint32_t> ids;
+            ids.reserve(methods.size());
+            for (const auto &method : methods) ids.push_back(method.value);
+            vtables.emplace((static_cast<uint64_t>(traitId) << 32) | concrete, std::move(ids));
+          }
+        }
+        const auto artifact = bytecode::ModuleCompiler{}.compile(flows, vtables);
         for (const auto &function : artifact.functions) bytecode::Verifier{}.verify(function);
         const size_t verifiedFunctions = artifact.functions.size();
 

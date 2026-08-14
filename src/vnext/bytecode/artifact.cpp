@@ -245,6 +245,14 @@ namespace NG::vnext::bytecode
       Verifier{}.verify(function);
       appendFunction(artifact, function);
     }
+    appendU32(artifact, narrowSize(module.vtables.size()));
+    for (const auto &[key, table] : module.vtables)
+    {
+      appendU32(artifact, static_cast<uint32_t>(key >> 32));
+      appendU32(artifact, static_cast<uint32_t>(key));
+      appendU32(artifact, narrowSize(table.size()));
+      for (const auto method : table) appendU32(artifact, method);
+    }
     return artifact;
   }
 
@@ -258,6 +266,16 @@ namespace NG::vnext::bytecode
     Module module;
     module.functions.reserve(functionCount);
     for (uint32_t index = 0; index < functionCount; ++index) module.functions.push_back(readFunction(artifact, offset));
+    const uint32_t vtableCount = readU32(artifact, offset);
+    for (uint32_t index = 0; index < vtableCount; ++index)
+    {
+      const uint64_t key = (static_cast<uint64_t>(readU32(artifact, offset)) << 32) | readU32(artifact, offset);
+      const uint32_t entryCount = readU32(artifact, offset);
+      std::vector<uint32_t> table;
+      table.reserve(entryCount);
+      for (uint32_t entry = 0; entry < entryCount; ++entry) table.push_back(readU32(artifact, offset));
+      module.vtables.emplace(key, std::move(table));
+    }
     if (offset != artifact.size()) throw BytecodeError("trailing bytes in bytecode artifact");
     return module;
   }

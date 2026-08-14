@@ -51,6 +51,9 @@ namespace NG::vnext::typecheck
             const TypeId fieldType = interner_.resolve(field.type);
             if (interner_.descriptor(fieldType).kind == TypeKind::Reference)
               throw TypeError("references cannot be stored in struct fields", field.span);
+            if (interner_.descriptor(fieldType).kind == TypeKind::Trait)
+              throw TypeError(std::format("trait `{}` is not a value type; use `ref<{}>`", interner_.display(fieldType),
+                                          interner_.display(fieldType)), field.span);
             types.push_back(fieldType);
           }
           interner_.defineStruct(structure.id, std::move(fields), std::move(types));
@@ -146,12 +149,18 @@ namespace NG::vnext::typecheck
           for (const auto &parameter : function.parameters)
           {
             const TypeId type = interner_.resolveInScope(parameter.type, genericBindings, constBindings);
+            if (interner_.descriptor(type).kind == TypeKind::Trait)
+              throw TypeError(std::format("trait `{}` is not a value type; use `ref<{}>`", interner_.display(type),
+                                          interner_.display(type)), parameter.span);
             signature.parameters.push_back(type);
             displaySignature.parameters.push_back(interner_.display(type));
           }
           signature.returnType = function.returnType != nullptr
                                    ? interner_.resolveInScope(*function.returnType, genericBindings, constBindings)
                                    : builtin::Unit;
+          if (interner_.descriptor(signature.returnType).kind == TypeKind::Trait)
+            throw TypeError(std::format("trait `{}` is not a value type; use `ref<{}>`", interner_.display(signature.returnType),
+                                        interner_.display(signature.returnType)), function.span);
           displaySignature.returnType = interner_.display(signature.returnType);
           signatures_.emplace(function.id.value, signature);
           functionTypeIds_.emplace(function.id.value, signature);
@@ -189,6 +198,9 @@ namespace NG::vnext::typecheck
                                                                        std::make_move_iterator(instances_.end())},
                                .deferredMethodFunctions = std::move(deferredMethodFunctions_),
                                .derivedCloneCalls = std::move(derivedCloneCalls_),
+                               .traitViewCoercions = std::move(traitViewCoercions_),
+                               .traitViewCalls = std::move(traitViewCalls_),
+                               .traitViewTables = std::move(traitViewTables_),
                                .typeDescriptors = interner_.descriptors()};
       }
 
@@ -220,6 +232,8 @@ namespace NG::vnext::typecheck
         std::vector<std::string> supertraits;
         bool autoTrait{};
         TypeId selfParameter;
+        /// Method names in declaration order (dynamic dispatch indexes).
+        std::vector<std::string> methodOrder;
         std::unordered_map<std::string, std::vector<TypeId>> methodParameters;
         std::unordered_map<std::string, TypeId> methodReturns;
         std::unordered_map<std::string, hir::DefId> methodDefaults;
@@ -476,6 +490,8 @@ namespace NG::vnext::typecheck
         {
           TraitInfo info{.name = trait.name, .supertraits = trait.supertraits, .autoTrait = trait.autoTrait,
                          .selfParameter = interner_.internTypeParameter("Self", 0)};
+          for (const auto &method : trait.methods) info.methodOrder.push_back(method.name);
+          static_cast<void>(interner_.declareTraitType(trait.name));
           const std::unordered_map<std::string, TypeId> selfBindings{{"Self", info.selfParameter}};
           for (size_t index = 0; index < trait.methods.size(); ++index)
           {
@@ -737,8 +753,12 @@ namespace NG::vnext::typecheck
       {
         const auto &callee = *expression.operands[0];
         const auto &receiverNode = *callee.operands[0];
-        const bool qualified = !receiverNode.resolvedName.has_value();
-        if (qualified && !traits_.contains(receiverNode.text))
+        // Qualified calls (`Trait.method(...)`) carry an unresolved trait name
+        // as the callee receiver; every other receiver form is a value place.
+        const bool qualified = receiverNode.kind == hir::ExpressionKind::ResolvedName &&
+                               !receiverNode.resolvedName.has_value() && traits_.contains(receiverNode.text);
+        if (receiverNode.kind == hir::ExpressionKind::ResolvedName && !receiverNode.resolvedName.has_value() &&
+            !traits_.contains(receiverNode.text))
           throw TypeError(std::format("unknown trait `{}` in qualified call", receiverNode.text), receiverNode.span);
         const hir::Expression &receiver = qualified ? *expression.operands[1] : receiverNode;
         const size_t firstArgument = qualified ? 2 : 1;
@@ -782,6 +802,36 @@ namespace NG::vnext::typecheck
           deferredMethodFunctions_.insert(currentFunctionId_.value);
           const TypeId returnType = interner_.specialize(owning->methodReturns.at(expression.text),
                                                          {{owning->selfParameter.value, dispatchType}});
+          record(expression, returnType);
+          return returnType;
+        }
+        if (interner_.descriptor(dispatchType).kind == TypeKind::TraitReference)
+        {
+          // Dynamic dispatch through a trait view (D-011 stage 2): resolve the
+          // method index in declaration order and the erased return type.
+          const std::string traitName = interner_.descriptor(dispatchType).name;
+          const auto &trait = traits_.at(traitName);
+          const auto foundMethod = std::find(trait.methodOrder.begin(), trait.methodOrder.end(), expression.text);
+          if (foundMethod == trait.methodOrder.end())
+            throw TypeError(std::format("trait `{}` has no method `{}`", traitName, expression.text), expression.span);
+          const size_t methodIndex = static_cast<size_t>(std::distance(trait.methodOrder.begin(), foundMethod));
+          const TypeId returnType = trait.methodReturns.at(expression.text);
+          if (typeContains(returnType, trait.selfParameter))
+            throw TypeError("trait object methods with Self in the return type are not yet supported", expression.span);
+          const auto &parameters = trait.methodParameters.at(expression.text);
+          const size_t supplied = expression.operands.size() - firstArgument;
+          if (supplied + 1 != parameters.size())
+            throw TypeError(std::format("method argument count mismatch: expected {}, got {}", parameters.size() - 1,
+                                        supplied), expression.span);
+          for (size_t index = 0; index < supplied; ++index)
+          {
+            const TypeId parameter = parameters[index + 1];
+            if (typeContains(parameter, trait.selfParameter))
+              throw TypeError("trait object method arguments typed with Self are not yet supported", expression.span);
+            static_cast<void>(inferExpected(*expression.operands[firstArgument + index], parameter, locals,
+                                            std::format("method argument {}", index + 1)));
+          }
+          traitViewCalls_.insert_or_assign(&expression, std::pair<std::string, size_t>{traitName, methodIndex});
           record(expression, returnType);
           return returnType;
         }
@@ -1051,10 +1101,15 @@ namespace NG::vnext::typecheck
         {
         case hir::StatementKind::Let:
         {
+          const TypeId bindingType = statement.bindingType != nullptr ? interner_.resolve(*statement.bindingType) : TypeId{};
+          if (bindingType.value != 0 && interner_.descriptor(bindingType).kind == TypeKind::Trait)
+            throw TypeError(std::format("trait `{}` is not a value type; use `ref<{}>`", interner_.display(bindingType),
+                                        interner_.display(bindingType)), statement.span);
           const TypeId type = statement.bindingType != nullptr
-                                  ? inferExpected(*statement.expression, interner_.resolve(*statement.bindingType), locals, "let initializer")
+                                  ? inferExpected(*statement.expression, bindingType, locals, "let initializer")
                                   : infer(*statement.expression, locals);
-          trackConsumption(*statement.expression, locals);
+          if (interner_.descriptor(type).kind != TypeKind::TraitReference)
+            trackConsumption(*statement.expression, locals);
           if (!statement.destructuredLocals.empty())
           {
             const auto &tuple = interner_.descriptor(type);
@@ -1866,6 +1921,54 @@ namespace NG::vnext::typecheck
                           span);
       }
 
+      /// True when a type mentions the given Self type parameter anywhere.
+      [[nodiscard]] auto typeContains(TypeId type, TypeId needle) const -> bool
+      {
+        if (type == needle) return true;
+        const auto &descriptor = interner_.descriptor(type);
+        if (descriptor.kind == TypeKind::Reference || descriptor.kind == TypeKind::RawPointer ||
+            descriptor.kind == TypeKind::DynamicArray || descriptor.kind == TypeKind::FixedArray ||
+            descriptor.kind == TypeKind::DependentArray || descriptor.kind == TypeKind::TypeApplication ||
+            descriptor.kind == TypeKind::TypePack || descriptor.kind == TypeKind::Range)
+          return typeContains(descriptor.element, needle);
+        for (const auto element : descriptor.elements)
+          if (typeContains(element, needle)) return true;
+        return false;
+      }
+
+      /// Builds the dispatch table for (trait, concrete type) if missing:
+      /// declaration-order entries from the concrete impl, falling back to
+      /// trait default methods. Returns false when no impl covers the trait.
+      [[nodiscard]] auto ensureTraitViewTable(const std::string &traitName, TypeId concreteType) -> bool
+      {
+        if (traitViewTables_.contains(traitName) && traitViewTables_.at(traitName).contains(concreteType.value))
+          return true;
+        const auto &trait = traits_.at(traitName);
+        for (const auto &impl : impls_)
+        {
+          if (impl.target != concreteType) continue;
+          std::vector<const TraitInfo *> closure;
+          std::unordered_set<std::string> seen;
+          collectSupertraits(impl.traitName, closure, seen);
+          const bool covers = std::any_of(closure.begin(), closure.end(),
+                                          [&](const TraitInfo *candidate) { return candidate->name == traitName; });
+          if (!covers) continue;
+          std::vector<hir::DefId> table;
+          for (const auto &methodName : trait.methodOrder)
+          {
+            if (const auto found = impl.methods.find(methodName); found != impl.methods.end())
+              table.push_back(found->second);
+            else if (const auto fallback = trait.methodDefaults.find(methodName); fallback != trait.methodDefaults.end())
+              table.push_back(fallback->second);
+            else
+              return false;
+          }
+          traitViewTables_[traitName].emplace(concreteType.value, std::move(table));
+          return true;
+        }
+        return false;
+      }
+
       [[nodiscard]] auto inferExpected(const hir::Expression &expression, TypeId expected, const LocalTypes &locals,
                                        std::string_view context) -> TypeId
       {
@@ -1910,6 +2013,30 @@ namespace NG::vnext::typecheck
             expression.operands[0]->kind == hir::ExpressionKind::FloatLiteral)
         {
           static_cast<void>(inferExpected(*expression.operands[0], expected, locals, "float literal"));
+          record(expression, expected);
+          return expected;
+        }
+        if (descriptor.kind == TypeKind::TraitReference)
+        {
+          const std::string traitName = descriptor.name;
+          const TypeId valueType = infer(expression, locals);
+          TypeId concrete = valueType;
+          if (interner_.descriptor(valueType).kind == TypeKind::TraitReference)
+          {
+            requireType(expected, valueType, expression.span, context);
+            record(expression, expected);
+            return expected;
+          }
+          if (interner_.descriptor(valueType).kind == TypeKind::Reference)
+            concrete = interner_.descriptor(valueType).element;
+          if (interner_.descriptor(concrete).kind == TypeKind::TraitReference ||
+              interner_.descriptor(concrete).kind == TypeKind::Trait)
+            throw TypeError(std::format("cannot build a `{}` view from {}", interner_.display(expected),
+                                        interner_.display(valueType)), expression.span);
+          if (!hasImpl(traitName, concrete) || !ensureTraitViewTable(traitName, concrete))
+            throw TypeError(std::format("value of type {} does not implement trait `{}`", interner_.display(concrete),
+                                        traitName), expression.span);
+          traitViewCoercions_.insert_or_assign(&expression, std::pair<std::string, TypeId>{traitName, concrete});
           record(expression, expected);
           return expected;
         }
@@ -2936,6 +3063,9 @@ namespace NG::vnext::typecheck
       std::unordered_set<uint32_t> placeholderFunctions_;
       std::unordered_set<uint32_t> derivedCloneTypes_;
       std::unordered_map<uint32_t, std::vector<std::string>> dropMovedFields_;
+      std::unordered_map<const hir::Expression *, std::pair<std::string, TypeId>> traitViewCoercions_;
+      std::unordered_map<const hir::Expression *, std::pair<std::string, size_t>> traitViewCalls_;
+      std::unordered_map<std::string, std::unordered_map<uint32_t, std::vector<hir::DefId>>> traitViewTables_;
       std::unordered_map<const hir::Expression *, TypeId> derivedCloneCalls_;
       std::unordered_map<const hir::Expression *, bool> methodReceiverMutable_;
       std::unordered_map<const hir::Expression *, TypeId> methodReceiverRefTypes_;

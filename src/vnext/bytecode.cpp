@@ -24,6 +24,8 @@ namespace NG::vnext::bytecode
         OpcodeDescriptor{Opcode::ArrayLength, "array_length", OperandLayout::Fixed, 2},
         OpcodeDescriptor{Opcode::AppendArray, "append_array", OperandLayout::Fixed, 3},
         OpcodeDescriptor{Opcode::RangeStart, "range_start", OperandLayout::Fixed, 2},
+        OpcodeDescriptor{Opcode::MakeTraitView, "make_trait_view", OperandLayout::CountPrefixedTail, 5},
+        OpcodeDescriptor{Opcode::CallTrait, "call_trait", OperandLayout::CountPrefixedTail, 3},
         OpcodeDescriptor{Opcode::Return, "return", OperandLayout::CountPrefixedTail, 0},
         OpcodeDescriptor{Opcode::Jump, "jump", OperandLayout::CountPrefixedTail, 1},
         OpcodeDescriptor{Opcode::Branch, "branch", OperandLayout::Fixed, 3},
@@ -149,6 +151,31 @@ namespace NG::vnext::bytecode
           }
           appendInstruction(result.code, Opcode::MakeRef, operands);
         }
+        else if (instruction.kind == flowir::InstructionKind::MakeTraitView)
+        {
+          std::vector<uint32_t> operands{instruction.result.value, instruction.placeRootLocal.has_value()
+                                                                      ? instruction.placeRootLocal->value
+                                                                      : instruction.placeRootRef->value,
+                                         instruction.placeRootRef.has_value() ? 1u : 0u, instruction.traitType,
+                                         static_cast<uint32_t>(instruction.payload),
+                                         static_cast<uint32_t>(instruction.placeSteps.size() * 2)};
+          for (const auto &step : instruction.placeSteps)
+          {
+            operands.push_back(step.kind == flowir::PlaceStep::Kind::Member ? 0u : 1u);
+            operands.push_back(step.kind == flowir::PlaceStep::Kind::Member ? static_cast<uint32_t>(step.field)
+                                                                            : step.indexValue.value);
+          }
+          appendInstruction(result.code, Opcode::MakeTraitView, operands);
+        }
+        else if (instruction.kind == flowir::InstructionKind::CallTrait)
+        {
+          std::vector<uint32_t> operands{instruction.result.value, instruction.operands[0].value,
+                                         static_cast<uint32_t>(instruction.payload),
+                                         static_cast<uint32_t>(instruction.operands.size() - 1)};
+          for (size_t index = 1; index < instruction.operands.size(); ++index)
+            operands.push_back(instruction.operands[index].value);
+          appendInstruction(result.code, Opcode::CallTrait, operands);
+        }
         else if (instruction.kind == flowir::InstructionKind::LoadRef)
         {
           appendInstruction(result.code, Opcode::LoadRef, {instruction.result.value, instruction.operands[0].value});
@@ -243,9 +270,11 @@ namespace NG::vnext::bytecode
     return result;
   }
 
-  auto ModuleCompiler::compile(const std::vector<flowir::Function> &functions) const -> Module
+  auto ModuleCompiler::compile(const std::vector<flowir::Function> &functions,
+                               const std::unordered_map<uint64_t, std::vector<uint32_t>> &vtables) const -> Module
   {
     Module module;
+    module.vtables = vtables;
     module.functions.reserve(functions.size());
     Compiler compiler;
     for (const auto &function : functions)
@@ -315,7 +344,8 @@ namespace NG::vnext::bytecode
           descriptor.kind != typecheck::TypeKind::Tuple &&
           descriptor.kind != typecheck::TypeKind::Struct && descriptor.kind != typecheck::TypeKind::Enum &&
           descriptor.kind != typecheck::TypeKind::TypeParameter && descriptor.kind != typecheck::TypeKind::Opaque &&
-          descriptor.kind != typecheck::TypeKind::TypeConstructor && descriptor.kind != typecheck::TypeKind::TypeApplication)
+          descriptor.kind != typecheck::TypeKind::TypeConstructor && descriptor.kind != typecheck::TypeKind::TypeApplication &&
+          descriptor.kind != typecheck::TypeKind::Trait && descriptor.kind != typecheck::TypeKind::TraitReference)
         throw BytecodeError("bytecode type descriptor kind is invalid");
       if (descriptor.kind == typecheck::TypeKind::Reference || descriptor.kind == typecheck::TypeKind::RawPointer ||
           descriptor.kind == typecheck::TypeKind::TypePack || descriptor.kind == typecheck::TypeKind::Range ||
@@ -597,6 +627,53 @@ namespace NG::vnext::bytecode
           if (index >= tuple.elements.size()) throw BytecodeError("bytecode tuple extraction is out of range");
           if (requireValueType(instruction.operands[0]) != tuple.elements[index])
             throw BytecodeError("bytecode tuple extraction result type mismatch");
+        }
+        else if (instruction.opcode == Opcode::MakeTraitView)
+        {
+          const auto resultType = requireValueType(instruction.operands[0]);
+          if (resultType.value >= function.typeDescriptors.size() ||
+              function.typeDescriptors[resultType.value].kind != typecheck::TypeKind::TraitReference)
+            throw BytecodeError("bytecode trait view result is not a trait reference type");
+          if (instruction.operands[3] >= function.typeDescriptors.size() ||
+              function.typeDescriptors[instruction.operands[3]].kind != typecheck::TypeKind::Trait)
+            throw BytecodeError("bytecode trait view trait id is invalid");
+          if (instruction.operands[4] >= function.typeDescriptors.size())
+            throw BytecodeError("bytecode trait view concrete type id is out of range");
+          typecheck::TypeId current{};
+          if (instruction.operands[2] != 0)
+          {
+            const auto reference = requireValueType(instruction.operands[1]);
+            if (reference.value >= function.typeDescriptors.size()) throw BytecodeError("bytecode value type descriptor is out of range");
+            const auto &descriptor = function.typeDescriptors[reference.value];
+            if (descriptor.kind != typecheck::TypeKind::Reference)
+              throw BytecodeError("bytecode trait view reference root is not a reference type");
+            current = descriptor.element;
+          }
+          else
+          {
+            if (!function.localTypes.contains(instruction.operands[1])) throw BytecodeError("bytecode place root is missing type metadata");
+            current = function.localTypes.at(instruction.operands[1]);
+          }
+          const uint32_t count = instruction.operands[5];
+          if (count % 2 != 0) throw BytecodeError("bytecode place step encoding is malformed");
+          for (uint32_t index = 0; index < count; index += 2)
+          {
+            if (instruction.operands.at(6 + index) == 1 && requireValueType(instruction.operands.at(6 + index + 1)) != typecheck::builtin::I64)
+              throw BytecodeError("bytecode place index step is not i64");
+            current = stepType(current, instruction.operands.at(6 + index), instruction.operands.at(6 + index + 1));
+          }
+          if (current.value != instruction.operands[4])
+            throw BytecodeError("bytecode trait view concrete type does not match the place type");
+        }
+        else if (instruction.opcode == Opcode::CallTrait)
+        {
+          const auto viewType = requireValueType(instruction.operands[1]);
+          if (viewType.value >= function.typeDescriptors.size() ||
+              function.typeDescriptors[viewType.value].kind != typecheck::TypeKind::TraitReference)
+            throw BytecodeError("bytecode trait call receiver is not a trait reference type");
+          static_cast<void>(requireValueType(instruction.operands[0]));
+          for (uint32_t index = 0; index < instruction.operands[3]; ++index)
+            static_cast<void>(requireValueType(instruction.operands.at(4 + index)));
         }
         else if (instruction.opcode == Opcode::MakeRef)
         {
