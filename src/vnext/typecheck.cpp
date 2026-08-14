@@ -2006,6 +2006,17 @@ namespace NG::vnext::typecheck
                                        std::string_view context) -> TypeId
       {
         const auto &descriptor = interner_.descriptor(expected);
+        if (descriptor.kind != TypeKind::Union && expression.kind == hir::ExpressionKind::ResolvedName)
+        {
+          const TypeId valueType = infer(expression, locals);
+          if (interner_.descriptor(valueType).kind == TypeKind::Union &&
+              std::find(interner_.descriptor(valueType).elements.begin(), interner_.descriptor(valueType).elements.end(),
+                        expected) != interner_.descriptor(valueType).elements.end())
+          {
+            record(expression, expected);
+            return expected;
+          }
+        }
         if (expression.kind == hir::ExpressionKind::IntegerLiteral && isIntegerBuiltin(expected))
         {
           // D-008: integer literal text is preserved exactly until contextual
@@ -2046,6 +2057,23 @@ namespace NG::vnext::typecheck
             expression.operands[0]->kind == hir::ExpressionKind::FloatLiteral)
         {
           static_cast<void>(inferExpected(*expression.operands[0], expected, locals, "float literal"));
+          record(expression, expected);
+          return expected;
+        }
+        if (descriptor.kind == TypeKind::Union)
+        {
+          // Union coercion (legacy 19): the value's type must be one of the
+          // members; the runtime representation stays the plain member value.
+          const TypeId valueType = infer(expression, locals);
+          if (valueType == expected)
+          {
+            record(expression, expected);
+            return expected;
+          }
+          const auto member = std::find(descriptor.elements.begin(), descriptor.elements.end(), valueType);
+          if (member == descriptor.elements.end())
+            throw TypeError(std::format("value of type {} is not a member of union {}", interner_.display(valueType),
+                                        interner_.display(expected)), expression.span);
           record(expression, expected);
           return expected;
         }
@@ -2639,6 +2667,29 @@ namespace NG::vnext::typecheck
             requireType(left, right, expression.span, "range bounds");
             type = interner_.internRange(left);
             break;
+          }
+          // Union sides narrow to the other operand's member type for
+          // equality and ordering comparisons.
+          if (equality || ordering)
+          {
+            if (interner_.descriptor(left).kind == TypeKind::Union)
+            {
+              const auto &members = interner_.descriptor(left).elements;
+              if (std::find(members.begin(), members.end(), right) != members.end())
+              {
+                record(*expression.operands[0], right);
+                left = right;
+              }
+            }
+            if (interner_.descriptor(right).kind == TypeKind::Union)
+            {
+              const auto &members = interner_.descriptor(right).elements;
+              if (std::find(members.begin(), members.end(), left) != members.end())
+              {
+                record(*expression.operands[1], left);
+                right = left;
+              }
+            }
           }
           const bool numericPair = isNumericBuiltin(left) && isNumericBuiltin(right);
           // Equality and ordering compare across numeric widths; everything

@@ -75,6 +75,8 @@ namespace NG::vnext::typecheck
     TypePack,
     Range,
     Tuple,
+    /// `A | B | C` union of member types (legacy 19).
+    Union,
     Struct,
     Enum,
     TypeParameter,
@@ -146,6 +148,7 @@ namespace NG::vnext::typecheck
     [[nodiscard]] auto internReference(TypeId target, bool mutableReference) -> TypeId;
     [[nodiscard]] auto internRawPointer(TypeId target, bool mutablePointee) -> TypeId;
     [[nodiscard]] auto internTuple(const std::vector<TypeId> &elements) -> TypeId;
+    [[nodiscard]] auto internUnion(const std::vector<TypeId> &members) -> TypeId;
     [[nodiscard]] auto internTypePack(TypeId element) -> TypeId;
     [[nodiscard]] auto internRange(TypeId element) -> TypeId;
     [[nodiscard]] auto declareTraitType(std::string name) -> TypeId;

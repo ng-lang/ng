@@ -127,6 +127,17 @@ namespace NG::vnext::typecheck
                                  .elements = elements});
   }
 
+  auto TypeInterner::internUnion(const std::vector<TypeId> &members) -> TypeId
+  {
+    for (uint32_t index = 6; index < descriptors_.size(); ++index)
+      if (descriptors_[index].kind == TypeKind::Union && descriptors_[index].elements == members) return TypeId{index};
+    return append(TypeDescriptor{.kind = TypeKind::Union,
+                                 .name = "union",
+                                 .element = TypeId{},
+                                 .length = static_cast<uint64_t>(members.size()),
+                                 .elements = members});
+  }
+
   auto TypeInterner::declareOpaqueType(const hir::OpaqueType &opaque) -> TypeId
   {
     if (namedTypes_.contains(opaque.name))
@@ -392,6 +403,13 @@ namespace NG::vnext::typecheck
     }
     if (type.kind == hir::TypeKind::Pack && type.target != nullptr)
       return internTypePack(resolveWithBindings(*type.target, bindings, constBindings));
+    if (type.kind == hir::TypeKind::Union)
+    {
+      std::vector<TypeId> members;
+      members.reserve(type.members.size());
+      for (const auto &member : type.members) members.push_back(resolveWithBindings(member, bindings, constBindings));
+      return internUnion(members);
+    }
     if (type.kind == hir::TypeKind::RawPointer && type.target != nullptr)
       return internRawPointer(resolveWithBindings(*type.target, bindings, constBindings), type.isMutable);
     if (type.kind != hir::TypeKind::Applied || type.target == nullptr || type.target->kind != hir::TypeKind::Named)
@@ -606,6 +624,13 @@ namespace NG::vnext::typecheck
     }
     if (type.kind == hir::TypeKind::RawPointer && type.target != nullptr)
       return internRawPointer(resolve(*type.target), type.isMutable);
+    if (type.kind == hir::TypeKind::Union)
+    {
+      std::vector<TypeId> members;
+      members.reserve(type.members.size());
+      for (const auto &member : type.members) members.push_back(resolve(member));
+      return internUnion(members);
+    }
     if (type.kind != hir::TypeKind::Applied || type.target == nullptr || type.target->kind != hir::TypeKind::Named)
       throw TypeError("unsupported type form", type.span);
     if (const auto introspected = resolveTupleIntrospection(type, {}, {}); introspected.has_value())
@@ -777,6 +802,16 @@ namespace NG::vnext::typecheck
     }
     if (item.kind == TypeKind::TypePack) return display(item.element) + "...";
     if (item.kind == TypeKind::Range) return "range<" + display(item.element) + ">";
+    if (item.kind == TypeKind::Union)
+    {
+      std::string result;
+      for (size_t index = 0; index < item.elements.size(); ++index)
+      {
+        if (index != 0) result += " | ";
+        result += display(item.elements[index]);
+      }
+      return result;
+    }
     std::string result{"tuple<"};
     for (size_t index = 0; index < item.elements.size(); ++index)
     {

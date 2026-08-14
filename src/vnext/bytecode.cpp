@@ -345,7 +345,8 @@ namespace NG::vnext::bytecode
           descriptor.kind != typecheck::TypeKind::Struct && descriptor.kind != typecheck::TypeKind::Enum &&
           descriptor.kind != typecheck::TypeKind::TypeParameter && descriptor.kind != typecheck::TypeKind::Opaque &&
           descriptor.kind != typecheck::TypeKind::TypeConstructor && descriptor.kind != typecheck::TypeKind::TypeApplication &&
-          descriptor.kind != typecheck::TypeKind::Trait && descriptor.kind != typecheck::TypeKind::TraitReference)
+          descriptor.kind != typecheck::TypeKind::Trait && descriptor.kind != typecheck::TypeKind::TraitReference &&
+          descriptor.kind != typecheck::TypeKind::Union)
         throw BytecodeError("bytecode type descriptor kind is invalid");
       if (descriptor.kind == typecheck::TypeKind::Reference || descriptor.kind == typecheck::TypeKind::RawPointer ||
           descriptor.kind == typecheck::TypeKind::TypePack || descriptor.kind == typecheck::TypeKind::Range ||
@@ -425,15 +426,22 @@ namespace NG::vnext::bytecode
           };
           if (kind == hir::ExpressionKind::IntegerLiteral)
           {
-            if (!typecheck::isIntegerBuiltin(resultType))
+            if (!typecheck::isIntegerBuiltin(resultType) && resultType.value < function.typeDescriptors.size() &&
+                function.typeDescriptors[resultType.value].kind != typecheck::TypeKind::Union)
               throw BytecodeError("bytecode integer literal result is not an integer type");
           }
           else if (kind == hir::ExpressionKind::FloatLiteral)
           {
-            if (!typecheck::isFloatBuiltin(resultType))
+            if (!typecheck::isFloatBuiltin(resultType) && resultType.value < function.typeDescriptors.size() &&
+                function.typeDescriptors[resultType.value].kind != typecheck::TypeKind::Union)
               throw BytecodeError("bytecode float literal result is not a float type");
           }
-          else if (kind == hir::ExpressionKind::StringLiteral) requireResultType(typecheck::builtin::String);
+          else if (kind == hir::ExpressionKind::StringLiteral)
+          {
+            if (resultType != typecheck::builtin::String && (resultType.value >= function.typeDescriptors.size() ||
+                                                             function.typeDescriptors[resultType.value].kind != typecheck::TypeKind::Union))
+              throw BytecodeError("bytecode string literal result is not a string type");
+          }
           else if (kind == hir::ExpressionKind::ArrayLiteral)
           {
             if (resultType.value >= function.typeDescriptors.size())
@@ -478,7 +486,12 @@ namespace NG::vnext::bytecode
               throw BytecodeError("bytecode struct literal field count mismatch");
             for (size_t index = 0; index < structure.elements.size(); ++index) requireOperandType(index, structure.elements[index]);
           }
-          else if (kind == hir::ExpressionKind::BooleanLiteral) requireResultType(typecheck::builtin::Bool);
+          else if (kind == hir::ExpressionKind::BooleanLiteral)
+          {
+            if (resultType != typecheck::builtin::Bool && (resultType.value >= function.typeDescriptors.size() ||
+                                                           function.typeDescriptors[resultType.value].kind != typecheck::TypeKind::Union))
+              throw BytecodeError("bytecode boolean literal result is not a bool type");
+          }
           else if (kind == hir::ExpressionKind::Member)
           {
             const auto receiver = requireValueType(instruction.operands.at(5));
@@ -516,7 +529,17 @@ namespace NG::vnext::bytecode
           {
             const uint32_t local = instruction.operands[2];
             if (!function.localTypes.contains(local)) throw BytecodeError("bytecode local is missing type metadata");
-            if (resultType != function.localTypes.at(local)) throw BytecodeError("bytecode local read type does not match result type");
+            const auto localType = function.localTypes.at(local);
+            if (resultType != localType)
+            {
+              // Union member narrowing at comparison sites reads a member.
+              if (localType.value >= function.typeDescriptors.size() ||
+                  function.typeDescriptors[localType.value].kind != typecheck::TypeKind::Union ||
+                  std::find(function.typeDescriptors[localType.value].elements.begin(),
+                            function.typeDescriptors[localType.value].elements.end(),
+                            resultType) == function.typeDescriptors[localType.value].elements.end())
+                throw BytecodeError("bytecode local read type does not match result type");
+            }
           }
           else if (kind == hir::ExpressionKind::Grouped)
           {

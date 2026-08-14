@@ -1,0 +1,17 @@
+// vNext union types (legacy 19): `A | B` annotations hold one member value;
+// construction adopts the matching member type, and equality/ordering compare
+// union values against their member types.
+
+fun main() -> i64 {
+    let x: i64 | string = 1;
+    let y: i64 | string = "hello";
+    let z: bool | i64 | f64 = true;
+    let w: bool | i64 | f64 = 42;
+
+    let mut total = 0;
+    if (x == 1) { total := total + 1; }
+    if (y == "hello") { total := total + 2; }
+    if (w == 42) { total := total + 4; }
+    if (w > 40) { total := total + 8; }
+    return total;
+}

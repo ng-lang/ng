@@ -195,6 +195,7 @@ namespace NG::vnext::hir
     ScopedReference,
     RawPointer,
     Pack,
+    Union,
   };
 
   struct Type;
@@ -214,6 +215,8 @@ namespace NG::vnext::hir
     std::string name;
     std::vector<TypeArgument> arguments;
     std::unique_ptr<Type> target;
+    /// Union members (`A | B`).
+    std::vector<Type> members;
     bool isMutable{};
   };
 

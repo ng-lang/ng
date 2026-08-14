@@ -15,6 +15,18 @@ namespace NG::vnext::syntax
   auto TypeParser::parse() -> TypeSyntaxPtr
   {
     TypeSyntaxPtr type = parsePrimary();
+    if (current().kind == TokenKind::Pipe)
+    {
+      std::vector<TypeSyntaxPtr> members;
+      members.push_back(std::move(type));
+      while (current().kind == TokenKind::Pipe)
+      {
+        static_cast<void>(consume());
+        members.push_back(parsePrimary());
+      }
+      const SourceSpan span{members.front()->span.begin, members.back()->span.end};
+      type = std::make_unique<UnionTypeSyntax>(std::move(members), span);
+    }
     while (current().kind != TokenKind::End)
     {
       if (current().kind == TokenKind::Ellipsis)

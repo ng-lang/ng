@@ -37,6 +37,12 @@ namespace NG::vnext::hir
       if (const auto *pack = dynamic_cast<const syntax::PackTypeSyntax *>(&type))
         return Type{.kind = TypeKind::Pack, .span = type.span,
                     .target = std::make_unique<Type>(lowerType(*pack->target))};
+      if (const auto *unionType = dynamic_cast<const syntax::UnionTypeSyntax *>(&type))
+      {
+        Type result{.kind = TypeKind::Union, .span = type.span};
+        for (const auto &member : unionType->members) result.members.push_back(lowerType(*member));
+        return result;
+      }
       throw ResolutionError("unsupported type during name resolution", type.span);
     }
 
@@ -65,6 +71,16 @@ namespace NG::vnext::hir
       if (const auto *pointer = dynamic_cast<const syntax::RawPointerTypeSyntax *>(&type))
       {
         return renderTypeName(*pointer->pointee) + (pointer->isMutable ? " *mut" : " *const");
+      }
+      if (const auto *unionType = dynamic_cast<const syntax::UnionTypeSyntax *>(&type))
+      {
+        std::string result;
+        for (size_t index = 0; index < unionType->members.size(); ++index)
+        {
+          if (index != 0) result += " | ";
+          result += renderTypeName(*unionType->members[index]);
+        }
+        return result;
       }
       if (const auto *pack = dynamic_cast<const syntax::PackTypeSyntax *>(&type))
       {
@@ -918,6 +934,7 @@ namespace
       if (argument.constExpr != nullptr) lowered.constExpr = cloneConstExpr(*argument.constExpr);
       cloned.arguments.push_back(std::move(lowered));
     }
+    for (const auto &member : type.members) cloned.members.push_back(cloneType(member));
     return cloned;
   }
 

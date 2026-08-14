@@ -465,6 +465,7 @@ namespace NG::vnext::syntax
     ScopedReference,
     RawPointer,
     Pack,
+    Union,
   };
 
   struct TypeSyntax
@@ -562,6 +563,17 @@ namespace NG::vnext::syntax
     }
   };
 
+
+  /// `A | B | C` union of member types (legacy 19).
+  struct UnionTypeSyntax final : TypeSyntax
+  {
+    std::vector<TypeSyntaxPtr> members;
+
+    UnionTypeSyntax(std::vector<TypeSyntaxPtr> unionMembers, SourceSpan sourceSpan)
+      : TypeSyntax(TypeSyntaxKind::Union, sourceSpan), members(std::move(unionMembers))
+    {
+    }
+  };
 
   struct ScopedReferenceTypeSyntax final : TypeSyntax
   {

@@ -135,6 +135,7 @@ set(NG_TEST_SRC
         test/vnext/trait_object_test.cpp
         test/vnext/variadic_hkt_test.cpp
         test/vnext/recursive_enum_test.cpp
+        test/vnext/union_test.cpp
         test/vnext/ref_type_test.cpp
         test/vnext/ref_runtime_test.cpp
         test/vnext/switch_statement_test.cpp
