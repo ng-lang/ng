@@ -636,10 +636,13 @@ namespace NG::vnext::syntax
   struct StructDeclaration final : ModuleItem
   {
     const std::string name;
+    std::vector<std::string> genericParameters;
     std::vector<StructFieldDeclaration> fields;
 
-    StructDeclaration(std::string structName, std::vector<StructFieldDeclaration> structFields, SourceSpan sourceSpan)
-      : ModuleItem(ModuleItemKind::Struct, sourceSpan), name(std::move(structName)), fields(std::move(structFields))
+    StructDeclaration(std::string structName, std::vector<std::string> parameters,
+                      std::vector<StructFieldDeclaration> structFields, SourceSpan sourceSpan)
+      : ModuleItem(ModuleItemKind::Struct, sourceSpan), name(std::move(structName)),
+        genericParameters(std::move(parameters)), fields(std::move(structFields))
     {
     }
   };

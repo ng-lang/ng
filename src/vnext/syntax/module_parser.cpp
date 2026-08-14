@@ -259,6 +259,19 @@ namespace NG::vnext::syntax
     const Token structToken = consume();
     if (current().kind != TokenKind::Identifier) throw ParseError("expected a struct name after `struct`", current().span);
     const Token name = consume();
+    std::vector<std::string> genericParameters;
+    if (current().kind == TokenKind::Less)
+    {
+      static_cast<void>(consume());
+      while (current().kind != TokenKind::Greater)
+      {
+        if (current().kind != TokenKind::Identifier) throw ParseError("expected a struct generic parameter", current().span);
+        genericParameters.push_back(consume().text);
+        if (current().kind != TokenKind::Comma) break;
+        static_cast<void>(consume());
+      }
+      expect(TokenKind::Greater, "expected `>` after struct generic parameters");
+    }
     expect(TokenKind::LeftBrace, "expected `{` after struct name");
     std::vector<StructFieldDeclaration> fields;
     while (current().kind != TokenKind::RightBrace)
@@ -272,7 +285,8 @@ namespace NG::vnext::syntax
       else if (current().kind != TokenKind::RightBrace) throw ParseError("expected `,` between struct fields", current().span);
     }
     const Token close = consume();
-    return std::make_unique<StructDeclaration>(name.text, std::move(fields), SourceSpan{structToken.span.begin, close.span.end});
+    return std::make_unique<StructDeclaration>(name.text, std::move(genericParameters), std::move(fields),
+                                              SourceSpan{structToken.span.begin, close.span.end});
   }
 
   auto ModuleParser::parseOpaqueTypeDeclaration() -> ModuleItemPtr

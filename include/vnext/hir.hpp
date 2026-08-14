@@ -267,6 +267,7 @@ namespace NG::vnext::hir
     StructId id;
     std::string name;
     syntax::SourceSpan span;
+    std::vector<std::string> genericParameters;
     std::vector<StructField> fields;
   };
 

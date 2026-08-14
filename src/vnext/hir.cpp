@@ -306,7 +306,8 @@ namespace NG::vnext::hir
 
   auto Resolver::resolveStruct(const syntax::StructDeclaration &structure, StructId id) -> Struct
   {
-    Struct resolved{.id = id, .name = structure.name, .span = structure.span};
+    Struct resolved{.id = id, .name = structure.name, .span = structure.span,
+                    .genericParameters = structure.genericParameters};
     std::unordered_set<std::string> names;
     for (const auto &field : structure.fields)
     {

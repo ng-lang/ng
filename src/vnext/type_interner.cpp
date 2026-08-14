@@ -106,14 +106,28 @@ namespace NG::vnext::typecheck
   auto TypeInterner::declareStruct(hir::StructId id, std::string name) -> TypeId
   {
     if (const auto found = structTypes_.find(id.value); found != structTypes_.end()) return found->second;
+    // The base descriptor is a declaration marker; generic instantiations
+    // intern their own descriptors with concrete field types. A zero length
+    // keeps the marker valid for bytecode verification.
     const TypeId result = append(TypeDescriptor{.kind = TypeKind::Struct,
                                                  .name = std::move(name),
                                                  .element = TypeId{},
-                                                 .length = std::nullopt,
+                                                 .length = 0,
                                                  .nominalId = id.value});
     structTypes_.emplace(id.value, result);
     namedTypes_.emplace(descriptors_[result.value].name, result);
     return result;
+  }
+
+  void TypeInterner::registerStructTemplate(const hir::Struct &structure)
+  {
+    structTemplates_[structure.id.value] = &structure;
+    structGenericParameters_[structure.id.value] = structure.genericParameters;
+  }
+
+  auto TypeInterner::structGenericArity(hir::StructId id) const -> size_t
+  {
+    return structGenericParameters_.at(id.value).size();
   }
 
   void TypeInterner::defineStruct(hir::StructId id, std::vector<std::string> fields, std::vector<TypeId> types)
@@ -276,7 +290,42 @@ namespace NG::vnext::typecheck
     if (const auto introspected = resolveTupleIntrospection(type, bindings, constBindings); introspected.has_value())
       return *introspected;
     const auto constructor = namedTypes_.find(type.target->name);
-    if (constructor == namedTypes_.end() || descriptors_[constructor->second.value].kind != TypeKind::Enum) return resolve(type);
+    if (constructor == namedTypes_.end() ||
+        (descriptors_[constructor->second.value].kind != TypeKind::Enum &&
+         descriptors_[constructor->second.value].kind != TypeKind::Struct))
+      return resolve(type);
+    if (descriptors_[constructor->second.value].kind == TypeKind::Struct)
+    {
+      const uint32_t structId = *descriptors_[constructor->second.value].nominalId;
+      const auto &parameters = structGenericParameters_.at(structId);
+      if (type.arguments.size() != parameters.size())
+        throw TypeError(std::format("struct type `{}` expects {} arguments, got {}", type.target->name,
+                                    parameters.size(), type.arguments.size()), type.span);
+      std::unordered_map<std::string, TypeId> nested;
+      std::vector<TypeId> arguments;
+      for (size_t index = 0; index < parameters.size(); ++index)
+      {
+        const TypeId argument = resolveWithBindings(*type.arguments[index].type, bindings, constBindings);
+        nested.emplace(parameters[index], argument);
+        arguments.push_back(argument);
+      }
+      for (uint32_t index = 6; index < descriptors_.size(); ++index)
+        if (descriptors_[index].kind == TypeKind::Struct && descriptors_[index].nominalId == structId &&
+            descriptors_[index].typeArguments == arguments)
+          return TypeId{index};
+      const auto *structure = structTemplates_.at(structId);
+      std::vector<std::string> fields;
+      std::vector<TypeId> fieldTypes;
+      for (const auto &field : structure->fields)
+      {
+        fields.push_back(field.name);
+        fieldTypes.push_back(resolveWithBindings(field.type, nested, constBindings));
+      }
+      return append(TypeDescriptor{.kind = TypeKind::Struct, .name = type.target->name, .element = TypeId{},
+                                   .length = fieldTypes.size(), .elements = std::move(fieldTypes),
+                                   .nominalId = structId, .fieldNames = std::move(fields),
+                                   .typeArguments = std::move(arguments)});
+    }
     const uint32_t enumId = *descriptors_[constructor->second.value].nominalId;
     const auto &parameters = enumGenericParameters_.at(enumId);
     if (type.arguments.size() != parameters.size())
@@ -364,6 +413,12 @@ namespace NG::vnext::typecheck
           if (arity != 0)
             throw TypeError(std::format("enum type `{}` expects {} arguments, got 0", type.name, arity), type.span);
         }
+        if (descriptor.kind == TypeKind::Struct && descriptor.nominalId.has_value())
+        {
+          const size_t arity = structGenericParameters_.at(*descriptor.nominalId).size();
+          if (arity != 0)
+            throw TypeError(std::format("struct type `{}` expects {} arguments, got 0", type.name, arity), type.span);
+        }
         return found->second;
       }
       throw TypeError(std::format("unknown type `{}`", type.name), type.span);
@@ -379,8 +434,44 @@ namespace NG::vnext::typecheck
     if (type.target->name != "array" && type.target->name != "tuple")
     {
       const auto constructor = namedTypes_.find(type.target->name);
-      if (constructor == namedTypes_.end() || descriptors_[constructor->second.value].kind != TypeKind::Enum)
+      if (constructor == namedTypes_.end() ||
+          (descriptors_[constructor->second.value].kind != TypeKind::Enum &&
+           descriptors_[constructor->second.value].kind != TypeKind::Struct))
         throw TypeError(std::format("unknown type constructor `{}`", type.target->name), type.span);
+      if (descriptors_[constructor->second.value].kind == TypeKind::Struct)
+      {
+        const uint32_t structId = descriptors_[constructor->second.value].nominalId.value();
+        const auto &parameters = structGenericParameters_.at(structId);
+        if (type.arguments.size() != parameters.size())
+          throw TypeError(std::format("struct type `{}` expects {} arguments, got {}", type.target->name,
+                                      parameters.size(), type.arguments.size()), type.span);
+        std::unordered_map<std::string, TypeId> nested;
+        std::vector<TypeId> arguments;
+        for (size_t index = 0; index < parameters.size(); ++index)
+        {
+          if (type.arguments[index].kind != syntax::GenericArgumentKind::Type || type.arguments[index].type == nullptr)
+            throw TypeError("struct type arguments must be types", type.arguments[index].span);
+          const TypeId argument = resolve(*type.arguments[index].type);
+          nested.emplace(parameters[index], argument);
+          arguments.push_back(argument);
+        }
+        for (uint32_t index = 6; index < descriptors_.size(); ++index)
+          if (descriptors_[index].kind == TypeKind::Struct && descriptors_[index].nominalId == structId &&
+              descriptors_[index].typeArguments == arguments)
+            return TypeId{index};
+        const auto *structure = structTemplates_.at(structId);
+        std::vector<std::string> fields;
+        std::vector<TypeId> fieldTypes;
+        for (const auto &field : structure->fields)
+        {
+          fields.push_back(field.name);
+          fieldTypes.push_back(resolveWithBindings(field.type, nested, {}));
+        }
+        return append(TypeDescriptor{.kind = TypeKind::Struct, .name = type.target->name, .element = TypeId{},
+                                     .length = fieldTypes.size(), .elements = std::move(fieldTypes),
+                                     .nominalId = structId, .fieldNames = std::move(fields),
+                                     .typeArguments = std::move(arguments)});
+      }
       const auto enumId = descriptors_[constructor->second.value].nominalId.value();
       const auto &parameters = enumGenericParameters_.at(enumId);
       if (type.arguments.size() != parameters.size())

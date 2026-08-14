@@ -1,0 +1,30 @@
+// vNext generic structs (legacy 48 foundation): struct declarations with type
+// parameters instantiate per concrete argument list, sharing the nominal id
+// with per-instance field types.
+
+struct Box<T> {
+    value: T,
+}
+
+struct Pair<A, B> {
+    first: A,
+    second: B,
+}
+
+fun swap_second(pair: Pair<i64, string>) -> string {
+    return pair.second;
+}
+
+fun main() -> i64 {
+    let ints: Box<i64> = Box { value: 42 };
+    let texts: Box<string> = Box { value: "boxed" };
+    let nested: Box<Pair<i64, string>> = Box { value: Pair { first: 3, second: "nested" } };
+    let pair: Pair<i64, string> = Pair { first: 7, second: "pair" };
+
+    let mut total = 0;
+    if (ints.value == 42) { total := total + 1; }
+    if (texts.value == "boxed") { total := total + 2; }
+    if (nested.value.second == "nested") { total := total + 4; }
+    if (swap_second(pair) == "pair") { total := total + 8; }
+    return total;
+}

@@ -39,8 +39,10 @@ namespace NG::vnext::typecheck
           static_cast<void>(interner_.declareEnum(enumeration.id, enumeration.name, enumeration.genericParameters));
           interner_.registerEnumTemplate(enumeration);
         }
+        for (const auto &structure : module.structs) interner_.registerStructTemplate(structure);
         for (const auto &structure : module.structs)
         {
+          if (!structure.genericParameters.empty()) continue;
           std::vector<std::string> fields;
           std::vector<TypeId> types;
           for (const auto &field : structure.fields)
@@ -1853,6 +1855,9 @@ namespace NG::vnext::typecheck
         case hir::ExpressionKind::StructLiteral:
         {
           if (!expression.structId.has_value()) throw TypeError("struct literal has no resolved type", expression.span);
+          if (interner_.structGenericArity(*expression.structId) != 0)
+            throw TypeError(std::format("cannot infer generic arguments for struct literal `{}`; annotate the binding type",
+                                        expression.text), expression.span);
           type = interner_.typeForStruct(*expression.structId);
           return inferExpectedStruct(expression, type, locals);
         }

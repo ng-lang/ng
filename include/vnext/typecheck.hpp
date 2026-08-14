@@ -105,6 +105,8 @@ namespace NG::vnext::typecheck
     [[nodiscard]] auto internRange(TypeId element) -> TypeId;
     [[nodiscard]] auto internTypeParameter(std::string name, uint32_t index) -> TypeId;
     [[nodiscard]] auto declareStruct(hir::StructId id, std::string name) -> TypeId;
+    void registerStructTemplate(const hir::Struct &structure);
+    [[nodiscard]] auto structGenericArity(hir::StructId id) const -> size_t;
     [[nodiscard]] auto declareOpaqueType(std::string name, bool abstract, syntax::SourceSpan span) -> TypeId;
     void defineStruct(hir::StructId id, std::vector<std::string> fields, std::vector<TypeId> types);
     [[nodiscard]] auto typeForStruct(hir::StructId id) const -> TypeId;
@@ -132,6 +134,8 @@ namespace NG::vnext::typecheck
     std::vector<TypeDescriptor> descriptors_;
     std::unordered_map<std::string, TypeId> namedTypes_;
     std::unordered_map<uint32_t, TypeId> structTypes_;
+    std::unordered_map<uint32_t, std::vector<std::string>> structGenericParameters_;
+    std::unordered_map<uint32_t, const hir::Struct *> structTemplates_;
     std::unordered_map<uint32_t, TypeId> enumTypes_;
     std::unordered_map<uint32_t, std::vector<std::string>> enumGenericParameters_;
     std::unordered_map<uint32_t, const hir::Enum *> enumTemplates_;
