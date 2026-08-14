@@ -17,6 +17,12 @@ namespace NG::vnext::syntax
     TypeSyntaxPtr type = parsePrimary();
     while (current().kind != TokenKind::End)
     {
+      if (current().kind == TokenKind::Ellipsis)
+      {
+        static_cast<void>(consume());
+        type = std::make_unique<PackTypeSyntax>(std::move(type), SourceSpan{type->span.begin, tokens_[cursor_ - 1].span.end});
+        continue;
+      }
       if (current().kind == TokenKind::KeywordRef)
       {
         static_cast<void>(consume());
@@ -85,6 +91,12 @@ namespace NG::vnext::syntax
       else
       {
         auto argument = parsePrimary();
+        if (current().kind == TokenKind::Ellipsis)
+        {
+          static_cast<void>(consume());
+          argument = std::make_unique<PackTypeSyntax>(std::move(argument),
+                                                      SourceSpan{argument->span.begin, tokens_[cursor_ - 1].span.end});
+        }
         const SourceSpan span = argument->span;
         arguments.push_back(GenericArgumentSyntax{.kind = GenericArgumentKind::Type,
                                                    .type = std::move(argument),

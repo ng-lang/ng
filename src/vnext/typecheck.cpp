@@ -68,6 +68,15 @@ namespace NG::vnext::typecheck
             signature.genericParameterNames.push_back(function.genericParameters[index]);
             genericBindings.emplace(function.genericParameters[index], parameter);
           }
+          for (size_t index = 0; index < function.packParameters.size(); ++index)
+          {
+            const auto parameter =
+                interner_.internTypeParameter(function.packParameters[index],
+                                              static_cast<uint32_t>(function.genericParameters.size() + index));
+            signature.packParameters.push_back(parameter);
+            signature.packParameterNames.push_back(function.packParameters[index]);
+            genericBindings.emplace(function.packParameters[index], parameter);
+          }
           for (const auto &[parameterName, bounds] : function.traitBounds)
           {
             for (const auto &traitName : bounds)
@@ -116,6 +125,9 @@ namespace NG::vnext::typecheck
                                .functionTypes = std::move(functionTypes_),
                                .functionTypeIds = std::move(functionTypeIds_),
                                .callTargets = std::move(callTargets_),
+                               .callPackArgCounts = std::move(callPackArgCounts_),
+                               .callPackTupleTypes = std::move(callPackTupleTypes_),
+                               .placeholderFunctions = std::move(placeholderFunctions_),
                                .methodReceiverMutable = std::move(methodReceiverMutable_),
                                .methodReceiverRefTypes = std::move(methodReceiverRefTypes_),
                                .constIfSelections = std::move(constIfSelections_),
@@ -133,6 +145,7 @@ namespace NG::vnext::typecheck
       struct Substitution
       {
         std::unordered_map<uint32_t, TypeId> types;
+        std::unordered_map<uint32_t, std::vector<TypeId>> packs;
         TypeInterner::ConstSubstitution consts;
       };
 
@@ -220,7 +233,8 @@ namespace NG::vnext::typecheck
 
       [[nodiscard]] auto isGeneric(const FunctionTypeIds &signature) const -> bool
       {
-        return !signature.genericParameters.empty() || !signature.constParameters.empty();
+        return !signature.genericParameters.empty() || !signature.packParameters.empty() ||
+               !signature.constParameters.empty();
       }
 
       void requireConstArguments(const FunctionTypeIds &signature, const Substitution &substitution,
@@ -590,8 +604,30 @@ namespace NG::vnext::typecheck
       /// the clone is renumbered, registered with specialized types, and its
       /// body re-checked under concrete bindings. Non-generic functions and
       /// non-concrete substitutions return the original id (type-erased).
-      [[nodiscard]] auto instantiateFunction(hir::DefId original, const Substitution &substitution, syntax::SourceSpan span)
-          -> hir::DefId
+      [[nodiscard]] auto specializeReturnType(const FunctionTypeIds &signature, const Substitution &substitution,
+                                              size_t packCount) -> TypeId
+      {
+        const auto &descriptor = interner_.descriptor(signature.returnType);
+        if (descriptor.kind != TypeKind::Tuple) return specialize(signature.returnType, substitution);
+        std::vector<TypeId> elements;
+        for (const auto element : descriptor.elements)
+        {
+          if (interner_.descriptor(element).kind == TypeKind::TypePack)
+          {
+            const auto foundPack = substitution.packs.find(interner_.descriptor(element).element.value);
+            if (foundPack == substitution.packs.end()) continue;
+            elements.insert(elements.end(), foundPack->second.begin(), foundPack->second.end());
+          }
+          else
+          {
+            elements.push_back(specialize(element, substitution));
+          }
+        }
+        return interner_.internTuple(elements);
+      }
+
+      [[nodiscard]] auto instantiateFunction(hir::DefId original, const Substitution &substitution, size_t packCount,
+                                             syntax::SourceSpan span) -> hir::DefId
       {
         const auto &source = module_->functions.at(original.value);
         const auto &signature = signatures_.at(original.value);
@@ -621,6 +657,24 @@ namespace NG::vnext::typecheck
             throw TypeError("const generic argument is not an integer", span);
           key += "|" + std::to_string(value.integerValue);
         }
+        std::vector<TypeId> packElements;
+        if (!signature.packParameters.empty())
+        {
+          const auto packDescriptor = interner_.descriptor(signature.parameters.back());
+          const auto foundPack = substitution.packs.find(packDescriptor.element.value);
+          if (foundPack == substitution.packs.end()) concrete = false;
+          else
+          {
+            key += "|pack=" + std::to_string(foundPack->second.size());
+            for (const auto element : foundPack->second)
+            {
+              if (interner_.descriptor(element).kind == TypeKind::TypeParameter) concrete = false;
+              key += "x" + interner_.display(element);
+              packElements.push_back(element);
+            }
+          }
+        }
+        const bool variadicParameter = !signature.packParameters.empty();
         if (!concrete) return original;
         if (const auto existing = instanceTable_.find(key); existing != instanceTable_.end()) return existing->second;
 
@@ -630,12 +684,20 @@ namespace NG::vnext::typecheck
         clone.name = std::format("{}#{}", source.name, instances_.size());
         FunctionTypeIds instanceSignature;
         instanceSignature.parameters.reserve(signature.parameters.size());
-        for (const auto parameter : signature.parameters) instanceSignature.parameters.push_back(specialize(parameter, substitution));
+        for (size_t index = 0; index < signature.parameters.size(); ++index)
+        {
+          if (variadicParameter && index + 1 == signature.parameters.size())
+          {
+            instanceSignature.parameters.push_back(interner_.internTuple(packElements));
+            continue;
+          }
+          instanceSignature.parameters.push_back(specialize(signature.parameters[index], substitution));
+        }
         instanceSignature.genericParameters = std::move(concreteTypes);
         instanceSignature.genericParameterNames = signature.genericParameterNames;
         instanceSignature.constParameters = signature.constParameters;
         instanceSignature.constParameterNames = signature.constParameterNames;
-        instanceSignature.returnType = specialize(signature.returnType, substitution);
+        instanceSignature.returnType = specializeReturnType(signature, substitution, packCount);
         FunctionType displaySignature;
         for (const auto parameter : instanceSignature.parameters) displaySignature.parameters.push_back(interner_.display(parameter));
         displaySignature.returnType = interner_.display(instanceSignature.returnType);
@@ -654,6 +716,7 @@ namespace NG::vnext::typecheck
         mutableBindings_.clear();
         moveState_ = MoveState{};
         const auto &signature = signatures_.at(function.id.value);
+        if (!signature.packParameters.empty()) placeholderFunctions_.insert(function.id.value);
         genericBindings_.clear();
         for (size_t index = 0; index < function.genericParameters.size(); ++index)
           genericBindings_.emplace(function.genericParameters[index], signature.genericParameters[index]);
@@ -1252,15 +1315,22 @@ namespace NG::vnext::typecheck
           {
             Substitution substitution;
             const size_t supplied = expression.operands.size() - 1;
-            if (supplied != signature.parameters.size())
+            const bool variadic = !signature.packParameters.empty();
+            const size_t fixedParameters = signature.parameters.size() - (variadic ? 1 : 0);
+            if (variadic ? supplied < fixedParameters : supplied != signature.parameters.size())
               throw TypeError(std::format("call argument count mismatch: expected {}, got {}", signature.parameters.size(), supplied), expression.span);
+            const size_t packCount = variadic ? supplied - fixedParameters : 0;
             if (!expression.genericArguments.empty())
             {
               substitution = explicitSubstitution(expression, signature);
               for (size_t index = 0; index < supplied; ++index)
+              {
+                const TypeId parameterType = index < fixedParameters ? signature.parameters[index]
+                                                                     : interner_.descriptor(signature.parameters.back()).element;
                 static_cast<void>(inferExpected(*expression.operands[index + 1],
-                                                specialize(signature.parameters[index], substitution), locals,
+                                                specialize(parameterType, substitution), locals,
                                                 std::format("call argument {}", index + 1)));
+              }
             }
             else
             {
@@ -1268,7 +1338,26 @@ namespace NG::vnext::typecheck
               for (size_t index = 0; index < supplied; ++index)
               {
                 const auto &argument = *expression.operands[index + 1];
-                const auto &parameterDescriptor = interner_.descriptor(signature.parameters[index]);
+                const TypeId parameterType = index < fixedParameters ? signature.parameters[index]
+                                                                     : interner_.descriptor(signature.parameters.back()).element;
+                if (variadic && index >= fixedParameters)
+                {
+                  const TypeId argumentType = infer(argument, locals);
+                  auto &pack = substitution.packs[parameterType.value];
+                  const size_t packPosition = index - fixedParameters;
+                  if (packPosition < pack.size())
+                  {
+                    if (pack[packPosition] != argumentType)
+                      throw TypeError(std::format("generic argument type mismatch: expected {}, got {}", interner_.display(pack[packPosition]),
+                                                  interner_.display(argumentType)), argument.span);
+                  }
+                  else
+                  {
+                    pack.push_back(argumentType);
+                  }
+                  continue;
+                }
+                const auto &parameterDescriptor = interner_.descriptor(parameterType);
                 if (argument.kind == hir::ExpressionKind::EnumLiteral && parameterDescriptor.kind == TypeKind::Enum)
                 {
                   const uint32_t variant = argument.variant.value();
@@ -1280,11 +1369,11 @@ namespace NG::vnext::typecheck
                 }
                 else
                 {
-                  unify(signature.parameters[index], infer(argument, locals), substitution, argument.span);
+                  unify(parameterType, infer(argument, locals), substitution, argument.span);
                 }
               }
             }
-            const TypeId specialized = specialize(signature.returnType, substitution);
+            const TypeId specialized = specializeReturnType(signature, substitution, packCount);
             requireConstArguments(signature, substitution, expression.operands[0]->text, expression.span);
             if (module_ != nullptr && selected.value < module_->functions.size() &&
                 module_->functions.at(selected.value).whereClause != nullptr &&
@@ -1293,11 +1382,21 @@ namespace NG::vnext::typecheck
                               expression.span);
             for (size_t index = 0; index < supplied; ++index)
             {
-              const auto &parameterDescriptor = interner_.descriptor(signature.parameters[index]);
+              const TypeId parameterType = index < fixedParameters ? signature.parameters[index]
+                                                                   : interner_.descriptor(signature.parameters.back()).element;
+              const auto &parameterDescriptor = interner_.descriptor(parameterType);
               if (parameterDescriptor.kind != TypeKind::Reference && parameterDescriptor.kind != TypeKind::RawPointer)
                 trackConsumption(*expression.operands[index + 1], locals);
             }
-            selected = instantiateFunction(selected, substitution, expression.span);
+            if (variadic)
+            {
+              callPackArgCounts_.insert_or_assign(&expression, packCount);
+              std::vector<TypeId> packedTypes;
+              for (size_t index = fixedParameters; index < supplied; ++index)
+                packedTypes.push_back(infer(*expression.operands[index + 1], locals));
+              callPackTupleTypes_.insert_or_assign(&expression, interner_.internTuple(std::move(packedTypes)));
+            }
+            selected = instantiateFunction(selected, substitution, packCount, expression.span);
             requireType(expected, specialized, expression.span, context);
             record(expression, specialized);
             callTargets_.insert_or_assign(&expression, selected);
@@ -1310,12 +1409,44 @@ namespace NG::vnext::typecheck
         }
         if (expression.kind == hir::ExpressionKind::TupleLiteral && descriptor.kind == TypeKind::Tuple)
         {
-          if (expression.operands.size() != descriptor.elements.size())
+          size_t expectedIndex = 0;
+          for (const auto &element : expression.operands)
+          {
+            if (element->kind == hir::ExpressionKind::Prefix && element->text == "...")
+            {
+              const TypeId operand = infer(*element->operands[0], locals);
+              const auto &operandDescriptor = interner_.descriptor(operand);
+              if (expectedIndex < descriptor.elements.size() &&
+                  interner_.descriptor(descriptor.elements[expectedIndex]).kind == TypeKind::TypePack)
+              {
+                // Declaration-side pack marker: the spread consumes it.
+                ++expectedIndex;
+                continue;
+              }
+              if (operandDescriptor.kind == TypeKind::TypePack)
+              {
+                expectedIndex = descriptor.elements.size();
+                continue;
+              }
+              if (operandDescriptor.kind != TypeKind::Tuple)
+                throw TypeError(std::format("cannot spread value of type {}", interner_.display(operand)), element->span);
+              if (expectedIndex + operandDescriptor.elements.size() > descriptor.elements.size())
+                throw TypeError("tuple splice exceeds the expected tuple length", element->span);
+              for (size_t index = 0; index < operandDescriptor.elements.size(); ++index)
+                requireType(descriptor.elements[expectedIndex + index], operandDescriptor.elements[index], element->span,
+                            "tuple splice element");
+              expectedIndex += operandDescriptor.elements.size();
+              continue;
+            }
+            if (expectedIndex >= descriptor.elements.size())
+              throw TypeError(std::format("tuple length mismatch: expected {}, got {}", descriptor.elements.size(),
+                                          expression.operands.size()), expression.span);
+            static_cast<void>(inferExpected(*element, descriptor.elements[expectedIndex++], locals,
+                                            std::format("tuple element {}", expectedIndex)));
+          }
+          if (expectedIndex != descriptor.elements.size())
             throw TypeError(std::format("tuple length mismatch: expected {}, got {}", descriptor.elements.size(),
-                                        expression.operands.size()), expression.span);
-          for (size_t index = 0; index < expression.operands.size(); ++index)
-            static_cast<void>(inferExpected(*expression.operands[index], descriptor.elements[index], locals,
-                                            std::format("tuple element {}", index)));
+                                        expectedIndex), expression.span);
           record(expression, expected);
           return expected;
         }
@@ -1409,8 +1540,22 @@ namespace NG::vnext::typecheck
         case hir::ExpressionKind::TupleLiteral:
         {
           std::vector<TypeId> elements;
-          elements.reserve(expression.operands.size());
-          for (const auto &element : expression.operands) elements.push_back(infer(*element, locals));
+          for (const auto &element : expression.operands)
+          {
+            if (element->kind == hir::ExpressionKind::Prefix && element->text == "...")
+            {
+              const TypeId operand = infer(*element->operands[0], locals);
+              const auto &descriptor = interner_.descriptor(operand);
+              if (descriptor.kind == TypeKind::Tuple)
+                elements.insert(elements.end(), descriptor.elements.begin(), descriptor.elements.end());
+              else if (descriptor.kind == TypeKind::TypePack)
+                elements.push_back(descriptor.element);
+              else
+                throw TypeError(std::format("cannot spread value of type {}", interner_.display(operand)), element->span);
+              continue;
+            }
+            elements.push_back(infer(*element, locals));
+          }
           type = interner_.internTuple(elements);
           break;
         }
@@ -1467,6 +1612,10 @@ namespace NG::vnext::typecheck
           {
             type = operand;
             break;
+          }
+          if (expression.text == "...")
+          {
+            throw TypeError("spread is only valid inside tuple literals", expression.span);
           }
           type = expression.text == "!" ? builtin::Bool : builtin::I64;
           requireType(type, operand, expression.span, "prefix operand");
@@ -1535,9 +1684,12 @@ namespace NG::vnext::typecheck
           }
           const auto &signature = signatures_.at(selected.value);
           const size_t supplied = expression.operands.size() - 1;
-          if (supplied != signature.parameters.size())
+          const bool variadic = !signature.packParameters.empty();
+          const size_t fixedParameters = signature.parameters.size() - (variadic ? 1 : 0);
+          if (variadic ? supplied < fixedParameters : supplied != signature.parameters.size())
             throw TypeError(std::format("call argument count mismatch: expected {}, got {}", signature.parameters.size(), supplied),
                             expression.span);
+          const size_t packCount = variadic ? supplied - fixedParameters : 0;
           Substitution substitution;
           if (!expression.genericArguments.empty())
           {
@@ -1552,13 +1704,32 @@ namespace NG::vnext::typecheck
             for (size_t index = 0; index < supplied; ++index)
             {
               const auto &argument = *expression.operands[index + 1];
+              const TypeId parameterType = index < fixedParameters ? signature.parameters[index]
+                                                                   : interner_.descriptor(signature.parameters.back()).element;
               if (!isGeneric(signature))
               {
-                static_cast<void>(inferExpected(argument, signature.parameters[index], locals,
+                static_cast<void>(inferExpected(argument, parameterType, locals,
                                                 std::format("call argument {}", index + 1)));
                 continue;
               }
-              const auto &expectedDescriptor = interner_.descriptor(signature.parameters[index]);
+              if (variadic && index >= fixedParameters)
+              {
+                const TypeId argumentType = infer(argument, locals);
+                auto &pack = substitution.packs[parameterType.value];
+                const size_t packPosition = index - fixedParameters;
+                if (packPosition < pack.size())
+                {
+                  if (pack[packPosition] != argumentType)
+                    throw TypeError(std::format("generic argument type mismatch: expected {}, got {}", interner_.display(pack[packPosition]),
+                                                interner_.display(argumentType)), argument.span);
+                }
+                else
+                {
+                  pack.push_back(argumentType);
+                }
+                continue;
+              }
+              const auto &expectedDescriptor = interner_.descriptor(parameterType);
               if (argument.kind == hir::ExpressionKind::EnumLiteral && expectedDescriptor.kind == TypeKind::Enum)
               {
                 if (!argument.enumId.has_value() || !argument.variant.has_value() ||
@@ -1574,11 +1745,11 @@ namespace NG::vnext::typecheck
               }
               else
               {
-                unify(signature.parameters[index], infer(argument, locals), substitution, argument.span);
+                unify(parameterType, infer(argument, locals), substitution, argument.span);
               }
             }
           }
-          type = specialize(signature.returnType, substitution);
+          type = specializeReturnType(signature, substitution, packCount);
           if (!signature.genericParameters.empty() && interner_.descriptor(type).kind == TypeKind::TypeParameter)
             throw TypeError(std::format("cannot infer generic arguments for function `{}`", expression.operands[0]->text), expression.span);
           requireConstArguments(signature, substitution, expression.operands[0]->text, expression.span);
@@ -1589,11 +1760,21 @@ namespace NG::vnext::typecheck
                             expression.span);
           for (size_t index = 0; index < supplied; ++index)
           {
-            const auto &parameterDescriptor = interner_.descriptor(signature.parameters[index]);
+            const TypeId parameterType = index < fixedParameters ? signature.parameters[index]
+                                                                 : interner_.descriptor(signature.parameters.back()).element;
+            const auto &parameterDescriptor = interner_.descriptor(parameterType);
             if (parameterDescriptor.kind != TypeKind::Reference && parameterDescriptor.kind != TypeKind::RawPointer)
               trackConsumption(*expression.operands[index + 1], locals);
           }
-          selected = instantiateFunction(selected, substitution, expression.span);
+          if (variadic)
+          {
+            callPackArgCounts_.insert_or_assign(&expression, packCount);
+            std::vector<TypeId> packedTypes;
+            for (size_t index = fixedParameters; index < supplied; ++index)
+              packedTypes.push_back(infer(*expression.operands[index + 1], locals));
+            callPackTupleTypes_.insert_or_assign(&expression, interner_.internTuple(std::move(packedTypes)));
+          }
+          selected = instantiateFunction(selected, substitution, packCount, expression.span);
           callTargets_.insert_or_assign(&expression, selected);
           break;
         }
@@ -1698,7 +1879,7 @@ namespace NG::vnext::typecheck
         if (expectedDescriptor.kind != actualDescriptor.kind)
           throw TypeError(std::format("generic argument type mismatch: expected {}, got {}", interner_.display(expected),
                                       interner_.display(actual)), span);
-        if (expectedDescriptor.kind == TypeKind::Enum || expectedDescriptor.kind == TypeKind::Tuple)
+        if (expectedDescriptor.kind == TypeKind::Enum)
         {
           if (expectedDescriptor.nominalId != actualDescriptor.nominalId ||
               expectedDescriptor.elements.size() != actualDescriptor.elements.size())
@@ -1706,6 +1887,47 @@ namespace NG::vnext::typecheck
                                         interner_.display(actual)), span);
           for (size_t index = 0; index < expectedDescriptor.elements.size(); ++index)
             unify(expectedDescriptor.elements[index], actualDescriptor.elements[index], substitution, span);
+          return;
+        }
+        if (expectedDescriptor.kind == TypeKind::Tuple)
+        {
+          const bool hasPack = std::any_of(expectedDescriptor.elements.begin(), expectedDescriptor.elements.end(),
+                                           [this](TypeId element) { return interner_.descriptor(element).kind == TypeKind::TypePack; });
+          if (!hasPack)
+          {
+            if (expectedDescriptor.elements.size() != actualDescriptor.elements.size())
+              throw TypeError(std::format("generic argument type mismatch: expected {}, got {}", interner_.display(expected),
+                                          interner_.display(actual)), span);
+            for (size_t index = 0; index < expectedDescriptor.elements.size(); ++index)
+              unify(expectedDescriptor.elements[index], actualDescriptor.elements[index], substitution, span);
+            return;
+          }
+          if (actualDescriptor.kind != TypeKind::Tuple)
+            throw TypeError(std::format("generic argument type mismatch: expected {}, got {}", interner_.display(expected),
+                                        interner_.display(actual)), span);
+          size_t expectedIndex = 0;
+          while (interner_.descriptor(expectedDescriptor.elements[expectedIndex]).kind != TypeKind::TypePack) ++expectedIndex;
+          const size_t trailing = expectedDescriptor.elements.size() - expectedIndex - 1;
+          if (actualDescriptor.elements.size() + 1 < expectedDescriptor.elements.size())
+            throw TypeError(std::format("generic argument type mismatch: expected {}, got {}", interner_.display(expected),
+                                        interner_.display(actual)), span);
+          for (size_t index = 0; index < expectedIndex; ++index)
+            unify(expectedDescriptor.elements[index], actualDescriptor.elements[index], substitution, span);
+          const TypeId packElement = interner_.descriptor(expectedDescriptor.elements[expectedIndex]).element;
+          const size_t packSize = actualDescriptor.elements.size() - expectedIndex - trailing;
+          auto &pack = substitution.packs[packElement.value];
+          if (pack.empty())
+          {
+            for (size_t index = 0; index < packSize; ++index)
+              pack.push_back(actualDescriptor.elements[expectedIndex + index]);
+          }
+          else if (pack.size() != packSize)
+          {
+            throw TypeError("generic argument type mismatch: expected {}, got {}", span);
+          }
+          for (size_t index = 0; index < trailing; ++index)
+            unify(expectedDescriptor.elements[expectedIndex + 1 + index],
+                  actualDescriptor.elements[actualDescriptor.elements.size() - trailing + index], substitution, span);
           return;
         }
         if (expectedDescriptor.kind == TypeKind::DynamicArray || expectedDescriptor.kind == TypeKind::FixedArray)
@@ -1751,6 +1973,9 @@ namespace NG::vnext::typecheck
       std::unordered_map<std::string, std::vector<ConstDeclChecked>> constDeclarations_;
       std::unordered_map<std::string, TraitInfo> traits_;
       std::vector<ImplInfo> impls_;
+      std::unordered_map<const hir::Expression *, size_t> callPackArgCounts_;
+      std::unordered_map<const hir::Expression *, TypeId> callPackTupleTypes_;
+      std::unordered_set<uint32_t> placeholderFunctions_;
       std::unordered_map<const hir::Expression *, bool> methodReceiverMutable_;
       std::unordered_map<const hir::Expression *, TypeId> methodReceiverRefTypes_;
       std::unordered_map<std::string, hir::DefId> instanceTable_;

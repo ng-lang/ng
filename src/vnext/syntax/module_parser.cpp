@@ -305,6 +305,12 @@ namespace NG::vnext::syntax
         {
           if (current().kind != TokenKind::Identifier) throw ParseError("expected a function generic parameter", current().span);
           const Token parameter = consume();
+          bool pack = false;
+          if (current().kind == TokenKind::Ellipsis)
+          {
+            static_cast<void>(consume());
+            pack = true;
+          }
           std::vector<std::string> traitBounds;
           if (current().kind == TokenKind::Colon)
           {
@@ -317,7 +323,7 @@ namespace NG::vnext::syntax
               static_cast<void>(consume());
             }
           }
-          genericParameters.push_back(GenericParameter{.kind = GenericParameterKind::Type,
+          genericParameters.push_back(GenericParameter{.kind = pack ? GenericParameterKind::Pack : GenericParameterKind::Type,
                                                         .name = parameter.text,
                                                         .type = nullptr,
                                                         .traitBounds = std::move(traitBounds),

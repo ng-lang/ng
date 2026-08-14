@@ -70,6 +70,7 @@ namespace NG::vnext::syntax
     GreaterEqual,
     EqualEqual,
     NotEqual,
+    Ellipsis,
     Ampersand,
     Caret,
     Pipe,

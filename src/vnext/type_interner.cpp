@@ -73,6 +73,11 @@ namespace NG::vnext::typecheck
                                  .length = std::nullopt, .referenceMutable = mutablePointee});
   }
 
+  auto TypeInterner::internTypePack(TypeId element) -> TypeId
+  {
+    return append(TypeDescriptor{.kind = TypeKind::TypePack, .name = "type pack", .element = element});
+  }
+
   auto TypeInterner::internTuple(const std::vector<TypeId> &elements) -> TypeId
   {
     for (uint32_t index = 6; index < descriptors_.size(); ++index)
@@ -221,6 +226,8 @@ namespace NG::vnext::typecheck
     }
     if (type.kind == hir::TypeKind::ScopedReference && type.target != nullptr)
       return internReference(resolveWithBindings(*type.target, bindings, constBindings), type.isMutable);
+    if (type.kind == hir::TypeKind::Pack && type.target != nullptr)
+      return internTypePack(resolveWithBindings(*type.target, bindings, constBindings));
     if (type.kind == hir::TypeKind::RawPointer && type.target != nullptr)
       return internRawPointer(resolveWithBindings(*type.target, bindings, constBindings), type.isMutable);
     if (type.kind != hir::TypeKind::Applied || type.target == nullptr || type.target->kind != hir::TypeKind::Named)
@@ -397,6 +404,7 @@ namespace NG::vnext::typecheck
     if (item.kind == TypeKind::RawPointer)
       return std::format("{} {}", display(item.element), item.referenceMutable ? "*mut" : "*const");
     if (item.kind == TypeKind::Struct || item.kind == TypeKind::Enum || item.kind == TypeKind::TypeParameter) return item.name;
+    if (item.kind == TypeKind::TypePack) return display(item.element) + "...";
     std::string result{"tuple<"};
     for (size_t index = 0; index < item.elements.size(); ++index)
     {

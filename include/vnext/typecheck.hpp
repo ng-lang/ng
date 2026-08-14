@@ -45,6 +45,7 @@ namespace NG::vnext::typecheck
     DependentArray,
     Reference,
     RawPointer,
+    TypePack,
     Tuple,
     Struct,
     Enum,
@@ -94,6 +95,7 @@ namespace NG::vnext::typecheck
     [[nodiscard]] auto internReference(TypeId target, bool mutableReference) -> TypeId;
     [[nodiscard]] auto internRawPointer(TypeId target, bool mutablePointee) -> TypeId;
     [[nodiscard]] auto internTuple(const std::vector<TypeId> &elements) -> TypeId;
+    [[nodiscard]] auto internTypePack(TypeId element) -> TypeId;
     [[nodiscard]] auto internTypeParameter(std::string name, uint32_t index) -> TypeId;
     [[nodiscard]] auto declareStruct(hir::StructId id, std::string name) -> TypeId;
     void defineStruct(hir::StructId id, std::vector<std::string> fields, std::vector<TypeId> types);
@@ -133,6 +135,8 @@ namespace NG::vnext::typecheck
     std::vector<TypeId> parameters;
     std::vector<TypeId> genericParameters;
     std::vector<std::string> genericParameterNames;
+    std::vector<TypeId> packParameters;
+    std::vector<std::string> packParameterNames;
     std::vector<TypeId> constParameters;
     std::vector<std::string> constParameterNames;
     TypeId returnType;
@@ -150,6 +154,14 @@ namespace NG::vnext::typecheck
     std::unordered_map<uint32_t, FunctionType> functionTypes;
     std::unordered_map<uint32_t, FunctionTypeIds> functionTypeIds;
     std::unordered_map<const hir::Expression *, hir::DefId> callTargets;
+    /// Number of trailing call arguments packed into the callee's tuple
+    /// parameter (variadic calls).
+    std::unordered_map<const hir::Expression *, size_t> callPackArgCounts;
+    /// Static tuple type of a variadic call's packed trailing arguments.
+    std::unordered_map<const hir::Expression *, TypeId> callPackTupleTypes;
+    /// Declared functions whose bodies cannot be lowered type-erased
+    /// (variadic originals); the driver emits inert placeholders.
+    std::unordered_set<uint32_t> placeholderFunctions;
     /// Whether the receiver of a method call must be borrowed mutably.
     std::unordered_map<const hir::Expression *, bool> methodReceiverMutable;
     /// The typed reference form of a method receiver (`Self ref` / `Self ref mut`).

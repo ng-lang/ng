@@ -19,6 +19,7 @@ namespace NG::vnext::bytecode
         OpcodeDescriptor{Opcode::AssignPlace, "assign_place", OperandLayout::CountPrefixedTail, 3},
         OpcodeDescriptor{Opcode::LoadVariant, "load_variant", OperandLayout::Fixed, 2},
         OpcodeDescriptor{Opcode::ExtractPayload, "extract_payload", OperandLayout::Fixed, 2},
+        OpcodeDescriptor{Opcode::SpliceTuple, "splice_tuple", OperandLayout::CountPrefixedTail, 1},
         OpcodeDescriptor{Opcode::Return, "return", OperandLayout::CountPrefixedTail, 0},
         OpcodeDescriptor{Opcode::Jump, "jump", OperandLayout::CountPrefixedTail, 1},
         OpcodeDescriptor{Opcode::Branch, "branch", OperandLayout::Fixed, 3},
@@ -147,6 +148,12 @@ namespace NG::vnext::bytecode
         else if (instruction.kind == flowir::InstructionKind::LoadRef)
         {
           appendInstruction(result.code, Opcode::LoadRef, {instruction.result.value, instruction.operands[0].value});
+        }
+        else if (instruction.kind == flowir::InstructionKind::TupleSplice)
+        {
+          std::vector<uint32_t> operands{instruction.result.value, static_cast<uint32_t>(instruction.operands.size())};
+          for (const auto value : instruction.operands) operands.push_back(value.value);
+          appendInstruction(result.code, Opcode::SpliceTuple, operands);
         }
         else if (instruction.kind == flowir::InstructionKind::EnumVariantIndex)
         {
@@ -281,11 +288,13 @@ namespace NG::vnext::bytecode
       if (descriptor.kind != typecheck::TypeKind::Builtin && descriptor.kind != typecheck::TypeKind::DynamicArray &&
           descriptor.kind != typecheck::TypeKind::FixedArray && descriptor.kind != typecheck::TypeKind::DependentArray &&
           descriptor.kind != typecheck::TypeKind::Reference && descriptor.kind != typecheck::TypeKind::RawPointer &&
+          descriptor.kind != typecheck::TypeKind::TypePack &&
           descriptor.kind != typecheck::TypeKind::Tuple &&
           descriptor.kind != typecheck::TypeKind::Struct && descriptor.kind != typecheck::TypeKind::Enum &&
           descriptor.kind != typecheck::TypeKind::TypeParameter)
         throw BytecodeError("bytecode type descriptor kind is invalid");
-      if (descriptor.kind == typecheck::TypeKind::Reference || descriptor.kind == typecheck::TypeKind::RawPointer)
+      if (descriptor.kind == typecheck::TypeKind::Reference || descriptor.kind == typecheck::TypeKind::RawPointer ||
+          descriptor.kind == typecheck::TypeKind::TypePack)
         verifyTypeId(descriptor.element);
       if (descriptor.kind == typecheck::TypeKind::DynamicArray || descriptor.kind == typecheck::TypeKind::FixedArray ||
           descriptor.kind == typecheck::TypeKind::DependentArray)
@@ -578,6 +587,25 @@ namespace NG::vnext::bytecode
           }
           if (requireValueType(instruction.operands[2]) != current)
             throw BytecodeError("bytecode place assignment value type mismatch");
+        }
+        else if (instruction.opcode == Opcode::SpliceTuple)
+        {
+          const auto resultType = requireValueType(instruction.operands[0]);
+          if (resultType.value >= function.typeDescriptors.size()) throw BytecodeError("bytecode value type descriptor is out of range");
+          const auto &tuple = function.typeDescriptors[resultType.value];
+          if (tuple.kind != typecheck::TypeKind::Tuple) throw BytecodeError("bytecode tuple splice result is not a tuple type");
+          size_t staticElements{};
+          for (size_t index = 0; index < instruction.operands[1]; ++index)
+          {
+            const auto operandType = requireValueType(instruction.operands[2 + index]);
+            const auto &operandDescriptor = function.typeDescriptors[operandType.value];
+            if (operandDescriptor.kind == typecheck::TypeKind::Tuple)
+              staticElements += operandDescriptor.elements.size();
+            else if (operandDescriptor.kind != typecheck::TypeKind::TypePack)
+              ++staticElements;
+          }
+          if (tuple.elements.size() != staticElements)
+            throw BytecodeError("bytecode tuple splice element count mismatch");
         }
         else if (instruction.opcode == Opcode::LoadVariant)
         {

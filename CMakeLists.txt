@@ -118,6 +118,7 @@ set(NG_TEST_SRC
         test/vnext/move_semantics_test.cpp
         test/vnext/native_function_test.cpp
         test/vnext/stdlib_test.cpp
+        test/vnext/variadic_pack_test.cpp
         test/vnext/ref_type_test.cpp
         test/vnext/ref_runtime_test.cpp
         test/vnext/switch_statement_test.cpp

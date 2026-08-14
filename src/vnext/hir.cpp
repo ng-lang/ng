@@ -34,6 +34,9 @@ namespace NG::vnext::hir
       if (const auto *pointer = dynamic_cast<const syntax::RawPointerTypeSyntax *>(&type))
         return Type{.kind = TypeKind::RawPointer, .span = type.span,
                     .target = std::make_unique<Type>(lowerType(*pointer->pointee)), .isMutable = pointer->isMutable};
+      if (const auto *pack = dynamic_cast<const syntax::PackTypeSyntax *>(&type))
+        return Type{.kind = TypeKind::Pack, .span = type.span,
+                    .target = std::make_unique<Type>(lowerType(*pack->target))};
       throw ResolutionError("unsupported type during name resolution", type.span);
     }
 
@@ -62,6 +65,10 @@ namespace NG::vnext::hir
       if (const auto *pointer = dynamic_cast<const syntax::RawPointerTypeSyntax *>(&type))
       {
         return renderTypeName(*pointer->pointee) + (pointer->isMutable ? " *mut" : " *const");
+      }
+      if (const auto *pack = dynamic_cast<const syntax::PackTypeSyntax *>(&type))
+      {
+        return renderTypeName(*pack->target) + "...";
       }
       throw ResolutionError("unsupported type during name resolution", type.span);
     }
@@ -324,7 +331,8 @@ namespace NG::vnext::hir
       }
       else
       {
-        resolved.genericParameters.push_back(parameter.name);
+        if (parameter.kind == syntax::GenericParameterKind::Pack) resolved.packParameters.push_back(parameter.name);
+        else resolved.genericParameters.push_back(parameter.name);
         if (!parameter.traitBounds.empty()) resolved.traitBounds.emplace_back(parameter.name, parameter.traitBounds);
       }
     }
@@ -921,6 +929,7 @@ namespace
                     .name = source.name,
                     .span = source.span,
                     .genericParameters = source.genericParameters,
+                    .packParameters = source.packParameters,
                     .constFunction = source.constFunction,
                     .exported = source.exported,
                     .nativeFunction = source.nativeFunction,

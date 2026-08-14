@@ -92,6 +92,16 @@ namespace NG::vnext
         flows.reserve(resolved.functions.size() + typed.instances.size());
         for (const auto &function : resolved.functions)
         {
+          if (typed.placeholderFunctions.contains(function.id.value))
+          {
+            flowir::Function placeholder{.source = function.id, .name = function.name};
+            placeholder.entry = flowir::BlockId{0};
+            flowir::Block block{.id = flowir::BlockId{0}};
+            block.terminator = flowir::Terminator{.kind = flowir::TerminatorKind::Return};
+            placeholder.blocks.push_back(std::move(block));
+            flows.push_back(std::move(placeholder));
+            continue;
+          }
           flows.push_back(flowir::Lowerer{}.lower(function, typed));
           flowir::Verifier{}.verify(flows.back());
         }

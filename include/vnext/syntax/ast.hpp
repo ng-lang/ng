@@ -447,6 +447,7 @@ namespace NG::vnext::syntax
     Applied,
     ScopedReference,
     RawPointer,
+    Pack,
   };
 
   struct TypeSyntax
@@ -456,6 +457,17 @@ namespace NG::vnext::syntax
 
     explicit TypeSyntax(TypeSyntaxKind typeKind, SourceSpan sourceSpan) : kind(typeKind), span(sourceSpan) {}
     virtual ~TypeSyntax() = default;
+  };
+
+  /// Postfix pack type: `T...`.
+  struct PackTypeSyntax final : TypeSyntax
+  {
+    TypeSyntaxPtr target;
+
+    PackTypeSyntax(TypeSyntaxPtr packedType, SourceSpan sourceSpan)
+      : TypeSyntax(TypeSyntaxKind::Pack, sourceSpan), target(std::move(packedType))
+    {
+    }
   };
 
   struct NamedTypeSyntax final : TypeSyntax
@@ -574,6 +586,7 @@ namespace NG::vnext::syntax
   {
     Type,
     Const,
+    Pack,
   };
 
   struct GenericParameter

@@ -1,0 +1,24 @@
+// vNext variadic type packs: heterogeneous `T...` parameters lower to a
+// tuple parameter at instantiation; tuple literals splice spreads.
+
+fun gather<T...>(args: T...) -> tuple<T...> {
+    return (...args,);
+}
+
+fun append_value<T...>(args: T...) -> tuple<T..., i64> {
+    return (...args, 42);
+}
+
+fun main() -> i64 {
+    let packed: tuple<i64, string, bool> = gather(1, "pack", false);
+    let extended: tuple<i64, string, i64> = append_value(1, "two");
+    let solo: tuple<string> = gather("solo");
+    let pair: tuple<i64, bool> = gather(5, true);
+
+    let mut total = 0;
+    if (packed.1 == "pack") { total := total + 1; }
+    if (extended.2 == 42) { total := total + 2; }
+    if (solo.0 == "solo") { total := total + 4; }
+    if (pair.0 == 5 && pair.1) { total := total + 8; }
+    return total;
+}

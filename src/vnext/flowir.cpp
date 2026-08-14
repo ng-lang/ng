@@ -71,6 +71,12 @@ namespace NG::vnext::flowir
         if (expression.kind == hir::ExpressionKind::Call && expression.methodCall)
           return lowerMethodCall(expression);
 
+        if (expression.kind == hir::ExpressionKind::TupleLiteral &&
+            std::any_of(expression.operands.begin(), expression.operands.end(), [](const auto &operand) {
+              return operand->kind == hir::ExpressionKind::Prefix && operand->text == "...";
+            }))
+          return lowerTupleSplice(expression);
+
         const bool directCall = expression.kind == hir::ExpressionKind::Call && !expression.operands.empty() &&
                                 expression.operands[0]->resolvedName.has_value() &&
                                 expression.operands[0]->resolvedName->kind == hir::ResolvedNameKind::Function;
@@ -79,6 +85,24 @@ namespace NG::vnext::flowir
         for (size_t index = directCall ? 1 : 0; index < expression.operands.size(); ++index)
         {
           operands.push_back(lowerExpression(*expression.operands[index]));
+        }
+        if (directCall && types_ != nullptr)
+        {
+          if (const auto packCount = types_->callPackArgCounts.find(&expression); packCount != types_->callPackArgCounts.end())
+          {
+            // Variadic call: splice the trailing arguments into one tuple value.
+            std::vector<ValueId> packOperands;
+            for (size_t index = operands.size() - packCount->second; index < operands.size(); ++index)
+              packOperands.push_back(operands[index]);
+            const ValueId packed{nextValue_++};
+            if (const auto packedType = types_->callPackTupleTypes.find(&expression); packedType != types_->callPackTupleTypes.end())
+              function_.valueTypes.emplace(packed.value, packedType->second);
+            block().instructions.push_back(Instruction{.kind = InstructionKind::TupleSplice,
+                                                       .result = packed,
+                                                       .operands = std::move(packOperands)});
+            operands.resize(operands.size() - packCount->second);
+            operands.push_back(packed);
+          }
         }
         int64_t payload{};
         if (expression.kind == hir::ExpressionKind::IntegerLiteral)
@@ -235,6 +259,25 @@ namespace NG::vnext::flowir
         const ValueId reference = lowerExpression(*expression.operands[0]);
         block().instructions.push_back(
             Instruction{.kind = InstructionKind::LoadRef, .result = result, .operands = {reference}});
+        return result;
+      }
+
+      /// Lowers a tuple literal containing spreads to a runtime splice.
+      [[nodiscard]] auto lowerTupleSplice(const hir::Expression &expression) -> ValueId
+      {
+        std::vector<ValueId> operands;
+        for (const auto &element : expression.operands)
+        {
+          if (element->kind == hir::ExpressionKind::Prefix && element->text == "...")
+            operands.push_back(lowerExpression(*element->operands[0]));
+          else
+            operands.push_back(lowerExpression(*element));
+        }
+        const ValueId result{nextValue_++};
+        if (types_ != nullptr) function_.valueTypes.emplace(result.value, types_->typeIdOf(expression));
+        block().instructions.push_back(Instruction{.kind = InstructionKind::TupleSplice,
+                                                   .result = result,
+                                                   .operands = std::move(operands)});
         return result;
       }
 

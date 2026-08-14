@@ -102,6 +102,21 @@ namespace NG::vnext::vm
       case bytecode::Opcode::LoadVariant:
         detail::loadVariantInstruction(instruction, values);
         break;
+      case bytecode::Opcode::SpliceTuple:
+      {
+        if (values.size() <= instruction.operands[0]) values.resize(instruction.operands[0] + 1);
+        std::vector<Value> elements;
+        for (size_t index = 0; index < instruction.operands[1]; ++index)
+        {
+          const auto &operand = values.at(instruction.operands[2 + index]);
+          if (operand.isTuple())
+            for (const auto &element : operand.asTuple()) elements.push_back(element.deepCopy());
+          else
+            elements.push_back(operand.deepCopy());
+        }
+        values[instruction.operands[0]] = Value::tuple(std::move(elements));
+        break;
+      }
       case bytecode::Opcode::ExtractPayload:
         detail::extractPayloadInstruction(instruction, values);
         break;
@@ -250,6 +265,21 @@ namespace NG::vnext::vm
       if (instruction.opcode == bytecode::Opcode::LoadVariant)
       {
         detail::loadVariantInstruction(instruction, frame.values);
+        continue;
+      }
+      if (instruction.opcode == bytecode::Opcode::SpliceTuple)
+      {
+        if (frame.values.size() <= instruction.operands[0]) frame.values.resize(instruction.operands[0] + 1);
+        std::vector<Value> elements;
+        for (size_t index = 0; index < instruction.operands[1]; ++index)
+        {
+          const auto &operand = frame.values.at(instruction.operands[2 + index]);
+          if (operand.isTuple())
+            for (const auto &element : operand.asTuple()) elements.push_back(element.deepCopy());
+          else
+            elements.push_back(operand.deepCopy());
+        }
+        frame.values[instruction.operands[0]] = Value::tuple(std::move(elements));
         continue;
       }
       if (instruction.opcode == bytecode::Opcode::ExtractPayload)

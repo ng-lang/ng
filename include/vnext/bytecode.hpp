@@ -21,6 +21,7 @@ namespace NG::vnext::bytecode
     AssignPlace,
     LoadVariant,
     ExtractPayload,
+    SpliceTuple,
     Return,
     Jump,
     Branch,

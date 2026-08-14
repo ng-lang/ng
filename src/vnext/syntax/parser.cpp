@@ -51,6 +51,12 @@ namespace NG::vnext::syntax
       }
     }
 
+    [[nodiscard]] auto tokenKindForThreeCharacters(std::string_view text) -> TokenKind
+    {
+      if (text == "...") return TokenKind::Ellipsis;
+      return TokenKind::End;
+    }
+
     [[nodiscard]] auto tokenKindForTwoCharacters(std::string_view text) -> TokenKind
     {
       if (text == ":=") return TokenKind::Assign;
@@ -193,6 +199,18 @@ namespace NG::vnext::syntax
         continue;
       }
 
+      if (offset + 2 < source.size())
+      {
+        const auto threeCharacterKind = tokenKindForThreeCharacters(source.substr(offset, 3));
+        if (threeCharacterKind != TokenKind::End)
+        {
+          tokens.push_back(Token{.kind = threeCharacterKind,
+                                 .text = std::string{source.substr(offset, 3)},
+                                 .span = SourceSpan{offset, offset + 3}});
+          offset += 3;
+          continue;
+        }
+      }
       if (offset + 1 < source.size())
       {
         const auto twoCharacterKind = tokenKindForTwoCharacters(source.substr(offset, 2));
@@ -591,6 +609,7 @@ namespace NG::vnext::syntax
     case TokenKind::Minus:
     case TokenKind::Bang:
     case TokenKind::Star:
+    case TokenKind::Ellipsis:
     case TokenKind::KeywordMove:
     case TokenKind::KeywordClone: return 110;
     default:                    return -1;

@@ -189,6 +189,7 @@ namespace NG::vnext::hir
     Applied,
     ScopedReference,
     RawPointer,
+    Pack,
   };
 
   struct Type;
@@ -234,6 +235,7 @@ namespace NG::vnext::hir
     std::string name;
     syntax::SourceSpan span;
     std::vector<std::string> genericParameters;
+    std::vector<std::string> packParameters;
     std::vector<ConstParameter> constParameters;
     std::vector<Parameter> parameters;
     std::optional<std::string> returnTypeName;

@@ -35,6 +35,9 @@ namespace NG::vnext::flowir
     LoadRef,
     /// Writes through a place: a local-rooted path or a reference-rooted path.
     AssignPlace,
+    /// Splices tuple values and plain elements into one tuple (spreads and
+    /// variadic argument packing).
+    TupleSplice,
     /// Reads the variant ordinal of an enum value as i64.
     EnumVariantIndex,
     /// Reads the payload of an enum value (unit for payloadless variants).
