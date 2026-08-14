@@ -216,7 +216,7 @@ namespace NG::vnext::hir
     nextLoop_ = 0;
 
     constParameters_.clear();
-    Function resolved{.id = id, .name = function.name, .span = function.span};
+    Function resolved{.id = id, .name = function.name, .span = function.span, .constFunction = function.constFunction};
     for (const auto &parameter : function.genericParameters)
     {
       if (parameter.kind == syntax::GenericParameterKind::Const)
@@ -546,6 +546,29 @@ namespace NG::vnext::hir
             return resolved;
           }
         }
+      }
+      if (const auto *application = dynamic_cast<const syntax::GenericApplicationExpression *>(call->callee.get()))
+      {
+        // Explicit generic arguments on a call: `name<args>(...)`. Resolve the
+        // applied name as the call target and keep the arguments on the call.
+        syntax::IdentifierExpression identifier{application->name, application->span};
+        auto target = std::make_unique<Expression>(Expression{.kind = ExpressionKind::ResolvedName,
+                                                             .span = application->span,
+                                                             .text = application->name,
+                                                             .resolvedName = resolveName(identifier)});
+        if (target->resolvedName->kind == ResolvedNameKind::Function)
+          target->functionCandidates = functions_.at(application->name);
+        for (const auto &argument : application->arguments)
+        {
+          TypeArgument lowered{.kind = argument.kind, .span = argument.span};
+          if (argument.type != nullptr) lowered.type = std::make_unique<Type>(lowerType(*argument.type));
+          if (argument.constExpr != nullptr) lowered.constExpr = cloneConstExpr(*argument.constExpr);
+          resolved->genericArguments.push_back(std::move(lowered));
+        }
+        resolved->kind = ExpressionKind::Call;
+        resolved->operands.push_back(std::move(target));
+        for (const auto &argument : call->arguments) resolved->operands.push_back(resolveExpression(*argument));
+        return resolved;
       }
       resolved->kind = ExpressionKind::Call;
       resolved->operands.push_back(resolveExpression(*call->callee));

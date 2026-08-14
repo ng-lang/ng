@@ -55,6 +55,7 @@ namespace NG::vnext::syntax
     {
       if (text == ":=") return TokenKind::Assign;
       if (text == "->") return TokenKind::Arrow;
+      if (text == "=>") return TokenKind::FatArrow;
       if (text == "<<") return TokenKind::ShiftLeft;
       if (text == ">>") return TokenKind::ShiftRight;
       if (text == "<=") return TokenKind::LessEqual;

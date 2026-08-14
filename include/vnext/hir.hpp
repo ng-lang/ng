@@ -229,6 +229,8 @@ namespace NG::vnext::hir
     std::optional<std::string> returnTypeName;
     std::unique_ptr<Type> returnType;
     Block body;
+    /// `const fun` (D-013): compile-time capable and runtime callable.
+    bool constFunction{};
   };
 
   struct StructField

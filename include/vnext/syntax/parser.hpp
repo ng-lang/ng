@@ -43,6 +43,7 @@ namespace NG::vnext::syntax
     Colon,
     Assign,
     Arrow,
+    FatArrow,
     LeftBrace,
     RightBrace,
     Equal,

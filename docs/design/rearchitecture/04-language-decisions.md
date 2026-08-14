@@ -722,9 +722,24 @@ const fun is_integral<T>() -> bool = native;
   arguments, `const` initializers, and where clauses. Calls from ordinary
   runtime contexts are legal for any `const fun`.
 
----
+### Implementation status — 2026-08-15
 
-## D-014 — `where` clauses and constrained specialization
+- `const fun` parses, typechecks, lowers, and executes at runtime like an
+  ordinary function; expression bodies (`=> expr`) are supported for all
+  functions.
+- Compile-time execution uses a new typed-HIR `ConstInterpreter` over
+  canonical `ConstValue`s: locals, checked arithmetic/comparisons, `if` and
+  `const if`, `return`, `loop`/`next`, tail recursion, nested const calls,
+  and const predicate applications inside bodies. It never touches the
+  runtime value model, and fuel (1M steps) and recursion depth (64) are
+  budgeted.
+- `const if` conditions may call const functions (`const if (is_large(fact(4)))`);
+  non-const targets, runtime locals in arguments, and generic const fun
+  compile-time calls are span-carrying errors. Explicit generic arguments on
+  calls (`identity<i64>(42)`, `make<3>()`) instantiate both type and const
+  parameters.
+- Remaining D-013 work: generic const fun compile-time calls, registered
+  const natives (`= native`), and where clauses (D-014).
 
 **Status:** Accepted — 2026-08-14
 **Blocks:** R4 overload/specialization solver, R5 per-instance checking, D-012/D-013 consumers

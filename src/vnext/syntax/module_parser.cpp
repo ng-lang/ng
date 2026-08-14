@@ -4,6 +4,7 @@
 #include "vnext/syntax/type_parser.hpp"
 
 #include <algorithm>
+#include <optional>
 #include <utility>
 
 namespace NG::vnext::syntax
@@ -35,9 +36,8 @@ namespace NG::vnext::syntax
       }
       else if (current().kind == TokenKind::KeywordConst)
       {
-        if (peek(1).kind == TokenKind::KeywordFun)
-          throw ParseError("`const fun` is not yet supported", current().span);
-        items.push_back(parseConstDeclaration());
+        if (peek(1).kind == TokenKind::KeywordFun) items.push_back(parseFunctionDeclaration(true));
+        else items.push_back(parseConstDeclaration());
       }
       else
       {
@@ -241,9 +241,13 @@ namespace NG::vnext::syntax
     return std::make_unique<StructDeclaration>(name.text, std::move(fields), SourceSpan{structToken.span.begin, close.span.end});
   }
 
-  auto ModuleParser::parseFunctionDeclaration() -> ModuleItemPtr
+  auto ModuleParser::parseFunctionDeclaration(bool constFunction) -> ModuleItemPtr
   {
     const Token funToken = consume();
+    if (constFunction)
+    {
+      expect(TokenKind::KeywordFun, "expected `fun` after `const`");
+    }
     if (current().kind != TokenKind::Identifier)
     {
       throw ParseError("expected a function name after `fun`", current().span);
@@ -314,14 +318,55 @@ namespace NG::vnext::syntax
     if (current().kind == TokenKind::Arrow)
     {
       static_cast<void>(consume());
-      returnType = parseTypeUntil({TokenKind::LeftBrace});
+      returnType = parseTypeUntil({TokenKind::LeftBrace, TokenKind::FatArrow});
     }
 
-    auto blockTokens = consumeBlockTokens();
-    Block body = BlockParser{std::move(blockTokens)}.parse();
-    const SourceSpan span{funToken.span.begin, body.span.end};
+    std::optional<Block> body;
+    if (current().kind == TokenKind::FatArrow)
+    {
+      // Expression body sugar: `=> expr;` becomes a block returning the
+      // body value.
+      static_cast<void>(consume());
+      auto expression = parseExpressionUntil(TokenKind::Semicolon);
+      const Token semicolon = current();
+      expect(TokenKind::Semicolon, "expected `;` after expression body");
+      std::vector<StatementPtr> statements;
+      statements.push_back(std::make_unique<ReturnStatement>(std::move(expression),
+                                                             SourceSpan{expression->span.begin, semicolon.span.end}));
+      body.emplace(SourceSpan{statements.front()->span.begin, semicolon.span.end}, std::move(statements), nullptr);
+    }
+    else
+    {
+      auto blockTokens = consumeBlockTokens();
+      body.emplace(BlockParser{std::move(blockTokens)}.parse());
+    }
+    const SourceSpan span{funToken.span.begin, body->span.end};
     return std::make_unique<FunctionDeclaration>(name.text, std::move(genericParameters), std::move(parameters), std::move(returnType),
-                                                 std::move(body), span);
+                                                 std::move(*body), span, constFunction);
+  }
+
+  auto ModuleParser::parseExpressionUntil(TokenKind terminator) -> ExpressionPtr
+  {
+    std::vector<Token> expressionTokens;
+    size_t parenthesisDepth{};
+    size_t squareDepth{};
+    size_t braceDepth{};
+    while (current().kind != TokenKind::End)
+    {
+      const TokenKind kind = current().kind;
+      if (parenthesisDepth == 0 && squareDepth == 0 && braceDepth == 0 && kind == terminator) break;
+      if (kind == TokenKind::LeftParen) ++parenthesisDepth;
+      else if (kind == TokenKind::RightParen && parenthesisDepth != 0) --parenthesisDepth;
+      else if (kind == TokenKind::LeftSquare) ++squareDepth;
+      else if (kind == TokenKind::RightSquare && squareDepth != 0) --squareDepth;
+      else if (kind == TokenKind::LeftBrace) ++braceDepth;
+      else if (kind == TokenKind::RightBrace && braceDepth != 0) --braceDepth;
+      expressionTokens.push_back(consume());
+    }
+    if (expressionTokens.empty()) throw ParseError("expected an expression body", current().span);
+    const size_t end = expressionTokens.back().span.end;
+    expressionTokens.push_back(Token{.kind = TokenKind::End, .text = {}, .span = SourceSpan{end, end}});
+    return ExpressionParser{std::move(expressionTokens)}.parse();
   }
 
   auto ModuleParser::parseTypeUntil(const std::vector<TokenKind> &terminators) -> TypeSyntaxPtr

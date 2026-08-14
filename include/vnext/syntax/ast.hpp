@@ -663,12 +663,14 @@ namespace NG::vnext::syntax
     std::vector<FunctionParameter> parameters;
     TypeSyntaxPtr returnType;
     Block body;
+    const bool constFunction;
 
     FunctionDeclaration(std::string functionName, std::vector<GenericParameter> genericParameterList,
                         std::vector<FunctionParameter> functionParameters,
-                        TypeSyntaxPtr functionReturnType, Block functionBody, SourceSpan sourceSpan)
+                        TypeSyntaxPtr functionReturnType, Block functionBody, SourceSpan sourceSpan, bool isConstFunction = false)
       : ModuleItem(ModuleItemKind::Function, sourceSpan), name(std::move(functionName)),
-        genericParameters(std::move(genericParameterList)), parameters(std::move(functionParameters)), returnType(std::move(functionReturnType)), body(std::move(functionBody))
+        genericParameters(std::move(genericParameterList)), parameters(std::move(functionParameters)), returnType(std::move(functionReturnType)), body(std::move(functionBody)),
+        constFunction(isConstFunction)
     {
     }
   };

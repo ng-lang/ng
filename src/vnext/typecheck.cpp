@@ -1,10 +1,12 @@
 // AI-generated code; reviewed for this repository's vNext rewrite.
 #include "vnext/typecheck.hpp"
+#include "vnext/const_interp.hpp"
 
 #include <algorithm>
 #include <charconv>
 #include <format>
 #include <unordered_map>
+#include <memory>
 #include <unordered_set>
 
 namespace NG::vnext::typecheck
@@ -86,6 +88,13 @@ namespace NG::vnext::typecheck
           functionTypes_.emplace(function.id.value, std::move(displaySignature));
         }
         for (const auto &declaration : module.consts) checkConstDeclaration(declaration);
+        for (const auto &function : module.functions)
+        {
+          if (function.constFunction) constFunctions_.insert(function.id.value);
+        }
+        interpreter_ = std::make_unique<const_eval::ConstInterpreter>(
+            module, constFunctions_, interner_.constInterner(),
+            [this](const hir::Expression &node) { return evaluateConstApplication(node); });
         for (const auto &function : module.functions) checkFunction(function);
         return TypeCheckResult{.expressionTypes = std::move(expressionTypes_),
                                .expressionTypeIds = std::move(expressionTypeIds_),
@@ -243,9 +252,10 @@ namespace NG::vnext::typecheck
           {
             const_eval::ConstEvaluator evaluator{interner_.constInterner()};
             selected = evaluator.evaluateBool(*statement.expression, [this](const hir::Expression &node) {
-              if (node.kind != hir::ExpressionKind::GenericApplication)
-                throw const_eval::ConstEvalError("const if condition is not a compile-time constant expression", node.span);
-              return evaluateConstApplication(node);
+              if (node.kind == hir::ExpressionKind::GenericApplication) return evaluateConstApplication(node);
+              if (node.kind == hir::ExpressionKind::Call)
+                return interpreter_->evaluateCall(node, {}, node.span);
+              throw const_eval::ConstEvalError("const if condition is not a compile-time constant expression", node.span);
             });
           }
           catch (const const_eval::ConstEvalError &error)
@@ -553,6 +563,38 @@ namespace NG::vnext::typecheck
         }
       }
 
+      /// Builds a substitution from explicit generic arguments written on a
+      /// call expression (`name<types>(...)`), filling declared parameters in
+      /// declaration order: type parameters first, then const parameters.
+      [[nodiscard]] auto explicitSubstitution(const hir::Expression &expression, const FunctionTypeIds &signature) -> Substitution
+      {
+        Substitution substitution;
+        if (expression.genericArguments.size() != signature.genericParameters.size() + signature.constParameters.size())
+          throw TypeError(std::format("generic argument count mismatch: expected {}, got {}",
+                                      signature.genericParameters.size() + signature.constParameters.size(),
+                                      expression.genericArguments.size()), expression.span);
+        for (size_t index = 0; index < expression.genericArguments.size(); ++index)
+        {
+          const auto &argument = expression.genericArguments[index];
+          if (index < signature.genericParameters.size())
+          {
+            if (argument.kind != syntax::GenericArgumentKind::Type)
+              throw TypeError(std::format("generic argument {} must be a type", index + 1), argument.span);
+            substitution.types.emplace(signature.genericParameters[index].value,
+                                       interner_.resolveInScope(*argument.type, genericBindings_));
+          }
+          else
+          {
+            if (argument.kind != syntax::GenericArgumentKind::ConstExpr)
+              throw TypeError(std::format("generic argument {} must be a const expression", index + 1), argument.span);
+            const const_eval::ConstValueId value =
+                const_eval::ConstEvaluator{interner_.constInterner()}.evaluate(*argument.constExpr, {});
+            substitution.consts.emplace(static_cast<uint32_t>(index - signature.genericParameters.size()), value);
+          }
+        }
+        return substitution;
+      }
+
       [[nodiscard]] auto inferExpected(const hir::Expression &expression, TypeId expected, const LocalTypes &locals,
                                        std::string_view context) -> TypeId
       {
@@ -600,26 +642,37 @@ namespace NG::vnext::typecheck
           if (isGeneric(signature))
           {
             Substitution substitution;
-            unify(signature.returnType, expected, substitution, expression.span);
             const size_t supplied = expression.operands.size() - 1;
             if (supplied != signature.parameters.size())
               throw TypeError(std::format("call argument count mismatch: expected {}, got {}", signature.parameters.size(), supplied), expression.span);
-            for (size_t index = 0; index < supplied; ++index)
+            if (!expression.genericArguments.empty())
             {
-              const auto &argument = *expression.operands[index + 1];
-              const auto &parameterDescriptor = interner_.descriptor(signature.parameters[index]);
-              if (argument.kind == hir::ExpressionKind::EnumLiteral && parameterDescriptor.kind == TypeKind::Enum)
+              substitution = explicitSubstitution(expression, signature);
+              for (size_t index = 0; index < supplied; ++index)
+                static_cast<void>(inferExpected(*expression.operands[index + 1],
+                                                specialize(signature.parameters[index], substitution), locals,
+                                                std::format("call argument {}", index + 1)));
+            }
+            else
+            {
+              unify(signature.returnType, expected, substitution, expression.span);
+              for (size_t index = 0; index < supplied; ++index)
               {
-                const uint32_t variant = argument.variant.value();
-                if (argument.operands.size() != (parameterDescriptor.variantHasPayload[variant] ? 1u : 0u))
-                  throw TypeError("generic enum constructor payload arity mismatch", argument.span);
-                if (!argument.operands.empty())
-                  unify(parameterDescriptor.elements[variant], infer(*argument.operands.front(), locals), substitution,
-                        argument.operands.front()->span);
-              }
-              else
-              {
-                unify(signature.parameters[index], infer(argument, locals), substitution, argument.span);
+                const auto &argument = *expression.operands[index + 1];
+                const auto &parameterDescriptor = interner_.descriptor(signature.parameters[index]);
+                if (argument.kind == hir::ExpressionKind::EnumLiteral && parameterDescriptor.kind == TypeKind::Enum)
+                {
+                  const uint32_t variant = argument.variant.value();
+                  if (argument.operands.size() != (parameterDescriptor.variantHasPayload[variant] ? 1u : 0u))
+                    throw TypeError("generic enum constructor payload arity mismatch", argument.span);
+                  if (!argument.operands.empty())
+                    unify(parameterDescriptor.elements[variant], infer(*argument.operands.front(), locals), substitution,
+                          argument.operands.front()->span);
+                }
+                else
+                {
+                  unify(signature.parameters[index], infer(argument, locals), substitution, argument.span);
+                }
               }
             }
             const TypeId specialized = specialize(signature.returnType, substitution);
@@ -857,32 +910,43 @@ namespace NG::vnext::typecheck
             throw TypeError(std::format("call argument count mismatch: expected {}, got {}", signature.parameters.size(), supplied),
                             expression.span);
           Substitution substitution;
-          for (size_t index = 0; index < supplied; ++index)
+          if (!expression.genericArguments.empty())
           {
-            const auto &argument = *expression.operands[index + 1];
-            if (!isGeneric(signature))
-            {
-              static_cast<void>(inferExpected(argument, signature.parameters[index], locals,
+            substitution = explicitSubstitution(expression, signature);
+            for (size_t index = 0; index < supplied; ++index)
+              static_cast<void>(inferExpected(*expression.operands[index + 1],
+                                              specialize(signature.parameters[index], substitution), locals,
                                               std::format("call argument {}", index + 1)));
-              continue;
-            }
-            const auto &expectedDescriptor = interner_.descriptor(signature.parameters[index]);
-            if (argument.kind == hir::ExpressionKind::EnumLiteral && expectedDescriptor.kind == TypeKind::Enum)
+          }
+          else
+          {
+            for (size_t index = 0; index < supplied; ++index)
             {
-              if (!argument.enumId.has_value() || !argument.variant.has_value() ||
-                  expectedDescriptor.nominalId != argument.enumId->value)
-                throw TypeError("generic enum constructor type mismatch", argument.span);
-              const uint32_t variant = *argument.variant;
-              if (variant >= expectedDescriptor.elements.size()) throw TypeError("enum variant is out of range", argument.span);
-              if (argument.operands.size() != (expectedDescriptor.variantHasPayload[variant] ? 1u : 0u))
-                throw TypeError(std::format("enum variant `{}` payload arity mismatch", expectedDescriptor.fieldNames[variant]), argument.span);
-              if (!argument.operands.empty())
-                unify(expectedDescriptor.elements[variant], infer(*argument.operands.front(), locals), substitution,
-                      argument.operands.front()->span);
-            }
-            else
-            {
-              unify(signature.parameters[index], infer(argument, locals), substitution, argument.span);
+              const auto &argument = *expression.operands[index + 1];
+              if (!isGeneric(signature))
+              {
+                static_cast<void>(inferExpected(argument, signature.parameters[index], locals,
+                                                std::format("call argument {}", index + 1)));
+                continue;
+              }
+              const auto &expectedDescriptor = interner_.descriptor(signature.parameters[index]);
+              if (argument.kind == hir::ExpressionKind::EnumLiteral && expectedDescriptor.kind == TypeKind::Enum)
+              {
+                if (!argument.enumId.has_value() || !argument.variant.has_value() ||
+                    expectedDescriptor.nominalId != argument.enumId->value)
+                  throw TypeError("generic enum constructor type mismatch", argument.span);
+                const uint32_t variant = *argument.variant;
+                if (variant >= expectedDescriptor.elements.size()) throw TypeError("enum variant is out of range", argument.span);
+                if (argument.operands.size() != (expectedDescriptor.variantHasPayload[variant] ? 1u : 0u))
+                  throw TypeError(std::format("enum variant `{}` payload arity mismatch", expectedDescriptor.fieldNames[variant]), argument.span);
+                if (!argument.operands.empty())
+                  unify(expectedDescriptor.elements[variant], infer(*argument.operands.front(), locals), substitution,
+                        argument.operands.front()->span);
+              }
+              else
+              {
+                unify(signature.parameters[index], infer(argument, locals), substitution, argument.span);
+              }
             }
           }
           type = specialize(signature.returnType, substitution);
@@ -1031,6 +1095,8 @@ namespace NG::vnext::typecheck
       std::unordered_map<const hir::Expression *, hir::DefId> callTargets_;
       std::unordered_map<const hir::Statement *, bool> constIfSelections_;
       std::unordered_map<std::string, std::vector<ConstDeclChecked>> constDeclarations_;
+      std::unordered_set<uint32_t> constFunctions_;
+      std::unique_ptr<const_eval::ConstInterpreter> interpreter_;
       /// Generic parameter bindings of the function currently being checked;
       /// used to resolve in-body const predicate arguments.
       std::unordered_map<std::string, TypeId> genericBindings_;

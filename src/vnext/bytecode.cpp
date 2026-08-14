@@ -366,7 +366,8 @@ namespace NG::vnext::bytecode
             if (resultType.value >= function.typeDescriptors.size())
               throw BytecodeError("bytecode value type descriptor is out of range");
             const auto &array = function.typeDescriptors[resultType.value];
-            if (array.kind != typecheck::TypeKind::DynamicArray && array.kind != typecheck::TypeKind::FixedArray)
+            if (array.kind != typecheck::TypeKind::DynamicArray && array.kind != typecheck::TypeKind::FixedArray &&
+                array.kind != typecheck::TypeKind::DependentArray)
               throw BytecodeError("bytecode array literal result is not an array type");
             if (array.kind == typecheck::TypeKind::FixedArray && instruction.operands.at(4) != *array.length)
               throw BytecodeError("bytecode fixed array literal length mismatch");

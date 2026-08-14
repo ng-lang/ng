@@ -111,6 +111,7 @@ set(NG_TEST_SRC
         test/vnext/const_generic_call_test.cpp
         test/vnext/const_if_test.cpp
         test/vnext/const_declaration_test.cpp
+        test/vnext/const_fun_test.cpp
         test/vnext/ref_type_test.cpp
         test/vnext/ref_runtime_test.cpp
         test/vnext/switch_statement_test.cpp
@@ -161,6 +162,7 @@ set(NG_VNEXT_SRC
         src/vnext/typecheck.cpp
         src/vnext/type_interner.cpp
         src/vnext/const_eval.cpp
+        src/vnext/const_interp.cpp
         src/vnext/vm.cpp
         src/vnext/vm/value_ops.cpp
         src/vnext/syntax/block_parser.cpp
