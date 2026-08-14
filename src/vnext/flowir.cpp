@@ -353,16 +353,29 @@ namespace NG::vnext::flowir
       [[nodiscard]] auto lowerMapLiteral(const hir::Expression &expression) -> ValueId
       {
         const hir::Expression *mapSpread = nullptr;
-        for (const auto &element : expression.operands)
+        size_t spreadIndex{};
+        for (size_t index = 0; index < expression.operands.size(); ++index)
         {
-          if (element->kind == hir::ExpressionKind::Prefix && element->text == "...")
+          if (expression.operands[index]->kind == hir::ExpressionKind::Prefix &&
+              expression.operands[index]->text == "...")
           {
-            mapSpread = element.get();
+            mapSpread = expression.operands[index].get();
+            spreadIndex = index;
             break;
           }
         }
-        if (mapSpread == nullptr || expression.operands.size() != 1)
-          throw VerificationError("array map literals support exactly one map spread");
+        if (mapSpread == nullptr)
+          throw VerificationError("array map literals require a map spread");
+        // Mixed comprehensions (`[0, f(xs)..., 9]`): leading literal elements
+        // seed the accumulator and trailing elements append after the loop.
+        std::vector<ValueId> leading;
+        leading.reserve(spreadIndex);
+        for (size_t index = 0; index < spreadIndex; ++index)
+          leading.push_back(lowerExpression(*expression.operands[index]));
+        std::vector<const hir::Expression *> trailing;
+        trailing.reserve(expression.operands.size() - spreadIndex - 1);
+        for (size_t index = spreadIndex + 1; index < expression.operands.size(); ++index)
+          trailing.push_back(expression.operands[index].get());
         bool filterMode = false;
         const hir::Expression *callNode = mapSpread->operands[0].get();
         if (callNode->kind == hir::ExpressionKind::Prefix && callNode->text == "?")
@@ -391,7 +404,8 @@ namespace NG::vnext::flowir
         if (types_ != nullptr) function_.valueTypes.emplace(empty.value, types_->typeIdOf(expression));
         block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
                                                    .result = empty,
-                                                   .expressionKind = hir::ExpressionKind::ArrayLiteral});
+                                                   .expressionKind = hir::ExpressionKind::ArrayLiteral,
+                                                   .operands = std::move(leading)});
         const ValueId length{nextValue_++};
         if (types_ != nullptr) function_.valueTypes.emplace(length.value, typecheck::builtin::I64);
         block().instructions.push_back(
@@ -509,13 +523,23 @@ namespace NG::vnext::flowir
                                           .targets = {header},
                                           .arguments = {skipNext, empty}};
           current_ = exit;
-          const ValueId result{nextValue_++};
-          if (types_ != nullptr) function_.valueTypes.emplace(result.value, types_->typeIdOf(expression));
+          ValueId accumulator{nextValue_++};
+          if (types_ != nullptr) function_.valueTypes.emplace(accumulator.value, types_->typeIdOf(expression));
           block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
-                                                     .result = result,
+                                                     .result = accumulator,
                                                      .expressionKind = hir::ExpressionKind::ResolvedName,
                                                      .payload = resultLocal.value});
-          return result;
+          for (const auto *trailingElement : trailing)
+          {
+            const ValueId elementValue = lowerExpression(*trailingElement);
+            const ValueId appended{nextValue_++};
+            if (types_ != nullptr) function_.valueTypes.emplace(appended.value, types_->typeIdOf(expression));
+            block().instructions.push_back(Instruction{.kind = InstructionKind::AppendArray,
+                                                       .result = appended,
+                                                       .operands = {accumulator, elementValue}});
+            accumulator = appended;
+          }
+          return accumulator;
         }
         const ValueId appended{nextValue_++};
         if (types_ != nullptr) function_.valueTypes.emplace(appended.value, types_->typeIdOf(expression));
@@ -535,13 +559,23 @@ namespace NG::vnext::flowir
                                         .arguments = {nextIndex, appended}};
 
         current_ = exit;
-        const ValueId result{nextValue_++};
-        if (types_ != nullptr) function_.valueTypes.emplace(result.value, types_->typeIdOf(expression));
+        ValueId accumulator{nextValue_++};
+        if (types_ != nullptr) function_.valueTypes.emplace(accumulator.value, types_->typeIdOf(expression));
         block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
-                                                   .result = result,
+                                                   .result = accumulator,
                                                    .expressionKind = hir::ExpressionKind::ResolvedName,
                                                    .payload = resultLocal.value});
-        return result;
+        for (const auto *trailingElement : trailing)
+        {
+          const ValueId elementValue = lowerExpression(*trailingElement);
+          const ValueId appended{nextValue_++};
+          if (types_ != nullptr) function_.valueTypes.emplace(appended.value, types_->typeIdOf(expression));
+          block().instructions.push_back(Instruction{.kind = InstructionKind::AppendArray,
+                                                     .result = appended,
+                                                     .operands = {accumulator, elementValue}});
+          accumulator = appended;
+        }
+        return accumulator;
       }
 
       /// Lowers a fold call (`f(acc, xs...)` / `f(xs..., acc)`) into a runtime

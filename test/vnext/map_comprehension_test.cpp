@@ -112,6 +112,27 @@ TEST_CASE("vNext map comprehensions filter and iterate ranges", "[vNext][Map][Ru
               "10");
 }
 
+TEST_CASE("vNext mixed comprehensions interleave literal elements with spreads", "[vNext][Map][Runtime]")
+{
+  expectValue("fun inc(value: i64) -> i64 { return value + 1; } "
+              "fun main() -> i64 { let xs = [1, 2, 3]; let mixed = [0, inc(xs)..., 9]; "
+              "let mut total = 0; "
+              "if (mixed[0] == 0 && mixed[4] == 9 && mixed[1] == 2 && mixed[3] == 4) { total := total + 5; } "
+              "return total; }",
+              "5");
+}
+
+TEST_CASE("vNext mixed comprehensions support filtered spreads and one-sided forms", "[vNext][Map][Runtime]")
+{
+  expectValue("fun even(value: i64) -> bool { return (value % 2) == 0; } "
+              "fun inc(value: i64) -> i64 { return value + 1; } "
+              "fun main() -> i64 { let xs = [1, 2, 3, 4]; "
+              "let filtered = [7, even(xs)?..., 8]; "
+              "let lead = [9, inc(xs)...]; let trail = [inc(xs)..., 6]; "
+              "return filtered[1] + filtered[2] + lead[0] + lead[4] + trail[0] + trail[4]; }",
+              "28");
+}
+
 TEST_CASE("vNext map comprehension example file runs end to end through ngi", "[vNext][Map][Examples]")
 {
   std::string output;
