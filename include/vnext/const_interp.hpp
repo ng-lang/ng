@@ -30,10 +30,11 @@ namespace NG::vnext::const_eval
                      ConstInterner &interner, PredicateEvaluator predicate);
 
     /// Evaluates a const-capable call expression to a canonical value. Used by
-    /// the checker's const-condition extension; argument expressions must be
-    /// compile-time constants over the supplied (possibly empty) locals.
+    /// the checker's const-condition extension and where-clause evaluation;
+    /// argument expressions must be compile-time constants over the supplied
+    /// (possibly empty) locals and const-parameter bindings.
     [[nodiscard]] auto evaluateCall(const hir::Expression &call, const LocalValues &locals,
-                                    syntax::SourceSpan span) -> ConstValueId;
+                                    const ConstBindings &constBindings, syntax::SourceSpan span) -> ConstValueId;
 
     /// Evaluates an expression over local const bindings (const fun bodies).
     [[nodiscard]] auto evaluateExpression(const hir::Expression &expression, const LocalValues &locals) -> ConstValueId;
@@ -68,6 +69,9 @@ namespace NG::vnext::const_eval
     const std::unordered_set<uint32_t> &constFunctions_;
     ConstInterner &interner_;
     PredicateEvaluator predicate_;
+    /// Const-parameter bindings active during the current where-clause
+    /// evaluation; restored on nested calls.
+    ConstBindings constBindings_;
     mutable uint32_t steps_{};
     size_t depth_{};
   };

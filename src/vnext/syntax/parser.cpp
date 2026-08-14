@@ -124,6 +124,7 @@ namespace NG::vnext::syntax
                              : text == "enum" ? TokenKind::KeywordEnum
                              : text == "fun" ? TokenKind::KeywordFun
                              : text == "if" ? TokenKind::KeywordIf
+                             : text == "is" ? TokenKind::KeywordIs
                              : text == "let" ? TokenKind::KeywordLet
                              : text == "loop" ? TokenKind::KeywordLoop
                              : text == "mut" ? TokenKind::KeywordMut
@@ -135,6 +136,7 @@ namespace NG::vnext::syntax
                              : text == "struct" ? TokenKind::KeywordStruct
                              : text == "switch" ? TokenKind::KeywordSwitch
                              : text == "true" ? TokenKind::KeywordTrue
+                             : text == "where" ? TokenKind::KeywordWhere
                              : text == "false" ? TokenKind::KeywordFalse
                                                : TokenKind::Identifier;
         tokens.push_back(Token{.kind = kind, .text = text, .span = SourceSpan{begin, offset}});
@@ -235,6 +237,29 @@ namespace NG::vnext::syntax
     while (true)
     {
       const Token &operatorToken = current();
+      if (operatorToken.kind == TokenKind::KeywordIs && left->kind == ExpressionKind::Identifier)
+      {
+        // Direct type constraint: `T is Type` binds at comparison level.
+        constexpr int isBindingPower = 80;
+        if (isBindingPower < minimumBindingPower) break;
+        static_cast<void>(consume());
+        std::vector<Token> typeTokens;
+        while (current().kind != TokenKind::End && current().kind != TokenKind::AndAnd &&
+               current().kind != TokenKind::OrOr && current().kind != TokenKind::Bang &&
+               current().kind != TokenKind::RightParen && current().kind != TokenKind::Semicolon &&
+               current().kind != TokenKind::RightBrace && current().kind != TokenKind::Comma)
+        {
+          typeTokens.push_back(consume());
+        }
+        if (typeTokens.empty()) throw ParseError("expected a type after `is`", current().span);
+        const size_t end = typeTokens.back().span.end;
+        typeTokens.push_back(Token{.kind = TokenKind::End, .text = {}, .span = SourceSpan{end, end}});
+        auto type = TypeParser{std::move(typeTokens)}.parse();
+        const SourceSpan span{left->span.begin, type->span.end};
+        const auto *identifier = static_cast<const IdentifierExpression *>(left.get());
+        left = std::make_unique<TypeTestExpression>(identifier->name, std::move(type), span);
+        continue;
+      }
       const int bindingPower = infixBindingPower(operatorToken.kind);
       if (bindingPower < minimumBindingPower)
       {

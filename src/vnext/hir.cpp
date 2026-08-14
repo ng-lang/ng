@@ -248,6 +248,7 @@ namespace NG::vnext::hir
       resolved.returnTypeName = renderTypeName(*function.returnType);
       resolved.returnType = std::make_unique<Type>(lowerType(*function.returnType));
     }
+    if (function.whereClause != nullptr) resolved.whereClause = resolveExpression(*function.whereClause);
     resolved.body = resolveBlock(function.body, false);
     currentFunction_.reset();
     return resolved;
@@ -576,6 +577,13 @@ namespace NG::vnext::hir
       {
         resolved->operands.push_back(resolveExpression(*argument));
       }
+      return resolved;
+    }
+    if (const auto *test = dynamic_cast<const syntax::TypeTestExpression *>(&expression))
+    {
+      resolved->kind = ExpressionKind::TypeTest;
+      resolved->text = test->name;
+      resolved->testedType = std::make_unique<Type>(lowerType(*test->testedType));
       return resolved;
     }
     if (const auto *application = dynamic_cast<const syntax::GenericApplicationExpression *>(&expression))

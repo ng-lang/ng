@@ -81,12 +81,14 @@ namespace NG::vnext::hir
     Grouped,
     Call,
     GenericApplication,
+    TypeTest,
     Index,
     Member,
     Binary,
   };
 
   struct TypeArgument;
+  struct Type;
 
   struct Expression
   {
@@ -100,6 +102,8 @@ namespace NG::vnext::hir
     std::optional<uint32_t> variant;
     std::vector<std::string> memberNames;
     std::vector<TypeArgument> genericArguments;
+    /// Tested type for a `T is Type` where-clause constraint.
+    std::unique_ptr<Type> testedType;
     std::vector<std::unique_ptr<Expression>> operands;
   };
 
@@ -231,6 +235,9 @@ namespace NG::vnext::hir
     Block body;
     /// `const fun` (D-013): compile-time capable and runtime callable.
     bool constFunction{};
+    /// Where-clause constraint (D-014): predicate applications, `T is Type`,
+    /// and boolean combinations; evaluated per concrete instance.
+    ExpressionPtr whereClause;
   };
 
   struct StructField

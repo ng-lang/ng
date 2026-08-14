@@ -1,0 +1,48 @@
+// vNext where clauses (D-014): generic declarations constrained by const
+// predicates, direct type patterns, negation, and const fun calls over const
+// parameters. Constraints are evaluated per concrete instance.
+
+const is_ref<T>: bool = false;
+const<T> is_ref<ref<T>>: bool = true;
+
+struct Box {
+    value: i64,
+}
+
+const is_box<T>: bool = false;
+const<T> is_box<Box>: bool = true;
+
+const fun is_large(value: i64) -> bool => value > 10;
+
+fun describe_box<T>(value: T) -> i64 where is_box<T> {
+    return 1;
+}
+
+fun describe_other<T>(value: T) -> i64 where !is_box<T> {
+    return 2;
+}
+
+fun describe_ref<T>(value: T) -> i64 where is_ref<T> {
+    return 4;
+}
+
+fun require_large<const N: i64>() -> i64 where is_large(N) {
+    return 8;
+}
+
+fun describe_exact<T>(value: T) -> i64 where T is i64 {
+    return 16;
+}
+
+fun main() -> i64 {
+    let box = Box { value: 1 };
+    let plain = 7;
+    let mut total = 0;
+    total := total + describe_box(box);
+    total := total + describe_other(plain);
+    let read = ref plain;
+    total := total + describe_ref(read);
+    total := total + require_large<42>();
+    total := total + describe_exact(plain);
+    return total;
+}

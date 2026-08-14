@@ -318,7 +318,25 @@ namespace NG::vnext::syntax
     if (current().kind == TokenKind::Arrow)
     {
       static_cast<void>(consume());
-      returnType = parseTypeUntil({TokenKind::LeftBrace, TokenKind::FatArrow});
+      returnType = parseTypeUntil({TokenKind::LeftBrace, TokenKind::FatArrow, TokenKind::KeywordWhere});
+    }
+
+    ExpressionPtr whereClause;
+    if (current().kind == TokenKind::KeywordWhere)
+    {
+      static_cast<void>(consume());
+      std::vector<Token> conditionTokens;
+      while (current().kind != TokenKind::LeftBrace && current().kind != TokenKind::FatArrow &&
+             current().kind != TokenKind::Equal && current().kind != TokenKind::Semicolon)
+      {
+        if (current().kind == TokenKind::End)
+          throw ParseError("expected a where condition", current().span);
+        conditionTokens.push_back(consume());
+      }
+      if (conditionTokens.empty()) throw ParseError("expected a where condition", current().span);
+      const size_t end = conditionTokens.back().span.end;
+      conditionTokens.push_back(Token{.kind = TokenKind::End, .text = {}, .span = SourceSpan{end, end}});
+      whereClause = ExpressionParser{std::move(conditionTokens)}.parse();
     }
 
     std::optional<Block> body;
@@ -342,7 +360,7 @@ namespace NG::vnext::syntax
     }
     const SourceSpan span{funToken.span.begin, body->span.end};
     return std::make_unique<FunctionDeclaration>(name.text, std::move(genericParameters), std::move(parameters), std::move(returnType),
-                                                 std::move(*body), span, constFunction);
+                                                 std::move(*body), span, constFunction, std::move(whereClause));
   }
 
   auto ModuleParser::parseExpressionUntil(TokenKind terminator) -> ExpressionPtr

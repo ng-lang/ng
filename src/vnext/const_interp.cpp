@@ -53,13 +53,15 @@ namespace NG::vnext::const_eval
   }
 
   auto ConstInterpreter::evaluateCall(const hir::Expression &call, const LocalValues &locals,
-                                      syntax::SourceSpan span) -> ConstValueId
+                                      const ConstBindings &constBindings, syntax::SourceSpan span) -> ConstValueId
   {
     if (depth_ == 0)
     {
       steps_ = MaxSteps;
       depth_ = 0;
     }
+    const ConstBindings saved = std::move(constBindings_);
+    constBindings_ = constBindings;
     if (call.kind != hir::ExpressionKind::Call || call.operands.empty() || !call.operands[0]->resolvedName.has_value() ||
         call.operands[0]->resolvedName->kind != hir::ResolvedNameKind::Function)
       throw ConstEvalError("const call target is not a function", span);
@@ -75,9 +77,14 @@ namespace NG::vnext::const_eval
     for (size_t index = 1; index < call.operands.size(); ++index)
       arguments.push_back(evaluateExpression(*call.operands[index], locals));
     if (arguments.size() != function.parameters.size())
+    {
+      constBindings_ = std::move(saved);
       throw ConstEvalError(std::format("const call argument count mismatch: expected {}, got {}", function.parameters.size(),
                                        arguments.size()), span);
-    return runFunction(function, arguments);
+    }
+    const ConstValueId result = runFunction(function, arguments);
+    constBindings_ = std::move(saved);
+    return result;
   }
 
   auto ConstInterpreter::evaluateExpression(const hir::Expression &expression, const LocalValues &locals) -> ConstValueId
@@ -91,7 +98,16 @@ namespace NG::vnext::const_eval
     case hir::ExpressionKind::Grouped: return evaluateExpression(*expression.operands[0], locals);
     case hir::ExpressionKind::ResolvedName:
     {
-      if (!expression.resolvedName.has_value() || expression.resolvedName->kind != hir::ResolvedNameKind::Local)
+      if (!expression.resolvedName.has_value())
+        throw ConstEvalError(std::format("`{}` is not a compile-time constant", expression.text), expression.span);
+      if (expression.resolvedName->kind == hir::ResolvedNameKind::ConstParameter)
+      {
+        const auto found = constBindings_.find(expression.text);
+        if (found == constBindings_.end())
+          throw ConstEvalError(std::format("unresolved const name `{}`", expression.text), expression.span);
+        return found->second;
+      }
+      if (expression.resolvedName->kind != hir::ResolvedNameKind::Local)
         throw ConstEvalError(std::format("`{}` is not a compile-time constant", expression.text), expression.span);
       const auto found = locals.find(expression.resolvedName->id);
       if (found == locals.end())
@@ -99,7 +115,7 @@ namespace NG::vnext::const_eval
       return found->second;
     }
     case hir::ExpressionKind::GenericApplication: return predicate_(expression);
-    case hir::ExpressionKind::Call: return evaluateCall(expression, locals, expression.span);
+    case hir::ExpressionKind::Call: return evaluateCall(expression, locals, constBindings_, expression.span);
     case hir::ExpressionKind::Prefix:
     {
       const ConstValueId operand = evaluateExpression(*expression.operands[0], locals);

@@ -788,7 +788,20 @@ impl<T> Show for Wrapper<T> where T: Show { ... }
   they only constrain instance validity. Satisfied constraints do not alter
   type identity.
 
----
+### Implementation status — 2026-08-15
+
+- Function declarations accept a `where` clause after the signature with
+  predicate applications (`is_box<T>`), direct type patterns (`T is i64`),
+  negation (`!is_box<T>`), `&&`/`||` combinations, and const fun calls over
+  const parameters (`is_large(N)`).
+- Generic where clauses are evaluated per concrete call instance after
+  substitution, in both inference paths (`infer` and `inferExpected`), with
+  span-carrying "call does not satisfy its where clause" errors. Non-generic
+  where clauses are checked at module checking even for uncalled functions.
+- Abstract type parameters inside a where clause (calls from other generic
+  bodies) are a compile-time error; per-instance evaluation of such calls is
+  deferred. Trait bounds (`T: Trait`) arrive with D-011 Stage 1; candidate
+  filtering during overload selection remains a follow-up.
 
 ## D-015 — Copy-first ownership revision
 

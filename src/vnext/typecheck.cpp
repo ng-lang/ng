@@ -18,6 +18,7 @@ namespace NG::vnext::typecheck
     public:
       [[nodiscard]] auto check(const hir::Module &module) -> TypeCheckResult
       {
+        module_ = &module;
         for (const auto &structure : module.structs) static_cast<void>(interner_.declareStruct(structure.id, structure.name));
         for (const auto &enumeration : module.enums)
         {
@@ -59,6 +60,7 @@ namespace NG::vnext::typecheck
           {
             const auto parameter = interner_.internTypeParameter(function.genericParameters[index], static_cast<uint32_t>(index));
             signature.genericParameters.push_back(parameter);
+            signature.genericParameterNames.push_back(function.genericParameters[index]);
             genericBindings.emplace(function.genericParameters[index], parameter);
           }
           for (size_t index = 0; index < function.constParameters.size(); ++index)
@@ -162,6 +164,104 @@ namespace NG::vnext::typecheck
         localDisplayTypes_.insert_or_assign(local.value, interner_.display(type));
       }
 
+      /// Evaluates a where clause (D-014) under a call substitution: const
+      /// predicate applications, const fun calls, `T is Type` tests, and
+      /// `!` / `&&` / `||` combinations.
+      [[nodiscard]] auto evaluateWhereCondition(const hir::Expression &condition, const Substitution &substitution,
+                                                const FunctionTypeIds &signature) -> bool
+      {
+        std::unordered_map<std::string, TypeId> bindings;
+        for (size_t index = 0; index < signature.genericParameters.size(); ++index)
+        {
+          const TypeId parameter = signature.genericParameters[index];
+          const auto found = substitution.types.find(parameter.value);
+          bindings.emplace(signature.genericParameterNames[index],
+                           found != substitution.types.end() ? found->second : parameter);
+        }
+        const_eval::ConstBindings constBindings;
+        for (size_t index = 0; index < signature.constParameters.size(); ++index)
+        {
+          const auto found = substitution.consts.find(static_cast<uint32_t>(index));
+          if (found != substitution.consts.end()) constBindings.emplace(signature.constParameterNames[index], found->second);
+        }
+        const auto evaluate = [&](const auto &self, const hir::Expression &expression) -> const_eval::ConstValueId {
+          switch (expression.kind)
+          {
+          case hir::ExpressionKind::BooleanLiteral:
+            return interner_.constInterner().internBool(expression.text == "true");
+          case hir::ExpressionKind::IntegerLiteral:
+            return interner_.constInterner().internInteger(std::stoll(expression.text));
+          case hir::ExpressionKind::Grouped: return self(self, *expression.operands[0]);
+          case hir::ExpressionKind::Prefix:
+            if (expression.text == "!")
+              return interner_.constInterner().internBool(!interner_.constInterner().value(self(self, *expression.operands[0])).boolValue);
+            throw TypeError(std::format("unsupported where clause operator `{}`", expression.text), expression.span);
+          case hir::ExpressionKind::Binary:
+          {
+            const std::string &op = expression.text;
+            if (op == "&&")
+            {
+              if (!interner_.constInterner().value(self(self, *expression.operands[0])).boolValue) return interner_.constInterner().internBool(false);
+              return interner_.constInterner().internBool(interner_.constInterner().value(self(self, *expression.operands[1])).boolValue);
+            }
+            if (op == "||")
+            {
+              if (interner_.constInterner().value(self(self, *expression.operands[0])).boolValue) return interner_.constInterner().internBool(true);
+              return interner_.constInterner().internBool(interner_.constInterner().value(self(self, *expression.operands[1])).boolValue);
+            }
+            throw TypeError(std::format("unsupported where clause operator `{}`", op), expression.span);
+          }
+          case hir::ExpressionKind::GenericApplication:
+          {
+            std::vector<TypeId> typeArguments;
+            for (const auto &argument : expression.genericArguments)
+            {
+              if (argument.kind == syntax::GenericArgumentKind::Type)
+                typeArguments.push_back(interner_.resolveInScope(*argument.type, bindings));
+              else
+                typeArguments.push_back(builtin::Unit);
+            }
+            for (const auto &argument : typeArguments)
+              if (interner_.descriptor(argument).kind == TypeKind::TypeParameter)
+                throw TypeError(std::format("cannot evaluate where clause of generic function with abstract type parameter `{}`",
+                                            interner_.display(argument)), expression.span);
+            const auto *selected = selectConstDeclaration(expression.text, typeArguments, expression.span);
+            const const_eval::ConstValueId value = evaluateConstDeclaration(*selected, expression.span);
+            if (interner_.constInterner().value(value).kind != const_eval::ConstValueKind::Bool)
+              throw TypeError(std::format("const declaration `{}` must evaluate to bool in predicate position", expression.text),
+                              expression.span);
+            return value;
+          }
+          case hir::ExpressionKind::Call:
+            return interpreter_->evaluateCall(expression, {}, constBindings, expression.span);
+          case hir::ExpressionKind::TypeTest:
+          {
+            const auto found = bindings.find(expression.text);
+            if (found == bindings.end())
+              throw TypeError(std::format("where clause tests unknown type parameter `{}`", expression.text), expression.span);
+            const TypeId actual = found->second;
+            if (interner_.descriptor(actual).kind == TypeKind::TypeParameter)
+              throw TypeError(std::format("cannot evaluate where clause of generic function with abstract type parameter `{}`",
+                                          expression.text), expression.span);
+            const TypeId expected = interner_.resolveInScope(*expression.testedType, bindings);
+            return interner_.constInterner().internBool(actual == expected);
+          }
+          case hir::ExpressionKind::ResolvedName:
+            if (expression.resolvedName.has_value() && expression.resolvedName->kind == hir::ResolvedNameKind::ConstParameter)
+            {
+              const auto found = constBindings.find(expression.text);
+              if (found == constBindings.end())
+                throw TypeError(std::format("unresolved const parameter `{}` in where clause", expression.text), expression.span);
+              return found->second;
+            }
+            throw TypeError(std::format("`{}` is not a compile-time constant in a where clause", expression.text), expression.span);
+          default:
+            throw TypeError("unsupported where clause constraint", expression.span);
+          }
+        };
+        return interner_.constInterner().value(evaluate(evaluate, condition)).boolValue;
+      }
+
       void checkFunction(const hir::Function &function)
       {
         LocalTypes locals;
@@ -176,6 +276,11 @@ namespace NG::vnext::typecheck
           recordLocal(function.parameters[index].local, signature.parameters[index]);
         }
         inConstGenericFunction_ = !signature.constParameters.empty();
+        if (function.whereClause != nullptr && !isGeneric(signature))
+        {
+          if (!evaluateWhereCondition(*function.whereClause, {}, signature))
+            throw TypeError(std::format("function `{}` does not satisfy its where clause", function.name), function.span);
+        }
         checkBlock(function.body, locals, {}, signature.returnType);
         inConstGenericFunction_ = false;
         genericBindings_.clear();
@@ -254,7 +359,7 @@ namespace NG::vnext::typecheck
             selected = evaluator.evaluateBool(*statement.expression, [this](const hir::Expression &node) {
               if (node.kind == hir::ExpressionKind::GenericApplication) return evaluateConstApplication(node);
               if (node.kind == hir::ExpressionKind::Call)
-                return interpreter_->evaluateCall(node, {}, node.span);
+                return interpreter_->evaluateCall(node, {}, {}, node.span);
               throw const_eval::ConstEvalError("const if condition is not a compile-time constant expression", node.span);
             });
           }
@@ -677,6 +782,11 @@ namespace NG::vnext::typecheck
             }
             const TypeId specialized = specialize(signature.returnType, substitution);
             requireConstArguments(signature, substitution, expression.operands[0]->text, expression.span);
+            if (module_ != nullptr && selected.value < module_->functions.size() &&
+                module_->functions.at(selected.value).whereClause != nullptr &&
+                !evaluateWhereCondition(*module_->functions.at(selected.value).whereClause, substitution, signature))
+              throw TypeError(std::format("call to `{}` does not satisfy its where clause", module_->functions.at(selected.value).name),
+                              expression.span);
             requireType(expected, specialized, expression.span, context);
             record(expression, specialized);
             callTargets_.insert_or_assign(&expression, selected);
@@ -953,6 +1063,11 @@ namespace NG::vnext::typecheck
           if (!signature.genericParameters.empty() && interner_.descriptor(type).kind == TypeKind::TypeParameter)
             throw TypeError(std::format("cannot infer generic arguments for function `{}`", expression.operands[0]->text), expression.span);
           requireConstArguments(signature, substitution, expression.operands[0]->text, expression.span);
+          if (module_ != nullptr && selected.value < module_->functions.size() &&
+              module_->functions.at(selected.value).whereClause != nullptr &&
+              !evaluateWhereCondition(*module_->functions.at(selected.value).whereClause, substitution, signature))
+            throw TypeError(std::format("call to `{}` does not satisfy its where clause", module_->functions.at(selected.value).name),
+                            expression.span);
           callTargets_.insert_or_assign(&expression, selected);
           break;
         }
@@ -1094,6 +1209,7 @@ namespace NG::vnext::typecheck
       std::unordered_map<uint32_t, FunctionTypeIds> functionTypeIds_;
       std::unordered_map<const hir::Expression *, hir::DefId> callTargets_;
       std::unordered_map<const hir::Statement *, bool> constIfSelections_;
+      const hir::Module *module_{};
       std::unordered_map<std::string, std::vector<ConstDeclChecked>> constDeclarations_;
       std::unordered_set<uint32_t> constFunctions_;
       std::unique_ptr<const_eval::ConstInterpreter> interpreter_;

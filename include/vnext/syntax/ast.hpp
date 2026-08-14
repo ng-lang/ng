@@ -31,6 +31,7 @@ namespace NG::vnext::syntax
     Grouped,
     Call,
     GenericApplication,
+    TypeTest,
     Index,
     Member,
     Binary,
@@ -507,6 +508,18 @@ namespace NG::vnext::syntax
     }
   };
 
+  /// Direct type constraint in a where clause: `T is Type`.
+  struct TypeTestExpression final : Expression
+  {
+    const std::string name;
+    TypeSyntaxPtr testedType;
+
+    TypeTestExpression(std::string parameterName, TypeSyntaxPtr type, SourceSpan sourceSpan)
+      : Expression(ExpressionKind::TypeTest, sourceSpan), name(std::move(parameterName)), testedType(std::move(type))
+    {
+    }
+  };
+
 
   struct ScopedReferenceTypeSyntax final : TypeSyntax
   {
@@ -664,13 +677,15 @@ namespace NG::vnext::syntax
     TypeSyntaxPtr returnType;
     Block body;
     const bool constFunction;
+    ExpressionPtr whereClause;
 
     FunctionDeclaration(std::string functionName, std::vector<GenericParameter> genericParameterList,
                         std::vector<FunctionParameter> functionParameters,
-                        TypeSyntaxPtr functionReturnType, Block functionBody, SourceSpan sourceSpan, bool isConstFunction = false)
+                        TypeSyntaxPtr functionReturnType, Block functionBody, SourceSpan sourceSpan, bool isConstFunction = false,
+                        ExpressionPtr whereCondition = nullptr)
       : ModuleItem(ModuleItemKind::Function, sourceSpan), name(std::move(functionName)),
         genericParameters(std::move(genericParameterList)), parameters(std::move(functionParameters)), returnType(std::move(functionReturnType)), body(std::move(functionBody)),
-        constFunction(isConstFunction)
+        constFunction(isConstFunction), whereClause(std::move(whereCondition))
     {
     }
   };

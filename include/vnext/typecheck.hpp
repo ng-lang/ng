@@ -131,6 +131,7 @@ namespace NG::vnext::typecheck
   {
     std::vector<TypeId> parameters;
     std::vector<TypeId> genericParameters;
+    std::vector<std::string> genericParameterNames;
     std::vector<TypeId> constParameters;
     std::vector<std::string> constParameterNames;
     TypeId returnType;

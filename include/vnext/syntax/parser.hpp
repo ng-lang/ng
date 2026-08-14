@@ -32,6 +32,8 @@ namespace NG::vnext::syntax
     KeywordSwitch,
     KeywordCase,
     KeywordOtherwise,
+    KeywordWhere,
+    KeywordIs,
     KeywordTrue,
     KeywordFalse,
     LeftParen,
