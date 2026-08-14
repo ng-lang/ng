@@ -459,7 +459,7 @@ namespace NG::vnext::syntax
       const SourceSpan span{funToken.span.begin, current().span.begin};
       return std::make_unique<FunctionDeclaration>(name.text, std::move(genericParameters), std::move(parameters),
                                                    std::move(returnType), Block{SourceSpan{span.end, span.end}, {}, nullptr},
-                                                   span, false, std::move(whereClause), false, true);
+                                                   span, false, std::move(whereClause), exported, true);
     }
     if (current().kind == TokenKind::FatArrow)
     {

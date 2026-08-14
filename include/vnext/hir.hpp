@@ -234,6 +234,8 @@ namespace NG::vnext::hir
     DefId id;
     std::string name;
     syntax::SourceSpan span;
+    /// Origin module index from the module loader; drives name visibility.
+    uint32_t originModule{};
     std::vector<std::string> genericParameters;
     std::vector<std::string> packParameters;
     /// `F<_>` type-constructor parameters (kind `* -> *`).
@@ -407,6 +409,10 @@ namespace NG::vnext::hir
     std::unordered_map<std::string, EnumId> enums_;
     std::unordered_map<std::string, syntax::SourceSpan> traits_;
     std::unordered_map<std::string, syntax::SourceSpan> opaqueTypes_;
+    /// Per-module visible top-level names (from the source unit); empty
+    /// means unrestricted.
+    std::unordered_map<uint32_t, std::unordered_set<std::string>> visibleNames_;
+    uint32_t currentOrigin_{};
     std::unordered_map<std::string, std::vector<std::string>> enumVariants_;
     std::vector<Scope> scopes_;
     std::vector<ActiveLoop> loops_;

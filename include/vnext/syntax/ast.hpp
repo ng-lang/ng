@@ -5,6 +5,8 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace NG::vnext::syntax
@@ -628,6 +630,9 @@ namespace NG::vnext::syntax
   {
     const ModuleItemKind kind;
     const SourceSpan span;
+    /// Origin module index assigned by the module loader; 0 for single-unit
+    /// parses. Name-visibility enforcement keys on it.
+    uint32_t originModule{0};
 
     explicit ModuleItem(ModuleItemKind itemKind, SourceSpan sourceSpan) : kind(itemKind), span(sourceSpan) {}
     virtual ~ModuleItem() = default;
@@ -807,9 +812,13 @@ namespace NG::vnext::syntax
   {
     const SourceSpan span;
     std::vector<ModuleItemPtr> items;
+    /// Per-module visible top-level names computed by the module loader;
+    /// empty means unrestricted (single-unit parses).
+    std::unordered_map<uint32_t, std::unordered_set<std::string>> visibleNames;
 
-    SourceUnit(SourceSpan sourceSpan, std::vector<ModuleItemPtr> moduleItems)
-      : span(sourceSpan), items(std::move(moduleItems))
+    SourceUnit(SourceSpan sourceSpan, std::vector<ModuleItemPtr> moduleItems,
+               std::unordered_map<uint32_t, std::unordered_set<std::string>> visible = {})
+      : span(sourceSpan), items(std::move(moduleItems)), visibleNames(std::move(visible))
     {
     }
   };

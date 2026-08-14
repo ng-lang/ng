@@ -82,6 +82,8 @@ namespace NG::vnext::hir
     enums_.clear();
     opaqueTypes_.clear();
     enumVariants_.clear();
+    visibleNames_ = unit.visibleNames;
+    currentOrigin_ = 0;
     nextLocal_ = 0;
     nextConstId_ = 0;
     uint32_t functionCount{};
@@ -234,7 +236,10 @@ namespace NG::vnext::hir
   {
     Trait resolved{.name = declaration.name, .supertraits = declaration.supertraits,
                     .autoTrait = declaration.autoTrait, .span = declaration.span};
+    const uint32_t previousOrigin = currentOrigin_;
+    currentOrigin_ = declaration.originModule;
     for (const auto &method : declaration.methods) resolved.methods.push_back(resolveTraitMethod(method));
+    currentOrigin_ = previousOrigin;
     return resolved;
   }
 
@@ -242,7 +247,10 @@ namespace NG::vnext::hir
   {
     Impl resolved{.traitName = declaration.traitName, .span = declaration.span};
     if (declaration.targetType != nullptr) resolved.targetType = std::make_unique<Type>(lowerType(*declaration.targetType));
+    const uint32_t previousOrigin = currentOrigin_;
+    currentOrigin_ = declaration.originModule;
     for (const auto &method : declaration.methods) resolved.methods.push_back(resolveTraitMethod(method));
+    currentOrigin_ = previousOrigin;
     return resolved;
   }
 
@@ -329,8 +337,11 @@ namespace NG::vnext::hir
     nextLoop_ = 0;
 
     constParameters_.clear();
-    Function resolved{.id = id, .name = function.name, .span = function.span, .constFunction = function.constFunction,
-                      .exported = function.exported, .nativeFunction = function.nativeFunction};
+    Function resolved{.id = id, .name = function.name, .span = function.span, .originModule = function.originModule,
+                      .constFunction = function.constFunction, .exported = function.exported,
+                      .nativeFunction = function.nativeFunction};
+    const uint32_t previousOrigin = currentOrigin_;
+    currentOrigin_ = function.originModule;
     for (const auto &parameter : function.genericParameters)
     {
       resolved.genericParameterOrder.push_back(parameter.kind);
@@ -809,6 +820,9 @@ namespace NG::vnext::hir
     {
       return ResolvedName{.kind = ResolvedNameKind::ConstParameter, .id = parameter->second};
     }
+    const auto visible = visibleNames_.find(currentOrigin_);
+    if (visible != visibleNames_.end() && !visible->second.contains(expression.name))
+      throw ResolutionError(std::format("name `{}` is not visible in this module", expression.name), expression.span);
     if (const auto function = functions_.find(expression.name); function != functions_.end())
     {
       return ResolvedName{.kind = ResolvedNameKind::Function, .id = function->second.front().value};

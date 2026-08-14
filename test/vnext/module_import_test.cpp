@@ -138,6 +138,53 @@ TEST_CASE("vNext imported modules may declare structs and traits", "[vNext][Modu
   REQUIRE(output.find("with value 7") != std::string::npos);
 }
 
+TEST_CASE("vNext module privacy hides non-exported functions from importers", "[vNext][Modules][Privacy]")
+{
+  ModuleFixture fixture;
+  fixture.write("a.ng", "export fun visible() -> i64 => 1; fun hidden() -> i64 => 2;");
+  fixture.write("main.ng", "import a; fun main() -> i64 { return visible(); }");
+  std::string output;
+  std::string errors;
+  REQUIRE(run({(fixture.directory / "main.ng").string()}, output, errors) == 0);
+  REQUIRE(errors.empty());
+
+  fixture.write("main.ng", "import a; fun main() -> i64 { return hidden(); }");
+  REQUIRE(run({(fixture.directory / "main.ng").string()}, output, errors) == 1);
+  REQUIRE(errors.find("name `hidden` is not visible in this module") != std::string::npos);
+}
+
+TEST_CASE("vNext selective imports grant exactly the named functions", "[vNext][Modules][Privacy]")
+{
+  ModuleFixture fixture;
+  fixture.write("a.ng", "export fun first() -> i64 => 1; export fun second() -> i64 => 2;");
+  fixture.write("main.ng", "import a (first); fun main() -> i64 { return first(); }");
+  std::string output;
+  std::string errors;
+  REQUIRE(run({(fixture.directory / "main.ng").string()}, output, errors) == 0);
+  REQUIRE(errors.empty());
+
+  fixture.write("main.ng", "import a (first); fun main() -> i64 { return second(); }");
+  REQUIRE(run({(fixture.directory / "main.ng").string()}, output, errors) == 1);
+  REQUIRE(errors.find("name `second` is not visible in this module") != std::string::npos);
+}
+
+TEST_CASE("vNext wildcard imports re-export imported module surfaces transitively", "[vNext][Modules][Privacy]")
+{
+  ModuleFixture fixture;
+  fixture.write("leaf.ng", "export fun leafValue() -> i64 => 42; fun leafHidden() -> i64 => 0;");
+  fixture.write("middle.ng", "import leaf; export fun middleValue() -> i64 => leafValue();");
+  fixture.write("main.ng", "import middle; fun main() -> i64 { return leafValue() + middleValue(); }");
+  std::string output;
+  std::string errors;
+  REQUIRE(run({(fixture.directory / "main.ng").string()}, output, errors) == 0);
+  REQUIRE(errors.empty());
+  REQUIRE(output.find("with value 84") != std::string::npos);
+
+  fixture.write("main.ng", "import middle; fun main() -> i64 { return leafHidden(); }");
+  REQUIRE(run({(fixture.directory / "main.ng").string()}, output, errors) == 1);
+  REQUIRE(errors.find("name `leafHidden` is not visible in this module") != std::string::npos);
+}
+
 TEST_CASE("vNext module import example runs end to end through ngi", "[vNext][Modules][Examples]")
 {
   std::string output;
