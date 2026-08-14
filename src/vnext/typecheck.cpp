@@ -864,13 +864,22 @@ namespace NG::vnext::typecheck
         functionTypes_.emplace(instanceId.value, std::move(displaySignature));
         instanceTable_.emplace(std::move(key), instanceId);
         instances_.push_back(std::move(clone));
-        checkFunction(instances_.back());
+        const_eval::ConstBindings instanceConstBindings;
+        for (size_t index = 0; index < signature.constParameters.size(); ++index)
+        {
+          const auto found = substitution.consts.find(static_cast<uint32_t>(index));
+          if (found != substitution.consts.end())
+            instanceConstBindings.emplace(signature.constParameterNames[index], found->second);
+        }
+        checkFunction(instances_.back(), instanceConstBindings);
         return instanceId;
       }
 
-      void checkFunction(const hir::Function &function)
+      void checkFunction(const hir::Function &function, const const_eval::ConstBindings &constBindings = {})
       {
         currentFunctionId_ = function.id;
+        const const_eval::ConstBindings previousBindings = std::move(activeConstBindings_);
+        activeConstBindings_ = constBindings;
         LocalTypes locals;
         mutableBindings_.clear();
         moveState_ = MoveState{};
@@ -897,6 +906,7 @@ namespace NG::vnext::typecheck
         inConstGenericFunction_ = false;
         recordFallthroughDrops(function, locals);
         genericBindings_.clear();
+        activeConstBindings_ = previousBindings;
       }
 
       void recordFallthroughDrops(const hir::Function &function, const LocalTypes &locals)
@@ -1027,23 +1037,61 @@ namespace NG::vnext::typecheck
         }
         case hir::StatementKind::ConstIf:
         {
-          if (inConstGenericFunction_)
-            throw TypeError("per-instance `const if` inside a const-generic function is not yet supported", statement.span);
-          requireType(builtin::Bool, infer(*statement.expression, locals), statement.expression->span, "const if condition");
           bool selected{};
-          try
+          if (inConstGenericFunction_)
           {
-            const_eval::ConstEvaluator evaluator{interner_.constInterner()};
-            selected = evaluator.evaluateBool(*statement.expression, [this](const hir::Expression &node) {
-              if (node.kind == hir::ExpressionKind::GenericApplication) return evaluateConstApplication(node);
-              if (node.kind == hir::ExpressionKind::Call)
-                return interpreter_->evaluateCall(node, {}, {}, node.span);
-              throw const_eval::ConstEvalError("const if condition is not a compile-time constant expression", node.span);
-            });
+            // Per-instance `const if` (D-012): conditions may reference const
+            // parameters; they evaluate against the active instance bindings.
+            try
+            {
+              const_eval::ConstEvaluator evaluator{interner_.constInterner()};
+              selected = evaluator.evaluateBool(*statement.expression, [this](const hir::Expression &node) {
+                if (node.kind == hir::ExpressionKind::ResolvedName && node.resolvedName.has_value() &&
+                    node.resolvedName->kind == hir::ResolvedNameKind::ConstParameter)
+                {
+                  const auto found = activeConstBindings_.find(node.text);
+                  if (found == activeConstBindings_.end())
+                    throw const_eval::ConstEvalError(
+                        std::format("const if condition references abstract const parameter `{}`", node.text),
+                        node.span);
+                  return found->second;
+                }
+                if (node.kind == hir::ExpressionKind::GenericApplication) return evaluateConstApplication(node);
+                if (node.kind == hir::ExpressionKind::Call)
+                  return interpreter_->evaluateCall(node, {}, activeConstBindings_, node.span);
+                throw const_eval::ConstEvalError("const if condition is not a compile-time constant expression", node.span);
+              });
+            }
+            catch (const const_eval::ConstEvalError &error)
+            {
+              // At the generic (abstract) level neither branch is checked and
+              // the type-erased body is not lowerable; monomorphized instances
+              // re-check with concrete bindings.
+              if (activeConstBindings_.empty())
+              {
+                placeholderFunctions_.insert(currentFunctionId_.value);
+                return;
+              }
+              throw TypeError(error.what(), error.span);
+            }
           }
-          catch (const const_eval::ConstEvalError &error)
+          else
           {
-            throw TypeError(error.what(), error.span);
+            requireType(builtin::Bool, infer(*statement.expression, locals), statement.expression->span, "const if condition");
+            try
+            {
+              const_eval::ConstEvaluator evaluator{interner_.constInterner()};
+              selected = evaluator.evaluateBool(*statement.expression, [this](const hir::Expression &node) {
+                if (node.kind == hir::ExpressionKind::GenericApplication) return evaluateConstApplication(node);
+                if (node.kind == hir::ExpressionKind::Call)
+                  return interpreter_->evaluateCall(node, {}, {}, node.span);
+                throw const_eval::ConstEvalError("const if condition is not a compile-time constant expression", node.span);
+              });
+            }
+            catch (const const_eval::ConstEvalError &error)
+            {
+              throw TypeError(error.what(), error.span);
+            }
           }
           constIfSelections_.emplace(&statement, selected);
           if (selected) checkBlock(*statement.consequence, locals, loops, returnType);
@@ -2637,6 +2685,7 @@ namespace NG::vnext::typecheck
       /// Borrow expressions already counted (re-inference is idempotent).
       std::unordered_set<const hir::Expression *> borrowExpressions_;
       bool inConstGenericFunction_{};
+      const_eval::ConstBindings activeConstBindings_;
     };
   } // namespace
 

@@ -118,15 +118,10 @@ TEST_CASE("vNext type checker reports const evaluation errors in const if condit
 
 TEST_CASE("vNext type checker defers per-instance const if in const-generic functions", "[vNext][Typecheck][ConstIf]")
 {
-  try
-  {
-    check("fun choose<const N: i64>() -> i64 { const if (N > 0) { return 1; } return 2; }");
-    FAIL("expected per-instance const if rejection");
-  }
-  catch (const typecheck::TypeError &error)
-  {
-    REQUIRE(std::string{error.what()} == "per-instance `const if` inside a const-generic function is not yet supported");
-  }
+  // Conditions over abstract const parameters defer branch selection: the
+  // generic body typechecks, and each monomorphized instance re-evaluates
+  // against its concrete const bindings (see const_if_instance_test.cpp).
+  REQUIRE_NOTHROW(check("fun choose<const N: i64>() -> i64 { const if (N > 0) { return 1; } return 2; }"));
 }
 
 TEST_CASE("vNext ngi driver lowers only the selected const if branch", "[vNext][Driver][ConstIf]")

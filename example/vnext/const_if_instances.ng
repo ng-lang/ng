@@ -1,0 +1,21 @@
+// vNext per-instance `const if` (D-012/D-013): inside const-generic
+// functions, conditions referencing const parameters evaluate against each
+// monomorphized instance's concrete bindings, including const fun calls.
+
+const fun even(value: i64) -> bool {
+    return (value % 2) == 0;
+}
+
+fun classify<const N: i64>(values: array<i64, N>) -> i64 {
+    let mut total = 0;
+    const if (even(N)) { total := 4; } else { total := 1; }
+    const if (N >= 3) { total := total + 2; }
+    return total;
+}
+
+fun main() -> i64 {
+    let xs: array<i64, 2> = [1, 2];
+    let ys: array<i64, 3> = [1, 2, 3];
+    let zs: array<i64, 4> = [1, 2, 3, 4];
+    return classify(xs) + classify(ys) + classify(zs);
+}
