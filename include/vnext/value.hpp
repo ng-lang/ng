@@ -64,10 +64,12 @@ namespace NG::vnext
   public:
     Value() : storage_(int64_t{}) {}
     Value(int64_t integer) : storage_(integer) {}
+    Value(double floating) : storage_(floating) {}
     Value(std::string string) : storage_(std::move(string)) {}
     Value(std::vector<Value> elements) : storage_(ArrayStorage{std::make_shared<std::vector<Value>>(std::move(elements))}) {}
 
     [[nodiscard]] static auto integer(int64_t value) -> Value { return Value{value}; }
+    [[nodiscard]] static auto float_(double value) -> Value { return Value{value}; }
     [[nodiscard]] static auto string(std::string value) -> Value { return Value{std::move(value)}; }
     [[nodiscard]] static auto array(std::vector<Value> elements) -> Value { return Value{std::move(elements)}; }
     [[nodiscard]] static auto tuple(std::vector<Value> elements) -> Value
@@ -102,6 +104,7 @@ namespace NG::vnext
     }
 
     [[nodiscard]] auto isInteger() const -> bool { return std::holds_alternative<int64_t>(storage_); }
+    [[nodiscard]] auto isDouble() const -> bool { return std::holds_alternative<double>(storage_); }
     [[nodiscard]] auto isString() const -> bool { return std::holds_alternative<std::string>(storage_); }
     [[nodiscard]] auto isArray() const -> bool { return std::holds_alternative<ArrayStorage>(storage_); }
     [[nodiscard]] auto isTuple() const -> bool { return std::holds_alternative<TupleStorage>(storage_); }
@@ -113,6 +116,17 @@ namespace NG::vnext
     {
       if (!isInteger()) throw std::runtime_error("runtime value is not an i64");
       return std::get<int64_t>(storage_);
+    }
+    [[nodiscard]] auto asDouble() const -> double
+    {
+      if (!isDouble()) throw std::runtime_error("runtime value is not an f64");
+      return std::get<double>(storage_);
+    }
+    /// Numeric view: integers and doubles both expose a double value for
+    /// mixed numeric comparisons.
+    [[nodiscard]] auto asNumber() const -> double
+    {
+      return isDouble() ? asDouble() : static_cast<double>(asInteger());
     }
     [[nodiscard]] auto asArray() const -> const std::vector<Value> &
     {
@@ -189,7 +203,8 @@ namespace NG::vnext
     friend auto operator==(int64_t integer, const Value &value) -> bool { return value == integer; }
 
   private:
-    std::variant<int64_t, std::string, ArrayStorage, TupleStorage, StructStorage, EnumStorage, ReferenceStorage, RangeStorage>
+    std::variant<int64_t, double, std::string, ArrayStorage, TupleStorage, StructStorage, EnumStorage, ReferenceStorage,
+                 RangeStorage>
         storage_;
   };
 

@@ -24,6 +24,7 @@ namespace NG::vnext::syntax
   {
     Identifier,
     IntegerLiteral,
+    FloatLiteral,
     StringLiteral,
     ArrayLiteral,
     TupleLiteral,
@@ -67,6 +68,16 @@ namespace NG::vnext::syntax
 
     IntegerLiteralExpression(std::string literalText, SourceSpan sourceSpan)
       : Expression(ExpressionKind::IntegerLiteral, sourceSpan), text(std::move(literalText))
+    {
+    }
+  };
+
+  struct FloatLiteralExpression final : Expression
+  {
+    const std::string text;
+
+    FloatLiteralExpression(std::string literalText, SourceSpan sourceSpan)
+      : Expression(ExpressionKind::FloatLiteral, sourceSpan), text(std::move(literalText))
     {
     }
   };

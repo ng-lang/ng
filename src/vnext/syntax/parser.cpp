@@ -5,6 +5,7 @@
 
 #include <cctype>
 #include <format>
+#include <unordered_set>
 #include <utility>
 
 namespace NG::vnext::syntax
@@ -199,7 +200,39 @@ namespace NG::vnext::syntax
         {
           ++offset;
         }
-        tokens.push_back(Token{.kind = TokenKind::IntegerLiteral,
+        bool floating = false;
+        // Decimal form `1.5`: a dot is part of the literal only when the
+        // next character is a digit (member access `xs[0].x` stays intact).
+        if (offset < source.size() && source[offset] == '.' && offset + 1 < source.size() &&
+            std::isdigit(static_cast<unsigned char>(source[offset + 1])) != 0)
+        {
+          floating = true;
+          ++offset;
+          while (offset < source.size() && std::isdigit(static_cast<unsigned char>(source[offset])) != 0)
+          {
+            ++offset;
+          }
+        }
+        // Optional numeric suffix (D-008): `1u8`, `1.5f32`, ... Unknown
+        // suffixes are rejected rather than silently narrowed.
+        std::string suffix;
+        if (offset < source.size() && isIdentifierStart(source[offset]))
+        {
+          const size_t suffixBegin = offset;
+          while (offset < source.size() && isIdentifierContinue(source[offset]))
+          {
+            ++offset;
+          }
+          suffix = source.substr(suffixBegin, offset - suffixBegin);
+          static const std::unordered_set<std::string> suffixes{"i8", "i16", "i32", "i64", "u8", "u16", "u32",
+                                                                "u64", "f32", "f64"};
+          if (!suffixes.contains(suffix))
+            throw ParseError(std::format("unknown numeric literal suffix `{}`", suffix), SourceSpan{begin, offset});
+          if (floating && (suffix == "i8" || suffix == "i16" || suffix == "i32" || suffix == "i64" || suffix == "u8" ||
+                           suffix == "u16" || suffix == "u32" || suffix == "u64"))
+            throw ParseError(std::format("float literal cannot carry integer suffix `{}`", suffix), SourceSpan{begin, offset});
+        }
+        tokens.push_back(Token{.kind = floating ? TokenKind::FloatLiteral : TokenKind::IntegerLiteral,
                                .text = std::string{source.substr(begin, offset - begin)},
                                .span = SourceSpan{begin, offset}});
         continue;
@@ -531,6 +564,8 @@ namespace NG::vnext::syntax
       return std::make_unique<IdentifierExpression>(token.text, token.span);
     case TokenKind::IntegerLiteral:
       return std::make_unique<IntegerLiteralExpression>(token.text, token.span);
+    case TokenKind::FloatLiteral:
+      return std::make_unique<FloatLiteralExpression>(token.text, token.span);
     case TokenKind::StringLiteral:
       return std::make_unique<StringLiteralExpression>(token.text, token.span);
     case TokenKind::KeywordTrue:

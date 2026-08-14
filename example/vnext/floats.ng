@@ -1,0 +1,25 @@
+// vNext floating-point types (D-008 slice): f32/f64 builtins, decimal and
+// suffixed literals, same-type arithmetic, and cross-width numeric equality
+// and ordering comparisons.
+
+fun area(radius: f64) -> f64 {
+    return radius * radius * 3.14159;
+}
+
+fun main() -> i64 {
+    let single: f32 = 1.5f32;
+    let double: f64 = 2.5;
+    let sum: f64 = double + double;
+    let half: f32 = single / 2.0;
+    let negated: f64 = -sum;
+    let circle = area(2.0);
+
+    let mut total = 0;
+    if (sum == 5.0) { total := total + 1; }
+    if (half == 0.75f32) { total := total + 2; }
+    if (single < double) { total := total + 4; }
+    if (1.5f32 == 1.5f64) { total := total + 8; }
+    if (negated < -4.9) { total := total + 16; }
+    if (circle > 12.5 && circle < 12.6) { total := total + 32; }
+    return total;
+}

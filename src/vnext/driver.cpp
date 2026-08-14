@@ -134,6 +134,7 @@ namespace NG::vnext
             if (!parameterTypes.empty() && parameterTypes.front() == typecheck::builtin::Bool)
               output << (argument == 1 ? "true" : "false");
             else if (argument.isInteger()) output << argument.asInteger();
+            else if (argument.isDouble()) output << argument.asDouble();
             else if (argument.isString()) output << argument.asString();
             else throw bytecode::BytecodeError("print does not support this value type");
             output << '\n';
@@ -254,6 +255,7 @@ namespace NG::vnext
           {
             output << " with value ";
             if (result.returnValue->isInteger()) output << result.returnValue->asInteger();
+            else if (result.returnValue->isDouble()) output << result.returnValue->asDouble();
             else output << result.returnValue->asString();
           }
           output << '\n';

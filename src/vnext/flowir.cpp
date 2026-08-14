@@ -2,6 +2,7 @@
 #include "vnext/flowir.hpp"
 
 #include <algorithm>
+#include <bit>
 #include <limits>
 #include <unordered_map>
 #include <utility>
@@ -174,6 +175,10 @@ namespace NG::vnext::flowir
         if (expression.kind == hir::ExpressionKind::IntegerLiteral)
         {
           payload = std::stoll(expression.text);
+        }
+        else if (expression.kind == hir::ExpressionKind::FloatLiteral)
+        {
+          payload = std::bit_cast<int64_t>(std::stod(expression.text));
         }
         else if (expression.kind == hir::ExpressionKind::BooleanLiteral)
         {

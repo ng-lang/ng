@@ -6,6 +6,8 @@ import string;
 export native fun print(value: i64) -> unit;
 export native fun print(value: string) -> unit;
 export native fun print(value: bool) -> unit;
+export native fun print(value: f64) -> unit;
+export native fun print(value: f32) -> unit;
 export native fun assert(condition: bool) -> unit;
 
 export fun not(value: bool) -> bool {

@@ -1826,6 +1826,23 @@ namespace NG::vnext::typecheck
         return info;
       }
 
+      /// Resolves a numeric literal suffix (`i8`, `u8`, `f32`, ...) to its
+      /// builtin type; empty suffixes default to i64 / f64 at the call sites.
+      [[nodiscard]] auto typeFromNumericSuffix(std::string_view suffix) const -> TypeId
+      {
+        if (suffix == "i8") return builtin::I8;
+        if (suffix == "i16") return builtin::I16;
+        if (suffix == "i32") return builtin::I32;
+        if (suffix == "i64") return builtin::I64;
+        if (suffix == "u8") return builtin::U8;
+        if (suffix == "u16") return builtin::U16;
+        if (suffix == "u32") return builtin::U32;
+        if (suffix == "u64") return builtin::U64;
+        if (suffix == "f32") return builtin::F32;
+        if (suffix == "f64") return builtin::F64;
+        return TypeId{};
+      }
+
       /// D-008 range check for an integer literal value against a fixed-width
       /// integer builtin type.
       void checkIntegerLiteral(int64_t value, std::string_view text, TypeId type, syntax::SourceSpan span) const
@@ -1857,7 +1874,22 @@ namespace NG::vnext::typecheck
         {
           // D-008: integer literal text is preserved exactly until contextual
           // type selection; adopt the expected integer type with a range check.
+          if (!expression.numericSuffix.empty())
+          {
+            const TypeId suffixType = typeFromNumericSuffix(expression.numericSuffix);
+            if (suffixType != expected)
+              throw TypeError(std::format("integer literal suffix `{}` conflicts with expected type {}", expression.numericSuffix,
+                                          interner_.display(expected)), expression.span);
+          }
           checkIntegerLiteral(std::stoll(expression.text), expression.text, expected, expression.span);
+          record(expression, expected);
+          return expected;
+        }
+        if (expression.kind == hir::ExpressionKind::FloatLiteral && isFloatBuiltin(expected))
+        {
+          if (!expression.numericSuffix.empty() && typeFromNumericSuffix(expression.numericSuffix) != expected)
+            throw TypeError(std::format("float literal suffix `{}` conflicts with expected type {}", expression.numericSuffix,
+                                        interner_.display(expected)), expression.span);
           record(expression, expected);
           return expected;
         }
@@ -1870,6 +1902,14 @@ namespace NG::vnext::typecheck
           const int64_t value = expression.text == "-" ? -std::stoll(expression.operands[0]->text)
                                                         : std::stoll(expression.operands[0]->text);
           checkIntegerLiteral(value, text, expected, expression.span);
+          record(expression, expected);
+          return expected;
+        }
+        if (expression.kind == hir::ExpressionKind::Prefix &&
+            (expression.text == "-" || expression.text == "+") && isFloatBuiltin(expected) &&
+            expression.operands[0]->kind == hir::ExpressionKind::FloatLiteral)
+        {
+          static_cast<void>(inferExpected(*expression.operands[0], expected, locals, "float literal"));
           record(expression, expected);
           return expected;
         }
@@ -2136,7 +2176,14 @@ namespace NG::vnext::typecheck
         TypeId type;
         switch (expression.kind)
         {
-        case hir::ExpressionKind::IntegerLiteral: type = builtin::I64; break;
+        case hir::ExpressionKind::IntegerLiteral:
+          type = expression.numericSuffix.empty() ? builtin::I64 : typeFromNumericSuffix(expression.numericSuffix);
+          if (isIntegerBuiltin(type)) checkIntegerLiteral(std::stoll(expression.text), expression.text, type, expression.span);
+          break;
+        case hir::ExpressionKind::FloatLiteral:
+          type = expression.numericSuffix.empty() ? builtin::F64 : typeFromNumericSuffix(expression.numericSuffix);
+          static_cast<void>(std::stod(expression.text));
+          break;
         case hir::ExpressionKind::StringLiteral: type = builtin::String; break;
         case hir::ExpressionKind::BooleanLiteral: type = builtin::Bool; break;
         case hir::ExpressionKind::ArrayLiteral:
@@ -2361,7 +2408,7 @@ namespace NG::vnext::typecheck
             type = builtin::Bool;
             requireType(type, operand, expression.span, "prefix operand");
           }
-          else if (isIntegerBuiltin(operand))
+          else if (isIntegerBuiltin(operand) || isFloatBuiltin(operand))
           {
             type = operand;
           }
@@ -2376,14 +2423,27 @@ namespace NG::vnext::typecheck
         {
           TypeId left = infer(*expression.operands[0], locals);
           TypeId right = infer(*expression.operands[1], locals);
-          // Contextual integer literals adopt the other operand's integer
-          // type instead of defaulting to i64.
-          if (expression.operands[1]->kind == hir::ExpressionKind::IntegerLiteral && isIntegerBuiltin(left) &&
-              right != left)
-            right = inferExpected(*expression.operands[1], left, locals, "integer literal");
-          if (expression.operands[0]->kind == hir::ExpressionKind::IntegerLiteral && isIntegerBuiltin(right) &&
-              left != right)
-            left = inferExpected(*expression.operands[0], right, locals, "integer literal");
+          const bool equality = expression.text == "==" || expression.text == "!=";
+          const bool ordering = expression.text == "<" || expression.text == "<=" || expression.text == ">" ||
+                                expression.text == ">=";
+          // Contextual numeric literals adopt the other operand's type for
+          // arithmetic; equality and ordering compare across numeric widths,
+          // so literals keep their own types there.
+          if (!equality && !ordering)
+          {
+            if (expression.operands[1]->kind == hir::ExpressionKind::IntegerLiteral && isIntegerBuiltin(left) &&
+                right != left)
+              right = inferExpected(*expression.operands[1], left, locals, "integer literal");
+            if (expression.operands[0]->kind == hir::ExpressionKind::IntegerLiteral && isIntegerBuiltin(right) &&
+                left != right)
+              left = inferExpected(*expression.operands[0], right, locals, "integer literal");
+            if (expression.operands[1]->kind == hir::ExpressionKind::FloatLiteral && isFloatBuiltin(left) &&
+                right != left)
+              right = inferExpected(*expression.operands[1], left, locals, "float literal");
+            if (expression.operands[0]->kind == hir::ExpressionKind::FloatLiteral && isFloatBuiltin(right) &&
+                left != right)
+              left = inferExpected(*expression.operands[0], right, locals, "float literal");
+          }
           if (expression.text == "..")
           {
             if (!isIntegerBuiltin(left)) requireType(builtin::I64, left, expression.operands[0]->span, "range start");
@@ -2392,11 +2452,14 @@ namespace NG::vnext::typecheck
             type = interner_.internRange(left);
             break;
           }
-          requireType(left, right, expression.span, "binary operands");
-          if (expression.text == "==" || expression.text == "!=") type = builtin::Bool;
-          else if (expression.text == "<" || expression.text == "<=" || expression.text == ">" || expression.text == ">=")
+          const bool numericPair = isNumericBuiltin(left) && isNumericBuiltin(right);
+          // Equality and ordering compare across numeric widths; everything
+          // else requires identical operand types.
+          if (!((equality || ordering) && numericPair)) requireType(left, right, expression.span, "binary operands");
+          if (equality) type = builtin::Bool;
+          else if (ordering)
           {
-            if (!isIntegerBuiltin(left)) requireType(builtin::I64, left, expression.span, "comparison operand");
+            if (!numericPair) requireType(builtin::I64, left, expression.span, "comparison operand");
             type = builtin::Bool;
           }
           else if (expression.text == "&&" || expression.text == "||")
@@ -2408,7 +2471,8 @@ namespace NG::vnext::typecheck
           {
             if (expression.text != "+" || left != builtin::String)
             {
-              if (!isIntegerBuiltin(left)) requireType(builtin::I64, left, expression.span, "binary operand");
+              if (!isIntegerBuiltin(left) && !isFloatBuiltin(left))
+                requireType(builtin::I64, left, expression.span, "binary operand");
             }
             type = left;
           }

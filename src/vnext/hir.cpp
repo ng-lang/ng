@@ -587,6 +587,26 @@ namespace NG::vnext::hir
     throw ResolutionError("unsupported statement during name resolution", statement.span);
   }
 
+  namespace
+  {
+    /// Splits a numeric literal's suffix (`1u8`, `1.5f32`) out of `text` into
+    /// `numericSuffix`; the lexer already validated the suffix set.
+    void splitNumericSuffix(hir::Expression &resolved)
+    {
+      static const std::unordered_set<std::string> suffixes{"i8", "i16", "i32", "i64", "u8", "u16", "u32",
+                                                            "u64", "f32", "f64"};
+      for (const auto &suffix : suffixes)
+      {
+        if (resolved.text.size() > suffix.size() && resolved.text.ends_with(suffix))
+        {
+          resolved.numericSuffix = suffix;
+          resolved.text.resize(resolved.text.size() - suffix.size());
+          return;
+        }
+      }
+    }
+  } // namespace
+
   auto Resolver::resolveExpression(const syntax::Expression &expression) -> ExpressionPtr
   {
     auto resolved = std::make_unique<Expression>(Expression{.span = expression.span});
@@ -604,6 +624,14 @@ namespace NG::vnext::hir
     {
       resolved->kind = ExpressionKind::IntegerLiteral;
       resolved->text = integer->text;
+      splitNumericSuffix(*resolved);
+      return resolved;
+    }
+    if (const auto *floating = dynamic_cast<const syntax::FloatLiteralExpression *>(&expression))
+    {
+      resolved->kind = ExpressionKind::FloatLiteral;
+      resolved->text = floating->text;
+      splitNumericSuffix(*resolved);
       return resolved;
     }
     if (const auto *string = dynamic_cast<const syntax::StringLiteralExpression *>(&expression))
@@ -892,6 +920,7 @@ namespace
     cloned->kind = source.kind;
     cloned->span = source.span;
     cloned->text = source.text;
+    cloned->numericSuffix = source.numericSuffix;
     cloned->resolvedName = source.resolvedName;
     cloned->functionCandidates = source.functionCandidates;
     cloned->structId = source.structId;

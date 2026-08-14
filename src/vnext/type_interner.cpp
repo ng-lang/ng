@@ -17,7 +17,9 @@ namespace NG::vnext::typecheck
                    TypeDescriptor{.kind = TypeKind::Builtin, .name = "i32", .element = TypeId{}, .length = std::nullopt},
                    TypeDescriptor{.kind = TypeKind::Builtin, .name = "u16", .element = TypeId{}, .length = std::nullopt},
                    TypeDescriptor{.kind = TypeKind::Builtin, .name = "u32", .element = TypeId{}, .length = std::nullopt},
-                   TypeDescriptor{.kind = TypeKind::Builtin, .name = "u64", .element = TypeId{}, .length = std::nullopt}})
+                   TypeDescriptor{.kind = TypeKind::Builtin, .name = "u64", .element = TypeId{}, .length = std::nullopt},
+                   TypeDescriptor{.kind = TypeKind::Builtin, .name = "f32", .element = TypeId{}, .length = std::nullopt},
+                   TypeDescriptor{.kind = TypeKind::Builtin, .name = "f64", .element = TypeId{}, .length = std::nullopt}})
   {
     namedTypes_.emplace("i64", builtin::I64);
     namedTypes_.emplace("u8", builtin::U8);
@@ -30,6 +32,8 @@ namespace NG::vnext::typecheck
     namedTypes_.emplace("u16", builtin::U16);
     namedTypes_.emplace("u32", builtin::U32);
     namedTypes_.emplace("u64", builtin::U64);
+    namedTypes_.emplace("f32", builtin::F32);
+    namedTypes_.emplace("f64", builtin::F64);
   }
 
   auto TypeInterner::append(TypeDescriptor descriptor) -> TypeId

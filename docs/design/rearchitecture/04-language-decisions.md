@@ -421,8 +421,14 @@ This supersedes any assumption that arbitrary C++ exceptions are the public lang
 - Same-type arithmetic, comparisons, bitwise operators, unary `-`/`+`,
   and `range<T>` literals/slicing work across the integer tower;
   mixed-width operations are type errors (no implicit conversions).
-- Runtime values remain `i64`-backed; per-width runtime overflow checks,
-  literal suffixes, `f32`/`f64`, and `isize`/`usize` remain follow-ups.
+- Numeric suffixes (`1u8`, `1.5f32`, ...) are lexed and typed; unknown
+  suffixes and float/integer suffix mixes are rejected.
+- `f32`/`f64` resolve as builtin types with decimal and suffixed literals,
+  contextual adoption (bindings, calls, operands, negation), and
+  same-type arithmetic; equality and ordering compare across numeric
+  widths, including mixed integer/float pairs, at runtime.
+- Runtime values remain `i64`/`double`-backed; per-width runtime overflow
+  checks and `isize`/`usize` remain follow-ups.
 
 ---
 

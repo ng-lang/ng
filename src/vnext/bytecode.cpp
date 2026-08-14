@@ -398,6 +398,11 @@ namespace NG::vnext::bytecode
             if (!typecheck::isIntegerBuiltin(resultType))
               throw BytecodeError("bytecode integer literal result is not an integer type");
           }
+          else if (kind == hir::ExpressionKind::FloatLiteral)
+          {
+            if (!typecheck::isFloatBuiltin(resultType))
+              throw BytecodeError("bytecode float literal result is not a float type");
+          }
           else if (kind == hir::ExpressionKind::StringLiteral) requireResultType(typecheck::builtin::String);
           else if (kind == hir::ExpressionKind::ArrayLiteral)
           {
@@ -522,6 +527,13 @@ namespace NG::vnext::bytecode
               requireOperandType(1, typecheck::builtin::String);
               requireResultType(typecheck::builtin::String);
             }
+            else if ((payload >= 1 && payload <= 4) &&
+                     typecheck::isFloatBuiltin(requireValueType(instruction.operands.at(5))))
+            {
+              const auto operandType = requireValueType(instruction.operands.at(5));
+              requireOperandType(1, operandType);
+              requireResultType(operandType);
+            }
             else if ((payload >= 1 && payload <= 5) || (payload >= 14 && payload <= 18))
             {
               const auto operandType = requireValueType(instruction.operands.at(5));
@@ -533,10 +545,18 @@ namespace NG::vnext::bytecode
             else if (payload >= 8 && payload <= 11)
             {
               const auto operandType = requireValueType(instruction.operands.at(5));
-              if (!typecheck::isIntegerBuiltin(operandType))
-                throw BytecodeError("bytecode integer comparison operand is not an integer type");
-              requireOperandType(1, operandType);
-              requireResultType(typecheck::builtin::Bool);
+              const auto secondType = requireValueType(instruction.operands.at(6));
+              if (typecheck::isNumericBuiltin(operandType) && typecheck::isNumericBuiltin(secondType))
+              {
+                requireResultType(typecheck::builtin::Bool);
+              }
+              else
+              {
+                if (!typecheck::isIntegerBuiltin(operandType))
+                  throw BytecodeError("bytecode integer comparison operand is not an integer type");
+                requireOperandType(1, operandType);
+                requireResultType(typecheck::builtin::Bool);
+              }
             }
             else if (payload == 12 || payload == 13)
             {
@@ -546,7 +566,10 @@ namespace NG::vnext::bytecode
             }
             else if (payload == 6 || payload == 7)
             {
-              if (requireValueType(instruction.operands.at(5)) != requireValueType(instruction.operands.at(6)))
+              const auto leftType = requireValueType(instruction.operands.at(5));
+              const auto rightType = requireValueType(instruction.operands.at(6));
+              const bool numericPair = typecheck::isNumericBuiltin(leftType) && typecheck::isNumericBuiltin(rightType);
+              if (!numericPair && leftType != rightType)
                 throw BytecodeError("bytecode equality operand type mismatch");
               requireResultType(typecheck::builtin::Bool);
             }

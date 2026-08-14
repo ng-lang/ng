@@ -1,6 +1,7 @@
 // AI-generated code; reviewed for this repository's vNext rewrite.
 #include "value_ops.hpp"
 
+#include <bit>
 #include <format>
 #include <limits>
 
@@ -173,6 +174,11 @@ namespace NG::vnext::vm::detail
       values[result] = static_cast<int64_t>(payload);
       return;
     }
+    if (kind == hir::ExpressionKind::FloatLiteral)
+    {
+      values[result] = Value::float_(std::bit_cast<double>(payload));
+      return;
+    }
     if (kind == hir::ExpressionKind::StringLiteral)
     {
       if (payload >= stringConstants.size()) throw bytecode::BytecodeError("string constant index is out of range");
@@ -223,10 +229,17 @@ namespace NG::vnext::vm::detail
         values[result] = values.at(instruction.operands[5]).deepCopy();
         return;
       }
+      if (values.at(instruction.operands[5]).isDouble())
+      {
+        const double operand = values.at(instruction.operands[5]).asDouble();
+        if (payload == 1) throw bytecode::BytecodeError("logical negation is not defined for floats");
+        values[result] = payload == 2 ? Value::float_(-operand) : Value::float_(operand);
+        return;
+      }
       const int64_t operand = values.at(instruction.operands[5]).asInteger();
       switch (payload)
       {
-      case 1: values[result] = operand == 0; return;
+      case 1: values[result] = Value::integer(operand == 0 ? 1 : 0); return;
       case 2:
         if (operand == std::numeric_limits<int64_t>::min()) throw bytecode::BytecodeError("integer negation overflow");
         values[result] = -operand;
@@ -274,8 +287,8 @@ namespace NG::vnext::vm::detail
       const auto &left = values.at(instruction.operands[5]).asString();
       const auto &right = values.at(instruction.operands[6]).asString();
       if (payload == 1) values[result] = Value::string(left + right);
-      else if (payload == 6) values[result] = left == right;
-      else values[result] = left != right;
+      else if (payload == 6) values[result] = Value::integer(left == right ? 1 : 0);
+      else values[result] = Value::integer(left != right ? 1 : 0);
       return;
     }
     if (payload == 19)
@@ -283,6 +296,25 @@ namespace NG::vnext::vm::detail
       values[result] = Value::range(values.at(instruction.operands[5]).asInteger(),
                                     values.at(instruction.operands[6]).asInteger());
       return;
+    }
+    if (values.at(instruction.operands[5]).isDouble() || values.at(instruction.operands[6]).isDouble())
+    {
+      const double left = values.at(instruction.operands[5]).asNumber();
+      const double right = values.at(instruction.operands[6]).asNumber();
+      switch (payload)
+      {
+      case 1: values[result] = Value::float_(left + right); return;
+      case 2: values[result] = Value::float_(left - right); return;
+      case 3: values[result] = Value::float_(left * right); return;
+      case 4: values[result] = Value::float_(left / right); return;
+      case 6: values[result] = Value::integer(left == right ? 1 : 0); return;
+      case 7: values[result] = Value::integer(left != right ? 1 : 0); return;
+      case 8: values[result] = Value::integer(left < right ? 1 : 0); return;
+      case 9: values[result] = Value::integer(left <= right ? 1 : 0); return;
+      case 10: values[result] = Value::integer(left > right ? 1 : 0); return;
+      case 11: values[result] = Value::integer(left >= right ? 1 : 0); return;
+      default: throw bytecode::BytecodeError("unsupported float operation");
+      }
     }
     const int64_t left = values.at(instruction.operands[5]).asInteger();
     const int64_t right = values.at(instruction.operands[6]).asInteger();
@@ -303,14 +335,14 @@ namespace NG::vnext::vm::detail
         throw bytecode::BytecodeError("integer remainder overflow");
       values[result] = left % right;
       return;
-    case 6: values[result] = left == right; return;
-    case 7: values[result] = left != right; return;
-    case 8: values[result] = left < right; return;
-    case 9: values[result] = left <= right; return;
-    case 10: values[result] = left > right; return;
-    case 11: values[result] = left >= right; return;
-    case 12: values[result] = left != 0 && right != 0; return;
-    case 13: values[result] = left != 0 || right != 0; return;
+    case 6: values[result] = Value::integer(left == right ? 1 : 0); return;
+    case 7: values[result] = Value::integer(left != right ? 1 : 0); return;
+    case 8: values[result] = Value::integer(left < right ? 1 : 0); return;
+    case 9: values[result] = Value::integer(left <= right ? 1 : 0); return;
+    case 10: values[result] = Value::integer(left > right ? 1 : 0); return;
+    case 11: values[result] = Value::integer(left >= right ? 1 : 0); return;
+    case 12: values[result] = Value::integer(left != 0 && right != 0 ? 1 : 0); return;
+    case 13: values[result] = Value::integer(left != 0 || right != 0 ? 1 : 0); return;
     case 14: values[result] = left & right; return;
     case 15: values[result] = left | right; return;
     case 16: values[result] = left ^ right; return;

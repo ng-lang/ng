@@ -70,6 +70,7 @@ namespace NG::vnext::hir
   enum class ExpressionKind
   {
     IntegerLiteral,
+    FloatLiteral,
     StringLiteral,
     ArrayLiteral,
     TupleLiteral,
@@ -96,6 +97,8 @@ namespace NG::vnext::hir
     ExpressionKind kind;
     syntax::SourceSpan span;
     std::string text;
+    /// Numeric literal suffix (`i8`, `u8`, `f32`, ...), stripped from `text`.
+    std::string numericSuffix;
     std::optional<ResolvedName> resolvedName;
     std::vector<DefId> functionCandidates;
     std::optional<StructId> structId;

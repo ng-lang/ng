@@ -31,6 +31,8 @@ namespace NG::vnext::typecheck
     inline constexpr TypeId U16{9};
     inline constexpr TypeId U32{10};
     inline constexpr TypeId U64{11};
+    inline constexpr TypeId F32{12};
+    inline constexpr TypeId F64{13};
   } // namespace builtin
 
   /// True for the D-008 fixed-width integer builtin types (i8–i64, u8–u64).
@@ -38,6 +40,18 @@ namespace NG::vnext::typecheck
   {
     return type == builtin::I8 || type == builtin::I16 || type == builtin::I32 || type == builtin::I64 ||
            type == builtin::U8 || type == builtin::U16 || type == builtin::U32 || type == builtin::U64;
+  }
+
+  /// True for the D-008 floating-point builtin types (f32, f64).
+  [[nodiscard]] inline auto isFloatBuiltin(TypeId type) -> bool
+  {
+    return type == builtin::F32 || type == builtin::F64;
+  }
+
+  /// True for any numeric builtin type (integer or float).
+  [[nodiscard]] inline auto isNumericBuiltin(TypeId type) -> bool
+  {
+    return isIntegerBuiltin(type) || isFloatBuiltin(type);
   }
 
   struct TypeError : std::runtime_error
