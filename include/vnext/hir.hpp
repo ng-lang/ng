@@ -239,6 +239,9 @@ namespace NG::vnext::hir
     /// `F<_>` type-constructor parameters (kind `* -> *`).
     std::vector<std::string> constructorParameters;
     std::vector<ConstParameter> constParameters;
+    /// Kind of every generic parameter in declaration order; explicit call
+    /// site generic arguments map positionally against this order.
+    std::vector<syntax::GenericParameterKind> genericParameterOrder;
     std::vector<Parameter> parameters;
     std::optional<std::string> returnTypeName;
     std::unique_ptr<Type> returnType;

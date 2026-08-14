@@ -21,8 +21,8 @@ fun main() -> i64 {
     let back: Box<i64> = unwrap(ints);
 
     let mut total = 0;
-    total := total + accept<i64, Box>(ref ints);
-    total := total + accept<string, Box>(ref texts);
+    total := total + accept<Box, i64>(ref ints);
+    total := total + accept<Box, string>(ref texts);
     total := total + accept(ref ints);
     total := total + accept(ref texts);
     if (back.value == 42) { total := total + 1; }

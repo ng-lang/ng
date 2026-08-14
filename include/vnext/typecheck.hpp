@@ -175,6 +175,9 @@ namespace NG::vnext::typecheck
     std::vector<std::string> packParameterNames;
     std::vector<TypeId> constructorParameters;
     std::vector<std::string> constructorParameterNames;
+    /// Declaration order of every explicit generic parameter kind (Type,
+    /// TypeConstructor, Const); call-site generic arguments map positionally.
+    std::vector<syntax::GenericParameterKind> explicitParameterOrder;
     std::vector<TypeId> constParameters;
     std::vector<std::string> constParameterNames;
     TypeId returnType;

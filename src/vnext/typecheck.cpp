@@ -102,6 +102,8 @@ namespace NG::vnext::typecheck
             signature.constructorParameterNames.push_back(function.constructorParameters[index]);
             genericBindings.emplace(function.constructorParameters[index], parameter);
           }
+          for (const auto kind : function.genericParameterOrder)
+            if (kind != syntax::GenericParameterKind::Pack) signature.explicitParameterOrder.push_back(kind);
           for (const auto &[parameterName, bounds] : function.traitBounds)
           {
             for (const auto &traitName : bounds)
@@ -1495,24 +1497,39 @@ namespace NG::vnext::typecheck
       [[nodiscard]] auto explicitSubstitution(const hir::Expression &expression, const FunctionTypeIds &signature) -> Substitution
       {
         Substitution substitution;
-        const size_t expected = signature.genericParameters.size() + signature.constructorParameters.size() +
-                                signature.constParameters.size();
+        const size_t expected = signature.explicitParameterOrder.size();
         if (expression.genericArguments.size() != expected)
           throw TypeError(std::format("generic argument count mismatch: expected {}, got {}", expected,
                                       expression.genericArguments.size()), expression.span);
+        size_t typeIndex{};
+        size_t constructorIndex{};
+        size_t constIndex{};
         for (size_t index = 0; index < expression.genericArguments.size(); ++index)
         {
           const auto &argument = expression.genericArguments[index];
-          if (index < signature.genericParameters.size())
+          switch (signature.explicitParameterOrder[index])
+          {
+          case syntax::GenericParameterKind::Type:
           {
             if (argument.kind != syntax::GenericArgumentKind::Type)
               throw TypeError(std::format("generic argument {} must be a type", index + 1), argument.span);
-            substitution.types.emplace(signature.genericParameters[index].value,
-                                       interner_.resolveInScope(*argument.type, genericBindings_));
+            const TypeId resolved = interner_.resolveInScope(*argument.type, genericBindings_);
+            const auto &descriptor = interner_.descriptor(resolved);
+            // Kind check: a bare generic struct/enum template is a type
+            // constructor, not a type, and cannot bind a type parameter.
+            if (descriptor.typeArguments.empty() && descriptor.nominalId.has_value() &&
+                ((descriptor.kind == TypeKind::Struct &&
+                  interner_.structGenericArity(hir::StructId{*descriptor.nominalId}) != 0) ||
+                 (descriptor.kind == TypeKind::Enum &&
+                  interner_.enumGenericArity(hir::EnumId{*descriptor.nominalId}) != 0)))
+              throw TypeError(std::format("generic argument {} is a type constructor, not a type", index + 1),
+                              argument.span);
+            substitution.types.emplace(signature.genericParameters[typeIndex].value, resolved);
+            ++typeIndex;
+            break;
           }
-          else if (index < signature.genericParameters.size() + signature.constructorParameters.size())
+          case syntax::GenericParameterKind::TypeConstructor:
           {
-            const size_t constructorIndex = index - signature.genericParameters.size();
             if (argument.kind != syntax::GenericArgumentKind::Type)
               throw TypeError(std::format("generic argument {} must be a type constructor", index + 1), argument.span);
             const TypeId templateType = interner_.templateForName(argument.type->name, argument.span);
@@ -1522,16 +1539,21 @@ namespace NG::vnext::typecheck
                               argument.span);
             substitution.constructors.emplace(*interner_.descriptor(signature.constructorParameters[constructorIndex]).nominalId,
                                              templateType);
+            ++constructorIndex;
+            break;
           }
-          else
+          case syntax::GenericParameterKind::Const:
           {
             if (argument.kind != syntax::GenericArgumentKind::ConstExpr)
               throw TypeError(std::format("generic argument {} must be a const expression", index + 1), argument.span);
             const const_eval::ConstValueId value =
                 const_eval::ConstEvaluator{interner_.constInterner()}.evaluate(*argument.constExpr, {});
-            substitution.consts.emplace(
-                static_cast<uint32_t>(index - signature.genericParameters.size() - signature.constructorParameters.size()),
-                value);
+            substitution.consts.emplace(static_cast<uint32_t>(constIndex), value);
+            ++constIndex;
+            break;
+          }
+          case syntax::GenericParameterKind::Pack:
+            break;
           }
         }
         return substitution;
@@ -2366,7 +2388,18 @@ namespace NG::vnext::typecheck
         {
           if (const auto found = substitution.types.find(expected.value); found != substitution.types.end())
             requireType(found->second, actual, span, "generic argument");
-          else substitution.types.emplace(expected.value, actual);
+          else
+          {
+            // Kind check: a bare generic struct/enum template is a type
+            // constructor, not a type, and cannot bind a type parameter.
+            const auto &bound = interner_.descriptor(actual);
+            if (bound.typeArguments.empty() && bound.nominalId.has_value() &&
+                ((bound.kind == TypeKind::Struct && interner_.structGenericArity(hir::StructId{*bound.nominalId}) != 0) ||
+                 (bound.kind == TypeKind::Enum && interner_.enumGenericArity(hir::EnumId{*bound.nominalId}) != 0)))
+              throw TypeError(std::format("generic argument is a type constructor, not a type: {}",
+                                          interner_.display(actual)), span);
+            substitution.types.emplace(expected.value, actual);
+          }
           return;
         }
         const auto &actualDescriptor = interner_.descriptor(actual);

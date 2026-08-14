@@ -332,6 +332,7 @@ namespace NG::vnext::hir
                       .exported = function.exported, .nativeFunction = function.nativeFunction};
     for (const auto &parameter : function.genericParameters)
     {
+      resolved.genericParameterOrder.push_back(parameter.kind);
       if (parameter.kind == syntax::GenericParameterKind::Const)
       {
         resolved.constParameters.push_back(ConstParameter{.name = parameter.name,
@@ -944,6 +945,7 @@ namespace
                     .genericParameters = source.genericParameters,
                     .packParameters = source.packParameters,
                     .constructorParameters = source.constructorParameters,
+                    .genericParameterOrder = source.genericParameterOrder,
                     .constFunction = source.constFunction,
                     .exported = source.exported,
                     .nativeFunction = source.nativeFunction,

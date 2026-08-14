@@ -61,7 +61,7 @@ TEST_CASE("vNext type constructor parameters instantiate explicitly", "[vNext][H
 {
   expectValue("struct Box<T> { value: T, } "
               "fun accept<F<_>, T>(value: F<T> ref) -> i64 { return 7; } "
-              "fun main() -> i64 { let box: Box<i64> = Box { value: 42 }; return accept<i64, Box>(ref box); }",
+              "fun main() -> i64 { let box: Box<i64> = Box { value: 42 }; return accept<Box, i64>(ref box); }",
               "7");
 }
 
@@ -106,18 +106,32 @@ TEST_CASE("vNext type constructor validation reports malformed applications", "[
   }
   catch (const typecheck::TypeError &error)
   {
-    REQUIRE(std::string{error.what()} == "generic argument 2 must be a struct type constructor");
+    REQUIRE(std::string{error.what()} == "generic argument 1 must be a struct type constructor");
+  }
+
+  try
+  {
+    // Reversed order: `i64` lands in the constructor slot and `Box` (a bare
+    // template) would land in the type slot; both are kind errors, and the
+    // constructor slot is checked first.
+    check("struct Box<T> { value: T, } fun accept<F<_>, T>(value: F<T> ref) -> i64 { return 0; } "
+          "fun main() -> i64 { let box: Box<i64> = Box { value: 42 }; return accept<i64, Box>(ref box); }");
+    FAIL("expected a kind error for the reversed argument order");
+  }
+  catch (const typecheck::TypeError &error)
+  {
+    REQUIRE(std::string{error.what()} == "generic argument 1 must be a struct type constructor");
   }
 
   try
   {
     check("struct Box<T> { value: T, } fun accept<F<_>, T>(value: F<T> ref) -> i64 { return 0; } "
-          "fun main() -> i64 { let box: Box<i64> = Box { value: 42 }; return accept<Box, i64>(ref box); }");
-    FAIL("expected a constructor argument position error");
+          "fun main() -> i64 { let box: Box<i64> = Box { value: 42 }; return accept<Box>(ref box); }");
+    FAIL("expected a generic argument count error");
   }
   catch (const typecheck::TypeError &error)
   {
-    REQUIRE(std::string{error.what()} == "struct type `Box` expects 1 arguments, got 0");
+    REQUIRE(std::string{error.what()} == "generic argument count mismatch: expected 2, got 1");
   }
 }
 
