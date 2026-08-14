@@ -143,6 +143,30 @@ TEST_CASE("vNext block-scoped drops skip wholly moved locals", "[vNext][Drop][Ru
   REQUIRE(output.find("dropped\ndropped\n") == std::string::npos);
 }
 
+TEST_CASE("vNext Drop edges validate field moves against the Drop impl contract", "[vNext][Drop][Errors]")
+{
+  try
+  {
+    check("struct Inner { value: i64 } impl Drop for Inner { fun drop(self: Self ref) -> unit { return; } } "
+          "struct Resource { owned: Inner, id: i64 } "
+          "impl Drop for Resource { fun drop(self: Self ref) -> unit { let taken = move (*self).owned; } } "
+          "fun main() -> i64 { let resource = Resource { owned: Inner { value: 1 }, id: 7 }; "
+          "let moved = move resource.owned; return moved.value; }");
+    FAIL("expected a field-aware drop conflict error");
+  }
+  catch (const typecheck::TypeError &error)
+  {
+    REQUIRE(std::string{error.what()} == "cannot drop a value with field `owned` moved out");
+  }
+
+  // Moving a different field keeps the destructor's own field moves valid.
+  REQUIRE_NOTHROW(check("struct Inner { value: i64 } impl Drop for Inner { fun drop(self: Self ref) -> unit { return; } } "
+                        "struct Resource { owned: Inner, id: i64 } "
+                        "impl Drop for Resource { fun drop(self: Self ref) -> unit { let taken = move (*self).owned; } } "
+                        "fun main() -> i64 { let resource = Resource { owned: Inner { value: 1 }, id: 7 }; "
+                        "let moved = move resource.id; return moved; }"));
+}
+
 TEST_CASE("vNext drop example file runs end to end through ngi", "[vNext][Drop][Examples]")
 {
   std::string output;

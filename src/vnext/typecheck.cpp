@@ -555,6 +555,99 @@ namespace NG::vnext::typecheck
         functionTypes_.emplace(id.value, std::move(displaySignature));
       }
 
+      /// Walks a drop impl body for `move (*self).field` / `move self.field`
+      /// expressions, collecting the field names the destructor takes over.
+      void collectDropMovedFields(const hir::Block &block, uint32_t selfLocal, std::unordered_set<std::string> &fields)
+      {
+        for (const auto &statement : block.statements) collectDropMovedFields(statement, selfLocal, fields);
+        if (block.tailExpression != nullptr) collectDropMovedFields(*block.tailExpression, selfLocal, fields);
+      }
+
+      void collectDropMovedFields(const hir::Statement &statement, uint32_t selfLocal, std::unordered_set<std::string> &fields)
+      {
+        switch (statement.kind)
+        {
+        case hir::StatementKind::Let:
+        case hir::StatementKind::Return:
+          if (statement.expression != nullptr) collectDropMovedFields(*statement.expression, selfLocal, fields);
+          return;
+        case hir::StatementKind::Assign:
+          if (statement.expression != nullptr) collectDropMovedFields(*statement.expression, selfLocal, fields);
+          if (statement.assignmentTarget != nullptr) collectDropMovedFields(*statement.assignmentTarget, selfLocal, fields);
+          return;
+        case hir::StatementKind::Expression:
+          if (statement.expression != nullptr) collectDropMovedFields(*statement.expression, selfLocal, fields);
+          return;
+        case hir::StatementKind::If:
+        case hir::StatementKind::ConstIf:
+          if (statement.expression != nullptr) collectDropMovedFields(*statement.expression, selfLocal, fields);
+          if (statement.consequence != nullptr) collectDropMovedFields(*statement.consequence, selfLocal, fields);
+          if (statement.alternative != nullptr) collectDropMovedFields(*statement.alternative, selfLocal, fields);
+          return;
+        case hir::StatementKind::Loop:
+          if (statement.body != nullptr) collectDropMovedFields(*statement.body, selfLocal, fields);
+          for (const auto &argument : statement.arguments) collectDropMovedFields(*argument, selfLocal, fields);
+          return;
+        case hir::StatementKind::Next:
+          for (const auto &argument : statement.arguments) collectDropMovedFields(*argument, selfLocal, fields);
+          return;
+        case hir::StatementKind::Switch:
+          if (statement.expression != nullptr) collectDropMovedFields(*statement.expression, selfLocal, fields);
+          for (const auto &switchCase : statement.switchCases)
+            if (switchCase.body != nullptr) collectDropMovedFields(*switchCase.body, selfLocal, fields);
+          return;
+        }
+      }
+
+      void collectDropMovedFields(const hir::Expression &expression, uint32_t selfLocal,
+                                  std::unordered_set<std::string> &fields)
+      {
+        if (expression.kind == hir::ExpressionKind::Prefix && expression.text == "move" && !expression.operands.empty())
+        {
+          const auto &moved = *expression.operands[0];
+          if (moved.kind == hir::ExpressionKind::Member && !moved.operands.empty())
+          {
+            // `(*self).field` parses as Member over a Grouped deref.
+            const hir::Expression *root = moved.operands[0].get();
+            while (root->kind == hir::ExpressionKind::Grouped && !root->operands.empty())
+              root = root->operands[0].get();
+            const hir::Expression *selfNode = root;
+            if (root->kind == hir::ExpressionKind::Prefix && root->text == "*" && !root->operands.empty())
+              selfNode = root->operands[0].get();
+            if (selfNode->kind == hir::ExpressionKind::ResolvedName && selfNode->resolvedName.has_value() &&
+                selfNode->resolvedName->kind == hir::ResolvedNameKind::Local && selfNode->resolvedName->id == selfLocal)
+            {
+              fields.insert(moved.text);
+              return;
+            }
+          }
+        }
+        for (const auto &child : expression.operands) collectDropMovedFields(*child, selfLocal, fields);
+      }
+
+      /// Builds a (local, drop method) drop edge for a live drop-typed local,
+      /// validating field-aware partial moves against the Drop impl contract:
+      /// dropping a value whose field the destructor moves is a double-own.
+      [[nodiscard]] auto dropEdge(uint32_t local, TypeId type, syntax::SourceSpan span) -> std::pair<uint32_t, uint32_t>
+      {
+        const auto &impl = *std::find_if(impls_.begin(), impls_.end(), [&](const ImplInfo &candidate) {
+          return candidate.traitName == "Drop" && candidate.target.value == type.value;
+        });
+        if (const auto moved = dropMovedFields_.find(type.value); moved != dropMovedFields_.end())
+        {
+          const auto &descriptor = interner_.descriptor(type);
+          for (const auto &fieldName : moved->second)
+          {
+            const auto found = std::find(descriptor.fieldNames.begin(), descriptor.fieldNames.end(), fieldName);
+            if (found == descriptor.fieldNames.end()) continue;
+            const uint32_t field = static_cast<uint32_t>(std::distance(descriptor.fieldNames.begin(), found));
+            if (moveState_.isFieldMoved(local, field))
+              throw TypeError(std::format("cannot drop a value with field `{}` moved out", fieldName), span);
+          }
+        }
+        return {local, impl.methods.at("drop").value};
+      }
+
       void registerImpls()
       {
         for (const auto &impl : module_->impls)
@@ -570,6 +663,13 @@ namespace NG::vnext::typecheck
             if (impl.methods.size() != 1 || impl.methods.front().name != "drop")
               throw TypeError("Drop impl must define exactly one `drop` method", impl.span);
             resolveImplMethodSignature(impl.methodIds.at(0), module_->functions.at(impl.methodIds.at(0).value), target);
+            {
+              const auto &dropFunction = module_->functions.at(impl.methodIds.at(0).value);
+              std::unordered_set<std::string> movedFields;
+              collectDropMovedFields(dropFunction.body, dropFunction.parameters.front().local.value, movedFields);
+              if (!movedFields.empty())
+                dropMovedFields_.emplace(target.value, std::vector<std::string>{movedFields.begin(), movedFields.end()});
+            }
             ImplInfo info{.traitName = "Drop", .target = target};
             info.methods.emplace("drop", impl.methodIds.at(0));
             dropTypes_.insert(target.value);
@@ -915,10 +1015,7 @@ namespace NG::vnext::typecheck
         for (const auto &[local, type] : locals)
         {
           if (!dropTypes_.contains(type.value) || moveState_.isWholeMoved(local)) continue;
-          const auto &impl = *std::find_if(impls_.begin(), impls_.end(), [&](const ImplInfo &candidate) {
-            return candidate.traitName == "Drop" && candidate.target.value == type.value;
-          });
-          fallthroughDrops_[function.id.value].push_back({local, impl.methods.at("drop").value});
+          fallthroughDrops_[function.id.value].push_back(dropEdge(local, type, function.span));
         }
       }
 
@@ -940,10 +1037,7 @@ namespace NG::vnext::typecheck
           {
             if (incomingLocals.contains(local)) continue;
             if (!dropTypes_.contains(type.value) || moveState_.isWholeMoved(local)) continue;
-            const auto &impl = *std::find_if(impls_.begin(), impls_.end(), [&](const ImplInfo &candidate) {
-              return candidate.traitName == "Drop" && candidate.target.value == type.value;
-            });
-            drops.push_back({local, impl.methods.at("drop").value});
+            drops.push_back(dropEdge(local, type, block.span));
           }
           if (!drops.empty()) blockDrops_.emplace(&block, std::move(drops));
         }
@@ -1034,10 +1128,7 @@ namespace NG::vnext::typecheck
           for (const auto &[local, type] : locals)
           {
             if (!dropTypes_.contains(type.value) || moveState_.isWholeMoved(local)) continue;
-            const auto &impl = *std::find_if(impls_.begin(), impls_.end(), [&](const ImplInfo &candidate) {
-              return candidate.traitName == "Drop" && candidate.target.value == type.value;
-            });
-            returnDrops_[&statement].push_back({local, impl.methods.at("drop").value});
+            returnDrops_[&statement].push_back(dropEdge(local, type, statement.span));
           }
           return;
         case hir::StatementKind::If:
@@ -1578,9 +1669,28 @@ namespace NG::vnext::typecheck
         if (expression.kind == hir::ExpressionKind::Prefix && expression.text == "move")
         {
           // Explicit moves invalidate the source place regardless of whether
-          // its type is affine (legacy #24 semantics).
+          // its type is affine (legacy #24 semantics). Moving a struct/enum
+          // field marks the field, keeping the rest of the value usable and
+          // letting Drop edges validate partial moves field by field.
           const auto root = rootLocalOf(*expression.operands[0]);
-          if (root.has_value()) moveState_.markWhole(root->value);
+          if (!root.has_value()) return;
+          const auto &operand = *expression.operands[0];
+          if (operand.kind == hir::ExpressionKind::Member)
+          {
+            const auto &descriptor = interner_.descriptor(locals.at(root->value));
+            if ((descriptor.kind == TypeKind::Struct || descriptor.kind == TypeKind::Enum) &&
+                !descriptor.fieldNames.empty())
+            {
+              const auto found = std::find(descriptor.fieldNames.begin(), descriptor.fieldNames.end(), operand.text);
+              if (found != descriptor.fieldNames.end())
+              {
+                moveState_.markField(root->value,
+                                     static_cast<uint32_t>(std::distance(descriptor.fieldNames.begin(), found)));
+                return;
+              }
+            }
+          }
+          moveState_.markWhole(root->value);
           return;
         }
         if (expression.kind == hir::ExpressionKind::Grouped)
@@ -2682,6 +2792,7 @@ namespace NG::vnext::typecheck
       std::unordered_map<const hir::Block *, std::vector<std::pair<uint32_t, uint32_t>>> blockDrops_;
       std::unordered_set<uint32_t> placeholderFunctions_;
       std::unordered_set<uint32_t> derivedCloneTypes_;
+      std::unordered_map<uint32_t, std::vector<std::string>> dropMovedFields_;
       std::unordered_map<const hir::Expression *, TypeId> derivedCloneCalls_;
       std::unordered_map<const hir::Expression *, bool> methodReceiverMutable_;
       std::unordered_map<const hir::Expression *, TypeId> methodReceiverRefTypes_;

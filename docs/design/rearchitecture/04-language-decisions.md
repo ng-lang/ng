@@ -957,8 +957,11 @@ let writable = ref mut value;
 - Block-scoped drop edges: drop-typed locals declared in nested blocks
   (if/const if/loop/switch branches) drop when the scope exits, including
   `next` loop edges; wholly moved-out bindings are skipped.
-- Remaining D-015 work: field-aware partial-move drops and full non-lexical
-  loan analysis.
+- Field-aware partial-move drops: explicit `move struct.field` marks the
+  field (keeping the rest usable), and every drop edge validates the Drop
+  impl's own field moves against the current move state, rejecting
+  double-ownership (`cannot drop a value with field ... moved out`).
+- Remaining D-015 work: full non-lexical loan analysis.
 
 ### Borrow status — 2026-08-15
 
