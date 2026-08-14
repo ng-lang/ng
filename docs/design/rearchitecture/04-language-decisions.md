@@ -943,8 +943,20 @@ let writable = ref mut value;
 - Deep copy on bind/call/return is enforced in the VM (`Value::deepCopy`):
   bindings, call arguments, and returns never alias aggregate storage, while
   reference values stay views. Line and block comments are lexed and skipped.
-- Remaining D-015 work: `move`/`clone` syntax and affine checking, partial
-  moves, `Drop`, loan conflict checks, and rejection of escaped references.
+- Remaining D-015 work: `Drop` execution, loan conflict checks, and
+  rejection of escaped references.
+
+### Move semantics status — 2026-08-15
+
+- `move expr` and `clone expr` parse, typecheck, and execute (`clone` deep-copies
+  at runtime; `move` transfers with identity semantics since bindings already
+  copy storage).
+- The checker tracks per-local move state: nominal (`struct`/`enum`) bindings
+  move on consuming uses (by-value call arguments included), `move` invalidates
+  any binding regardless of its type, partial moves mark fields, and assignment
+  revives whole bindings or fields. Branch, loop, and switch states merge
+  conservatively. Violations are span-carrying errors (`use of moved value`,
+  `use of partially moved value`, `use of moved field`).
 
 ---
 

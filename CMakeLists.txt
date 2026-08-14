@@ -115,6 +115,7 @@ set(NG_TEST_SRC
         test/vnext/where_clause_test.cpp
         test/vnext/trait_stage1_test.cpp
         test/vnext/module_import_test.cpp
+        test/vnext/move_semantics_test.cpp
         test/vnext/ref_type_test.cpp
         test/vnext/ref_runtime_test.cpp
         test/vnext/switch_statement_test.cpp

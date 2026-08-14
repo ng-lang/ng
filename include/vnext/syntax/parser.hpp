@@ -39,6 +39,8 @@ namespace NG::vnext::syntax
     KeywordFor,
     KeywordImport,
     KeywordExport,
+    KeywordMove,
+    KeywordClone,
     KeywordTrue,
     KeywordFalse,
     LeftParen,

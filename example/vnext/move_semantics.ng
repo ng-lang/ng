@@ -1,0 +1,33 @@
+// vNext move semantics (D-015): bindings copy by default; nominal values
+// move on consuming use; `move` is the explicit spelling; partial moves
+// invalidate fields until reassigned; `clone` copies explicitly.
+
+struct Point {
+    x: i64,
+    y: i64,
+}
+
+fun main() -> i64 {
+    // Collections deep-copy: the two bindings never alias.
+    let mut original = [1, 2, 3];
+    let mut copied = original;
+    copied[0] := 9;
+    if (original[0] != 1) { return 0; }
+
+    // Nominal values move; the source is revived by assignment.
+    let mut source = Point { x: 1, y: 2 };
+    let moved = move source;
+    source := Point { x: 3, y: 4 };
+
+    // Partial move: the moved field is revived by field assignment while
+    // the other fields stay readable.
+    let mut partial = Point { x: 5, y: 6 };
+    let x = partial.x;
+    partial.x := 7;
+
+    // clone copies explicitly without moving.
+    let a = Point { x: 8, y: 9 };
+    let b = clone a;
+
+    return moved.x + source.x + x + partial.x + a.x + b.x + copied[0] + original[0];
+}

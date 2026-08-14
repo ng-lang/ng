@@ -453,9 +453,16 @@ namespace NG::vnext::bytecode
           else if (kind == hir::ExpressionKind::Prefix)
           {
             const uint64_t payload = static_cast<uint64_t>(instruction.operands[2]) | (static_cast<uint64_t>(instruction.operands[3]) << 32);
-            const auto expected = payload == 1 ? typecheck::builtin::Bool : typecheck::builtin::I64;
-            requireOperandType(0, expected);
-            requireResultType(expected);
+            if (payload == 4 || payload == 5)
+            {
+              requireResultType(requireValueType(instruction.operands.at(5)));
+            }
+            else
+            {
+              const auto expected = payload == 1 ? typecheck::builtin::Bool : typecheck::builtin::I64;
+              requireOperandType(0, expected);
+              requireResultType(expected);
+            }
           }
           else if (kind == hir::ExpressionKind::Binary)
           {

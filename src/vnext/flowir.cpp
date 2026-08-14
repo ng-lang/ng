@@ -127,6 +127,8 @@ namespace NG::vnext::flowir
           if (expression.text == "!") payload = 1;
           else if (expression.text == "-") payload = 2;
           else if (expression.text == "+") payload = 3;
+          else if (expression.text == "move") payload = 4;
+          else if (expression.text == "clone") payload = 5;
         }
         else if (expression.kind == hir::ExpressionKind::Binary)
         {

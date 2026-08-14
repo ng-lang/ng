@@ -161,6 +161,55 @@ namespace NG::vnext::typecheck
         std::unordered_map<std::string, hir::DefId> methods;
       };
 
+      /// Per-local move tracking (D-015): `whole` marks a fully moved
+      /// binding; `fields` marks partially moved struct/enum fields.
+      struct MoveState
+      {
+        std::unordered_map<uint32_t, bool> whole;
+        std::unordered_map<uint32_t, std::unordered_set<uint32_t>> fields;
+
+        [[nodiscard]] auto isWholeMoved(uint32_t local) const -> bool
+        {
+          return whole.contains(local) && (!fields.contains(local) || fields.at(local).empty());
+        }
+        [[nodiscard]] auto isFieldMoved(uint32_t local, uint32_t field) const -> bool
+        {
+          if (whole.contains(local)) return !fields.contains(local) || !fields.at(local).contains(field);
+          return fields.contains(local) && fields.at(local).contains(field);
+        }
+        [[nodiscard]] auto hasMovedField(uint32_t local) const -> bool
+        {
+          return fields.contains(local) && !fields.at(local).empty();
+        }
+        void markWhole(uint32_t local)
+        {
+          whole[local] = true;
+          fields.erase(local);
+        }
+        void markField(uint32_t local, uint32_t field)
+        {
+          if (!whole.contains(local)) fields[local].insert(field);
+        }
+        void reinitialize(uint32_t local)
+        {
+          whole.erase(local);
+          fields.erase(local);
+        }
+        void reinitializeField(uint32_t local, uint32_t field)
+        {
+          if (whole.contains(local)) fields[local].insert(field);
+          else fields[local].erase(field);
+        }
+        [[nodiscard]] auto mergedWith(const MoveState &other) const -> MoveState
+        {
+          MoveState merged = *this;
+          for (const auto &[local, _] : other.whole) merged.markWhole(local);
+          for (const auto &[local, movedFields] : other.fields)
+            for (const auto field : movedFields) merged.markField(local, field);
+          return merged;
+        }
+      };
+
       struct ConstDeclChecked
       {
         const hir::ConstDeclaration *declaration;
@@ -518,6 +567,12 @@ namespace NG::vnext::typecheck
             requireType(receiverDescriptor.element, receiverType, receiver.span, "method receiver");
           if (receiverDescriptor.referenceMutable) requireMutableRoot(receiver, receiver.span);
         }
+        for (size_t index = 0; index < supplied; ++index)
+        {
+          const auto &parameterDescriptor = interner_.descriptor(signature.parameters[index + 1]);
+          if (parameterDescriptor.kind != TypeKind::Reference && parameterDescriptor.kind != TypeKind::RawPointer)
+            trackConsumption(*expression.operands[firstArgument + index], locals);
+        }
         methodReceiverMutable_.insert_or_assign(&expression, receiverDescriptor.referenceMutable);
         TypeId recordedReference = receiverParameter;
         if (interner_.descriptor(receiverDescriptor.element).kind == TypeKind::TypeParameter)
@@ -597,6 +652,7 @@ namespace NG::vnext::typecheck
         currentFunctionId_ = function.id;
         LocalTypes locals;
         mutableBindings_.clear();
+        moveState_ = MoveState{};
         const auto &signature = signatures_.at(function.id.value);
         genericBindings_.clear();
         for (size_t index = 0; index < function.genericParameters.size(); ++index)
@@ -634,6 +690,7 @@ namespace NG::vnext::typecheck
           const TypeId type = statement.bindingType != nullptr
                                   ? inferExpected(*statement.expression, interner_.resolve(*statement.bindingType), locals, "let initializer")
                                   : infer(*statement.expression, locals);
+          trackConsumption(*statement.expression, locals);
           if (!statement.destructuredLocals.empty())
           {
             const auto &tuple = interner_.descriptor(type);
@@ -660,13 +717,40 @@ namespace NG::vnext::typecheck
         case hir::StatementKind::Assign:
           if (statement.assignmentTarget != nullptr)
           {
+            // Assignment writes revive the target place, but the assigned
+            // value reads against the pre-assignment move state.
+            const MoveState beforeAssignment = moveState_;
+            const auto reviveTarget = [&]() {
+              if (const auto root = rootLocalOf(*statement.assignmentTarget); root.has_value())
+              {
+                if (statement.assignmentTarget->kind == hir::ExpressionKind::Member)
+                {
+                  const auto &descriptor = interner_.descriptor(locals.at(root->value));
+                  const auto found = std::find(descriptor.fieldNames.begin(), descriptor.fieldNames.end(),
+                                               statement.assignmentTarget->text);
+                  if (found != descriptor.fieldNames.end())
+                    moveState_.reinitializeField(root->value,
+                                                 static_cast<uint32_t>(std::distance(descriptor.fieldNames.begin(), found)));
+                }
+                else
+                {
+                  moveState_.reinitialize(root->value);
+                }
+              }
+            };
+            reviveTarget();
             requireMutableDeref(*statement.assignmentTarget, locals);
             const TypeId target = infer(*statement.assignmentTarget, locals);
+            moveState_ = beforeAssignment;
             static_cast<void>(inferExpected(*statement.expression, target, locals, "assignment value"));
+            trackConsumption(*statement.expression, locals);
+            reviveTarget();
           }
           else
           {
             static_cast<void>(inferExpected(*statement.expression, locals.at(statement.local->value), locals, "assignment value"));
+            trackConsumption(*statement.expression, locals);
+            moveState_.reinitialize(statement.local->value);
           }
           return;
         case hir::StatementKind::Return:
@@ -674,10 +758,16 @@ namespace NG::vnext::typecheck
           else requireType(returnType, builtin::Unit, statement.span, "return value");
           return;
         case hir::StatementKind::If:
+        {
           requireType(builtin::Bool, infer(*statement.expression, locals), statement.expression->span, "if condition");
+          const MoveState before = moveState_;
           checkBlock(*statement.consequence, locals, loops, returnType);
+          const MoveState afterConsequence = moveState_;
+          moveState_ = before;
           if (statement.alternative != nullptr) checkBlock(*statement.alternative, locals, loops, returnType);
+          moveState_ = afterConsequence.mergedWith(moveState_);
           return;
+        }
         case hir::StatementKind::ConstIf:
         {
           if (inConstGenericFunction_)
@@ -716,7 +806,9 @@ namespace NG::vnext::typecheck
           }
           LoopTypes loopTypes = loops;
           loopTypes.emplace(statement.loop->value, types);
+          const MoveState before = moveState_;
           checkBlock(*statement.body, std::move(loopLocals), std::move(loopTypes), returnType);
+          moveState_ = before.mergedWith(moveState_);
           return;
         }
         case hir::StatementKind::Next: checkNext(statement, locals, loops); return;
@@ -746,6 +838,16 @@ namespace NG::vnext::typecheck
           throw TypeError(std::format("switch value must be an enum type, got {}", interner_.display(scrutinee)),
                           statement.expression->span);
         std::vector<bool> covered(descriptor.fieldNames.size());
+        const MoveState beforeSwitch = moveState_;
+        MoveState merged;
+        bool anyBranch = false;
+        const auto checkBranch = [&](const hir::Block &branch, const LocalTypes &branchLocals) {
+          const MoveState beforeBranch = moveState_;
+          checkBlock(branch, branchLocals, loops, returnType);
+          merged = merged.mergedWith(moveState_);
+          moveState_ = beforeBranch;
+          anyBranch = true;
+        };
         for (const auto &switchCase : statement.switchCases)
         {
           const auto found = std::find(descriptor.fieldNames.begin(), descriptor.fieldNames.end(), switchCase.variantName);
@@ -758,7 +860,7 @@ namespace NG::vnext::typecheck
           covered[variant] = true;
           if (!switchCase.binding.has_value())
           {
-            checkBlock(*switchCase.body, locals, loops, returnType);
+            checkBranch(*switchCase.body, locals);
             continue;
           }
           if (!descriptor.variantHasPayload[variant])
@@ -766,17 +868,18 @@ namespace NG::vnext::typecheck
           LocalTypes caseLocals = locals;
           caseLocals.emplace(switchCase.binding->value, descriptor.elements[variant]);
           recordLocal(*switchCase.binding, descriptor.elements[variant]);
-          checkBlock(*switchCase.body, std::move(caseLocals), loops, returnType);
+          checkBranch(*switchCase.body, caseLocals);
         }
-        if (statement.alternative != nullptr)
+        if (statement.alternative != nullptr) checkBranch(*statement.alternative, locals);
+        if (anyBranch) moveState_ = beforeSwitch.mergedWith(merged);
+        if (statement.alternative == nullptr)
         {
-          checkBlock(*statement.alternative, locals, loops, returnType);
-        }
-        else if (const auto missing = std::find(covered.begin(), covered.end(), false); missing != covered.end())
-        {
-          const size_t variant = static_cast<size_t>(std::distance(covered.begin(), missing));
-          throw TypeError(std::format("switch is not exhaustive: missing variant `{}`", descriptor.fieldNames[variant]),
-                          statement.span);
+          if (const auto missing = std::find(covered.begin(), covered.end(), false); missing != covered.end())
+          {
+            const size_t variant = static_cast<size_t>(std::distance(covered.begin(), missing));
+            throw TypeError(std::format("switch is not exhaustive: missing variant `{}`", descriptor.fieldNames[variant]),
+                            statement.span);
+          }
         }
       }
 
@@ -999,6 +1102,76 @@ namespace NG::vnext::typecheck
         }
       }
 
+      [[nodiscard]] auto isAffine(TypeId type) const -> bool
+      {
+        const auto &descriptor = interner_.descriptor(type);
+        if (descriptor.kind == TypeKind::Struct || descriptor.kind == TypeKind::Enum) return true;
+        if (descriptor.kind == TypeKind::Tuple)
+          return std::any_of(descriptor.elements.begin(), descriptor.elements.end(),
+                             [this](TypeId element) { return isAffine(element); });
+        return false;
+      }
+
+      [[nodiscard]] auto rootLocalOf(const hir::Expression &expression) const -> std::optional<hir::LocalId>
+      {
+        const hir::Expression *root = &expression;
+        while (true)
+        {
+          if (root->kind == hir::ExpressionKind::Index || root->kind == hir::ExpressionKind::Member ||
+              root->kind == hir::ExpressionKind::Grouped)
+            root = root->operands[0].get();
+          else
+            break;
+        }
+        if (root->kind == hir::ExpressionKind::ResolvedName && root->resolvedName.has_value() &&
+            root->resolvedName->kind == hir::ResolvedNameKind::Local)
+          return hir::LocalId{root->resolvedName->id};
+        return std::nullopt;
+      }
+
+      /// Records a consuming use: affine bindings and explicitly moved
+      /// bindings are marked moved (whole or by field).
+      void trackConsumption(const hir::Expression &expression, const LocalTypes &locals)
+      {
+        if (expression.kind == hir::ExpressionKind::Prefix && expression.text == "clone") return;
+        if (expression.kind == hir::ExpressionKind::Prefix && expression.text == "move")
+        {
+          // Explicit moves invalidate the source place regardless of whether
+          // its type is affine (legacy #24 semantics).
+          const auto root = rootLocalOf(*expression.operands[0]);
+          if (root.has_value()) moveState_.markWhole(root->value);
+          return;
+        }
+        if (expression.kind == hir::ExpressionKind::Grouped)
+        {
+          trackConsumption(*expression.operands[0], locals);
+          return;
+        }
+        if (expression.kind == hir::ExpressionKind::Member)
+        {
+          const auto root = rootLocalOf(expression);
+          if (!root.has_value()) return;
+          const auto fieldType = locals.at(root->value);
+          if (!isAffine(fieldType)) return;
+          const auto &descriptor = interner_.descriptor(fieldType);
+          const auto found = std::find(descriptor.fieldNames.begin(), descriptor.fieldNames.end(), expression.text);
+          if (found == descriptor.fieldNames.end()) return;
+          const uint32_t field = static_cast<uint32_t>(std::distance(descriptor.fieldNames.begin(), found));
+          if (moveState_.hasMovedField(root->value))
+            throw TypeError(std::format("use of partially moved value `{}`", expression.operands[0]->text), expression.span);
+          moveState_.markField(root->value, field);
+          return;
+        }
+        if (expression.kind == hir::ExpressionKind::ResolvedName && expression.resolvedName->kind == hir::ResolvedNameKind::Local)
+        {
+          const uint32_t local = expression.resolvedName->id;
+          if (!isAffine(locals.at(local))) return;
+          if (moveState_.hasMovedField(local))
+            throw TypeError(std::format("use of partially moved value `{}`", expression.text), expression.span);
+          moveState_.markWhole(local);
+        }
+      }
+
       /// Builds a substitution from explicit generic arguments written on a
       /// call expression (`name<types>(...)`), filling declared parameters in
       /// declaration order: type parameters first, then const parameters.
@@ -1118,6 +1291,12 @@ namespace NG::vnext::typecheck
                 !evaluateWhereCondition(*module_->functions.at(selected.value).whereClause, substitution, signature))
               throw TypeError(std::format("call to `{}` does not satisfy its where clause", module_->functions.at(selected.value).name),
                               expression.span);
+            for (size_t index = 0; index < supplied; ++index)
+            {
+              const auto &parameterDescriptor = interner_.descriptor(signature.parameters[index]);
+              if (parameterDescriptor.kind != TypeKind::Reference && parameterDescriptor.kind != TypeKind::RawPointer)
+                trackConsumption(*expression.operands[index + 1], locals);
+            }
             selected = instantiateFunction(selected, substitution, expression.span);
             requireType(expected, specialized, expression.span, context);
             record(expression, specialized);
@@ -1240,6 +1419,8 @@ namespace NG::vnext::typecheck
             throw TypeError("function name cannot be used as a value", expression.span);
           if (expression.resolvedName->kind == hir::ResolvedNameKind::ConstParameter)
             throw TypeError(std::format("const parameter `{}` is not a runtime value", expression.text), expression.span);
+          if (moveState_.isWholeMoved(expression.resolvedName->id))
+            throw TypeError(std::format("use of moved value `{}`", expression.text), expression.span);
           type = locals.at(expression.resolvedName->id);
           break;
         case hir::ExpressionKind::Grouped: type = infer(*expression.operands[0], locals); break;
@@ -1280,6 +1461,11 @@ namespace NG::vnext::typecheck
             if (descriptor.kind != TypeKind::Reference)
               throw TypeError(std::format("cannot dereference value of type {}", interner_.display(operand)), expression.span);
             type = descriptor.element;
+            break;
+          }
+          if (expression.text == "move" || expression.text == "clone")
+          {
+            type = operand;
             break;
           }
           type = expression.text == "!" ? builtin::Bool : builtin::I64;
@@ -1401,6 +1587,12 @@ namespace NG::vnext::typecheck
               !evaluateWhereCondition(*module_->functions.at(selected.value).whereClause, substitution, signature))
             throw TypeError(std::format("call to `{}` does not satisfy its where clause", module_->functions.at(selected.value).name),
                             expression.span);
+          for (size_t index = 0; index < supplied; ++index)
+          {
+            const auto &parameterDescriptor = interner_.descriptor(signature.parameters[index]);
+            if (parameterDescriptor.kind != TypeKind::Reference && parameterDescriptor.kind != TypeKind::RawPointer)
+              trackConsumption(*expression.operands[index + 1], locals);
+          }
           selected = instantiateFunction(selected, substitution, expression.span);
           callTargets_.insert_or_assign(&expression, selected);
           break;
@@ -1436,6 +1628,18 @@ namespace NG::vnext::typecheck
           if (descriptor.kind != TypeKind::Struct)
             throw TypeError(std::format("cannot access member `{}` on value of type {}", expression.text,
                                         interner_.display(receiver)), expression.span);
+          if (const auto root = rootLocalOf(expression); root.has_value())
+          {
+            const auto fieldNames = descriptor.fieldNames;
+            const auto found = std::find(fieldNames.begin(), fieldNames.end(), expression.text);
+            if (found != fieldNames.end())
+            {
+              const uint32_t field = static_cast<uint32_t>(std::distance(fieldNames.begin(), found));
+              if (moveState_.isFieldMoved(root->value, field))
+                throw TypeError(std::format("use of moved field `{}.{}`", expression.operands[0]->text, expression.text),
+                                expression.span);
+            }
+          }
           const auto found = std::find(descriptor.fieldNames.begin(), descriptor.fieldNames.end(), expression.text);
           if (found == descriptor.fieldNames.end())
             throw TypeError(std::format("unknown field `{}` in struct `{}`", expression.text, descriptor.name), expression.span);
@@ -1562,6 +1766,9 @@ namespace NG::vnext::typecheck
       /// Bindings declared with `let mut` (and loop bindings, which `next`
       /// rebinds) in the current lexical path; restored at block boundaries.
       MutableBindings mutableBindings_;
+      /// Move tracking for affine bindings (D-015): whole and per-field moved
+      /// state, merged at branch and loop boundaries.
+      MoveState moveState_;
       bool inConstGenericFunction_{};
     };
   } // namespace

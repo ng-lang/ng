@@ -213,6 +213,16 @@ namespace NG::vnext::vm::detail
     }
     if (kind == hir::ExpressionKind::Prefix)
     {
+      if (payload == 4)
+      {
+        values[result] = values.at(instruction.operands[5]);
+        return;
+      }
+      if (payload == 5)
+      {
+        values[result] = values.at(instruction.operands[5]).deepCopy();
+        return;
+      }
       const int64_t operand = values.at(instruction.operands[5]).asInteger();
       switch (payload)
       {

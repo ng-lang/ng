@@ -118,6 +118,7 @@ namespace NG::vnext::syntax
         }
         const std::string text{source.substr(begin, offset - begin)};
         const TokenKind kind = text == "case" ? TokenKind::KeywordCase
+                             : text == "clone" ? TokenKind::KeywordClone
                              : text == "const" ? TokenKind::KeywordConst
                              : text == "delete" ? TokenKind::KeywordDelete
                              : text == "else" ? TokenKind::KeywordElse
@@ -131,6 +132,7 @@ namespace NG::vnext::syntax
                              : text == "is" ? TokenKind::KeywordIs
                              : text == "let" ? TokenKind::KeywordLet
                              : text == "loop" ? TokenKind::KeywordLoop
+                             : text == "move" ? TokenKind::KeywordMove
                              : text == "mut" ? TokenKind::KeywordMut
                              : text == "native" ? TokenKind::KeywordNative
                              : text == "next" ? TokenKind::KeywordNext
@@ -588,8 +590,10 @@ namespace NG::vnext::syntax
     case TokenKind::Plus:
     case TokenKind::Minus:
     case TokenKind::Bang:
-    case TokenKind::Star: return 110;
-    default:              return -1;
+    case TokenKind::Star:
+    case TokenKind::KeywordMove:
+    case TokenKind::KeywordClone: return 110;
+    default:                    return -1;
     }
   }
 
