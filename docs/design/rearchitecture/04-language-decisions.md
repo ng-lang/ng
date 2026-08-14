@@ -426,6 +426,17 @@ LetStatement    := "let" "mut"? Pattern (":" Type)? "=" Expression ";"
 - A named local callable is introduced through a `let` binding of a closure/function value. Local `fun` declarations are deferred; this avoids a second local-declaration scope model before closures and capture analysis are complete.
 - `import`/`export` are module directives/items, not block statements. Visibility belongs to declarations/exports, never to a local `let`.
 
+### Implementation status — 2026-08-15
+
+- `import name;` / `import name (a, b);` directives and `export` item
+  prefixes parse; a module loader resolves imports as `<name>.ng` relative to
+  the importing file and merges the transitive graph into one compilation
+  unit (cycles are tolerated, missing modules are deterministic errors).
+- `ngi file.ng` compiles the merged graph end to end; `--source` resolves
+  imports against the working directory.
+- Name-privacy enforcement, module interface artifacts, `ModuleInstance`
+  isolation, and the stdlib prelude remain follow-ups.
+
 ### HIR consequence
 
 The resolver maintains separate namespace ownership:

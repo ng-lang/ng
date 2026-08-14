@@ -122,10 +122,12 @@ namespace NG::vnext::syntax
                              : text == "delete" ? TokenKind::KeywordDelete
                              : text == "else" ? TokenKind::KeywordElse
                              : text == "enum" ? TokenKind::KeywordEnum
+                             : text == "export" ? TokenKind::KeywordExport
                              : text == "for" ? TokenKind::KeywordFor
                              : text == "fun" ? TokenKind::KeywordFun
                              : text == "if" ? TokenKind::KeywordIf
                              : text == "impl" ? TokenKind::KeywordImpl
+                             : text == "import" ? TokenKind::KeywordImport
                              : text == "is" ? TokenKind::KeywordIs
                              : text == "let" ? TokenKind::KeywordLet
                              : text == "loop" ? TokenKind::KeywordLoop

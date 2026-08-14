@@ -1,0 +1,8 @@
+// A small imported module. `export` marks items importable from other
+// modules; name-privacy enforcement arrives with the R3 interface work.
+
+export fun greeting() -> string {
+    return "hello from module";
+}
+
+export fun double(value: i64) -> i64 => value * 2;

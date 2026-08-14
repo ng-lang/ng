@@ -22,7 +22,22 @@ namespace NG::vnext::syntax
     std::vector<ModuleItemPtr> items;
     while (current().kind != TokenKind::End)
     {
-      if (current().kind == TokenKind::KeywordFun)
+      if (current().kind == TokenKind::KeywordImport)
+      {
+        items.push_back(parseImportDeclaration());
+      }
+      else if (current().kind == TokenKind::KeywordExport)
+      {
+        static_cast<void>(consume());
+        if (current().kind == TokenKind::KeywordFun) items.push_back(parseFunctionDeclaration(false, true));
+        else if (current().kind == TokenKind::KeywordStruct) items.push_back(parseStructDeclaration());
+        else if (current().kind == TokenKind::KeywordEnum) items.push_back(parseEnumDeclaration());
+        else if (current().kind == TokenKind::KeywordTrait) items.push_back(parseTraitDeclaration());
+        else if (current().kind == TokenKind::KeywordImpl) items.push_back(parseImplDeclaration());
+        else if (current().kind == TokenKind::KeywordConst) items.push_back(parseConstDeclaration());
+        else throw ParseError("expected a declaration after `export`", current().span);
+      }
+      else if (current().kind == TokenKind::KeywordFun)
       {
         items.push_back(parseFunctionDeclaration());
       }
@@ -249,7 +264,7 @@ namespace NG::vnext::syntax
     return std::make_unique<StructDeclaration>(name.text, std::move(fields), SourceSpan{structToken.span.begin, close.span.end});
   }
 
-  auto ModuleParser::parseFunctionDeclaration(bool constFunction) -> ModuleItemPtr
+  auto ModuleParser::parseFunctionDeclaration(bool constFunction, bool exported) -> ModuleItemPtr
   {
     const Token funToken = consume();
     if (constFunction)
@@ -381,7 +396,7 @@ namespace NG::vnext::syntax
     }
     const SourceSpan span{funToken.span.begin, body->span.end};
     return std::make_unique<FunctionDeclaration>(name.text, std::move(genericParameters), std::move(parameters), std::move(returnType),
-                                                 std::move(*body), span, constFunction, std::move(whereClause));
+                                                 std::move(*body), span, constFunction, std::move(whereClause), exported);
   }
 
   auto ModuleParser::parseExpressionUntil(TokenKind terminator) -> ExpressionPtr
@@ -497,6 +512,30 @@ namespace NG::vnext::syntax
     const size_t end = body.has_value() ? body->span.end : current().span.begin;
     return TraitMethodDeclaration{name.text, std::move(parameters), std::move(returnType), std::move(body),
                                   SourceSpan{funToken.span.begin, end}};
+  }
+
+  auto ModuleParser::parseImportDeclaration() -> ModuleItemPtr
+  {
+    const Token importToken = consume();
+    if (current().kind != TokenKind::Identifier) throw ParseError("expected a module name after `import`", current().span);
+    const Token module = consume();
+    std::vector<std::string> names;
+    if (current().kind == TokenKind::LeftParen)
+    {
+      static_cast<void>(consume());
+      while (current().kind != TokenKind::RightParen)
+      {
+        if (current().kind != TokenKind::Identifier) throw ParseError("expected an imported name", current().span);
+        names.push_back(consume().text);
+        if (current().kind != TokenKind::Comma) break;
+        static_cast<void>(consume());
+      }
+      expect(TokenKind::RightParen, "expected `)` after import names");
+    }
+    const Token semicolon = current();
+    expect(TokenKind::Semicolon, "expected `;` after import");
+    return std::make_unique<ImportDeclaration>(module.text, std::move(names),
+                                               SourceSpan{importToken.span.begin, semicolon.span.end});
   }
 
   auto ModuleParser::parseTypeUntil(const std::vector<TokenKind> &terminators) -> TypeSyntaxPtr

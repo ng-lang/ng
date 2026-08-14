@@ -114,6 +114,7 @@ set(NG_TEST_SRC
         test/vnext/const_fun_test.cpp
         test/vnext/where_clause_test.cpp
         test/vnext/trait_stage1_test.cpp
+        test/vnext/module_import_test.cpp
         test/vnext/ref_type_test.cpp
         test/vnext/ref_runtime_test.cpp
         test/vnext/switch_statement_test.cpp
@@ -165,6 +166,7 @@ set(NG_VNEXT_SRC
         src/vnext/type_interner.cpp
         src/vnext/const_eval.cpp
         src/vnext/const_interp.cpp
+        src/vnext/module_loader.cpp
         src/vnext/vm.cpp
         src/vnext/vm/value_ops.cpp
         src/vnext/syntax/block_parser.cpp

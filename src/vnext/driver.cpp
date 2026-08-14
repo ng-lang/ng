@@ -1,6 +1,7 @@
 // AI-generated code; reviewed for this repository's vNext rewrite.
 #include "vnext/driver.hpp"
 #include "vnext/bytecode.hpp"
+#include "vnext/module_loader.hpp"
 #include "vnext/flowir.hpp"
 #include "vnext/hir.hpp"
 #include "vnext/syntax/module_parser.hpp"
@@ -9,6 +10,7 @@
 #include "vnext/syntax/parser.hpp"
 #include <algorithm>
 #include <charconv>
+#include <filesystem>
 #include <fstream>
 #include <ostream>
 #include <string>
@@ -73,12 +75,12 @@ namespace NG::vnext
       return true;
     }
 
-    [[nodiscard]] auto parseSourceAndReport(std::string_view source, const std::vector<std::string_view> &runtimeArguments,
-                                            std::ostream &output, std::ostream &errors) -> int
+    [[nodiscard]] auto compileSourceUnitAndReport(const syntax::SourceUnit &unit,
+                                                   const std::vector<std::string_view> &runtimeArguments,
+                                                   std::ostream &output, std::ostream &errors) -> int
     {
       try
       {
-        const auto unit = syntax::parseSourceUnit(source);
         const auto resolved = hir::Resolver{}.resolve(unit);
         const auto typed = typecheck::TypeChecker{}.check(resolved);
 
@@ -128,6 +130,11 @@ namespace NG::vnext
         }
         return 0;
       }
+      catch (const modules::LoadError &error)
+      {
+        errors << "module error: " << error.what() << '\n';
+        return 1;
+      }
       catch (const syntax::ParseError &error)
       {
         errors << "syntax error at bytes [" << error.span().begin << ", " << error.span().end << "): " << error.what() << '\n';
@@ -151,6 +158,20 @@ namespace NG::vnext
       catch (const bytecode::BytecodeError &error)
       {
         errors << "bytecode error: " << error.what() << '\n';
+        return 1;
+      }
+    }
+    [[nodiscard]] auto parseSourceAndReport(std::string_view source, const std::vector<std::string_view> &runtimeArguments,
+                                            std::ostream &output, std::ostream &errors) -> int
+    {
+      try
+      {
+        const auto unit = modules::ModuleLoader{}.loadSource(source, std::filesystem::current_path());
+        return compileSourceUnitAndReport(unit, runtimeArguments, output, errors);
+      }
+      catch (const modules::LoadError &error)
+      {
+        errors << "module error: " << error.what() << '\n';
         return 1;
       }
     }
@@ -201,14 +222,16 @@ namespace NG::vnext
       return 1;
     }
 
-    std::ifstream input{std::string{arguments[0]}};
-    if (!input)
+    // File mode loads the transitive import graph before compiling.
+    try
     {
-      errors << "cannot read source file `" << arguments[0] << "`\n";
+      const auto unit = modules::ModuleLoader{}.loadFile(std::filesystem::path{std::string{arguments[0]}});
+      return compileSourceUnitAndReport(unit, {}, output, errors);
+    }
+    catch (const modules::LoadError &error)
+    {
+      errors << "module error: " << error.what() << '\n';
       return 1;
     }
-
-    const std::string source{std::istreambuf_iterator<char>{input}, std::istreambuf_iterator<char>{}};
-    return parseSourceAndReport(source, {}, output, errors);
   }
 } // namespace NG::vnext

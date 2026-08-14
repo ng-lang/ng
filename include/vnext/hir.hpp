@@ -241,6 +241,8 @@ namespace NG::vnext::hir
     Block body;
     /// `const fun` (D-013): compile-time capable and runtime callable.
     bool constFunction{};
+    /// `export` visibility (D-009); enforcement arrives with module privacy.
+    bool exported{};
     /// Where-clause constraint (D-014): predicate applications, `T is Type`,
     /// trait bounds, and boolean combinations; evaluated per concrete instance.
     ExpressionPtr whereClause;

@@ -605,6 +605,7 @@ namespace NG::vnext::syntax
     Const,
     Trait,
     Impl,
+    Import,
   };
 
   struct ModuleItem
@@ -666,6 +667,19 @@ namespace NG::vnext::syntax
   /// type = body;` where the body is a const expression, `native`, or
   /// `delete`. Type parameters are declared by the optional prefix list
   /// (`const<T> name<...>`) or implicitly by bare identifiers in the pattern.
+  /// `import name;` or `import name (a, b);` — a module directive handled by
+  /// the module loader; it contributes no HIR definitions.
+  struct ImportDeclaration final : ModuleItem
+  {
+    const std::string name;
+    std::vector<std::string> names;
+
+    ImportDeclaration(std::string moduleName, std::vector<std::string> importedNames, SourceSpan sourceSpan)
+      : ModuleItem(ModuleItemKind::Import, sourceSpan), name(std::move(moduleName)), names(std::move(importedNames))
+    {
+    }
+  };
+
   struct TraitMethodDeclaration final
   {
     const std::string name;
@@ -738,14 +752,15 @@ namespace NG::vnext::syntax
     Block body;
     const bool constFunction;
     ExpressionPtr whereClause;
+    const bool exported;
 
     FunctionDeclaration(std::string functionName, std::vector<GenericParameter> genericParameterList,
                         std::vector<FunctionParameter> functionParameters,
                         TypeSyntaxPtr functionReturnType, Block functionBody, SourceSpan sourceSpan, bool isConstFunction = false,
-                        ExpressionPtr whereCondition = nullptr)
+                        ExpressionPtr whereCondition = nullptr, bool isExported = false)
       : ModuleItem(ModuleItemKind::Function, sourceSpan), name(std::move(functionName)),
         genericParameters(std::move(genericParameterList)), parameters(std::move(functionParameters)), returnType(std::move(functionReturnType)), body(std::move(functionBody)),
-        constFunction(isConstFunction), whereClause(std::move(whereCondition))
+        constFunction(isConstFunction), whereClause(std::move(whereCondition)), exported(isExported)
     {
     }
   };

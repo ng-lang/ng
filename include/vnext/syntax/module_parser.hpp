@@ -15,7 +15,8 @@ namespace NG::vnext::syntax
     [[nodiscard]] auto parse() -> SourceUnit;
 
   private:
-    [[nodiscard]] auto parseFunctionDeclaration(bool constFunction = false) -> ModuleItemPtr;
+    [[nodiscard]] auto parseFunctionDeclaration(bool constFunction = false, bool exported = false) -> ModuleItemPtr;
+    [[nodiscard]] auto parseImportDeclaration() -> ModuleItemPtr;
     [[nodiscard]] auto parseStructDeclaration() -> ModuleItemPtr;
     [[nodiscard]] auto parseEnumDeclaration() -> ModuleItemPtr;
     [[nodiscard]] auto parseConstDeclaration() -> ModuleItemPtr;

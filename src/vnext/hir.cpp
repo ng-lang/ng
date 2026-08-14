@@ -115,6 +115,11 @@ namespace NG::vnext::hir
       {
         implMethodCount += impl->methods.size();
       }
+      else if (dynamic_cast<const syntax::ImportDeclaration *>(item.get()) != nullptr)
+      {
+        // Import directives are consumed by the module loader; merged units
+        // no longer carry them.
+      }
       else throw ResolutionError("unsupported module item during name resolution", item->span);
     }
 
@@ -164,6 +169,9 @@ namespace NG::vnext::hir
           module.functions.push_back(std::move(lowered));
           ++nextImplMethodId_;
         }
+      }
+      else if (dynamic_cast<const syntax::ImportDeclaration *>(item.get()) != nullptr)
+      {
       }
       else if (const auto *impl = dynamic_cast<const syntax::ImplDeclaration *>(item.get()))
       {
@@ -302,7 +310,8 @@ namespace NG::vnext::hir
     nextLoop_ = 0;
 
     constParameters_.clear();
-    Function resolved{.id = id, .name = function.name, .span = function.span, .constFunction = function.constFunction};
+    Function resolved{.id = id, .name = function.name, .span = function.span, .constFunction = function.constFunction,
+                      .exported = function.exported};
     for (const auto &parameter : function.genericParameters)
     {
       if (parameter.kind == syntax::GenericParameterKind::Const)

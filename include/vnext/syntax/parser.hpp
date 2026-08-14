@@ -37,6 +37,8 @@ namespace NG::vnext::syntax
     KeywordTrait,
     KeywordImpl,
     KeywordFor,
+    KeywordImport,
+    KeywordExport,
     KeywordTrue,
     KeywordFalse,
     LeftParen,
