@@ -74,6 +74,7 @@ extern opaque type FileHandle: pointer;
 ## D-002 — Ownership defaults, mutable bindings, and references
 
 **Status:** Accepted — 2026-07-13  
+**Revised by:** [D-015](#d-015-copy-first-ownership-revision) — 2026-08-14  
 **Blocks:** R2 grammar finalization, R5 ownership rules, R6 runtime values, R10 concurrency
 
 ### Problem
@@ -567,6 +568,299 @@ second user-visible ownership domain.
 - Trait object coercion is deferred until the solver, descriptor runtime, and
   hidden loan/origin checks exist. Parser support alone is insufficient.
 
+### Implementation staging
+
+- Stage 1 (static, parallel with D-012/D-013/D-014): trait declarations,
+  impls, static dispatch, default methods, and simple supertraits.
+- Stage 2 (dynamic, requires D-015 reference checking): `ref<Trait>` coercion
+  and immutable dispatch descriptors.
+- Stage 3: coherence/orphan policy confirmation (legacy #35's "any impl,
+  conflict requires explicit `use impl`" versus a stricter rule), auto/derive
+  traits. Associated types remain a non-goal per legacy #35.
+
+---
+
+## D-012 — Const declarations, const predicates, and const pattern specialization
+
+**Status:** Accepted — 2026-08-14
+**Blocks:** R4 const arenas, R5 const evaluation, where clauses (D-014), `const fun` (D-013)
+
+### Problem
+
+Legacy NG has compile-time constants parameterized by types — `const
+is_ref<T>: bool = false;` with pattern specializations — used as where
+predicates and in `const if`. vNext has checked const evaluation, const
+generics, and `const if`, but no module-level `const` declaration. This
+decision fixes the declaration form, evaluation domain, and specialization
+rules so `where` and `const fun` can build on them.
+
+### Accepted rules
+
+A `const` declaration is a module item that introduces a module-level `DefId`
+whose value is a canonical `ConstValueId`. It may declare type parameters and
+const parameters, consistent with function generics:
+
+```ng
+// Primary declaration; the default case.
+const is_ref<T>: bool = false;
+
+// Pattern specialization: matches only T = ref<U>.
+const<T> is_ref<ref<T>>: bool = true;
+
+// Repeated-parameter pattern: matches when T and U are the same type.
+const equal<T, U>: bool = false;
+const<T> equal<T, T>: bool = true;
+
+// Compiler/runtime-provided pure predicate.
+const is_trait<T>: bool = native;
+const is_abstract<T>: bool = native;
+const is_enum<T>: bool = native;
+
+// Negative declaration: the pattern may match, but selecting it is an error.
+const<T> forbid_ref<ref<T>>: bool = delete;
+```
+
+- Initial body forms are `= <const expression>`, `= native`, and `= delete`.
+  A `const` declaration never has a statement body; that is `const fun`
+  (D-013).
+- `= native` registers a pure, deterministic host predicate with a declared
+  signature. This is the initial `ConstNativeDescriptor` surface (R5.3);
+  compiler builtins such as `is_trait`/`is_abstract`/`is_enum`/`is_ref` are
+  supplied through it, not through ad-hoc typechecker hardcoding.
+- `= delete` keeps the legacy `generalized_delete.md` semantics: deleted
+  declarations participate in matching normally; selecting one is a
+  compile-time error whose diagnostic points at the deleted declaration. A
+  more specific deleted pattern beats a less specific valid one.
+- Specialization priority is: (1) exact full match, (2) constructor/pattern
+  match such as `ref<T>`, (3) parameter-pack match (future), (4) primary
+  template. Where clauses (D-014) additionally filter candidates.
+- The declared type is initially `bool` or an integer type; results intern
+  through the existing `ConstInterner`, so equivalent spellings share one
+  `ConstValueId`.
+- Const parameters may appear as generic parameters: `const is_pow2<const
+  N: i64>: bool = ...`.
+- Evaluation is deterministic and capability restricted (D-003 policy):
+  no IO, time, randomness, module state, runtime mutation, or arbitrary
+  native calls.
+
+### Relationship to abstract types
+
+The legacy body-less `type ImGui;` abstract declaration maps to the D-001
+`opaque type ImGui;` spelling. Traits remain abstract types per D-011. This
+preserves both the abstract-type concept and the future opaque/FFI handle
+capability; neither needs a new declaration kind.
+
+---
+
+## D-013 — `const fun` and compile-time function execution
+
+**Status:** Accepted — 2026-08-14
+**Blocks:** R5.2 const evaluator extension, R5.3 const natives, D-014 where evaluation
+
+### Problem
+
+Const expressions cover arithmetic but not function calls. Where predicates
+(`where is_pow2(N)`) and richer `const if` conditions need compile-time
+function execution. The legacy implementation evaluated `const fun` through a
+restricted STUPID runner, which violates the vNext rule that const evaluation
+operates on typed HIR and never touches the legacy interpreter or runtime
+state.
+
+### Accepted rules
+
+```ng
+const fun is_power_of_two(value: u64) -> bool {
+    ...
+}
+
+// Expression body sugar.
+const fun isPositive(n: i64) -> bool => n > 0;
+
+// Pure host predicate with a declared signature.
+const fun is_integral<T>() -> bool = native;
+```
+
+- `const fun` is compile-time capable and runtime callable. At runtime it
+  behaves like an ordinary `fun`; `const` means compile-time capable, not
+  compile-time only.
+- Compile-time execution uses a typed-HIR interpreter built on the existing
+  `ConstEvaluator`: checked arithmetic is shared, and the interpreter adds
+  locals, `if`, `return`, `loop`/`next`, recursion, and calls to other
+  `const fun`s and `const` predicates. It never instantiates STUPID, runtime
+  `StorageCell`, module instances, or process-global state.
+- Bodies are capability checked before evaluation: only `Pure` operations and
+  calls to other const functions/predicates; `native` calls only through
+  registered pure const natives (D-012); no IO, time, randomness, task
+  creation, module mutation, raw-pointer dereference, or uncontrolled
+  allocation.
+- Fuel, recursion depth, and aggregate-size budgets are enforced; exceeding
+  them is a deterministic compile-time error with a source span and a const
+  call stack.
+- Generic `const fun` (const predicates over types) is the same declaration
+  class as D-012's `= native` const; both may appear in where clauses.
+- `const fun` calls are legal in `const if` conditions, const generic
+  arguments, `const` initializers, and where clauses. Calls from ordinary
+  runtime contexts are legal for any `const fun`.
+
+---
+
+## D-014 — `where` clauses and constrained specialization
+
+**Status:** Accepted — 2026-08-14
+**Blocks:** R4 overload/specialization solver, R5 per-instance checking, D-012/D-013 consumers
+
+### Problem
+
+Legacy NG constrains generic declarations with `where` clauses mixing const
+predicates and type constraints (`where is_numeric<T>()`, `where T is
+string`, `where T: Copy && !is_ref<T>`). vNext has specialization ranking but
+no constraint syntax; partial specialization and traits both need it.
+
+### Accepted rules
+
+Spelling: a `where` clause follows the generic parameter list and function
+signature (or the declaration head):
+
+```ng
+fun describe<T>(value: T) -> string where is_numeric<T>() { ... }
+
+// Direct type constraint (legacy spelling, retained).
+fun describe<T>(value: T) -> string where T is string { ... }
+
+// Boolean combination.
+fun<T> convert(value: ref<T>) -> T where !is_abstract<T>() && !is_ref<T>() { ... }
+
+// Trait bound; forward-compatible with D-011. Trait solving is staged.
+trait Replicate<T> where T: Copy { ... }
+impl<T> Show for Wrapper<T> where T: Show { ... }
+```
+
+- Constraint forms: const predicate application `name<TypeArgs>(ConstArgs?)`
+  (D-012/D-013, must resolve to `bool`); direct type pattern `T is Type`;
+  trait bound `T: Trait` / `T: Trait1 + Trait2`; `&&`, `!`, and parentheses
+  combine them.
+- Non-generic where clauses are checked during module checking. Generic
+  where clauses are checked per concrete instance, like generic `const if`
+  (D-003).
+- Overload/specialization selection: candidates are filtered by the existing
+  specificity ranking and by where satisfaction. A candidate whose where
+  clause evaluates to `false` is discarded as non-matching; a `= delete`
+  candidate whose where clause holds is a selected-forbidden error; all
+  remaining ambiguity stays a compile-time error.
+- `T is Type` is structural/nominal equality on the substituted type, not a
+  subtyping or coercion test.
+- Where clauses never change a declaration's `DefId` or generic signature;
+  they only constrain instance validity. Satisfied constraints do not alter
+  type identity.
+
+---
+
+## D-015 — Copy-first ownership revision
+
+**Status:** Accepted — 2026-08-14
+**Revises:** D-002 (2026-07-13)
+
+### Problem
+
+The full D-002 model (affine defaults, exclusive `ref mut`, hidden borrow
+scope/origin analysis) is the longest remaining implementation pole: it
+blocks nominal values, module instances, FFI, traits, and concurrency. The
+legacy engine validated a simpler model (#33 value semantics, #38/#41
+partial moves) across the example corpus. This revision adopts a Copy-first
+model: most programs need no borrow reasoning at all, while resource-bearing
+nominal types stay affine.
+
+### Hard constraint (unchanged)
+
+Lifetime parameters, lifetime annotations, and lifetime names in diagnostics
+must never appear in NG source syntax or normal user-facing type output.
+
+### Accepted rules
+
+1. `let` / `let mut` / `:=` syntax is unchanged (D-002 rule 1).
+
+2. Copy by default:
+
+```ng
+let n: i64 = 1;
+let m = n;              // Copy
+
+let t = (1, "two");     // tuple of Copy is Copy
+let u = t;              // deep element-wise copy
+
+let a = [1, 2, 3];      // array of Copy
+let b = a;              // deep element-wise copy; b and a do not alias
+```
+
+   - Copy types: all fixed-width integers and floats, `bool`, `unit`,
+     `string` (shares immutable storage), and tuples whose elements are all
+     Copy.
+   - Copying a collection is a **deep element-wise copy**; two bindings never
+     silently alias mutable storage through a copy. A future copy-on-write
+     optimization may share storage as long as the observable semantics stay
+     deep-copy.
+   - Copy types have no `Drop`.
+
+3. Affine by default: `array`/future `vector`, `struct`, `enum`, `opaque`
+   handles, and resource types move on consuming use:
+
+```ng
+let a = Point { x: 1, y: 2 };
+let b = a;              // move; use of a afterwards is a compile-time error
+let c = clone a2;       // explicit clone for affine values
+```
+
+   - Use-after-move is a compile-time error tracked over place paths by the
+     checker, not a runtime sentinel. Runtime moved flags may remain only as
+     debug assertions.
+   - `move expr` is an optional explicit spelling of the same consuming
+     semantics (grammar sugar; the checker treats it as the move).
+
+4. Partial moves (legacy #38/#41 model): moving a field marks that field
+   moved; other fields stay readable; whole-object use is rejected until the
+   moved field is restored by assignment; `Drop` is field-aware and runs only
+   initialized fields. Diagnostics name fields, never lifetimes.
+
+5. References enter the type system (they currently parse but are rejected
+   by type resolution):
+
+```ng
+fun sum(values: array<i64> ref) -> i64 { ... }
+let read_only = ref value;
+let writable = ref mut value;
+```
+
+   - `T ref` / `T ref mut` keep the D-002 postfix spelling; `ref<T>` is
+     equivalent prefix sugar.
+   - Initial semantics are scoped views: refs may be passed down calls but
+     not returned, stored in aggregates/globals/task payloads, or otherwise
+     escaped. Returning refs and the D-002 origin contracts (`T ref(a)`,
+     `T ref(a | b)`) are deferred until the full loan analysis lands.
+   - Conflict checks are simple in the first slice: an active `ref mut` may
+     not coexist with another active ref to the same place; use-after-move
+     through a ref is an error. Full non-lexical borrow analysis is a later
+     incremental step, not a precondition for this revision.
+   - No user-visible lifetime appears anywhere.
+
+6. `Drop` runs exactly once for initialized affine values on every FlowIR
+   exit edge, including partial moves and early returns.
+
+7. Heap domains are deferred: no `Gc`, `Arc`, `Box<T, A>`, arena callbacks,
+   or `new` in this revision (D-002 rules 7–9 and 14 deferred). They return
+   with the R6 runtime session work.
+
+8. Raw pointers keep `T *const` / `T *mut` and the `unsafe` boundary
+   (D-002 rule 10).
+
+### Consequences for existing code
+
+- `ref<Trait>` (D-011) now has a typecheckable reference foundation; the
+  checker no longer rejects `T ref` annotations.
+- Const predicates such as `is_ref<T>` (D-012) can pattern-match `ref<T>`
+  types once references resolve.
+- The runtime `Value` representation may share structural storage internally;
+  the deep-copy rule is a language semantic enforced where copies occur.
+
 ---
 
 ## Decision summary
@@ -574,7 +868,7 @@ second user-visible ownership domain.
 | ID | Topic | Status | Next owner action |
 |---|---|---|---|
 | D-001 | Type declaration split | Accepted | Use `type` / `struct` / `enum` / `newtype` / `opaque` / `extern opaque` as distinct declarations. |
-| D-002 | Ownership/reference default | Accepted | Affine ownership, `let` / `let mut`, `T ref`, `T ref mut`, origin contracts, and postfix raw pointers. |
+| D-002 | Ownership/reference default | Revised by D-015 | Affine ownership, `let` / `let mut`, `T ref`, `T ref mut`, origin contracts, and postfix raw pointers. |
 | D-003 | Const-if and const capability | Accepted | Per-instance selected branch; deterministic restricted const evaluation. |
 | D-004 | Native/C ABI/opaque syntax | Accepted | `native fun`, `extern "C"`, `repr(C)`, `extern opaque`, and explicit ownership annotations. |
 | D-005 | Concurrency model | Provisional / experimental | Isolated-session `spawn` / `await` MVP; deliberately unstable pending redesign. |
@@ -584,3 +878,7 @@ second user-visible ownership domain.
 | D-009 | Module items vs. block statements | Accepted | Module declarations create `DefId`; block `let` creates lexical `LocalId`; no local declarations in MVP. |
 | D-010 | `loop` / `next` / tail recursion | Accepted | Explicit loop binders; nearest-target `next`; self-tail recursion outside loops; dedicated HIR/FlowIR terminators. |
 | D-011 | Trait abstract types and `ref<Trait>` | Accepted | Traits have no by-value instance; object-safe dynamic dispatch uses non-owning abstract reference views plus immutable selected dispatch descriptors. |
+| D-012 | Const declarations and const predicates | Accepted | `const name<T>: bool = ...` with `= expr` / `= native` / `= delete`, pattern specialization, exact→pattern→pack→primary priority; abstract types remain D-001 `opaque` + D-011 traits. |
+| D-013 | `const fun` | Accepted | Typed-HIR compile-time interpreter over `ConstEvaluator`; `Pure` capability; runtime-callable; `= native` const predicates; fuel/recursion budgets. |
+| D-014 | `where` clauses and constrained specialization | Accepted | Const predicates + `T is Type` + `T: Trait` bounds combined with `&&`/`!`; per-instance checking; unsatisfied candidates are discarded, `= delete` stays a selected-forbidden error. |
+| D-015 | Copy-first ownership revision | Accepted — revises D-002 | Scalars/strings/tuples Copy (collections deep-copy), nominal/resource types affine with `clone`/`move`, field-aware partial moves and Drop, scoped non-returnable refs with simple conflict checks; lifetimes still forbidden; Gc/Arc/Box deferred. |

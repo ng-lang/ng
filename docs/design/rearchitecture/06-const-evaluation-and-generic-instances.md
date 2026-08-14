@@ -8,6 +8,11 @@
 > const-generic call instantiation, and non-generic `const if` are implemented.
 > Per-instance `const if` inside const-generic functions, instance descriptors,
 > and instance bytecode reuse remain pending.
+>
+> Design follow-ups are now decided in the decision log: `const` declarations
+> and const predicates (D-012), `const fun` (D-013), `where` clauses and
+> constrained specialization (D-014), and the Copy-first ownership revision
+> (D-015).
 
 ## Scope
 
