@@ -92,6 +92,7 @@ namespace NG::vnext::typecheck
                                .functionTypes = std::move(functionTypes_),
                                .functionTypeIds = std::move(functionTypeIds_),
                                .callTargets = std::move(callTargets_),
+                               .constIfSelections = std::move(constIfSelections_),
                                .typeDescriptors = interner_.descriptors()};
       }
 
@@ -142,7 +143,9 @@ namespace NG::vnext::typecheck
           locals.emplace(function.parameters[index].local.value, signature.parameters[index]);
           recordLocal(function.parameters[index].local, signature.parameters[index]);
         }
+        inConstGenericFunction_ = !signature.constParameters.empty();
         checkBlock(function.body, locals, {}, signature.returnType);
+        inConstGenericFunction_ = false;
       }
 
       void checkBlock(const hir::Block &block, LocalTypes locals, LoopTypes loops, TypeId returnType)
@@ -201,6 +204,25 @@ namespace NG::vnext::typecheck
           checkBlock(*statement.consequence, locals, loops, returnType);
           if (statement.alternative != nullptr) checkBlock(*statement.alternative, locals, loops, returnType);
           return;
+        case hir::StatementKind::ConstIf:
+        {
+          if (inConstGenericFunction_)
+            throw TypeError("per-instance `const if` inside a const-generic function is not yet supported", statement.span);
+          requireType(builtin::Bool, infer(*statement.expression, locals), statement.expression->span, "const if condition");
+          bool selected{};
+          try
+          {
+            selected = const_eval::ConstEvaluator{interner_.constInterner()}.evaluateBool(*statement.expression);
+          }
+          catch (const const_eval::ConstEvalError &error)
+          {
+            throw TypeError(error.what(), error.span);
+          }
+          constIfSelections_.emplace(&statement, selected);
+          if (selected) checkBlock(*statement.consequence, locals, loops, returnType);
+          else if (statement.alternative != nullptr) checkBlock(*statement.alternative, locals, loops, returnType);
+          return;
+        }
         case hir::StatementKind::Loop:
         {
           std::vector<TypeId> types;
@@ -424,6 +446,8 @@ namespace NG::vnext::typecheck
         case hir::ExpressionKind::ResolvedName:
           if (expression.resolvedName->kind == hir::ResolvedNameKind::Function)
             throw TypeError("function name cannot be used as a value", expression.span);
+          if (expression.resolvedName->kind == hir::ResolvedNameKind::ConstParameter)
+            throw TypeError(std::format("const parameter `{}` is not a runtime value", expression.text), expression.span);
           type = locals.at(expression.resolvedName->id);
           break;
         case hir::ExpressionKind::Grouped: type = infer(*expression.operands[0], locals); break;
@@ -661,6 +685,8 @@ namespace NG::vnext::typecheck
       std::unordered_map<uint32_t, FunctionType> functionTypes_;
       std::unordered_map<uint32_t, FunctionTypeIds> functionTypeIds_;
       std::unordered_map<const hir::Expression *, hir::DefId> callTargets_;
+      std::unordered_map<const hir::Statement *, bool> constIfSelections_;
+      bool inConstGenericFunction_{};
     };
   } // namespace
 

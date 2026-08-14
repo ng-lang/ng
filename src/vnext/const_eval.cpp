@@ -173,6 +173,94 @@ namespace NG::vnext::const_eval
     return value.integerValue;
   }
 
+  auto ConstEvaluator::asBool(ConstValueId id, syntax::SourceSpan span) const -> bool
+  {
+    const auto &value = interner_.value(id);
+    if (value.kind != ConstValueKind::Bool)
+      throw ConstEvalError(std::format("const value of kind `{}` is not a bool", static_cast<int>(value.kind)), span);
+    return value.boolValue;
+  }
+
+  auto ConstEvaluator::evaluateBool(const hir::Expression &expression) const -> bool
+  {
+    fuel_ = 1'000'000;
+    return asBool(evaluateHirNode(expression), expression.span);
+  }
+
+  auto ConstEvaluator::evaluateHirNode(const hir::Expression &expression) const -> ConstValueId
+  {
+    consumeFuel(expression.span);
+    switch (expression.kind)
+    {
+    case hir::ExpressionKind::BooleanLiteral: return interner_.internBool(expression.text == "true");
+    case hir::ExpressionKind::IntegerLiteral:
+    {
+      int64_t value{};
+      const auto [end, error] = std::from_chars(expression.text.data(), expression.text.data() + expression.text.size(), value);
+      if (error != std::errc{} || end != expression.text.data() + expression.text.size())
+        throw ConstEvalError(std::format("const integer `{}` is out of range", expression.text), expression.span);
+      return interner_.internInteger(value);
+    }
+    case hir::ExpressionKind::StringLiteral: return interner_.internString(expression.text);
+    case hir::ExpressionKind::Grouped: return evaluateHirNode(*expression.operands[0]);
+    case hir::ExpressionKind::Prefix:
+    {
+      if (expression.text == "!")
+        return interner_.internBool(!asBool(evaluateHirNode(*expression.operands[0]), expression.operands[0]->span));
+      const int64_t operand = asInteger(evaluateHirNode(*expression.operands[0]), expression.operands[0]->span);
+      if (expression.text == "+") return interner_.internInteger(operand);
+      if (expression.text == "-")
+      {
+        if (operand == std::numeric_limits<int64_t>::min())
+          throw ConstEvalError("const integer negation overflow", expression.span);
+        return interner_.internInteger(-operand);
+      }
+      throw ConstEvalError(std::format("unsupported const operator `{}`", expression.text), expression.span);
+    }
+    case hir::ExpressionKind::Binary:
+    {
+      const std::string &op = expression.text;
+      if (op == "&&")
+      {
+        if (!asBool(evaluateHirNode(*expression.operands[0]), expression.operands[0]->span)) return interner_.internBool(false);
+        return interner_.internBool(asBool(evaluateHirNode(*expression.operands[1]), expression.operands[1]->span));
+      }
+      if (op == "||")
+      {
+        if (asBool(evaluateHirNode(*expression.operands[0]), expression.operands[0]->span)) return interner_.internBool(true);
+        return interner_.internBool(asBool(evaluateHirNode(*expression.operands[1]), expression.operands[1]->span));
+      }
+      const ConstValueId left = evaluateHirNode(*expression.operands[0]);
+      const ConstValueId right = evaluateHirNode(*expression.operands[1]);
+      const auto &leftValue = interner_.value(left);
+      const auto &rightValue = interner_.value(right);
+      if (op == "==") return interner_.internBool(leftValue == rightValue);
+      if (op == "!=") return interner_.internBool(!(leftValue == rightValue));
+      const int64_t l = asInteger(left, expression.operands[0]->span);
+      const int64_t r = asInteger(right, expression.operands[1]->span);
+      if (op == "<") return interner_.internBool(l < r);
+      if (op == "<=") return interner_.internBool(l <= r);
+      if (op == ">") return interner_.internBool(l > r);
+      if (op == ">=") return interner_.internBool(l >= r);
+      if ((op == "/" || op == "%") && r == 0)
+        throw ConstEvalError(std::format("const integer {} by zero", op == "/" ? "division" : "modulo"),
+                             expression.operands[1]->span);
+      std::optional<int64_t> result;
+      if (op == "+") result = checkedAdd(l, r);
+      else if (op == "-") result = checkedSub(l, r);
+      else if (op == "*") result = checkedMul(l, r);
+      else if (op == "/") result = checkedDiv(l, r);
+      else if (op == "%") result = checkedMod(l, r);
+      else throw ConstEvalError(std::format("unsupported const operator `{}`", op), expression.span);
+      if (!result.has_value())
+        throw ConstEvalError(std::format("const integer `{}` overflow", op), expression.span);
+      return interner_.internInteger(*result);
+    }
+    default:
+      throw ConstEvalError("const if condition is not a compile-time constant expression", expression.span);
+    }
+  }
+
   void ConstEvaluator::consumeFuel(syntax::SourceSpan span) const
   {
     if (fuel_ == 0) throw ConstEvalError("const evaluation exceeded the fuel budget", span);

@@ -1,6 +1,7 @@
 // AI-generated code; reviewed for this repository's vNext rewrite.
 #pragma once
 
+#include "vnext/hir.hpp"
 #include "vnext/syntax/const_expr.hpp"
 #include <cstdint>
 #include <stdexcept>
@@ -92,9 +93,17 @@ namespace NG::vnext::const_eval
     [[nodiscard]] auto evaluateInteger(const syntax::ConstExpr &expression, const ConstBindings &bindings) const -> int64_t;
     [[nodiscard]] auto evaluateArrayLength(const syntax::ConstExpr &expression, const ConstBindings &bindings) const -> uint64_t;
 
+    /// Evaluates a resolved, typed `const if` condition to a bool. The subset
+    /// covers boolean/integer/string literals, checked integer arithmetic,
+    /// comparisons, `!`, and short-circuiting `&&`/`||`. Runtime locals,
+    /// calls, and anything else are rejected with source spans.
+    [[nodiscard]] auto evaluateBool(const hir::Expression &expression) const -> bool;
+
   private:
     [[nodiscard]] auto evaluateNode(const syntax::ConstExpr &expression, const ConstBindings &bindings) const -> ConstValueId;
+    [[nodiscard]] auto evaluateHirNode(const hir::Expression &expression) const -> ConstValueId;
     [[nodiscard]] auto asInteger(ConstValueId id, syntax::SourceSpan span) const -> int64_t;
+    [[nodiscard]] auto asBool(ConstValueId id, syntax::SourceSpan span) const -> bool;
     void consumeFuel(syntax::SourceSpan span) const;
 
     ConstInterner &interner_;

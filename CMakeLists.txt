@@ -109,6 +109,7 @@ set(NG_TEST_SRC
         test/vnext/const_typecheck_test.cpp
         test/vnext/const_generic_test.cpp
         test/vnext/const_generic_call_test.cpp
+        test/vnext/const_if_test.cpp
         test/vnext/driver_test.cpp
         test/vnext/value_test.cpp
         test/module/native_module_artifact_test.cpp

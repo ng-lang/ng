@@ -159,6 +159,7 @@ namespace NG::vnext::hir
     currentFunction_ = id;
     nextLoop_ = 0;
 
+    constParameters_.clear();
     Function resolved{.id = id, .name = function.name, .span = function.span};
     for (const auto &parameter : function.genericParameters)
     {
@@ -168,6 +169,7 @@ namespace NG::vnext::hir
                                                           .typeName = renderTypeName(*parameter.type),
                                                           .type = lowerType(*parameter.type),
                                                           .span = parameter.span});
+        constParameters_.emplace(parameter.name, static_cast<uint32_t>(resolved.constParameters.size() - 1));
       }
       else
       {
@@ -291,6 +293,18 @@ namespace NG::vnext::hir
       if (ifStatement->alternative != nullptr)
       {
         resolved.alternative = std::make_unique<Block>(resolveBlock(*ifStatement->alternative, true));
+      }
+      return resolved;
+    }
+
+    if (const auto *constIf = dynamic_cast<const syntax::ConstIfStatement *>(&statement))
+    {
+      Statement resolved{.kind = StatementKind::ConstIf, .span = constIf->span};
+      resolved.expression = resolveExpression(*constIf->condition);
+      resolved.consequence = std::make_unique<Block>(resolveBlock(constIf->consequence, true));
+      if (constIf->alternative != nullptr)
+      {
+        resolved.alternative = std::make_unique<Block>(resolveBlock(*constIf->alternative, true));
       }
       return resolved;
     }
@@ -504,6 +518,10 @@ namespace NG::vnext::hir
       {
         return ResolvedName{.kind = ResolvedNameKind::Local, .id = local->second.value};
       }
+    }
+    if (const auto parameter = constParameters_.find(expression.name); parameter != constParameters_.end())
+    {
+      return ResolvedName{.kind = ResolvedNameKind::ConstParameter, .id = parameter->second};
     }
     if (const auto function = functions_.find(expression.name); function != functions_.end())
     {

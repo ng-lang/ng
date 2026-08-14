@@ -20,6 +20,7 @@ namespace NG::vnext::syntax
     [[nodiscard]] auto parseAssignStatement() -> StatementPtr;
     [[nodiscard]] auto parseReturnStatement() -> StatementPtr;
     [[nodiscard]] auto parseIfStatement() -> StatementPtr;
+    [[nodiscard]] auto parseConstIfStatement() -> StatementPtr;
     [[nodiscard]] auto parseLoopStatement() -> StatementPtr;
     [[nodiscard]] auto parseNextStatement() -> StatementPtr;
     [[nodiscard]] auto parseNestedBlock() -> Block;

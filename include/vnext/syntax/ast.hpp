@@ -258,6 +258,7 @@ namespace NG::vnext::syntax
     Assign,
     Return,
     If,
+    ConstIf,
     Loop,
     Next,
     Expression,
@@ -341,6 +342,19 @@ namespace NG::vnext::syntax
 
     IfStatement(ExpressionPtr test, Block thenBlock, std::unique_ptr<Block> elseBlock, SourceSpan sourceSpan)
       : Statement(StatementKind::If, sourceSpan), condition(std::move(test)), consequence(std::move(thenBlock)),
+        alternative(std::move(elseBlock))
+    {
+    }
+  };
+
+  struct ConstIfStatement final : Statement
+  {
+    ExpressionPtr condition;
+    Block consequence;
+    std::unique_ptr<Block> alternative;
+
+    ConstIfStatement(ExpressionPtr test, Block thenBlock, std::unique_ptr<Block> elseBlock, SourceSpan sourceSpan)
+      : Statement(StatementKind::ConstIf, sourceSpan), condition(std::move(test)), consequence(std::move(thenBlock)),
         alternative(std::move(elseBlock))
     {
     }

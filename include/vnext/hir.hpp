@@ -58,6 +58,7 @@ namespace NG::vnext::hir
   {
     Function,
     Local,
+    ConstParameter,
   };
 
   struct ResolvedName
@@ -106,6 +107,7 @@ namespace NG::vnext::hir
     Assign,
     Return,
     If,
+    ConstIf,
     Loop,
     Next,
     Expression,
@@ -279,6 +281,7 @@ namespace NG::vnext::hir
     std::unordered_map<std::string, std::vector<std::string>> enumVariants_;
     std::vector<Scope> scopes_;
     std::vector<ActiveLoop> loops_;
+    std::unordered_map<std::string, uint32_t> constParameters_;
     std::unordered_map<uint32_t, bool> localMutability_;
     std::optional<DefId> currentFunction_;
     uint32_t nextLocal_{};

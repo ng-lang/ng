@@ -80,6 +80,7 @@ namespace NG::vnext::typecheck
     [[nodiscard]] auto specialize(TypeId type, const std::unordered_map<uint32_t, TypeId> &bindings,
                                   const ConstSubstitution &constBindings) -> TypeId;
     [[nodiscard]] auto internConstInteger(int64_t value) -> const_eval::ConstValueId;
+    [[nodiscard]] auto constInterner() -> const_eval::ConstInterner & { return constInterner_; }
     [[nodiscard]] auto resolveInScope(const hir::Type &type, const std::unordered_map<std::string, TypeId> &bindings,
                                       const ConstParamBindings &constBindings = {}) -> TypeId;
     [[nodiscard]] auto resolve(const hir::Type &type) -> TypeId;
@@ -142,6 +143,9 @@ namespace NG::vnext::typecheck
     std::unordered_map<uint32_t, FunctionType> functionTypes;
     std::unordered_map<uint32_t, FunctionTypeIds> functionTypeIds;
     std::unordered_map<const hir::Expression *, hir::DefId> callTargets;
+    /// Per-`const if` branch selection: true means the consequence was chosen.
+    /// The inactive branch is resolved but never typechecked or lowered.
+    std::unordered_map<const hir::Statement *, bool> constIfSelections;
     std::vector<TypeDescriptor> typeDescriptors;
 
     [[nodiscard]] auto typeOf(const hir::Expression &expression) const -> const std::string &

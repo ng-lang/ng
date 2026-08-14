@@ -54,6 +54,11 @@ namespace NG::vnext::syntax
         statements.push_back(parseIfStatement());
         continue;
       }
+      if (current().kind == TokenKind::KeywordConst && peek(1).kind == TokenKind::KeywordIf)
+      {
+        statements.push_back(parseConstIfStatement());
+        continue;
+      }
       if (current().kind == TokenKind::KeywordLoop)
       {
         statements.push_back(parseLoopStatement());
@@ -247,6 +252,38 @@ namespace NG::vnext::syntax
 
     return std::make_unique<IfStatement>(std::move(condition), std::move(consequence), std::move(alternative),
                                          SourceSpan{ifToken.span.begin, end});
+  }
+
+  auto BlockParser::parseConstIfStatement() -> StatementPtr
+  {
+    const Token constToken = consume();
+    expect(TokenKind::KeywordIf, "expected `if` after `const`");
+    auto condition = parseExpressionUntil(TokenKind::LeftBrace);
+    Block consequence = parseNestedBlock();
+
+    std::unique_ptr<Block> alternative;
+    size_t end = consequence.span.end;
+    if (current().kind == TokenKind::KeywordElse)
+    {
+      static_cast<void>(consume());
+      if (current().kind == TokenKind::KeywordConst && peek(1).kind == TokenKind::KeywordIf)
+      {
+        auto nestedConstIf = parseConstIfStatement();
+        end = nestedConstIf->span.end;
+        std::vector<StatementPtr> statements;
+        statements.push_back(std::move(nestedConstIf));
+        alternative = std::make_unique<Block>(SourceSpan{statements.front()->span.begin, end}, std::move(statements), nullptr);
+      }
+      else
+      {
+        Block elseBlock = parseNestedBlock();
+        end = elseBlock.span.end;
+        alternative = std::make_unique<Block>(std::move(elseBlock));
+      }
+    }
+
+    return std::make_unique<ConstIfStatement>(std::move(condition), std::move(consequence), std::move(alternative),
+                                              SourceSpan{constToken.span.begin, end});
   }
 
   auto BlockParser::parseNestedBlock() -> Block

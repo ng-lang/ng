@@ -4,10 +4,10 @@
 > AI-assisted document: drafted with AI assistance.
 >
 > Implementation status (vNext slice): the structured const-expression parser,
-> `ConstInterner`/`ConstEvaluator`, const generic parameter declarations, and
-> const-generic call instantiation are implemented. `const if`, per-instance
-> branch selection, instance descriptors, and instance bytecode reuse remain
-> pending.
+> `ConstInterner`/`ConstEvaluator`, const generic parameter declarations,
+> const-generic call instantiation, and non-generic `const if` are implemented.
+> Per-instance `const if` inside const-generic functions, instance descriptors,
+> and instance bytecode reuse remain pending.
 
 ## Scope
 

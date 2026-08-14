@@ -341,6 +341,18 @@ namespace NG::vnext::flowir
         case hir::StatementKind::If:
           lowerIf(statement);
           return;
+        case hir::StatementKind::ConstIf:
+        {
+          bool consequence = true;
+          if (types_ != nullptr)
+          {
+            const auto found = types_->constIfSelections.find(&statement);
+            if (found != types_->constIfSelections.end()) consequence = found->second;
+          }
+          if (consequence) lowerBlock(*statement.consequence);
+          else if (statement.alternative != nullptr) lowerBlock(*statement.alternative);
+          return;
+        }
         case hir::StatementKind::Loop:
           lowerLoop(statement);
           return;
