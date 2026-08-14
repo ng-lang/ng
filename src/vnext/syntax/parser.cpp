@@ -325,6 +325,14 @@ namespace NG::vnext::syntax
   {
     while (true)
     {
+      if (current().kind == TokenKind::Ellipsis)
+      {
+        // Map spread in array literals: `f(xs)...` applies elementwise.
+        const Token spread = consume();
+        expression = std::make_unique<PrefixExpression>("...", std::move(expression),
+                                                        SourceSpan{expression->span.begin, spread.span.end});
+        continue;
+      }
       const auto *identifier = dynamic_cast<const IdentifierExpression *>(expression.get());
       if (identifier != nullptr && current().kind == TokenKind::Less && current().span.begin == expression->span.end)
       {

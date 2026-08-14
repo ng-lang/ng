@@ -1649,11 +1649,53 @@ namespace NG::vnext::typecheck
         case hir::ExpressionKind::ArrayLiteral:
         {
           if (expression.operands.empty()) throw TypeError("cannot infer the type of an empty array literal", expression.span);
-          const TypeId element = infer(*expression.operands.front(), locals);
-          if (interner_.descriptor(element).kind == TypeKind::Reference)
-            throw TypeError("references cannot be stored in arrays", expression.span);
-          for (size_t index = 1; index < expression.operands.size(); ++index)
-            requireType(element, infer(*expression.operands[index], locals), expression.operands[index]->span, "array element");
+          size_t mapSpreads = 0;
+          TypeId element{};
+          for (const auto &candidate : expression.operands)
+          {
+            if (candidate->kind == hir::ExpressionKind::Prefix && candidate->text == "...")
+            {
+              ++mapSpreads;
+              const auto &inner = *candidate->operands[0];
+              if (inner.kind != hir::ExpressionKind::Call || inner.operands.empty() ||
+                  !inner.operands[0]->resolvedName.has_value() ||
+                  inner.operands[0]->resolvedName->kind != hir::ResolvedNameKind::Function)
+                throw TypeError("map spread requires a direct function call", candidate->span);
+              if (inner.operands.size() != 2)
+                throw TypeError("map spread function must take exactly one argument", candidate->span);
+              const TypeId source = infer(*inner.operands[1], locals);
+              const auto &sourceDescriptor = interner_.descriptor(source);
+              if (sourceDescriptor.kind != TypeKind::DynamicArray && sourceDescriptor.kind != TypeKind::FixedArray &&
+                  sourceDescriptor.kind != TypeKind::DependentArray)
+                throw TypeError(std::format("map spread source must be an array, got {}", interner_.display(source)),
+                                inner.operands[1]->span);
+              const auto &innerSignature = signatures_.at(inner.operands[0]->resolvedName->id);
+              if (innerSignature.parameters.size() != 1)
+                throw TypeError("map spread function must take exactly one argument", candidate->span);
+              Substitution mapSubstitution;
+              unify(innerSignature.parameters.front(), sourceDescriptor.element, mapSubstitution, inner.operands[1]->span);
+              requireConstArguments(innerSignature, mapSubstitution, inner.operands[0]->text, inner.span);
+              if (module_ != nullptr && inner.operands[0]->resolvedName->id < module_->functions.size() &&
+                  module_->functions.at(inner.operands[0]->resolvedName->id).whereClause != nullptr &&
+                  !evaluateWhereCondition(*module_->functions.at(inner.operands[0]->resolvedName->id).whereClause,
+                                          mapSubstitution, innerSignature))
+                throw TypeError(std::format("call to `{}` does not satisfy its where clause",
+                                            module_->functions.at(inner.operands[0]->resolvedName->id).name), inner.span);
+              const TypeId mapped = specializeReturnType(innerSignature, mapSubstitution, 0);
+              callTargets_.insert_or_assign(&inner, hir::DefId{inner.operands[0]->resolvedName->id});
+              record(inner, mapped);
+              if (mapSpreads == 1) element = mapped;
+              else requireType(element, mapped, candidate->span, "map spread result");
+              continue;
+            }
+            const TypeId candidateType = infer(*candidate, locals);
+            if (interner_.descriptor(candidateType).kind == TypeKind::Reference)
+              throw TypeError("references cannot be stored in arrays", candidate->span);
+            if (element.value == 0) element = candidateType;
+            requireType(element, candidateType, candidate->span, "array element");
+          }
+          if (mapSpreads > 1)
+            throw TypeError("array literals support at most one map spread", expression.span);
           type = interner_.internDynamicArray(element);
           break;
         }

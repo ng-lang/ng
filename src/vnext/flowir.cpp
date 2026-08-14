@@ -82,6 +82,12 @@ namespace NG::vnext::flowir
             }))
           return lowerTupleSplice(expression);
 
+        if (expression.kind == hir::ExpressionKind::ArrayLiteral &&
+            std::any_of(expression.operands.begin(), expression.operands.end(), [](const auto &operand) {
+              return operand->kind == hir::ExpressionKind::Prefix && operand->text == "...";
+            }))
+          return lowerMapLiteral(expression);
+
         if (expression.kind == hir::ExpressionKind::Index && types_ != nullptr &&
             types_->typeDescriptors.at(types_->typeIdOf(*expression.operands[1]).value).kind == typecheck::TypeKind::Range)
         {
@@ -333,6 +339,128 @@ namespace NG::vnext::flowir
         block().instructions.push_back(Instruction{.kind = InstructionKind::TupleSplice,
                                                    .result = result,
                                                    .operands = std::move(operands)});
+        return result;
+      }
+
+      /// Lowers a single-spread array map literal `[f(xs)...]` into a runtime
+      /// loop: element extraction, per-element calls, and array appends.
+      [[nodiscard]] auto lowerMapLiteral(const hir::Expression &expression) -> ValueId
+      {
+        const hir::Expression *mapSpread = nullptr;
+        for (const auto &element : expression.operands)
+        {
+          if (element->kind == hir::ExpressionKind::Prefix && element->text == "...")
+          {
+            mapSpread = element.get();
+            break;
+          }
+        }
+        if (mapSpread == nullptr || expression.operands.size() != 1)
+          throw VerificationError("array map literals support exactly one map spread");
+        const auto &call = *mapSpread->operands[0];
+        const ValueId source = lowerExpression(*call.operands[1]);
+        std::optional<hir::DefId> target;
+        if (types_ != nullptr && types_->callTargets.contains(&call)) target = types_->callTargets.at(&call);
+
+        const ValueId zero{nextValue_++};
+        if (types_ != nullptr) function_.valueTypes.emplace(zero.value, typecheck::builtin::I64);
+        block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
+                                                   .result = zero,
+                                                   .expressionKind = hir::ExpressionKind::IntegerLiteral,
+                                                   .payload = 0});
+        const ValueId one{nextValue_++};
+        if (types_ != nullptr) function_.valueTypes.emplace(one.value, typecheck::builtin::I64);
+        block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
+                                                   .result = one,
+                                                   .expressionKind = hir::ExpressionKind::IntegerLiteral,
+                                                   .payload = 1});
+        const ValueId empty{nextValue_++};
+        if (types_ != nullptr) function_.valueTypes.emplace(empty.value, types_->typeIdOf(expression));
+        block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
+                                                   .result = empty,
+                                                   .expressionKind = hir::ExpressionKind::ArrayLiteral});
+        const ValueId length{nextValue_++};
+        if (types_ != nullptr) function_.valueTypes.emplace(length.value, typecheck::builtin::I64);
+        block().instructions.push_back(
+            Instruction{.kind = InstructionKind::ArrayLength, .result = length, .source = source});
+
+        const hir::LocalId indexLocal{nextSyntheticLocal_++};
+        const hir::LocalId resultLocal{nextSyntheticLocal_++};
+        if (types_ != nullptr)
+        {
+          function_.localTypes.emplace(indexLocal.value, typecheck::builtin::I64);
+          function_.localTypes.emplace(resultLocal.value, types_->typeIdOf(expression));
+        }
+        const BlockId header = appendBlock();
+        const BlockId body = appendBlock();
+        const BlockId exit = appendBlock();
+        function_.blocks[header.value].parameterCount = 2;
+        function_.blocks[header.value].parameterLocals = {indexLocal, resultLocal};
+        block().terminator = Terminator{.kind = TerminatorKind::Jump,
+                                        .targets = {header},
+                                        .arguments = {zero, empty}};
+
+        current_ = header;
+        const ValueId indexRead{nextValue_++};
+        if (types_ != nullptr) function_.valueTypes.emplace(indexRead.value, typecheck::builtin::I64);
+        block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
+                                                   .result = indexRead,
+                                                   .expressionKind = hir::ExpressionKind::ResolvedName,
+                                                   .payload = indexLocal.value});
+        const ValueId condition{nextValue_++};
+        if (types_ != nullptr) function_.valueTypes.emplace(condition.value, typecheck::builtin::Bool);
+        block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
+                                                   .result = condition,
+                                                   .expressionKind = hir::ExpressionKind::Binary,
+                                                   .text = "<",
+                                                   .payload = 8,
+                                                   .operands = {indexRead, length}});
+        block().terminator = Terminator{.kind = TerminatorKind::Branch,
+                                        .targets = {body, exit},
+                                        .arguments = {condition}};
+
+        current_ = body;
+        const ValueId element{nextValue_++};
+        if (types_ != nullptr)
+        {
+          const auto sourceType = types_->typeDescriptors.at(types_->typeIdOf(*call.operands[1]).value);
+          function_.valueTypes.emplace(element.value, sourceType.element);
+        }
+        block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
+                                                   .result = element,
+                                                   .expressionKind = hir::ExpressionKind::Index,
+                                                   .operands = {source, indexRead}});
+        const ValueId mapped{nextValue_++};
+        if (types_ != nullptr) function_.valueTypes.emplace(mapped.value, types_->typeIdOf(call));
+        block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
+                                                   .result = mapped,
+                                                   .expressionKind = hir::ExpressionKind::Call,
+                                                   .callTarget = target,
+                                                   .operands = {element}});
+        const ValueId appended{nextValue_++};
+        if (types_ != nullptr) function_.valueTypes.emplace(appended.value, types_->typeIdOf(expression));
+        block().instructions.push_back(Instruction{.kind = InstructionKind::AppendArray,
+                                                   .result = appended,
+                                                   .operands = {empty, mapped}});
+        const ValueId nextIndex{nextValue_++};
+        if (types_ != nullptr) function_.valueTypes.emplace(nextIndex.value, typecheck::builtin::I64);
+        block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
+                                                   .result = nextIndex,
+                                                   .expressionKind = hir::ExpressionKind::Binary,
+                                                   .text = "+",
+                                                   .payload = 1,
+                                                   .operands = {indexRead, one}});
+        block().terminator = Terminator{.kind = TerminatorKind::LoopBackedge,
+                                        .targets = {header},
+                                        .arguments = {nextIndex, appended}};
+
+        current_ = exit;
+        const ValueId result{nextValue_++};
+        if (types_ != nullptr) function_.valueTypes.emplace(result.value, types_->typeIdOf(expression));
+        block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
+                                                   .result = result,
+                                                   .expressionKind = hir::ExpressionKind::ResolvedName,
+                                                   .payload = resultLocal.value});
         return result;
       }
 
@@ -878,6 +1006,10 @@ namespace NG::vnext::flowir
           throw VerificationError("FlowIR reference load requires one source operand");
         if (instruction.kind == InstructionKind::Slice && instruction.operands.size() != 2)
           throw VerificationError("FlowIR slice requires receiver and range operands");
+        if (instruction.kind == InstructionKind::ArrayLength && !instruction.source.has_value())
+          throw VerificationError("FlowIR array length requires a source operand");
+        if (instruction.kind == InstructionKind::AppendArray && instruction.operands.size() != 2)
+          throw VerificationError("FlowIR array append requires array and element operands");
         if ((instruction.kind == InstructionKind::EnumVariantIndex || instruction.kind == InstructionKind::ExtractEnumPayload) &&
             !instruction.source.has_value())
           throw VerificationError("FlowIR enum operation requires a source operand");

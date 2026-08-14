@@ -103,6 +103,22 @@ namespace NG::vnext::vm
       case bytecode::Opcode::LoadVariant:
         detail::loadVariantInstruction(instruction, values);
         break;
+      case bytecode::Opcode::ArrayLength:
+      {
+        const auto &source = values.at(instruction.operands[1]);
+        int64_t length = source.isRange() ? source.asRange().end - source.asRange().start
+                                          : static_cast<int64_t>(source.asArray().size());
+        if (values.size() <= instruction.operands[0]) values.resize(instruction.operands[0] + 1);
+        values[instruction.operands[0]] = Value::integer(length);
+        break;
+      }
+      case bytecode::Opcode::AppendArray:
+      {
+        if (values.size() <= instruction.operands[0]) values.resize(instruction.operands[0] + 1);
+        values[instruction.operands[0]] = values.at(instruction.operands[1]);
+        values[instruction.operands[0]].asArrayMut().push_back(values.at(instruction.operands[2]).deepCopy());
+        break;
+      }
       case bytecode::Opcode::Slice:
       {
         const auto &receiver = values.at(instruction.operands[1]);
@@ -282,6 +298,22 @@ namespace NG::vnext::vm
       if (instruction.opcode == bytecode::Opcode::LoadVariant)
       {
         detail::loadVariantInstruction(instruction, frame.values);
+        continue;
+      }
+      if (instruction.opcode == bytecode::Opcode::ArrayLength)
+      {
+        const auto &source = frame.values.at(instruction.operands[1]);
+        int64_t length = source.isRange() ? source.asRange().end - source.asRange().start
+                                          : static_cast<int64_t>(source.asArray().size());
+        if (frame.values.size() <= instruction.operands[0]) frame.values.resize(instruction.operands[0] + 1);
+        frame.values[instruction.operands[0]] = Value::integer(length);
+        continue;
+      }
+      if (instruction.opcode == bytecode::Opcode::AppendArray)
+      {
+        if (frame.values.size() <= instruction.operands[0]) frame.values.resize(instruction.operands[0] + 1);
+        frame.values[instruction.operands[0]] = frame.values.at(instruction.operands[1]);
+        frame.values[instruction.operands[0]].asArrayMut().push_back(frame.values.at(instruction.operands[2]).deepCopy());
         continue;
       }
       if (instruction.opcode == bytecode::Opcode::Slice)

@@ -40,6 +40,10 @@ namespace NG::vnext::flowir
     TupleSplice,
     /// Slices an array by a runtime range value.
     Slice,
+    /// Reads the element count of an array/range value.
+    ArrayLength,
+    /// Appends an element to an array value (aliases its storage).
+    AppendArray,
     /// Reads the variant ordinal of an enum value as i64.
     EnumVariantIndex,
     /// Reads the payload of an enum value (unit for payloadless variants).

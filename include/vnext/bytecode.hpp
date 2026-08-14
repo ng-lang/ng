@@ -23,6 +23,8 @@ namespace NG::vnext::bytecode
     ExtractPayload,
     SpliceTuple,
     Slice,
+    ArrayLength,
+    AppendArray,
     Return,
     Jump,
     Branch,

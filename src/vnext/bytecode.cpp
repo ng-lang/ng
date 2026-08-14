@@ -21,6 +21,8 @@ namespace NG::vnext::bytecode
         OpcodeDescriptor{Opcode::ExtractPayload, "extract_payload", OperandLayout::Fixed, 2},
         OpcodeDescriptor{Opcode::SpliceTuple, "splice_tuple", OperandLayout::CountPrefixedTail, 1},
         OpcodeDescriptor{Opcode::Slice, "slice", OperandLayout::Fixed, 3},
+        OpcodeDescriptor{Opcode::ArrayLength, "array_length", OperandLayout::Fixed, 2},
+        OpcodeDescriptor{Opcode::AppendArray, "append_array", OperandLayout::Fixed, 3},
         OpcodeDescriptor{Opcode::Return, "return", OperandLayout::CountPrefixedTail, 0},
         OpcodeDescriptor{Opcode::Jump, "jump", OperandLayout::CountPrefixedTail, 1},
         OpcodeDescriptor{Opcode::Branch, "branch", OperandLayout::Fixed, 3},
@@ -149,6 +151,15 @@ namespace NG::vnext::bytecode
         else if (instruction.kind == flowir::InstructionKind::LoadRef)
         {
           appendInstruction(result.code, Opcode::LoadRef, {instruction.result.value, instruction.operands[0].value});
+        }
+        else if (instruction.kind == flowir::InstructionKind::ArrayLength)
+        {
+          appendInstruction(result.code, Opcode::ArrayLength, {instruction.result.value, instruction.source->value});
+        }
+        else if (instruction.kind == flowir::InstructionKind::AppendArray)
+        {
+          appendInstruction(result.code, Opcode::AppendArray,
+                            {instruction.result.value, instruction.operands[0].value, instruction.operands[1].value});
         }
         else if (instruction.kind == flowir::InstructionKind::Slice)
         {
@@ -603,6 +614,29 @@ namespace NG::vnext::bytecode
           }
           if (requireValueType(instruction.operands[2]) != current)
             throw BytecodeError("bytecode place assignment value type mismatch");
+        }
+        else if (instruction.opcode == Opcode::ArrayLength)
+        {
+          const auto source = requireValueType(instruction.operands[1]);
+          if (source.value >= function.typeDescriptors.size()) throw BytecodeError("bytecode value type descriptor is out of range");
+          const auto &descriptor = function.typeDescriptors[source.value];
+          if (descriptor.kind != typecheck::TypeKind::DynamicArray && descriptor.kind != typecheck::TypeKind::FixedArray &&
+              descriptor.kind != typecheck::TypeKind::DependentArray && descriptor.kind != typecheck::TypeKind::Range)
+            throw BytecodeError("bytecode array length source is not an array or range");
+          if (requireValueType(instruction.operands[0]) != typecheck::builtin::I64)
+            throw BytecodeError("bytecode array length result is not i64");
+        }
+        else if (instruction.opcode == Opcode::AppendArray)
+        {
+          const auto result = requireValueType(instruction.operands[0]);
+          if (result.value >= function.typeDescriptors.size()) throw BytecodeError("bytecode value type descriptor is out of range");
+          const auto &array = function.typeDescriptors[result.value];
+          if (array.kind != typecheck::TypeKind::DynamicArray)
+            throw BytecodeError("bytecode array append result is not a dynamic array");
+          const auto receiver = requireValueType(instruction.operands[1]);
+          if (receiver != result) throw BytecodeError("bytecode array append receiver type mismatch");
+          if (requireValueType(instruction.operands[2]) != array.element)
+            throw BytecodeError("bytecode array append element type mismatch");
         }
         else if (instruction.opcode == Opcode::Slice)
         {
