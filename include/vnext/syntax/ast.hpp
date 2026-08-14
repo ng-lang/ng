@@ -30,6 +30,7 @@ namespace NG::vnext::syntax
     Prefix,
     Grouped,
     Call,
+    GenericApplication,
     Index,
     Member,
     Binary,
@@ -194,6 +195,7 @@ namespace NG::vnext::syntax
   enum class ConstExprKind
   {
     IntegerLiteral,
+    BooleanLiteral,
     Identifier,
     Unary,
     Binary,
@@ -216,6 +218,16 @@ namespace NG::vnext::syntax
 
     ConstIntegerLiteral(std::string literalText, SourceSpan sourceSpan)
       : ConstExpr(ConstExprKind::IntegerLiteral, sourceSpan), text(std::move(literalText))
+    {
+    }
+  };
+
+  struct ConstBoolLiteral final : ConstExpr
+  {
+    const bool value;
+
+    ConstBoolLiteral(bool literalValue, SourceSpan sourceSpan)
+      : ConstExpr(ConstExprKind::BooleanLiteral, sourceSpan), value(literalValue)
     {
     }
   };
@@ -479,6 +491,23 @@ namespace NG::vnext::syntax
     }
   };
 
+  /// A name applied to explicit generic arguments in expression position,
+  /// e.g. the const predicate reference `is_ref<i64>`. The `<` must be
+  /// adjacent to the callee (no whitespace), so `a < b` stays a comparison.
+  struct GenericApplicationExpression final : Expression
+  {
+    const std::string name;
+    std::vector<GenericArgumentSyntax> arguments;
+
+    GenericApplicationExpression(std::string appliedName, std::vector<GenericArgumentSyntax> genericArguments,
+                                 SourceSpan sourceSpan)
+      : Expression(ExpressionKind::GenericApplication, sourceSpan), name(std::move(appliedName)),
+        arguments(std::move(genericArguments))
+    {
+    }
+  };
+
+
   struct ScopedReferenceTypeSyntax final : TypeSyntax
   {
     TypeSyntaxPtr target;
@@ -546,6 +575,7 @@ namespace NG::vnext::syntax
     Function,
     Struct,
     Enum,
+    Const,
   };
 
   struct ModuleItem
@@ -592,6 +622,36 @@ namespace NG::vnext::syntax
                     std::vector<EnumVariantDeclaration> enumVariants, SourceSpan sourceSpan)
       : ModuleItem(ModuleItemKind::Enum, sourceSpan), name(std::move(enumName)), genericParameters(std::move(parameters)),
         variants(std::move(enumVariants))
+    {
+    }
+  };
+
+  enum class ConstBodyKind
+  {
+    Expression,
+    Native,
+    Delete,
+  };
+
+  /// Module-level const predicate declaration (D-012): `const name<patterns>:
+  /// type = body;` where the body is a const expression, `native`, or
+  /// `delete`. Type parameters are declared by the optional prefix list
+  /// (`const<T> name<...>`) or implicitly by bare identifiers in the pattern.
+  struct ConstDeclaration final : ModuleItem
+  {
+    const std::string name;
+    std::vector<GenericParameter> parameters;
+    std::vector<TypeSyntaxPtr> patternArguments;
+    TypeSyntaxPtr targetType;
+    ConstBodyKind bodyKind;
+    ConstExprPtr body;
+
+    ConstDeclaration(std::string constName, std::vector<GenericParameter> genericParameters,
+                     std::vector<TypeSyntaxPtr> patterns, TypeSyntaxPtr target, ConstBodyKind kind, ConstExprPtr expression,
+                     SourceSpan sourceSpan)
+      : ModuleItem(ModuleItemKind::Const, sourceSpan), name(std::move(constName)),
+        parameters(std::move(genericParameters)), patternArguments(std::move(patterns)), targetType(std::move(target)),
+        bodyKind(kind), body(std::move(expression))
     {
     }
   };

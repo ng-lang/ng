@@ -110,6 +110,7 @@ set(NG_TEST_SRC
         test/vnext/const_generic_test.cpp
         test/vnext/const_generic_call_test.cpp
         test/vnext/const_if_test.cpp
+        test/vnext/const_declaration_test.cpp
         test/vnext/ref_type_test.cpp
         test/vnext/ref_runtime_test.cpp
         test/vnext/switch_statement_test.cpp

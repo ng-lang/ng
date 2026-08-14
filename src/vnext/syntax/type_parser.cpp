@@ -44,6 +44,21 @@ namespace NG::vnext::syntax
 
   auto TypeParser::parsePrimary() -> TypeSyntaxPtr
   {
+    if (current().kind == TokenKind::KeywordRef)
+    {
+      // Prefix sugar (D-015): `ref<T>` and `ref mut<T>` are the same type as
+      // the postfix `T ref` / `T ref mut`.
+      const Token refToken = consume();
+      const bool isMutable = current().kind == TokenKind::KeywordMut;
+      if (isMutable) static_cast<void>(consume());
+      if (current().kind != TokenKind::Less) throw ParseError("expected `<` after `ref`", current().span);
+      static_cast<void>(consume());
+      TypeSyntaxPtr target = parsePrimary();
+      if (current().kind != TokenKind::Greater) throw ParseError("expected `>` after reference target type", current().span);
+      const Token close = consume();
+      return std::make_unique<ScopedReferenceTypeSyntax>(std::move(target), isMutable,
+                                                         SourceSpan{refToken.span.begin, close.span.end});
+    }
     if (current().kind != TokenKind::Identifier) throw ParseError("expected a type name", current().span);
     const Token name = consume();
     TypeSyntaxPtr type = std::make_unique<NamedTypeSyntax>(name.text, name.span);
@@ -58,7 +73,7 @@ namespace NG::vnext::syntax
       const bool arrayLengthPosition = arrayConstructor && arguments.size() == 1;
       if (isConstArgumentStart() || arrayLengthPosition)
       {
-        ConstExprParser parser{tokens_, cursor_};
+        ConstExprParser parser{tokens_, cursor_, true};
         ConstExprPtr expression = parser.parse();
         const SourceSpan span = expression->span;
         cursor_ = parser.cursor();

@@ -1,0 +1,36 @@
+// vNext const declarations (D-012): compile-time type predicates with pattern
+// specialization. The primary declaration is the default case; more specific
+// patterns win. `const if` folds against concrete type arguments.
+
+const is_ref<T>: bool = false;
+const<T> is_ref<ref<T>>: bool = true;
+
+struct Box {
+    value: i64,
+}
+
+const is_box<T>: bool = false;
+const<T> is_box<Box>: bool = true;
+
+// Repeated-parameter pattern: matches when both arguments are the same type.
+const equal<T, U>: bool = false;
+const<T> equal<T, T>: bool = true;
+
+// Exact concrete patterns beat primary declarations.
+const is_i64<i64>: bool = true;
+const<T> is_i64<T>: bool = false;
+
+fun main() -> i64 {
+    let mut total = 0;
+
+    const if (is_ref<i64>) { total := 1; } else { total := 0; }
+    const if (is_ref<ref<i64>>) { total := total + 2; }
+    const if (is_box<Box>) { total := total + 4; }
+    const if (is_box<i64>) { total := total + 8; }
+    const if (equal<i64, i64>) { total := total + 16; }
+    const if (equal<i64, string>) { total := total + 32; }
+    const if (is_i64<i64>) { total := total + 64; }
+    const if (is_i64<string>) { total := total + 128; }
+
+    return total;
+}

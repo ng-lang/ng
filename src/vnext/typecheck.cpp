@@ -85,6 +85,7 @@ namespace NG::vnext::typecheck
           functionTypeIds_.emplace(function.id.value, signature);
           functionTypes_.emplace(function.id.value, std::move(displaySignature));
         }
+        for (const auto &declaration : module.consts) checkConstDeclaration(declaration);
         for (const auto &function : module.functions) checkFunction(function);
         return TypeCheckResult{.expressionTypes = std::move(expressionTypes_),
                                .expressionTypeIds = std::move(expressionTypeIds_),
@@ -106,6 +107,22 @@ namespace NG::vnext::typecheck
       {
         std::unordered_map<uint32_t, TypeId> types;
         TypeInterner::ConstSubstitution consts;
+      };
+
+      struct ConstMatch
+      {
+        bool matched{};
+        /// Specialization priority per D-012: 3 exact, 2 pattern, 1 primary.
+        int priority{};
+        std::unordered_map<uint32_t, TypeId> bindings;
+      };
+
+      struct ConstDeclChecked
+      {
+        const hir::ConstDeclaration *declaration;
+        std::vector<TypeId> parameters;
+        std::vector<TypeId> pattern;
+        TypeId targetType;
       };
 
       [[nodiscard]] auto isGeneric(const FunctionTypeIds &signature) const -> bool
@@ -141,6 +158,9 @@ namespace NG::vnext::typecheck
         LocalTypes locals;
         mutableBindings_.clear();
         const auto &signature = signatures_.at(function.id.value);
+        genericBindings_.clear();
+        for (size_t index = 0; index < function.genericParameters.size(); ++index)
+          genericBindings_.emplace(function.genericParameters[index], signature.genericParameters[index]);
         for (size_t index = 0; index < function.parameters.size(); ++index)
         {
           locals.emplace(function.parameters[index].local.value, signature.parameters[index]);
@@ -149,6 +169,7 @@ namespace NG::vnext::typecheck
         inConstGenericFunction_ = !signature.constParameters.empty();
         checkBlock(function.body, locals, {}, signature.returnType);
         inConstGenericFunction_ = false;
+        genericBindings_.clear();
       }
 
       void checkBlock(const hir::Block &block, LocalTypes locals, LoopTypes loops, TypeId returnType)
@@ -220,7 +241,12 @@ namespace NG::vnext::typecheck
           bool selected{};
           try
           {
-            selected = const_eval::ConstEvaluator{interner_.constInterner()}.evaluateBool(*statement.expression);
+            const_eval::ConstEvaluator evaluator{interner_.constInterner()};
+            selected = evaluator.evaluateBool(*statement.expression, [this](const hir::Expression &node) {
+              if (node.kind != hir::ExpressionKind::GenericApplication)
+                throw const_eval::ConstEvalError("const if condition is not a compile-time constant expression", node.span);
+              return evaluateConstApplication(node);
+            });
           }
           catch (const const_eval::ConstEvalError &error)
           {
@@ -306,6 +332,168 @@ namespace NG::vnext::typecheck
           throw TypeError(std::format("switch is not exhaustive: missing variant `{}`", descriptor.fieldNames[variant]),
                           statement.span);
         }
+      }
+
+      void checkConstDeclaration(const hir::ConstDeclaration &declaration)
+      {
+        ConstDeclChecked checked{.declaration = &declaration};
+        std::unordered_map<std::string, TypeId> bindings;
+        for (size_t index = 0; index < declaration.typeParameters.size(); ++index)
+        {
+          const TypeId parameter = interner_.internTypeParameter(declaration.typeParameters[index], static_cast<uint32_t>(index));
+          checked.parameters.push_back(parameter);
+          bindings.emplace(declaration.typeParameters[index], parameter);
+        }
+        for (const auto &pattern : declaration.pattern) checked.pattern.push_back(interner_.resolveInScope(*pattern, bindings));
+        checked.targetType = declaration.targetType != nullptr ? interner_.resolve(*declaration.targetType) : builtin::Bool;
+        if (checked.targetType != builtin::Bool && checked.targetType != builtin::I64)
+          throw TypeError(std::format("const declaration `{}` must declare bool or i64, got {}", declaration.name,
+                                      interner_.display(checked.targetType)), declaration.span);
+        constDeclarations_[declaration.name].push_back(std::move(checked));
+      }
+
+      struct PatternMatchState
+      {
+        bool containsParameter{};
+        bool repeated{};
+        std::unordered_map<uint32_t, TypeId> bindings;
+      };
+
+      [[nodiscard]] auto matchConstPatternType(TypeId pattern, TypeId actual, PatternMatchState &state) const -> bool
+      {
+        const auto &patternDescriptor = interner_.descriptor(pattern);
+        const auto &actualDescriptor = interner_.descriptor(actual);
+        if (actualDescriptor.kind == TypeKind::TypeParameter) return false;
+        switch (patternDescriptor.kind)
+        {
+        case TypeKind::TypeParameter:
+        {
+          state.containsParameter = true;
+          const uint32_t parameterIndex = *patternDescriptor.nominalId;
+          const auto existing = state.bindings.find(parameterIndex);
+          if (existing != state.bindings.end())
+          {
+            if (existing->second != actual) return false;
+            state.repeated = true;
+            return true;
+          }
+          state.bindings.emplace(parameterIndex, actual);
+          return true;
+        }
+        case TypeKind::Builtin:
+        case TypeKind::DependentArray:
+          return pattern == actual;
+        case TypeKind::Reference:
+        case TypeKind::RawPointer:
+          if (actualDescriptor.kind != patternDescriptor.kind ||
+              actualDescriptor.referenceMutable != patternDescriptor.referenceMutable)
+            return false;
+          return matchConstPatternType(patternDescriptor.element, actualDescriptor.element, state);
+        case TypeKind::DynamicArray:
+          if (actualDescriptor.kind != TypeKind::DynamicArray) return false;
+          return matchConstPatternType(patternDescriptor.element, actualDescriptor.element, state);
+        case TypeKind::FixedArray:
+          if (actualDescriptor.kind != TypeKind::FixedArray || *patternDescriptor.length != *actualDescriptor.length) return false;
+          return matchConstPatternType(patternDescriptor.element, actualDescriptor.element, state);
+        case TypeKind::Tuple:
+        {
+          if (actualDescriptor.kind != TypeKind::Tuple || patternDescriptor.elements.size() != actualDescriptor.elements.size())
+            return false;
+          for (size_t index = 0; index < patternDescriptor.elements.size(); ++index)
+            if (!matchConstPatternType(patternDescriptor.elements[index], actualDescriptor.elements[index], state)) return false;
+          return true;
+        }
+        case TypeKind::Struct:
+        case TypeKind::Enum:
+        {
+          if (actualDescriptor.kind != patternDescriptor.kind || *patternDescriptor.nominalId != *actualDescriptor.nominalId)
+            return false;
+          for (size_t index = 0; index < patternDescriptor.elements.size(); ++index)
+            if (!matchConstPatternType(patternDescriptor.elements[index], actualDescriptor.elements[index], state)) return false;
+          return true;
+        }
+        }
+        return false;
+      }
+
+      [[nodiscard]] auto matchConstPattern(const ConstDeclChecked &candidate, const std::vector<TypeId> &arguments) const
+          -> ConstMatch
+      {
+        if (candidate.pattern.size() != arguments.size()) return {};
+        PatternMatchState state;
+        bool constructed{};
+        for (size_t index = 0; index < arguments.size(); ++index)
+        {
+          if (!matchConstPatternType(candidate.pattern[index], arguments[index], state)) return {};
+          if (interner_.descriptor(candidate.pattern[index]).kind != TypeKind::TypeParameter) constructed = true;
+        }
+        ConstMatch match{.matched = true, .bindings = std::move(state.bindings)};
+        if (!state.containsParameter) match.priority = 3;
+        else if (constructed || state.repeated) match.priority = 2;
+        else match.priority = 1;
+        return match;
+      }
+
+      [[nodiscard]] auto selectConstDeclaration(std::string_view name, const std::vector<TypeId> &arguments,
+                                                syntax::SourceSpan span) const -> const ConstDeclChecked *
+      {
+        const auto found = constDeclarations_.find(std::string{name});
+        if (found == constDeclarations_.end())
+          throw TypeError(std::format("unknown const declaration `{}`", name), span);
+        const ConstDeclChecked *best = nullptr;
+        int bestPriority{};
+        for (const auto &candidate : found->second)
+        {
+          ConstMatch match = matchConstPattern(candidate, arguments);
+          if (!match.matched) continue;
+          if (best == nullptr || match.priority > bestPriority)
+          {
+            best = &candidate;
+            bestPriority = match.priority;
+          }
+          else if (match.priority == bestPriority)
+          {
+            throw TypeError(std::format("ambiguous const specialization `{}`", name), span);
+          }
+        }
+        if (best == nullptr)
+          throw TypeError(std::format("no const specialization of `{}` matches the given type arguments", name), span);
+        return best;
+      }
+
+      [[nodiscard]] auto evaluateConstDeclaration(const ConstDeclChecked &selected, syntax::SourceSpan span)
+          -> const_eval::ConstValueId
+      {
+        if (selected.declaration->bodyKind == hir::ConstDeclarationBodyKind::Delete)
+          throw TypeError(std::format("const declaration `{}` is deleted for these type arguments",
+                                      selected.declaration->name), selected.declaration->span);
+        if (selected.declaration->bodyKind == hir::ConstDeclarationBodyKind::Native)
+          throw TypeError(std::format("no const native registered for `{}`", selected.declaration->name), span);
+        const_eval::ConstEvaluator evaluator{interner_.constInterner()};
+        return evaluator.evaluate(*selected.declaration->body, {});
+      }
+
+      /// Evaluates a const predicate application (`name<types>`). Used by the
+      /// `const if` extension and, later, by where clauses.
+      [[nodiscard]] auto evaluateConstApplication(const hir::Expression &expression) -> const_eval::ConstValueId
+      {
+        std::vector<TypeId> typeArguments;
+        for (const auto &argument : expression.genericArguments)
+        {
+          if (argument.kind != syntax::GenericArgumentKind::Type)
+            throw TypeError("const arguments on const predicates are not yet supported", argument.span);
+          const TypeId resolved = interner_.resolveInScope(*argument.type, genericBindings_);
+          if (interner_.descriptor(resolved).kind == TypeKind::TypeParameter)
+            throw TypeError(std::format("cannot evaluate const declaration `{}` for abstract type parameter `{}`",
+                                        expression.text, interner_.display(resolved)), expression.span);
+          typeArguments.push_back(resolved);
+        }
+        const auto *selected = selectConstDeclaration(expression.text, typeArguments, expression.span);
+        const const_eval::ConstValueId value = evaluateConstDeclaration(*selected, expression.span);
+        if (interner_.constInterner().value(value).kind != const_eval::ConstValueKind::Bool)
+          throw TypeError(std::format("const declaration `{}` must evaluate to bool in predicate position", expression.text),
+                          expression.span);
+        return value;
       }
 
       [[nodiscard]] static auto isPlace(const hir::Expression &expression) -> bool
@@ -560,6 +748,23 @@ namespace NG::vnext::typecheck
           type = locals.at(expression.resolvedName->id);
           break;
         case hir::ExpressionKind::Grouped: type = infer(*expression.operands[0], locals); break;
+        case hir::ExpressionKind::GenericApplication:
+        {
+          std::vector<TypeId> typeArguments;
+          for (const auto &argument : expression.genericArguments)
+          {
+            if (argument.kind != syntax::GenericArgumentKind::Type)
+              throw TypeError("const arguments on const predicates are not yet supported", argument.span);
+            const TypeId resolved = interner_.resolveInScope(*argument.type, genericBindings_);
+            if (interner_.descriptor(resolved).kind == TypeKind::TypeParameter)
+              throw TypeError(std::format("cannot evaluate const declaration `{}` for abstract type parameter `{}`",
+                                          expression.text, interner_.display(resolved)), expression.span);
+            typeArguments.push_back(resolved);
+          }
+          static_cast<void>(selectConstDeclaration(expression.text, typeArguments, expression.span));
+          type = builtin::Bool;
+          break;
+        }
         case hir::ExpressionKind::Prefix:
         {
           const TypeId operand = infer(*expression.operands[0], locals);
@@ -825,6 +1030,10 @@ namespace NG::vnext::typecheck
       std::unordered_map<uint32_t, FunctionTypeIds> functionTypeIds_;
       std::unordered_map<const hir::Expression *, hir::DefId> callTargets_;
       std::unordered_map<const hir::Statement *, bool> constIfSelections_;
+      std::unordered_map<std::string, std::vector<ConstDeclChecked>> constDeclarations_;
+      /// Generic parameter bindings of the function currently being checked;
+      /// used to resolve in-body const predicate arguments.
+      std::unordered_map<std::string, TypeId> genericBindings_;
       /// Bindings declared with `let mut` (and loop bindings, which `next`
       /// rebinds) in the current lexical path; restored at block boundaries.
       MutableBindings mutableBindings_;

@@ -650,6 +650,26 @@ The legacy body-less `type ImGui;` abstract declaration maps to the D-001
 preserves both the abstract-type concept and the future opaque/FFI handle
 capability; neither needs a new declaration kind.
 
+### Implementation status — 2026-08-15
+
+- Module-level `const` declarations parse, resolve, and evaluate: primary
+  declarations, prefixed pattern specializations, implicit primary
+  parameters, `= <expr>` bodies (bool literals, comparisons, checked
+  arithmetic, `!`), `= native`, and `= delete`.
+- Specialization priority follows the accepted order (exact full match,
+  pattern/constructor match, primary), including repeated-parameter patterns
+  such as `equal<T, T>` and structural matching through `ref<T>`, arrays,
+  tuples, structs, and enums. Mutability matches strictly: a `ref<T>`
+  pattern does not match `T ref mut`.
+- Predicate applications `name<types>` fold inside `const if` for concrete
+  type arguments; applications to abstract type parameters, unregistered
+  natives, deleted specializations, and ambiguities are compile-time errors
+  with spans. `const if` in generic functions with concrete arguments
+  evaluates at declaration time.
+- Remaining D-012/D-013 work: const parameters on const declarations,
+  registered const natives, `const fun` bodies, where clauses (D-014), and
+  per-instance `const if`.
+
 ---
 
 ## D-013 — `const fun` and compile-time function execution

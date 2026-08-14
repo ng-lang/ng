@@ -80,10 +80,13 @@ namespace NG::vnext::hir
     Prefix,
     Grouped,
     Call,
+    GenericApplication,
     Index,
     Member,
     Binary,
   };
+
+  struct TypeArgument;
 
   struct Expression
   {
@@ -96,6 +99,7 @@ namespace NG::vnext::hir
     std::optional<EnumId> enumId;
     std::optional<uint32_t> variant;
     std::vector<std::string> memberNames;
+    std::vector<TypeArgument> genericArguments;
     std::vector<std::unique_ptr<Expression>> operands;
   };
 
@@ -258,11 +262,35 @@ namespace NG::vnext::hir
     std::vector<EnumVariant> variants;
   };
 
+  enum class ConstDeclarationBodyKind
+  {
+    Expression,
+    Native,
+    Delete,
+  };
+
+  /// Module-level const predicate (D-012). `pattern` holds the lowered header
+  /// type arguments in declaration order; `typeParameters` are the declared
+  /// generic parameters (prefix list plus implicitly introduced bare
+  /// identifiers in the pattern).
+  struct ConstDeclaration
+  {
+    DefId id;
+    std::string name;
+    syntax::SourceSpan span;
+    std::vector<std::string> typeParameters;
+    std::vector<std::unique_ptr<Type>> pattern;
+    std::unique_ptr<Type> targetType;
+    ConstDeclarationBodyKind bodyKind;
+    syntax::ConstExprPtr body;
+  };
+
   struct Module
   {
     std::vector<Function> functions;
     std::vector<Struct> structs;
     std::vector<Enum> enums;
+    std::vector<ConstDeclaration> consts;
   };
 
   class Resolver final
@@ -281,6 +309,7 @@ namespace NG::vnext::hir
     [[nodiscard]] auto resolveFunction(const syntax::FunctionDeclaration &function, DefId id) -> Function;
     [[nodiscard]] auto resolveStruct(const syntax::StructDeclaration &structure, StructId id) -> Struct;
     [[nodiscard]] auto resolveEnum(const syntax::EnumDeclaration &enumeration, EnumId id) -> Enum;
+    [[nodiscard]] auto resolveConstDeclaration(const syntax::ConstDeclaration &declaration, DefId id) -> ConstDeclaration;
     [[nodiscard]] auto resolveBlock(const syntax::Block &block, bool introduceScope) -> Block;
     [[nodiscard]] auto resolveStatement(const syntax::Statement &statement) -> Statement;
     [[nodiscard]] auto resolveExpression(const syntax::Expression &expression) -> ExpressionPtr;
@@ -299,5 +328,6 @@ namespace NG::vnext::hir
     std::optional<DefId> currentFunction_;
     uint32_t nextLocal_{};
     uint32_t nextLoop_{};
+    uint32_t nextConstId_{};
   };
 } // namespace NG::vnext::hir

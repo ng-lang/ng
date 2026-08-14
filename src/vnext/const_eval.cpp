@@ -126,6 +126,8 @@ namespace NG::vnext::const_eval
     consumeFuel(expression.span);
     if (const auto *literal = dynamic_cast<const syntax::ConstIntegerLiteral *>(&expression))
       return interner_.internInteger(parseIntegerLiteral(*literal));
+    if (const auto *boolean = dynamic_cast<const syntax::ConstBoolLiteral *>(&expression))
+      return interner_.internBool(boolean->value);
     if (const auto *identifier = dynamic_cast<const syntax::ConstIdentifier *>(&expression))
     {
       const auto found = bindings.find(identifier->name);
@@ -134,6 +136,8 @@ namespace NG::vnext::const_eval
     }
     if (const auto *unary = dynamic_cast<const syntax::ConstUnaryExpr *>(&expression))
     {
+      if (unary->operatorText == "!")
+        return interner_.internBool(!asBool(evaluateNode(*unary->operand, bindings), unary->operand->span));
       const int64_t operand = asInteger(evaluateNode(*unary->operand, bindings), unary->operand->span);
       if (unary->operatorText == "+") return interner_.internInteger(operand);
       if (unary->operatorText == "-")
@@ -146,6 +150,22 @@ namespace NG::vnext::const_eval
     }
     if (const auto *binary = dynamic_cast<const syntax::ConstBinaryExpr *>(&expression))
     {
+      if (binary->operatorText == "==" || binary->operatorText == "!=" || binary->operatorText == "<" ||
+          binary->operatorText == "<=" || binary->operatorText == ">" || binary->operatorText == ">=")
+      {
+        const ConstValueId left = evaluateNode(*binary->left, bindings);
+        const ConstValueId right = evaluateNode(*binary->right, bindings);
+        const auto &leftValue = interner_.value(left);
+        const auto &rightValue = interner_.value(right);
+        if (binary->operatorText == "==") return interner_.internBool(leftValue == rightValue);
+        if (binary->operatorText == "!=") return interner_.internBool(!(leftValue == rightValue));
+        const int64_t l = asInteger(left, binary->left->span);
+        const int64_t r = asInteger(right, binary->right->span);
+        if (binary->operatorText == "<") return interner_.internBool(l < r);
+        if (binary->operatorText == "<=") return interner_.internBool(l <= r);
+        if (binary->operatorText == ">") return interner_.internBool(l > r);
+        return interner_.internBool(l >= r);
+      }
       const int64_t left = asInteger(evaluateNode(*binary->left, bindings), binary->left->span);
       const int64_t right = asInteger(evaluateNode(*binary->right, bindings), binary->right->span);
       if ((binary->operatorText == "/" || binary->operatorText == "%") && right == 0)
@@ -181,13 +201,14 @@ namespace NG::vnext::const_eval
     return value.boolValue;
   }
 
-  auto ConstEvaluator::evaluateBool(const hir::Expression &expression) const -> bool
+  auto ConstEvaluator::evaluateBool(const hir::Expression &expression, const ConstNodeExtension &extension) const -> bool
   {
     fuel_ = 1'000'000;
-    return asBool(evaluateHirNode(expression), expression.span);
+    return asBool(evaluateHirNode(expression, extension), expression.span);
   }
 
-  auto ConstEvaluator::evaluateHirNode(const hir::Expression &expression) const -> ConstValueId
+  auto ConstEvaluator::evaluateHirNode(const hir::Expression &expression, const ConstNodeExtension &extension) const
+      -> ConstValueId
   {
     consumeFuel(expression.span);
     switch (expression.kind)
@@ -202,12 +223,12 @@ namespace NG::vnext::const_eval
       return interner_.internInteger(value);
     }
     case hir::ExpressionKind::StringLiteral: return interner_.internString(expression.text);
-    case hir::ExpressionKind::Grouped: return evaluateHirNode(*expression.operands[0]);
+    case hir::ExpressionKind::Grouped: return evaluateHirNode(*expression.operands[0], extension);
     case hir::ExpressionKind::Prefix:
     {
       if (expression.text == "!")
-        return interner_.internBool(!asBool(evaluateHirNode(*expression.operands[0]), expression.operands[0]->span));
-      const int64_t operand = asInteger(evaluateHirNode(*expression.operands[0]), expression.operands[0]->span);
+        return interner_.internBool(!asBool(evaluateHirNode(*expression.operands[0], extension), expression.operands[0]->span));
+      const int64_t operand = asInteger(evaluateHirNode(*expression.operands[0], extension), expression.operands[0]->span);
       if (expression.text == "+") return interner_.internInteger(operand);
       if (expression.text == "-")
       {
@@ -222,16 +243,16 @@ namespace NG::vnext::const_eval
       const std::string &op = expression.text;
       if (op == "&&")
       {
-        if (!asBool(evaluateHirNode(*expression.operands[0]), expression.operands[0]->span)) return interner_.internBool(false);
-        return interner_.internBool(asBool(evaluateHirNode(*expression.operands[1]), expression.operands[1]->span));
+        if (!asBool(evaluateHirNode(*expression.operands[0], extension), expression.operands[0]->span)) return interner_.internBool(false);
+        return interner_.internBool(asBool(evaluateHirNode(*expression.operands[1], extension), expression.operands[1]->span));
       }
       if (op == "||")
       {
-        if (asBool(evaluateHirNode(*expression.operands[0]), expression.operands[0]->span)) return interner_.internBool(true);
-        return interner_.internBool(asBool(evaluateHirNode(*expression.operands[1]), expression.operands[1]->span));
+        if (asBool(evaluateHirNode(*expression.operands[0], extension), expression.operands[0]->span)) return interner_.internBool(true);
+        return interner_.internBool(asBool(evaluateHirNode(*expression.operands[1], extension), expression.operands[1]->span));
       }
-      const ConstValueId left = evaluateHirNode(*expression.operands[0]);
-      const ConstValueId right = evaluateHirNode(*expression.operands[1]);
+      const ConstValueId left = evaluateHirNode(*expression.operands[0], extension);
+      const ConstValueId right = evaluateHirNode(*expression.operands[1], extension);
       const auto &leftValue = interner_.value(left);
       const auto &rightValue = interner_.value(right);
       if (op == "==") return interner_.internBool(leftValue == rightValue);
@@ -257,6 +278,7 @@ namespace NG::vnext::const_eval
       return interner_.internInteger(*result);
     }
     default:
+      if (extension) return extension(expression);
       throw ConstEvalError("const if condition is not a compile-time constant expression", expression.span);
     }
   }

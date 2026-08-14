@@ -4,6 +4,7 @@
 #include "vnext/hir.hpp"
 #include "vnext/syntax/const_expr.hpp"
 #include <cstdint>
+#include <functional>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -80,6 +81,11 @@ namespace NG::vnext::const_eval
   /// deferred to this map so the parser never decides const identity.
   using ConstBindings = std::unordered_map<std::string, ConstValueId>;
 
+  /// Optional semantic extension for node kinds the evaluator does not own
+  /// (const predicate applications, later const-function calls). Layers above
+  /// const evaluation register these; the evaluator itself stays pure.
+  using ConstNodeExtension = std::function<ConstValueId(const hir::Expression &)>;
+
   /// Typed, fuel-limited evaluator over structured const expressions. It never
   /// touches runtime values, module state, native bridges, or the legacy
   /// interpreter. Arithmetic is checked: overflow, division by zero, and
@@ -96,12 +102,13 @@ namespace NG::vnext::const_eval
     /// Evaluates a resolved, typed `const if` condition to a bool. The subset
     /// covers boolean/integer/string literals, checked integer arithmetic,
     /// comparisons, `!`, and short-circuiting `&&`/`||`. Runtime locals,
-    /// calls, and anything else are rejected with source spans.
-    [[nodiscard]] auto evaluateBool(const hir::Expression &expression) const -> bool;
+    /// calls, and anything else are rejected with source spans unless the
+    /// extension handles them.
+    [[nodiscard]] auto evaluateBool(const hir::Expression &expression, const ConstNodeExtension &extension = {}) const -> bool;
 
   private:
     [[nodiscard]] auto evaluateNode(const syntax::ConstExpr &expression, const ConstBindings &bindings) const -> ConstValueId;
-    [[nodiscard]] auto evaluateHirNode(const hir::Expression &expression) const -> ConstValueId;
+    [[nodiscard]] auto evaluateHirNode(const hir::Expression &expression, const ConstNodeExtension &extension) const -> ConstValueId;
     [[nodiscard]] auto asInteger(ConstValueId id, syntax::SourceSpan span) const -> int64_t;
     [[nodiscard]] auto asBool(ConstValueId id, syntax::SourceSpan span) const -> bool;
     void consumeFuel(syntax::SourceSpan span) const;

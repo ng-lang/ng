@@ -1,4 +1,5 @@
 // AI-generated code; reviewed for this repository's vNext rewrite.
+#include "vnext/syntax/const_expr.hpp"
 #include "vnext/syntax/module_parser.hpp"
 #include "vnext/syntax/type_parser.hpp"
 
@@ -32,6 +33,12 @@ namespace NG::vnext::syntax
       {
         items.push_back(parseEnumDeclaration());
       }
+      else if (current().kind == TokenKind::KeywordConst)
+      {
+        if (peek(1).kind == TokenKind::KeywordFun)
+          throw ParseError("`const fun` is not yet supported", current().span);
+        items.push_back(parseConstDeclaration());
+      }
       else
       {
         throw ParseError("expected a module declaration", current().span);
@@ -40,6 +47,132 @@ namespace NG::vnext::syntax
 
     const size_t begin = items.empty() ? 0 : items.front()->span.begin;
     return SourceUnit{SourceSpan{begin, current().span.end}, std::move(items)};
+  }
+
+  auto ModuleParser::parseConstDeclaration() -> ModuleItemPtr
+  {
+    const Token constToken = consume();
+    std::vector<GenericParameter> parameters;
+    if (current().kind == TokenKind::Less)
+    {
+      static_cast<void>(consume());
+      while (current().kind != TokenKind::Greater)
+      {
+        if (current().kind == TokenKind::KeywordConst)
+          throw ParseError("const parameters on const declarations are not yet supported", current().span);
+        if (current().kind != TokenKind::Identifier)
+          throw ParseError("expected a const declaration generic parameter", current().span);
+        const Token parameter = consume();
+        parameters.push_back(GenericParameter{.kind = GenericParameterKind::Type,
+                                              .name = parameter.text,
+                                              .type = nullptr,
+                                              .span = parameter.span});
+        if (current().kind != TokenKind::Comma) break;
+        static_cast<void>(consume());
+      }
+      expect(TokenKind::Greater, "expected `>` after const declaration generic parameters");
+    }
+    if (current().kind != TokenKind::Identifier) throw ParseError("expected a const declaration name", current().span);
+    const Token name = consume();
+    std::vector<TypeSyntaxPtr> patterns;
+    bool listClosedByShiftRight{};
+    if (current().kind == TokenKind::Less)
+    {
+      static_cast<void>(consume());
+      while (true)
+      {
+        // Collect one pattern-argument chunk. A `>` closes the pattern list
+        // only at depth zero, unless it is the inner closer of a nested
+        // constructed type written adjacently (`ref<T>>`).
+        std::vector<Token> chunk;
+        size_t angleDepth{};
+        while (true)
+        {
+          if (current().kind == TokenKind::End)
+            throw ParseError("expected `>` after const declaration pattern", current().span);
+          if (current().kind == TokenKind::Less)
+          {
+            ++angleDepth;
+          }
+          else if (current().kind == TokenKind::Greater)
+          {
+            if (angleDepth == 0)
+            {
+              if (peek(1).kind == TokenKind::Greater && peek(1).span.begin == current().span.end)
+              {
+                chunk.push_back(consume());
+                continue;
+              }
+              break;
+            }
+            --angleDepth;
+          }
+          else if (current().kind == TokenKind::ShiftRight)
+          {
+            // `ref<T>>`: the first `>` closes the pattern argument, the second
+            // closes the pattern list.
+            const Token token = consume();
+            const size_t middle = token.span.begin + 1;
+            chunk.push_back(Token{.kind = TokenKind::Greater, .text = ">", .span = SourceSpan{token.span.begin, middle}});
+            if (angleDepth <= 1)
+            {
+              // The second `>` of the shift token closes the pattern list.
+              listClosedByShiftRight = true;
+              break;
+            }
+            angleDepth -= 2;
+            chunk.push_back(Token{.kind = TokenKind::Greater, .text = ">", .span = SourceSpan{middle, token.span.end}});
+            continue;
+          }
+          else if (angleDepth == 0 && current().kind == TokenKind::Comma)
+          {
+            break;
+          }
+          chunk.push_back(consume());
+        }
+        if (chunk.empty()) throw ParseError("expected a const declaration pattern argument", current().span);
+        const size_t chunkEnd = chunk.back().span.end;
+        chunk.push_back(Token{.kind = TokenKind::End, .text = {}, .span = SourceSpan{chunkEnd, chunkEnd}});
+        patterns.push_back(TypeParser{std::move(chunk)}.parse());
+        if (current().kind != TokenKind::Comma) break;
+        static_cast<void>(consume());
+      }
+      if (!listClosedByShiftRight) expect(TokenKind::Greater, "expected `>` after const declaration pattern");
+    }
+    expect(TokenKind::Colon, "expected `:` after const declaration name");
+    auto target = parseTypeUntil({TokenKind::Equal});
+    expect(TokenKind::Equal, "expected `=` after const declaration type");
+
+    ConstBodyKind bodyKind{ConstBodyKind::Expression};
+    ConstExprPtr body;
+    if (current().kind == TokenKind::KeywordNative)
+    {
+      static_cast<void>(consume());
+      bodyKind = ConstBodyKind::Native;
+    }
+    else if (current().kind == TokenKind::KeywordDelete)
+    {
+      static_cast<void>(consume());
+      bodyKind = ConstBodyKind::Delete;
+    }
+    else
+    {
+      std::vector<Token> bodyTokens;
+      while (current().kind != TokenKind::Semicolon)
+      {
+        if (current().kind == TokenKind::End)
+          throw ParseError("expected `;` after const declaration body", current().span);
+        bodyTokens.push_back(consume());
+      }
+      if (bodyTokens.empty()) throw ParseError("expected a const declaration body", current().span);
+      const size_t end = bodyTokens.back().span.end;
+      bodyTokens.push_back(Token{.kind = TokenKind::End, .text = {}, .span = SourceSpan{end, end}});
+      body = ConstExprParser{std::move(bodyTokens)}.parse();
+    }
+    const Token semicolon = current();
+    expect(TokenKind::Semicolon, "expected `;` after const declaration");
+    return std::make_unique<ConstDeclaration>(name.text, std::move(parameters), std::move(patterns), std::move(target),
+                                              bodyKind, std::move(body), SourceSpan{constToken.span.begin, semicolon.span.end});
   }
 
   auto ModuleParser::parseEnumDeclaration() -> ModuleItemPtr
@@ -199,6 +332,17 @@ namespace NG::vnext::syntax
     {
       if (current().kind == TokenKind::Less) ++angleDepth;
       else if (current().kind == TokenKind::Greater && angleDepth != 0) --angleDepth;
+      else if (current().kind == TokenKind::ShiftRight)
+      {
+        // `>>` lexes as one token; split it into two closing brackets so
+        // adjacent nested types like `Result<array<i64>>` parse.
+        const Token token = consume();
+        const size_t middle = token.span.begin + 1;
+        typeTokens.push_back(Token{.kind = TokenKind::Greater, .text = ">", .span = SourceSpan{token.span.begin, middle}});
+        typeTokens.push_back(Token{.kind = TokenKind::Greater, .text = ">", .span = SourceSpan{middle, token.span.end}});
+        angleDepth = angleDepth > 2 ? angleDepth - 2 : 0;
+        continue;
+      }
       if (angleDepth == 0 && std::find(terminators.begin(), terminators.end(), current().kind) != terminators.end()) break;
       typeTokens.push_back(consume());
     }

@@ -12,12 +12,16 @@ namespace NG::vnext::syntax
   class ConstExprParser final
   {
   public:
-    explicit ConstExprParser(std::vector<Token> tokens, size_t startCursor = 0);
+    /// When `greaterTerminates` is set, `>` / `>=` are not parsed as
+    /// comparison operators: the caller (a generic-argument list) owns the
+    /// closing `>`. Module-level const bodies leave it off.
+    explicit ConstExprParser(std::vector<Token> tokens, size_t startCursor = 0, bool greaterTerminates = false);
 
     [[nodiscard]] auto parse() -> ConstExprPtr;
     [[nodiscard]] auto cursor() const -> size_t { return cursor_; }
 
   private:
+    [[nodiscard]] auto parseComparison() -> ConstExprPtr;
     [[nodiscard]] auto parseAdditive() -> ConstExprPtr;
     [[nodiscard]] auto parseMultiplicative() -> ConstExprPtr;
     [[nodiscard]] auto parseUnary() -> ConstExprPtr;
@@ -27,6 +31,7 @@ namespace NG::vnext::syntax
 
     std::vector<Token> tokens_;
     size_t cursor_{};
+    bool greaterTerminates_{};
   };
 
   /// Deep-copies a parsed const expression. The HIR owns its lowered const

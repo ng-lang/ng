@@ -1,5 +1,7 @@
 // AI-generated code; reviewed for this repository's vNext rewrite.
+#include "vnext/syntax/const_expr.hpp"
 #include "vnext/syntax/parser.hpp"
+#include "vnext/syntax/type_parser.hpp"
 
 #include <cctype>
 #include <format>
@@ -116,6 +118,7 @@ namespace NG::vnext::syntax
         const std::string text{source.substr(begin, offset - begin)};
         const TokenKind kind = text == "case" ? TokenKind::KeywordCase
                              : text == "const" ? TokenKind::KeywordConst
+                             : text == "delete" ? TokenKind::KeywordDelete
                              : text == "else" ? TokenKind::KeywordElse
                              : text == "enum" ? TokenKind::KeywordEnum
                              : text == "fun" ? TokenKind::KeywordFun
@@ -123,6 +126,7 @@ namespace NG::vnext::syntax
                              : text == "let" ? TokenKind::KeywordLet
                              : text == "loop" ? TokenKind::KeywordLoop
                              : text == "mut" ? TokenKind::KeywordMut
+                             : text == "native" ? TokenKind::KeywordNative
                              : text == "next" ? TokenKind::KeywordNext
                              : text == "otherwise" ? TokenKind::KeywordOtherwise
                              : text == "ref" ? TokenKind::KeywordRef
@@ -249,6 +253,84 @@ namespace NG::vnext::syntax
   {
     while (true)
     {
+      const auto *identifier = dynamic_cast<const IdentifierExpression *>(expression.get());
+      if (identifier != nullptr && current().kind == TokenKind::Less && current().span.begin == expression->span.end)
+      {
+        // Generic application: `name<args...>`. The `<` must be adjacent to
+        // the identifier, so `a < b` remains an ordinary comparison.
+        static_cast<void>(consume());
+        std::vector<GenericArgumentSyntax> arguments;
+        bool closedByShiftRight{};
+        while (true)
+        {
+          std::vector<Token> chunk;
+          size_t angleDepth{};
+          while (true)
+          {
+            if (current().kind == TokenKind::End)
+              throw ParseError("expected `>` after generic arguments", current().span);
+            if (angleDepth == 0 && (current().kind == TokenKind::Comma || current().kind == TokenKind::Greater)) break;
+            const Token token = consume();
+            if (token.kind == TokenKind::Less) ++angleDepth;
+            else if (token.kind == TokenKind::Greater && angleDepth != 0) --angleDepth;
+            else if (token.kind == TokenKind::ShiftRight)
+            {
+              const size_t middle = token.span.begin + 1;
+              chunk.push_back(Token{.kind = TokenKind::Greater, .text = ">", .span = SourceSpan{token.span.begin, middle}});
+              if (angleDepth <= 1)
+              {
+                // The second `>` of the shift token closes the argument list.
+                closedByShiftRight = true;
+                break;
+              }
+              angleDepth -= 2;
+              chunk.push_back(Token{.kind = TokenKind::Greater, .text = ">", .span = SourceSpan{middle, token.span.end}});
+              continue;
+            }
+            chunk.push_back(token);
+          }
+          if (chunk.empty()) throw ParseError("expected a generic argument", current().span);
+          const size_t chunkEnd = chunk.back().span.end;
+          chunk.push_back(Token{.kind = TokenKind::End, .text = {}, .span = SourceSpan{chunkEnd, chunkEnd}});
+          GenericArgumentSyntax argument{.kind = GenericArgumentKind::Type,
+                                         .type = nullptr,
+                                         .constExpr = nullptr,
+                                         .span = SourceSpan{chunk.front().span.begin, chunkEnd}};
+          try
+          {
+            argument.type = TypeParser{chunk}.parse();
+          }
+          catch (const ParseError &)
+          {
+            try
+            {
+              argument.constExpr = ConstExprParser{chunk, 0, true}.parse();
+              argument.kind = GenericArgumentKind::ConstExpr;
+            }
+            catch (const ParseError &)
+            {
+              throw ParseError("generic argument is neither a type nor a const expression", argument.span);
+            }
+          }
+          arguments.push_back(std::move(argument));
+          if (current().kind != TokenKind::Comma) break;
+          static_cast<void>(consume());
+          if (current().kind == TokenKind::Greater) throw ParseError("expected a generic argument after `,`", current().span);
+        }
+        SourceSpan applicationEnd = expression->span;
+        applicationEnd.end = arguments.empty() ? expression->span.end : arguments.back().span.end;
+        if (!closedByShiftRight)
+        {
+          if (current().kind != TokenKind::Greater)
+            throw ParseError("expected `>` after generic arguments", current().span);
+          const Token close = consume();
+          applicationEnd.end = close.span.end;
+        }
+        expression = std::make_unique<GenericApplicationExpression>(identifier->name, std::move(arguments),
+                                                                   SourceSpan{expression->span.begin, applicationEnd.end});
+        continue;
+      }
+
       if (current().kind == TokenKind::LeftParen)
       {
         static_cast<void>(consume());

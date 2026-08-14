@@ -2,6 +2,7 @@
 #include "vnext/hir.hpp"
 #include "vnext/syntax/const_expr.hpp"
 
+#include <array>
 #include <charconv>
 #include <format>
 #include <unordered_set>
@@ -74,9 +75,11 @@ namespace NG::vnext::hir
     enums_.clear();
     enumVariants_.clear();
     nextLocal_ = 0;
+    nextConstId_ = 0;
     uint32_t functionCount{};
     uint32_t structCount{};
     uint32_t enumCount{};
+    uint32_t constCount{};
     for (const auto &item : unit.items)
     {
       if (const auto *function = dynamic_cast<const syntax::FunctionDeclaration *>(item.get()))
@@ -97,6 +100,11 @@ namespace NG::vnext::hir
         auto &variants = enumVariants_[enumeration->name];
         for (const auto &variant : enumeration->variants) variants.push_back(variant.name);
       }
+      else if (const auto *declaration = dynamic_cast<const syntax::ConstDeclaration *>(item.get()))
+      {
+        static_cast<void>(declaration);
+        ++constCount;
+      }
       else throw ResolutionError("unsupported module item during name resolution", item->span);
     }
 
@@ -104,6 +112,7 @@ namespace NG::vnext::hir
     module.functions.reserve(functionCount);
     module.structs.reserve(structCount);
     module.enums.reserve(enumCount);
+    module.consts.reserve(constCount);
     for (const auto &item : unit.items)
     {
       if (const auto *function = dynamic_cast<const syntax::FunctionDeclaration *>(item.get()))
@@ -112,13 +121,60 @@ namespace NG::vnext::hir
       {
         module.structs.push_back(resolveStruct(*structure, structs_.at(structure->name)));
       }
+      else if (const auto *enumeration = dynamic_cast<const syntax::EnumDeclaration *>(item.get()))
+      {
+        module.enums.push_back(resolveEnum(*enumeration, enums_.at(enumeration->name)));
+      }
       else
       {
-        const auto *enumeration = static_cast<const syntax::EnumDeclaration *>(item.get());
-        module.enums.push_back(resolveEnum(*enumeration, enums_.at(enumeration->name)));
+        const auto *declaration = static_cast<const syntax::ConstDeclaration *>(item.get());
+        module.consts.push_back(resolveConstDeclaration(*declaration, DefId{nextConstId_++}));
       }
     }
     return module;
+  }
+
+  auto Resolver::resolveConstDeclaration(const syntax::ConstDeclaration &declaration, DefId id) -> ConstDeclaration
+  {
+    ConstDeclaration resolved{.id = id,
+                              .name = declaration.name,
+                              .span = declaration.span,
+                              .bodyKind = declaration.bodyKind == syntax::ConstBodyKind::Native
+                                              ? ConstDeclarationBodyKind::Native
+                                              : declaration.bodyKind == syntax::ConstBodyKind::Delete
+                                                    ? ConstDeclarationBodyKind::Delete
+                                                    : ConstDeclarationBodyKind::Expression};
+    for (const auto &parameter : declaration.parameters) resolved.typeParameters.push_back(parameter.name);
+    // Bare identifiers appearing as top-level pattern arguments introduce
+    // type parameters implicitly, but only for prefix-less (primary)
+    // declarations: `const<T> name<...>` declares its parameters explicitly.
+    // Names that already denote a concrete type (builtins, structs, enums)
+    // are never introduced as parameters.
+    if (declaration.parameters.empty())
+    {
+      constexpr std::array<std::string_view, 5> BuiltinNames{"i64", "u8", "bool", "unit", "string"};
+      for (const auto &argument : declaration.patternArguments)
+      {
+        if (const auto *named = dynamic_cast<const syntax::NamedTypeSyntax *>(argument.get()); named != nullptr)
+        {
+          const bool concrete = std::find(BuiltinNames.begin(), BuiltinNames.end(), named->name) != BuiltinNames.end() ||
+                                structs_.contains(named->name) || enums_.contains(named->name);
+          if (!concrete && std::find(resolved.typeParameters.begin(), resolved.typeParameters.end(), named->name) ==
+                               resolved.typeParameters.end())
+            resolved.typeParameters.push_back(named->name);
+        }
+      }
+    }
+    std::unordered_set<std::string> names{resolved.typeParameters.begin(), resolved.typeParameters.end()};
+    if (names.size() != resolved.typeParameters.size())
+      throw ResolutionError(std::format("duplicate generic parameter in const declaration `{}`", declaration.name),
+                            declaration.span);
+    for (const auto &argument : declaration.patternArguments)
+      resolved.pattern.push_back(std::make_unique<Type>(lowerType(*argument)));
+    if (declaration.targetType != nullptr)
+      resolved.targetType = std::make_unique<Type>(lowerType(*declaration.targetType));
+    if (declaration.body != nullptr) resolved.body = cloneConstExpr(*declaration.body);
+    return resolved;
   }
 
   auto Resolver::resolveEnum(const syntax::EnumDeclaration &enumeration, EnumId id) -> Enum
@@ -496,6 +552,19 @@ namespace NG::vnext::hir
       for (const auto &argument : call->arguments)
       {
         resolved->operands.push_back(resolveExpression(*argument));
+      }
+      return resolved;
+    }
+    if (const auto *application = dynamic_cast<const syntax::GenericApplicationExpression *>(&expression))
+    {
+      resolved->kind = ExpressionKind::GenericApplication;
+      resolved->text = application->name;
+      for (const auto &argument : application->arguments)
+      {
+        TypeArgument lowered{.kind = argument.kind, .span = argument.span};
+        if (argument.type != nullptr) lowered.type = std::make_unique<Type>(lowerType(*argument.type));
+        if (argument.constExpr != nullptr) lowered.constExpr = cloneConstExpr(*argument.constExpr);
+        resolved->genericArguments.push_back(std::move(lowered));
       }
       return resolved;
     }

@@ -65,6 +65,9 @@ namespace NG::vnext::flowir
           return lowerReferenceExpression(expression);
         }
 
+        if (expression.kind == hir::ExpressionKind::GenericApplication)
+          throw VerificationError("const predicate application is not a runtime value");
+
         const bool directCall = expression.kind == hir::ExpressionKind::Call && !expression.operands.empty() &&
                                 expression.operands[0]->resolvedName.has_value() &&
                                 expression.operands[0]->resolvedName->kind == hir::ResolvedNameKind::Function;

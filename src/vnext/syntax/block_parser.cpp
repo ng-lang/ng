@@ -450,6 +450,15 @@ namespace NG::vnext::syntax
     {
       if (current().kind == TokenKind::Less) ++angleDepth;
       else if (current().kind == TokenKind::Greater && angleDepth != 0) --angleDepth;
+      else if (current().kind == TokenKind::ShiftRight)
+      {
+        const Token token = consume();
+        const size_t middle = token.span.begin + 1;
+        typeTokens.push_back(Token{.kind = TokenKind::Greater, .text = ">", .span = SourceSpan{token.span.begin, middle}});
+        typeTokens.push_back(Token{.kind = TokenKind::Greater, .text = ">", .span = SourceSpan{middle, token.span.end}});
+        angleDepth = angleDepth > 2 ? angleDepth - 2 : 0;
+        continue;
+      }
       if (angleDepth == 0 && current().kind == terminator) break;
       typeTokens.push_back(consume());
     }
