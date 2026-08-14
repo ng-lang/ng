@@ -53,6 +53,26 @@ namespace NG::vnext::typecheck
                                  .constParameterName = std::move(name)});
   }
 
+  auto TypeInterner::internReference(TypeId target, bool mutableReference) -> TypeId
+  {
+    for (uint32_t index = 6; index < descriptors_.size(); ++index)
+      if (descriptors_[index].kind == TypeKind::Reference && descriptors_[index].element == target &&
+          descriptors_[index].referenceMutable == mutableReference)
+        return TypeId{index};
+    return append(TypeDescriptor{.kind = TypeKind::Reference, .name = "ref", .element = target,
+                                 .length = std::nullopt, .referenceMutable = mutableReference});
+  }
+
+  auto TypeInterner::internRawPointer(TypeId target, bool mutablePointee) -> TypeId
+  {
+    for (uint32_t index = 6; index < descriptors_.size(); ++index)
+      if (descriptors_[index].kind == TypeKind::RawPointer && descriptors_[index].element == target &&
+          descriptors_[index].referenceMutable == mutablePointee)
+        return TypeId{index};
+    return append(TypeDescriptor{.kind = TypeKind::RawPointer, .name = "pointer", .element = target,
+                                 .length = std::nullopt, .referenceMutable = mutablePointee});
+  }
+
   auto TypeInterner::internTuple(const std::vector<TypeId> &elements) -> TypeId
   {
     for (uint32_t index = 6; index < descriptors_.size(); ++index)
@@ -153,6 +173,10 @@ namespace NG::vnext::typecheck
         throw std::logic_error("const generic argument is not an integer");
       return internFixedArray(element, static_cast<uint64_t>(value.integerValue));
     }
+    if (source.kind == TypeKind::Reference)
+      return internReference(specialize(source.element, bindings, constBindings), source.referenceMutable);
+    if (source.kind == TypeKind::RawPointer)
+      return internRawPointer(specialize(source.element, bindings, constBindings), source.referenceMutable);
     if (source.kind == TypeKind::Tuple)
     {
       std::vector<TypeId> elements;
@@ -195,6 +219,10 @@ namespace NG::vnext::typecheck
       if (const auto found = bindings.find(type.name); found != bindings.end()) return found->second;
       return resolve(type);
     }
+    if (type.kind == hir::TypeKind::ScopedReference && type.target != nullptr)
+      return internReference(resolveWithBindings(*type.target, bindings, constBindings), type.isMutable);
+    if (type.kind == hir::TypeKind::RawPointer && type.target != nullptr)
+      return internRawPointer(resolveWithBindings(*type.target, bindings, constBindings), type.isMutable);
     if (type.kind != hir::TypeKind::Applied || type.target == nullptr || type.target->kind != hir::TypeKind::Named)
       return resolve(type);
     if (type.target->name == "array")
@@ -272,6 +300,10 @@ namespace NG::vnext::typecheck
       }
       throw TypeError(std::format("unknown type `{}`", type.name), type.span);
     }
+    if (type.kind == hir::TypeKind::ScopedReference && type.target != nullptr)
+      return internReference(resolve(*type.target), type.isMutable);
+    if (type.kind == hir::TypeKind::RawPointer && type.target != nullptr)
+      return internRawPointer(resolve(*type.target), type.isMutable);
     if (type.kind != hir::TypeKind::Applied || type.target == nullptr || type.target->kind != hir::TypeKind::Named)
       throw TypeError("unsupported type form", type.span);
     if (type.target->name != "array" && type.target->name != "tuple")
@@ -360,6 +392,10 @@ namespace NG::vnext::typecheck
     if (item.kind == TypeKind::FixedArray) return std::format("array<{}, {}>", display(item.element), *item.length);
     if (item.kind == TypeKind::DependentArray)
       return std::format("array<{}, {}>", display(item.element), item.constParameterName);
+    if (item.kind == TypeKind::Reference)
+      return std::format("{} {}", display(item.element), item.referenceMutable ? "ref mut" : "ref");
+    if (item.kind == TypeKind::RawPointer)
+      return std::format("{} {}", display(item.element), item.referenceMutable ? "*mut" : "*const");
     if (item.kind == TypeKind::Struct || item.kind == TypeKind::Enum || item.kind == TypeKind::TypeParameter) return item.name;
     std::string result{"tuple<"};
     for (size_t index = 0; index < item.elements.size(); ++index)

@@ -452,9 +452,25 @@ namespace NG::vnext::typecheck
           break;
         case hir::ExpressionKind::Grouped: type = infer(*expression.operands[0], locals); break;
         case hir::ExpressionKind::Prefix:
+        {
+          const TypeId operand = infer(*expression.operands[0], locals);
+          if (expression.text == "ref" || expression.text == "ref mut")
+          {
+            type = interner_.internReference(operand, expression.text == "ref mut");
+            break;
+          }
+          if (expression.text == "*")
+          {
+            const auto &descriptor = interner_.descriptor(operand);
+            if (descriptor.kind != TypeKind::Reference)
+              throw TypeError(std::format("cannot dereference value of type {}", interner_.display(operand)), expression.span);
+            type = descriptor.element;
+            break;
+          }
           type = expression.text == "!" ? builtin::Bool : builtin::I64;
-          requireType(type, infer(*expression.operands[0], locals), expression.span, "prefix operand");
+          requireType(type, operand, expression.span, "prefix operand");
           break;
+        }
         case hir::ExpressionKind::Binary:
         {
           const TypeId left = infer(*expression.operands[0], locals);
@@ -606,7 +622,8 @@ namespace NG::vnext::typecheck
         for (const auto element : descriptor.elements) score += specificity(element);
         for (const auto argument : descriptor.typeArguments) score += specificity(argument);
         if (descriptor.kind == TypeKind::DynamicArray || descriptor.kind == TypeKind::FixedArray ||
-            descriptor.kind == TypeKind::DependentArray)
+            descriptor.kind == TypeKind::DependentArray || descriptor.kind == TypeKind::Reference ||
+            descriptor.kind == TypeKind::RawPointer)
           score += specificity(descriptor.element);
         return score;
       }
@@ -658,6 +675,13 @@ namespace NG::vnext::typecheck
         {
           if (expectedDescriptor.length != actualDescriptor.length)
             throw TypeError("generic array length mismatch", span);
+          unify(expectedDescriptor.element, actualDescriptor.element, substitution, span);
+          return;
+        }
+        if (expectedDescriptor.kind == TypeKind::Reference || expectedDescriptor.kind == TypeKind::RawPointer)
+        {
+          if (expectedDescriptor.referenceMutable != actualDescriptor.referenceMutable)
+            throw TypeError("generic reference mutability mismatch", span);
           unify(expectedDescriptor.element, actualDescriptor.element, substitution, span);
           return;
         }

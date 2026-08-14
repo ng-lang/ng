@@ -138,6 +138,11 @@ namespace NG::vnext
         errors << "type error at bytes [" << error.span.begin << ", " << error.span.end << "): " << error.what() << '\n';
         return 1;
       }
+      catch (const flowir::VerificationError &error)
+      {
+        errors << "flowir error: " << error.what() << '\n';
+        return 1;
+      }
       catch (const bytecode::BytecodeError &error)
       {
         errors << "bytecode error: " << error.what() << '\n';

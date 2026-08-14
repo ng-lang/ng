@@ -105,6 +105,8 @@ namespace NG::vnext::flowir
         }
         else if (expression.kind == hir::ExpressionKind::Prefix)
         {
+          if (expression.text == "ref" || expression.text == "ref mut" || expression.text == "*")
+            throw VerificationError("reference operations are not yet supported by FlowIR lowering");
           if (expression.text == "!") payload = 1;
           else if (expression.text == "-") payload = 2;
           else if (expression.text == "+") payload = 3;

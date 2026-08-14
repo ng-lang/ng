@@ -385,6 +385,17 @@ namespace NG::vnext::syntax
       const Token close = consume();
       return std::make_unique<GroupedExpression>(std::move(expression), SourceSpan{token.span.begin, close.span.end});
     }
+    case TokenKind::KeywordRef:
+    {
+      std::string op = "ref";
+      if (current().kind == TokenKind::KeywordMut)
+      {
+        static_cast<void>(consume());
+        op = "ref mut";
+      }
+      auto operand = parseExpression(110);
+      return std::make_unique<PrefixExpression>(std::move(op), std::move(operand), SourceSpan{token.span.begin, operand->span.end});
+    }
     default:
       break;
     }
@@ -420,7 +431,8 @@ namespace NG::vnext::syntax
     {
     case TokenKind::Plus:
     case TokenKind::Minus:
-    case TokenKind::Bang: return 110;
+    case TokenKind::Bang:
+    case TokenKind::Star: return 110;
     default:              return -1;
     }
   }

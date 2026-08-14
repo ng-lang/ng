@@ -248,10 +248,13 @@ namespace NG::vnext::bytecode
       const auto &descriptor = function.typeDescriptors[index];
       if (descriptor.kind != typecheck::TypeKind::Builtin && descriptor.kind != typecheck::TypeKind::DynamicArray &&
           descriptor.kind != typecheck::TypeKind::FixedArray && descriptor.kind != typecheck::TypeKind::DependentArray &&
+          descriptor.kind != typecheck::TypeKind::Reference && descriptor.kind != typecheck::TypeKind::RawPointer &&
           descriptor.kind != typecheck::TypeKind::Tuple &&
           descriptor.kind != typecheck::TypeKind::Struct && descriptor.kind != typecheck::TypeKind::Enum &&
           descriptor.kind != typecheck::TypeKind::TypeParameter)
         throw BytecodeError("bytecode type descriptor kind is invalid");
+      if (descriptor.kind == typecheck::TypeKind::Reference || descriptor.kind == typecheck::TypeKind::RawPointer)
+        verifyTypeId(descriptor.element);
       if (descriptor.kind == typecheck::TypeKind::DynamicArray || descriptor.kind == typecheck::TypeKind::FixedArray ||
           descriptor.kind == typecheck::TypeKind::DependentArray)
       {

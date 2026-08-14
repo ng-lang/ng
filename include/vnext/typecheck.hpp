@@ -42,6 +42,8 @@ namespace NG::vnext::typecheck
     DynamicArray,
     FixedArray,
     DependentArray,
+    Reference,
+    RawPointer,
     Tuple,
     Struct,
     Enum,
@@ -61,6 +63,7 @@ namespace NG::vnext::typecheck
     std::vector<TypeId> typeArguments;
     std::optional<uint32_t> constParameterIndex{};
     std::string constParameterName;
+    bool referenceMutable{};
     auto operator==(const TypeDescriptor &) const -> bool = default;
   };
 
@@ -87,6 +90,8 @@ namespace NG::vnext::typecheck
     [[nodiscard]] auto internDynamicArray(TypeId element) -> TypeId;
     [[nodiscard]] auto internFixedArray(TypeId element, uint64_t length) -> TypeId;
     [[nodiscard]] auto internDependentArray(TypeId element, uint32_t constParameterIndex, std::string name) -> TypeId;
+    [[nodiscard]] auto internReference(TypeId target, bool mutableReference) -> TypeId;
+    [[nodiscard]] auto internRawPointer(TypeId target, bool mutablePointee) -> TypeId;
     [[nodiscard]] auto internTuple(const std::vector<TypeId> &elements) -> TypeId;
     [[nodiscard]] auto internTypeParameter(std::string name, uint32_t index) -> TypeId;
     [[nodiscard]] auto declareStruct(hir::StructId id, std::string name) -> TypeId;
