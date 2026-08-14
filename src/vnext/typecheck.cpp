@@ -5,6 +5,7 @@
 #include <charconv>
 #include <format>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace NG::vnext::typecheck
 {
@@ -99,6 +100,7 @@ namespace NG::vnext::typecheck
     private:
       using LocalTypes = std::unordered_map<uint32_t, TypeId>;
       using LoopTypes = std::unordered_map<uint32_t, std::vector<TypeId>>;
+      using MutableBindings = std::unordered_set<uint32_t>;
 
       struct Substitution
       {
@@ -137,6 +139,7 @@ namespace NG::vnext::typecheck
       void checkFunction(const hir::Function &function)
       {
         LocalTypes locals;
+        mutableBindings_.clear();
         const auto &signature = signatures_.at(function.id.value);
         for (size_t index = 0; index < function.parameters.size(); ++index)
         {
@@ -150,8 +153,10 @@ namespace NG::vnext::typecheck
 
       void checkBlock(const hir::Block &block, LocalTypes locals, LoopTypes loops, TypeId returnType)
       {
+        const MutableBindings saved = mutableBindings_;
         for (const auto &statement : block.statements) checkStatement(statement, locals, loops, returnType);
         if (block.tailExpression != nullptr) static_cast<void>(infer(*block.tailExpression, locals));
+        mutableBindings_ = std::move(saved);
       }
 
       void checkStatement(const hir::Statement &statement, LocalTypes &locals, LoopTypes &loops, TypeId returnType)
@@ -175,18 +180,21 @@ namespace NG::vnext::typecheck
             {
               locals.emplace(statement.destructuredLocals[index].value, tuple.elements[index]);
               recordLocal(statement.destructuredLocals[index], tuple.elements[index]);
+              if (statement.mutableBinding) mutableBindings_.insert(statement.destructuredLocals[index].value);
             }
           }
           else
           {
             locals.emplace(statement.local->value, type);
             recordLocal(*statement.local, type);
+            if (statement.mutableBinding) mutableBindings_.insert(statement.local->value);
           }
           return;
         }
         case hir::StatementKind::Assign:
           if (statement.assignmentTarget != nullptr)
           {
+            requireMutableDeref(*statement.assignmentTarget, locals);
             const TypeId target = infer(*statement.assignmentTarget, locals);
             static_cast<void>(inferExpected(*statement.expression, target, locals, "assignment value"));
           }
@@ -232,6 +240,7 @@ namespace NG::vnext::typecheck
           {
             loopLocals.emplace(statement.loopBindings[index].value, types[index]);
             recordLocal(statement.loopBindings[index], types[index]);
+            mutableBindings_.insert(statement.loopBindings[index].value);
           }
           LoopTypes loopTypes = loops;
           loopTypes.emplace(statement.loop->value, types);
@@ -254,6 +263,63 @@ namespace NG::vnext::typecheck
         for (size_t index = 0; index < expected->size(); ++index)
           static_cast<void>(inferExpected(*statement.arguments[index], (*expected)[index], locals,
                                           std::format("next argument {}", index + 1)));
+      }
+
+      [[nodiscard]] static auto isPlace(const hir::Expression &expression) -> bool
+      {
+        switch (expression.kind)
+        {
+        case hir::ExpressionKind::ResolvedName:
+          return expression.resolvedName.has_value() && expression.resolvedName->kind == hir::ResolvedNameKind::Local;
+        case hir::ExpressionKind::Index:
+        case hir::ExpressionKind::Member:
+          return isPlace(*expression.operands[0]);
+        case hir::ExpressionKind::Grouped:
+          return isPlace(*expression.operands[0]);
+        default:
+          return false;
+        }
+      }
+
+      void requireMutableRoot(const hir::Expression &expression, syntax::SourceSpan span) const
+      {
+        const hir::Expression *root = &expression;
+        while (true)
+        {
+          if (root->kind == hir::ExpressionKind::Index || root->kind == hir::ExpressionKind::Member ||
+              root->kind == hir::ExpressionKind::Grouped)
+            root = root->operands[0].get();
+          else
+            break;
+        }
+        if (root->kind != hir::ExpressionKind::ResolvedName || root->resolvedName->kind != hir::ResolvedNameKind::Local) return;
+        if (!mutableBindings_.contains(root->resolvedName->id))
+          throw TypeError("cannot create a mutable reference to an immutable binding", span);
+      }
+
+      void requireMutableDeref(const hir::Expression &expression, const LocalTypes &locals)
+      {
+        switch (expression.kind)
+        {
+        case hir::ExpressionKind::Index:
+        case hir::ExpressionKind::Member:
+        case hir::ExpressionKind::Grouped:
+          requireMutableDeref(*expression.operands[0], locals);
+          return;
+        case hir::ExpressionKind::Prefix:
+          if (expression.text == "*")
+          {
+            const TypeId operand = infer(*expression.operands[0], locals);
+            const auto &descriptor = interner_.descriptor(operand);
+            if (descriptor.kind != TypeKind::Reference)
+              throw TypeError(std::format("cannot assign through value of type {}", interner_.display(operand)), expression.span);
+            if (!descriptor.referenceMutable)
+              throw TypeError("cannot assign through an immutable reference", expression.span);
+          }
+          return;
+        default:
+          return;
+        }
       }
 
       [[nodiscard]] auto inferExpected(const hir::Expression &expression, TypeId expected, const LocalTypes &locals,
@@ -456,6 +522,12 @@ namespace NG::vnext::typecheck
           const TypeId operand = infer(*expression.operands[0], locals);
           if (expression.text == "ref" || expression.text == "ref mut")
           {
+            if (!isPlace(*expression.operands[0]))
+              throw TypeError("reference operand is not a place", expression.span);
+            const auto &operandDescriptor = interner_.descriptor(operand);
+            if (operandDescriptor.kind == TypeKind::Reference)
+              throw TypeError("cannot create a reference to a reference", expression.span);
+            if (expression.text == "ref mut") requireMutableRoot(*expression.operands[0], expression.span);
             type = interner_.internReference(operand, expression.text == "ref mut");
             break;
           }
@@ -710,6 +782,9 @@ namespace NG::vnext::typecheck
       std::unordered_map<uint32_t, FunctionTypeIds> functionTypeIds_;
       std::unordered_map<const hir::Expression *, hir::DefId> callTargets_;
       std::unordered_map<const hir::Statement *, bool> constIfSelections_;
+      /// Bindings declared with `let mut` (and loop bindings, which `next`
+      /// rebinds) in the current lexical path; restored at block boundaries.
+      MutableBindings mutableBindings_;
       bool inConstGenericFunction_{};
     };
   } // namespace

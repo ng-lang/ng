@@ -1,0 +1,16 @@
+// vNext ref<T>: mutable reference parameters and a move-free swap via deref
+// assignment. Bindings copy by default (D-015); references are the only
+// sharing path, and writes flow through the referenced place.
+
+fun swap<T>(a: T ref mut, b: T ref mut) {
+    let tmp = *a;
+    *a := *b;
+    *b := tmp;
+}
+
+fun main() -> i64 {
+    let mut x = 1;
+    let mut y = 2;
+    swap(ref mut x, ref mut y);
+    return x * 10 + y;
+}

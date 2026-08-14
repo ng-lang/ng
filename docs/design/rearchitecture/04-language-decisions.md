@@ -861,6 +861,19 @@ let writable = ref mut value;
 - The runtime `Value` representation may share structural storage internally;
   the deep-copy rule is a language semantic enforced where copies occur.
 
+### Implementation status — 2026-08-15
+
+- Scoped `ref` / `ref mut` / `*` places run end to end through FlowIR
+  (`MakeRef` / `LoadRef` / `AssignPlace`), bytecode, and the VM. Frame locals
+  are canonical shared cells; reference values capture the root cell plus
+  place steps, so writes through references stay visible after binding
+  rebinds.
+- Deep copy on bind/call/return is enforced in the VM (`Value::deepCopy`):
+  bindings, call arguments, and returns never alias aggregate storage, while
+  reference values stay views. Line and block comments are lexed and skipped.
+- Remaining D-015 work: `move`/`clone` syntax and affine checking, partial
+  moves, `Drop`, loan conflict checks, and rejection of escaped references.
+
 ---
 
 ## Decision summary

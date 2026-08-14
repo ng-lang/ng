@@ -78,13 +78,34 @@ namespace NG::vnext::syntax
     while (offset < source.size())
     {
       const char character = source[offset];
+      const size_t begin = offset;
       if (std::isspace(static_cast<unsigned char>(character)) != 0)
       {
         ++offset;
         continue;
       }
 
-      const size_t begin = offset;
+      // Line comments and block comments are skipped by the lexer; they
+      // produce no tokens and never reach the parser.
+      if (character == '/' && offset + 1 < source.size())
+      {
+        if (source[offset + 1] == '/')
+        {
+          offset += 2;
+          while (offset < source.size() && source[offset] != '\n') ++offset;
+          continue;
+        }
+        if (source[offset + 1] == '*')
+        {
+          offset += 2;
+          while (offset + 1 < source.size() && !(source[offset] == '*' && source[offset + 1] == '/')) ++offset;
+          if (offset + 1 >= source.size())
+            throw ParseError("unterminated block comment", SourceSpan{begin, source.size()});
+          offset += 2;
+          continue;
+        }
+      }
+
       if (isIdentifierStart(character))
       {
         ++offset;

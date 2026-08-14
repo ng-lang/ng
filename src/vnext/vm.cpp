@@ -3,6 +3,7 @@
 #include "vm/value_ops.hpp"
 
 #include <format>
+#include <memory>
 #include <unordered_map>
 #include <vector>
 
@@ -41,10 +42,10 @@ namespace NG::vnext::vm
     size_t executed{};
     size_t tailRecursions{};
     std::vector<Value> values;
-    std::unordered_map<uint32_t, Value> locals;
+    detail::LocalCells locals;
     for (size_t index = 0; index < arguments.size(); ++index)
     {
-      locals.emplace(function.parameterLocals[index], arguments[index]);
+      locals.emplace(function.parameterLocals[index], std::make_shared<Value>(Value::integer(arguments[index])));
     }
 
     const auto jumpToBlock = [&function, &blockInstruction, &values, &locals](uint32_t target,
@@ -53,7 +54,8 @@ namespace NG::vnext::vm
       const auto &parameterLocals = function.blockParameterLocals.at(target);
       for (size_t index = 0; index < parameterLocals.size(); ++index)
       {
-        locals[parameterLocals[index]] = values.at(argumentValues.at(firstArgument + index));
+        locals[parameterLocals[index]] =
+            std::make_shared<Value>(values.at(argumentValues.at(firstArgument + index)).deepCopy());
       }
       return blockInstruction(target);
     };
@@ -75,8 +77,8 @@ namespace NG::vnext::vm
         const uint32_t local = instruction.operands[1];
         const uint32_t source = instruction.operands[2];
         if (values.size() <= result) values.resize(result + 1);
-        values[result] = values.at(source);
-        locals[local] = values[result];
+        values[result] = values.at(source).deepCopy();
+        locals[local] = std::make_shared<Value>(values[result].deepCopy());
         break;
       }
       case bytecode::Opcode::ExtractTuple:
@@ -85,21 +87,24 @@ namespace NG::vnext::vm
         const uint32_t index = instruction.operands[2];
         if (index >= tuple.size())
           throw bytecode::BytecodeError(std::format("tuple index out of bounds: index {}, length {}", index, tuple.size()));
-        values[instruction.operands[0]] = tuple[index];
+        values[instruction.operands[0]] = tuple[index].deepCopy();
         break;
       }
-      case bytecode::Opcode::AssignMember:
-        detail::assignMemberInstruction(instruction, values);
+      case bytecode::Opcode::MakeRef:
+        detail::makeRefInstruction(instruction, values, locals);
         break;
-      case bytecode::Opcode::AssignIndex:
-        detail::assignIndexInstruction(instruction, values);
+      case bytecode::Opcode::LoadRef:
+        detail::loadRefInstruction(instruction, values);
+        break;
+      case bytecode::Opcode::AssignPlace:
+        detail::assignPlaceInstruction(instruction, values, locals);
         break;
       case bytecode::Opcode::Return:
       {
         std::optional<Value> result;
         if (instruction.operands[0] == 1)
         {
-          result = values.at(instruction.operands[1]);
+          result = values.at(instruction.operands[1]).deepCopy();
         }
         return RunResult{.reason = HaltReason::Return,
                          .executedInstructions = executed,
@@ -117,7 +122,8 @@ namespace NG::vnext::vm
       case bytecode::Opcode::TailRecur:
         for (size_t index = 0; index < function.parameterLocals.size(); ++index)
         {
-          locals[function.parameterLocals[index]] = values.at(instruction.operands.at(index + 1));
+          locals[function.parameterLocals[index]] =
+              std::make_shared<Value>(values.at(instruction.operands.at(index + 1)).deepCopy());
         }
         ++tailRecursions;
         programCounter = blockInstruction(0);
@@ -153,7 +159,7 @@ namespace NG::vnext::vm
       size_t functionIndex;
       size_t programCounter;
       std::vector<Value> values;
-      std::unordered_map<uint32_t, Value> locals;
+      detail::LocalCells locals;
       std::optional<uint32_t> callerDestination;
     };
 
@@ -175,7 +181,8 @@ namespace NG::vnext::vm
       const auto entryOffset = function.blockOffsets.at(0);
       const auto entryInstruction = prepared.at(functionIndex).offsets.at(entryOffset);
       Frame frame{.functionIndex = functionIndex, .programCounter = entryInstruction, .callerDestination = destination};
-      for (size_t index = 0; index < args.size(); ++index) frame.locals.emplace(function.parameterLocals[index], args[index]);
+      for (size_t index = 0; index < args.size(); ++index)
+        frame.locals.emplace(function.parameterLocals[index], std::make_shared<Value>(args[index].deepCopy()));
       return frame;
     };
 
@@ -193,7 +200,8 @@ namespace NG::vnext::vm
       const auto blockInstruction = [&preparedFunction, &function](uint32_t block) { return preparedFunction.offsets.at(function.blockOffsets.at(block)); };
       const auto bindBlockArguments = [&frame, &function](uint32_t target, const std::vector<uint32_t> &operands, size_t first) {
         for (size_t index = 0; index < function.blockParameterLocals.at(target).size(); ++index)
-          frame.locals[function.blockParameterLocals[target][index]] = frame.values.at(operands.at(first + index));
+          frame.locals[function.blockParameterLocals[target][index]] =
+              std::make_shared<Value>(frame.values.at(operands.at(first + index)).deepCopy());
       };
 
       if (instruction.opcode == bytecode::Opcode::Evaluate)
@@ -205,8 +213,8 @@ namespace NG::vnext::vm
       {
         const uint32_t result = instruction.operands[0];
         if (frame.values.size() <= result) frame.values.resize(result + 1);
-        frame.values[result] = frame.values.at(instruction.operands[2]);
-        frame.locals[instruction.operands[1]] = frame.values[result];
+        frame.values[result] = frame.values.at(instruction.operands[2]).deepCopy();
+        frame.locals[instruction.operands[1]] = std::make_shared<Value>(frame.values[result].deepCopy());
         continue;
       }
       if (instruction.opcode == bytecode::Opcode::ExtractTuple)
@@ -215,37 +223,42 @@ namespace NG::vnext::vm
         const uint32_t index = instruction.operands[2];
         if (index >= tuple.size())
           throw bytecode::BytecodeError(std::format("tuple index out of bounds: index {}, length {}", index, tuple.size()));
-        frame.values[instruction.operands[0]] = tuple[index];
+        frame.values[instruction.operands[0]] = tuple[index].deepCopy();
         continue;
       }
-      if (instruction.opcode == bytecode::Opcode::AssignMember)
+      if (instruction.opcode == bytecode::Opcode::MakeRef)
       {
-        detail::assignMemberInstruction(instruction, frame.values);
+        detail::makeRefInstruction(instruction, frame.values, frame.locals);
         continue;
       }
-      if (instruction.opcode == bytecode::Opcode::AssignIndex)
+      if (instruction.opcode == bytecode::Opcode::LoadRef)
       {
-        detail::assignIndexInstruction(instruction, frame.values);
+        detail::loadRefInstruction(instruction, frame.values);
+        continue;
+      }
+      if (instruction.opcode == bytecode::Opcode::AssignPlace)
+      {
+        detail::assignPlaceInstruction(instruction, frame.values, frame.locals);
         continue;
       }
       if (instruction.opcode == bytecode::Opcode::Call)
       {
         std::vector<Value> callArguments;
         for (size_t index = 0; index < instruction.operands[2]; ++index)
-          callArguments.push_back(frame.values.at(instruction.operands[3 + index]));
+          callArguments.push_back(frame.values.at(instruction.operands[3 + index]).deepCopy());
         frames.push_back(makeFrame(instruction.operands[1], callArguments, instruction.operands[0]));
         continue;
       }
       if (instruction.opcode == bytecode::Opcode::Return)
       {
         std::optional<Value> value;
-        if (instruction.operands[0] == 1) value = frame.values.at(instruction.operands[1]);
+        if (instruction.operands[0] == 1) value = frame.values.at(instruction.operands[1]).deepCopy();
         const auto destination = frame.callerDestination;
         frames.pop_back();
         if (frames.empty()) return RunResult{.reason = HaltReason::Return, .executedInstructions = executed, .tailRecursions = tailRecursions, .returnValue = value};
         auto &caller = frames.back();
         if (caller.values.size() <= *destination) caller.values.resize(*destination + 1);
-        caller.values[*destination] = value.value_or(Value{});
+        caller.values[*destination] = value.value_or(Value{}).deepCopy();
         continue;
       }
       if (instruction.opcode == bytecode::Opcode::Jump || instruction.opcode == bytecode::Opcode::LoopBackedge)
@@ -259,7 +272,9 @@ namespace NG::vnext::vm
         frame.programCounter = blockInstruction(frame.values.at(instruction.operands[0]) != 0 ? instruction.operands[1] : instruction.operands[2]);
         continue;
       }
-      for (size_t index = 0; index < function.parameterLocals.size(); ++index) frame.locals[function.parameterLocals[index]] = frame.values.at(instruction.operands[1 + index]);
+      for (size_t index = 0; index < function.parameterLocals.size(); ++index)
+        frame.locals[function.parameterLocals[index]] =
+            std::make_shared<Value>(frame.values.at(instruction.operands[1 + index]).deepCopy());
       ++tailRecursions;
       frame.programCounter = blockInstruction(0);
     }

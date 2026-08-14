@@ -29,8 +29,26 @@ namespace NG::vnext::flowir
     Evaluate,
     BindLocal,
     ExtractTuple,
-    AssignIndex,
-    AssignMember,
+    /// Creates a scoped reference value over a local-rooted place.
+    MakeRef,
+    /// Reads the referent of a reference value.
+    LoadRef,
+    /// Writes through a place: a local-rooted path or a reference-rooted path.
+    AssignPlace,
+  };
+
+  /// One step of a lowered place path. Member steps carry a product field
+  /// ordinal; Index steps carry the value id of the already-lowered index.
+  struct PlaceStep
+  {
+    enum class Kind : uint8_t
+    {
+      Member,
+      Index,
+    };
+    Kind kind{};
+    int64_t field{};
+    ValueId indexValue{};
   };
 
   struct Instruction
@@ -44,6 +62,12 @@ namespace NG::vnext::flowir
     int64_t payload{};
     std::optional<hir::DefId> callTarget;
     std::vector<ValueId> operands;
+    /// Place metadata for MakeRef / AssignPlace: the root is either a local in
+    /// the current frame or a reference value, followed by zero or more steps.
+    std::optional<hir::LocalId> placeRootLocal;
+    std::optional<ValueId> placeRootRef;
+    bool placeMutable{};
+    std::vector<PlaceStep> placeSteps;
   };
 
   enum class TerminatorKind

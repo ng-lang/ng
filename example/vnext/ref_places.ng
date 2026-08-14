@@ -1,0 +1,23 @@
+// vNext references can point at named values and stable struct fields.
+
+struct Box {
+    value: i64,
+}
+
+fun set_to(target: i64 ref mut, value: i64) {
+    *target := value;
+}
+
+fun main() -> i64 {
+    let mut n = 10;
+    let mut nr = ref mut n;
+    set_to(nr, 11);
+    if (n != 11) { return 0; }
+
+    let mut box = Box { value: 20 };
+    let field = ref mut box.value;
+    set_to(field, 21);
+    if (box.value != 21) { return 0; }
+
+    return n + box.value;
+}

@@ -251,10 +251,17 @@ namespace NG::vnext::hir
     if (const auto *assign = dynamic_cast<const syntax::AssignStatement *>(&statement))
     {
       const syntax::Expression *root = assign->target.get();
+      bool derefTarget{};
       while (true)
       {
         if (const auto *index = dynamic_cast<const syntax::IndexExpression *>(root)) root = index->receiver.get();
         else if (const auto *member = dynamic_cast<const syntax::MemberExpression *>(root)) root = member->receiver.get();
+        else if (const auto *grouped = dynamic_cast<const syntax::GroupedExpression *>(root)) root = grouped->expression.get();
+        else if (const auto *prefix = dynamic_cast<const syntax::PrefixExpression *>(root); prefix != nullptr && prefix->operatorText == "*")
+        {
+          derefTarget = true;
+          root = prefix->operand.get();
+        }
         else break;
       }
       const auto *identifier = dynamic_cast<const syntax::IdentifierExpression *>(root);
@@ -263,7 +270,9 @@ namespace NG::vnext::hir
       const auto resolvedRoot = resolveName(*identifier);
       if (resolvedRoot.kind != ResolvedNameKind::Local)
         throw ResolutionError(std::format("assignment target `{}` is not a local binding", identifier->name), assign->target->span);
-      if (!localMutability_.at(resolvedRoot.id))
+      // Writing through a reference does not rebind the reference itself; the
+      // reference's mutability is enforced by the type checker.
+      if (!derefTarget && !localMutability_.at(resolvedRoot.id))
         throw ResolutionError(std::format("cannot assign to immutable binding `{}`", identifier->name), assign->target->span);
 
       Statement resolved{.kind = StatementKind::Assign,

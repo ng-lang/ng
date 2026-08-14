@@ -34,39 +34,119 @@ namespace NG::vnext::vm::detail
         throw bytecode::BytecodeError("integer multiplication overflow");
       return left * right;
     }
+
+    [[nodiscard]] auto walkStep(Value &current, const PlaceStep &step) -> Value &
+    {
+      if (step.kind == PlaceStep::Kind::Member)
+      {
+        if (current.isArray())
+        {
+          auto &array = current.asArrayMut();
+          if (step.field >= array.size())
+            throw bytecode::BytecodeError(std::format("array index out of bounds: index {}, length {}", step.field, array.size()));
+          return array[step.field];
+        }
+        if (current.isTuple())
+        {
+          auto &tuple = current.asTupleMut();
+          if (step.field >= tuple.size())
+            throw bytecode::BytecodeError(std::format("tuple index out of bounds: index {}, length {}", step.field, tuple.size()));
+          return tuple[step.field];
+        }
+        if (current.isStruct())
+        {
+          auto &fields = current.asStructMut();
+          if (step.field >= fields.size())
+            throw bytecode::BytecodeError(std::format("struct field is out of range: index {}", step.field));
+          return fields[step.field];
+        }
+        throw bytecode::BytecodeError("reference member step on a non-product value");
+      }
+      if (current.isArray())
+      {
+        auto &array = current.asArrayMut();
+        if (step.index < 0 || static_cast<uint64_t>(step.index) >= array.size())
+          throw bytecode::BytecodeError(std::format("array index out of bounds: index {}, length {}", step.index, array.size()));
+        return array[static_cast<size_t>(step.index)];
+      }
+      if (current.isTuple())
+      {
+        auto &tuple = current.asTupleMut();
+        if (step.index < 0 || static_cast<uint64_t>(step.index) >= tuple.size())
+          throw bytecode::BytecodeError(std::format("tuple index out of bounds: index {}, length {}", step.index, tuple.size()));
+        return tuple[static_cast<size_t>(step.index)];
+      }
+      throw bytecode::BytecodeError("reference index step on a non-aggregate value");
+    }
+
+    [[nodiscard]] auto decodePlaceSteps(const bytecode::DecodedInstruction &instruction, const std::vector<Value> &values)
+        -> std::vector<PlaceStep>
+    {
+      const uint32_t count = instruction.operands[3];
+      std::vector<PlaceStep> steps;
+      steps.reserve(count / 2);
+      for (uint32_t index = 0; index < count; index += 2)
+      {
+        const uint32_t kind = instruction.operands.at(4 + index);
+        const uint32_t payload = instruction.operands.at(4 + index + 1);
+        if (kind == 0)
+        {
+          steps.push_back(PlaceStep{.kind = PlaceStep::Kind::Member, .field = payload});
+        }
+        else
+        {
+          steps.push_back(PlaceStep{.kind = PlaceStep::Kind::Index, .index = values.at(payload).asInteger()});
+        }
+      }
+      return steps;
+    }
   } // namespace
 
-  void assignMemberInstruction(const bytecode::DecodedInstruction &instruction, std::vector<Value> &values)
+  void makeRefInstruction(const bytecode::DecodedInstruction &instruction, std::vector<Value> &values,
+                          const LocalCells &locals)
   {
-    auto &structure = values.at(instruction.operands[0]);
-    auto &fields = structure.asStructMut();
-    const uint32_t field = instruction.operands[2];
-    if (field >= fields.size()) throw bytecode::BytecodeError("struct field is out of range");
-    fields[field] = values.at(instruction.operands[1]);
+    const uint32_t result = instruction.operands[0];
+    if (values.size() <= result) values.resize(result + 1);
+    const auto root = locals.find(instruction.operands[1]);
+    if (root == locals.end()) throw bytecode::BytecodeError("bytecode reference root is not a bound local");
+    values[result] = Value::reference(root->second, decodePlaceSteps(instruction, values), instruction.operands[2] != 0);
   }
 
-  void assignIndexInstruction(const bytecode::DecodedInstruction &instruction, std::vector<Value> &values)
+  void loadRefInstruction(const bytecode::DecodedInstruction &instruction, std::vector<Value> &values)
   {
-    auto &receiver = values.at(instruction.operands[0]);
-    const int64_t index = values.at(instruction.operands[1]).asInteger();
-    if (receiver.isTuple())
+    const uint32_t result = instruction.operands[0];
+    if (values.size() <= result) values.resize(result + 1);
+    const auto &reference = values.at(instruction.operands[1]).asReference();
+    Value current = reference.root->deepCopy();
+    for (const auto &step : reference.steps) current = walkStep(current, step).deepCopy();
+    values[result] = std::move(current);
+  }
+
+  void assignPlaceInstruction(const bytecode::DecodedInstruction &instruction, std::vector<Value> &values,
+                              const LocalCells &locals)
+  {
+    Value *target = nullptr;
+    std::vector<PlaceStep> prefix;
+    if (instruction.operands[0] != 0)
     {
-      auto &tuple = receiver.asTupleMut();
-      if (index < 0 || static_cast<uint64_t>(index) >= tuple.size())
-        throw bytecode::BytecodeError(std::format("tuple index out of bounds: index {}, length {}", index, tuple.size()));
-      if (static_cast<uint64_t>(index) != instruction.operands[3])
-        throw bytecode::BytecodeError("tuple projection index does not match verified metadata");
-      tuple[static_cast<size_t>(index)] = values.at(instruction.operands[2]);
-      return;
+      const auto &reference = values.at(instruction.operands[1]).asReference();
+      if (!reference.mutableRef) throw bytecode::BytecodeError("assignment through an immutable reference");
+      target = reference.root.get();
+      prefix = reference.steps;
     }
-    auto &array = receiver.asArrayMut();
-    if (index < 0 || static_cast<uint64_t>(index) >= array.size())
-      throw bytecode::BytecodeError(std::format("array index out of bounds: index {}, length {}", index, array.size()));
-    array[static_cast<size_t>(index)] = values.at(instruction.operands[2]);
+    else
+    {
+      const auto root = locals.find(instruction.operands[1]);
+      if (root == locals.end()) throw bytecode::BytecodeError("bytecode place root is not a bound local");
+      target = root->second.get();
+    }
+    for (const auto &step : prefix) target = &walkStep(*target, step);
+    for (const auto &step : decodePlaceSteps(instruction, values)) target = &walkStep(*target, step);
+    *target = values.at(instruction.operands[2]).deepCopy();
   }
 
   void evaluateInstruction(const bytecode::DecodedInstruction &instruction, const std::vector<std::string> &stringConstants,
-                           std::vector<Value> &values, const std::unordered_map<uint32_t, Value> &locals)
+                           std::vector<Value> &values, const LocalCells &locals)
   {
     const uint32_t result = instruction.operands[0];
     if (values.size() <= result) values.resize(result + 1);
@@ -88,7 +168,7 @@ namespace NG::vnext::vm::detail
     {
       std::vector<Value> enumPayload;
       for (size_t index = 0; index < instruction.operands[4]; ++index)
-        enumPayload.push_back(values.at(instruction.operands[5 + index]));
+        enumPayload.push_back(values.at(instruction.operands[5 + index]).deepCopy());
       values[result] = Value::enumeration(instruction.operands[2], instruction.operands[3], std::move(enumPayload));
       return;
     }
@@ -97,7 +177,8 @@ namespace NG::vnext::vm::detail
     {
       std::vector<Value> elements;
       elements.reserve(instruction.operands[4]);
-      for (size_t index = 0; index < instruction.operands[4]; ++index) elements.push_back(values.at(instruction.operands[5 + index]));
+      for (size_t index = 0; index < instruction.operands[4]; ++index)
+        elements.push_back(values.at(instruction.operands[5 + index]).deepCopy());
       if (kind == hir::ExpressionKind::ArrayLiteral) values[result] = Value::array(std::move(elements));
       else if (kind == hir::ExpressionKind::TupleLiteral) values[result] = Value::tuple(std::move(elements));
       else values[result] = Value::structure(static_cast<uint32_t>(payload), std::move(elements));
@@ -105,12 +186,14 @@ namespace NG::vnext::vm::detail
     }
     if (kind == hir::ExpressionKind::ResolvedName)
     {
-      values[result] = locals.at(static_cast<uint32_t>(payload));
+      const auto local = locals.find(static_cast<uint32_t>(payload));
+      if (local == locals.end()) throw bytecode::BytecodeError("bytecode local is not bound");
+      values[result] = local->second->deepCopy();
       return;
     }
     if (kind == hir::ExpressionKind::Grouped)
     {
-      values[result] = values.at(instruction.operands[5]);
+      values[result] = values.at(instruction.operands[5]).deepCopy();
       return;
     }
     if (kind == hir::ExpressionKind::Prefix)
@@ -133,7 +216,7 @@ namespace NG::vnext::vm::detail
       const uint32_t field = static_cast<uint32_t>(payload);
       const auto &fields = structure.asStruct();
       if (field >= fields.size()) throw bytecode::BytecodeError("struct field is out of range");
-      values[result] = fields[field];
+      values[result] = fields[field].deepCopy();
       return;
     }
     if (kind == hir::ExpressionKind::Index)
@@ -147,13 +230,13 @@ namespace NG::vnext::vm::detail
           throw bytecode::BytecodeError(std::format("tuple index out of bounds: index {}, length {}", index, tuple.size()));
         if (static_cast<uint64_t>(index) != payload)
           throw bytecode::BytecodeError("tuple projection index does not match verified metadata");
-        values[result] = tuple[static_cast<size_t>(index)];
+        values[result] = tuple[static_cast<size_t>(index)].deepCopy();
         return;
       }
       const auto &array = receiver.asArray();
       if (index < 0 || static_cast<uint64_t>(index) >= array.size())
         throw bytecode::BytecodeError(std::format("array index out of bounds: index {}, length {}", index, array.size()));
-      values[result] = array[static_cast<size_t>(index)];
+      values[result] = array[static_cast<size_t>(index)].deepCopy();
       return;
     }
     if (kind != hir::ExpressionKind::Binary)

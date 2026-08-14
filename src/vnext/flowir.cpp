@@ -36,6 +36,13 @@ namespace NG::vnext::flowir
       }
 
     private:
+      struct LoweredPlace
+      {
+        std::optional<hir::LocalId> rootLocal;
+        std::optional<ValueId> rootRef;
+        std::vector<PlaceStep> steps;
+      };
+
       [[nodiscard]] auto appendBlock() -> BlockId
       {
         const BlockId id{static_cast<uint32_t>(function_.blocks.size())};
@@ -50,6 +57,12 @@ namespace NG::vnext::flowir
         if (expression.kind == hir::ExpressionKind::Binary && (expression.text == "&&" || expression.text == "||"))
         {
           return lowerLogicalExpression(expression);
+        }
+
+        if (expression.kind == hir::ExpressionKind::Prefix &&
+            (expression.text == "ref" || expression.text == "ref mut" || expression.text == "*"))
+        {
+          return lowerReferenceExpression(expression);
         }
 
         const bool directCall = expression.kind == hir::ExpressionKind::Call && !expression.operands.empty() &&
@@ -105,8 +118,6 @@ namespace NG::vnext::flowir
         }
         else if (expression.kind == hir::ExpressionKind::Prefix)
         {
-          if (expression.text == "ref" || expression.text == "ref mut" || expression.text == "*")
-            throw VerificationError("reference operations are not yet supported by FlowIR lowering");
           if (expression.text == "!") payload = 1;
           else if (expression.text == "-") payload = 2;
           else if (expression.text == "+") payload = 3;
@@ -189,6 +200,112 @@ namespace NG::vnext::flowir
                                                    .expressionKind = hir::ExpressionKind::ResolvedName,
                                                    .payload = resultLocal.value});
         return result;
+      }
+
+      [[nodiscard]] auto lowerReferenceExpression(const hir::Expression &expression) -> ValueId
+      {
+        const ValueId result{nextValue_++};
+        if (types_ != nullptr) function_.valueTypes.emplace(result.value, types_->typeIdOf(expression));
+        if (expression.text == "ref" || expression.text == "ref mut")
+        {
+          auto place = lowerPlace(*expression.operands[0]);
+          if (!place.rootLocal.has_value() || place.rootRef.has_value())
+            throw VerificationError("reference root must be a local binding");
+          std::vector<ValueId> indexValues;
+          for (const auto &step : place.steps)
+          {
+            if (step.kind == PlaceStep::Kind::Index) indexValues.push_back(step.indexValue);
+          }
+          block().instructions.push_back(Instruction{.kind = InstructionKind::MakeRef,
+                                                     .result = result,
+                                                     .placeRootLocal = place.rootLocal,
+                                                     .placeMutable = expression.text == "ref mut",
+                                                     .placeSteps = std::move(place.steps),
+                                                     .operands = std::move(indexValues)});
+          return result;
+        }
+        const ValueId reference = lowerExpression(*expression.operands[0]);
+        block().instructions.push_back(
+            Instruction{.kind = InstructionKind::LoadRef, .result = result, .operands = {reference}});
+        return result;
+      }
+
+      /// Lowers a place expression to its root (a current-frame local or a
+      /// reference value) plus the steps to the leaf. Index expressions along
+      /// the path are lowered into the current block.
+      [[nodiscard]] auto lowerPlace(const hir::Expression &expression) -> LoweredPlace
+      {
+        switch (expression.kind)
+        {
+        case hir::ExpressionKind::ResolvedName:
+          if (!expression.resolvedName.has_value() || expression.resolvedName->kind != hir::ResolvedNameKind::Local)
+            throw VerificationError("place root is not a local binding");
+          return LoweredPlace{.rootLocal = hir::LocalId{expression.resolvedName->id}};
+        case hir::ExpressionKind::Index:
+        {
+          auto place = lowerPlace(*expression.operands[0]);
+          if (expression.operands[1]->kind == hir::ExpressionKind::IntegerLiteral)
+          {
+            // Constant projections (tuples and literal array indexes) become member
+            // steps so bytecode metadata can verify the leaf type statically.
+            place.steps.push_back(PlaceStep{.kind = PlaceStep::Kind::Member, .field = std::stoll(expression.operands[1]->text)});
+          }
+          else
+          {
+            place.steps.push_back(
+                PlaceStep{.kind = PlaceStep::Kind::Index, .indexValue = lowerExpression(*expression.operands[1])});
+          }
+          return place;
+        }
+        case hir::ExpressionKind::Member:
+        {
+          auto place = lowerPlace(*expression.operands[0]);
+          int64_t field = -1;
+          if (types_ != nullptr)
+          {
+            const auto receiver = types_->typeIdOf(*expression.operands[0]);
+            const auto &descriptor = types_->typeDescriptors.at(receiver.value);
+            const auto found = std::find(descriptor.fieldNames.begin(), descriptor.fieldNames.end(), expression.text);
+            if (found != descriptor.fieldNames.end()) field = std::distance(descriptor.fieldNames.begin(), found);
+          }
+          if (field < 0) throw VerificationError("member place has no field ordinal");
+          place.steps.push_back(PlaceStep{.kind = PlaceStep::Kind::Member, .field = field});
+          return place;
+        }
+        case hir::ExpressionKind::Prefix:
+          if (expression.text != "*") throw VerificationError("expression is not an assignable place");
+          return LoweredPlace{.rootRef = lowerExpression(*expression.operands[0])};
+        case hir::ExpressionKind::Grouped:
+          return lowerPlace(*expression.operands[0]);
+        default:
+          throw VerificationError("expression is not an assignable place");
+        }
+      }
+
+      void lowerAssignment(const hir::Statement &statement)
+      {
+        const ValueId value = lowerExpression(*statement.expression);
+        LoweredPlace place;
+        if (statement.assignmentTarget != nullptr)
+        {
+          place = lowerPlace(*statement.assignmentTarget);
+        }
+        else
+        {
+          place.rootLocal = statement.local;
+        }
+        std::vector<ValueId> operands;
+        for (const auto &step : place.steps)
+        {
+          if (step.kind == PlaceStep::Kind::Index) operands.push_back(step.indexValue);
+        }
+        operands.push_back(value);
+        block().instructions.push_back(Instruction{.kind = InstructionKind::AssignPlace,
+                                                   .result = ValueId{nextValue_++},
+                                                   .placeRootLocal = place.rootLocal,
+                                                   .placeRootRef = place.rootRef,
+                                                   .placeSteps = std::move(place.steps),
+                                                   .operands = std::move(operands)});
       }
 
       void reserveSyntheticLocalIds(const hir::Function &source)
@@ -285,51 +402,8 @@ namespace NG::vnext::flowir
           return;
         }
         case hir::StatementKind::Assign:
-        {
-          if (statement.assignmentTarget != nullptr)
-          {
-            const ValueId receiver = lowerExpression(*statement.assignmentTarget->operands[0]);
-            const ValueId value = lowerExpression(*statement.expression);
-            if (statement.assignmentTarget->kind == hir::ExpressionKind::Member)
-            {
-              int64_t field = -1;
-              if (types_ != nullptr)
-              {
-                const auto receiverType = types_->typeIdOf(*statement.assignmentTarget->operands[0]);
-                const auto &descriptor = types_->typeDescriptors.at(receiverType.value);
-                const auto found = std::find(descriptor.fieldNames.begin(), descriptor.fieldNames.end(), statement.assignmentTarget->text);
-                if (found != descriptor.fieldNames.end()) field = std::distance(descriptor.fieldNames.begin(), found);
-              }
-              block().instructions.push_back(Instruction{.kind = InstructionKind::AssignMember,
-                                                         .result = ValueId{nextValue_++},
-                                                         .expressionKind = hir::ExpressionKind::Member,
-                                                         .payload = field,
-                                                         .operands = {receiver, value}});
-            }
-            else
-            {
-              const ValueId index = lowerExpression(*statement.assignmentTarget->operands[1]);
-              block().instructions.push_back(Instruction{.kind = InstructionKind::AssignIndex,
-                                                         .result = ValueId{nextValue_++},
-                                                         .expressionKind = hir::ExpressionKind::Index,
-                                                         .payload = statement.assignmentTarget->text.empty()
-                                                                        ? 0
-                                                                        : std::stoll(statement.assignmentTarget->text),
-                                                         .operands = {receiver, index, value}});
-            }
-            return;
-          }
-          const ValueId value = lowerExpression(*statement.expression);
-          if (types_ != nullptr) function_.localTypes.emplace(statement.local->value, types_->localTypeIds.at(statement.local->value));
-          const ValueId binding{nextValue_++};
-          if (types_ != nullptr) function_.valueTypes.emplace(binding.value, types_->typeIdOf(*statement.expression));
-          block().instructions.push_back(Instruction{.kind = InstructionKind::BindLocal,
-                                                     .result = binding,
-                                                     .local = statement.local,
-                                                     .source = value,
-                                                     .expressionKind = statement.expression->kind});
+          lowerAssignment(statement);
           return;
-        }
         case hir::StatementKind::Return:
         {
           std::vector<ValueId> values;
@@ -492,12 +566,28 @@ namespace NG::vnext::flowir
       }
       for (const auto &instruction : block.instructions)
       {
-        if (instruction.kind == InstructionKind::AssignIndex && instruction.operands.size() != 3)
-          throw VerificationError("FlowIR index assignment requires receiver, index, and value operands");
+        const auto countIndexSteps = [&instruction]() {
+          return static_cast<size_t>(std::count_if(instruction.placeSteps.begin(), instruction.placeSteps.end(),
+                                                   [](const auto &step) { return step.kind == PlaceStep::Kind::Index; }));
+        };
         if (instruction.kind == InstructionKind::ExtractTuple && instruction.operands.size() != 1)
           throw VerificationError("FlowIR tuple extraction requires one source operand");
-        if (instruction.kind == InstructionKind::AssignMember && instruction.operands.size() != 2)
-          throw VerificationError("FlowIR member assignment requires receiver and value operands");
+        if (instruction.kind == InstructionKind::LoadRef && instruction.operands.size() != 1)
+          throw VerificationError("FlowIR reference load requires one source operand");
+        if (instruction.kind == InstructionKind::MakeRef)
+        {
+          if (!instruction.placeRootLocal.has_value() || instruction.placeRootRef.has_value())
+            throw VerificationError("FlowIR reference creation requires a local place root");
+          if (instruction.operands.size() != countIndexSteps())
+            throw VerificationError("FlowIR reference creation index operand count mismatch");
+        }
+        if (instruction.kind == InstructionKind::AssignPlace)
+        {
+          if (instruction.placeRootLocal.has_value() == instruction.placeRootRef.has_value())
+            throw VerificationError("FlowIR place assignment requires exactly one place root");
+          if (instruction.operands.size() != countIndexSteps() + 1)
+            throw VerificationError("FlowIR place assignment operand count mismatch");
+        }
       }
 
       const auto &terminator = *block.terminator;

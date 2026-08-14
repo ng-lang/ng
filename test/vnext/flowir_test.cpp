@@ -60,9 +60,13 @@ TEST_CASE("vNext FlowIR lowers array index writes as place operations", "[vNext]
 {
   const auto function = lower("fun update() -> i64 { let mut values = [1, 2]; values[1] := 7; return values[1]; }");
   const auto assignment = std::find_if(function.blocks.front().instructions.begin(), function.blocks.front().instructions.end(),
-                                       [](const auto &instruction) { return instruction.kind == flowir::InstructionKind::AssignIndex; });
+                                       [](const auto &instruction) { return instruction.kind == flowir::InstructionKind::AssignPlace; });
   REQUIRE(assignment != function.blocks.front().instructions.end());
-  REQUIRE(assignment->operands.size() == 3);
+  REQUIRE(assignment->operands.size() == 1);
+  REQUIRE(assignment->placeRootLocal.has_value());
+  REQUIRE(assignment->placeSteps.size() == 1);
+  REQUIRE(assignment->placeSteps.front().kind == flowir::PlaceStep::Kind::Member);
+  REQUIRE(assignment->placeSteps.front().field == 1);
   REQUIRE_NOTHROW(flowir::Verifier{}.verify(function));
 }
 

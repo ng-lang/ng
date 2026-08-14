@@ -35,7 +35,9 @@ namespace NG::vnext::syntax
         statements.push_back(parseLetStatement());
         continue;
       }
-      if (current().kind == TokenKind::Identifier && hasTopLevelAssignment())
+      if ((current().kind == TokenKind::Identifier || current().kind == TokenKind::Star ||
+           current().kind == TokenKind::LeftParen) &&
+          hasTopLevelAssignment())
       {
         statements.push_back(parseAssignStatement());
         continue;

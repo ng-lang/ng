@@ -14,8 +14,9 @@ namespace NG::vnext::bytecode
         OpcodeDescriptor{Opcode::Call, "call", OperandLayout::CountPrefixedTail, 2},
         OpcodeDescriptor{Opcode::BindLocal, "bind_local", OperandLayout::Fixed, 3},
         OpcodeDescriptor{Opcode::ExtractTuple, "extract_tuple", OperandLayout::Fixed, 3},
-        OpcodeDescriptor{Opcode::AssignIndex, "assign_index", OperandLayout::Fixed, 4},
-        OpcodeDescriptor{Opcode::AssignMember, "assign_member", OperandLayout::Fixed, 3},
+        OpcodeDescriptor{Opcode::MakeRef, "make_ref", OperandLayout::CountPrefixedTail, 3},
+        OpcodeDescriptor{Opcode::LoadRef, "load_ref", OperandLayout::Fixed, 2},
+        OpcodeDescriptor{Opcode::AssignPlace, "assign_place", OperandLayout::CountPrefixedTail, 3},
         OpcodeDescriptor{Opcode::Return, "return", OperandLayout::CountPrefixedTail, 0},
         OpcodeDescriptor{Opcode::Jump, "jump", OperandLayout::CountPrefixedTail, 1},
         OpcodeDescriptor{Opcode::Branch, "branch", OperandLayout::Fixed, 3},
@@ -128,16 +129,37 @@ namespace NG::vnext::bytecode
           appendInstruction(result.code, Opcode::ExtractTuple,
                             {instruction.result.value, instruction.source->value, static_cast<uint32_t>(instruction.payload)});
         }
-        else if (instruction.kind == flowir::InstructionKind::AssignMember)
+        else if (instruction.kind == flowir::InstructionKind::MakeRef)
         {
-          appendInstruction(result.code, Opcode::AssignMember,
-                            {instruction.operands[0].value, instruction.operands[1].value, static_cast<uint32_t>(instruction.payload)});
+          std::vector<uint32_t> operands{instruction.result.value, instruction.placeRootLocal->value,
+                                         instruction.placeMutable ? 1u : 0u,
+                                         static_cast<uint32_t>(instruction.placeSteps.size() * 2)};
+          for (const auto &step : instruction.placeSteps)
+          {
+            operands.push_back(step.kind == flowir::PlaceStep::Kind::Member ? 0u : 1u);
+            operands.push_back(step.kind == flowir::PlaceStep::Kind::Member ? static_cast<uint32_t>(step.field)
+                                                                            : step.indexValue.value);
+          }
+          appendInstruction(result.code, Opcode::MakeRef, operands);
+        }
+        else if (instruction.kind == flowir::InstructionKind::LoadRef)
+        {
+          appendInstruction(result.code, Opcode::LoadRef, {instruction.result.value, instruction.operands[0].value});
         }
         else
         {
-          appendInstruction(result.code, Opcode::AssignIndex,
-                            {instruction.operands[0].value, instruction.operands[1].value, instruction.operands[2].value,
-                             static_cast<uint32_t>(instruction.payload)});
+          std::vector<uint32_t> operands{instruction.placeRootLocal.has_value() ? 0u : 1u,
+                                         instruction.placeRootLocal.has_value() ? instruction.placeRootLocal->value
+                                                                                : instruction.placeRootRef->value,
+                                         instruction.operands.back().value,
+                                         static_cast<uint32_t>(instruction.placeSteps.size() * 2)};
+          for (const auto &step : instruction.placeSteps)
+          {
+            operands.push_back(step.kind == flowir::PlaceStep::Kind::Member ? 0u : 1u);
+            operands.push_back(step.kind == flowir::PlaceStep::Kind::Member ? static_cast<uint32_t>(step.field)
+                                                                            : step.indexValue.value);
+          }
+          appendInstruction(result.code, Opcode::AssignPlace, operands);
         }
       }
 
@@ -295,6 +317,25 @@ namespace NG::vnext::bytecode
         const auto requireValueType = [&function](uint32_t value) -> typecheck::TypeId {
           if (const auto type = function.valueTypes.find(value); type != function.valueTypes.end()) return type->second;
           throw BytecodeError("bytecode value is missing type metadata");
+        };
+        const auto stepType = [&function](typecheck::TypeId current, uint32_t kind, uint32_t payload) -> typecheck::TypeId {
+          if (current.value == 0 || current.value >= function.typeDescriptors.size())
+            throw BytecodeError("bytecode place step type is out of range");
+          const auto &descriptor = function.typeDescriptors[current.value];
+          if (kind == 0)
+          {
+            if (descriptor.kind == typecheck::TypeKind::DynamicArray || descriptor.kind == typecheck::TypeKind::FixedArray ||
+                descriptor.kind == typecheck::TypeKind::DependentArray)
+              return descriptor.element;
+            if (descriptor.kind != typecheck::TypeKind::Struct && descriptor.kind != typecheck::TypeKind::Tuple)
+              throw BytecodeError("bytecode place member step receiver is not a product type");
+            if (payload >= descriptor.elements.size()) throw BytecodeError("bytecode place member step is out of range");
+            return descriptor.elements[payload];
+          }
+          if (descriptor.kind != typecheck::TypeKind::DynamicArray && descriptor.kind != typecheck::TypeKind::FixedArray &&
+              descriptor.kind != typecheck::TypeKind::DependentArray)
+            throw BytecodeError("bytecode place index step receiver is not an aggregate type");
+          return descriptor.element;
         };
         if (instruction.opcode == Opcode::Evaluate)
         {
@@ -462,40 +503,63 @@ namespace NG::vnext::bytecode
           if (requireValueType(instruction.operands[0]) != tuple.elements[index])
             throw BytecodeError("bytecode tuple extraction result type mismatch");
         }
-        else if (instruction.opcode == Opcode::AssignMember)
+        else if (instruction.opcode == Opcode::MakeRef)
         {
-          const auto receiver = requireValueType(instruction.operands[0]);
-          if (receiver.value >= function.typeDescriptors.size()) throw BytecodeError("bytecode value type descriptor is out of range");
-          const auto &structure = function.typeDescriptors[receiver.value];
-          const uint32_t field = instruction.operands[2];
-          if (structure.kind != typecheck::TypeKind::Struct) throw BytecodeError("bytecode member receiver is not a struct");
-          if (field >= structure.elements.size()) throw BytecodeError("bytecode struct field is out of range");
-          if (requireValueType(instruction.operands[1]) != structure.elements[field])
-            throw BytecodeError("bytecode struct field assignment value type mismatch");
-        }
-        else if (instruction.opcode == Opcode::AssignIndex)
-        {
-          const auto receiver = requireValueType(instruction.operands[0]);
-          if (receiver.value >= function.typeDescriptors.size())
-            throw BytecodeError("bytecode value type descriptor is out of range");
-          const auto &aggregate = function.typeDescriptors[receiver.value];
-          if (requireValueType(instruction.operands[1]) != typecheck::builtin::I64)
-            throw BytecodeError("bytecode aggregate index is not i64");
-          if (aggregate.kind == typecheck::TypeKind::Tuple)
+          const auto resultType = requireValueType(instruction.operands[0]);
+          if (resultType.value >= function.typeDescriptors.size()) throw BytecodeError("bytecode value type descriptor is out of range");
+          const auto &reference = function.typeDescriptors[resultType.value];
+          if (reference.kind != typecheck::TypeKind::Reference) throw BytecodeError("bytecode reference result is not a reference type");
+          if ((instruction.operands[2] != 0) != reference.referenceMutable)
+            throw BytecodeError("bytecode reference mutability does not match result type");
+          if (!function.localTypes.contains(instruction.operands[1])) throw BytecodeError("bytecode reference root is missing type metadata");
+          typecheck::TypeId current = function.localTypes.at(instruction.operands[1]);
+          const uint32_t count = instruction.operands[3];
+          if (count % 2 != 0) throw BytecodeError("bytecode reference step encoding is malformed");
+          for (uint32_t index = 0; index < count; index += 2)
           {
-            const uint32_t index = instruction.operands[3];
-            if (index >= aggregate.elements.size()) throw BytecodeError("bytecode tuple projection is out of range");
-            if (requireValueType(instruction.operands[2]) != aggregate.elements[index])
-              throw BytecodeError("bytecode tuple assignment value type mismatch");
+            if (instruction.operands.at(4 + index) == 1 && requireValueType(instruction.operands.at(4 + index + 1)) != typecheck::builtin::I64)
+              throw BytecodeError("bytecode reference index step is not i64");
+            current = stepType(current, instruction.operands.at(4 + index), instruction.operands.at(4 + index + 1));
+          }
+          if (reference.element != current) throw BytecodeError("bytecode reference element type mismatch");
+        }
+        else if (instruction.opcode == Opcode::LoadRef)
+        {
+          const auto source = requireValueType(instruction.operands[1]);
+          if (source.value >= function.typeDescriptors.size()) throw BytecodeError("bytecode value type descriptor is out of range");
+          const auto &reference = function.typeDescriptors[source.value];
+          if (reference.kind != typecheck::TypeKind::Reference) throw BytecodeError("bytecode reference load source is not a reference type");
+          if (requireValueType(instruction.operands[0]) != reference.element)
+            throw BytecodeError("bytecode reference load result type mismatch");
+        }
+        else if (instruction.opcode == Opcode::AssignPlace)
+        {
+          const bool refRoot = instruction.operands[0] != 0;
+          typecheck::TypeId current{};
+          if (refRoot)
+          {
+            const auto reference = requireValueType(instruction.operands[1]);
+            if (reference.value >= function.typeDescriptors.size()) throw BytecodeError("bytecode value type descriptor is out of range");
+            const auto &descriptor = function.typeDescriptors[reference.value];
+            if (descriptor.kind != typecheck::TypeKind::Reference)
+              throw BytecodeError("bytecode place assignment reference root is not a reference type");
+            current = descriptor.element;
           }
           else
           {
-            if (aggregate.kind != typecheck::TypeKind::DynamicArray && aggregate.kind != typecheck::TypeKind::FixedArray &&
-                aggregate.kind != typecheck::TypeKind::DependentArray)
-              throw BytecodeError("bytecode index receiver is not an aggregate type");
-            if (requireValueType(instruction.operands[2]) != aggregate.element)
-              throw BytecodeError("bytecode array assignment value type mismatch");
+            if (!function.localTypes.contains(instruction.operands[1])) throw BytecodeError("bytecode place root is missing type metadata");
+            current = function.localTypes.at(instruction.operands[1]);
           }
+          const uint32_t count = instruction.operands[3];
+          if (count % 2 != 0) throw BytecodeError("bytecode place step encoding is malformed");
+          for (uint32_t index = 0; index < count; index += 2)
+          {
+            if (instruction.operands.at(4 + index) == 1 && requireValueType(instruction.operands.at(4 + index + 1)) != typecheck::builtin::I64)
+              throw BytecodeError("bytecode place index step is not i64");
+            current = stepType(current, instruction.operands.at(4 + index), instruction.operands.at(4 + index + 1));
+          }
+          if (requireValueType(instruction.operands[2]) != current)
+            throw BytecodeError("bytecode place assignment value type mismatch");
         }
         else if (instruction.opcode == Opcode::Branch)
         {

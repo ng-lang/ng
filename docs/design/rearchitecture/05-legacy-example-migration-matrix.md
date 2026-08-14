@@ -20,7 +20,7 @@ bytecode, VM, and negative diagnostics coverage in vNext.
 |---|---|---|---|
 | Typed functions, direct calls, returns | `01`, `03`, `12`, `58` | Supported for scalar values and initial string/array/tuple aggregate returns | General descriptor-directed runtime ABI and ownership rules remain. |
 | Local scopes and shadowing | `09` | Supported in function blocks | Module globals remain a module/session feature. |
-| Mutable local bindings | `09`, `10` | Supported as `let mut` / `:=`, including checked array/tuple index places | Member/deref places follow nominal types and references. |
+| Mutable local bindings | `09`, `10` | Supported as `let mut` / `:=`, including checked array/tuple/struct places and dereferenced reference places | Member/deref places follow nominal types and references. |
 | Strings | `04`, `05`, `07`, `11`, `18` | Supported for literals, concatenation, equality, calls, artifacts, and CLI values | Descriptor-directed storage and broader string APIs remain. |
 | Arrays and indexing | `06`, `18`, `24`, `56`, `58`, `59` | Dynamic/fixed canonical types, nested literals, reads, mutable index places, and checked bounds are supported | Affine move/clone policy, slices, and descriptor-directed storage remain. |
 | Structural tuples | `14`, `50`, `54` | Heterogeneous literals, canonical layouts, numeric projections, mutation, destructuring, calls, and artifacts are supported | Spread/rest patterns, partial move paths, and `.size` remain. |
@@ -38,7 +38,7 @@ bytecode, VM, and negative diagnostics coverage in vNext.
 | 3 | Tuples and structural product values | `14`, `50`, `54` | Typed tuple layouts, numeric/member projection, destructuring and partial move paths. | R4–R6 |
 | 4 | Structs, enums, constructors, pattern matching | `07`, `11`, `16`, `20`, `21` | Explicit declaration grammar, type identities/layout descriptors, match exhaustiveness and enum runtime tags. | R4–R7 |
 | 5 | Source modules, imports, exports, prelude | `08`, `13`, `18`, `56`, `59` | `CompilationSession`, module graph/interface, immutable artifact versus runtime instance. | R3/R6/R7 |
-| 6 | `ref`, places, move/copy/drop | `11`, `21`–`24`, `39`, `41`, `50`, `51` | Place/move-path/loan dataflow, descriptor-directed lifecycle services. No user-visible lifetime syntax. | R5/R6 |
+| 6 | `ref`, places, move/copy/drop | `11`, `21`–`24`, `39`, `41`, `50`, `51` | Scoped `ref`/`ref mut`/`*` places with cell-backed bindings and deep-copy bind/call/return semantics run end to end (`example/vnext/ref_swap.ng`, `ref_places.ng`); `move`, `clone`, `Drop` lifecycle contracts, and loan conflict checks remain. No user-visible lifetime syntax. | R5/R6 |
 | 7 | Ordinary generics and canonical specialization instances | `15`, `43`, `44` | Generic enum instances, generic function definitions, direct call inference, and type substitution are supported in the vNext slice | `GenericDefId`/`InstanceId` graph, overload sets, partial specialization, and monomorphized artifacts remain. | R4 |
 | 8 | Restricted const execution and `const if` | `17`, `42`, `46`, `47`, `53` | `ConstValue`, deterministic typed evaluator, capability/fuel rules, per-instance branch elimination. | R5 |
 | 9 | Const generics | `46`, `47`, `53`, `54` | Const substitution in `InstanceId`, typed const parameter/value equality, ABI/layout rules. | R4/R5 |

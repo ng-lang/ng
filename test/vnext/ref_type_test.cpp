@@ -117,10 +117,11 @@ TEST_CASE("vNext type checker rejects dereferencing non-references", "[vNext][Ty
   }
 }
 
-TEST_CASE("vNext flowir rejects reference operations until place lowering exists", "[vNext][Driver][Ref]")
+TEST_CASE("vNext lowers and executes reference creation and dereference reads", "[vNext][Driver][Ref]")
 {
   std::string output;
   std::string errors;
-  REQUIRE(run({"--source", "fun main() -> i64 { let value = 1; let read = ref value; return *read; }"}, output, errors) == 1);
-  REQUIRE(errors == "flowir error: reference operations are not yet supported by FlowIR lowering\n");
+  REQUIRE(run({"--source", "fun main() -> i64 { let value = 1; let read = ref value; return *read; }"}, output, errors) == 0);
+  REQUIRE(errors.empty());
+  REQUIRE(output.find("with value 1") != std::string::npos);
 }

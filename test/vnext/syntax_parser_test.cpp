@@ -1,5 +1,6 @@
 // AI-generated code; reviewed for this repository's vNext rewrite.
 #include "../test.hpp"
+#include "vnext/syntax/module_parser.hpp"
 #include "vnext/syntax/parser.hpp"
 
 namespace syntax = NG::vnext::syntax;
@@ -144,4 +145,19 @@ TEST_CASE("vNext expression parser diagnoses invalid source with a source span",
     REQUIRE(error.span().begin == 4);
     REQUIRE(error.span().end == 5);
   }
+}
+
+TEST_CASE("vNext lexer skips line and block comments", "[vNext][Syntax][Expression]")
+{
+  REQUIRE_NOTHROW(syntax::parseExpression("1 + 2 // trailing comment"));
+  REQUIRE_NOTHROW(syntax::parseExpression("/* leading */ 1 + 2"));
+  REQUIRE_NOTHROW(syntax::parseExpression("1 /* middle */ + 2"));
+  REQUIRE_NOTHROW(syntax::parseExpression("1 + 2 /* multi\nline */"));
+  REQUIRE_THROWS_WITH(syntax::parseExpression("1 + 2 /* unterminated"), "unterminated block comment");
+}
+
+TEST_CASE("vNext source units accept comments between declarations", "[vNext][Syntax][Module]")
+{
+  const auto unit = syntax::parseSourceUnit("// header comment\nfun main() -> i64 { return 1; }\n// footer");
+  REQUIRE(unit.items.size() == 1);
 }

@@ -11,6 +11,22 @@
 
 namespace NG::vnext
 {
+  /// One step of a runtime place path. Member steps select a product field;
+  /// Index steps select an aggregate element by an i64 index evaluated when the
+  /// reference/place was created.
+  struct PlaceStep
+  {
+    enum class Kind : uint8_t
+    {
+      Member,
+      Index,
+    };
+    Kind kind{};
+    uint32_t field{};
+    int64_t index{};
+    auto operator==(const PlaceStep &) const -> bool = default;
+  };
+
   class Value final
   {
     struct ArrayStorage { std::shared_ptr<std::vector<Value>> elements; auto operator==(const ArrayStorage &) const -> bool = default; };
@@ -27,6 +43,16 @@ namespace NG::vnext
       uint32_t variant{};
       std::shared_ptr<std::vector<Value>> payload;
       auto operator==(const EnumStorage &) const -> bool = default;
+    };
+    /// A scoped, non-owning view: the shared cell of the root local binding
+    /// plus the steps that reach the referent. Copies of a reference share the
+    /// same view; the root cell is the frame's canonical storage for the local.
+    struct ReferenceStorage
+    {
+      std::shared_ptr<Value> root;
+      std::vector<PlaceStep> steps;
+      bool mutableRef{};
+      auto operator==(const ReferenceStorage &) const -> bool = default;
     };
 
   public:
@@ -56,6 +82,12 @@ namespace NG::vnext
       value.storage_ = EnumStorage{type, variant, std::make_shared<std::vector<Value>>(std::move(payload))};
       return value;
     }
+    [[nodiscard]] static auto reference(std::shared_ptr<Value> root, std::vector<PlaceStep> steps, bool mutableRef) -> Value
+    {
+      Value value;
+      value.storage_ = ReferenceStorage{std::move(root), std::move(steps), mutableRef};
+      return value;
+    }
 
     [[nodiscard]] auto isInteger() const -> bool { return std::holds_alternative<int64_t>(storage_); }
     [[nodiscard]] auto isString() const -> bool { return std::holds_alternative<std::string>(storage_); }
@@ -63,6 +95,7 @@ namespace NG::vnext
     [[nodiscard]] auto isTuple() const -> bool { return std::holds_alternative<TupleStorage>(storage_); }
     [[nodiscard]] auto isStruct() const -> bool { return std::holds_alternative<StructStorage>(storage_); }
     [[nodiscard]] auto isEnum() const -> bool { return std::holds_alternative<EnumStorage>(storage_); }
+    [[nodiscard]] auto isReference() const -> bool { return std::holds_alternative<ReferenceStorage>(storage_); }
     [[nodiscard]] auto asInteger() const -> int64_t
     {
       if (!isInteger()) throw std::runtime_error("runtime value is not an i64");
@@ -123,12 +156,55 @@ namespace NG::vnext
       if (!isString()) throw std::runtime_error("runtime value is not a string");
       return std::get<std::string>(storage_);
     }
+    [[nodiscard]] auto asReference() const -> const ReferenceStorage &
+    {
+      if (!isReference()) throw std::runtime_error("runtime value is not a reference");
+      return std::get<ReferenceStorage>(storage_);
+    }
+
+    /// Copy-first deep copy (D-015): aggregate storages are recursively
+    /// cloned; references stay views over the same root cell.
+    [[nodiscard]] auto deepCopy() const -> Value;
 
     friend auto operator==(const Value &, const Value &) -> bool = default;
     friend auto operator==(const Value &value, int64_t integer) -> bool { return value.isInteger() && value.asInteger() == integer; }
     friend auto operator==(int64_t integer, const Value &value) -> bool { return value == integer; }
 
   private:
-    std::variant<int64_t, std::string, ArrayStorage, TupleStorage, StructStorage, EnumStorage> storage_;
+    std::variant<int64_t, std::string, ArrayStorage, TupleStorage, StructStorage, EnumStorage, ReferenceStorage> storage_;
   };
+
+  inline auto Value::deepCopy() const -> Value
+  {
+    if (const auto *array = std::get_if<ArrayStorage>(&storage_))
+    {
+      std::vector<Value> elements;
+      elements.reserve(array->elements->size());
+      for (const auto &element : *array->elements) elements.push_back(element.deepCopy());
+      return Value::array(std::move(elements));
+    }
+    if (const auto *tuple = std::get_if<TupleStorage>(&storage_))
+    {
+      std::vector<Value> elements;
+      elements.reserve(tuple->elements->size());
+      for (const auto &element : *tuple->elements) elements.push_back(element.deepCopy());
+      return Value::tuple(std::move(elements));
+    }
+    if (const auto *structure = std::get_if<StructStorage>(&storage_))
+    {
+      std::vector<Value> fields;
+      fields.reserve(structure->fields->size());
+      for (const auto &field : *structure->fields) fields.push_back(field.deepCopy());
+      return Value::structure(structure->type, std::move(fields));
+    }
+    if (const auto *enumeration = std::get_if<EnumStorage>(&storage_))
+    {
+      std::vector<Value> payload;
+      payload.reserve(enumeration->payload->size());
+      for (const auto &value : *enumeration->payload) payload.push_back(value.deepCopy());
+      return Value::enumeration(enumeration->type, enumeration->variant, std::move(payload));
+    }
+    // Scalars, strings, and reference views copy structurally; references keep the same root cell.
+    return *this;
+  }
 } // namespace NG::vnext

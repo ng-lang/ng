@@ -51,7 +51,7 @@ TEST_CASE("vNext bytecode encodes nominal struct member operations", "[vNext][By
   const auto function = bytecode::Compiler{}.compile(flowir::Lowerer{}.lower(hirModule.functions.front(), typed));
   const auto instructions = bytecode::Decoder{}.decode(function);
   REQUIRE(std::ranges::count_if(instructions, [](const auto &instruction) {
-            return instruction.opcode == bytecode::Opcode::AssignMember;
+            return instruction.opcode == bytecode::Opcode::AssignPlace;
           }) == 1);
   REQUIRE(std::ranges::count_if(instructions, [](const auto &instruction) {
             return instruction.opcode == bytecode::Opcode::Evaluate &&
@@ -82,7 +82,7 @@ TEST_CASE("vNext bytecode encodes and verifies array index places", "[vNext][Byt
   const auto function = bytecode::Compiler{}.compile(flowir::Lowerer{}.lower(hirModule.functions.front(), typed));
   const auto instructions = bytecode::Decoder{}.decode(function);
   REQUIRE(std::ranges::count_if(instructions, [](const auto &instruction) {
-            return instruction.opcode == bytecode::Opcode::AssignIndex;
+            return instruction.opcode == bytecode::Opcode::AssignPlace;
           }) == 1);
   REQUIRE_NOTHROW(bytecode::Verifier{}.verify(function));
 }
