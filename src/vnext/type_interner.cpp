@@ -264,6 +264,8 @@ namespace NG::vnext::typecheck
         throw TypeError(std::format("range type expects 1 element argument, got {}", type.arguments.size()), type.span);
       return internRange(resolveWithBindings(*type.arguments[0].type, bindings, constBindings));
     }
+    if (const auto introspected = resolveTupleIntrospection(type, bindings, constBindings); introspected.has_value())
+      return *introspected;
     const auto constructor = namedTypes_.find(type.target->name);
     if (constructor == namedTypes_.end() || descriptors_[constructor->second.value].kind != TypeKind::Enum) return resolve(type);
     const uint32_t enumId = *descriptors_[constructor->second.value].nominalId;
@@ -297,6 +299,43 @@ namespace NG::vnext::typecheck
                                  .typeArguments = std::move(arguments)});
   }
 
+  auto TypeInterner::resolveTupleIntrospection(const hir::Type &type,
+                                               const std::unordered_map<std::string, TypeId> &bindings,
+                                               const ConstParamBindings &constBindings) -> std::optional<TypeId>
+  {
+    if (type.target == nullptr || type.target->kind != hir::TypeKind::Named) return std::nullopt;
+    const std::string &name = type.target->name;
+    if (name == "tuple_element")
+    {
+      if (type.arguments.size() != 2 || type.arguments[0].type == nullptr)
+        throw TypeError("tuple_element<T, I> expects a tuple type and a const index", type.span);
+      const TypeId tuple = resolveWithBindings(*type.arguments[0].type, bindings, constBindings);
+      const auto &descriptor = this->descriptor(tuple);
+      if (descriptor.kind != TypeKind::Tuple)
+        throw TypeError(std::format("tuple_element<T, I> expects a tuple type as T, got {}", display(tuple)), type.span);
+      const uint64_t index = evaluateArrayLength(type.arguments[1]);
+      if (index >= descriptor.elements.size())
+        throw TypeError(std::format("tuple_element index out of range: index {}, length {}", index,
+                                    descriptor.elements.size()), type.span);
+      return descriptor.elements[static_cast<size_t>(index)];
+    }
+    if (name == "tuple_concat")
+    {
+      if (type.arguments.size() != 2 || type.arguments[0].type == nullptr || type.arguments[1].type == nullptr)
+        throw TypeError("tuple_concat<A, B> expects two tuple types", type.span);
+      const TypeId first = resolveWithBindings(*type.arguments[0].type, bindings, constBindings);
+      const TypeId second = resolveWithBindings(*type.arguments[1].type, bindings, constBindings);
+      const auto &firstDescriptor = descriptor(first);
+      const auto &secondDescriptor = descriptor(second);
+      if (firstDescriptor.kind != TypeKind::Tuple || secondDescriptor.kind != TypeKind::Tuple)
+        throw TypeError("tuple_concat<A, B> expects tuple types", type.span);
+      std::vector<TypeId> elements = firstDescriptor.elements;
+      elements.insert(elements.end(), secondDescriptor.elements.begin(), secondDescriptor.elements.end());
+      return internTuple(elements);
+    }
+    return std::nullopt;
+  }
+
   auto TypeInterner::internTypeParameter(std::string name, uint32_t index) -> TypeId
   {
     return append(TypeDescriptor{.kind = TypeKind::TypeParameter, .name = std::move(name), .element = TypeId{},
@@ -326,6 +365,8 @@ namespace NG::vnext::typecheck
       return internRawPointer(resolve(*type.target), type.isMutable);
     if (type.kind != hir::TypeKind::Applied || type.target == nullptr || type.target->kind != hir::TypeKind::Named)
       throw TypeError("unsupported type form", type.span);
+    if (const auto introspected = resolveTupleIntrospection(type, {}, {}); introspected.has_value())
+      return *introspected;
     if (type.target->name != "array" && type.target->name != "tuple")
     {
       const auto constructor = namedTypes_.find(type.target->name);

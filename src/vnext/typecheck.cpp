@@ -355,6 +355,14 @@ namespace NG::vnext::typecheck
               if (interner_.descriptor(argument).kind == TypeKind::TypeParameter)
                 throw TypeError(std::format("cannot evaluate where clause of generic function with abstract type parameter `{}`",
                                             interner_.display(argument)), expression.span);
+            if (const auto builtin = evaluateTupleIntrospection(expression.text, typeArguments, expression.span);
+                builtin.has_value())
+            {
+              if (interner_.constInterner().value(*builtin).kind != const_eval::ConstValueKind::Bool)
+                throw TypeError(std::format("const predicate `{}` must evaluate to bool in predicate position",
+                                            expression.text), expression.span);
+              return *builtin;
+            }
             const auto *selected = selectConstDeclaration(expression.text, typeArguments, expression.span);
             const const_eval::ConstValueId value = evaluateConstDeclaration(*selected, expression.span);
             if (interner_.constInterner().value(value).kind != const_eval::ConstValueKind::Bool)
@@ -1181,6 +1189,35 @@ namespace NG::vnext::typecheck
         return evaluator.evaluate(*selected.declaration->body, {});
       }
 
+      /// Evaluates the built-in tuple/pack introspection const predicates
+      /// `is_tuple<T>`, `tuple_size<T>`, and `sizeof_pack<T...>`. Returns
+      /// nullopt for any other name so declared const specializations stay
+      /// authoritative.
+      [[nodiscard]] auto evaluateTupleIntrospection(std::string_view name, const std::vector<TypeId> &arguments,
+                                                    syntax::SourceSpan span) -> std::optional<const_eval::ConstValueId>
+      {
+        if (name == "is_tuple")
+        {
+          if (arguments.size() != 1) throw TypeError("is_tuple<T> expects exactly 1 type argument", span);
+          return interner_.constInterner().internBool(interner_.descriptor(arguments[0]).kind == TypeKind::Tuple);
+        }
+        if (name == "tuple_size")
+        {
+          if (arguments.size() != 1) throw TypeError("tuple_size<T> expects exactly 1 type argument", span);
+          const auto &descriptor = interner_.descriptor(arguments[0]);
+          if (descriptor.kind != TypeKind::Tuple)
+            throw TypeError(std::format("tuple_size<T> expects a tuple type, got {}", interner_.display(arguments[0])),
+                            span);
+          return interner_.constInterner().internInteger(static_cast<int64_t>(descriptor.elements.size()));
+        }
+        if (name == "sizeof_pack")
+        {
+          if (arguments.empty()) throw TypeError("sizeof_pack requires at least one type argument", span);
+          return interner_.constInterner().internInteger(static_cast<int64_t>(arguments.size()));
+        }
+        return std::nullopt;
+      }
+
       /// Evaluates a const predicate application (`name<types>`). Used by the
       /// `const if` extension and, later, by where clauses.
       [[nodiscard]] auto evaluateConstApplication(const hir::Expression &expression) -> const_eval::ConstValueId
@@ -1196,6 +1233,9 @@ namespace NG::vnext::typecheck
                                         expression.text, interner_.display(resolved)), expression.span);
           typeArguments.push_back(resolved);
         }
+        if (const auto builtin = evaluateTupleIntrospection(expression.text, typeArguments, expression.span);
+            builtin.has_value())
+          return *builtin;
         const auto *selected = selectConstDeclaration(expression.text, typeArguments, expression.span);
         const const_eval::ConstValueId value = evaluateConstDeclaration(*selected, expression.span);
         if (interner_.constInterner().value(value).kind != const_eval::ConstValueKind::Bool)
@@ -1839,6 +1879,13 @@ namespace NG::vnext::typecheck
               throw TypeError(std::format("cannot evaluate const declaration `{}` for abstract type parameter `{}`",
                                           expression.text, interner_.display(resolved)), expression.span);
             typeArguments.push_back(resolved);
+          }
+          if (const auto builtin = evaluateTupleIntrospection(expression.text, typeArguments, expression.span);
+              builtin.has_value())
+          {
+            type = interner_.constInterner().value(*builtin).kind == const_eval::ConstValueKind::Bool ? builtin::Bool
+                                                                                                     : builtin::I64;
+            break;
           }
           static_cast<void>(selectConstDeclaration(expression.text, typeArguments, expression.span));
           type = builtin::Bool;

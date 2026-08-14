@@ -116,6 +116,12 @@ namespace NG::vnext::typecheck
     [[nodiscard]] auto append(TypeDescriptor descriptor) -> TypeId;
     [[nodiscard]] auto resolveWithBindings(const hir::Type &type, const std::unordered_map<std::string, TypeId> &bindings,
                                            const ConstParamBindings &constBindings) -> TypeId;
+    /// Resolves the built-in tuple introspection type constructors
+    /// `tuple_element<T, I>` and `tuple_concat<A, B>`; returns nullopt for
+    /// any other constructor name.
+    [[nodiscard]] auto resolveTupleIntrospection(const hir::Type &type,
+                                                 const std::unordered_map<std::string, TypeId> &bindings,
+                                                 const ConstParamBindings &constBindings) -> std::optional<TypeId>;
     [[nodiscard]] auto evaluateArrayLength(const hir::TypeArgument &argument) -> uint64_t;
     std::vector<TypeDescriptor> descriptors_;
     std::unordered_map<std::string, TypeId> namedTypes_;
