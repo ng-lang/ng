@@ -32,7 +32,7 @@ namespace NG::vnext::typecheck
           for (const auto &opaque : module.opaqueTypes) declareName(opaque.name, opaque.span);
         }
         for (const auto &opaque : module.opaqueTypes)
-          static_cast<void>(interner_.declareOpaqueType(opaque.name, opaque.abstract, opaque.span));
+          static_cast<void>(interner_.declareOpaqueType(opaque));
         for (const auto &structure : module.structs) static_cast<void>(interner_.declareStruct(structure.id, structure.name));
         for (const auto &enumeration : module.enums)
         {
@@ -125,6 +125,15 @@ namespace NG::vnext::typecheck
             signature.constructorParameters.push_back(parameter);
             signature.constructorParameterNames.push_back(function.constructorParameters[index]);
             genericBindings.emplace(function.constructorParameters[index], parameter);
+          }
+          for (size_t index = 0; index < function.variadicConstructorParameters.size(); ++index)
+          {
+            const auto parameter = interner_.internTypeConstructor(function.variadicConstructorParameters[index],
+                                                                   static_cast<uint32_t>(function.constructorParameters.size() + index),
+                                                                   true);
+            signature.constructorParameters.push_back(parameter);
+            signature.constructorParameterNames.push_back(function.variadicConstructorParameters[index]);
+            genericBindings.emplace(function.variadicConstructorParameters[index], parameter);
           }
           for (const auto kind : function.genericParameterOrder)
             if (kind != syntax::GenericParameterKind::Pack) signature.explicitParameterOrder.push_back(kind);
@@ -1042,6 +1051,9 @@ namespace NG::vnext::typecheck
           genericBindings_.emplace(function.genericParameters[index], signature.genericParameters[index]);
         for (size_t index = 0; index < function.constructorParameters.size(); ++index)
           genericBindings_.emplace(function.constructorParameters[index], signature.constructorParameters[index]);
+        for (size_t index = 0; index < function.variadicConstructorParameters.size(); ++index)
+          genericBindings_.emplace(function.variadicConstructorParameters[index],
+                                   signature.constructorParameters[function.constructorParameters.size() + index]);
         for (size_t index = 0; index < function.parameters.size(); ++index)
         {
           locals.emplace(function.parameters[index].local.value, signature.parameters[index]);
@@ -1816,13 +1828,15 @@ namespace NG::vnext::typecheck
             break;
           }
           case syntax::GenericParameterKind::TypeConstructor:
+          case syntax::GenericParameterKind::VariadicTypeConstructor:
           {
             if (argument.kind != syntax::GenericArgumentKind::Type)
               throw TypeError(std::format("generic argument {} must be a type constructor", index + 1), argument.span);
             const TypeId templateType = interner_.templateForName(argument.type->name, argument.span);
             const auto &descriptor = interner_.descriptor(templateType);
-            if (descriptor.kind != TypeKind::Struct || !descriptor.nominalId.has_value())
-              throw TypeError(std::format("generic argument {} must be a struct type constructor", index + 1),
+            if ((descriptor.kind != TypeKind::Struct && descriptor.kind != TypeKind::Opaque) ||
+                !descriptor.nominalId.has_value())
+              throw TypeError(std::format("generic argument {} must be a struct or opaque type constructor", index + 1),
                               argument.span);
             substitution.constructors.emplace(*interner_.descriptor(signature.constructorParameters[constructorIndex]).nominalId,
                                              templateType);
@@ -2910,17 +2924,24 @@ namespace NG::vnext::typecheck
           const uint32_t constructorIndex = *expectedDescriptor.nominalId;
           if (actualDescriptor.kind == TypeKind::TypeApplication)
           {
-            if (*actualDescriptor.nominalId != constructorIndex)
+            if (*actualDescriptor.nominalId != constructorIndex ||
+                expectedDescriptor.elements.size() != actualDescriptor.elements.size())
               throw TypeError(std::format("generic argument type mismatch: expected {}, got {}", interner_.display(expected),
                                           interner_.display(actual)), span);
-            unify(expectedDescriptor.element, actualDescriptor.element, substitution, span);
+            for (size_t index = 0; index < expectedDescriptor.elements.size(); ++index)
+              unify(expectedDescriptor.elements[index], actualDescriptor.elements[index], substitution, span);
             return;
           }
-          if (actualDescriptor.kind != TypeKind::Struct || !actualDescriptor.nominalId.has_value() ||
-              actualDescriptor.typeArguments.size() != 1)
+          if (actualDescriptor.kind != TypeKind::Struct && actualDescriptor.kind != TypeKind::Opaque)
             throw TypeError(std::format("generic argument type mismatch: expected {}, got {}", interner_.display(expected),
                                         interner_.display(actual)), span);
-          const TypeId templateType = interner_.typeForStruct(hir::StructId{*actualDescriptor.nominalId});
+          if (!actualDescriptor.nominalId.has_value() ||
+              actualDescriptor.typeArguments.size() != expectedDescriptor.elements.size())
+            throw TypeError(std::format("generic argument type mismatch: expected {}, got {}", interner_.display(expected),
+                                        interner_.display(actual)), span);
+          const TypeId templateType = actualDescriptor.kind == TypeKind::Struct
+                                          ? interner_.typeForStruct(hir::StructId{*actualDescriptor.nominalId})
+                                          : TypeId{*actualDescriptor.nominalId};
           if (const auto bound = substitution.constructors.find(constructorIndex); bound != substitution.constructors.end())
           {
             if (bound->second != templateType)
@@ -2931,7 +2952,8 @@ namespace NG::vnext::typecheck
           {
             substitution.constructors.emplace(constructorIndex, templateType);
           }
-          unify(expectedDescriptor.element, actualDescriptor.typeArguments[0], substitution, span);
+          for (size_t index = 0; index < expectedDescriptor.elements.size(); ++index)
+            unify(expectedDescriptor.elements[index], actualDescriptor.typeArguments[index], substitution, span);
           return;
         }
         if (expected == actual) return;

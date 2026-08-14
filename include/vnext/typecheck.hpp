@@ -109,6 +109,8 @@ namespace NG::vnext::typecheck
     /// For Opaque descriptors: true for `type Name;` (no representation),
     /// false for `type Name = native;` (native handle).
     bool abstractType{};
+    /// For TypeConstructor descriptors: `F<_, ...>` variadic kind.
+    bool variadicConstructor{};
     auto operator==(const TypeDescriptor &) const -> bool = default;
   };
 
@@ -149,12 +151,14 @@ namespace NG::vnext::typecheck
     [[nodiscard]] auto declareTraitType(std::string name) -> TypeId;
     [[nodiscard]] auto internTraitReference(std::string traitName) -> TypeId;
     [[nodiscard]] auto internTypeParameter(std::string name, uint32_t index) -> TypeId;
-    [[nodiscard]] auto internTypeConstructor(std::string name, uint32_t index) -> TypeId;
-    [[nodiscard]] auto internTypeApplication(std::string constructorName, uint32_t constructorIndex, TypeId argument) -> TypeId;
+    [[nodiscard]] auto internTypeConstructor(std::string name, uint32_t index, bool variadic = false) -> TypeId;
+    [[nodiscard]] auto internTypeApplication(std::string constructorName, uint32_t constructorIndex,
+                                             const std::vector<TypeId> &arguments) -> TypeId;
     [[nodiscard]] auto declareStruct(hir::StructId id, std::string name) -> TypeId;
     void registerStructTemplate(const hir::Struct &structure);
     [[nodiscard]] auto structGenericArity(hir::StructId id) const -> size_t;
-    [[nodiscard]] auto declareOpaqueType(std::string name, bool abstract, syntax::SourceSpan span) -> TypeId;
+    [[nodiscard]] auto declareOpaqueType(const hir::OpaqueType &opaque) -> TypeId;
+    [[nodiscard]] auto opaqueTemplateArity(const hir::OpaqueType &opaque) const -> size_t;
     void defineStruct(hir::StructId id, std::vector<std::string> fields, std::vector<TypeId> types);
     [[nodiscard]] auto typeForStruct(hir::StructId id) const -> TypeId;
     /// Looks a declared type up by name without instantiating generics;
@@ -184,11 +188,14 @@ namespace NG::vnext::typecheck
     /// Instantiates a generic struct template with concrete arguments,
     /// interning a per-instance descriptor that shares the nominal id.
     [[nodiscard]] auto internStructInstance(TypeId templateType, const std::vector<TypeId> &arguments) -> TypeId;
+    /// Instantiates a parameterized opaque template with concrete arguments.
+    [[nodiscard]] auto internOpaqueInstance(TypeId templateType, const std::vector<TypeId> &arguments) -> TypeId;
     std::vector<TypeDescriptor> descriptors_;
     std::unordered_map<std::string, TypeId> namedTypes_;
     std::unordered_map<uint32_t, TypeId> structTypes_;
     std::unordered_map<uint32_t, std::vector<std::string>> structGenericParameters_;
     std::unordered_map<uint32_t, const hir::Struct *> structTemplates_;
+    std::unordered_map<uint32_t, const hir::OpaqueType *> opaqueTemplates_;
     std::unordered_map<uint32_t, TypeId> enumTypes_;
     std::unordered_map<uint32_t, std::vector<std::string>> enumGenericParameters_;
     std::unordered_map<uint32_t, const hir::Enum *> enumTemplates_;

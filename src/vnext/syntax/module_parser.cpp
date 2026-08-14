@@ -310,6 +310,30 @@ namespace NG::vnext::syntax
     const Token typeToken = consume();
     if (current().kind != TokenKind::Identifier) throw ParseError("expected a type name after `type`", current().span);
     const Token name = consume();
+    std::vector<std::string> genericParameters;
+    std::optional<std::string> packParameter;
+    if (current().kind == TokenKind::Less)
+    {
+      static_cast<void>(consume());
+      while (current().kind != TokenKind::Greater)
+      {
+        if (current().kind != TokenKind::Identifier) throw ParseError("expected an opaque type parameter", current().span);
+        const Token parameter = consume();
+        if (current().kind == TokenKind::Ellipsis)
+        {
+          static_cast<void>(consume());
+          if (packParameter.has_value()) throw ParseError("duplicate variadic opaque type parameter", current().span);
+          packParameter = parameter.text;
+        }
+        else
+        {
+          genericParameters.push_back(parameter.text);
+        }
+        if (current().kind != TokenKind::Comma) break;
+        static_cast<void>(consume());
+      }
+      expect(TokenKind::Greater, "expected `>` after opaque type parameters");
+    }
     bool abstract = true;
     if (current().kind == TokenKind::Equal)
     {
@@ -321,7 +345,8 @@ namespace NG::vnext::syntax
     }
     const Token semicolon = current();
     expect(TokenKind::Semicolon, "expected `;` after opaque type declaration");
-    return std::make_unique<OpaqueTypeDeclaration>(name.text, abstract,
+    return std::make_unique<OpaqueTypeDeclaration>(name.text, abstract, std::move(genericParameters),
+                                                   std::move(packParameter),
                                                    SourceSpan{typeToken.span.begin, semicolon.span.end});
   }
 
@@ -341,7 +366,8 @@ namespace NG::vnext::syntax
     if (current().kind == TokenKind::Less)
     {
       static_cast<void>(consume());
-      while (current().kind != TokenKind::Greater)
+      bool closedByShiftRight = false;
+      while (current().kind != TokenKind::Greater && current().kind != TokenKind::ShiftRight)
       {
         if (current().kind == TokenKind::KeywordConst)
         {
@@ -362,6 +388,7 @@ namespace NG::vnext::syntax
           const Token parameter = consume();
           bool pack = false;
           bool constructor = false;
+          bool variadicConstructor = false;
           if (current().kind == TokenKind::Ellipsis)
           {
             static_cast<void>(consume());
@@ -371,8 +398,19 @@ namespace NG::vnext::syntax
           {
             static_cast<void>(consume());
             static_cast<void>(consume());
-            expect(TokenKind::Greater, "expected `>` after `_` in type constructor parameter");
-            constructor = true;
+            if (current().kind == TokenKind::Comma)
+            {
+              static_cast<void>(consume());
+              expect(TokenKind::Ellipsis, "expected `...` after `_` in variadic type constructor parameter");
+              constructor = true;
+              variadicConstructor = true;
+            }
+            else
+            {
+              constructor = true;
+            }
+            if (current().kind == TokenKind::ShiftRight) closedByShiftRight = true;
+            else expect(TokenKind::Greater, "expected `>` after `_` in type constructor parameter");
           }
           std::vector<std::string> traitBounds;
           if (current().kind == TokenKind::Colon)
@@ -386,9 +424,10 @@ namespace NG::vnext::syntax
               static_cast<void>(consume());
             }
           }
-          genericParameters.push_back(GenericParameter{.kind = constructor ? GenericParameterKind::TypeConstructor
-                                                                            : (pack ? GenericParameterKind::Pack
-                                                                                    : GenericParameterKind::Type),
+          genericParameters.push_back(GenericParameter{.kind = variadicConstructor ? GenericParameterKind::VariadicTypeConstructor
+                                                                            : (constructor ? GenericParameterKind::TypeConstructor
+                                                                                           : (pack ? GenericParameterKind::Pack
+                                                                                                   : GenericParameterKind::Type)),
                                                         .name = parameter.text,
                                                         .type = nullptr,
                                                         .traitBounds = std::move(traitBounds),
@@ -396,9 +435,11 @@ namespace NG::vnext::syntax
         }
         if (current().kind != TokenKind::Comma) break;
         static_cast<void>(consume());
-        if (current().kind == TokenKind::Greater) throw ParseError("expected a generic parameter after `,`", current().span);
+        if (current().kind == TokenKind::Greater || current().kind == TokenKind::ShiftRight)
+          throw ParseError("expected a generic parameter after `,`", current().span);
       }
-      expect(TokenKind::Greater, "expected `>` after function generic parameters");
+      if (closedByShiftRight || current().kind == TokenKind::ShiftRight) static_cast<void>(consume());
+      else expect(TokenKind::Greater, "expected `>` after function generic parameters");
     }
     expect(TokenKind::LeftParen, "expected `(` after function name");
 

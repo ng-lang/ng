@@ -243,6 +243,8 @@ namespace NG::vnext::hir
     std::vector<std::string> packParameters;
     /// `F<_>` type-constructor parameters (kind `* -> *`).
     std::vector<std::string> constructorParameters;
+    /// `F<_, ...>` variadic type-constructor parameters.
+    std::vector<std::string> variadicConstructorParameters;
     std::vector<ConstParameter> constParameters;
     /// Kind of every generic parameter in declaration order; explicit call
     /// site generic arguments map positionally against this order.
@@ -350,6 +352,8 @@ namespace NG::vnext::hir
   {
     std::string name;
     bool abstract;
+    std::vector<std::string> genericParameters;
+    std::optional<std::string> packParameter;
     syntax::SourceSpan span;
   };
 

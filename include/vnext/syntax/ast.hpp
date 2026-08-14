@@ -602,6 +602,9 @@ namespace NG::vnext::syntax
     Pack,
     /// `F<_>`: a type constructor of kind `* -> *`.
     TypeConstructor,
+    /// `F<_, ...>`: a variadic type constructor; applications take any
+    /// number of type arguments.
+    VariadicTypeConstructor,
   };
 
   struct GenericParameter
@@ -674,9 +677,15 @@ namespace NG::vnext::syntax
     const std::string name;
     /// True for `type Name;` (no representation); false for `= native`.
     const bool abstract;
+    std::vector<std::string> genericParameters;
+    /// Variadic trailing parameter (`Tail...`); each application must supply
+    /// at least `genericParameters.size()` arguments.
+    std::optional<std::string> packParameter;
 
-    OpaqueTypeDeclaration(std::string typeName, bool abstractType, SourceSpan sourceSpan)
-      : ModuleItem(ModuleItemKind::Opaque, sourceSpan), name(std::move(typeName)), abstract(abstractType)
+    OpaqueTypeDeclaration(std::string typeName, bool abstractType, std::vector<std::string> parameters,
+                          std::optional<std::string> pack, SourceSpan sourceSpan)
+      : ModuleItem(ModuleItemKind::Opaque, sourceSpan), name(std::move(typeName)), abstract(abstractType),
+        genericParameters(std::move(parameters)), packParameter(std::move(pack))
     {
     }
   };

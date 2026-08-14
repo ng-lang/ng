@@ -106,7 +106,7 @@ TEST_CASE("vNext type constructor validation reports malformed applications", "[
   }
   catch (const typecheck::TypeError &error)
   {
-    REQUIRE(std::string{error.what()} == "generic argument 1 must be a struct type constructor");
+    REQUIRE(std::string{error.what()} == "generic argument 1 must be a struct or opaque type constructor");
   }
 
   try
@@ -120,7 +120,7 @@ TEST_CASE("vNext type constructor validation reports malformed applications", "[
   }
   catch (const typecheck::TypeError &error)
   {
-    REQUIRE(std::string{error.what()} == "generic argument 1 must be a struct type constructor");
+    REQUIRE(std::string{error.what()} == "generic argument 1 must be a struct or opaque type constructor");
   }
 
   try

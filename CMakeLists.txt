@@ -133,6 +133,7 @@ set(NG_TEST_SRC
         test/vnext/numeric_types_test.cpp
         test/vnext/float_test.cpp
         test/vnext/trait_object_test.cpp
+        test/vnext/variadic_hkt_test.cpp
         test/vnext/ref_type_test.cpp
         test/vnext/ref_runtime_test.cpp
         test/vnext/switch_statement_test.cpp

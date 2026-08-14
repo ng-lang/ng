@@ -127,13 +127,43 @@ namespace NG::vnext::typecheck
                                  .elements = elements});
   }
 
-  auto TypeInterner::declareOpaqueType(std::string name, bool abstract, syntax::SourceSpan span) -> TypeId
+  auto TypeInterner::declareOpaqueType(const hir::OpaqueType &opaque) -> TypeId
   {
-    if (namedTypes_.contains(name))
-      throw TypeError(std::format("duplicate type declaration `{}`", name), span);
-    TypeId type = append(TypeDescriptor{.kind = TypeKind::Opaque, .name = name, .abstractType = abstract});
-    namedTypes_.emplace(std::move(name), type);
+    if (namedTypes_.contains(opaque.name))
+      throw TypeError(std::format("duplicate type declaration `{}`", opaque.name), opaque.span);
+    const TypeId type{static_cast<uint32_t>(descriptors_.size())};
+    append(TypeDescriptor{.kind = TypeKind::Opaque, .name = opaque.name, .abstractType = opaque.abstract,
+                          .nominalId = type.value});
+    namedTypes_.emplace(opaque.name, type);
+    if (!opaque.genericParameters.empty() || opaque.packParameter.has_value())
+      opaqueTemplates_.emplace(type.value, &opaque);
     return type;
+  }
+
+  auto TypeInterner::opaqueTemplateArity(const hir::OpaqueType &opaque) const -> size_t
+  {
+    return opaque.genericParameters.size() + (opaque.packParameter.has_value() ? 1 : 0);
+  }
+
+  /// Instantiates a variadic/parameterized opaque template with concrete
+  /// arguments, interning per-instance descriptors sharing the nominal id.
+  auto TypeInterner::internOpaqueInstance(TypeId templateType, const std::vector<TypeId> &arguments) -> TypeId
+  {
+    const auto &base = descriptor(templateType);
+    const auto *opaque = opaqueTemplates_.at(base.nominalId.value());
+    const size_t fixed = opaque->genericParameters.size();
+    if (arguments.size() < fixed)
+      throw TypeError(std::format("opaque type `{}` expects at least {} arguments, got {}", base.name, fixed,
+                                  arguments.size()), syntax::SourceSpan{0, 0});
+    if (!opaque->packParameter.has_value() && arguments.size() != fixed)
+      throw TypeError(std::format("opaque type `{}` expects {} arguments, got {}", base.name, fixed, arguments.size()),
+                      syntax::SourceSpan{0, 0});
+    for (uint32_t index = 6; index < descriptors_.size(); ++index)
+      if (descriptors_[index].kind == TypeKind::Opaque && descriptors_[index].nominalId == base.nominalId &&
+          descriptors_[index].typeArguments == arguments)
+        return TypeId{index};
+    return append(TypeDescriptor{.kind = TypeKind::Opaque, .name = base.name, .abstractType = base.abstractType,
+                                 .nominalId = base.nominalId, .typeArguments = arguments});
   }
 
   auto TypeInterner::declareStruct(hir::StructId id, std::string name) -> TypeId
@@ -268,11 +298,15 @@ namespace NG::vnext::typecheck
     {
       const auto bound = constructors.find(*source.nominalId);
       if (bound == constructors.end()) return type;
-      const TypeId argument = specialize(source.element, bindings, constBindings, constructors);
+      std::vector<TypeId> arguments;
+      arguments.reserve(source.elements.size());
+      for (const auto element : source.elements) arguments.push_back(specialize(element, bindings, constBindings, constructors));
       const auto &templateDescriptor = descriptor(bound->second);
       if (templateDescriptor.kind == TypeKind::Struct)
-        return internStructInstance(bound->second, {argument});
-      throw TypeError(std::format("type constructor `{}` does not name a struct template", source.name),
+        return internStructInstance(bound->second, arguments);
+      if (templateDescriptor.kind == TypeKind::Opaque)
+        return internOpaqueInstance(bound->second, arguments);
+      throw TypeError(std::format("type constructor `{}` does not name a struct or opaque template", source.name),
                       syntax::SourceSpan{0, 0});
     }
     if (source.kind == TypeKind::Range)
@@ -362,11 +396,14 @@ namespace NG::vnext::typecheck
     if (const auto bound = bindings.find(type.target->name); bound != bindings.end() &&
                                                            descriptors_[bound->second.value].kind == TypeKind::TypeConstructor)
     {
-      if (type.arguments.size() != 1 || type.arguments[0].type == nullptr)
-        throw TypeError(std::format("type constructor `{}` expects exactly 1 argument, got {}", type.target->name,
-                                    type.arguments.size()), type.span);
-      const TypeId argument = resolveWithBindings(*type.arguments[0].type, bindings, constBindings);
-      return internTypeApplication(type.target->name, *descriptors_[bound->second.value].nominalId, argument);
+      const bool variadic = descriptors_[bound->second.value].variadicConstructor;
+      if (variadic ? type.arguments.empty() : type.arguments.size() != 1)
+        throw TypeError(std::format("type constructor `{}` expects {} argument, got {}", type.target->name,
+                                    variadic ? "at least 1" : "exactly 1", type.arguments.size()), type.span);
+      std::vector<TypeId> arguments;
+      arguments.reserve(type.arguments.size());
+      for (const auto &argument : type.arguments) arguments.push_back(resolveWithBindings(*argument.type, bindings, constBindings));
+      return internTypeApplication(type.target->name, *descriptors_[bound->second.value].nominalId, arguments);
     }
     if (type.target->name == "array")
     {
@@ -506,20 +543,22 @@ namespace NG::vnext::typecheck
                                  .length = std::nullopt, .nominalId = index});
   }
 
-  auto TypeInterner::internTypeConstructor(std::string name, uint32_t index) -> TypeId
+  auto TypeInterner::internTypeConstructor(std::string name, uint32_t index, bool variadic) -> TypeId
   {
     return append(TypeDescriptor{.kind = TypeKind::TypeConstructor, .name = std::move(name), .element = TypeId{},
-                                 .length = std::nullopt, .nominalId = index});
+                                 .length = std::nullopt, .nominalId = index, .variadicConstructor = variadic});
   }
 
-  auto TypeInterner::internTypeApplication(std::string constructorName, uint32_t constructorIndex, TypeId argument) -> TypeId
+  auto TypeInterner::internTypeApplication(std::string constructorName, uint32_t constructorIndex,
+                                           const std::vector<TypeId> &arguments) -> TypeId
   {
     for (uint32_t index = 6; index < descriptors_.size(); ++index)
       if (descriptors_[index].kind == TypeKind::TypeApplication && descriptors_[index].nominalId == constructorIndex &&
-          descriptors_[index].element == argument)
+          descriptors_[index].elements == arguments)
         return TypeId{index};
-    return append(TypeDescriptor{.kind = TypeKind::TypeApplication, .name = std::move(constructorName), .element = argument,
-                                 .length = std::nullopt, .nominalId = constructorIndex});
+    return append(TypeDescriptor{.kind = TypeKind::TypeApplication, .name = std::move(constructorName),
+                                 .element = arguments.empty() ? TypeId{} : arguments.front(), .elements = arguments,
+                                 .length = static_cast<uint64_t>(arguments.size()), .nominalId = constructorIndex});
   }
 
   auto TypeInterner::resolve(const hir::Type &type) -> TypeId
@@ -541,6 +580,9 @@ namespace NG::vnext::typecheck
           if (arity != 0)
             throw TypeError(std::format("struct type `{}` expects {} arguments, got 0", type.name, arity), type.span);
         }
+        if (descriptor.kind == TypeKind::Opaque && descriptor.nominalId.has_value() &&
+            opaqueTemplates_.contains(*descriptor.nominalId))
+          throw TypeError(std::format("opaque type `{}` expects type arguments", type.name), type.span);
         return found->second;
       }
       throw TypeError(std::format("unknown type `{}`", type.name), type.span);
@@ -569,8 +611,21 @@ namespace NG::vnext::typecheck
       const auto constructor = namedTypes_.find(type.target->name);
       if (constructor == namedTypes_.end() ||
           (descriptors_[constructor->second.value].kind != TypeKind::Enum &&
-           descriptors_[constructor->second.value].kind != TypeKind::Struct))
+           descriptors_[constructor->second.value].kind != TypeKind::Struct &&
+           descriptors_[constructor->second.value].kind != TypeKind::Opaque))
         throw TypeError(std::format("unknown type constructor `{}`", type.target->name), type.span);
+      if (descriptors_[constructor->second.value].kind == TypeKind::Opaque)
+      {
+        std::vector<TypeId> arguments;
+        arguments.reserve(type.arguments.size());
+        for (const auto &argument : type.arguments)
+        {
+          if (argument.kind != syntax::GenericArgumentKind::Type || argument.type == nullptr)
+            throw TypeError("opaque type arguments must be types", argument.span);
+          arguments.push_back(resolve(*argument.type));
+        }
+        return internOpaqueInstance(constructor->second, arguments);
+      }
       if (descriptors_[constructor->second.value].kind == TypeKind::Struct)
       {
         const uint32_t structId = descriptors_[constructor->second.value].nominalId.value();
@@ -694,7 +749,16 @@ namespace NG::vnext::typecheck
         item.kind == TypeKind::Opaque || item.kind == TypeKind::TypeConstructor || item.kind == TypeKind::Trait)
       return item.name;
     if (item.kind == TypeKind::TraitReference) return std::format("ref<{}>", item.name);
-    if (item.kind == TypeKind::TypeApplication) return std::format("{}<{}>", item.name, display(item.element));
+    if (item.kind == TypeKind::TypeApplication)
+    {
+      std::string result{item.name + "<"};
+      for (size_t index = 0; index < item.elements.size(); ++index)
+      {
+        if (index != 0) result += ", ";
+        result += display(item.elements[index]);
+      }
+      return result + ">";
+    }
     if (item.kind == TypeKind::TypePack) return display(item.element) + "...";
     if (item.kind == TypeKind::Range) return "range<" + display(item.element) + ">";
     std::string result{"tuple<"};

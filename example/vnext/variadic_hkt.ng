@@ -1,0 +1,25 @@
+// vNext variadic higher-kinded generics (legacy 49): parameterized opaque
+// templates (`type Variadic<Head, Tail...> = native;`) and variadic type
+// constructor parameters (`F<_, ...>`) whose applications take any number
+// of type arguments.
+
+type Variadic<Head, Tail...> = native;
+
+fun accept_variadic_constructor<F<_, ...>>() -> i64 {
+    return 1;
+}
+
+fun describe<F<_, ...>, A, B>(first: F<A, B> ref) -> i64 {
+    return 2;
+}
+
+fun touch(handle: Variadic<i32, string> ref) -> i64 {
+    return 4;
+}
+
+fun main() -> i64 {
+    let mut total = 0;
+    total := total + accept_variadic_constructor<Variadic>();
+    const if (!is_abstract<Variadic<i32, string, bool>>) { total := total + 8; }
+    return total;
+}

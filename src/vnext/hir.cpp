@@ -170,7 +170,9 @@ namespace NG::vnext::hir
       }
       else if (const auto *opaque = dynamic_cast<const syntax::OpaqueTypeDeclaration *>(item.get()))
       {
-        module.opaqueTypes.push_back(OpaqueType{.name = opaque->name, .abstract = opaque->abstract, .span = opaque->span});
+        module.opaqueTypes.push_back(OpaqueType{.name = opaque->name, .abstract = opaque->abstract,
+                                                 .genericParameters = opaque->genericParameters,
+                                                 .packParameter = opaque->packParameter, .span = opaque->span});
       }
       else if (const auto *trait = dynamic_cast<const syntax::TraitDeclaration *>(item.get()))
       {
@@ -358,6 +360,8 @@ namespace NG::vnext::hir
         if (parameter.kind == syntax::GenericParameterKind::Pack) resolved.packParameters.push_back(parameter.name);
         else if (parameter.kind == syntax::GenericParameterKind::TypeConstructor)
           resolved.constructorParameters.push_back(parameter.name);
+        else if (parameter.kind == syntax::GenericParameterKind::VariadicTypeConstructor)
+          resolved.variadicConstructorParameters.push_back(parameter.name);
         else resolved.genericParameters.push_back(parameter.name);
         if (!parameter.traitBounds.empty()) resolved.traitBounds.emplace_back(parameter.name, parameter.traitBounds);
       }
@@ -989,6 +993,7 @@ namespace
                     .genericParameters = source.genericParameters,
                     .packParameters = source.packParameters,
                     .constructorParameters = source.constructorParameters,
+                    .variadicConstructorParameters = source.variadicConstructorParameters,
                     .genericParameterOrder = source.genericParameterOrder,
                     .constFunction = source.constFunction,
                     .exported = source.exported,
