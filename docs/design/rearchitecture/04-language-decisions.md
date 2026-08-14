@@ -954,8 +954,17 @@ let writable = ref mut value;
 - Deep copy on bind/call/return is enforced in the VM (`Value::deepCopy`):
   bindings, call arguments, and returns never alias aggregate storage, while
   reference values stay views. Line and block comments are lexed and skipped.
-- Remaining D-015 work: `Drop` execution, loan conflict checks, and
-  rejection of escaped references.
+- Remaining D-015 work: field-aware partial-move drops, block-scoped drop
+  edges, loan conflict checks, and rejection of escaped references.
+
+### Drop status — 2026-08-15
+
+- `impl Drop for T` (compiler-known lifecycle contract, no trait declaration)
+  validates the single `drop(self: Self ref)` method; the checker records
+  drop calls for every live affine binding at each `return` and at function
+  fall-through, and FlowIR lowers them as borrowed receiver calls before the
+  terminator. Moved-from bindings skip their drop; moved-to bindings drop
+  normally.
 
 ### Move semantics status — 2026-08-15
 

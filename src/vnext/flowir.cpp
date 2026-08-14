@@ -30,6 +30,11 @@ namespace NG::vnext::flowir
         lowerBlock(source.body);
         if (!block().terminator.has_value())
         {
+          if (types_ != nullptr)
+          {
+            if (const auto drops = types_->fallthroughDrops.find(source.id.value); drops != types_->fallthroughDrops.end())
+              lowerDropCalls(drops->second);
+          }
           block().terminator = Terminator{.kind = TerminatorKind::Return, .targets = {}, .arguments = {}};
         }
         return std::move(function_);
@@ -419,6 +424,38 @@ namespace NG::vnext::flowir
                                                    .operands = std::move(operands)});
       }
 
+      /// Lowers the checker-recorded drop calls: borrow the local (drop
+      /// receivers are `Self ref`) and call the drop method.
+      void lowerDropCalls(const std::vector<std::pair<uint32_t, uint32_t>> &drops)
+      {
+        for (const auto &[localValue, targetValue] : drops)
+        {
+          const ValueId reference{nextValue_++};
+          if (types_ != nullptr)
+          {
+            const auto signature = types_->functionTypeIds.find(targetValue);
+            if (signature != types_->functionTypeIds.end() && !signature->second.parameters.empty())
+              function_.valueTypes.emplace(reference.value, signature->second.parameters.front());
+          }
+          block().instructions.push_back(Instruction{.kind = InstructionKind::MakeRef,
+                                                     .result = reference,
+                                                     .placeRootLocal = hir::LocalId{localValue},
+                                                     .placeMutable = false});
+          const ValueId result{nextValue_++};
+          if (types_ != nullptr)
+          {
+            const auto signature = types_->functionTypeIds.find(targetValue);
+            if (signature != types_->functionTypeIds.end())
+              function_.valueTypes.emplace(result.value, signature->second.returnType);
+          }
+          block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
+                                                     .result = result,
+                                                     .expressionKind = hir::ExpressionKind::Call,
+                                                     .callTarget = hir::DefId{targetValue},
+                                                     .operands = {reference}});
+        }
+      }
+
       void reserveSyntheticLocalIds(const hir::Function &source)
       {
         uint32_t highest{};
@@ -521,6 +558,11 @@ namespace NG::vnext::flowir
           if (statement.expression != nullptr)
           {
             values.push_back(lowerExpression(*statement.expression));
+          }
+          if (types_ != nullptr)
+          {
+            if (const auto drops = types_->returnDrops.find(&statement); drops != types_->returnDrops.end())
+              lowerDropCalls(drops->second);
           }
           block().terminator = Terminator{.kind = TerminatorKind::Return, .targets = {}, .arguments = std::move(values)};
           return;

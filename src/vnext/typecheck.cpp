@@ -127,6 +127,8 @@ namespace NG::vnext::typecheck
                                .callTargets = std::move(callTargets_),
                                .callPackArgCounts = std::move(callPackArgCounts_),
                                .callPackTupleTypes = std::move(callPackTupleTypes_),
+                               .returnDrops = std::move(returnDrops_),
+                               .fallthroughDrops = std::move(fallthroughDrops_),
                                .placeholderFunctions = std::move(placeholderFunctions_),
                                .methodReceiverMutable = std::move(methodReceiverMutable_),
                                .methodReceiverRefTypes = std::move(methodReceiverRefTypes_),
@@ -441,6 +443,7 @@ namespace NG::vnext::typecheck
         FunctionType displaySignature;
         for (const auto parameter : signature.parameters) displaySignature.parameters.push_back(interner_.display(parameter));
         displaySignature.returnType = interner_.display(signature.returnType);
+        functionTypeIds_.emplace(id.value, signature);
         signatures_.emplace(id.value, std::move(signature));
         functionTypes_.emplace(id.value, std::move(displaySignature));
       }
@@ -449,6 +452,23 @@ namespace NG::vnext::typecheck
       {
         for (const auto &impl : module_->impls)
         {
+          if (impl.traitName == "Drop")
+          {
+            // Compiler-known lifecycle contract (D-015 rule 6): no trait
+            // declaration; the single `drop` method runs when a value's
+            // scope ends while it is still initialized.
+            const TypeId target = interner_.resolve(*impl.targetType);
+            if (interner_.descriptor(target).kind != TypeKind::Struct)
+              throw TypeError("Drop impl target must be a struct type", impl.span);
+            if (impl.methods.size() != 1 || impl.methods.front().name != "drop")
+              throw TypeError("Drop impl must define exactly one `drop` method", impl.span);
+            resolveImplMethodSignature(impl.methodIds.at(0), module_->functions.at(impl.methodIds.at(0).value), target);
+            ImplInfo info{.traitName = "Drop", .target = target};
+            info.methods.emplace("drop", impl.methodIds.at(0));
+            dropTypes_.insert(target.value);
+            impls_.push_back(std::move(info));
+            continue;
+          }
           if (!traits_.contains(impl.traitName))
             throw TypeError(std::format("unknown trait `{}` in impl", impl.traitName), impl.span);
           const TypeId target = interner_.resolve(*impl.targetType);
@@ -733,7 +753,20 @@ namespace NG::vnext::typecheck
         }
         checkBlock(function.body, locals, {}, signature.returnType);
         inConstGenericFunction_ = false;
+        recordFallthroughDrops(function, locals);
         genericBindings_.clear();
+      }
+
+      void recordFallthroughDrops(const hir::Function &function, const LocalTypes &locals)
+      {
+        for (const auto &[local, type] : locals)
+        {
+          if (!dropTypes_.contains(type.value) || moveState_.isWholeMoved(local)) continue;
+          const auto &impl = *std::find_if(impls_.begin(), impls_.end(), [&](const ImplInfo &candidate) {
+            return candidate.traitName == "Drop" && candidate.target.value == type.value;
+          });
+          fallthroughDrops_[function.id.value].push_back({local, impl.methods.at("drop").value});
+        }
       }
 
       void checkBlock(const hir::Block &block, LocalTypes locals, LoopTypes loops, TypeId returnType)
@@ -819,6 +852,14 @@ namespace NG::vnext::typecheck
         case hir::StatementKind::Return:
           if (statement.expression != nullptr) static_cast<void>(inferExpected(*statement.expression, returnType, locals, "return value"));
           else requireType(returnType, builtin::Unit, statement.span, "return value");
+          for (const auto &[local, type] : locals)
+          {
+            if (!dropTypes_.contains(type.value) || moveState_.isWholeMoved(local)) continue;
+            const auto &impl = *std::find_if(impls_.begin(), impls_.end(), [&](const ImplInfo &candidate) {
+              return candidate.traitName == "Drop" && candidate.target.value == type.value;
+            });
+            returnDrops_[&statement].push_back({local, impl.methods.at("drop").value});
+          }
           return;
         case hir::StatementKind::If:
         {
@@ -1975,6 +2016,9 @@ namespace NG::vnext::typecheck
       std::vector<ImplInfo> impls_;
       std::unordered_map<const hir::Expression *, size_t> callPackArgCounts_;
       std::unordered_map<const hir::Expression *, TypeId> callPackTupleTypes_;
+      std::unordered_set<uint32_t> dropTypes_;
+      std::unordered_map<const hir::Statement *, std::vector<std::pair<uint32_t, uint32_t>>> returnDrops_;
+      std::unordered_map<uint32_t, std::vector<std::pair<uint32_t, uint32_t>>> fallthroughDrops_;
       std::unordered_set<uint32_t> placeholderFunctions_;
       std::unordered_map<const hir::Expression *, bool> methodReceiverMutable_;
       std::unordered_map<const hir::Expression *, TypeId> methodReceiverRefTypes_;

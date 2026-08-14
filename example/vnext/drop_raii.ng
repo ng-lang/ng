@@ -1,0 +1,35 @@
+// vNext Drop (D-015 rule 6): initialized affine values run their Drop impl
+// when scope ends at a return; moved-out bindings skip their drop, while
+// moved-to bindings are dropped normally.
+
+import prelude;
+
+struct Resource {
+    id: i64,
+}
+
+impl Drop for Resource {
+    fun drop(self: Self ref) -> unit {
+        print("dropped");
+    }
+}
+
+fun make() -> i64 {
+    let resource = Resource { id: 1 };
+    return 42;
+}
+
+fun transfer() -> i64 {
+    let resource = Resource { id: 2 };
+    let moved = move resource;
+    return moved.id;
+}
+
+fun main() {
+    let first = make();
+    let second = transfer();
+    let a = Resource { id: 3 };
+    let b = Resource { id: 4 };
+    if (first + second != 44) { return; }
+    return;
+}
