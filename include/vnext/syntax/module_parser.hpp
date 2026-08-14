@@ -19,6 +19,9 @@ namespace NG::vnext::syntax
     [[nodiscard]] auto parseStructDeclaration() -> ModuleItemPtr;
     [[nodiscard]] auto parseEnumDeclaration() -> ModuleItemPtr;
     [[nodiscard]] auto parseConstDeclaration() -> ModuleItemPtr;
+    [[nodiscard]] auto parseTraitDeclaration() -> ModuleItemPtr;
+    [[nodiscard]] auto parseImplDeclaration() -> ModuleItemPtr;
+    [[nodiscard]] auto parseTraitMethod() -> TraitMethodDeclaration;
     [[nodiscard]] auto parseExpressionUntil(TokenKind terminator) -> ExpressionPtr;
     [[nodiscard]] auto parseTypeUntil(const std::vector<TokenKind> &terminators) -> TypeSyntaxPtr;
     [[nodiscard]] auto consumeBlockTokens() -> std::vector<Token>;

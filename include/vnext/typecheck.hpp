@@ -149,6 +149,10 @@ namespace NG::vnext::typecheck
     std::unordered_map<uint32_t, FunctionType> functionTypes;
     std::unordered_map<uint32_t, FunctionTypeIds> functionTypeIds;
     std::unordered_map<const hir::Expression *, hir::DefId> callTargets;
+    /// Whether the receiver of a method call must be borrowed mutably.
+    std::unordered_map<const hir::Expression *, bool> methodReceiverMutable;
+    /// The typed reference form of a method receiver (`Self ref` / `Self ref mut`).
+    std::unordered_map<const hir::Expression *, TypeId> methodReceiverRefTypes;
     /// Per-`const if` branch selection: true means the consequence was chosen.
     /// The inactive branch is resolved but never typechecked or lowered.
     std::unordered_map<const hir::Statement *, bool> constIfSelections;

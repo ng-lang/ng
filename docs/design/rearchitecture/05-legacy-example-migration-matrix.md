@@ -44,7 +44,7 @@ bytecode, VM, and negative diagnostics coverage in vNext.
 | 9 | Const generics | `46`, `47`, `53`, `54` | Const substitution in `InstanceId`, typed const parameter/value equality, ABI/layout rules. | R4/R5 |
 | 10 | Variadic type/value packs, ranges/slices, folds | `49`, `54`, `57`, `58`, `59` | Pack kinds/substitution, aggregate descriptors, checked slice places, effect/move-aware expansion and fold lowering. | R4–R7 |
 | 11 | Higher-kinded generics | `48`, `49` | Explicit kind system and kind-checked type constructor application. | R4 |
-| 12 | Static traits and generic bounds | `25`–`33`, `37`–`39`, `46`, `55`, `59` | `TraitId`/`ImplId`, coherence, solver evidence, selected static dispatch, lifecycle capability contracts. | R4–R7 |
+| 12 | Static traits and generic bounds | `25`–`33`, `37`–`39`, `46`, `55`, `59` | Trait declarations, impls with coherence, supertraits, default methods, qualified calls, static dispatch on concrete receivers, and `T: Trait` bounds in generics/where clauses are supported (`example/vnext/traits.ng`); method calls through type parameters (monomorphization), generic impls, auto/derive, and `ref<Trait>` dynamic views remain. | R4–R7 |
 | 13 | Abstract trait types and `ref<Trait>` dispatch | `34`–`36`, `40`, `59` | Abstract-type legality, object-safety, checked reference coercion, immutable vtable descriptor, reference-view ABI. | R4–R7 |
 | 14 | FFI and opaque/native handles | `39`, `45`, `51` | Declared native ABI, capabilities, handle descriptor/lifecycle policy. | R9 |
 | 15 | Concurrency | none in the stable legacy corpus | RuntimeSession isolation, ownership transfer/capabilities, experimental-only design. | R10 |

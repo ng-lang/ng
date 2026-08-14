@@ -68,6 +68,9 @@ namespace NG::vnext::flowir
         if (expression.kind == hir::ExpressionKind::GenericApplication)
           throw VerificationError("const predicate application is not a runtime value");
 
+        if (expression.kind == hir::ExpressionKind::Call && expression.methodCall)
+          return lowerMethodCall(expression);
+
         const bool directCall = expression.kind == hir::ExpressionKind::Call && !expression.operands.empty() &&
                                 expression.operands[0]->resolvedName.has_value() &&
                                 expression.operands[0]->resolvedName->kind == hir::ResolvedNameKind::Function;
@@ -231,6 +234,66 @@ namespace NG::vnext::flowir
         block().instructions.push_back(
             Instruction{.kind = InstructionKind::LoadRef, .result = result, .operands = {reference}});
         return result;
+      }
+
+      /// Lowers a method call: the receiver is borrowed (`MakeRef`) when it is
+      /// a value place, passed through when it is already a reference, and the
+      /// call dispatches to the selected impl/default method.
+      [[nodiscard]] auto lowerMethodCall(const hir::Expression &expression) -> ValueId
+      {
+        const auto &callee = *expression.operands[0];
+        const auto &receiverNode = *callee.operands[0];
+        const bool qualified = !receiverNode.resolvedName.has_value();
+        const hir::Expression &receiver = qualified ? *expression.operands[1] : receiverNode;
+        ValueId receiverValue;
+        if (types_ != nullptr && types_->typeIdOf(receiver).value != 0 &&
+            types_->typeDescriptors.at(types_->typeIdOf(receiver).value).kind == typecheck::TypeKind::Reference)
+        {
+          receiverValue = lowerExpression(receiver);
+        }
+        else
+        {
+          auto place = lowerPlace(receiver);
+          if (!place.rootLocal.has_value() || place.rootRef.has_value())
+            throw VerificationError("method receiver must be a local place");
+          bool mutableReference{};
+          typecheck::TypeId referenceType{};
+          if (types_ != nullptr)
+          {
+            const auto found = types_->methodReceiverMutable.find(&expression);
+            if (found != types_->methodReceiverMutable.end()) mutableReference = found->second;
+            const auto refType = types_->methodReceiverRefTypes.find(&expression);
+            if (refType != types_->methodReceiverRefTypes.end()) referenceType = refType->second;
+          }
+          std::vector<ValueId> indexValues;
+          for (const auto &step : place.steps)
+          {
+            if (step.kind == PlaceStep::Kind::Index) indexValues.push_back(step.indexValue);
+          }
+          const ValueId result{nextValue_++};
+          if (types_ != nullptr && referenceType.value != 0) function_.valueTypes.emplace(result.value, referenceType);
+          block().instructions.push_back(Instruction{.kind = InstructionKind::MakeRef,
+                                                     .result = result,
+                                                     .placeRootLocal = place.rootLocal,
+                                                     .placeMutable = mutableReference,
+                                                     .placeSteps = std::move(place.steps),
+                                                     .operands = std::move(indexValues)});
+          receiverValue = result;
+        }
+        std::vector<ValueId> operands{receiverValue};
+        for (size_t index = qualified ? 2 : 1; index < expression.operands.size(); ++index)
+          operands.push_back(lowerExpression(*expression.operands[index]));
+        std::optional<hir::DefId> callTarget;
+        if (types_ != nullptr && types_->callTargets.contains(&expression)) callTarget = types_->callTargets.at(&expression);
+        const ValueId value{nextValue_++};
+        if (types_ != nullptr) function_.valueTypes.emplace(value.value, types_->typeIdOf(expression));
+        block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
+                                                   .result = value,
+                                                   .expressionKind = hir::ExpressionKind::Call,
+                                                   .text = expression.text,
+                                                   .callTarget = callTarget,
+                                                   .operands = std::move(operands)});
+        return value;
       }
 
       /// Lowers a place expression to its root (a current-frame local or a

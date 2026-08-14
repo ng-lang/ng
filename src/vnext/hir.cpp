@@ -80,6 +80,7 @@ namespace NG::vnext::hir
     uint32_t structCount{};
     uint32_t enumCount{};
     uint32_t constCount{};
+    uint32_t implMethodCount{};
     for (const auto &item : unit.items)
     {
       if (const auto *function = dynamic_cast<const syntax::FunctionDeclaration *>(item.get()))
@@ -105,6 +106,15 @@ namespace NG::vnext::hir
         static_cast<void>(declaration);
         ++constCount;
       }
+      else if (const auto *trait = dynamic_cast<const syntax::TraitDeclaration *>(item.get()))
+      {
+        if (!traits_.emplace(trait->name, trait->span).second)
+          throw ResolutionError(std::format("duplicate module declaration `{}`", trait->name), trait->span);
+      }
+      else if (const auto *impl = dynamic_cast<const syntax::ImplDeclaration *>(item.get()))
+      {
+        implMethodCount += impl->methods.size();
+      }
       else throw ResolutionError("unsupported module item during name resolution", item->span);
     }
 
@@ -113,10 +123,19 @@ namespace NG::vnext::hir
     module.structs.reserve(structCount);
     module.enums.reserve(enumCount);
     module.consts.reserve(constCount);
+    // Functions resolve first so their DefIds equal their positions in
+    // module.functions; impl/default methods follow with consecutive ids.
     for (const auto &item : unit.items)
     {
       if (const auto *function = dynamic_cast<const syntax::FunctionDeclaration *>(item.get()))
         module.functions.push_back(resolveFunction(*function, functionIds_.at(function)));
+    }
+    for (const auto &item : unit.items)
+    {
+      if (const auto *function = dynamic_cast<const syntax::FunctionDeclaration *>(item.get()))
+      {
+        static_cast<void>(function);
+      }
       else if (const auto *structure = dynamic_cast<const syntax::StructDeclaration *>(item.get()))
       {
         module.structs.push_back(resolveStruct(*structure, structs_.at(structure->name)));
@@ -125,13 +144,80 @@ namespace NG::vnext::hir
       {
         module.enums.push_back(resolveEnum(*enumeration, enums_.at(enumeration->name)));
       }
-      else
+      else if (const auto *declaration = dynamic_cast<const syntax::ConstDeclaration *>(item.get()))
       {
-        const auto *declaration = static_cast<const syntax::ConstDeclaration *>(item.get());
         module.consts.push_back(resolveConstDeclaration(*declaration, DefId{nextConstId_++}));
+      }
+      else if (const auto *trait = dynamic_cast<const syntax::TraitDeclaration *>(item.get()))
+      {
+        module.traits.push_back(resolveTrait(*trait));
+        for (auto &method : module.traits.back().methods)
+        {
+          if (!method.body.has_value()) continue;
+          Function lowered{.id = DefId{static_cast<uint32_t>(module.functions.size())},
+                           .name = std::format("default${}${}", trait->name, method.name),
+                           .span = method.span};
+          if (method.returnType != nullptr) lowered.returnType = std::move(method.returnType);
+          lowered.parameters = std::move(method.parameters);
+          lowered.body = std::move(*method.body);
+          module.traits.back().methodIds.push_back(lowered.id);
+          module.functions.push_back(std::move(lowered));
+          ++nextImplMethodId_;
+        }
+      }
+      else if (const auto *impl = dynamic_cast<const syntax::ImplDeclaration *>(item.get()))
+      {
+        module.impls.push_back(resolveImpl(*impl));
+        for (auto &method : module.impls.back().methods)
+        {
+          module.impls.back().methodIds.push_back(DefId{static_cast<uint32_t>(module.functions.size())});
+          Function lowered{.id = DefId{static_cast<uint32_t>(module.functions.size())},
+                           .name = std::format("impl${}${}${}", impl->traitName, method.name,
+                                               renderTypeName(*impl->targetType)),
+                           .span = method.span};
+          if (method.returnType != nullptr) lowered.returnType = std::move(method.returnType);
+          lowered.parameters = std::move(method.parameters);
+          if (method.body.has_value()) lowered.body = std::move(*method.body);
+          module.functions.push_back(std::move(lowered));
+          ++nextImplMethodId_;
+        }
       }
     }
     return module;
+  }
+
+  auto Resolver::resolveTraitMethod(const syntax::TraitMethodDeclaration &method) -> TraitMethod
+  {
+    scopes_.emplace_back();
+    TraitMethod resolved{.name = method.name, .span = method.span};
+    for (const auto &parameter : method.parameters)
+    {
+      const LocalId local = declareLocal(parameter.name, parameter.span);
+      resolved.parameters.push_back(Parameter{.name = parameter.name,
+                                               .typeName = renderTypeName(*parameter.type),
+                                               .type = lowerType(*parameter.type),
+                                               .local = local,
+                                               .span = parameter.span});
+    }
+    if (method.returnType != nullptr) resolved.returnType = std::make_unique<Type>(lowerType(*method.returnType));
+    if (method.body.has_value()) resolved.body = resolveBlock(*method.body, false);
+    scopes_.pop_back();
+    return resolved;
+  }
+
+  auto Resolver::resolveTrait(const syntax::TraitDeclaration &declaration) -> Trait
+  {
+    Trait resolved{.name = declaration.name, .supertraits = declaration.supertraits, .span = declaration.span};
+    for (const auto &method : declaration.methods) resolved.methods.push_back(resolveTraitMethod(method));
+    return resolved;
+  }
+
+  auto Resolver::resolveImpl(const syntax::ImplDeclaration &declaration) -> Impl
+  {
+    Impl resolved{.traitName = declaration.traitName, .span = declaration.span};
+    if (declaration.targetType != nullptr) resolved.targetType = std::make_unique<Type>(lowerType(*declaration.targetType));
+    for (const auto &method : declaration.methods) resolved.methods.push_back(resolveTraitMethod(method));
+    return resolved;
   }
 
   auto Resolver::resolveConstDeclaration(const syntax::ConstDeclaration &declaration, DefId id) -> ConstDeclaration
@@ -230,6 +316,7 @@ namespace NG::vnext::hir
       else
       {
         resolved.genericParameters.push_back(parameter.name);
+        if (!parameter.traitBounds.empty()) resolved.traitBounds.emplace_back(parameter.name, parameter.traitBounds);
       }
     }
     resolved.parameters.reserve(function.parameters.size());
@@ -546,7 +633,35 @@ namespace NG::vnext::hir
             for (const auto &argument : call->arguments) resolved->operands.push_back(resolveExpression(*argument));
             return resolved;
           }
+          if (traits_.contains(owner->name))
+          {
+            // Qualified trait call: `Trait.method(receiver, args...)`.
+            resolved->kind = ExpressionKind::Call;
+            resolved->text = member->member;
+            resolved->methodCall = true;
+            auto callee = std::make_unique<Expression>(Expression{.kind = ExpressionKind::Member,
+                                                                 .span = member->span,
+                                                                 .text = member->member});
+            callee->operands.push_back(
+                std::make_unique<Expression>(Expression{.kind = ExpressionKind::ResolvedName,
+                                                        .span = owner->span,
+                                                        .text = owner->name}));
+            resolved->operands.push_back(std::move(callee));
+            for (const auto &argument : call->arguments) resolved->operands.push_back(resolveExpression(*argument));
+            return resolved;
+          }
         }
+        // Receiver method call: `receiver.method(args...)`.
+        resolved->kind = ExpressionKind::Call;
+        resolved->text = member->member;
+        resolved->methodCall = true;
+        auto callee = std::make_unique<Expression>(Expression{.kind = ExpressionKind::Member,
+                                                             .span = member->span,
+                                                             .text = member->member});
+        callee->operands.push_back(resolveExpression(*member->receiver));
+        resolved->operands.push_back(std::move(callee));
+        for (const auto &argument : call->arguments) resolved->operands.push_back(resolveExpression(*argument));
+        return resolved;
       }
       if (const auto *application = dynamic_cast<const syntax::GenericApplicationExpression *>(call->callee.get()))
       {
@@ -584,6 +699,13 @@ namespace NG::vnext::hir
       resolved->kind = ExpressionKind::TypeTest;
       resolved->text = test->name;
       resolved->testedType = std::make_unique<Type>(lowerType(*test->testedType));
+      return resolved;
+    }
+    if (const auto *bound = dynamic_cast<const syntax::TraitBoundExpression *>(&expression))
+    {
+      resolved->kind = ExpressionKind::TraitBound;
+      resolved->text = bound->name;
+      resolved->traitNames = bound->traitNames;
       return resolved;
     }
     if (const auto *application = dynamic_cast<const syntax::GenericApplicationExpression *>(&expression))

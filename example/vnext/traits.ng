@@ -1,0 +1,68 @@
+// vNext traits Stage 1 (D-011): static dispatch on concrete receivers,
+// supertraits, default methods, qualified calls, mutating receivers, and
+// trait bounds in where clauses.
+
+struct Counter {
+    value: i64,
+}
+
+trait Eq {
+    fun same(self: Self ref, other: Self ref) -> bool;
+}
+
+trait Ord: Eq {
+    fun less(self: Self ref, other: Self ref) -> bool;
+}
+
+impl Ord for Counter {
+    fun same(self: Self ref, other: Self ref) -> bool {
+        return (*self).value == (*other).value;
+    }
+
+    fun less(self: Self ref, other: Self ref) -> bool {
+        return (*self).value < (*other).value;
+    }
+}
+
+trait Increment {
+    fun inc(self: Self ref mut) -> unit;
+}
+
+impl Increment for Counter {
+    fun inc(self: Self ref mut) -> unit {
+        (*self).value := (*self).value + 1;
+    }
+}
+
+trait Display {
+    fun text(self: Self ref) -> string {
+        return "unknown";
+    }
+}
+
+impl Display for Counter {
+    fun text(self: Self ref) -> string {
+        if ((*self).value == 1) { return "one"; }
+        return "many";
+    }
+}
+
+fun describe<T>(value: T ref) -> i64 where T: Display {
+    return 32;
+}
+
+fun main() -> i64 {
+    let one = Counter { value: 1 };
+    let mut two = Counter { value: 2 };
+    let mut total = 0;
+    if (one.less(ref two)) { total := total + 1; }
+    if (one.same(ref one)) { total := total + 2; }
+    two.inc();
+    if (two.value == 3) { total := total + 4; }
+    let text = one.text();
+    if (text == "one") { total := total + 8; }
+    let fallback = Display.text(two);
+    if (fallback == "many") { total := total + 16; }
+    total := total + describe(ref one);
+    return total;
+}

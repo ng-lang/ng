@@ -572,6 +572,15 @@ second user-visible ownership domain.
 
 - Stage 1 (static, parallel with D-012/D-013/D-014): trait declarations,
   impls, static dispatch, default methods, and simple supertraits.
+  **Implemented 2026-08-15:** `trait`/`impl` declarations, coherence
+  (duplicate impls, unknown/extra methods, missing methods unless a default
+  exists), supertrait closures (`impl Ord` provides `Eq` methods), default
+  method bodies lowered as module functions, static dispatch on concrete
+  receivers with implicit `ref`/`ref mut` receiver borrowing, qualified
+  calls (`Trait.method(receiver)`), and `T: Trait` bounds in generic
+  parameters and where clauses (impl evidence per instance). Method calls
+  through abstract type parameters are a span-carrying boundary error until
+  monomorphization lands.
 - Stage 2 (dynamic, requires D-015 reference checking): `ref<Trait>` coercion
   and immutable dispatch descriptors.
 - Stage 3: coherence/orphan policy confirmation (legacy #35's "any impl,

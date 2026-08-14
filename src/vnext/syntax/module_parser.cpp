@@ -39,6 +39,14 @@ namespace NG::vnext::syntax
         if (peek(1).kind == TokenKind::KeywordFun) items.push_back(parseFunctionDeclaration(true));
         else items.push_back(parseConstDeclaration());
       }
+      else if (current().kind == TokenKind::KeywordTrait)
+      {
+        items.push_back(parseTraitDeclaration());
+      }
+      else if (current().kind == TokenKind::KeywordImpl)
+      {
+        items.push_back(parseImplDeclaration());
+      }
       else
       {
         throw ParseError("expected a module declaration", current().span);
@@ -276,10 +284,23 @@ namespace NG::vnext::syntax
         {
           if (current().kind != TokenKind::Identifier) throw ParseError("expected a function generic parameter", current().span);
           const Token parameter = consume();
+          std::vector<std::string> traitBounds;
+          if (current().kind == TokenKind::Colon)
+          {
+            static_cast<void>(consume());
+            while (true)
+            {
+              if (current().kind != TokenKind::Identifier) throw ParseError("expected a trait bound name", current().span);
+              traitBounds.push_back(consume().text);
+              if (current().kind != TokenKind::Plus) break;
+              static_cast<void>(consume());
+            }
+          }
           genericParameters.push_back(GenericParameter{.kind = GenericParameterKind::Type,
-                                                       .name = parameter.text,
-                                                       .type = nullptr,
-                                                       .span = parameter.span});
+                                                        .name = parameter.text,
+                                                        .type = nullptr,
+                                                        .traitBounds = std::move(traitBounds),
+                                                        .span = parameter.span});
         }
         if (current().kind != TokenKind::Comma) break;
         static_cast<void>(consume());
@@ -385,6 +406,97 @@ namespace NG::vnext::syntax
     const size_t end = expressionTokens.back().span.end;
     expressionTokens.push_back(Token{.kind = TokenKind::End, .text = {}, .span = SourceSpan{end, end}});
     return ExpressionParser{std::move(expressionTokens)}.parse();
+  }
+
+  auto ModuleParser::parseTraitDeclaration() -> ModuleItemPtr
+  {
+    const Token traitToken = consume();
+    if (current().kind != TokenKind::Identifier) throw ParseError("expected a trait name after `trait`", current().span);
+    const Token name = consume();
+    std::vector<std::string> supertraits;
+    if (current().kind == TokenKind::Colon)
+    {
+      static_cast<void>(consume());
+      while (true)
+      {
+        if (current().kind != TokenKind::Identifier) throw ParseError("expected a supertrait name", current().span);
+        supertraits.push_back(consume().text);
+        if (current().kind != TokenKind::Plus) break;
+        static_cast<void>(consume());
+      }
+    }
+    expect(TokenKind::LeftBrace, "expected `{` after trait name");
+    std::vector<TraitMethodDeclaration> methods;
+    while (current().kind != TokenKind::RightBrace)
+    {
+      if (current().kind != TokenKind::KeywordFun) throw ParseError("expected a trait method", current().span);
+      methods.push_back(parseTraitMethod());
+    }
+    const Token close = current();
+    expect(TokenKind::RightBrace, "expected `}` to close trait");
+    return std::make_unique<TraitDeclaration>(name.text, std::move(supertraits), std::move(methods),
+                                              SourceSpan{traitToken.span.begin, close.span.end});
+  }
+
+  auto ModuleParser::parseImplDeclaration() -> ModuleItemPtr
+  {
+    const Token implToken = consume();
+    if (current().kind != TokenKind::Identifier) throw ParseError("expected a trait name after `impl`", current().span);
+    const Token trait = consume();
+    expect(TokenKind::KeywordFor, "expected `for` after impl trait name");
+    auto target = parseTypeUntil({TokenKind::LeftBrace});
+    expect(TokenKind::LeftBrace, "expected `{` after impl target type");
+    std::vector<TraitMethodDeclaration> methods;
+    while (current().kind != TokenKind::RightBrace)
+    {
+      if (current().kind != TokenKind::KeywordFun) throw ParseError("expected an impl method", current().span);
+      methods.push_back(parseTraitMethod());
+    }
+    const Token close = current();
+    expect(TokenKind::RightBrace, "expected `}` to close impl");
+    return std::make_unique<ImplDeclaration>(trait.text, std::move(target), std::move(methods),
+                                             SourceSpan{implToken.span.begin, close.span.end});
+  }
+
+  auto ModuleParser::parseTraitMethod() -> TraitMethodDeclaration
+  {
+    const Token funToken = consume();
+    if (current().kind != TokenKind::Identifier) throw ParseError("expected a method name after `fun`", current().span);
+    const Token name = consume();
+    expect(TokenKind::LeftParen, "expected `(` after method name");
+    std::vector<FunctionParameter> parameters;
+    while (current().kind != TokenKind::RightParen)
+    {
+      if (current().kind != TokenKind::Identifier) throw ParseError("expected a parameter name", current().span);
+      const Token parameterName = consume();
+      expect(TokenKind::Colon, "expected `:` after parameter name");
+      auto parameterType = parseTypeUntil({TokenKind::Comma, TokenKind::RightParen});
+      const SourceSpan parameterSpan{parameterName.span.begin, parameterType->span.end};
+      parameters.emplace_back(parameterName.text, std::move(parameterType), parameterSpan);
+      if (current().kind != TokenKind::Comma) break;
+      static_cast<void>(consume());
+      if (current().kind == TokenKind::RightParen) break;
+    }
+    expect(TokenKind::RightParen, "expected `)` after method parameters");
+    TypeSyntaxPtr returnType;
+    if (current().kind == TokenKind::Arrow)
+    {
+      static_cast<void>(consume());
+      returnType = parseTypeUntil({TokenKind::LeftBrace, TokenKind::Semicolon});
+    }
+    std::optional<Block> body;
+    if (current().kind == TokenKind::LeftBrace)
+    {
+      auto blockTokens = consumeBlockTokens();
+      body.emplace(BlockParser{std::move(blockTokens)}.parse());
+    }
+    else
+    {
+      expect(TokenKind::Semicolon, "expected `;` or a body after method signature");
+    }
+    const size_t end = body.has_value() ? body->span.end : current().span.begin;
+    return TraitMethodDeclaration{name.text, std::move(parameters), std::move(returnType), std::move(body),
+                                  SourceSpan{funToken.span.begin, end}};
   }
 
   auto ModuleParser::parseTypeUntil(const std::vector<TokenKind> &terminators) -> TypeSyntaxPtr

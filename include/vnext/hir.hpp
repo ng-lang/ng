@@ -82,6 +82,7 @@ namespace NG::vnext::hir
     Call,
     GenericApplication,
     TypeTest,
+    TraitBound,
     Index,
     Member,
     Binary,
@@ -104,6 +105,11 @@ namespace NG::vnext::hir
     std::vector<TypeArgument> genericArguments;
     /// Tested type for a `T is Type` where-clause constraint.
     std::unique_ptr<Type> testedType;
+    /// Trait names for a `T: Trait` where-clause constraint.
+    std::vector<std::string> traitNames;
+    /// Method call (`receiver.method(...)` or qualified `Trait.method(...)`):
+    /// operands[0] is the Member callee whose operands[0] is the receiver.
+    bool methodCall{};
     std::vector<std::unique_ptr<Expression>> operands;
   };
 
@@ -236,8 +242,10 @@ namespace NG::vnext::hir
     /// `const fun` (D-013): compile-time capable and runtime callable.
     bool constFunction{};
     /// Where-clause constraint (D-014): predicate applications, `T is Type`,
-    /// and boolean combinations; evaluated per concrete instance.
+    /// trait bounds, and boolean combinations; evaluated per concrete instance.
     ExpressionPtr whereClause;
+    /// Trait bounds declared on generic parameters (`T: Show`).
+    std::vector<std::pair<std::string, std::vector<std::string>>> traitBounds;
   };
 
   struct StructField
@@ -294,12 +302,44 @@ namespace NG::vnext::hir
     syntax::ConstExprPtr body;
   };
 
+  struct TraitMethod
+  {
+    std::string name;
+    std::vector<Parameter> parameters;
+    std::unique_ptr<Type> returnType;
+    std::optional<Block> body;
+    syntax::SourceSpan span;
+  };
+
+  struct Trait
+  {
+    std::string name;
+    std::vector<std::string> supertraits;
+    std::vector<TraitMethod> methods;
+    /// DefId of each default method lowered as a module function; empty for
+    /// declaration-only methods.
+    std::vector<DefId> methodIds;
+    syntax::SourceSpan span;
+  };
+
+  struct Impl
+  {
+    std::string traitName;
+    std::unique_ptr<Type> targetType;
+    std::vector<TraitMethod> methods;
+    /// DefId of each provided impl method lowered as a module function.
+    std::vector<DefId> methodIds;
+    syntax::SourceSpan span;
+  };
+
   struct Module
   {
     std::vector<Function> functions;
     std::vector<Struct> structs;
     std::vector<Enum> enums;
     std::vector<ConstDeclaration> consts;
+    std::vector<Trait> traits;
+    std::vector<Impl> impls;
   };
 
   class Resolver final
@@ -319,6 +359,9 @@ namespace NG::vnext::hir
     [[nodiscard]] auto resolveStruct(const syntax::StructDeclaration &structure, StructId id) -> Struct;
     [[nodiscard]] auto resolveEnum(const syntax::EnumDeclaration &enumeration, EnumId id) -> Enum;
     [[nodiscard]] auto resolveConstDeclaration(const syntax::ConstDeclaration &declaration, DefId id) -> ConstDeclaration;
+    [[nodiscard]] auto resolveTrait(const syntax::TraitDeclaration &declaration) -> Trait;
+    [[nodiscard]] auto resolveImpl(const syntax::ImplDeclaration &declaration) -> Impl;
+    [[nodiscard]] auto resolveTraitMethod(const syntax::TraitMethodDeclaration &method) -> TraitMethod;
     [[nodiscard]] auto resolveBlock(const syntax::Block &block, bool introduceScope) -> Block;
     [[nodiscard]] auto resolveStatement(const syntax::Statement &statement) -> Statement;
     [[nodiscard]] auto resolveExpression(const syntax::Expression &expression) -> ExpressionPtr;
@@ -329,6 +372,7 @@ namespace NG::vnext::hir
     std::unordered_map<const syntax::FunctionDeclaration *, DefId> functionIds_;
     std::unordered_map<std::string, StructId> structs_;
     std::unordered_map<std::string, EnumId> enums_;
+    std::unordered_map<std::string, syntax::SourceSpan> traits_;
     std::unordered_map<std::string, std::vector<std::string>> enumVariants_;
     std::vector<Scope> scopes_;
     std::vector<ActiveLoop> loops_;
@@ -338,5 +382,6 @@ namespace NG::vnext::hir
     uint32_t nextLocal_{};
     uint32_t nextLoop_{};
     uint32_t nextConstId_{};
+    uint32_t nextImplMethodId_{};
   };
 } // namespace NG::vnext::hir

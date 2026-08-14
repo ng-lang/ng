@@ -122,8 +122,10 @@ namespace NG::vnext::syntax
                              : text == "delete" ? TokenKind::KeywordDelete
                              : text == "else" ? TokenKind::KeywordElse
                              : text == "enum" ? TokenKind::KeywordEnum
+                             : text == "for" ? TokenKind::KeywordFor
                              : text == "fun" ? TokenKind::KeywordFun
                              : text == "if" ? TokenKind::KeywordIf
+                             : text == "impl" ? TokenKind::KeywordImpl
                              : text == "is" ? TokenKind::KeywordIs
                              : text == "let" ? TokenKind::KeywordLet
                              : text == "loop" ? TokenKind::KeywordLoop
@@ -135,6 +137,7 @@ namespace NG::vnext::syntax
                              : text == "return" ? TokenKind::KeywordReturn
                              : text == "struct" ? TokenKind::KeywordStruct
                              : text == "switch" ? TokenKind::KeywordSwitch
+                             : text == "trait" ? TokenKind::KeywordTrait
                              : text == "true" ? TokenKind::KeywordTrue
                              : text == "where" ? TokenKind::KeywordWhere
                              : text == "false" ? TokenKind::KeywordFalse
@@ -237,6 +240,25 @@ namespace NG::vnext::syntax
     while (true)
     {
       const Token &operatorToken = current();
+      if (operatorToken.kind == TokenKind::Colon && left->kind == ExpressionKind::Identifier)
+      {
+        // Trait bound in a where clause: `T: Trait` or `T: A + B`.
+        constexpr int boundBindingPower = 80;
+        if (boundBindingPower < minimumBindingPower) break;
+        static_cast<void>(consume());
+        std::vector<std::string> traits;
+        while (true)
+        {
+          if (current().kind != TokenKind::Identifier) throw ParseError("expected a trait name after `:`", current().span);
+          traits.push_back(consume().text);
+          if (current().kind != TokenKind::Plus) break;
+          static_cast<void>(consume());
+        }
+        const SourceSpan span{left->span.begin, current().span.begin};
+        const auto *identifier = static_cast<const IdentifierExpression *>(left.get());
+        left = std::make_unique<TraitBoundExpression>(identifier->name, std::move(traits), span);
+        continue;
+      }
       if (operatorToken.kind == TokenKind::KeywordIs && left->kind == ExpressionKind::Identifier)
       {
         // Direct type constraint: `T is Type` binds at comparison level.

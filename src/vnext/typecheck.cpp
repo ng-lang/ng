@@ -51,8 +51,11 @@ namespace NG::vnext::typecheck
           }
           interner_.defineEnum(enumeration.id, std::move(variants), std::move(payloads), std::move(hasPayload));
         }
+        registerTraits();
+        registerImpls();
         for (const auto &function : module.functions)
         {
+          if (function.name.starts_with("impl$") || function.name.starts_with("default$")) continue;
           FunctionTypeIds signature;
           std::unordered_map<std::string, TypeId> genericBindings;
           TypeInterner::ConstParamBindings constBindings;
@@ -62,6 +65,12 @@ namespace NG::vnext::typecheck
             signature.genericParameters.push_back(parameter);
             signature.genericParameterNames.push_back(function.genericParameters[index]);
             genericBindings.emplace(function.genericParameters[index], parameter);
+          }
+          for (const auto &[parameterName, bounds] : function.traitBounds)
+          {
+            for (const auto &traitName : bounds)
+              if (!traits_.contains(traitName))
+                throw TypeError(std::format("unknown trait bound `{}` on `{}`", traitName, parameterName), function.span);
           }
           for (size_t index = 0; index < function.constParameters.size(); ++index)
           {
@@ -105,6 +114,8 @@ namespace NG::vnext::typecheck
                                .functionTypes = std::move(functionTypes_),
                                .functionTypeIds = std::move(functionTypeIds_),
                                .callTargets = std::move(callTargets_),
+                               .methodReceiverMutable = std::move(methodReceiverMutable_),
+                               .methodReceiverRefTypes = std::move(methodReceiverRefTypes_),
                                .constIfSelections = std::move(constIfSelections_),
                                .typeDescriptors = interner_.descriptors()};
       }
@@ -126,6 +137,23 @@ namespace NG::vnext::typecheck
         /// Specialization priority per D-012: 3 exact, 2 pattern, 1 primary.
         int priority{};
         std::unordered_map<uint32_t, TypeId> bindings;
+      };
+
+      struct TraitInfo
+      {
+        std::string name;
+        std::vector<std::string> supertraits;
+        TypeId selfParameter;
+        std::unordered_map<std::string, std::vector<TypeId>> methodParameters;
+        std::unordered_map<std::string, TypeId> methodReturns;
+        std::unordered_map<std::string, hir::DefId> methodDefaults;
+      };
+
+      struct ImplInfo
+      {
+        std::string traitName;
+        TypeId target;
+        std::unordered_map<std::string, hir::DefId> methods;
       };
 
       struct ConstDeclChecked
@@ -246,6 +274,23 @@ namespace NG::vnext::typecheck
             const TypeId expected = interner_.resolveInScope(*expression.testedType, bindings);
             return interner_.constInterner().internBool(actual == expected);
           }
+          case hir::ExpressionKind::TraitBound:
+          {
+            const auto found = bindings.find(expression.text);
+            if (found == bindings.end())
+              throw TypeError(std::format("where clause tests unknown type parameter `{}`", expression.text), expression.span);
+            const TypeId actual = found->second;
+            if (interner_.descriptor(actual).kind == TypeKind::TypeParameter)
+              throw TypeError(std::format("cannot evaluate where clause of generic function with abstract type parameter `{}`",
+                                          expression.text), expression.span);
+            for (const auto &traitName : expression.traitNames)
+            {
+              if (!traits_.contains(traitName))
+                throw TypeError(std::format("unknown trait `{}` in where clause", traitName), expression.span);
+              if (!hasImpl(traitName, actual)) return interner_.constInterner().internBool(false);
+            }
+            return interner_.constInterner().internBool(true);
+          }
           case hir::ExpressionKind::ResolvedName:
             if (expression.resolvedName.has_value() && expression.resolvedName->kind == hir::ResolvedNameKind::ConstParameter)
             {
@@ -260,6 +305,192 @@ namespace NG::vnext::typecheck
           }
         };
         return interner_.constInterner().value(evaluate(evaluate, condition)).boolValue;
+      }
+
+      void registerTraits()
+      {
+        for (const auto &trait : module_->traits)
+        {
+          TraitInfo info{.name = trait.name, .supertraits = trait.supertraits,
+                         .selfParameter = interner_.internTypeParameter("Self", 0)};
+          const std::unordered_map<std::string, TypeId> selfBindings{{"Self", info.selfParameter}};
+          for (size_t index = 0; index < trait.methods.size(); ++index)
+          {
+            const auto &method = trait.methods[index];
+            // Default methods were lowered into module functions; their
+            // parameters were moved there.
+            const std::vector<hir::Parameter> &sourceParameters = method.body.has_value()
+                                                                     ? module_->functions.at(trait.methodIds.at(index).value).parameters
+                                                                     : method.parameters;
+            std::vector<TypeId> parameters;
+            for (const auto &parameter : sourceParameters)
+              parameters.push_back(interner_.resolveInScope(parameter.type, selfBindings));
+            if (parameters.empty() || interner_.descriptor(parameters.front()).kind != TypeKind::Reference ||
+                interner_.descriptor(parameters.front()).element != info.selfParameter)
+              throw TypeError(std::format("trait method `{}` must take `self: Self ref`", method.name), method.span);
+            info.methodParameters.emplace(method.name, parameters);
+            const hir::Type *sourceReturnType = method.returnType.get();
+            if (method.body.has_value()) sourceReturnType = module_->functions.at(trait.methodIds.at(index).value).returnType.get();
+            info.methodReturns.emplace(method.name, sourceReturnType != nullptr
+                                                       ? interner_.resolveInScope(*sourceReturnType, selfBindings)
+                                                       : builtin::Unit);
+            if (method.body.has_value())
+            {
+              info.methodDefaults.emplace(method.name, trait.methodIds.at(index));
+              FunctionTypeIds defaultSignature;
+              defaultSignature.parameters = parameters;
+              defaultSignature.returnType = info.methodReturns.at(method.name);
+              FunctionType displaySignature;
+              for (const auto parameter : parameters) displaySignature.parameters.push_back(interner_.display(parameter));
+              displaySignature.returnType = interner_.display(defaultSignature.returnType);
+              signatures_.emplace(trait.methodIds.at(index).value, std::move(defaultSignature));
+              functionTypes_.emplace(trait.methodIds.at(index).value, std::move(displaySignature));
+            }
+          }
+          traits_.emplace(trait.name, std::move(info));
+        }
+      }
+
+      void collectSupertraits(const std::string &traitName, std::vector<const TraitInfo *> &out,
+                              std::unordered_set<std::string> &seen) const
+      {
+        const auto found = traits_.find(traitName);
+        if (found == traits_.end() || !seen.insert(traitName).second) return;
+        out.push_back(&found->second);
+        for (const auto &supertrait : found->second.supertraits) collectSupertraits(supertrait, out, seen);
+      }
+
+      void resolveImplMethodSignature(hir::DefId id, const hir::Function &function, TypeId target)
+      {
+        FunctionTypeIds signature;
+        const std::unordered_map<std::string, TypeId> bindings{{"Self", target}};
+        for (const auto &parameter : function.parameters)
+          signature.parameters.push_back(interner_.resolveInScope(parameter.type, bindings));
+        if (signature.parameters.empty() || interner_.descriptor(signature.parameters.front()).kind != TypeKind::Reference ||
+            interner_.descriptor(signature.parameters.front()).element != target)
+          throw TypeError(std::format("trait method `{}` must take `self: Self ref`", function.name), function.span);
+        signature.returnType = function.returnType != nullptr ? interner_.resolveInScope(*function.returnType, bindings) : builtin::Unit;
+        FunctionType displaySignature;
+        for (const auto parameter : signature.parameters) displaySignature.parameters.push_back(interner_.display(parameter));
+        displaySignature.returnType = interner_.display(signature.returnType);
+        signatures_.emplace(id.value, std::move(signature));
+        functionTypes_.emplace(id.value, std::move(displaySignature));
+      }
+
+      void registerImpls()
+      {
+        for (const auto &impl : module_->impls)
+        {
+          if (!traits_.contains(impl.traitName))
+            throw TypeError(std::format("unknown trait `{}` in impl", impl.traitName), impl.span);
+          const TypeId target = interner_.resolve(*impl.targetType);
+          if (interner_.descriptor(target).kind == TypeKind::TypeParameter)
+            throw TypeError("impl target must be a concrete type", impl.span);
+          for (const auto &existing : impls_)
+            if (existing.traitName == impl.traitName && existing.target == target)
+              throw TypeError(std::format("duplicate impl for trait `{}`", impl.traitName), impl.span);
+          std::vector<const TraitInfo *> closure;
+          std::unordered_set<std::string> seen;
+          collectSupertraits(impl.traitName, closure, seen);
+          std::unordered_map<std::string, const TraitInfo *> required;
+          for (const auto *trait : closure)
+            for (const auto &[methodName, _] : trait->methodParameters) required.emplace(methodName, trait);
+          ImplInfo info{.traitName = impl.traitName, .target = target};
+          for (size_t index = 0; index < impl.methods.size(); ++index)
+          {
+            const auto &method = impl.methods[index];
+            if (!required.contains(method.name))
+              throw TypeError(std::format("impl for trait `{}` provides unknown method `{}`", impl.traitName, method.name),
+                              method.span);
+            resolveImplMethodSignature(impl.methodIds.at(index), module_->functions.at(impl.methodIds.at(index).value), target);
+            info.methods.emplace(method.name, impl.methodIds.at(index));
+          }
+          for (const auto &[methodName, owner] : required)
+          {
+            if (info.methods.contains(methodName)) continue;
+            const auto defaultMethod = owner->methodDefaults.find(methodName);
+            if (defaultMethod == owner->methodDefaults.end())
+              throw TypeError(std::format("impl for trait `{}` is missing method `{}`", impl.traitName, methodName), impl.span);
+            info.methods.emplace(methodName, defaultMethod->second);
+          }
+          impls_.push_back(std::move(info));
+        }
+      }
+
+      [[nodiscard]] auto hasImpl(const std::string &traitName, TypeId target) const -> bool
+      {
+        for (const auto &impl : impls_)
+        {
+          if (impl.target != target) continue;
+          std::vector<const TraitInfo *> closure;
+          std::unordered_set<std::string> seen;
+          collectSupertraits(impl.traitName, closure, seen);
+          for (const auto *trait : closure)
+            if (trait->name == traitName) return true;
+        }
+        return false;
+      }
+
+      [[nodiscard]] auto inferMethodCall(const hir::Expression &expression, const LocalTypes &locals) -> TypeId
+      {
+        const auto &callee = *expression.operands[0];
+        const auto &receiverNode = *callee.operands[0];
+        const bool qualified = !receiverNode.resolvedName.has_value();
+        if (qualified && !traits_.contains(receiverNode.text))
+          throw TypeError(std::format("unknown trait `{}` in qualified call", receiverNode.text), receiverNode.span);
+        const hir::Expression &receiver = qualified ? *expression.operands[1] : receiverNode;
+        const size_t firstArgument = qualified ? 2 : 1;
+        const TypeId receiverType = infer(receiver, locals);
+        TypeId dispatchType = receiverType;
+        bool passReferenceThrough = false;
+        if (interner_.descriptor(receiverType).kind == TypeKind::Reference)
+        {
+          dispatchType = interner_.descriptor(receiverType).element;
+          passReferenceThrough = true;
+        }
+        if (interner_.descriptor(dispatchType).kind == TypeKind::TypeParameter)
+          throw TypeError("method calls through an abstract type parameter are not yet supported", expression.span);
+        const hir::DefId *selected = nullptr;
+        for (const auto &impl : impls_)
+        {
+          if (impl.target != dispatchType) continue;
+          if (const auto found = impl.methods.find(expression.text); found != impl.methods.end())
+          {
+            selected = &found->second;
+            break;
+          }
+        }
+        if (selected == nullptr)
+          throw TypeError(std::format("no method `{}` for value of type {}", expression.text, interner_.display(dispatchType)),
+                          expression.span);
+        const auto &signature = signatures_.at(selected->value);
+        const size_t supplied = expression.operands.size() - firstArgument;
+        if (supplied != signature.parameters.size() - 1)
+          throw TypeError(std::format("method argument count mismatch: expected {}, got {}", signature.parameters.size() - 1,
+                                      supplied), expression.span);
+        const TypeId receiverParameter = signature.parameters.front();
+        const auto &receiverDescriptor = interner_.descriptor(receiverParameter);
+        if (passReferenceThrough)
+        {
+          requireType(receiverParameter, receiverType, receiver.span, "method receiver");
+        }
+        else
+        {
+          if (interner_.descriptor(receiverDescriptor.element).kind != TypeKind::TypeParameter)
+            requireType(receiverDescriptor.element, receiverType, receiver.span, "method receiver");
+          if (receiverDescriptor.referenceMutable) requireMutableRoot(receiver, receiver.span);
+        }
+        methodReceiverMutable_.insert_or_assign(&expression, receiverDescriptor.referenceMutable);
+        TypeId recordedReference = receiverParameter;
+        if (interner_.descriptor(receiverDescriptor.element).kind == TypeKind::TypeParameter)
+          recordedReference = interner_.internReference(dispatchType, receiverDescriptor.referenceMutable);
+        methodReceiverRefTypes_.insert_or_assign(&expression, recordedReference);
+        for (size_t index = 0; index < supplied; ++index)
+          static_cast<void>(inferExpected(*expression.operands[firstArgument + index], signature.parameters[index + 1], locals,
+                                          std::format("method argument {}", index + 1)));
+        record(expression, signature.returnType);
+        callTargets_.insert_or_assign(&expression, *selected);
+        return signature.returnType;
       }
 
       void checkFunction(const hir::Function &function)
@@ -979,6 +1210,7 @@ namespace NG::vnext::typecheck
         }
         case hir::ExpressionKind::Call:
         {
+          if (expression.methodCall) return inferMethodCall(expression, locals);
           if (!expression.operands[0]->resolvedName.has_value() ||
               expression.operands[0]->resolvedName->kind != hir::ResolvedNameKind::Function)
             throw TypeError("call target is not a function", expression.operands[0]->span);
@@ -1211,6 +1443,10 @@ namespace NG::vnext::typecheck
       std::unordered_map<const hir::Statement *, bool> constIfSelections_;
       const hir::Module *module_{};
       std::unordered_map<std::string, std::vector<ConstDeclChecked>> constDeclarations_;
+      std::unordered_map<std::string, TraitInfo> traits_;
+      std::vector<ImplInfo> impls_;
+      std::unordered_map<const hir::Expression *, bool> methodReceiverMutable_;
+      std::unordered_map<const hir::Expression *, TypeId> methodReceiverRefTypes_;
       std::unordered_set<uint32_t> constFunctions_;
       std::unique_ptr<const_eval::ConstInterpreter> interpreter_;
       /// Generic parameter bindings of the function currently being checked;

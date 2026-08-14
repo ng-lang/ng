@@ -32,6 +32,7 @@ namespace NG::vnext::syntax
     Call,
     GenericApplication,
     TypeTest,
+    TraitBound,
     Index,
     Member,
     Binary,
@@ -508,6 +509,18 @@ namespace NG::vnext::syntax
     }
   };
 
+  /// Trait bound in a where clause: `T: Trait` (possibly `T: A + B`).
+  struct TraitBoundExpression final : Expression
+  {
+    const std::string name;
+    std::vector<std::string> traitNames;
+
+    TraitBoundExpression(std::string parameterName, std::vector<std::string> traits, SourceSpan sourceSpan)
+      : Expression(ExpressionKind::TraitBound, sourceSpan), name(std::move(parameterName)), traitNames(std::move(traits))
+    {
+    }
+  };
+
   /// Direct type constraint in a where clause: `T is Type`.
   struct TypeTestExpression final : Expression
   {
@@ -568,6 +581,7 @@ namespace NG::vnext::syntax
     GenericParameterKind kind;
     std::string name;
     TypeSyntaxPtr type;
+    std::vector<std::string> traitBounds;
     SourceSpan span;
   };
 
@@ -589,6 +603,8 @@ namespace NG::vnext::syntax
     Struct,
     Enum,
     Const,
+    Trait,
+    Impl,
   };
 
   struct ModuleItem
@@ -650,6 +666,50 @@ namespace NG::vnext::syntax
   /// type = body;` where the body is a const expression, `native`, or
   /// `delete`. Type parameters are declared by the optional prefix list
   /// (`const<T> name<...>`) or implicitly by bare identifiers in the pattern.
+  struct TraitMethodDeclaration final
+  {
+    const std::string name;
+    std::vector<FunctionParameter> parameters;
+    TypeSyntaxPtr returnType;
+    std::optional<Block> body;
+    const SourceSpan span;
+
+    TraitMethodDeclaration(std::string methodName, std::vector<FunctionParameter> methodParameters,
+                           TypeSyntaxPtr methodReturnType, std::optional<Block> methodBody, SourceSpan sourceSpan)
+      : name(std::move(methodName)), parameters(std::move(methodParameters)), returnType(std::move(methodReturnType)),
+        body(std::move(methodBody)), span(sourceSpan)
+    {
+    }
+  };
+
+  struct TraitDeclaration final : ModuleItem
+  {
+    const std::string name;
+    std::vector<std::string> supertraits;
+    std::vector<TraitMethodDeclaration> methods;
+
+    TraitDeclaration(std::string traitName, std::vector<std::string> supertraitList,
+                     std::vector<TraitMethodDeclaration> traitMethods, SourceSpan sourceSpan)
+      : ModuleItem(ModuleItemKind::Trait, sourceSpan), name(std::move(traitName)), supertraits(std::move(supertraitList)),
+        methods(std::move(traitMethods))
+    {
+    }
+  };
+
+  struct ImplDeclaration final : ModuleItem
+  {
+    const std::string traitName;
+    TypeSyntaxPtr targetType;
+    std::vector<TraitMethodDeclaration> methods;
+
+    ImplDeclaration(std::string implementedTrait, TypeSyntaxPtr implTarget,
+                    std::vector<TraitMethodDeclaration> implMethods, SourceSpan sourceSpan)
+      : ModuleItem(ModuleItemKind::Impl, sourceSpan), traitName(std::move(implementedTrait)), targetType(std::move(implTarget)),
+        methods(std::move(implMethods))
+    {
+    }
+  };
+
   struct ConstDeclaration final : ModuleItem
   {
     const std::string name;
