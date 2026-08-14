@@ -21,7 +21,8 @@ namespace NG::vnext::vm::detail
   /// slots never alias binding storage. Control-transfer instructions
   /// intentionally remain owned by the single- and module-VM dispatch loops.
   void evaluateInstruction(const bytecode::DecodedInstruction &instruction, const std::vector<std::string> &stringConstants,
-                           std::vector<Value> &values, const LocalCells &locals);
+                           const std::unordered_map<uint32_t, typecheck::TypeId> &valueTypes, std::vector<Value> &values,
+                           const LocalCells &locals);
   void makeRefInstruction(const bytecode::DecodedInstruction &instruction, std::vector<Value> &values,
                           const LocalCells &locals);
   void loadRefInstruction(const bytecode::DecodedInstruction &instruction, std::vector<Value> &values);

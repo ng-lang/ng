@@ -36,6 +36,33 @@ namespace NG::vnext::vm::detail
       return left * right;
     }
 
+    /// D-008 per-width runtime overflow check: narrow integer result types
+    /// must fit their declared width.
+    void checkIntegerWidth(int64_t value, typecheck::TypeId type)
+    {
+      int64_t minimum{};
+      int64_t maximum{};
+      std::string name;
+      switch (type.value)
+      {
+      case typecheck::builtin::I8.value: minimum = -128; maximum = 127; name = "i8"; break;
+      case typecheck::builtin::I16.value: minimum = -32768; maximum = 32767; name = "i16"; break;
+      case typecheck::builtin::I32.value: minimum = std::numeric_limits<int32_t>::min(); maximum = std::numeric_limits<int32_t>::max(); name = "i32"; break;
+      case typecheck::builtin::U8.value: minimum = 0; maximum = 255; name = "u8"; break;
+      case typecheck::builtin::U16.value: minimum = 0; maximum = 65535; name = "u16"; break;
+      case typecheck::builtin::U32.value: minimum = 0; maximum = 4294967295LL; name = "u32"; break;
+      default: return;
+      }
+      if (value < minimum || value > maximum)
+        throw bytecode::BytecodeError(std::format("integer overflow for type `{}`", name));
+    }
+
+    void checkResultWidth(int64_t value, uint32_t result, const std::unordered_map<uint32_t, typecheck::TypeId> &valueTypes)
+    {
+      if (const auto found = valueTypes.find(result); found != valueTypes.end() && typecheck::isIntegerBuiltin(found->second))
+        checkIntegerWidth(value, found->second);
+    }
+
     [[nodiscard]] auto walkStep(Value &current, const PlaceStep &step) -> Value &
     {
       if (step.kind == PlaceStep::Kind::Member)
@@ -162,7 +189,8 @@ namespace NG::vnext::vm::detail
   }
 
   void evaluateInstruction(const bytecode::DecodedInstruction &instruction, const std::vector<std::string> &stringConstants,
-                           std::vector<Value> &values, const LocalCells &locals)
+                           const std::unordered_map<uint32_t, typecheck::TypeId> &valueTypes, std::vector<Value> &values,
+                           const LocalCells &locals)
   {
     const uint32_t result = instruction.operands[0];
     if (values.size() <= result) values.resize(result + 1);
@@ -242,9 +270,13 @@ namespace NG::vnext::vm::detail
       case 1: values[result] = Value::integer(operand == 0 ? 1 : 0); return;
       case 2:
         if (operand == std::numeric_limits<int64_t>::min()) throw bytecode::BytecodeError("integer negation overflow");
+        checkResultWidth(-operand, result, valueTypes);
         values[result] = -operand;
         return;
-      case 3: values[result] = operand; return;
+      case 3:
+        checkResultWidth(operand, result, valueTypes);
+        values[result] = operand;
+        return;
       default: throw bytecode::BytecodeError("unsupported prefix operation");
       }
     }
@@ -320,20 +352,31 @@ namespace NG::vnext::vm::detail
     const int64_t right = values.at(instruction.operands[6]).asInteger();
     switch (payload)
     {
-    case 1: values[result] = checkedAdd(left, right); return;
-    case 2: values[result] = checkedSubtract(left, right); return;
-    case 3: values[result] = checkedMultiply(left, right); return;
+    case 1:
+      values[result] = checkedAdd(left, right);
+      checkResultWidth(values[result].asInteger(), result, valueTypes);
+      return;
+    case 2:
+      values[result] = checkedSubtract(left, right);
+      checkResultWidth(values[result].asInteger(), result, valueTypes);
+      return;
+    case 3:
+      values[result] = checkedMultiply(left, right);
+      checkResultWidth(values[result].asInteger(), result, valueTypes);
+      return;
     case 4:
       if (right == 0) throw bytecode::BytecodeError("integer division by zero");
       if (left == std::numeric_limits<int64_t>::min() && right == -1)
         throw bytecode::BytecodeError("integer division overflow");
       values[result] = left / right;
+      checkResultWidth(values[result].asInteger(), result, valueTypes);
       return;
     case 5:
       if (right == 0) throw bytecode::BytecodeError("integer remainder by zero");
       if (left == std::numeric_limits<int64_t>::min() && right == -1)
         throw bytecode::BytecodeError("integer remainder overflow");
       values[result] = left % right;
+      checkResultWidth(values[result].asInteger(), result, valueTypes);
       return;
     case 6: values[result] = Value::integer(left == right ? 1 : 0); return;
     case 7: values[result] = Value::integer(left != right ? 1 : 0); return;

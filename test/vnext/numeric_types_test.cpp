@@ -111,6 +111,24 @@ TEST_CASE("vNext integer literal range checks reject out-of-range values", "[vNe
   }
 }
 
+TEST_CASE("vNext runtime arithmetic checks per-width overflow", "[vNext][Numerics][Runtime]")
+{
+  // In-range narrow arithmetic executes.
+  expectValue("fun main() -> i64 { let a: i8 = 100; let b: i8 = a + 20; if (b == 120) { return 1; } return 0; }",
+              "1");
+  // Overflowing narrow arithmetic fails at runtime with a typed diagnostic.
+  std::string output;
+  std::string errors;
+  REQUIRE(run("fun main() -> i64 { let a: i8 = 100; let b: i8 = a + a; if (b == 0) { return 1; } return 0; }",
+              output, errors) == 1);
+  REQUIRE(errors.find("integer overflow for type `i8`") != std::string::npos);
+  REQUIRE(run("fun main() -> i32 { let a: i32 = 2000000000; let b: i32 = a * 2; return b; }", output, errors) == 1);
+  REQUIRE(errors.find("integer overflow for type `i32`") != std::string::npos);
+  REQUIRE(run("fun main() -> i64 { let a: u8 = 200; let b: u8 = a + a; if (b == 0) { return 1; } return 0; }",
+              output, errors) == 1);
+  REQUIRE(errors.find("integer overflow for type `u8`") != std::string::npos);
+}
+
 TEST_CASE("vNext numeric example file runs end to end through ngi", "[vNext][Numerics][Examples]")
 {
   std::string output;

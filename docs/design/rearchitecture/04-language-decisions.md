@@ -427,8 +427,9 @@ This supersedes any assumption that arbitrary C++ exceptions are the public lang
   contextual adoption (bindings, calls, operands, negation), and
   same-type arithmetic; equality and ordering compare across numeric
   widths, including mixed integer/float pairs, at runtime.
-- Runtime values remain `i64`/`double`-backed; per-width runtime overflow
-  checks and `isize`/`usize` remain follow-ups.
+- Runtime values are `i64`/`double`-backed, and arithmetic results are
+  checked against their static width at runtime (per-width overflow
+  diagnostics); `isize`/`usize` remain follow-ups.
 
 ---
 
