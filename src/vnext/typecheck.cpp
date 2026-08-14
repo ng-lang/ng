@@ -94,6 +94,14 @@ namespace NG::vnext::typecheck
             signature.packParameterNames.push_back(function.packParameters[index]);
             genericBindings.emplace(function.packParameters[index], parameter);
           }
+          for (size_t index = 0; index < function.constructorParameters.size(); ++index)
+          {
+            const auto parameter = interner_.internTypeConstructor(function.constructorParameters[index],
+                                                                   static_cast<uint32_t>(index));
+            signature.constructorParameters.push_back(parameter);
+            signature.constructorParameterNames.push_back(function.constructorParameters[index]);
+            genericBindings.emplace(function.constructorParameters[index], parameter);
+          }
           for (const auto &[parameterName, bounds] : function.traitBounds)
           {
             for (const auto &traitName : bounds)
@@ -169,6 +177,8 @@ namespace NG::vnext::typecheck
         std::unordered_map<uint32_t, TypeId> types;
         std::unordered_map<uint32_t, std::vector<TypeId>> packs;
         TypeInterner::ConstSubstitution consts;
+        /// Constructor-parameter index -> template base type (struct).
+        TypeInterner::ConstructorSubstitution constructors;
       };
 
       struct ConstMatch
@@ -282,7 +292,7 @@ namespace NG::vnext::typecheck
       [[nodiscard]] auto isGeneric(const FunctionTypeIds &signature) const -> bool
       {
         return !signature.genericParameters.empty() || !signature.packParameters.empty() ||
-               !signature.constParameters.empty();
+               !signature.constParameters.empty() || !signature.constructorParameters.empty();
       }
 
       void requireConstArguments(const FunctionTypeIds &signature, const Substitution &substitution,
@@ -734,6 +744,20 @@ namespace NG::vnext::typecheck
             throw TypeError("const generic argument is not an integer", span);
           key += "|" + std::to_string(value.integerValue);
         }
+        std::vector<TypeId> concreteConstructors;
+        for (size_t index = 0; index < signature.constructorParameters.size(); ++index)
+        {
+          const TypeId parameter = signature.constructorParameters[index];
+          const auto found = substitution.constructors.find(*interner_.descriptor(parameter).nominalId);
+          if (found == substitution.constructors.end())
+          {
+            concrete = false;
+            concreteConstructors.push_back(parameter);
+            continue;
+          }
+          key += "|ctor=" + interner_.display(found->second);
+          concreteConstructors.push_back(found->second);
+        }
         std::vector<TypeId> packElements;
         if (!signature.packParameters.empty())
         {
@@ -772,6 +796,8 @@ namespace NG::vnext::typecheck
         }
         instanceSignature.genericParameters = std::move(concreteTypes);
         instanceSignature.genericParameterNames = signature.genericParameterNames;
+        instanceSignature.constructorParameters = concreteConstructors;
+        instanceSignature.constructorParameterNames = signature.constructorParameterNames;
         instanceSignature.constParameters = signature.constParameters;
         instanceSignature.constParameterNames = signature.constParameterNames;
         instanceSignature.returnType = specializeReturnType(signature, substitution, packCount);
@@ -798,6 +824,8 @@ namespace NG::vnext::typecheck
         genericBindings_.clear();
         for (size_t index = 0; index < function.genericParameters.size(); ++index)
           genericBindings_.emplace(function.genericParameters[index], signature.genericParameters[index]);
+        for (size_t index = 0; index < function.constructorParameters.size(); ++index)
+          genericBindings_.emplace(function.constructorParameters[index], signature.constructorParameters[index]);
         for (size_t index = 0; index < function.parameters.size(); ++index)
         {
           locals.emplace(function.parameters[index].local.value, signature.parameters[index]);
@@ -1467,9 +1495,10 @@ namespace NG::vnext::typecheck
       [[nodiscard]] auto explicitSubstitution(const hir::Expression &expression, const FunctionTypeIds &signature) -> Substitution
       {
         Substitution substitution;
-        if (expression.genericArguments.size() != signature.genericParameters.size() + signature.constParameters.size())
-          throw TypeError(std::format("generic argument count mismatch: expected {}, got {}",
-                                      signature.genericParameters.size() + signature.constParameters.size(),
+        const size_t expected = signature.genericParameters.size() + signature.constructorParameters.size() +
+                                signature.constParameters.size();
+        if (expression.genericArguments.size() != expected)
+          throw TypeError(std::format("generic argument count mismatch: expected {}, got {}", expected,
                                       expression.genericArguments.size()), expression.span);
         for (size_t index = 0; index < expression.genericArguments.size(); ++index)
         {
@@ -1481,13 +1510,28 @@ namespace NG::vnext::typecheck
             substitution.types.emplace(signature.genericParameters[index].value,
                                        interner_.resolveInScope(*argument.type, genericBindings_));
           }
+          else if (index < signature.genericParameters.size() + signature.constructorParameters.size())
+          {
+            const size_t constructorIndex = index - signature.genericParameters.size();
+            if (argument.kind != syntax::GenericArgumentKind::Type)
+              throw TypeError(std::format("generic argument {} must be a type constructor", index + 1), argument.span);
+            const TypeId templateType = interner_.templateForName(argument.type->name, argument.span);
+            const auto &descriptor = interner_.descriptor(templateType);
+            if (descriptor.kind != TypeKind::Struct || !descriptor.nominalId.has_value())
+              throw TypeError(std::format("generic argument {} must be a struct type constructor", index + 1),
+                              argument.span);
+            substitution.constructors.emplace(*interner_.descriptor(signature.constructorParameters[constructorIndex]).nominalId,
+                                             templateType);
+          }
           else
           {
             if (argument.kind != syntax::GenericArgumentKind::ConstExpr)
               throw TypeError(std::format("generic argument {} must be a const expression", index + 1), argument.span);
             const const_eval::ConstValueId value =
                 const_eval::ConstEvaluator{interner_.constInterner()}.evaluate(*argument.constExpr, {});
-            substitution.consts.emplace(static_cast<uint32_t>(index - signature.genericParameters.size()), value);
+            substitution.consts.emplace(
+                static_cast<uint32_t>(index - signature.genericParameters.size() - signature.constructorParameters.size()),
+                value);
           }
         }
         return substitution;
@@ -2325,8 +2369,37 @@ namespace NG::vnext::typecheck
           else substitution.types.emplace(expected.value, actual);
           return;
         }
-        if (expected == actual) return;
         const auto &actualDescriptor = interner_.descriptor(actual);
+        if (expectedDescriptor.kind == TypeKind::TypeApplication)
+        {
+          const uint32_t constructorIndex = *expectedDescriptor.nominalId;
+          if (actualDescriptor.kind == TypeKind::TypeApplication)
+          {
+            if (*actualDescriptor.nominalId != constructorIndex)
+              throw TypeError(std::format("generic argument type mismatch: expected {}, got {}", interner_.display(expected),
+                                          interner_.display(actual)), span);
+            unify(expectedDescriptor.element, actualDescriptor.element, substitution, span);
+            return;
+          }
+          if (actualDescriptor.kind != TypeKind::Struct || !actualDescriptor.nominalId.has_value() ||
+              actualDescriptor.typeArguments.size() != 1)
+            throw TypeError(std::format("generic argument type mismatch: expected {}, got {}", interner_.display(expected),
+                                        interner_.display(actual)), span);
+          const TypeId templateType = interner_.typeForStruct(hir::StructId{*actualDescriptor.nominalId});
+          if (const auto bound = substitution.constructors.find(constructorIndex); bound != substitution.constructors.end())
+          {
+            if (bound->second != templateType)
+              throw TypeError(std::format("generic argument type mismatch: expected {}, got {}", interner_.display(expected),
+                                          interner_.display(actual)), span);
+          }
+          else
+          {
+            substitution.constructors.emplace(constructorIndex, templateType);
+          }
+          unify(expectedDescriptor.element, actualDescriptor.typeArguments[0], substitution, span);
+          return;
+        }
+        if (expected == actual) return;
         if (expectedDescriptor.kind == TypeKind::DependentArray || actualDescriptor.kind == TypeKind::DependentArray)
         {
           const auto &dependent = expectedDescriptor.kind == TypeKind::DependentArray ? expectedDescriptor : actualDescriptor;
@@ -2420,7 +2493,7 @@ namespace NG::vnext::typecheck
 
       [[nodiscard]] auto specialize(TypeId type, const Substitution &substitution) -> TypeId
       {
-        return interner_.specialize(type, substitution.types, substitution.consts);
+        return interner_.specialize(type, substitution.types, substitution.consts, substitution.constructors);
       }
       void requireType(TypeId expected, TypeId actual, syntax::SourceSpan span, std::string_view context) const
       {

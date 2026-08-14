@@ -314,10 +314,12 @@ namespace NG::vnext::bytecode
           descriptor.kind != typecheck::TypeKind::Range &&
           descriptor.kind != typecheck::TypeKind::Tuple &&
           descriptor.kind != typecheck::TypeKind::Struct && descriptor.kind != typecheck::TypeKind::Enum &&
-          descriptor.kind != typecheck::TypeKind::TypeParameter && descriptor.kind != typecheck::TypeKind::Opaque)
+          descriptor.kind != typecheck::TypeKind::TypeParameter && descriptor.kind != typecheck::TypeKind::Opaque &&
+          descriptor.kind != typecheck::TypeKind::TypeConstructor && descriptor.kind != typecheck::TypeKind::TypeApplication)
         throw BytecodeError("bytecode type descriptor kind is invalid");
       if (descriptor.kind == typecheck::TypeKind::Reference || descriptor.kind == typecheck::TypeKind::RawPointer ||
-          descriptor.kind == typecheck::TypeKind::TypePack || descriptor.kind == typecheck::TypeKind::Range)
+          descriptor.kind == typecheck::TypeKind::TypePack || descriptor.kind == typecheck::TypeKind::Range ||
+          descriptor.kind == typecheck::TypeKind::TypeApplication)
         verifyTypeId(descriptor.element);
       if (descriptor.kind == typecheck::TypeKind::DynamicArray || descriptor.kind == typecheck::TypeKind::FixedArray ||
           descriptor.kind == typecheck::TypeKind::DependentArray)

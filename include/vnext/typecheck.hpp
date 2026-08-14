@@ -53,6 +53,10 @@ namespace NG::vnext::typecheck
     TypeParameter,
     /// `type Name;` (abstract) or `type Name = native;` (native opaque handle).
     Opaque,
+    /// `F<_>` generic parameter: a type constructor of kind `* -> *`.
+    TypeConstructor,
+    /// `F<T>` application of a type constructor to one type argument.
+    TypeApplication,
   };
 
   struct TypeDescriptor
@@ -90,6 +94,12 @@ namespace NG::vnext::typecheck
     [[nodiscard]] auto specialize(TypeId type, const std::unordered_map<uint32_t, TypeId> &bindings) -> TypeId;
     [[nodiscard]] auto specialize(TypeId type, const std::unordered_map<uint32_t, TypeId> &bindings,
                                   const ConstSubstitution &constBindings) -> TypeId;
+    /// Constructor substitution maps constructor-parameter indexes to their
+    /// template base types (struct or enum).
+    using ConstructorSubstitution = std::unordered_map<uint32_t, TypeId>;
+    [[nodiscard]] auto specialize(TypeId type, const std::unordered_map<uint32_t, TypeId> &bindings,
+                                  const ConstSubstitution &constBindings,
+                                  const ConstructorSubstitution &constructors) -> TypeId;
     [[nodiscard]] auto internConstInteger(int64_t value) -> const_eval::ConstValueId;
     [[nodiscard]] auto constInterner() -> const_eval::ConstInterner & { return constInterner_; }
     [[nodiscard]] auto resolveInScope(const hir::Type &type, const std::unordered_map<std::string, TypeId> &bindings,
@@ -104,12 +114,17 @@ namespace NG::vnext::typecheck
     [[nodiscard]] auto internTypePack(TypeId element) -> TypeId;
     [[nodiscard]] auto internRange(TypeId element) -> TypeId;
     [[nodiscard]] auto internTypeParameter(std::string name, uint32_t index) -> TypeId;
+    [[nodiscard]] auto internTypeConstructor(std::string name, uint32_t index) -> TypeId;
+    [[nodiscard]] auto internTypeApplication(std::string constructorName, uint32_t constructorIndex, TypeId argument) -> TypeId;
     [[nodiscard]] auto declareStruct(hir::StructId id, std::string name) -> TypeId;
     void registerStructTemplate(const hir::Struct &structure);
     [[nodiscard]] auto structGenericArity(hir::StructId id) const -> size_t;
     [[nodiscard]] auto declareOpaqueType(std::string name, bool abstract, syntax::SourceSpan span) -> TypeId;
     void defineStruct(hir::StructId id, std::vector<std::string> fields, std::vector<TypeId> types);
     [[nodiscard]] auto typeForStruct(hir::StructId id) const -> TypeId;
+    /// Looks a declared type up by name without instantiating generics;
+    /// used for explicit type-constructor generic arguments (`accept<Box, ...>`).
+    [[nodiscard]] auto templateForName(const std::string &name, syntax::SourceSpan span) const -> TypeId;
     [[nodiscard]] auto declareEnum(hir::EnumId id, std::string name, std::vector<std::string> genericParameters = {}) -> TypeId;
     void registerEnumTemplate(const hir::Enum &enumeration);
     void defineEnum(hir::EnumId id, std::vector<std::string> variants, std::vector<TypeId> payloads,
@@ -131,6 +146,9 @@ namespace NG::vnext::typecheck
                                                  const std::unordered_map<std::string, TypeId> &bindings,
                                                  const ConstParamBindings &constBindings) -> std::optional<TypeId>;
     [[nodiscard]] auto evaluateArrayLength(const hir::TypeArgument &argument) -> uint64_t;
+    /// Instantiates a generic struct template with concrete arguments,
+    /// interning a per-instance descriptor that shares the nominal id.
+    [[nodiscard]] auto internStructInstance(TypeId templateType, const std::vector<TypeId> &arguments) -> TypeId;
     std::vector<TypeDescriptor> descriptors_;
     std::unordered_map<std::string, TypeId> namedTypes_;
     std::unordered_map<uint32_t, TypeId> structTypes_;
@@ -155,6 +173,8 @@ namespace NG::vnext::typecheck
     std::vector<std::string> genericParameterNames;
     std::vector<TypeId> packParameters;
     std::vector<std::string> packParameterNames;
+    std::vector<TypeId> constructorParameters;
+    std::vector<std::string> constructorParameterNames;
     std::vector<TypeId> constParameters;
     std::vector<std::string> constParameterNames;
     TypeId returnType;

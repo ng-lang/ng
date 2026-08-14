@@ -343,6 +343,8 @@ namespace NG::vnext::hir
       else
       {
         if (parameter.kind == syntax::GenericParameterKind::Pack) resolved.packParameters.push_back(parameter.name);
+        else if (parameter.kind == syntax::GenericParameterKind::TypeConstructor)
+          resolved.constructorParameters.push_back(parameter.name);
         else resolved.genericParameters.push_back(parameter.name);
         if (!parameter.traitBounds.empty()) resolved.traitBounds.emplace_back(parameter.name, parameter.traitBounds);
       }
@@ -941,6 +943,7 @@ namespace
                     .span = source.span,
                     .genericParameters = source.genericParameters,
                     .packParameters = source.packParameters,
+                    .constructorParameters = source.constructorParameters,
                     .constFunction = source.constFunction,
                     .exported = source.exported,
                     .nativeFunction = source.nativeFunction,

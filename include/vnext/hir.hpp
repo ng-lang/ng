@@ -236,6 +236,8 @@ namespace NG::vnext::hir
     syntax::SourceSpan span;
     std::vector<std::string> genericParameters;
     std::vector<std::string> packParameters;
+    /// `F<_>` type-constructor parameters (kind `* -> *`).
+    std::vector<std::string> constructorParameters;
     std::vector<ConstParameter> constParameters;
     std::vector<Parameter> parameters;
     std::optional<std::string> returnTypeName;

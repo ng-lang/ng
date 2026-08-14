@@ -130,6 +130,33 @@ namespace NG::vnext::typecheck
     return structGenericParameters_.at(id.value).size();
   }
 
+  auto TypeInterner::internStructInstance(TypeId templateType, const std::vector<TypeId> &arguments) -> TypeId
+  {
+    const auto &base = descriptor(templateType);
+    const uint32_t structId = base.nominalId.value();
+    const auto &parameters = structGenericParameters_.at(structId);
+    if (arguments.size() != parameters.size())
+      throw TypeError(std::format("struct type `{}` expects {} arguments, got {}", base.name, parameters.size(),
+                                  arguments.size()), syntax::SourceSpan{0, 0});
+    for (uint32_t index = 6; index < descriptors_.size(); ++index)
+      if (descriptors_[index].kind == TypeKind::Struct && descriptors_[index].nominalId == structId &&
+          descriptors_[index].typeArguments == arguments)
+        return TypeId{index};
+    std::unordered_map<std::string, TypeId> nested;
+    for (size_t index = 0; index < parameters.size(); ++index) nested.emplace(parameters[index], arguments[index]);
+    const auto *structure = structTemplates_.at(structId);
+    std::vector<std::string> fields;
+    std::vector<TypeId> fieldTypes;
+    for (const auto &field : structure->fields)
+    {
+      fields.push_back(field.name);
+      fieldTypes.push_back(resolveWithBindings(field.type, nested, {}));
+    }
+    return append(TypeDescriptor{.kind = TypeKind::Struct, .name = base.name, .element = TypeId{},
+                                 .length = fieldTypes.size(), .elements = std::move(fieldTypes), .nominalId = structId,
+                                 .fieldNames = std::move(fields), .typeArguments = arguments});
+  }
+
   void TypeInterner::defineStruct(hir::StructId id, std::vector<std::string> fields, std::vector<TypeId> types)
   {
     const auto type = typeForStruct(id);
@@ -142,6 +169,12 @@ namespace NG::vnext::typecheck
   auto TypeInterner::typeForStruct(hir::StructId id) const -> TypeId
   {
     return structTypes_.at(id.value);
+  }
+
+  auto TypeInterner::templateForName(const std::string &name, syntax::SourceSpan span) const -> TypeId
+  {
+    if (const auto found = namedTypes_.find(name); found != namedTypes_.end()) return found->second;
+    throw TypeError(std::format("unknown type `{}`", name), span);
   }
 
   auto TypeInterner::declareEnum(hir::EnumId id, std::string name, std::vector<std::string> genericParameters) -> TypeId
@@ -188,18 +221,36 @@ namespace NG::vnext::typecheck
   auto TypeInterner::specialize(TypeId type, const std::unordered_map<uint32_t, TypeId> &bindings,
                                 const ConstSubstitution &constBindings) -> TypeId
   {
+    return specialize(type, bindings, constBindings, {});
+  }
+
+  auto TypeInterner::specialize(TypeId type, const std::unordered_map<uint32_t, TypeId> &bindings,
+                                const ConstSubstitution &constBindings,
+                                const ConstructorSubstitution &constructors) -> TypeId
+  {
     const auto parameter = bindings.find(type.value);
     if (parameter != bindings.end()) return parameter->second;
     const auto &source = descriptor(type);
+    if (source.kind == TypeKind::TypeApplication)
+    {
+      const auto bound = constructors.find(*source.nominalId);
+      if (bound == constructors.end()) return type;
+      const TypeId argument = specialize(source.element, bindings, constBindings, constructors);
+      const auto &templateDescriptor = descriptor(bound->second);
+      if (templateDescriptor.kind == TypeKind::Struct)
+        return internStructInstance(bound->second, {argument});
+      throw TypeError(std::format("type constructor `{}` does not name a struct template", source.name),
+                      syntax::SourceSpan{0, 0});
+    }
     if (source.kind == TypeKind::Range)
-      return internRange(specialize(source.element, bindings, constBindings));
+      return internRange(specialize(source.element, bindings, constBindings, constructors));
     if (source.kind == TypeKind::DynamicArray)
-      return internDynamicArray(specialize(source.element, bindings, constBindings));
+      return internDynamicArray(specialize(source.element, bindings, constBindings, constructors));
     if (source.kind == TypeKind::FixedArray)
-      return internFixedArray(specialize(source.element, bindings, constBindings), *source.length);
+      return internFixedArray(specialize(source.element, bindings, constBindings, constructors), *source.length);
     if (source.kind == TypeKind::DependentArray)
     {
-      const TypeId element = specialize(source.element, bindings, constBindings);
+      const TypeId element = specialize(source.element, bindings, constBindings, constructors);
       const auto bound = constBindings.find(*source.constParameterIndex);
       if (bound == constBindings.end())
         return internDependentArray(element, *source.constParameterIndex, source.constParameterName);
@@ -209,28 +260,36 @@ namespace NG::vnext::typecheck
       return internFixedArray(element, static_cast<uint64_t>(value.integerValue));
     }
     if (source.kind == TypeKind::Reference)
-      return internReference(specialize(source.element, bindings, constBindings), source.referenceMutable);
+      return internReference(specialize(source.element, bindings, constBindings, constructors), source.referenceMutable);
     if (source.kind == TypeKind::RawPointer)
-      return internRawPointer(specialize(source.element, bindings, constBindings), source.referenceMutable);
+      return internRawPointer(specialize(source.element, bindings, constBindings, constructors), source.referenceMutable);
     if (source.kind == TypeKind::Tuple)
     {
       std::vector<TypeId> elements;
-      for (const auto element : source.elements) elements.push_back(specialize(element, bindings, constBindings));
+      for (const auto element : source.elements) elements.push_back(specialize(element, bindings, constBindings, constructors));
       return internTuple(elements);
     }
     if (source.kind == TypeKind::Enum && !source.typeArguments.empty())
     {
       std::vector<TypeId> arguments;
-      for (const auto argument : source.typeArguments) arguments.push_back(specialize(argument, bindings, constBindings));
+      for (const auto argument : source.typeArguments)
+        arguments.push_back(specialize(argument, bindings, constBindings, constructors));
       for (uint32_t index = 6; index < descriptors_.size(); ++index)
         if (descriptors_[index].kind == TypeKind::Enum && descriptors_[index].nominalId == source.nominalId &&
             descriptors_[index].typeArguments == arguments) return TypeId{index};
       std::vector<TypeId> payloads;
-      for (const auto payload : source.elements) payloads.push_back(specialize(payload, bindings, constBindings));
+      for (const auto payload : source.elements) payloads.push_back(specialize(payload, bindings, constBindings, constructors));
       auto copy = source;
       copy.typeArguments = std::move(arguments);
       copy.elements = std::move(payloads);
       return append(std::move(copy));
+    }
+    if (source.kind == TypeKind::Struct && !source.typeArguments.empty())
+    {
+      std::vector<TypeId> arguments;
+      for (const auto argument : source.typeArguments)
+        arguments.push_back(specialize(argument, bindings, constBindings, constructors));
+      return internStructInstance(typeForStruct(hir::StructId{*source.nominalId}), arguments);
     }
     return type;
   }
@@ -262,6 +321,15 @@ namespace NG::vnext::typecheck
       return internRawPointer(resolveWithBindings(*type.target, bindings, constBindings), type.isMutable);
     if (type.kind != hir::TypeKind::Applied || type.target == nullptr || type.target->kind != hir::TypeKind::Named)
       return resolve(type);
+    if (const auto bound = bindings.find(type.target->name); bound != bindings.end() &&
+                                                           descriptors_[bound->second.value].kind == TypeKind::TypeConstructor)
+    {
+      if (type.arguments.size() != 1 || type.arguments[0].type == nullptr)
+        throw TypeError(std::format("type constructor `{}` expects exactly 1 argument, got {}", type.target->name,
+                                    type.arguments.size()), type.span);
+      const TypeId argument = resolveWithBindings(*type.arguments[0].type, bindings, constBindings);
+      return internTypeApplication(type.target->name, *descriptors_[bound->second.value].nominalId, argument);
+    }
     if (type.target->name == "array")
     {
       if (type.arguments.size() != 1 && type.arguments.size() != 2)
@@ -398,6 +466,22 @@ namespace NG::vnext::typecheck
   {
     return append(TypeDescriptor{.kind = TypeKind::TypeParameter, .name = std::move(name), .element = TypeId{},
                                  .length = std::nullopt, .nominalId = index});
+  }
+
+  auto TypeInterner::internTypeConstructor(std::string name, uint32_t index) -> TypeId
+  {
+    return append(TypeDescriptor{.kind = TypeKind::TypeConstructor, .name = std::move(name), .element = TypeId{},
+                                 .length = std::nullopt, .nominalId = index});
+  }
+
+  auto TypeInterner::internTypeApplication(std::string constructorName, uint32_t constructorIndex, TypeId argument) -> TypeId
+  {
+    for (uint32_t index = 6; index < descriptors_.size(); ++index)
+      if (descriptors_[index].kind == TypeKind::TypeApplication && descriptors_[index].nominalId == constructorIndex &&
+          descriptors_[index].element == argument)
+        return TypeId{index};
+    return append(TypeDescriptor{.kind = TypeKind::TypeApplication, .name = std::move(constructorName), .element = argument,
+                                 .length = std::nullopt, .nominalId = constructorIndex});
   }
 
   auto TypeInterner::resolve(const hir::Type &type) -> TypeId
@@ -558,8 +642,9 @@ namespace NG::vnext::typecheck
     if (item.kind == TypeKind::RawPointer)
       return std::format("{} {}", display(item.element), item.referenceMutable ? "*mut" : "*const");
     if (item.kind == TypeKind::Struct || item.kind == TypeKind::Enum || item.kind == TypeKind::TypeParameter ||
-        item.kind == TypeKind::Opaque)
+        item.kind == TypeKind::Opaque || item.kind == TypeKind::TypeConstructor)
       return item.name;
+    if (item.kind == TypeKind::TypeApplication) return std::format("{}<{}>", item.name, display(item.element));
     if (item.kind == TypeKind::TypePack) return display(item.element) + "...";
     if (item.kind == TypeKind::Range) return "range<" + display(item.element) + ">";
     std::string result{"tuple<"};

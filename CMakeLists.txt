@@ -127,6 +127,7 @@ set(NG_TEST_SRC
         test/vnext/tuple_introspection_test.cpp
         test/vnext/opaque_type_test.cpp
         test/vnext/generic_struct_test.cpp
+        test/vnext/hkt_test.cpp
         test/vnext/ref_type_test.cpp
         test/vnext/ref_runtime_test.cpp
         test/vnext/switch_statement_test.cpp

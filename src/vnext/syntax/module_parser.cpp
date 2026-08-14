@@ -345,10 +345,18 @@ namespace NG::vnext::syntax
           if (current().kind != TokenKind::Identifier) throw ParseError("expected a function generic parameter", current().span);
           const Token parameter = consume();
           bool pack = false;
+          bool constructor = false;
           if (current().kind == TokenKind::Ellipsis)
           {
             static_cast<void>(consume());
             pack = true;
+          }
+          if (current().kind == TokenKind::Less && peek(1).kind == TokenKind::Identifier && peek(1).text == "_")
+          {
+            static_cast<void>(consume());
+            static_cast<void>(consume());
+            expect(TokenKind::Greater, "expected `>` after `_` in type constructor parameter");
+            constructor = true;
           }
           std::vector<std::string> traitBounds;
           if (current().kind == TokenKind::Colon)
@@ -362,7 +370,9 @@ namespace NG::vnext::syntax
               static_cast<void>(consume());
             }
           }
-          genericParameters.push_back(GenericParameter{.kind = pack ? GenericParameterKind::Pack : GenericParameterKind::Type,
+          genericParameters.push_back(GenericParameter{.kind = constructor ? GenericParameterKind::TypeConstructor
+                                                                            : (pack ? GenericParameterKind::Pack
+                                                                                    : GenericParameterKind::Type),
                                                         .name = parameter.text,
                                                         .type = nullptr,
                                                         .traitBounds = std::move(traitBounds),

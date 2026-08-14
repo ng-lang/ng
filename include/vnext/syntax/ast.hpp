@@ -587,6 +587,8 @@ namespace NG::vnext::syntax
     Type,
     Const,
     Pack,
+    /// `F<_>`: a type constructor of kind `* -> *`.
+    TypeConstructor,
   };
 
   struct GenericParameter
