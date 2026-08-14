@@ -189,6 +189,9 @@ namespace NG::vnext::bytecode
     void appendFunction(std::vector<uint8_t> &output, const Function &function)
     {
       appendU32(output, function.source.value);
+      appendU32(output, function.nativeFunction ? 1u : 0u);
+      appendU32(output, narrowSize(function.name.size()));
+      output.insert(output.end(), function.name.begin(), function.name.end());
       appendU32(output, narrowSize(function.code.size()));
       output.insert(output.end(), function.code.begin(), function.code.end());
       appendStringVector(output, function.stringConstants);
@@ -205,6 +208,12 @@ namespace NG::vnext::bytecode
     [[nodiscard]] auto readFunction(const std::vector<uint8_t> &input, size_t &offset) -> Function
     {
       Function function{.source = hir::DefId{readU32(input, offset)}};
+      function.nativeFunction = readU32(input, offset) != 0;
+      const uint32_t nameSize = readU32(input, offset);
+      if (nameSize > input.size() - offset) throw BytecodeError("truncated bytecode artifact");
+      function.name.assign(input.begin() + static_cast<std::ptrdiff_t>(offset),
+                           input.begin() + static_cast<std::ptrdiff_t>(offset + nameSize));
+      offset += nameSize;
       const uint32_t codeSize = readU32(input, offset);
       if (codeSize > input.size() - offset) throw BytecodeError("truncated bytecode artifact");
       function.code.insert(function.code.end(), input.begin() + static_cast<std::ptrdiff_t>(offset),

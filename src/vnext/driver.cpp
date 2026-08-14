@@ -7,6 +7,7 @@
 #include "vnext/syntax/module_parser.hpp"
 #include "vnext/typecheck.hpp"
 #include "vnext/vm.hpp"
+#include "vnext/native.hpp"
 #include "vnext/syntax/parser.hpp"
 #include <algorithm>
 #include <charconv>
@@ -112,7 +113,25 @@ namespace NG::vnext
             return 1;
           }
           if (!parseRuntimeArguments(runtimeArguments, main->parameters, values, errors)) return 1;
-          const auto result = vm::VM{}.run(artifact, main->id, values);
+          vm::NativeRegistry natives;
+          natives.registerNative("print", [&output](const std::vector<Value> &arguments,
+                                                       const std::vector<typecheck::TypeId> &parameterTypes) {
+            if (arguments.empty() || arguments.size() > 1) throw bytecode::BytecodeError("print expects one argument");
+            const auto &argument = arguments.front();
+            if (!parameterTypes.empty() && parameterTypes.front() == typecheck::builtin::Bool)
+              output << (argument == 1 ? "true" : "false");
+            else if (argument.isInteger()) output << argument.asInteger();
+            else if (argument.isString()) output << argument.asString();
+            else throw bytecode::BytecodeError("print does not support this value type");
+            output << '\n';
+            return Value{};
+          });
+          natives.registerNative("assert", [](const std::vector<Value> &arguments, const std::vector<typecheck::TypeId> &) {
+            if (arguments.size() != 1) throw bytecode::BytecodeError("assert expects one argument");
+            if (!(arguments.front() == 1)) throw bytecode::BytecodeError("assertion failed");
+            return Value{};
+          });
+          const auto result = vm::VM{}.run(artifact, main->id, values, 1'000'000, &natives);
           output << "compiled " << verifiedFunctions << " vNext function(s); main "
                  << (result.reason == vm::HaltReason::Return ? "returned" : "exhausted fuel") << " after "
                  << result.executedInstructions << " instruction(s)";

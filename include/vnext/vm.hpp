@@ -2,6 +2,7 @@
 #pragma once
 
 #include "vnext/bytecode.hpp"
+#include "vnext/native.hpp"
 #include "vnext/value.hpp"
 #include <cstddef>
 #include <optional>
@@ -34,8 +35,8 @@ namespace NG::vnext::vm
     [[nodiscard]] auto run(const bytecode::Function &function, const std::vector<int64_t> &arguments,
                            size_t fuel = 100000) const -> RunResult;
     [[nodiscard]] auto run(const bytecode::Module &module, hir::DefId entry, const std::vector<int64_t> &arguments = {},
-                           size_t fuel = 100000) const -> RunResult;
+                           size_t fuel = 100000, const NativeRegistry *natives = nullptr) const -> RunResult;
     [[nodiscard]] auto run(const bytecode::Module &module, hir::DefId entry, const std::vector<Value> &arguments,
-                           size_t fuel = 100000) const -> RunResult;
+                           size_t fuel = 100000, const NativeRegistry *natives = nullptr) const -> RunResult;
   };
 } // namespace NG::vnext::vm

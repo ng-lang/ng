@@ -282,6 +282,17 @@ unsafe extern "C" {
 
 `native fun` is an NG runtime ABI declaration, not a promise of direct C ABI compatibility. `extern "C"` is a C ABI declaration. Both carry HIR `CallableDescriptor`s but lower differently.
 
+### Implementation status — 2026-08-15
+
+- `native fun name(...) -> T;` parses, resolves, and typechecks like an
+  ordinary declaration with no NG body; the VM intercepts calls to native
+  functions through a `NativeRegistry` and invokes the registered host
+  intrinsic with the argument values plus the callee's static parameter
+  types (so overloaded builtins such as `print` can render `bool`).
+- ngi registers `print` (i64/string/bool) and `assert`; failed asserts and
+  unregistered natives are deterministic runtime errors. `extern "C"`,
+  opaque handles, effects annotations, and the declared C ABI remain.
+
 ### Opaque type rule
 
 `extern opaque type T: pointer` represents a foreign handle, normally `T*` or `void*`, with an explicit descriptor for nullability, ownership, drop/retain/release, sendability, and ABI projection.

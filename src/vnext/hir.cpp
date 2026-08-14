@@ -311,7 +311,7 @@ namespace NG::vnext::hir
 
     constParameters_.clear();
     Function resolved{.id = id, .name = function.name, .span = function.span, .constFunction = function.constFunction,
-                      .exported = function.exported};
+                      .exported = function.exported, .nativeFunction = function.nativeFunction};
     for (const auto &parameter : function.genericParameters)
     {
       if (parameter.kind == syntax::GenericParameterKind::Const)
@@ -922,6 +922,8 @@ namespace
                     .span = source.span,
                     .genericParameters = source.genericParameters,
                     .constFunction = source.constFunction,
+                    .exported = source.exported,
+                    .nativeFunction = source.nativeFunction,
                     .traitBounds = source.traitBounds};
     for (const auto &parameter : source.constParameters)
       cloned.constParameters.push_back(ConstParameter{.name = parameter.name,

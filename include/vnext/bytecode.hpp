@@ -54,6 +54,8 @@ namespace NG::vnext::bytecode
   struct Function
   {
     hir::DefId source;
+    std::string name;
+    bool nativeFunction{};
     std::vector<uint8_t> code;
     std::vector<std::string> stringConstants;
     std::vector<uint32_t> parameterLocals;

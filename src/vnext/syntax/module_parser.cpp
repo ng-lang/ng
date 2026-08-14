@@ -26,6 +26,11 @@ namespace NG::vnext::syntax
       {
         items.push_back(parseImportDeclaration());
       }
+      else if (current().kind == TokenKind::KeywordNative && peek(1).kind == TokenKind::KeywordFun)
+      {
+        static_cast<void>(consume());
+        items.push_back(parseFunctionDeclaration(false, false, true));
+      }
       else if (current().kind == TokenKind::KeywordExport)
       {
         static_cast<void>(consume());
@@ -264,7 +269,7 @@ namespace NG::vnext::syntax
     return std::make_unique<StructDeclaration>(name.text, std::move(fields), SourceSpan{structToken.span.begin, close.span.end});
   }
 
-  auto ModuleParser::parseFunctionDeclaration(bool constFunction, bool exported) -> ModuleItemPtr
+  auto ModuleParser::parseFunctionDeclaration(bool constFunction, bool exported, bool nativeFunction) -> ModuleItemPtr
   {
     const Token funToken = consume();
     if (constFunction)
@@ -354,7 +359,7 @@ namespace NG::vnext::syntax
     if (current().kind == TokenKind::Arrow)
     {
       static_cast<void>(consume());
-      returnType = parseTypeUntil({TokenKind::LeftBrace, TokenKind::FatArrow, TokenKind::KeywordWhere});
+      returnType = parseTypeUntil({TokenKind::LeftBrace, TokenKind::FatArrow, TokenKind::KeywordWhere, TokenKind::Semicolon});
     }
 
     ExpressionPtr whereClause;
@@ -376,6 +381,14 @@ namespace NG::vnext::syntax
     }
 
     std::optional<Block> body;
+    if (nativeFunction)
+    {
+      expect(TokenKind::Semicolon, "expected `;` after native function signature");
+      const SourceSpan span{funToken.span.begin, current().span.begin};
+      return std::make_unique<FunctionDeclaration>(name.text, std::move(genericParameters), std::move(parameters),
+                                                   std::move(returnType), Block{SourceSpan{span.end, span.end}, {}, nullptr},
+                                                   span, false, std::move(whereClause), false, true);
+    }
     if (current().kind == TokenKind::FatArrow)
     {
       // Expression body sugar: `=> expr;` becomes a block returning the
@@ -396,7 +409,7 @@ namespace NG::vnext::syntax
     }
     const SourceSpan span{funToken.span.begin, body->span.end};
     return std::make_unique<FunctionDeclaration>(name.text, std::move(genericParameters), std::move(parameters), std::move(returnType),
-                                                 std::move(*body), span, constFunction, std::move(whereClause), exported);
+                                                 std::move(*body), span, constFunction, std::move(whereClause), exported, false);
   }
 
   auto ModuleParser::parseExpressionUntil(TokenKind terminator) -> ExpressionPtr

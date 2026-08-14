@@ -751,16 +751,17 @@ namespace NG::vnext::syntax
     TypeSyntaxPtr returnType;
     Block body;
     const bool constFunction;
+    const bool nativeFunction;
     ExpressionPtr whereClause;
     const bool exported;
 
     FunctionDeclaration(std::string functionName, std::vector<GenericParameter> genericParameterList,
                         std::vector<FunctionParameter> functionParameters,
                         TypeSyntaxPtr functionReturnType, Block functionBody, SourceSpan sourceSpan, bool isConstFunction = false,
-                        ExpressionPtr whereCondition = nullptr, bool isExported = false)
+                        ExpressionPtr whereCondition = nullptr, bool isExported = false, bool isNativeFunction = false)
       : ModuleItem(ModuleItemKind::Function, sourceSpan), name(std::move(functionName)),
         genericParameters(std::move(genericParameterList)), parameters(std::move(functionParameters)), returnType(std::move(functionReturnType)), body(std::move(functionBody)),
-        constFunction(isConstFunction), whereClause(std::move(whereCondition)), exported(isExported)
+        constFunction(isConstFunction), nativeFunction(isNativeFunction), whereClause(std::move(whereCondition)), exported(isExported)
     {
     }
   };

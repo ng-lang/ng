@@ -1,0 +1,21 @@
+// vNext native fun (D-004): runtime intrinsics supplied by the embedding.
+// ngi registers print and assert; calling an unregistered native is a
+// deterministic runtime error.
+
+native fun print(value: i64) -> unit;
+native fun print(value: string) -> unit;
+native fun print(value: bool) -> unit;
+native fun assert(condition: bool) -> unit;
+
+fun not(value: bool) -> bool {
+    return !value;
+}
+
+fun main() {
+    print(42);
+    print("hello, native world");
+    print(true);
+    print(not(false));
+    assert(1 + 1 == 2);
+    assert(not(false));
+}

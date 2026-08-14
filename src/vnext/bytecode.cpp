@@ -72,7 +72,7 @@ namespace NG::vnext::bytecode
 
   auto Compiler::compile(const flowir::Function &flow) const -> Function
   {
-    Function result{.source = flow.source};
+    Function result{.source = flow.source, .name = flow.name, .nativeFunction = flow.nativeFunction};
     result.valueTypes = flow.valueTypes;
     result.localTypes = flow.localTypes;
     result.typeDescriptors = flow.typeDescriptors;

@@ -102,6 +102,8 @@ namespace NG::vnext::flowir
   struct Function
   {
     hir::DefId source;
+    std::string name;
+    bool nativeFunction{};
     BlockId entry;
     std::vector<hir::LocalId> parameterLocals;
     std::vector<Block> blocks;

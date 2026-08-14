@@ -143,16 +143,16 @@ namespace NG::vnext::vm
   }
 
   auto VM::run(const bytecode::Module &module, hir::DefId entry, const std::vector<int64_t> &arguments,
-               size_t fuel) const -> RunResult
+               size_t fuel, const NativeRegistry *natives) const -> RunResult
   {
     std::vector<Value> values;
     values.reserve(arguments.size());
     for (const auto argument : arguments) values.push_back(Value::integer(argument));
-    return run(module, entry, values, fuel);
+    return run(module, entry, values, fuel, natives);
   }
 
   auto VM::run(const bytecode::Module &module, hir::DefId entry, const std::vector<Value> &arguments,
-               size_t fuel) const -> RunResult
+               size_t fuel, const NativeRegistry *natives) const -> RunResult
   {
     struct Prepared
     {
@@ -262,7 +262,26 @@ namespace NG::vnext::vm
         std::vector<Value> callArguments;
         for (size_t index = 0; index < instruction.operands[2]; ++index)
           callArguments.push_back(frame.values.at(instruction.operands[3 + index]).deepCopy());
-        frames.push_back(makeFrame(instruction.operands[1], callArguments, instruction.operands[0]));
+        const uint32_t target = instruction.operands[1];
+        const auto &targetFunction = module.functions.at(target);
+        if (targetFunction.nativeFunction)
+        {
+          const auto *native = natives != nullptr ? natives->lookup(targetFunction.name) : nullptr;
+          if (native == nullptr)
+            throw bytecode::BytecodeError(std::format("native function `{}` is not registered", targetFunction.name));
+          const uint32_t destination = instruction.operands[0];
+          std::vector<typecheck::TypeId> parameterTypes;
+          parameterTypes.reserve(targetFunction.parameterLocals.size());
+          for (const auto local : targetFunction.parameterLocals)
+          {
+            const auto found = targetFunction.localTypes.find(local);
+            if (found != targetFunction.localTypes.end()) parameterTypes.push_back(found->second);
+          }
+          if (frame.values.size() <= destination) frame.values.resize(destination + 1);
+          frame.values[destination] = (*native)(callArguments, parameterTypes).deepCopy();
+          continue;
+        }
+        frames.push_back(makeFrame(target, callArguments, instruction.operands[0]));
         continue;
       }
       if (instruction.opcode == bytecode::Opcode::Return)

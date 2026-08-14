@@ -243,6 +243,9 @@ namespace NG::vnext::hir
     bool constFunction{};
     /// `export` visibility (D-009); enforcement arrives with module privacy.
     bool exported{};
+    /// `native fun` (D-004): implemented by the embedding at runtime; the
+    /// declaration has no NG body.
+    bool nativeFunction{};
     /// Where-clause constraint (D-014): predicate applications, `T is Type`,
     /// trait bounds, and boolean combinations; evaluated per concrete instance.
     ExpressionPtr whereClause;
