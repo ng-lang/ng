@@ -378,7 +378,8 @@ namespace NG::vnext::bytecode
             }
             else
             {
-              if (aggregate.kind != typecheck::TypeKind::DynamicArray && aggregate.kind != typecheck::TypeKind::FixedArray)
+              if (aggregate.kind != typecheck::TypeKind::DynamicArray && aggregate.kind != typecheck::TypeKind::FixedArray &&
+                  aggregate.kind != typecheck::TypeKind::DependentArray)
                 throw BytecodeError("bytecode index receiver is not an aggregate type");
               requireResultType(aggregate.element);
             }
@@ -486,7 +487,8 @@ namespace NG::vnext::bytecode
           }
           else
           {
-            if (aggregate.kind != typecheck::TypeKind::DynamicArray && aggregate.kind != typecheck::TypeKind::FixedArray)
+            if (aggregate.kind != typecheck::TypeKind::DynamicArray && aggregate.kind != typecheck::TypeKind::FixedArray &&
+                aggregate.kind != typecheck::TypeKind::DependentArray)
               throw BytecodeError("bytecode index receiver is not an aggregate type");
             if (requireValueType(instruction.operands[2]) != aggregate.element)
               throw BytecodeError("bytecode array assignment value type mismatch");

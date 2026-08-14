@@ -70,10 +70,16 @@ namespace NG::vnext::typecheck
     /// Maps const-parameter names to their declaration index inside the
     /// current generic function signature.
     using ConstParamBindings = std::unordered_map<std::string, uint32_t>;
+    /// Maps const-parameter declaration indexes to canonical const values
+    /// during generic instantiation.
+    using ConstSubstitution = std::unordered_map<uint32_t, const_eval::ConstValueId>;
 
     TypeInterner();
 
     [[nodiscard]] auto specialize(TypeId type, const std::unordered_map<uint32_t, TypeId> &bindings) -> TypeId;
+    [[nodiscard]] auto specialize(TypeId type, const std::unordered_map<uint32_t, TypeId> &bindings,
+                                  const ConstSubstitution &constBindings) -> TypeId;
+    [[nodiscard]] auto internConstInteger(int64_t value) -> const_eval::ConstValueId;
     [[nodiscard]] auto resolveInScope(const hir::Type &type, const std::unordered_map<std::string, TypeId> &bindings,
                                       const ConstParamBindings &constBindings = {}) -> TypeId;
     [[nodiscard]] auto resolve(const hir::Type &type) -> TypeId;
@@ -119,6 +125,8 @@ namespace NG::vnext::typecheck
   {
     std::vector<TypeId> parameters;
     std::vector<TypeId> genericParameters;
+    std::vector<TypeId> constParameters;
+    std::vector<std::string> constParameterNames;
     TypeId returnType;
   };
 

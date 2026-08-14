@@ -65,6 +65,8 @@ namespace NG::vnext::typecheck
             if (type != builtin::I64)
               throw TypeError(std::format("const generic parameter `{}` must be i64, got {}", parameter.name,
                                           interner_.display(type)), parameter.span);
+            signature.constParameters.push_back(type);
+            signature.constParameterNames.push_back(parameter.name);
             constBindings.emplace(parameter.name, static_cast<uint32_t>(index));
           }
           FunctionType displaySignature;
@@ -96,6 +98,28 @@ namespace NG::vnext::typecheck
     private:
       using LocalTypes = std::unordered_map<uint32_t, TypeId>;
       using LoopTypes = std::unordered_map<uint32_t, std::vector<TypeId>>;
+
+      struct Substitution
+      {
+        std::unordered_map<uint32_t, TypeId> types;
+        TypeInterner::ConstSubstitution consts;
+      };
+
+      [[nodiscard]] auto isGeneric(const FunctionTypeIds &signature) const -> bool
+      {
+        return !signature.genericParameters.empty() || !signature.constParameters.empty();
+      }
+
+      void requireConstArguments(const FunctionTypeIds &signature, const Substitution &substitution,
+                                 std::string_view functionName, syntax::SourceSpan span) const
+      {
+        for (size_t index = 0; index < signature.constParameters.size(); ++index)
+        {
+          if (!substitution.consts.contains(static_cast<uint32_t>(index)))
+            throw TypeError(std::format("cannot infer const generic argument `{}` for function `{}`",
+                                        signature.constParameterNames[index], functionName), span);
+        }
+      }
 
       void record(const hir::Expression &expression, TypeId type)
       {
@@ -215,7 +239,8 @@ namespace NG::vnext::typecheck
       {
         const auto &descriptor = interner_.descriptor(expected);
         if (expression.kind == hir::ExpressionKind::ArrayLiteral &&
-            (descriptor.kind == TypeKind::DynamicArray || descriptor.kind == TypeKind::FixedArray))
+            (descriptor.kind == TypeKind::DynamicArray || descriptor.kind == TypeKind::FixedArray ||
+             descriptor.kind == TypeKind::DependentArray))
         {
           if (descriptor.kind == TypeKind::FixedArray && expression.operands.size() != *descriptor.length)
             throw TypeError(std::format("fixed array length mismatch: expected {}, got {}", *descriptor.length,
@@ -239,7 +264,7 @@ namespace NG::vnext::typecheck
             {
               const auto &candidateSignature = signatures_.at(candidate.value);
               if (candidateSignature.parameters.size() != expression.operands.size() - 1) continue;
-              int score = candidateSignature.genericParameters.empty() ? 100 : 0;
+              int score = isGeneric(candidateSignature) ? 0 : 100;
               for (const auto parameter : candidateSignature.parameters) score += specificity(parameter);
               if (score > bestScore)
               {
@@ -253,9 +278,9 @@ namespace NG::vnext::typecheck
             }
           }
           const auto &signature = signatures_.at(selected.value);
-          if (!signature.genericParameters.empty())
+          if (isGeneric(signature))
           {
-            std::unordered_map<uint32_t, TypeId> substitution;
+            Substitution substitution;
             unify(signature.returnType, expected, substitution, expression.span);
             const size_t supplied = expression.operands.size() - 1;
             if (supplied != signature.parameters.size())
@@ -279,6 +304,7 @@ namespace NG::vnext::typecheck
               }
             }
             const TypeId specialized = specialize(signature.returnType, substitution);
+            requireConstArguments(signature, substitution, expression.operands[0]->text, expression.span);
             requireType(expected, specialized, expression.span, context);
             record(expression, specialized);
             callTargets_.insert_or_assign(&expression, selected);
@@ -441,9 +467,9 @@ namespace NG::vnext::typecheck
             {
               const auto &candidateSignature = signatures_.at(candidate.value);
               if (candidateSignature.parameters.size() != expression.operands.size() - 1) continue;
-              int score = candidateSignature.genericParameters.empty() ? 100 : 0;
+              int score = isGeneric(candidateSignature) ? 0 : 100;
               for (const auto parameter : candidateSignature.parameters) score += specificity(parameter);
-              if (candidateSignature.genericParameters.empty())
+              if (!isGeneric(candidateSignature))
               {
                 try
                 {
@@ -470,11 +496,11 @@ namespace NG::vnext::typecheck
           if (supplied != signature.parameters.size())
             throw TypeError(std::format("call argument count mismatch: expected {}, got {}", signature.parameters.size(), supplied),
                             expression.span);
-          std::unordered_map<uint32_t, TypeId> substitution;
+          Substitution substitution;
           for (size_t index = 0; index < supplied; ++index)
           {
             const auto &argument = *expression.operands[index + 1];
-            if (signature.genericParameters.empty())
+            if (!isGeneric(signature))
             {
               static_cast<void>(inferExpected(argument, signature.parameters[index], locals,
                                               std::format("call argument {}", index + 1)));
@@ -502,6 +528,7 @@ namespace NG::vnext::typecheck
           type = specialize(signature.returnType, substitution);
           if (!signature.genericParameters.empty() && interner_.descriptor(type).kind == TypeKind::TypeParameter)
             throw TypeError(std::format("cannot infer generic arguments for function `{}`", expression.operands[0]->text), expression.span);
+          requireConstArguments(signature, substitution, expression.operands[0]->text, expression.span);
           callTargets_.insert_or_assign(&expression, selected);
           break;
         }
@@ -522,7 +549,8 @@ namespace NG::vnext::typecheck
           }
           else
           {
-            if (descriptor.kind != TypeKind::DynamicArray && descriptor.kind != TypeKind::FixedArray)
+            if (descriptor.kind != TypeKind::DynamicArray && descriptor.kind != TypeKind::FixedArray &&
+                descriptor.kind != TypeKind::DependentArray)
               throw TypeError(std::format("cannot index value of type {}", interner_.display(receiver)), expression.span);
             type = descriptor.element;
           }
@@ -558,19 +586,37 @@ namespace NG::vnext::typecheck
           score += specificity(descriptor.element);
         return score;
       }
-      auto unify(TypeId expected, TypeId actual, std::unordered_map<uint32_t, TypeId> &substitution,
-                 syntax::SourceSpan span) -> void
+      auto unify(TypeId expected, TypeId actual, Substitution &substitution, syntax::SourceSpan span) -> void
       {
         const auto &expectedDescriptor = interner_.descriptor(expected);
         if (expectedDescriptor.kind == TypeKind::TypeParameter)
         {
-          if (const auto found = substitution.find(expected.value); found != substitution.end())
+          if (const auto found = substitution.types.find(expected.value); found != substitution.types.end())
             requireType(found->second, actual, span, "generic argument");
-          else substitution.emplace(expected.value, actual);
+          else substitution.types.emplace(expected.value, actual);
           return;
         }
         if (expected == actual) return;
         const auto &actualDescriptor = interner_.descriptor(actual);
+        if (expectedDescriptor.kind == TypeKind::DependentArray || actualDescriptor.kind == TypeKind::DependentArray)
+        {
+          const auto &dependent = expectedDescriptor.kind == TypeKind::DependentArray ? expectedDescriptor : actualDescriptor;
+          const auto &concrete = expectedDescriptor.kind == TypeKind::DependentArray ? actualDescriptor : expectedDescriptor;
+          if (concrete.kind != TypeKind::FixedArray)
+            throw TypeError(std::format("generic argument type mismatch: expected {}, got {}", interner_.display(expected),
+                                        interner_.display(actual)), span);
+          const auto value = interner_.internConstInteger(static_cast<int64_t>(*concrete.length));
+          if (const auto bound = substitution.consts.find(*dependent.constParameterIndex); bound != substitution.consts.end())
+          {
+            if (bound->second != value) throw TypeError("generic array length mismatch", span);
+          }
+          else
+          {
+            substitution.consts.emplace(*dependent.constParameterIndex, value);
+          }
+          unify(expectedDescriptor.element, actualDescriptor.element, substitution, span);
+          return;
+        }
         if (expectedDescriptor.kind != actualDescriptor.kind)
           throw TypeError(std::format("generic argument type mismatch: expected {}, got {}", interner_.display(expected),
                                       interner_.display(actual)), span);
@@ -595,9 +641,9 @@ namespace NG::vnext::typecheck
                                     interner_.display(actual)), span);
       }
 
-      [[nodiscard]] auto specialize(TypeId type, const std::unordered_map<uint32_t, TypeId> &substitution) -> TypeId
+      [[nodiscard]] auto specialize(TypeId type, const Substitution &substitution) -> TypeId
       {
-        return interner_.specialize(type, substitution);
+        return interner_.specialize(type, substitution.types, substitution.consts);
       }
       void requireType(TypeId expected, TypeId actual, syntax::SourceSpan span, std::string_view context) const
       {

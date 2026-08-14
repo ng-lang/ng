@@ -30,6 +30,8 @@ namespace NG::vnext::hir
     auto operator==(const EnumId &) const -> bool = default;
   };
 
+  /// Locals are numbered module-globally: IDs never repeat across functions,
+  /// so local side tables keyed by `LocalId` cannot collide between bodies.
   struct LocalId
   {
     uint32_t value{};

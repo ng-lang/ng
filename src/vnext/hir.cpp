@@ -73,6 +73,7 @@ namespace NG::vnext::hir
     structs_.clear();
     enums_.clear();
     enumVariants_.clear();
+    nextLocal_ = 0;
     uint32_t functionCount{};
     uint32_t structCount{};
     uint32_t enumCount{};
@@ -156,7 +157,6 @@ namespace NG::vnext::hir
     loops_.clear();
     localMutability_.clear();
     currentFunction_ = id;
-    nextLocal_ = 0;
     nextLoop_ = 0;
 
     Function resolved{.id = id, .name = function.name, .span = function.span};

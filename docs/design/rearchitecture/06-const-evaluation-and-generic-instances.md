@@ -2,6 +2,12 @@
 
 > Status: vNext implementation design.
 > AI-assisted document: drafted with AI assistance.
+>
+> Implementation status (vNext slice): the structured const-expression parser,
+> `ConstInterner`/`ConstEvaluator`, const generic parameter declarations, and
+> const-generic call instantiation are implemented. `const if`, per-instance
+> branch selection, instance descriptors, and instance bytecode reuse remain
+> pending.
 
 ## Scope
 

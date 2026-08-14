@@ -129,32 +129,56 @@ namespace NG::vnext::typecheck
 
   auto TypeInterner::specialize(TypeId type, const std::unordered_map<uint32_t, TypeId> &bindings) -> TypeId
   {
+    return specialize(type, bindings, {});
+  }
+
+  auto TypeInterner::specialize(TypeId type, const std::unordered_map<uint32_t, TypeId> &bindings,
+                                const ConstSubstitution &constBindings) -> TypeId
+  {
     const auto parameter = bindings.find(type.value);
     if (parameter != bindings.end()) return parameter->second;
     const auto &source = descriptor(type);
-    if (source.kind == TypeKind::DynamicArray) return internDynamicArray(specialize(source.element, bindings));
-    if (source.kind == TypeKind::FixedArray) return internFixedArray(specialize(source.element, bindings), *source.length);
+    if (source.kind == TypeKind::DynamicArray)
+      return internDynamicArray(specialize(source.element, bindings, constBindings));
+    if (source.kind == TypeKind::FixedArray)
+      return internFixedArray(specialize(source.element, bindings, constBindings), *source.length);
+    if (source.kind == TypeKind::DependentArray)
+    {
+      const TypeId element = specialize(source.element, bindings, constBindings);
+      const auto bound = constBindings.find(*source.constParameterIndex);
+      if (bound == constBindings.end())
+        return internDependentArray(element, *source.constParameterIndex, source.constParameterName);
+      const auto &value = constInterner_.value(bound->second);
+      if (value.kind != const_eval::ConstValueKind::Integer)
+        throw std::logic_error("const generic argument is not an integer");
+      return internFixedArray(element, static_cast<uint64_t>(value.integerValue));
+    }
     if (source.kind == TypeKind::Tuple)
     {
       std::vector<TypeId> elements;
-      for (const auto element : source.elements) elements.push_back(specialize(element, bindings));
+      for (const auto element : source.elements) elements.push_back(specialize(element, bindings, constBindings));
       return internTuple(elements);
     }
     if (source.kind == TypeKind::Enum && !source.typeArguments.empty())
     {
       std::vector<TypeId> arguments;
-      for (const auto argument : source.typeArguments) arguments.push_back(specialize(argument, bindings));
+      for (const auto argument : source.typeArguments) arguments.push_back(specialize(argument, bindings, constBindings));
       for (uint32_t index = 6; index < descriptors_.size(); ++index)
         if (descriptors_[index].kind == TypeKind::Enum && descriptors_[index].nominalId == source.nominalId &&
             descriptors_[index].typeArguments == arguments) return TypeId{index};
       std::vector<TypeId> payloads;
-      for (const auto payload : source.elements) payloads.push_back(specialize(payload, bindings));
+      for (const auto payload : source.elements) payloads.push_back(specialize(payload, bindings, constBindings));
       auto copy = source;
       copy.typeArguments = std::move(arguments);
       copy.elements = std::move(payloads);
       return append(std::move(copy));
     }
     return type;
+  }
+
+  auto TypeInterner::internConstInteger(int64_t value) -> const_eval::ConstValueId
+  {
+    return constInterner_.internInteger(value);
   }
 
   auto TypeInterner::resolveInScope(const hir::Type &type, const std::unordered_map<std::string, TypeId> &bindings,
