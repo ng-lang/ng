@@ -567,13 +567,16 @@ namespace NG::vnext::hir
       for (const auto &switchCase : switchStatement->cases)
       {
         SwitchCase caseResolved{.variantName = switchCase.pattern.variantName, .span = switchCase.pattern.span};
-        if (switchCase.pattern.bindingName.has_value())
+        if (switchCase.pattern.bindingName.has_value() || !switchCase.pattern.bindingNames.empty())
         {
           scopes_.emplace_back();
-          caseResolved.binding = declareLocal(*switchCase.pattern.bindingName, switchCase.pattern.span);
+          if (switchCase.pattern.bindingName.has_value())
+            caseResolved.binding = declareLocal(*switchCase.pattern.bindingName, switchCase.pattern.span);
+          for (const auto &bindingName : switchCase.pattern.bindingNames)
+            caseResolved.bindings.push_back(declareLocal(bindingName, switchCase.pattern.span));
         }
         caseResolved.body = std::make_unique<Block>(resolveBlock(switchCase.body, false));
-        if (switchCase.pattern.bindingName.has_value()) scopes_.pop_back();
+        if (switchCase.pattern.bindingName.has_value() || !switchCase.pattern.bindingNames.empty()) scopes_.pop_back();
         resolved.switchCases.push_back(std::move(caseResolved));
       }
       if (switchStatement->otherwise != nullptr)
@@ -971,6 +974,7 @@ namespace
       {
         hir::SwitchCase clonedCase{.variantName = switchCase.variantName, .span = switchCase.span};
         if (switchCase.binding.has_value()) clonedCase.binding = remapLocal(context, *switchCase.binding);
+        for (const auto binding : switchCase.bindings) clonedCase.bindings.push_back(remapLocal(context, binding));
         clonedCase.body = std::make_unique<hir::Block>(cloneBlock(context, *switchCase.body));
         copy.switchCases.push_back(std::move(clonedCase));
       }

@@ -238,13 +238,39 @@ namespace NG::vnext::syntax
       if (current().kind == TokenKind::LeftParen)
       {
         static_cast<void>(consume());
-        if (current().kind == TokenKind::Identifier && peek(1).kind == TokenKind::Colon)
+        std::vector<TypeSyntaxPtr> fields;
+        while (current().kind != TokenKind::RightParen)
         {
-          static_cast<void>(consume());
-          static_cast<void>(consume());
+          if ((current().kind == TokenKind::Identifier || current().kind == TokenKind::KeywordNext ||
+               current().kind == TokenKind::KeywordClone) && peek(1).kind == TokenKind::Colon)
+          {
+            static_cast<void>(consume());
+            static_cast<void>(consume());
+          }
+          fields.push_back(parseTypeUntil({TokenKind::Comma, TokenKind::RightParen}));
+          if (current().kind == TokenKind::Comma) static_cast<void>(consume());
+          else if (current().kind != TokenKind::RightParen)
+            throw ParseError("expected `,` between enum variant fields", current().span);
         }
-        payload = parseTypeUntil({TokenKind::RightParen});
         expect(TokenKind::RightParen, "expected `)` after enum variant payload");
+        if (fields.size() == 1) payload = std::move(fields.front());
+        else if (fields.size() > 1)
+        {
+          // Multi-field variants carry a tuple payload; switch bindings
+          // destructure it positionally.
+          SourceSpan span = fields.front()->span;
+          std::vector<GenericArgumentSyntax> arguments;
+          for (auto &field : fields)
+          {
+            span.end = field->span.end;
+            arguments.push_back(GenericArgumentSyntax{.kind = GenericArgumentKind::Type,
+                                                       .type = std::move(field),
+                                                       .constExpr = nullptr,
+                                                       .span = span});
+          }
+          payload = std::make_unique<AppliedTypeSyntax>(std::make_unique<NamedTypeSyntax>("tuple", span),
+                                                        std::move(arguments), span);
+        }
       }
       variants.emplace_back(variant.text, std::move(payload), SourceSpan{variant.span.begin, current().span.begin});
       if (current().kind == TokenKind::Comma) static_cast<void>(consume());

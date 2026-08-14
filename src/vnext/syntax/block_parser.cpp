@@ -327,6 +327,7 @@ namespace NG::vnext::syntax
       }
       const Token variant = consume();
       std::optional<std::string> bindingName;
+      std::vector<std::string> bindingNames;
       if (current().kind == TokenKind::LeftParen)
       {
         static_cast<void>(consume());
@@ -335,10 +336,19 @@ namespace NG::vnext::syntax
           throw ParseError("expected a payload binding name", current().span);
         }
         bindingName = consume().text;
+        while (current().kind == TokenKind::Comma)
+        {
+          static_cast<void>(consume());
+          if (current().kind != TokenKind::Identifier)
+          {
+            throw ParseError("expected a payload binding name after `,`", current().span);
+          }
+          bindingNames.push_back(consume().text);
+        }
         expect(TokenKind::RightParen, "expected `)` after payload binding");
       }
       Block body = parseNestedBlock();
-      cases.push_back(SwitchCase{SwitchCasePattern{variant.text, std::move(bindingName),
+      cases.push_back(SwitchCase{SwitchCasePattern{variant.text, std::move(bindingName), std::move(bindingNames),
                                                    SourceSpan{caseToken.span.begin, body.span.end}},
                                  std::move(body)});
     }

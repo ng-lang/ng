@@ -426,10 +426,14 @@ namespace NG::vnext::syntax
   {
     const std::string variantName;
     std::optional<std::string> bindingName;
+    /// Additional tuple-payload bindings (`case Cell(value, rest)`).
+    std::vector<std::string> bindingNames;
     const SourceSpan span;
 
-    SwitchCasePattern(std::string variant, std::optional<std::string> binding, SourceSpan sourceSpan)
-      : variantName(std::move(variant)), bindingName(std::move(binding)), span(sourceSpan)
+    SwitchCasePattern(std::string variant, std::optional<std::string> binding, std::vector<std::string> extraBindings,
+                      SourceSpan sourceSpan)
+      : variantName(std::move(variant)), bindingName(std::move(binding)), bindingNames(std::move(extraBindings)),
+        span(sourceSpan)
     {
     }
   };

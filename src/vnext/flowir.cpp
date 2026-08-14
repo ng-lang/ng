@@ -232,6 +232,20 @@ namespace NG::vnext::flowir
         {
           payload = static_cast<int64_t>(types_->typeIdOf(expression).value) |
                     (static_cast<int64_t>(*expression.variant) << 32);
+          // Multi-field variants pack their constructor arguments into one
+          // tuple payload value.
+          const auto &enumType = types_->typeDescriptors.at(types_->typeIdOf(expression).value);
+          if (*expression.variant < enumType.elements.size() && enumType.variantHasPayload.at(*expression.variant) &&
+              types_->typeDescriptors.at(enumType.elements.at(*expression.variant).value).kind ==
+                  typecheck::TypeKind::Tuple)
+          {
+            const ValueId packed{nextValue_++};
+            function_.valueTypes.emplace(packed.value, enumType.elements.at(*expression.variant));
+            block().instructions.push_back(Instruction{.kind = InstructionKind::TupleSplice,
+                                                       .result = packed,
+                                                       .operands = std::move(operands)});
+            operands = std::vector<ValueId>{packed};
+          }
         }
         else if (expression.kind == hir::ExpressionKind::StructLiteral && types_ != nullptr)
         {
@@ -1278,17 +1292,52 @@ namespace NG::vnext::flowir
             const ValueId payload{nextValue_++};
             if (types_ != nullptr)
             {
-              function_.valueTypes.emplace(payload.value, types_->localTypeIds.at(switchCase.binding->value));
+              const auto &enumType = types_->typeDescriptors.at(types_->typeIdOf(*statement.expression).value);
+              const auto foundVariant = std::find(enumType.fieldNames.begin(), enumType.fieldNames.end(),
+                                                  switchCase.variantName);
+              const typecheck::TypeId payloadType = foundVariant != enumType.fieldNames.end()
+                                             ? enumType.elements.at(static_cast<size_t>(std::distance(enumType.fieldNames.begin(), foundVariant)))
+                                             : types_->localTypeIds.at(switchCase.binding->value);
+              function_.valueTypes.emplace(payload.value, payloadType);
               function_.localTypes.emplace(switchCase.binding->value, types_->localTypeIds.at(switchCase.binding->value));
             }
             block().instructions.push_back(
                 Instruction{.kind = InstructionKind::ExtractEnumPayload, .result = payload, .source = scrutinee});
-            const ValueId binding{nextValue_++};
-            if (types_ != nullptr) function_.valueTypes.emplace(binding.value, function_.valueTypes.at(payload.value));
-            block().instructions.push_back(Instruction{.kind = InstructionKind::BindLocal,
-                                                       .result = binding,
-                                                       .local = switchCase.binding,
-                                                       .source = payload});
+            if (switchCase.bindings.empty())
+            {
+              const ValueId binding{nextValue_++};
+              if (types_ != nullptr) function_.valueTypes.emplace(binding.value, function_.valueTypes.at(payload.value));
+              block().instructions.push_back(Instruction{.kind = InstructionKind::BindLocal,
+                                                         .result = binding,
+                                                         .local = switchCase.binding,
+                                                         .source = payload});
+            }
+            else
+            {
+              std::fflush(stderr);
+              const auto &tuple = types_->typeDescriptors.at(function_.valueTypes.at(payload.value).value);
+              for (size_t index = 0; index < switchCase.bindings.size() + 1; ++index)
+              {
+                const ValueId element{nextValue_++};
+                if (types_ != nullptr) function_.valueTypes.emplace(element.value, tuple.elements[index]);
+                block().instructions.push_back(Instruction{.kind = InstructionKind::ExtractTuple,
+                                                           .result = element,
+                                                           .source = payload,
+                                                           .payload = static_cast<int64_t>(index),
+                                                           .operands = {payload}});
+                const std::optional<hir::LocalId> target = index == 0 ? switchCase.binding : switchCase.bindings[index - 1];
+                const ValueId binding{nextValue_++};
+                if (types_ != nullptr)
+                {
+                  function_.valueTypes.emplace(binding.value, tuple.elements[index]);
+                  function_.localTypes.emplace(target->value, tuple.elements[index]);
+                }
+                block().instructions.push_back(Instruction{.kind = InstructionKind::BindLocal,
+                                                           .result = binding,
+                                                           .local = target,
+                                                           .source = element});
+              }
+            }
           }
           lowerBlock(*switchCase.body);
           if (!block().terminator.has_value())

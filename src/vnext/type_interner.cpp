@@ -344,12 +344,15 @@ namespace NG::vnext::typecheck
       for (uint32_t index = 6; index < descriptors_.size(); ++index)
         if (descriptors_[index].kind == TypeKind::Enum && descriptors_[index].nominalId == source.nominalId &&
             descriptors_[index].typeArguments == arguments) return TypeId{index};
-      std::vector<TypeId> payloads;
-      for (const auto payload : source.elements) payloads.push_back(specialize(payload, bindings, constBindings, constructors));
+      // Two-phase: register the specialized instance before specializing its
+      // payloads so recursive payloads (`ref<Node<T>>`) deduplicate to it.
       auto copy = source;
       copy.typeArguments = std::move(arguments);
-      copy.elements = std::move(payloads);
-      return append(std::move(copy));
+      const TypeId instance = append(std::move(copy));
+      std::vector<TypeId> payloads;
+      for (const auto payload : source.elements) payloads.push_back(specialize(payload, bindings, constBindings, constructors));
+      descriptors_[instance.value].elements = std::move(payloads);
+      return instance;
     }
     if (source.kind == TypeKind::Struct && !source.typeArguments.empty())
     {
@@ -484,6 +487,12 @@ namespace NG::vnext::typecheck
     for (uint32_t index = 6; index < descriptors_.size(); ++index)
       if (descriptors_[index].kind == TypeKind::Enum && descriptors_[index].nominalId == enumId &&
           descriptors_[index].typeArguments == arguments) return TypeId{index};
+    // Two-phase registration: reserve the instance descriptor first so
+    // recursive payloads (`ref<Node<T>>`) deduplicate to it instead of
+    // recursing forever.
+    const TypeId instance = append(TypeDescriptor{.kind = TypeKind::Enum, .name = type.target->name,
+                                                  .element = TypeId{}, .nominalId = enumId,
+                                                  .typeArguments = arguments});
     const auto *enumeration = enumTemplates_.at(enumId);
     std::vector<TypeId> payloads;
     std::vector<bool> hasPayload;
@@ -494,10 +503,11 @@ namespace NG::vnext::typecheck
       hasPayload.push_back(variant.payloadType != nullptr);
       payloads.push_back(variant.payloadType != nullptr ? resolveWithBindings(*variant.payloadType, nested, constBindings) : builtin::Unit);
     }
-    return append(TypeDescriptor{.kind = TypeKind::Enum, .name = type.target->name, .element = TypeId{},
-                                 .length = payloads.size(), .elements = std::move(payloads), .nominalId = enumId,
-                                 .fieldNames = std::move(names), .variantHasPayload = std::move(hasPayload),
-                                 .typeArguments = std::move(arguments)});
+    descriptors_[instance.value] = TypeDescriptor{.kind = TypeKind::Enum, .name = type.target->name, .element = TypeId{},
+                                                  .length = payloads.size(), .elements = std::move(payloads),
+                                                  .nominalId = enumId, .fieldNames = std::move(names),
+                                                  .variantHasPayload = std::move(hasPayload), .typeArguments = std::move(arguments)};
+    return instance;
   }
 
   auto TypeInterner::resolveTupleIntrospection(const hir::Type &type,
@@ -665,33 +675,39 @@ namespace NG::vnext::typecheck
       if (type.arguments.size() != parameters.size())
         throw TypeError(std::format("enum type `{}` expects {} arguments, got {}", type.target->name, parameters.size(), type.arguments.size()), type.span);
       std::unordered_map<std::string, TypeId> bindings;
+      std::vector<TypeId> arguments;
       for (size_t index = 0; index < parameters.size(); ++index)
       {
         if (type.arguments[index].kind != syntax::GenericArgumentKind::Type || type.arguments[index].type == nullptr)
           throw TypeError("enum type arguments must be types", type.arguments[index].span);
-        bindings.emplace(parameters[index], resolve(*type.arguments[index].type));
+        const TypeId argument = resolve(*type.arguments[index].type);
+        bindings.emplace(parameters[index], argument);
+        arguments.push_back(argument);
       }
+      for (uint32_t index = 6; index < descriptors_.size(); ++index)
+        if (descriptors_[index].kind == TypeKind::Enum && descriptors_[index].nominalId == enumId &&
+            descriptors_[index].typeArguments == arguments) return TypeId{index};
+      // Two-phase registration for recursive payloads (`ref<Node<T>>`).
+      const TypeId instance = append(TypeDescriptor{.kind = TypeKind::Enum, .name = type.target->name,
+                                                    .element = TypeId{}, .nominalId = enumId,
+                                                    .typeArguments = arguments});
       const auto *enumeration = enumTemplates_.at(enumId);
       std::vector<TypeId> payloads;
       std::vector<bool> hasPayload;
+      std::vector<std::string> names;
       for (const auto &variant : enumeration->variants)
       {
+        names.push_back(variant.name);
         hasPayload.push_back(variant.payloadType != nullptr);
         payloads.push_back(variant.payloadType != nullptr ? resolveWithBindings(*variant.payloadType, bindings, {}) : builtin::Unit);
       }
-      for (uint32_t index = 6; index < descriptors_.size(); ++index)
-        if (descriptors_[index].kind == TypeKind::Enum && descriptors_[index].nominalId == enumId && descriptors_[index].typeArguments.size() == bindings.size())
-        {
-          bool same = true;
-          for (size_t arg = 0; arg < type.arguments.size(); ++arg) same = same && descriptors_[index].typeArguments[arg] == bindings.at(parameters[arg]);
-          if (same) return TypeId{index};
-        }
-      std::vector<TypeId> arguments;
-      for (const auto &parameter : parameters) arguments.push_back(bindings.at(parameter));
-      return append(TypeDescriptor{.kind = TypeKind::Enum, .name = type.target->name, .element = TypeId{},
-                                   .length = payloads.size(), .elements = std::move(payloads),
-                                   .nominalId = enumId, .fieldNames = [&enumeration] { std::vector<std::string> names; for (const auto &v : enumeration->variants) names.push_back(v.name); return names; }(),
-                                   .variantHasPayload = std::move(hasPayload), .typeArguments = std::move(arguments)});
+      descriptors_[instance.value] = TypeDescriptor{.kind = TypeKind::Enum, .name = type.target->name,
+                                                    .element = TypeId{}, .length = payloads.size(),
+                                                    .elements = std::move(payloads), .nominalId = enumId,
+                                                    .fieldNames = std::move(names),
+                                                    .variantHasPayload = std::move(hasPayload),
+                                                    .typeArguments = std::move(arguments)};
+      return instance;
     }
     if (type.target->name == "tuple")
     {

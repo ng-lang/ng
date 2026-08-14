@@ -1,0 +1,23 @@
+// vNext recursive tagged unions (legacy 21/11): enum variants with multiple
+// fields carry tuple payloads, and `ref<Node<T>>` payloads allow recursive
+// structures. Switch cases destructure tuple payloads positionally.
+
+enum Node<T> {
+    Cell(content: T, next: ref<Node<T>>),
+    Empty,
+}
+
+fun count<T>(head: ref<Node<T>>) -> i64 {
+    switch (*head) {
+        case Empty { return 0; }
+        case Cell(value, rest) { return 1 + count(rest); }
+    }
+}
+
+fun main() -> i64 {
+    let empty: Node<i64> = Node.Empty;
+    let third: Node<i64> = Node.Cell(3, ref empty);
+    let second: Node<i64> = Node.Cell(2, ref third);
+    let first: Node<i64> = Node.Cell(1, ref second);
+    return count(ref first);
+}

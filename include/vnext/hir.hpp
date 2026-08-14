@@ -154,6 +154,8 @@ namespace NG::vnext::hir
   {
     std::string variantName;
     std::optional<LocalId> binding;
+    /// Additional tuple-payload bindings (`case Cell(value, rest)`).
+    std::vector<LocalId> bindings;
     std::unique_ptr<Block> body;
     syntax::SourceSpan span;
   };

@@ -1356,8 +1356,27 @@ namespace NG::vnext::typecheck
           if (!descriptor.variantHasPayload[variant])
             throw TypeError(std::format("variant `{}` has no payload to bind", switchCase.variantName), switchCase.span);
           LocalTypes caseLocals = locals;
-          caseLocals.emplace(switchCase.binding->value, descriptor.elements[variant]);
-          recordLocal(*switchCase.binding, descriptor.elements[variant]);
+          const TypeId payloadType = descriptor.elements[variant];
+          if (!switchCase.bindings.empty())
+          {
+            const auto &payloadDescriptor = interner_.descriptor(payloadType);
+            if (payloadDescriptor.kind != TypeKind::Tuple ||
+                payloadDescriptor.elements.size() != switchCase.bindings.size() + 1)
+              throw TypeError(std::format("variant `{}` payload bindings do not match its tuple payload", switchCase.variantName),
+                              switchCase.span);
+            caseLocals.emplace(switchCase.binding->value, payloadDescriptor.elements.front());
+            recordLocal(*switchCase.binding, payloadDescriptor.elements.front());
+            for (size_t index = 0; index < switchCase.bindings.size(); ++index)
+            {
+              caseLocals.emplace(switchCase.bindings[index].value, payloadDescriptor.elements[index + 1]);
+              recordLocal(switchCase.bindings[index], payloadDescriptor.elements[index + 1]);
+            }
+          }
+          else
+          {
+            caseLocals.emplace(switchCase.binding->value, payloadType);
+            recordLocal(*switchCase.binding, payloadType);
+          }
           checkBranch(*switchCase.body, caseLocals);
         }
         if (statement.alternative != nullptr) checkBranch(*statement.alternative, locals);
@@ -2276,6 +2295,19 @@ namespace NG::vnext::typecheck
           throw TypeError(std::format("enum constructor type mismatch: expected {}, got {}", interner_.display(expected), expression.text), expression.span);
         const uint32_t variant = expression.variant.value();
         if (variant >= descriptor.elements.size()) throw TypeError("enum variant is out of range", expression.span);
+        if (descriptor.variantHasPayload[variant] &&
+            interner_.descriptor(descriptor.elements[variant]).kind == TypeKind::Tuple)
+        {
+          const auto &tuple = interner_.descriptor(descriptor.elements[variant]);
+          if (expression.operands.size() != tuple.elements.size())
+            throw TypeError(std::format("enum variant `{}` expects {} payload values, got {}",
+                                        descriptor.fieldNames[variant], tuple.elements.size(), expression.operands.size()),
+                            expression.span);
+          for (size_t index = 0; index < expression.operands.size(); ++index)
+            static_cast<void>(inferExpected(*expression.operands[index], tuple.elements[index], locals, "variant payload"));
+          record(expression, expected);
+          return expected;
+        }
         const size_t wanted = descriptor.variantHasPayload[variant] ? 1 : 0;
         if (expression.operands.size() != wanted)
           throw TypeError(std::format("enum variant `{}` expects {} payload values, got {}", descriptor.fieldNames[variant], wanted,
@@ -2411,6 +2443,21 @@ namespace NG::vnext::typecheck
           type = interner_.typeForEnum(*expression.enumId);
           const auto &descriptor = interner_.descriptor(type);
           const uint32_t variant = *expression.variant;
+          if (descriptor.variantHasPayload.at(variant) &&
+              interner_.descriptor(descriptor.elements.at(variant)).kind == TypeKind::Tuple)
+          {
+            // Multi-field variants: each constructor argument fills one tuple
+            // element of the payload.
+            const auto &tuple = interner_.descriptor(descriptor.elements.at(variant));
+            if (expression.operands.size() != tuple.elements.size())
+              throw TypeError(std::format("enum variant `{}` expects {} payload values, got {}",
+                                          descriptor.fieldNames.at(variant), tuple.elements.size(),
+                                          expression.operands.size()), expression.span);
+            for (size_t index = 0; index < expression.operands.size(); ++index)
+              static_cast<void>(inferExpected(*expression.operands[index], tuple.elements[index], locals,
+                                              std::format("variant `{}` payload", descriptor.fieldNames.at(variant))));
+            break;
+          }
           const size_t expected = descriptor.variantHasPayload.at(variant) ? 1 : 0;
           if (expression.operands.size() != expected)
             throw TypeError(std::format("enum variant `{}` expects {} payload values, got {}", descriptor.fieldNames.at(variant),
@@ -2899,6 +2946,17 @@ namespace NG::vnext::typecheck
       }
       auto unify(TypeId expected, TypeId actual, Substitution &substitution, syntax::SourceSpan span) -> void
       {
+        std::unordered_set<uint64_t> visited;
+        unifyGuarded(expected, actual, substitution, span, visited);
+      }
+
+      /// Guarded unification: a repeated (expected, actual) pair means the
+      /// types were already compared in this call (regular recursive types),
+      /// which terminates unification of self-referential payloads.
+      auto unifyGuarded(TypeId expected, TypeId actual, Substitution &substitution, syntax::SourceSpan span,
+                        std::unordered_set<uint64_t> &visited) -> void
+      {
+        if (!visited.insert((static_cast<uint64_t>(expected.value) << 32) | actual.value).second) return;
         const auto &expectedDescriptor = interner_.descriptor(expected);
         if (expectedDescriptor.kind == TypeKind::TypeParameter)
         {
@@ -2929,7 +2987,7 @@ namespace NG::vnext::typecheck
               throw TypeError(std::format("generic argument type mismatch: expected {}, got {}", interner_.display(expected),
                                           interner_.display(actual)), span);
             for (size_t index = 0; index < expectedDescriptor.elements.size(); ++index)
-              unify(expectedDescriptor.elements[index], actualDescriptor.elements[index], substitution, span);
+              unifyGuarded(expectedDescriptor.elements[index], actualDescriptor.elements[index], substitution, span, visited);
             return;
           }
           if (actualDescriptor.kind != TypeKind::Struct && actualDescriptor.kind != TypeKind::Opaque)
@@ -2953,7 +3011,7 @@ namespace NG::vnext::typecheck
             substitution.constructors.emplace(constructorIndex, templateType);
           }
           for (size_t index = 0; index < expectedDescriptor.elements.size(); ++index)
-            unify(expectedDescriptor.elements[index], actualDescriptor.typeArguments[index], substitution, span);
+            unifyGuarded(expectedDescriptor.elements[index], actualDescriptor.typeArguments[index], substitution, span, visited);
           return;
         }
         if (expected == actual) return;
@@ -2973,7 +3031,7 @@ namespace NG::vnext::typecheck
           {
             substitution.consts.emplace(*dependent.constParameterIndex, value);
           }
-          unify(expectedDescriptor.element, actualDescriptor.element, substitution, span);
+          unifyGuarded(expectedDescriptor.element, actualDescriptor.element, substitution, span, visited);
           return;
         }
         if (expectedDescriptor.kind != actualDescriptor.kind)
@@ -2986,7 +3044,7 @@ namespace NG::vnext::typecheck
             throw TypeError(std::format("generic argument type mismatch: expected {}, got {}", interner_.display(expected),
                                         interner_.display(actual)), span);
           for (size_t index = 0; index < expectedDescriptor.elements.size(); ++index)
-            unify(expectedDescriptor.elements[index], actualDescriptor.elements[index], substitution, span);
+            unifyGuarded(expectedDescriptor.elements[index], actualDescriptor.elements[index], substitution, span, visited);
           return;
         }
         if (expectedDescriptor.kind == TypeKind::Tuple)
@@ -2999,7 +3057,7 @@ namespace NG::vnext::typecheck
               throw TypeError(std::format("generic argument type mismatch: expected {}, got {}", interner_.display(expected),
                                           interner_.display(actual)), span);
             for (size_t index = 0; index < expectedDescriptor.elements.size(); ++index)
-              unify(expectedDescriptor.elements[index], actualDescriptor.elements[index], substitution, span);
+              unifyGuarded(expectedDescriptor.elements[index], actualDescriptor.elements[index], substitution, span, visited);
             return;
           }
           if (actualDescriptor.kind != TypeKind::Tuple)
@@ -3012,7 +3070,7 @@ namespace NG::vnext::typecheck
             throw TypeError(std::format("generic argument type mismatch: expected {}, got {}", interner_.display(expected),
                                         interner_.display(actual)), span);
           for (size_t index = 0; index < expectedIndex; ++index)
-            unify(expectedDescriptor.elements[index], actualDescriptor.elements[index], substitution, span);
+            unifyGuarded(expectedDescriptor.elements[index], actualDescriptor.elements[index], substitution, span, visited);
           const TypeId packElement = interner_.descriptor(expectedDescriptor.elements[expectedIndex]).element;
           const size_t packSize = actualDescriptor.elements.size() - expectedIndex - trailing;
           auto &pack = substitution.packs[packElement.value];
@@ -3026,22 +3084,22 @@ namespace NG::vnext::typecheck
             throw TypeError("generic argument type mismatch: expected {}, got {}", span);
           }
           for (size_t index = 0; index < trailing; ++index)
-            unify(expectedDescriptor.elements[expectedIndex + 1 + index],
-                  actualDescriptor.elements[actualDescriptor.elements.size() - trailing + index], substitution, span);
+            unifyGuarded(expectedDescriptor.elements[expectedIndex + 1 + index],
+                  actualDescriptor.elements[actualDescriptor.elements.size() - trailing + index], substitution, span, visited);
           return;
         }
         if (expectedDescriptor.kind == TypeKind::DynamicArray || expectedDescriptor.kind == TypeKind::FixedArray)
         {
           if (expectedDescriptor.length != actualDescriptor.length)
             throw TypeError("generic array length mismatch", span);
-          unify(expectedDescriptor.element, actualDescriptor.element, substitution, span);
+          unifyGuarded(expectedDescriptor.element, actualDescriptor.element, substitution, span, visited);
           return;
         }
         if (expectedDescriptor.kind == TypeKind::Reference || expectedDescriptor.kind == TypeKind::RawPointer)
         {
           if (expectedDescriptor.referenceMutable != actualDescriptor.referenceMutable)
             throw TypeError("generic reference mutability mismatch", span);
-          unify(expectedDescriptor.element, actualDescriptor.element, substitution, span);
+          unifyGuarded(expectedDescriptor.element, actualDescriptor.element, substitution, span, visited);
           return;
         }
         throw TypeError(std::format("generic argument type mismatch: expected {}, got {}", interner_.display(expected),
