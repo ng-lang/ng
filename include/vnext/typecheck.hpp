@@ -163,6 +163,10 @@ namespace NG::vnext::typecheck
     std::unordered_map<const hir::Expression *, TypeId> callPackTupleTypes;
     /// Syntactic argument offsets that are tuple spreads at a call site.
     std::unordered_map<const hir::Expression *, std::vector<size_t>> callSpreadPositions;
+    /// Fold calls (`f(acc, xs...)`): spread/accumulator positions and element
+    /// type, lowered to reduction loops.
+    std::unordered_map<const hir::Expression *, std::vector<size_t>> callFoldSpreadPositions;
+    std::unordered_map<const hir::Expression *, std::vector<size_t>> callFoldAccumulatorPositions;
     /// Drop calls to emit at return statements: (local, drop method DefId).
     std::unordered_map<const hir::Statement *, std::vector<std::pair<uint32_t, uint32_t>>> returnDrops;
     /// Drop calls to emit at function fall-through, keyed by function id.

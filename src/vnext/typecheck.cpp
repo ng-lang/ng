@@ -131,6 +131,8 @@ namespace NG::vnext::typecheck
                                .callPackArgCounts = std::move(callPackArgCounts_),
                                .callPackTupleTypes = std::move(callPackTupleTypes_),
                                .callSpreadPositions = std::move(callSpreadPositions_),
+                               .callFoldSpreadPositions = std::move(callFoldSpreadPositions_),
+                               .callFoldAccumulatorPositions = std::move(callFoldAccumulatorPositions_),
                                .returnDrops = std::move(returnDrops_),
                                .fallthroughDrops = std::move(fallthroughDrops_),
                                .placeholderFunctions = std::move(placeholderFunctions_),
@@ -1407,6 +1409,39 @@ namespace NG::vnext::typecheck
         return substitution;
       }
 
+      /// Detects a fold call (`f(acc, xs...)` / `f(xs..., acc)`): exactly one
+      /// argument is an array spread and exactly one other argument is the
+      /// accumulator. Returns spread/accumulator positions and the element type.
+      struct FoldInfo
+      {
+        bool fold{};
+        size_t spreadPosition{};
+        size_t accumulatorPosition{};
+        TypeId elementType{};
+      };
+
+      [[nodiscard]] auto analyzeFoldCall(const hir::Expression &expression, const LocalTypes &locals) -> FoldInfo
+      {
+        FoldInfo info;
+        if (expression.operands.size() < 2) return info;
+        for (size_t index = 1; index < expression.operands.size(); ++index)
+        {
+          const auto &argument = *expression.operands[index];
+          if (argument.kind != hir::ExpressionKind::Prefix || argument.text != "...") continue;
+          const TypeId operand = infer(*argument.operands[0], locals);
+          const auto &descriptor = interner_.descriptor(operand);
+          if (descriptor.kind != TypeKind::DynamicArray && descriptor.kind != TypeKind::FixedArray &&
+              descriptor.kind != TypeKind::DependentArray && descriptor.kind != TypeKind::Range)
+            continue;
+          info.fold = true;
+          info.spreadPosition = index - 1;
+          info.elementType = descriptor.element;
+          break;
+        }
+        if (info.fold && expression.operands.size() == 3) info.accumulatorPosition = 1 - info.spreadPosition;
+        return info;
+      }
+
       [[nodiscard]] auto inferExpected(const hir::Expression &expression, TypeId expected, const LocalTypes &locals,
                                        std::string_view context) -> TypeId
       {
@@ -1451,6 +1486,29 @@ namespace NG::vnext::typecheck
             }
           }
           const auto &signature = signatures_.at(selected.value);
+          {
+            const FoldInfo fold = analyzeFoldCall(expression, locals);
+            if (fold.fold)
+            {
+              if (expression.operands.size() != 3)
+                throw TypeError("fold calls require exactly one accumulator argument", expression.span);
+              if (signature.parameters.size() != 2)
+                throw TypeError("fold function must take exactly two arguments", expression.span);
+              Substitution substitution;
+              unify(signature.parameters[fold.spreadPosition], fold.elementType, substitution, expression.span);
+              const TypeId accumulatorType = infer(*expression.operands[fold.accumulatorPosition + 1], locals);
+              unify(signature.parameters[fold.accumulatorPosition], accumulatorType, substitution, expression.span);
+              const TypeId result = specializeReturnType(signature, substitution, 0);
+              unify(signature.parameters[fold.accumulatorPosition], result, substitution, expression.span);
+              requireConstArguments(signature, substitution, expression.operands[0]->text, expression.span);
+              requireType(expected, result, expression.span, context);
+              callFoldSpreadPositions_.insert_or_assign(&expression, std::vector<size_t>{fold.spreadPosition});
+              callFoldAccumulatorPositions_.insert_or_assign(&expression, std::vector<size_t>{fold.accumulatorPosition});
+              callTargets_.insert_or_assign(&expression, selected);
+              record(expression, result);
+              return result;
+            }
+          }
           if (isGeneric(signature))
           {
             Substitution substitution;
@@ -1885,6 +1943,36 @@ namespace NG::vnext::typecheck
           if (!expression.operands[0]->resolvedName.has_value() ||
               expression.operands[0]->resolvedName->kind != hir::ResolvedNameKind::Function)
             throw TypeError("call target is not a function", expression.operands[0]->span);
+          {
+            const FoldInfo fold = analyzeFoldCall(expression, locals);
+            if (fold.fold)
+            {
+              if (expression.operands.size() != 3)
+                throw TypeError("fold calls require exactly one accumulator argument", expression.span);
+              const auto &signature = signatures_.at(expression.operands[0]->resolvedName->id);
+              if (signature.parameters.size() != 2)
+                throw TypeError("fold function must take exactly two arguments", expression.span);
+              Substitution substitution;
+              unify(signature.parameters[fold.spreadPosition], fold.elementType, substitution, expression.span);
+              const TypeId accumulatorType = infer(*expression.operands[fold.accumulatorPosition + 1], locals);
+              unify(signature.parameters[fold.accumulatorPosition], accumulatorType, substitution, expression.span);
+              const TypeId result = specialize(signature.returnType, substitution);
+              unify(signature.parameters[fold.accumulatorPosition], result, substitution, expression.span);
+              requireConstArguments(signature, substitution, expression.operands[0]->text, expression.span);
+              if (module_ != nullptr && expression.operands[0]->resolvedName->id < module_->functions.size() &&
+                  module_->functions.at(expression.operands[0]->resolvedName->id).whereClause != nullptr &&
+                  !evaluateWhereCondition(*module_->functions.at(expression.operands[0]->resolvedName->id).whereClause,
+                                          substitution, signature))
+                throw TypeError(std::format("call to `{}` does not satisfy its where clause",
+                                            module_->functions.at(expression.operands[0]->resolvedName->id).name),
+                                expression.span);
+              callFoldSpreadPositions_.insert_or_assign(&expression, std::vector<size_t>{fold.spreadPosition});
+              callFoldAccumulatorPositions_.insert_or_assign(&expression, std::vector<size_t>{fold.accumulatorPosition});
+              callTargets_.insert_or_assign(&expression, hir::DefId{expression.operands[0]->resolvedName->id});
+              type = specialize(signature.returnType, substitution);
+              break;
+            }
+          }
           hir::DefId selected{expression.operands[0]->resolvedName->id};
           if (expression.operands[0]->functionCandidates.size() > 1)
           {
@@ -2258,6 +2346,8 @@ namespace NG::vnext::typecheck
       std::unordered_map<const hir::Expression *, size_t> callPackArgCounts_;
       std::unordered_map<const hir::Expression *, TypeId> callPackTupleTypes_;
       std::unordered_map<const hir::Expression *, std::vector<size_t>> callSpreadPositions_;
+      std::unordered_map<const hir::Expression *, std::vector<size_t>> callFoldSpreadPositions_;
+      std::unordered_map<const hir::Expression *, std::vector<size_t>> callFoldAccumulatorPositions_;
       std::unordered_set<uint32_t> dropTypes_;
       std::unordered_map<const hir::Statement *, std::vector<std::pair<uint32_t, uint32_t>>> returnDrops_;
       std::unordered_map<uint32_t, std::vector<std::pair<uint32_t, uint32_t>>> fallthroughDrops_;

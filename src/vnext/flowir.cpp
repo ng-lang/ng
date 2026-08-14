@@ -88,6 +88,12 @@ namespace NG::vnext::flowir
             }))
           return lowerMapLiteral(expression);
 
+        if (expression.kind == hir::ExpressionKind::Call && types_ != nullptr &&
+            !expression.operands.empty() && expression.operands[0]->resolvedName.has_value() &&
+            expression.operands[0]->resolvedName->kind == hir::ResolvedNameKind::Function &&
+            types_->callFoldSpreadPositions.contains(&expression))
+          return lowerFoldCall(expression);
+
         if (expression.kind == hir::ExpressionKind::Index && types_ != nullptr &&
             types_->typeDescriptors.at(types_->typeIdOf(*expression.operands[1]).value).kind == typecheck::TypeKind::Range)
         {
@@ -535,6 +541,166 @@ namespace NG::vnext::flowir
                                                    .result = result,
                                                    .expressionKind = hir::ExpressionKind::ResolvedName,
                                                    .payload = resultLocal.value});
+        return result;
+      }
+
+      /// Lowers a fold call (`f(acc, xs...)` / `f(xs..., acc)`) into a runtime
+      /// loop: the accumulator is seeded, each source element feeds one call
+      /// whose result becomes the next accumulator, and the final accumulator
+      /// is the call result.
+      [[nodiscard]] auto lowerFoldCall(const hir::Expression &expression) -> ValueId
+      {
+        const size_t spreadPosition = types_->callFoldSpreadPositions.at(&expression).front();
+        const size_t accumulatorPosition = types_->callFoldAccumulatorPositions.at(&expression).front();
+        const hir::Expression &spread = *expression.operands[spreadPosition + 1];
+        const hir::Expression &source = *spread.operands[0];
+        const hir::Expression &accumulatorOperand = *expression.operands[accumulatorPosition + 1];
+
+        const ValueId sourceValue = lowerExpression(source);
+        const ValueId initialAccumulator = lowerExpression(accumulatorOperand);
+        std::optional<hir::DefId> target;
+        if (types_->callTargets.contains(&expression)) target = types_->callTargets.at(&expression);
+
+        const ValueId zero{nextValue_++};
+        if (types_ != nullptr) function_.valueTypes.emplace(zero.value, typecheck::builtin::I64);
+        block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
+                                                   .result = zero,
+                                                   .expressionKind = hir::ExpressionKind::IntegerLiteral,
+                                                   .payload = 0});
+        const ValueId one{nextValue_++};
+        if (types_ != nullptr) function_.valueTypes.emplace(one.value, typecheck::builtin::I64);
+        block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
+                                                   .result = one,
+                                                   .expressionKind = hir::ExpressionKind::IntegerLiteral,
+                                                   .payload = 1});
+        const ValueId length{nextValue_++};
+        if (types_ != nullptr) function_.valueTypes.emplace(length.value, typecheck::builtin::I64);
+        block().instructions.push_back(
+            Instruction{.kind = InstructionKind::ArrayLength, .result = length, .source = sourceValue});
+
+        const hir::LocalId indexLocal{nextSyntheticLocal_++};
+        const hir::LocalId accumulatorLocal{nextSyntheticLocal_++};
+        if (types_ != nullptr)
+        {
+          function_.localTypes.emplace(indexLocal.value, typecheck::builtin::I64);
+          function_.localTypes.emplace(accumulatorLocal.value, types_->typeIdOf(expression));
+        }
+        // A spread in the first position is a right fold (`f(xs..., acc)`),
+        // which iterates the source backwards; otherwise it is a left fold.
+        const bool rightFold = spreadPosition == 0;
+        const ValueId initialIndex{nextValue_++};
+        if (types_ != nullptr) function_.valueTypes.emplace(initialIndex.value, typecheck::builtin::I64);
+        if (rightFold)
+        {
+          block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
+                                                     .result = initialIndex,
+                                                     .expressionKind = hir::ExpressionKind::Binary,
+                                                     .text = "-",
+                                                     .payload = 2,
+                                                     .operands = {length, one}});
+        }
+        else
+        {
+          block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
+                                                     .result = initialIndex,
+                                                     .expressionKind = hir::ExpressionKind::IntegerLiteral,
+                                                     .payload = 0});
+        }
+        const BlockId header = appendBlock();
+        const BlockId body = appendBlock();
+        const BlockId exit = appendBlock();
+        function_.blocks[header.value].parameterCount = 2;
+        function_.blocks[header.value].parameterLocals = {indexLocal, accumulatorLocal};
+        block().terminator = Terminator{.kind = TerminatorKind::Jump,
+                                        .targets = {header},
+                                        .arguments = {initialIndex, initialAccumulator}};
+
+        current_ = header;
+        const ValueId indexRead{nextValue_++};
+        if (types_ != nullptr) function_.valueTypes.emplace(indexRead.value, typecheck::builtin::I64);
+        block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
+                                                   .result = indexRead,
+                                                   .expressionKind = hir::ExpressionKind::ResolvedName,
+                                                   .payload = indexLocal.value});
+        const ValueId condition{nextValue_++};
+        if (types_ != nullptr) function_.valueTypes.emplace(condition.value, typecheck::builtin::Bool);
+        block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
+                                                   .result = condition,
+                                                   .expressionKind = hir::ExpressionKind::Binary,
+                                                   .text = rightFold ? ">=" : "<",
+                                                   .payload = rightFold ? 11 : 8,
+                                                   .operands = rightFold ? std::vector<ValueId>{indexRead, zero}
+                                                                         : std::vector<ValueId>{indexRead, length}});
+        block().terminator = Terminator{.kind = TerminatorKind::Branch,
+                                        .targets = {body, exit},
+                                        .arguments = {condition}};
+
+        current_ = body;
+        const ValueId element{nextValue_++};
+        const bool rangeSource = types_->typeDescriptors.at(types_->typeIdOf(source).value).kind ==
+                                 typecheck::TypeKind::Range;
+        if (rangeSource)
+        {
+          const ValueId start{nextValue_++};
+          if (types_ != nullptr) function_.valueTypes.emplace(start.value, typecheck::builtin::I64);
+          block().instructions.push_back(
+              Instruction{.kind = InstructionKind::RangeStart, .result = start, .source = sourceValue});
+          if (types_ != nullptr) function_.valueTypes.emplace(element.value, typecheck::builtin::I64);
+          block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
+                                                     .result = element,
+                                                     .expressionKind = hir::ExpressionKind::Binary,
+                                                     .text = "+",
+                                                     .payload = 1,
+                                                     .operands = {start, indexRead}});
+        }
+        else
+        {
+          if (types_ != nullptr)
+          {
+            const auto sourceType = types_->typeDescriptors.at(types_->typeIdOf(source).value);
+            function_.valueTypes.emplace(element.value, sourceType.element);
+          }
+          block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
+                                                     .result = element,
+                                                     .expressionKind = hir::ExpressionKind::Index,
+                                                     .operands = {sourceValue, indexRead}});
+        }
+        const ValueId accumulatorRead{nextValue_++};
+        if (types_ != nullptr)
+          function_.valueTypes.emplace(accumulatorRead.value, types_->typeIdOf(expression));
+        block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
+                                                   .result = accumulatorRead,
+                                                   .expressionKind = hir::ExpressionKind::ResolvedName,
+                                                   .payload = accumulatorLocal.value});
+        std::vector<ValueId> argumentValues(2);
+        argumentValues[spreadPosition] = element;
+        argumentValues[accumulatorPosition] = accumulatorRead;
+        const ValueId nextAccumulator{nextValue_++};
+        if (types_ != nullptr) function_.valueTypes.emplace(nextAccumulator.value, types_->typeIdOf(expression));
+        block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
+                                                   .result = nextAccumulator,
+                                                   .expressionKind = hir::ExpressionKind::Call,
+                                                   .callTarget = target,
+                                                   .operands = std::move(argumentValues)});
+        const ValueId nextIndex{nextValue_++};
+        if (types_ != nullptr) function_.valueTypes.emplace(nextIndex.value, typecheck::builtin::I64);
+        block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
+                                                   .result = nextIndex,
+                                                   .expressionKind = hir::ExpressionKind::Binary,
+                                                   .text = rightFold ? "-" : "+",
+                                                   .payload = rightFold ? 2 : 1,
+                                                   .operands = {indexRead, one}});
+        block().terminator = Terminator{.kind = TerminatorKind::LoopBackedge,
+                                        .targets = {header},
+                                        .arguments = {nextIndex, nextAccumulator}};
+
+        current_ = exit;
+        const ValueId result{nextValue_++};
+        if (types_ != nullptr) function_.valueTypes.emplace(result.value, types_->typeIdOf(expression));
+        block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
+                                                   .result = result,
+                                                   .expressionKind = hir::ExpressionKind::ResolvedName,
+                                                   .payload = accumulatorLocal.value});
         return result;
       }
 
