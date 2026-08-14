@@ -16,6 +16,7 @@ namespace NG::vnext::syntax
 
   private:
     [[nodiscard]] auto parsePrimary() -> TypeSyntaxPtr;
+    [[nodiscard]] auto isConstArgumentStart() const -> bool;
     [[nodiscard]] auto current() const -> const Token &;
     [[nodiscard]] auto consume() -> Token;
 

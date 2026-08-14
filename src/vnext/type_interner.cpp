@@ -166,7 +166,7 @@ namespace NG::vnext::typecheck
         throw TypeError(std::format("array type expects 1 or 2 arguments, got {}", type.arguments.size()), type.span);
       const TypeId element = resolveWithBindings(*type.arguments[0].type, bindings);
       return type.arguments.size() == 1 ? internDynamicArray(element)
-                                        : internFixedArray(element, type.arguments[1].constInteger);
+                                        : internFixedArray(element, evaluateArrayLength(type.arguments[1]));
     }
     if (type.target->name == "tuple")
     {
@@ -290,9 +290,22 @@ namespace NG::vnext::typecheck
       throw TypeError("array element argument must be a type", type.arguments[0].span);
     const TypeId element = resolve(*type.arguments[0].type);
     if (type.arguments.size() == 1) return internDynamicArray(element);
-    if (type.arguments[1].kind != syntax::GenericArgumentKind::ConstInteger)
-      throw TypeError("array length argument must be a const integer", type.arguments[1].span);
-    return internFixedArray(element, type.arguments[1].constInteger);
+    if (type.arguments[1].kind != syntax::GenericArgumentKind::ConstExpr)
+      throw TypeError("array length argument must be a const expression", type.arguments[1].span);
+    return internFixedArray(element, evaluateArrayLength(type.arguments[1]));
+  }
+
+  auto TypeInterner::evaluateArrayLength(const hir::TypeArgument &argument) -> uint64_t
+  {
+    if (argument.constExpr == nullptr) throw TypeError("array length argument must be a const expression", argument.span);
+    try
+    {
+      return const_eval::ConstEvaluator{constInterner_}.evaluateArrayLength(*argument.constExpr, {});
+    }
+    catch (const const_eval::ConstEvalError &error)
+    {
+      throw TypeError(error.what(), error.span);
+    }
   }
 
   auto TypeInterner::descriptor(TypeId type) const -> const TypeDescriptor & { return descriptors_.at(type.value); }

@@ -1,5 +1,6 @@
 // AI-generated code; reviewed for this repository's vNext rewrite.
 #include "../test.hpp"
+#include "vnext/syntax/const_expr.hpp"
 #include "vnext/syntax/module_parser.hpp"
 #include "vnext/syntax/type_parser.hpp"
 
@@ -45,8 +46,11 @@ TEST_CASE("vNext type parser preserves applied type and const arguments structur
   REQUIRE(applied->arguments.size() == 2);
   REQUIRE(applied->arguments[0].kind == syntax::GenericArgumentKind::Type);
   REQUIRE(asNamed(applied->arguments[0].type).name == "i64");
-  REQUIRE(applied->arguments[1].kind == syntax::GenericArgumentKind::ConstInteger);
-  REQUIRE(applied->arguments[1].text == "3");
+  REQUIRE(applied->arguments[1].kind == syntax::GenericArgumentKind::ConstExpr);
+  REQUIRE(applied->arguments[1].constExpr != nullptr);
+  const auto *length = dynamic_cast<const syntax::ConstIntegerLiteral *>(applied->arguments[1].constExpr.get());
+  REQUIRE(length != nullptr);
+  REQUIRE(length->text == "3");
   REQUIRE(type->span.begin == 0);
   REQUIRE(type->span.end == 13);
 

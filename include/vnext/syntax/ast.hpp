@@ -190,6 +190,68 @@ namespace NG::vnext::syntax
     }
   };
 
+  enum class ConstExprKind
+  {
+    IntegerLiteral,
+    Identifier,
+    Unary,
+    Binary,
+  };
+
+  struct ConstExpr
+  {
+    const ConstExprKind kind;
+    const SourceSpan span;
+
+    explicit ConstExpr(ConstExprKind exprKind, SourceSpan sourceSpan) : kind(exprKind), span(sourceSpan) {}
+    virtual ~ConstExpr() = default;
+  };
+
+  using ConstExprPtr = std::unique_ptr<ConstExpr>;
+
+  struct ConstIntegerLiteral final : ConstExpr
+  {
+    const std::string text;
+
+    ConstIntegerLiteral(std::string literalText, SourceSpan sourceSpan)
+      : ConstExpr(ConstExprKind::IntegerLiteral, sourceSpan), text(std::move(literalText))
+    {
+    }
+  };
+
+  struct ConstIdentifier final : ConstExpr
+  {
+    const std::string name;
+
+    ConstIdentifier(std::string identifier, SourceSpan sourceSpan)
+      : ConstExpr(ConstExprKind::Identifier, sourceSpan), name(std::move(identifier))
+    {
+    }
+  };
+
+  struct ConstUnaryExpr final : ConstExpr
+  {
+    const std::string operatorText;
+    ConstExprPtr operand;
+
+    ConstUnaryExpr(std::string op, ConstExprPtr value, SourceSpan sourceSpan)
+      : ConstExpr(ConstExprKind::Unary, sourceSpan), operatorText(std::move(op)), operand(std::move(value))
+    {
+    }
+  };
+
+  struct ConstBinaryExpr final : ConstExpr
+  {
+    const std::string operatorText;
+    ConstExprPtr left;
+    ConstExprPtr right;
+
+    ConstBinaryExpr(std::string op, ConstExprPtr lhs, ConstExprPtr rhs, SourceSpan sourceSpan)
+      : ConstExpr(ConstExprKind::Binary, sourceSpan), operatorText(std::move(op)), left(std::move(lhs)), right(std::move(rhs))
+    {
+    }
+  };
+
   enum class StatementKind
   {
     Let,
@@ -347,14 +409,14 @@ namespace NG::vnext::syntax
   enum class GenericArgumentKind
   {
     Type,
-    ConstInteger,
+    ConstExpr,
   };
 
   struct GenericArgumentSyntax
   {
     GenericArgumentKind kind;
     TypeSyntaxPtr type;
-    std::string text;
+    ConstExprPtr constExpr;
     SourceSpan span;
   };
 

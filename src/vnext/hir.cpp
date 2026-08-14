@@ -1,5 +1,6 @@
 // AI-generated code; reviewed for this repository's vNext rewrite.
 #include "vnext/hir.hpp"
+#include "vnext/syntax/const_expr.hpp"
 
 #include <charconv>
 #include <format>
@@ -21,12 +22,7 @@ namespace NG::vnext::hir
         {
           TypeArgument lowered{.kind = argument.kind, .span = argument.span};
           if (argument.kind == syntax::GenericArgumentKind::Type) lowered.type = std::make_unique<Type>(lowerType(*argument.type));
-          else
-          {
-            const auto [end, error] = std::from_chars(argument.text.data(), argument.text.data() + argument.text.size(), lowered.constInteger);
-            if (error != std::errc{} || end != argument.text.data() + argument.text.size())
-              throw ResolutionError("const generic integer is out of range", argument.span);
-          }
+          else lowered.constExpr = syntax::cloneConstExpr(*argument.constExpr);
           result.arguments.push_back(std::move(lowered));
         }
         return result;
@@ -53,7 +49,8 @@ namespace NG::vnext::hir
         {
           if (index != 0) result += ", ";
           const auto &argument = applied->arguments[index];
-          result += argument.kind == syntax::GenericArgumentKind::Type ? renderTypeName(*argument.type) : argument.text;
+          result += argument.kind == syntax::GenericArgumentKind::Type ? renderTypeName(*argument.type)
+                                                                       : syntax::renderConstExpr(*argument.constExpr);
         }
         return result + ">";
       }

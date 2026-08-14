@@ -104,6 +104,9 @@ set(NG_TEST_SRC
         test/vnext/bytecode_test.cpp
         test/vnext/vm_test.cpp
         test/vnext/typecheck_next_test.cpp
+        test/vnext/const_expr_parser_test.cpp
+        test/vnext/const_eval_test.cpp
+        test/vnext/const_typecheck_test.cpp
         test/vnext/driver_test.cpp
         test/vnext/value_test.cpp
         test/module/native_module_artifact_test.cpp
@@ -150,9 +153,11 @@ set(NG_VNEXT_SRC
         src/vnext/hir.cpp
         src/vnext/typecheck.cpp
         src/vnext/type_interner.cpp
+        src/vnext/const_eval.cpp
         src/vnext/vm.cpp
         src/vnext/vm/value_ops.cpp
         src/vnext/syntax/block_parser.cpp
+        src/vnext/syntax/const_expr.cpp
         src/vnext/syntax/module_parser.cpp
         src/vnext/syntax/parser.cpp
         src/vnext/syntax/type_parser.cpp

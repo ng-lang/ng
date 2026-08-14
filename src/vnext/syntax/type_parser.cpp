@@ -1,5 +1,6 @@
 // AI-generated code; reviewed for this repository's vNext rewrite.
 #include "vnext/syntax/type_parser.hpp"
+#include "vnext/syntax/const_expr.hpp"
 
 #include <utility>
 
@@ -52,13 +53,16 @@ namespace NG::vnext::syntax
     std::vector<GenericArgumentSyntax> arguments;
     while (true)
     {
-      if (current().kind == TokenKind::IntegerLiteral)
+      if (isConstArgumentStart())
       {
-        const Token value = consume();
-        arguments.push_back(GenericArgumentSyntax{.kind = GenericArgumentKind::ConstInteger,
+        ConstExprParser parser{tokens_, cursor_};
+        ConstExprPtr expression = parser.parse();
+        const SourceSpan span = expression->span;
+        cursor_ = parser.cursor();
+        arguments.push_back(GenericArgumentSyntax{.kind = GenericArgumentKind::ConstExpr,
                                                    .type = nullptr,
-                                                   .text = value.text,
-                                                   .span = value.span});
+                                                   .constExpr = std::move(expression),
+                                                   .span = span});
       }
       else
       {
@@ -66,7 +70,7 @@ namespace NG::vnext::syntax
         const SourceSpan span = argument->span;
         arguments.push_back(GenericArgumentSyntax{.kind = GenericArgumentKind::Type,
                                                    .type = std::move(argument),
-                                                   .text = {},
+                                                   .constExpr = nullptr,
                                                    .span = span});
       }
       if (current().kind != TokenKind::Comma) break;
@@ -76,6 +80,12 @@ namespace NG::vnext::syntax
     if (current().kind != TokenKind::Greater) throw ParseError("expected `>` after generic arguments", current().span);
     const Token close = consume();
     return std::make_unique<AppliedTypeSyntax>(std::move(type), std::move(arguments), SourceSpan{name.span.begin, close.span.end});
+  }
+
+  auto TypeParser::isConstArgumentStart() const -> bool
+  {
+    return current().kind == TokenKind::IntegerLiteral || current().kind == TokenKind::Plus ||
+           current().kind == TokenKind::Minus || current().kind == TokenKind::LeftParen;
   }
 
   auto TypeParser::current() const -> const Token & { return tokens_[cursor_]; }

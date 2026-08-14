@@ -1,6 +1,7 @@
 // AI-generated code; reviewed for this repository's vNext rewrite.
 #pragma once
 
+#include "vnext/const_eval.hpp"
 #include "vnext/hir.hpp"
 #include <optional>
 #include <stdexcept>
@@ -88,12 +89,14 @@ namespace NG::vnext::typecheck
   private:
     [[nodiscard]] auto append(TypeDescriptor descriptor) -> TypeId;
     [[nodiscard]] auto resolveWithBindings(const hir::Type &type, const std::unordered_map<std::string, TypeId> &bindings) -> TypeId;
+    [[nodiscard]] auto evaluateArrayLength(const hir::TypeArgument &argument) -> uint64_t;
     std::vector<TypeDescriptor> descriptors_;
     std::unordered_map<std::string, TypeId> namedTypes_;
     std::unordered_map<uint32_t, TypeId> structTypes_;
     std::unordered_map<uint32_t, TypeId> enumTypes_;
     std::unordered_map<uint32_t, std::vector<std::string>> enumGenericParameters_;
     std::unordered_map<uint32_t, const hir::Enum *> enumTemplates_;
+    const_eval::ConstInterner constInterner_;
   };
 
   struct FunctionType

@@ -166,7 +166,7 @@ namespace NG::vnext::hir
   {
     syntax::GenericArgumentKind kind;
     std::unique_ptr<Type> type;
-    uint64_t constInteger{};
+    syntax::ConstExprPtr constExpr;
     syntax::SourceSpan span;
   };
 
