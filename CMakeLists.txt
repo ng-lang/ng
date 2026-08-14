@@ -121,6 +121,7 @@ set(NG_TEST_SRC
         test/vnext/variadic_pack_test.cpp
         test/vnext/drop_test.cpp
         test/vnext/range_slice_test.cpp
+        test/vnext/borrow_check_test.cpp
         test/vnext/ref_type_test.cpp
         test/vnext/ref_runtime_test.cpp
         test/vnext/switch_statement_test.cpp

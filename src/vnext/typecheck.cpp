@@ -34,7 +34,10 @@ namespace NG::vnext::typecheck
           for (const auto &field : structure.fields)
           {
             fields.push_back(field.name);
-            types.push_back(interner_.resolve(field.type));
+            const TypeId fieldType = interner_.resolve(field.type);
+            if (interner_.descriptor(fieldType).kind == TypeKind::Reference)
+              throw TypeError("references cannot be stored in struct fields", field.span);
+            types.push_back(fieldType);
           }
           interner_.defineStruct(structure.id, std::move(fields), std::move(types));
         }
@@ -175,6 +178,32 @@ namespace NG::vnext::typecheck
         std::string traitName;
         TypeId target;
         std::unordered_map<std::string, hir::DefId> methods;
+      };
+
+      /// Simple borrow conflict state (D-015 rule 5): shared and mutable
+      /// reference counts per root local, conservatively scoped to the
+      /// enclosing block.
+      struct BorrowState
+      {
+        struct Counts
+        {
+          size_t shared{};
+          size_t mutableRefs{};
+        };
+        std::unordered_map<uint32_t, Counts> counts;
+        static constexpr size_t MaxShared{16};
+
+        [[nodiscard]] auto mergedWith(const BorrowState &other) const -> BorrowState
+        {
+          BorrowState merged = *this;
+          for (const auto &[local, otherCounts] : other.counts)
+          {
+            auto &mine = merged.counts[local];
+            mine.shared = std::max(mine.shared, otherCounts.shared);
+            mine.mutableRefs = std::max(mine.mutableRefs, otherCounts.mutableRefs);
+          }
+          return merged;
+        }
       };
 
       /// Per-local move tracking (D-015): `whole` marks a fully moved
@@ -736,6 +765,7 @@ namespace NG::vnext::typecheck
         LocalTypes locals;
         mutableBindings_.clear();
         moveState_ = MoveState{};
+        borrowState_ = BorrowState{};
         const auto &signature = signatures_.at(function.id.value);
         if (!signature.packParameters.empty()) placeholderFunctions_.insert(function.id.value);
         genericBindings_.clear();
@@ -773,9 +803,11 @@ namespace NG::vnext::typecheck
       void checkBlock(const hir::Block &block, LocalTypes locals, LoopTypes loops, TypeId returnType)
       {
         const MutableBindings saved = mutableBindings_;
+        const BorrowState borrowsSaved = borrowState_;
         for (const auto &statement : block.statements) checkStatement(statement, locals, loops, returnType);
         if (block.tailExpression != nullptr) static_cast<void>(infer(*block.tailExpression, locals));
         mutableBindings_ = std::move(saved);
+        borrowState_ = std::move(borrowsSaved);
       }
 
       void checkStatement(const hir::Statement &statement, LocalTypes &locals, LoopTypes &loops, TypeId returnType)
@@ -851,7 +883,12 @@ namespace NG::vnext::typecheck
           }
           return;
         case hir::StatementKind::Return:
-          if (statement.expression != nullptr) static_cast<void>(inferExpected(*statement.expression, returnType, locals, "return value"));
+          if (statement.expression != nullptr)
+          {
+            const TypeId returned = inferExpected(*statement.expression, returnType, locals, "return value");
+            if (interner_.descriptor(returned).kind == TypeKind::Reference)
+              throw TypeError("references cannot be returned from a function", statement.expression->span);
+          }
           else requireType(returnType, builtin::Unit, statement.span, "return value");
           for (const auto &[local, type] : locals)
           {
@@ -866,11 +903,15 @@ namespace NG::vnext::typecheck
         {
           requireType(builtin::Bool, infer(*statement.expression, locals), statement.expression->span, "if condition");
           const MoveState before = moveState_;
+          const BorrowState borrowsBefore = borrowState_;
           checkBlock(*statement.consequence, locals, loops, returnType);
           const MoveState afterConsequence = moveState_;
+          const BorrowState borrowsAfterConsequence = borrowState_;
           moveState_ = before;
+          borrowState_ = borrowsBefore;
           if (statement.alternative != nullptr) checkBlock(*statement.alternative, locals, loops, returnType);
           moveState_ = afterConsequence.mergedWith(moveState_);
+          borrowState_ = borrowsAfterConsequence.mergedWith(borrowState_);
           return;
         }
         case hir::StatementKind::ConstIf:
@@ -912,8 +953,10 @@ namespace NG::vnext::typecheck
           LoopTypes loopTypes = loops;
           loopTypes.emplace(statement.loop->value, types);
           const MoveState before = moveState_;
+          const BorrowState borrowsBefore = borrowState_;
           checkBlock(*statement.body, std::move(loopLocals), std::move(loopTypes), returnType);
           moveState_ = before.mergedWith(moveState_);
+          borrowState_ = borrowsBefore.mergedWith(borrowState_);
           return;
         }
         case hir::StatementKind::Next: checkNext(statement, locals, loops); return;
@@ -944,13 +987,18 @@ namespace NG::vnext::typecheck
                           statement.expression->span);
         std::vector<bool> covered(descriptor.fieldNames.size());
         const MoveState beforeSwitch = moveState_;
+        const BorrowState borrowsBeforeSwitch = borrowState_;
         MoveState merged;
+        BorrowState borrowsMerged;
         bool anyBranch = false;
         const auto checkBranch = [&](const hir::Block &branch, const LocalTypes &branchLocals) {
           const MoveState beforeBranch = moveState_;
+          const BorrowState borrowsBeforeBranch = borrowState_;
           checkBlock(branch, branchLocals, loops, returnType);
           merged = merged.mergedWith(moveState_);
+          borrowsMerged = borrowsMerged.mergedWith(borrowState_);
           moveState_ = beforeBranch;
+          borrowState_ = borrowsBeforeBranch;
           anyBranch = true;
         };
         for (const auto &switchCase : statement.switchCases)
@@ -976,7 +1024,11 @@ namespace NG::vnext::typecheck
           checkBranch(*switchCase.body, caseLocals);
         }
         if (statement.alternative != nullptr) checkBranch(*statement.alternative, locals);
-        if (anyBranch) moveState_ = beforeSwitch.mergedWith(merged);
+        if (anyBranch)
+        {
+          moveState_ = beforeSwitch.mergedWith(merged);
+          borrowState_ = borrowsBeforeSwitch.mergedWith(borrowsMerged);
+        }
         if (statement.alternative == nullptr)
         {
           if (const auto missing = std::find(covered.begin(), covered.end(), false); missing != covered.end())
@@ -1575,8 +1627,10 @@ namespace NG::vnext::typecheck
           const size_t field = static_cast<size_t>(std::distance(descriptor.fieldNames.begin(), found));
           if (seen[field]) throw TypeError(std::format("duplicate field `{}` in struct literal", expression.memberNames[index]), expression.span);
           seen[field] = true;
-          static_cast<void>(inferExpected(*expression.operands[index], descriptor.elements[field], locals,
-                                          std::format("field `{}`", expression.memberNames[index])));
+          const TypeId fieldType = inferExpected(*expression.operands[index], descriptor.elements[field], locals,
+                                                  std::format("field `{}`", expression.memberNames[index]));
+          if (interner_.descriptor(fieldType).kind == TypeKind::Reference)
+            throw TypeError("references cannot be stored in struct fields", expression.operands[index]->span);
         }
         if (std::find(seen.begin(), seen.end(), false) != seen.end())
           throw TypeError(std::format("missing field in struct `{}`", descriptor.name), expression.span);
@@ -1596,6 +1650,8 @@ namespace NG::vnext::typecheck
         {
           if (expression.operands.empty()) throw TypeError("cannot infer the type of an empty array literal", expression.span);
           const TypeId element = infer(*expression.operands.front(), locals);
+          if (interner_.descriptor(element).kind == TypeKind::Reference)
+            throw TypeError("references cannot be stored in arrays", expression.span);
           for (size_t index = 1; index < expression.operands.size(); ++index)
             requireType(element, infer(*expression.operands[index], locals), expression.operands[index]->span, "array element");
           type = interner_.internDynamicArray(element);
@@ -1642,7 +1698,10 @@ namespace NG::vnext::typecheck
                 throw TypeError(std::format("cannot spread value of type {}", interner_.display(operand)), element->span);
               continue;
             }
-            elements.push_back(infer(*element, locals));
+            const TypeId elementType = infer(*element, locals);
+            if (interner_.descriptor(elementType).kind == TypeKind::Reference)
+              throw TypeError("references cannot be stored in tuples", element->span);
+            elements.push_back(elementType);
           }
           type = interner_.internTuple(elements);
           break;
@@ -1685,6 +1744,34 @@ namespace NG::vnext::typecheck
             if (operandDescriptor.kind == TypeKind::Reference)
               throw TypeError("cannot create a reference to a reference", expression.span);
             if (expression.text == "ref mut") requireMutableRoot(*expression.operands[0], expression.span);
+            if (const auto root = rootLocalOf(*expression.operands[0]); root.has_value())
+            {
+              // Borrows are counted once per expression node: the same
+              // `ref`/`ref mut` may be re-inferred by the call paths.
+              if (borrowExpressions_.insert(&expression).second)
+              {
+                auto &counts = borrowState_.counts[root->value];
+                if (expression.text == "ref mut")
+                {
+                  if (counts.shared != 0)
+                    throw TypeError(std::format("cannot mutably borrow `{}` while it is shared-borrowed",
+                                                expression.operands[0]->text), expression.span);
+                  if (counts.mutableRefs != 0)
+                    throw TypeError(std::format("cannot mutably borrow `{}` while it is already mutably borrowed",
+                                                expression.operands[0]->text), expression.span);
+                  ++counts.mutableRefs;
+                }
+                else
+                {
+                  if (counts.mutableRefs != 0)
+                    throw TypeError(std::format("cannot shared-borrow `{}` while it is mutably borrowed",
+                                                expression.operands[0]->text), expression.span);
+                  if (counts.shared >= BorrowState::MaxShared)
+                    throw TypeError("too many shared borrows of one binding", expression.span);
+                  ++counts.shared;
+                }
+              }
+            }
             type = interner_.internReference(operand, expression.text == "ref mut");
             break;
           }
@@ -2140,6 +2227,10 @@ namespace NG::vnext::typecheck
       /// Move tracking for affine bindings (D-015): whole and per-field moved
       /// state, merged at branch and loop boundaries.
       MoveState moveState_;
+      /// Active shared/mutable borrow counts per root local (D-015 rule 5).
+      BorrowState borrowState_;
+      /// Borrow expressions already counted (re-inference is idempotent).
+      std::unordered_set<const hir::Expression *> borrowExpressions_;
       bool inConstGenericFunction_{};
     };
   } // namespace

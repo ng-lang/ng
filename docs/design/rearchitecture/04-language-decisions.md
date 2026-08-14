@@ -955,7 +955,18 @@ let writable = ref mut value;
   bindings, call arguments, and returns never alias aggregate storage, while
   reference values stay views. Line and block comments are lexed and skipped.
 - Remaining D-015 work: field-aware partial-move drops, block-scoped drop
-  edges, loan conflict checks, and rejection of escaped references.
+  edges, and full non-lexical loan analysis.
+
+### Borrow status — 2026-08-15
+
+- Simple conflict checks (rule 5) are enforced: a `ref mut` may not coexist
+  with any other borrow of the same binding, and shared borrows conflict
+  with active mutable borrows; borrows release conservatively at the end of
+  the enclosing block (branches merge, re-inference is idempotent per
+  expression).
+- Escaped references are rejected: returning a reference, storing one in an
+  array/tuple, or declaring a reference-typed struct field are span-carrying
+  errors.
 
 ### Drop status — 2026-08-15
 

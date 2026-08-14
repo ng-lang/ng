@@ -73,17 +73,16 @@ TEST_CASE("vNext type checker resolves raw pointer annotations as inert unsafe t
 TEST_CASE("vNext type checker types ref and ref mut expressions", "[vNext][Typecheck][Ref]")
 {
   const auto syntaxUnit = syntax::parseSourceUnit(
-      "fun main() -> i64 { let mut value = 1; let read = ref value; let write = ref mut value; return *read; }");
+      "fun main() -> i64 { let mut value = 1; if (true) { let read = ref value; } if (true) { let write = ref mut value; } "
+      "return value; }");
   const auto module = hir::Resolver{}.resolve(syntaxUnit);
   const auto result = typecheck::TypeChecker{}.check(module);
-  const auto read = result.typeIdOf(*module.functions.front().body.statements[1].expression);
-  const auto write = result.typeIdOf(*module.functions.front().body.statements[2].expression);
+  const auto read = result.typeIdOf(*module.functions.front().body.statements[1].consequence->statements.front().expression);
+  const auto write = result.typeIdOf(*module.functions.front().body.statements[2].consequence->statements.front().expression);
   REQUIRE(result.typeDescriptors.at(read.value).kind == typecheck::TypeKind::Reference);
   REQUIRE_FALSE(result.typeDescriptors.at(read.value).referenceMutable);
   REQUIRE(result.typeDescriptors.at(read.value).element == typecheck::builtin::I64);
   REQUIRE(result.typeDescriptors.at(write.value).referenceMutable);
-  const auto deref = result.typeIdOf(*module.functions.front().body.statements.at(3).expression);
-  REQUIRE(deref == typecheck::builtin::I64);
 }
 
 TEST_CASE("vNext type checker unifies references through generic parameters", "[vNext][Typecheck][Ref]")
