@@ -180,6 +180,7 @@ namespace NG::vnext::typecheck
                                .callFoldAccumulatorPositions = std::move(callFoldAccumulatorPositions_),
                                .returnDrops = std::move(returnDrops_),
                                .fallthroughDrops = std::move(fallthroughDrops_),
+                               .blockDrops = std::move(blockDrops_),
                                .placeholderFunctions = std::move(placeholderFunctions_),
                                .methodReceiverMutable = std::move(methodReceiverMutable_),
                                .methodReceiverRefTypes = std::move(methodReceiverRefTypes_),
@@ -921,12 +922,31 @@ namespace NG::vnext::typecheck
         }
       }
 
-      void checkBlock(const hir::Block &block, LocalTypes locals, LoopTypes loops, TypeId returnType)
+      void checkBlock(const hir::Block &block, LocalTypes locals, LoopTypes loops, TypeId returnType,
+                      bool nestedScope = false)
       {
+        std::unordered_set<uint32_t> incomingLocals;
+        for (const auto &[local, type] : locals) incomingLocals.insert(local);
         const MutableBindings saved = mutableBindings_;
         const BorrowState borrowsSaved = borrowState_;
         for (const auto &statement : block.statements) checkStatement(statement, locals, loops, returnType);
         if (block.tailExpression != nullptr) static_cast<void>(infer(*block.tailExpression, locals));
+        if (nestedScope)
+        {
+          // Block-scoped drop edges (D-015): locals declared in this block
+          // drop when the scope exits unless they were wholly moved out.
+          std::vector<std::pair<uint32_t, uint32_t>> drops;
+          for (const auto &[local, type] : locals)
+          {
+            if (incomingLocals.contains(local)) continue;
+            if (!dropTypes_.contains(type.value) || moveState_.isWholeMoved(local)) continue;
+            const auto &impl = *std::find_if(impls_.begin(), impls_.end(), [&](const ImplInfo &candidate) {
+              return candidate.traitName == "Drop" && candidate.target.value == type.value;
+            });
+            drops.push_back({local, impl.methods.at("drop").value});
+          }
+          if (!drops.empty()) blockDrops_.emplace(&block, std::move(drops));
+        }
         mutableBindings_ = std::move(saved);
         borrowState_ = std::move(borrowsSaved);
       }
@@ -1025,12 +1045,12 @@ namespace NG::vnext::typecheck
           requireType(builtin::Bool, infer(*statement.expression, locals), statement.expression->span, "if condition");
           const MoveState before = moveState_;
           const BorrowState borrowsBefore = borrowState_;
-          checkBlock(*statement.consequence, locals, loops, returnType);
+          checkBlock(*statement.consequence, locals, loops, returnType, true);
           const MoveState afterConsequence = moveState_;
           const BorrowState borrowsAfterConsequence = borrowState_;
           moveState_ = before;
           borrowState_ = borrowsBefore;
-          if (statement.alternative != nullptr) checkBlock(*statement.alternative, locals, loops, returnType);
+          if (statement.alternative != nullptr) checkBlock(*statement.alternative, locals, loops, returnType, true);
           moveState_ = afterConsequence.mergedWith(moveState_);
           borrowState_ = borrowsAfterConsequence.mergedWith(borrowState_);
           return;
@@ -1094,8 +1114,8 @@ namespace NG::vnext::typecheck
             }
           }
           constIfSelections_.emplace(&statement, selected);
-          if (selected) checkBlock(*statement.consequence, locals, loops, returnType);
-          else if (statement.alternative != nullptr) checkBlock(*statement.alternative, locals, loops, returnType);
+          if (selected) checkBlock(*statement.consequence, locals, loops, returnType, true);
+          else if (statement.alternative != nullptr) checkBlock(*statement.alternative, locals, loops, returnType, true);
           return;
         }
         case hir::StatementKind::Loop:
@@ -1113,7 +1133,7 @@ namespace NG::vnext::typecheck
           loopTypes.emplace(statement.loop->value, types);
           const MoveState before = moveState_;
           const BorrowState borrowsBefore = borrowState_;
-          checkBlock(*statement.body, std::move(loopLocals), std::move(loopTypes), returnType);
+          checkBlock(*statement.body, std::move(loopLocals), std::move(loopTypes), returnType, true);
           moveState_ = before.mergedWith(moveState_);
           borrowState_ = borrowsBefore.mergedWith(borrowState_);
           return;
@@ -1153,7 +1173,7 @@ namespace NG::vnext::typecheck
         const auto checkBranch = [&](const hir::Block &branch, const LocalTypes &branchLocals) {
           const MoveState beforeBranch = moveState_;
           const BorrowState borrowsBeforeBranch = borrowState_;
-          checkBlock(branch, branchLocals, loops, returnType);
+          checkBlock(branch, branchLocals, loops, returnType, true);
           merged = merged.mergedWith(moveState_);
           borrowsMerged = borrowsMerged.mergedWith(borrowState_);
           moveState_ = beforeBranch;
@@ -2659,6 +2679,7 @@ namespace NG::vnext::typecheck
       std::unordered_set<uint32_t> dropTypes_;
       std::unordered_map<const hir::Statement *, std::vector<std::pair<uint32_t, uint32_t>>> returnDrops_;
       std::unordered_map<uint32_t, std::vector<std::pair<uint32_t, uint32_t>>> fallthroughDrops_;
+      std::unordered_map<const hir::Block *, std::vector<std::pair<uint32_t, uint32_t>>> blockDrops_;
       std::unordered_set<uint32_t> placeholderFunctions_;
       std::unordered_set<uint32_t> derivedCloneTypes_;
       std::unordered_map<const hir::Expression *, TypeId> derivedCloneCalls_;

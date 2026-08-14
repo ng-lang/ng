@@ -210,6 +210,8 @@ namespace NG::vnext::typecheck
     std::unordered_map<const hir::Statement *, std::vector<std::pair<uint32_t, uint32_t>>> returnDrops;
     /// Drop calls to emit at function fall-through, keyed by function id.
     std::unordered_map<uint32_t, std::vector<std::pair<uint32_t, uint32_t>>> fallthroughDrops;
+    /// Drop calls to emit when a nested block scope exits, keyed by block.
+    std::unordered_map<const hir::Block *, std::vector<std::pair<uint32_t, uint32_t>>> blockDrops;
     /// Declared functions whose bodies cannot be lowered type-erased
     /// (variadic originals); the driver emits inert placeholders.
     std::unordered_set<uint32_t> placeholderFunctions;

@@ -917,11 +917,13 @@ namespace NG::vnext::flowir
 
       void lowerBlock(const hir::Block &source)
       {
+        const hir::Block *previousBlock = currentHirBlock_;
+        currentHirBlock_ = &source;
         for (const auto &statement : source.statements)
         {
           if (block().terminator.has_value())
           {
-            return;
+            break;
           }
           lowerStatement(statement);
         }
@@ -929,6 +931,16 @@ namespace NG::vnext::flowir
         {
           static_cast<void>(lowerExpression(*source.tailExpression));
         }
+        if (!block().terminator.has_value()) emitBlockDrops(source);
+        currentHirBlock_ = previousBlock;
+      }
+
+      /// Emits the block-scoped drop calls recorded for a HIR block.
+      void emitBlockDrops(const hir::Block &source)
+      {
+        if (types_ == nullptr) return;
+        if (const auto drops = types_->blockDrops.find(&source); drops != types_->blockDrops.end())
+          lowerDropCalls(drops->second);
       }
 
       void lowerStatement(const hir::Statement &statement)
@@ -1096,6 +1108,7 @@ namespace NG::vnext::flowir
           arguments.push_back(lowerExpression(*argument));
         }
 
+        if (currentHirBlock_ != nullptr) emitBlockDrops(*currentHirBlock_);
         if (statement.nextTarget->kind == hir::NextTargetKind::Loop)
         {
           block().terminator = Terminator{.kind = TerminatorKind::LoopBackedge,
@@ -1209,6 +1222,7 @@ namespace NG::vnext::flowir
       uint32_t nextValue_{};
       uint32_t nextSyntheticLocal_{};
       const typecheck::TypeCheckResult *types_{};
+      const hir::Block *currentHirBlock_{};
       std::unordered_map<uint32_t, BlockId> loopHeaders_;
     };
   } // namespace

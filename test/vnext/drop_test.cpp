@@ -103,6 +103,46 @@ TEST_CASE("vNext Drop impls validate their shape", "[vNext][Drop][Errors]")
   }
 }
 
+TEST_CASE("vNext Drop runs when a nested block scope exits", "[vNext][Drop][Runtime]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(run("native fun print(value: string) -> unit; "
+              "struct Resource { id: i64 } "
+              "impl Drop for Resource { fun drop(self: Self ref) -> unit { print(\"dropped\"); } } "
+              "fun main() { if (1 < 2) { let inner = Resource { id: 1 }; } return; }",
+              output, errors) == 0);
+  REQUIRE(errors.empty());
+  REQUIRE(output.find("dropped\n") != std::string::npos);
+}
+
+TEST_CASE("vNext Drop runs per loop iteration on next edges", "[vNext][Drop][Runtime]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(run("native fun print(value: string) -> unit; "
+              "struct Resource { id: i64 } "
+              "impl Drop for Resource { fun drop(self: Self ref) -> unit { print(\"dropped\"); } } "
+              "fun main() { loop (i = 0) { let each = Resource { id: i }; if (i == 1) { return; } next (i + 1); } }",
+              output, errors) == 0);
+  REQUIRE(errors.empty());
+  REQUIRE(output.find("dropped\ndropped\n") != std::string::npos);
+}
+
+TEST_CASE("vNext block-scoped drops skip wholly moved locals", "[vNext][Drop][Runtime]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(run("native fun print(value: string) -> unit; "
+              "struct Resource { id: i64 } "
+              "impl Drop for Resource { fun drop(self: Self ref) -> unit { print(\"dropped\"); } } "
+              "fun main() { if (1 < 2) { let resource = Resource { id: 1 }; let moved = move resource; } return; }",
+              output, errors) == 0);
+  REQUIRE(errors.empty());
+  REQUIRE(output.find("dropped\n") != std::string::npos);
+  REQUIRE(output.find("dropped\ndropped\n") == std::string::npos);
+}
+
 TEST_CASE("vNext drop example file runs end to end through ngi", "[vNext][Drop][Examples]")
 {
   std::string output;

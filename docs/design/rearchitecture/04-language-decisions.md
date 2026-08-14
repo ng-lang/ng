@@ -954,8 +954,11 @@ let writable = ref mut value;
 - Deep copy on bind/call/return is enforced in the VM (`Value::deepCopy`):
   bindings, call arguments, and returns never alias aggregate storage, while
   reference values stay views. Line and block comments are lexed and skipped.
-- Remaining D-015 work: field-aware partial-move drops, block-scoped drop
-  edges, and full non-lexical loan analysis.
+- Block-scoped drop edges: drop-typed locals declared in nested blocks
+  (if/const if/loop/switch branches) drop when the scope exits, including
+  `next` loop edges; wholly moved-out bindings are skipped.
+- Remaining D-015 work: field-aware partial-move drops and full non-lexical
+  loan analysis.
 
 ### Borrow status — 2026-08-15
 
