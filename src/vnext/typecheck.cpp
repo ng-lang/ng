@@ -1713,6 +1713,13 @@ namespace NG::vnext::typecheck
         {
           const TypeId left = infer(*expression.operands[0], locals);
           const TypeId right = infer(*expression.operands[1], locals);
+          if (expression.text == "..")
+          {
+            requireType(builtin::I64, left, expression.operands[0]->span, "range start");
+            requireType(builtin::I64, right, expression.operands[1]->span, "range end");
+            type = interner_.internRange(builtin::I64);
+            break;
+          }
           requireType(left, right, expression.span, "binary operands");
           if (expression.text == "==" || expression.text == "!=") type = builtin::Bool;
           else if (expression.text == "<" || expression.text == "<=" || expression.text == ">" || expression.text == ">=")
@@ -1906,6 +1913,16 @@ namespace NG::vnext::typecheck
         case hir::ExpressionKind::Index:
         {
           const TypeId receiver = infer(*expression.operands[0], locals);
+          const TypeId indexType = infer(*expression.operands[1], locals);
+          if (interner_.descriptor(indexType).kind == TypeKind::Range)
+          {
+            const auto &descriptor = interner_.descriptor(receiver);
+            if (descriptor.kind != TypeKind::DynamicArray && descriptor.kind != TypeKind::FixedArray &&
+                descriptor.kind != TypeKind::DependentArray)
+              throw TypeError(std::format("cannot slice value of type {}", interner_.display(receiver)), expression.span);
+            type = interner_.internDynamicArray(descriptor.element);
+            break;
+          }
           requireType(builtin::I64, infer(*expression.operands[1], locals), expression.operands[1]->span, "array index");
           const auto &descriptor = interner_.descriptor(receiver);
           if (descriptor.kind == TypeKind::Tuple)

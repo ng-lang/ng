@@ -82,6 +82,18 @@ namespace NG::vnext::flowir
             }))
           return lowerTupleSplice(expression);
 
+        if (expression.kind == hir::ExpressionKind::Index && types_ != nullptr &&
+            types_->typeDescriptors.at(types_->typeIdOf(*expression.operands[1]).value).kind == typecheck::TypeKind::Range)
+        {
+          const ValueId receiver = lowerExpression(*expression.operands[0]);
+          const ValueId range = lowerExpression(*expression.operands[1]);
+          const ValueId result{nextValue_++};
+          if (types_ != nullptr) function_.valueTypes.emplace(result.value, types_->typeIdOf(expression));
+          block().instructions.push_back(
+              Instruction{.kind = InstructionKind::Slice, .result = result, .operands = {receiver, range}});
+          return result;
+        }
+
         const bool directCall = expression.kind == hir::ExpressionKind::Call && !expression.operands.empty() &&
                                 expression.operands[0]->resolvedName.has_value() &&
                                 expression.operands[0]->resolvedName->kind == hir::ResolvedNameKind::Function;
@@ -216,6 +228,7 @@ namespace NG::vnext::flowir
           else if (expression.text == "^") payload = 16;
           else if (expression.text == "<<") payload = 17;
           else if (expression.text == ">>") payload = 18;
+          else if (expression.text == "..") payload = 19;
         }
 
         std::optional<hir::DefId> callTarget;
@@ -863,6 +876,8 @@ namespace NG::vnext::flowir
           throw VerificationError("FlowIR tuple extraction requires one source operand");
         if (instruction.kind == InstructionKind::LoadRef && instruction.operands.size() != 1)
           throw VerificationError("FlowIR reference load requires one source operand");
+        if (instruction.kind == InstructionKind::Slice && instruction.operands.size() != 2)
+          throw VerificationError("FlowIR slice requires receiver and range operands");
         if ((instruction.kind == InstructionKind::EnumVariantIndex || instruction.kind == InstructionKind::ExtractEnumPayload) &&
             !instruction.source.has_value())
           throw VerificationError("FlowIR enum operation requires a source operand");

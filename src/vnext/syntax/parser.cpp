@@ -54,6 +54,7 @@ namespace NG::vnext::syntax
     [[nodiscard]] auto tokenKindForThreeCharacters(std::string_view text) -> TokenKind
     {
       if (text == "...") return TokenKind::Ellipsis;
+      if (text == "..") return TokenKind::DotDot;
       return TokenKind::End;
     }
 
@@ -62,6 +63,7 @@ namespace NG::vnext::syntax
       if (text == ":=") return TokenKind::Assign;
       if (text == "->") return TokenKind::Arrow;
       if (text == "=>") return TokenKind::FatArrow;
+      if (text == "..") return TokenKind::DotDot;
       if (text == "<<") return TokenKind::ShiftLeft;
       if (text == ">>") return TokenKind::ShiftRight;
       if (text == "<=") return TokenKind::LessEqual;
@@ -621,6 +623,7 @@ namespace NG::vnext::syntax
     switch (kind)
     {
     case TokenKind::OrOr: return 10;
+    case TokenKind::DotDot: return 60;
     case TokenKind::AndAnd: return 20;
     case TokenKind::Pipe: return 30;
     case TokenKind::Caret: return 40;

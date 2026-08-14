@@ -20,6 +20,7 @@ namespace NG::vnext::bytecode
         OpcodeDescriptor{Opcode::LoadVariant, "load_variant", OperandLayout::Fixed, 2},
         OpcodeDescriptor{Opcode::ExtractPayload, "extract_payload", OperandLayout::Fixed, 2},
         OpcodeDescriptor{Opcode::SpliceTuple, "splice_tuple", OperandLayout::CountPrefixedTail, 1},
+        OpcodeDescriptor{Opcode::Slice, "slice", OperandLayout::Fixed, 3},
         OpcodeDescriptor{Opcode::Return, "return", OperandLayout::CountPrefixedTail, 0},
         OpcodeDescriptor{Opcode::Jump, "jump", OperandLayout::CountPrefixedTail, 1},
         OpcodeDescriptor{Opcode::Branch, "branch", OperandLayout::Fixed, 3},
@@ -148,6 +149,11 @@ namespace NG::vnext::bytecode
         else if (instruction.kind == flowir::InstructionKind::LoadRef)
         {
           appendInstruction(result.code, Opcode::LoadRef, {instruction.result.value, instruction.operands[0].value});
+        }
+        else if (instruction.kind == flowir::InstructionKind::Slice)
+        {
+          appendInstruction(result.code, Opcode::Slice,
+                            {instruction.result.value, instruction.operands[0].value, instruction.operands[1].value});
         }
         else if (instruction.kind == flowir::InstructionKind::TupleSplice)
         {
@@ -289,12 +295,13 @@ namespace NG::vnext::bytecode
           descriptor.kind != typecheck::TypeKind::FixedArray && descriptor.kind != typecheck::TypeKind::DependentArray &&
           descriptor.kind != typecheck::TypeKind::Reference && descriptor.kind != typecheck::TypeKind::RawPointer &&
           descriptor.kind != typecheck::TypeKind::TypePack &&
+          descriptor.kind != typecheck::TypeKind::Range &&
           descriptor.kind != typecheck::TypeKind::Tuple &&
           descriptor.kind != typecheck::TypeKind::Struct && descriptor.kind != typecheck::TypeKind::Enum &&
           descriptor.kind != typecheck::TypeKind::TypeParameter)
         throw BytecodeError("bytecode type descriptor kind is invalid");
       if (descriptor.kind == typecheck::TypeKind::Reference || descriptor.kind == typecheck::TypeKind::RawPointer ||
-          descriptor.kind == typecheck::TypeKind::TypePack)
+          descriptor.kind == typecheck::TypeKind::TypePack || descriptor.kind == typecheck::TypeKind::Range)
         verifyTypeId(descriptor.element);
       if (descriptor.kind == typecheck::TypeKind::DynamicArray || descriptor.kind == typecheck::TypeKind::FixedArray ||
           descriptor.kind == typecheck::TypeKind::DependentArray)
@@ -476,6 +483,15 @@ namespace NG::vnext::bytecode
           else if (kind == hir::ExpressionKind::Binary)
           {
             const uint64_t payload = static_cast<uint64_t>(instruction.operands[2]) | (static_cast<uint64_t>(instruction.operands[3]) << 32);
+            if (payload == 19)
+            {
+              requireOperandType(0, typecheck::builtin::I64);
+              requireOperandType(1, typecheck::builtin::I64);
+              if (resultType.value >= function.typeDescriptors.size()) throw BytecodeError("bytecode value type descriptor is out of range");
+              const auto &range = function.typeDescriptors[resultType.value];
+              if (range.kind != typecheck::TypeKind::Range) throw BytecodeError("bytecode range result is not a range type");
+            }
+            else
             if (payload == 1 && requireValueType(instruction.operands.at(5)) == typecheck::builtin::String)
             {
               requireOperandType(1, typecheck::builtin::String);
@@ -587,6 +603,24 @@ namespace NG::vnext::bytecode
           }
           if (requireValueType(instruction.operands[2]) != current)
             throw BytecodeError("bytecode place assignment value type mismatch");
+        }
+        else if (instruction.opcode == Opcode::Slice)
+        {
+          const auto receiverType = requireValueType(instruction.operands[1]);
+          if (receiverType.value >= function.typeDescriptors.size()) throw BytecodeError("bytecode value type descriptor is out of range");
+          const auto &receiver = function.typeDescriptors[receiverType.value];
+          if (receiver.kind != typecheck::TypeKind::DynamicArray && receiver.kind != typecheck::TypeKind::FixedArray &&
+              receiver.kind != typecheck::TypeKind::DependentArray)
+            throw BytecodeError("bytecode slice receiver is not an array type");
+          const auto rangeType = requireValueType(instruction.operands[2]);
+          if (rangeType.value >= function.typeDescriptors.size()) throw BytecodeError("bytecode value type descriptor is out of range");
+          if (function.typeDescriptors[rangeType.value].kind != typecheck::TypeKind::Range)
+            throw BytecodeError("bytecode slice bound is not a range");
+          const auto resultType = requireValueType(instruction.operands[0]);
+          if (resultType.value >= function.typeDescriptors.size()) throw BytecodeError("bytecode value type descriptor is out of range");
+          const auto &result = function.typeDescriptors[resultType.value];
+          if (result.kind != typecheck::TypeKind::DynamicArray || result.element != receiver.element)
+            throw BytecodeError("bytecode slice result type mismatch");
         }
         else if (instruction.opcode == Opcode::SpliceTuple)
         {

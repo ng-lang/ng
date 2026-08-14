@@ -46,6 +46,7 @@ namespace NG::vnext::typecheck
     Reference,
     RawPointer,
     TypePack,
+    Range,
     Tuple,
     Struct,
     Enum,
@@ -96,6 +97,7 @@ namespace NG::vnext::typecheck
     [[nodiscard]] auto internRawPointer(TypeId target, bool mutablePointee) -> TypeId;
     [[nodiscard]] auto internTuple(const std::vector<TypeId> &elements) -> TypeId;
     [[nodiscard]] auto internTypePack(TypeId element) -> TypeId;
+    [[nodiscard]] auto internRange(TypeId element) -> TypeId;
     [[nodiscard]] auto internTypeParameter(std::string name, uint32_t index) -> TypeId;
     [[nodiscard]] auto declareStruct(hir::StructId id, std::string name) -> TypeId;
     void defineStruct(hir::StructId id, std::vector<std::string> fields, std::vector<TypeId> types);

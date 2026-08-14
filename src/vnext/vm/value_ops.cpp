@@ -278,6 +278,12 @@ namespace NG::vnext::vm::detail
       else values[result] = left != right;
       return;
     }
+    if (payload == 19)
+    {
+      values[result] = Value::range(values.at(instruction.operands[5]).asInteger(),
+                                    values.at(instruction.operands[6]).asInteger());
+      return;
+    }
     const int64_t left = values.at(instruction.operands[5]).asInteger();
     const int64_t right = values.at(instruction.operands[6]).asInteger();
     switch (payload)

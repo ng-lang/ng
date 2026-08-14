@@ -78,6 +78,11 @@ namespace NG::vnext::typecheck
     return append(TypeDescriptor{.kind = TypeKind::TypePack, .name = "type pack", .element = element});
   }
 
+  auto TypeInterner::internRange(TypeId element) -> TypeId
+  {
+    return append(TypeDescriptor{.kind = TypeKind::Range, .name = "range", .element = element});
+  }
+
   auto TypeInterner::internTuple(const std::vector<TypeId> &elements) -> TypeId
   {
     for (uint32_t index = 6; index < descriptors_.size(); ++index)
@@ -163,6 +168,8 @@ namespace NG::vnext::typecheck
     const auto parameter = bindings.find(type.value);
     if (parameter != bindings.end()) return parameter->second;
     const auto &source = descriptor(type);
+    if (source.kind == TypeKind::Range)
+      return internRange(specialize(source.element, bindings, constBindings));
     if (source.kind == TypeKind::DynamicArray)
       return internDynamicArray(specialize(source.element, bindings, constBindings));
     if (source.kind == TypeKind::FixedArray)
@@ -250,6 +257,12 @@ namespace NG::vnext::typecheck
       std::vector<TypeId> elements;
       for (const auto &argument : type.arguments) elements.push_back(resolveWithBindings(*argument.type, bindings, constBindings));
       return internTuple(elements);
+    }
+    if (type.target->name == "range")
+    {
+      if (type.arguments.size() != 1 || type.arguments[0].type == nullptr)
+        throw TypeError(std::format("range type expects 1 element argument, got {}", type.arguments.size()), type.span);
+      return internRange(resolveWithBindings(*type.arguments[0].type, bindings, constBindings));
     }
     const auto constructor = namedTypes_.find(type.target->name);
     if (constructor == namedTypes_.end() || descriptors_[constructor->second.value].kind != TypeKind::Enum) return resolve(type);
@@ -405,6 +418,7 @@ namespace NG::vnext::typecheck
       return std::format("{} {}", display(item.element), item.referenceMutable ? "*mut" : "*const");
     if (item.kind == TypeKind::Struct || item.kind == TypeKind::Enum || item.kind == TypeKind::TypeParameter) return item.name;
     if (item.kind == TypeKind::TypePack) return display(item.element) + "...";
+    if (item.kind == TypeKind::Range) return "range<" + display(item.element) + ">";
     std::string result{"tuple<"};
     for (size_t index = 0; index < item.elements.size(); ++index)
     {

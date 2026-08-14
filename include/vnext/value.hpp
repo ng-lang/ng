@@ -44,6 +44,12 @@ namespace NG::vnext
       std::shared_ptr<std::vector<Value>> payload;
       auto operator==(const EnumStorage &) const -> bool = default;
     };
+    struct RangeStorage
+    {
+      int64_t start{};
+      int64_t end{};
+      auto operator==(const RangeStorage &) const -> bool = default;
+    };
     /// A scoped, non-owning view: the shared cell of the root local binding
     /// plus the steps that reach the referent. Copies of a reference share the
     /// same view; the root cell is the frame's canonical storage for the local.
@@ -82,6 +88,12 @@ namespace NG::vnext
       value.storage_ = EnumStorage{type, variant, std::make_shared<std::vector<Value>>(std::move(payload))};
       return value;
     }
+    [[nodiscard]] static auto range(int64_t start, int64_t end) -> Value
+    {
+      Value value;
+      value.storage_ = RangeStorage{start, end};
+      return value;
+    }
     [[nodiscard]] static auto reference(std::shared_ptr<Value> root, std::vector<PlaceStep> steps, bool mutableRef) -> Value
     {
       Value value;
@@ -96,6 +108,7 @@ namespace NG::vnext
     [[nodiscard]] auto isStruct() const -> bool { return std::holds_alternative<StructStorage>(storage_); }
     [[nodiscard]] auto isEnum() const -> bool { return std::holds_alternative<EnumStorage>(storage_); }
     [[nodiscard]] auto isReference() const -> bool { return std::holds_alternative<ReferenceStorage>(storage_); }
+    [[nodiscard]] auto isRange() const -> bool { return std::holds_alternative<RangeStorage>(storage_); }
     [[nodiscard]] auto asInteger() const -> int64_t
     {
       if (!isInteger()) throw std::runtime_error("runtime value is not an i64");
@@ -161,6 +174,11 @@ namespace NG::vnext
       if (!isReference()) throw std::runtime_error("runtime value is not a reference");
       return std::get<ReferenceStorage>(storage_);
     }
+    [[nodiscard]] auto asRange() const -> const RangeStorage &
+    {
+      if (!isRange()) throw std::runtime_error("runtime value is not a range");
+      return std::get<RangeStorage>(storage_);
+    }
 
     /// Copy-first deep copy (D-015): aggregate storages are recursively
     /// cloned; references stay views over the same root cell.
@@ -171,7 +189,8 @@ namespace NG::vnext
     friend auto operator==(int64_t integer, const Value &value) -> bool { return value == integer; }
 
   private:
-    std::variant<int64_t, std::string, ArrayStorage, TupleStorage, StructStorage, EnumStorage, ReferenceStorage> storage_;
+    std::variant<int64_t, std::string, ArrayStorage, TupleStorage, StructStorage, EnumStorage, ReferenceStorage, RangeStorage>
+        storage_;
   };
 
   inline auto Value::deepCopy() const -> Value

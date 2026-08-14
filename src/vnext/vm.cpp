@@ -103,6 +103,20 @@ namespace NG::vnext::vm
       case bytecode::Opcode::LoadVariant:
         detail::loadVariantInstruction(instruction, values);
         break;
+      case bytecode::Opcode::Slice:
+      {
+        const auto &receiver = values.at(instruction.operands[1]);
+        const auto &range = values.at(instruction.operands[2]).asRange();
+        const auto &array = receiver.asArray();
+        if (range.start < 0 || range.end < range.start || static_cast<uint64_t>(range.end) > array.size())
+          throw bytecode::BytecodeError(std::format("array slice out of bounds: [{}..{}) of length {}", range.start, range.end,
+                                                    array.size()));
+        std::vector<Value> elements;
+        for (int64_t index = range.start; index < range.end; ++index) elements.push_back(array[static_cast<size_t>(index)].deepCopy());
+        if (values.size() <= instruction.operands[0]) values.resize(instruction.operands[0] + 1);
+        values[instruction.operands[0]] = Value::array(std::move(elements));
+        break;
+      }
       case bytecode::Opcode::SpliceTuple:
       {
         if (values.size() <= instruction.operands[0]) values.resize(instruction.operands[0] + 1);
@@ -268,6 +282,20 @@ namespace NG::vnext::vm
       if (instruction.opcode == bytecode::Opcode::LoadVariant)
       {
         detail::loadVariantInstruction(instruction, frame.values);
+        continue;
+      }
+      if (instruction.opcode == bytecode::Opcode::Slice)
+      {
+        const auto &receiver = frame.values.at(instruction.operands[1]);
+        const auto &range = frame.values.at(instruction.operands[2]).asRange();
+        const auto &array = receiver.asArray();
+        if (range.start < 0 || range.end < range.start || static_cast<uint64_t>(range.end) > array.size())
+          throw bytecode::BytecodeError(std::format("array slice out of bounds: [{}..{}) of length {}", range.start, range.end,
+                                                    array.size()));
+        std::vector<Value> elements;
+        for (int64_t index = range.start; index < range.end; ++index) elements.push_back(array[static_cast<size_t>(index)].deepCopy());
+        if (frame.values.size() <= instruction.operands[0]) frame.values.resize(instruction.operands[0] + 1);
+        frame.values[instruction.operands[0]] = Value::array(std::move(elements));
         continue;
       }
       if (instruction.opcode == bytecode::Opcode::SpliceTuple)
