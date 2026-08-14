@@ -409,6 +409,21 @@ This supersedes any assumption that arbitrary C++ exceptions are the public lang
 - `f32`/`f64` use the target's documented IEEE-754 behavior; NaN comparison rules are documented and shared by const evaluation/runtime.
 - Bytecode/artifact encoding is fixed-endian; target pointer width is explicit metadata, never inferred from host serialization.
 
+### Implementation status — integer slice
+
+- `i8`/`i16`/`i32`/`i64` and `u8`/`u16`/`u32`/`u64` resolve as builtin
+  types in annotations, parameters, returns, fields, and array elements.
+- Integer literals keep their text until contextual selection: they adopt
+  the expected integer type in bindings, call arguments, aggregate
+  elements, range literals, and binary operands, with per-width range
+  checks (`integer literal ... is out of range for type`). Negated
+  literals (`-1`) adopt and check the same way.
+- Same-type arithmetic, comparisons, bitwise operators, unary `-`/`+`,
+  and `range<T>` literals/slicing work across the integer tower;
+  mixed-width operations are type errors (no implicit conversions).
+- Runtime values remain `i64`-backed; per-width runtime overflow checks,
+  literal suffixes, `f32`/`f64`, and `isize`/`usize` remain follow-ups.
+
 ---
 
 ## D-009 — Module items, declarations, and block statements

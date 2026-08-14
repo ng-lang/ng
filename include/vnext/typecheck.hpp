@@ -25,7 +25,20 @@ namespace NG::vnext::typecheck
     inline constexpr TypeId Bool{3};
     inline constexpr TypeId Unit{4};
     inline constexpr TypeId String{5};
+    inline constexpr TypeId I8{6};
+    inline constexpr TypeId I16{7};
+    inline constexpr TypeId I32{8};
+    inline constexpr TypeId U16{9};
+    inline constexpr TypeId U32{10};
+    inline constexpr TypeId U64{11};
   } // namespace builtin
+
+  /// True for the D-008 fixed-width integer builtin types (i8–i64, u8–u64).
+  [[nodiscard]] inline auto isIntegerBuiltin(TypeId type) -> bool
+  {
+    return type == builtin::I8 || type == builtin::I16 || type == builtin::I32 || type == builtin::I64 ||
+           type == builtin::U8 || type == builtin::U16 || type == builtin::U32 || type == builtin::U64;
+  }
 
   struct TypeError : std::runtime_error
   {

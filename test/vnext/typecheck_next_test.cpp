@@ -59,14 +59,14 @@ TEST_CASE("vNext type checker rejects loop next type mismatch", "[vNext][Typeche
 {
   try
   {
-    check("fun invalid(seed: u8) { loop (state = seed) { next (1); } }");
+    check("fun invalid(seed: u8) { loop (state = seed) { next (\"text\"); } }");
     FAIL("expected loop next type mismatch");
   }
   catch (const typecheck::TypeError &error)
   {
-    REQUIRE(std::string{error.what()} == "next argument 1 type mismatch: expected u8, got i64");
+    REQUIRE(std::string{error.what()} == "next argument 1 type mismatch: expected u8, got string");
     REQUIRE(error.span.begin == 52);
-    REQUIRE(error.span.end == 53);
+    REQUIRE(error.span.end == 58);
   }
 }
 
@@ -106,14 +106,14 @@ TEST_CASE("vNext type checker rejects call arity and argument type mismatch", "[
 
   try
   {
-    check("fun target(value: u8) { } fun invalid() { target(1); }");
+    check("fun target(value: u8) { } fun invalid() { let x = 1; target(x); }");
     FAIL("expected call argument type mismatch");
   }
   catch (const typecheck::TypeError &error)
   {
     REQUIRE(std::string{error.what()} == "call argument 1 type mismatch: expected u8, got i64");
-    REQUIRE(error.span.begin == 49);
-    REQUIRE(error.span.end == 50);
+    REQUIRE(error.span.begin == 60);
+    REQUIRE(error.span.end == 61);
   }
 }
 

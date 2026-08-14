@@ -11,13 +11,25 @@ namespace NG::vnext::typecheck
                    TypeDescriptor{.kind = TypeKind::Builtin, .name = "u8", .element = TypeId{}, .length = std::nullopt},
                    TypeDescriptor{.kind = TypeKind::Builtin, .name = "bool", .element = TypeId{}, .length = std::nullopt},
                    TypeDescriptor{.kind = TypeKind::Builtin, .name = "unit", .element = TypeId{}, .length = std::nullopt},
-                   TypeDescriptor{.kind = TypeKind::Builtin, .name = "string", .element = TypeId{}, .length = std::nullopt}})
+                   TypeDescriptor{.kind = TypeKind::Builtin, .name = "string", .element = TypeId{}, .length = std::nullopt},
+                   TypeDescriptor{.kind = TypeKind::Builtin, .name = "i8", .element = TypeId{}, .length = std::nullopt},
+                   TypeDescriptor{.kind = TypeKind::Builtin, .name = "i16", .element = TypeId{}, .length = std::nullopt},
+                   TypeDescriptor{.kind = TypeKind::Builtin, .name = "i32", .element = TypeId{}, .length = std::nullopt},
+                   TypeDescriptor{.kind = TypeKind::Builtin, .name = "u16", .element = TypeId{}, .length = std::nullopt},
+                   TypeDescriptor{.kind = TypeKind::Builtin, .name = "u32", .element = TypeId{}, .length = std::nullopt},
+                   TypeDescriptor{.kind = TypeKind::Builtin, .name = "u64", .element = TypeId{}, .length = std::nullopt}})
   {
     namedTypes_.emplace("i64", builtin::I64);
     namedTypes_.emplace("u8", builtin::U8);
     namedTypes_.emplace("bool", builtin::Bool);
     namedTypes_.emplace("unit", builtin::Unit);
     namedTypes_.emplace("string", builtin::String);
+    namedTypes_.emplace("i8", builtin::I8);
+    namedTypes_.emplace("i16", builtin::I16);
+    namedTypes_.emplace("i32", builtin::I32);
+    namedTypes_.emplace("u16", builtin::U16);
+    namedTypes_.emplace("u32", builtin::U32);
+    namedTypes_.emplace("u64", builtin::U64);
   }
 
   auto TypeInterner::append(TypeDescriptor descriptor) -> TypeId
@@ -515,6 +527,12 @@ namespace NG::vnext::typecheck
       throw TypeError("unsupported type form", type.span);
     if (const auto introspected = resolveTupleIntrospection(type, {}, {}); introspected.has_value())
       return *introspected;
+    if (type.target->name == "range")
+    {
+      if (type.arguments.size() != 1 || type.arguments[0].type == nullptr)
+        throw TypeError(std::format("range type expects 1 element argument, got {}", type.arguments.size()), type.span);
+      return internRange(resolve(*type.arguments[0].type));
+    }
     if (type.target->name != "array" && type.target->name != "tuple")
     {
       const auto constructor = namedTypes_.find(type.target->name);

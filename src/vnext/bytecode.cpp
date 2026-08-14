@@ -393,7 +393,11 @@ namespace NG::vnext::bytecode
           const auto requireResultType = [resultType](typecheck::TypeId expected) {
             if (resultType != expected) throw BytecodeError("bytecode operation result type mismatch");
           };
-          if (kind == hir::ExpressionKind::IntegerLiteral) requireResultType(typecheck::builtin::I64);
+          if (kind == hir::ExpressionKind::IntegerLiteral)
+          {
+            if (!typecheck::isIntegerBuiltin(resultType))
+              throw BytecodeError("bytecode integer literal result is not an integer type");
+          }
           else if (kind == hir::ExpressionKind::StringLiteral) requireResultType(typecheck::builtin::String);
           else if (kind == hir::ExpressionKind::ArrayLiteral)
           {
@@ -493,7 +497,7 @@ namespace NG::vnext::bytecode
             }
             else
             {
-              const auto expected = payload == 1 ? typecheck::builtin::Bool : typecheck::builtin::I64;
+              const auto expected = payload == 1 ? typecheck::builtin::Bool : requireValueType(instruction.operands.at(5));
               requireOperandType(0, expected);
               requireResultType(expected);
             }
@@ -503,11 +507,14 @@ namespace NG::vnext::bytecode
             const uint64_t payload = static_cast<uint64_t>(instruction.operands[2]) | (static_cast<uint64_t>(instruction.operands[3]) << 32);
             if (payload == 19)
             {
-              requireOperandType(0, typecheck::builtin::I64);
-              requireOperandType(1, typecheck::builtin::I64);
+              const auto bound = requireValueType(instruction.operands.at(5));
+              if (!typecheck::isIntegerBuiltin(bound))
+                throw BytecodeError("bytecode range bound is not an integer type");
+              requireOperandType(1, bound);
               if (resultType.value >= function.typeDescriptors.size()) throw BytecodeError("bytecode value type descriptor is out of range");
               const auto &range = function.typeDescriptors[resultType.value];
               if (range.kind != typecheck::TypeKind::Range) throw BytecodeError("bytecode range result is not a range type");
+              if (range.element != bound) throw BytecodeError("bytecode range element type mismatch");
             }
             else
             if (payload == 1 && requireValueType(instruction.operands.at(5)) == typecheck::builtin::String)
@@ -517,14 +524,18 @@ namespace NG::vnext::bytecode
             }
             else if ((payload >= 1 && payload <= 5) || (payload >= 14 && payload <= 18))
             {
-              requireOperandType(0, typecheck::builtin::I64);
-              requireOperandType(1, typecheck::builtin::I64);
-              requireResultType(typecheck::builtin::I64);
+              const auto operandType = requireValueType(instruction.operands.at(5));
+              if (!typecheck::isIntegerBuiltin(operandType))
+                throw BytecodeError("bytecode integer arithmetic operand is not an integer type");
+              requireOperandType(1, operandType);
+              requireResultType(operandType);
             }
             else if (payload >= 8 && payload <= 11)
             {
-              requireOperandType(0, typecheck::builtin::I64);
-              requireOperandType(1, typecheck::builtin::I64);
+              const auto operandType = requireValueType(instruction.operands.at(5));
+              if (!typecheck::isIntegerBuiltin(operandType))
+                throw BytecodeError("bytecode integer comparison operand is not an integer type");
+              requireOperandType(1, operandType);
               requireResultType(typecheck::builtin::Bool);
             }
             else if (payload == 12 || payload == 13)
@@ -628,8 +639,8 @@ namespace NG::vnext::bytecode
           if (source.value >= function.typeDescriptors.size()) throw BytecodeError("bytecode value type descriptor is out of range");
           if (function.typeDescriptors[source.value].kind != typecheck::TypeKind::Range)
             throw BytecodeError("bytecode range start source is not a range");
-          if (requireValueType(instruction.operands[0]) != typecheck::builtin::I64)
-            throw BytecodeError("bytecode range start result is not i64");
+          if (requireValueType(instruction.operands[0]) != function.typeDescriptors[source.value].element)
+            throw BytecodeError("bytecode range start result type mismatch");
         }
         else if (instruction.opcode == Opcode::ArrayLength)
         {

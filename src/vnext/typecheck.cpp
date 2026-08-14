@@ -1815,6 +1815,8 @@ namespace NG::vnext::typecheck
           if (descriptor.kind != TypeKind::DynamicArray && descriptor.kind != TypeKind::FixedArray &&
               descriptor.kind != TypeKind::DependentArray && descriptor.kind != TypeKind::Range)
             continue;
+          if (descriptor.kind == TypeKind::Range && descriptor.element != builtin::I64)
+            throw TypeError("fold over ranges currently requires i64 elements", argument.span);
           info.fold = true;
           info.spreadPosition = index - 1;
           info.elementType = descriptor.element;
@@ -1824,10 +1826,61 @@ namespace NG::vnext::typecheck
         return info;
       }
 
+      /// D-008 range check for an integer literal value against a fixed-width
+      /// integer builtin type.
+      void checkIntegerLiteral(int64_t value, std::string_view text, TypeId type, syntax::SourceSpan span) const
+      {
+        int64_t minimum{};
+        uint64_t maximum{};
+        switch (type.value)
+        {
+        case builtin::I8.value: minimum = std::numeric_limits<int8_t>::min(); maximum = std::numeric_limits<int8_t>::max(); break;
+        case builtin::I16.value: minimum = std::numeric_limits<int16_t>::min(); maximum = std::numeric_limits<int16_t>::max(); break;
+        case builtin::I32.value: minimum = std::numeric_limits<int32_t>::min(); maximum = std::numeric_limits<int32_t>::max(); break;
+        case builtin::I64.value: minimum = std::numeric_limits<int64_t>::min(); maximum = std::numeric_limits<int64_t>::max(); break;
+        case builtin::U8.value: minimum = 0; maximum = std::numeric_limits<uint8_t>::max(); break;
+        case builtin::U16.value: minimum = 0; maximum = std::numeric_limits<uint16_t>::max(); break;
+        case builtin::U32.value: minimum = 0; maximum = std::numeric_limits<uint32_t>::max(); break;
+        case builtin::U64.value: minimum = 0; maximum = std::numeric_limits<uint64_t>::max(); break;
+        default: break;
+        }
+        if (value < minimum || (value >= 0 && static_cast<uint64_t>(value) > maximum))
+          throw TypeError(std::format("integer literal `{}` is out of range for type {}", text, interner_.display(type)),
+                          span);
+      }
+
       [[nodiscard]] auto inferExpected(const hir::Expression &expression, TypeId expected, const LocalTypes &locals,
                                        std::string_view context) -> TypeId
       {
         const auto &descriptor = interner_.descriptor(expected);
+        if (expression.kind == hir::ExpressionKind::IntegerLiteral && isIntegerBuiltin(expected))
+        {
+          // D-008: integer literal text is preserved exactly until contextual
+          // type selection; adopt the expected integer type with a range check.
+          checkIntegerLiteral(std::stoll(expression.text), expression.text, expected, expression.span);
+          record(expression, expected);
+          return expected;
+        }
+        if (expression.kind == hir::ExpressionKind::Prefix &&
+            (expression.text == "-" || expression.text == "+") && isIntegerBuiltin(expected) &&
+            expression.operands[0]->kind == hir::ExpressionKind::IntegerLiteral)
+        {
+          const std::string text = std::format("{}{}", expression.text, expression.operands[0]->text);
+          static_cast<void>(inferExpected(*expression.operands[0], expected, locals, "integer literal"));
+          const int64_t value = expression.text == "-" ? -std::stoll(expression.operands[0]->text)
+                                                        : std::stoll(expression.operands[0]->text);
+          checkIntegerLiteral(value, text, expected, expression.span);
+          record(expression, expected);
+          return expected;
+        }
+        if (expression.kind == hir::ExpressionKind::Binary && expression.text == ".." &&
+            descriptor.kind == TypeKind::Range)
+        {
+          static_cast<void>(inferExpected(*expression.operands[0], descriptor.element, locals, "range start"));
+          static_cast<void>(inferExpected(*expression.operands[1], descriptor.element, locals, "range end"));
+          record(expression, expected);
+          return expected;
+        }
         if (expression.kind == hir::ExpressionKind::ArrayLiteral &&
             (descriptor.kind == TypeKind::DynamicArray || descriptor.kind == TypeKind::FixedArray ||
              descriptor.kind == TypeKind::DependentArray))
@@ -2118,7 +2171,9 @@ namespace NG::vnext::typecheck
               if (!arraySource && !rangeSource)
                 throw TypeError(std::format("map spread source must be an array or range, got {}", interner_.display(source)),
                                 inner->operands[1]->span);
-              const TypeId sourceElement = arraySource ? sourceDescriptor.element : builtin::I64;
+              if (rangeSource && sourceDescriptor.element != builtin::I64)
+                throw TypeError("map spread over ranges currently requires i64 elements", inner->operands[1]->span);
+              const TypeId sourceElement = sourceDescriptor.element;
               const auto &innerSignature = signatures_.at(inner->operands[0]->resolvedName->id);
               if (innerSignature.parameters.size() != 1)
                 throw TypeError("map spread function must take exactly one argument", candidate->span);
@@ -2301,26 +2356,47 @@ namespace NG::vnext::typecheck
           {
             throw TypeError("spread is only valid inside tuple literals", expression.span);
           }
-          type = expression.text == "!" ? builtin::Bool : builtin::I64;
-          requireType(type, operand, expression.span, "prefix operand");
+          if (expression.text == "!")
+          {
+            type = builtin::Bool;
+            requireType(type, operand, expression.span, "prefix operand");
+          }
+          else if (isIntegerBuiltin(operand))
+          {
+            type = operand;
+          }
+          else
+          {
+            type = builtin::I64;
+            requireType(type, operand, expression.span, "prefix operand");
+          }
           break;
         }
         case hir::ExpressionKind::Binary:
         {
-          const TypeId left = infer(*expression.operands[0], locals);
-          const TypeId right = infer(*expression.operands[1], locals);
+          TypeId left = infer(*expression.operands[0], locals);
+          TypeId right = infer(*expression.operands[1], locals);
+          // Contextual integer literals adopt the other operand's integer
+          // type instead of defaulting to i64.
+          if (expression.operands[1]->kind == hir::ExpressionKind::IntegerLiteral && isIntegerBuiltin(left) &&
+              right != left)
+            right = inferExpected(*expression.operands[1], left, locals, "integer literal");
+          if (expression.operands[0]->kind == hir::ExpressionKind::IntegerLiteral && isIntegerBuiltin(right) &&
+              left != right)
+            left = inferExpected(*expression.operands[0], right, locals, "integer literal");
           if (expression.text == "..")
           {
-            requireType(builtin::I64, left, expression.operands[0]->span, "range start");
-            requireType(builtin::I64, right, expression.operands[1]->span, "range end");
-            type = interner_.internRange(builtin::I64);
+            if (!isIntegerBuiltin(left)) requireType(builtin::I64, left, expression.operands[0]->span, "range start");
+            if (!isIntegerBuiltin(right)) requireType(builtin::I64, right, expression.operands[1]->span, "range end");
+            requireType(left, right, expression.span, "range bounds");
+            type = interner_.internRange(left);
             break;
           }
           requireType(left, right, expression.span, "binary operands");
           if (expression.text == "==" || expression.text == "!=") type = builtin::Bool;
           else if (expression.text == "<" || expression.text == "<=" || expression.text == ">" || expression.text == ">=")
           {
-            requireType(builtin::I64, left, expression.span, "comparison operand");
+            if (!isIntegerBuiltin(left)) requireType(builtin::I64, left, expression.span, "comparison operand");
             type = builtin::Bool;
           }
           else if (expression.text == "&&" || expression.text == "||")
@@ -2330,7 +2406,10 @@ namespace NG::vnext::typecheck
           }
           else
           {
-            if (expression.text != "+" || left != builtin::String) requireType(builtin::I64, left, expression.span, "binary operand");
+            if (expression.text != "+" || left != builtin::String)
+            {
+              if (!isIntegerBuiltin(left)) requireType(builtin::I64, left, expression.span, "binary operand");
+            }
             type = left;
           }
           break;

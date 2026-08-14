@@ -179,7 +179,11 @@ TEST_CASE("vNext bytecode artifacts preserve nominal struct layouts", "[vNext][B
   const auto artifact = bytecode::ArtifactCodec{}.serialize(bytecode::Module{.functions = {function}});
   const auto restored = bytecode::ArtifactCodec{}.deserialize(artifact);
   REQUIRE(restored.functions.front().typeDescriptors == function.typeDescriptors);
-  const auto &structure = restored.functions.front().typeDescriptors.at(6);
+  const auto &structure = *std::find_if(restored.functions.front().typeDescriptors.begin(),
+                                        restored.functions.front().typeDescriptors.end(),
+                                        [](const typecheck::TypeDescriptor &descriptor) {
+                                          return descriptor.kind == typecheck::TypeKind::Struct;
+                                        });
   REQUIRE(structure.kind == typecheck::TypeKind::Struct);
   REQUIRE(structure.fieldNames == std::vector<std::string>{"x", "label"});
   REQUIRE(vm::VM{}.run(restored.functions.front()).returnValue->asStruct()[0] == 7);
@@ -246,7 +250,8 @@ TEST_CASE("vNext bytecode verifier enforces typed register and local contracts",
 
   function = bytecode::Compiler{}.compile(flowir::Lowerer{}.lower(hirModule.functions.front(), typed));
   function.valueTypes.at(0) = typecheck::builtin::Bool;
-  REQUIRE_THROWS_WITH(bytecode::Verifier{}.verify(function), "bytecode operation result type mismatch");
+  REQUIRE_THROWS_WITH(bytecode::Verifier{}.verify(function),
+                      "bytecode integer literal result is not an integer type");
 }
 
 TEST_CASE("vNext bytecode verifier rejects malformed branch contracts", "[vNext][Bytecode]")
