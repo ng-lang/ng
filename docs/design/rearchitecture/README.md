@@ -46,7 +46,7 @@ This plan uses a **replacement-first rewrite**, not an additive shim strategy. E
 | R6 | RuntimeSession and module instances | Not started | R3, R5 | One runtime value model and lifecycle service |
 | R7 | Bytecode v3 compiler, VM, and artifact format | In progress — scalar/module compiler, verifier, VM, and versioned artifact; runtime/module interface work remains pending | R5, R6 | Verified bytecode consuming FlowIR |
 | R8 | Reference interpreter convergence and legacy removal | Not started | R5, R6, R7 | Typed-HIR reference evaluator; old AST interpreter removed |
-| R9 | Native ABI, C FFI, opaque types, and bindgen | In progress — `native fun` runtime intrinsics with a session-owned registry, `print`/`assert` builtins, vNext stdlib io/string natives, opaque type declarations (`type X = native;` / `type X;`) with built-in `is_trait`/`is_abstract` const predicates | R4, R6, R7 | Declared ABI descriptors and safe C boundary |
+| R9 | Native ABI, C FFI, opaque types, and bindgen | In progress — `native fun` runtime intrinsics with a session-owned registry, `print`/`assert` builtins, vNext stdlib io/string natives, opaque type declarations (`type X = native;` / `type X;`) with built-in `is_trait`/`is_abstract` const predicates, auto traits with `derive(Copy + Clone)` | R4, R6, R7 | Declared ABI descriptors and safe C boundary |
 | R10 | Concurrency-native runtime and language layer | Not started | R5, R6, R7, R9 | Structured concurrency with ownership-aware transfer |
 | R11 | Tooling, documentation, performance, and stabilization | Not started | R2–R10 as applicable | Formatter/LSP/debug metadata/benchmarks |
 

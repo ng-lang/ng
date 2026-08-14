@@ -232,7 +232,8 @@ namespace NG::vnext::hir
 
   auto Resolver::resolveTrait(const syntax::TraitDeclaration &declaration) -> Trait
   {
-    Trait resolved{.name = declaration.name, .supertraits = declaration.supertraits, .span = declaration.span};
+    Trait resolved{.name = declaration.name, .supertraits = declaration.supertraits,
+                    .autoTrait = declaration.autoTrait, .span = declaration.span};
     for (const auto &method : declaration.methods) resolved.methods.push_back(resolveTraitMethod(method));
     return resolved;
   }
@@ -307,7 +308,7 @@ namespace NG::vnext::hir
   auto Resolver::resolveStruct(const syntax::StructDeclaration &structure, StructId id) -> Struct
   {
     Struct resolved{.id = id, .name = structure.name, .span = structure.span,
-                    .genericParameters = structure.genericParameters};
+                    .genericParameters = structure.genericParameters, .derivedTraits = structure.derivedTraits};
     std::unordered_set<std::string> names;
     for (const auto &field : structure.fields)
     {

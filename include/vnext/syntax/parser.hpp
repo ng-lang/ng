@@ -43,6 +43,8 @@ namespace NG::vnext::syntax
     KeywordClone,
     KeywordTrue,
     KeywordType,
+    KeywordAuto,
+    KeywordDerive,
     KeywordFalse,
     LeftParen,
     RightParen,

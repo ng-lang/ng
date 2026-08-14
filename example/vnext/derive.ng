@@ -1,0 +1,40 @@
+// vNext auto traits and derived impls (legacy 55): `auto trait` applies to
+// every concrete type implicitly, and `derive(Copy + Clone)` synthesizes the
+// marker Copy impl plus a deep-copying `clone(self: Self ref) -> Self`
+// method.
+
+auto trait Send {}
+
+struct Point: derive(Copy + Clone) {
+    x: i64,
+    y: i64,
+}
+
+fun require_copy<T: Copy>() -> i64 {
+    return 1;
+}
+
+fun require_clone<T: Clone>() -> i64 {
+    return 2;
+}
+
+fun require_send<T: Send>() -> i64 {
+    return 4;
+}
+
+fun require_copy_where<T>(value: T) -> i64 where T: Copy {
+    return 8;
+}
+
+fun main() -> i64 {
+    let point = Point { x: 20, y: 22 };
+    let mut cloned = point.clone();
+    cloned.x := 30;
+
+    let mut total = 0;
+    total := total + require_copy<Point>() + require_clone<Point>() + require_send<Point>();
+    total := total + require_copy_where(point);
+    if (point.x + point.y == 42) { total := total + 16; }
+    if (point.x == 20 && cloned.x == 30) { total := total + 32; }
+    return total;
+}

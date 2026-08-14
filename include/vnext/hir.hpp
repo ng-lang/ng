@@ -273,6 +273,8 @@ namespace NG::vnext::hir
     std::string name;
     syntax::SourceSpan span;
     std::vector<std::string> genericParameters;
+    /// `derive(Copy + Clone)` synthesized impl targets.
+    std::vector<std::string> derivedTraits;
     std::vector<StructField> fields;
   };
 
@@ -328,6 +330,8 @@ namespace NG::vnext::hir
   {
     std::string name;
     std::vector<std::string> supertraits;
+    /// `auto trait X {}`: every concrete type implements it implicitly.
+    bool autoTrait{};
     std::vector<TraitMethod> methods;
     /// DefId of each default method lowered as a module function; empty for
     /// declaration-only methods.

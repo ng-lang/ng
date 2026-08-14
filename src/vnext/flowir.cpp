@@ -748,6 +748,17 @@ namespace NG::vnext::flowir
                                                      .operands = std::move(indexValues)});
           receiverValue = result;
         }
+        if (types_ != nullptr && types_->derivedCloneCalls.contains(&expression))
+        {
+          // Derived clone: shared-borrow the receiver place and deep-copy the
+          // referenced value (LoadRef copies); no function call is emitted.
+          const ValueId value{nextValue_++};
+          if (types_ != nullptr) function_.valueTypes.emplace(value.value, types_->typeIdOf(expression));
+          block().instructions.push_back(Instruction{.kind = InstructionKind::LoadRef,
+                                                     .result = value,
+                                                     .operands = {receiverValue}});
+          return value;
+        }
         std::vector<ValueId> operands{receiverValue};
         for (size_t index = qualified ? 2 : 1; index < expression.operands.size(); ++index)
           operands.push_back(lowerExpression(*expression.operands[index]));

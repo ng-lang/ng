@@ -72,6 +72,27 @@ namespace NG::vnext::typecheck
         }
         registerTraits();
         registerImpls();
+        for (const auto &structure : module.structs)
+        {
+          if (structure.derivedTraits.empty()) continue;
+          const TypeId target = interner_.typeForStruct(structure.id);
+          std::unordered_set<std::string> seen;
+          for (const auto &traitName : structure.derivedTraits)
+          {
+            if (!seen.insert(traitName).second)
+              throw TypeError(std::format("duplicate derive for trait `{}` on type `{}`", traitName, structure.name),
+                              structure.span);
+            if (traitName != "Copy" && traitName != "Clone")
+              throw TypeError(std::format("derive currently supports Copy and Clone only: {}", traitName),
+                              structure.span);
+            for (const auto &impl : impls_)
+              if (impl.target == target && impl.traitName == traitName)
+                throw TypeError(std::format("derive conflicts with explicit impl for trait `{}` on type `{}`",
+                                            traitName, structure.name), structure.span);
+            impls_.push_back(ImplInfo{.traitName = traitName, .target = target, .methods = {}});
+            if (traitName == "Clone") derivedCloneTypes_.insert(target.value);
+          }
+        }
         for (const auto &function : module.functions)
         {
           if (function.name.starts_with("impl$") || function.name.starts_with("default$")) continue;
@@ -166,6 +187,7 @@ namespace NG::vnext::typecheck
                                .instances = std::vector<hir::Function>{std::make_move_iterator(instances_.begin()),
                                                                        std::make_move_iterator(instances_.end())},
                                .deferredMethodFunctions = std::move(deferredMethodFunctions_),
+                               .derivedCloneCalls = std::move(derivedCloneCalls_),
                                .typeDescriptors = interner_.descriptors()};
       }
 
@@ -195,6 +217,7 @@ namespace NG::vnext::typecheck
       {
         std::string name;
         std::vector<std::string> supertraits;
+        bool autoTrait{};
         TypeId selfParameter;
         std::unordered_map<std::string, std::vector<TypeId>> methodParameters;
         std::unordered_map<std::string, TypeId> methodReturns;
@@ -450,7 +473,7 @@ namespace NG::vnext::typecheck
       {
         for (const auto &trait : module_->traits)
         {
-          TraitInfo info{.name = trait.name, .supertraits = trait.supertraits,
+          TraitInfo info{.name = trait.name, .supertraits = trait.supertraits, .autoTrait = trait.autoTrait,
                          .selfParameter = interner_.internTypeParameter("Self", 0)};
           const std::unordered_map<std::string, TypeId> selfBindings{{"Self", info.selfParameter}};
           for (size_t index = 0; index < trait.methods.size(); ++index)
@@ -487,6 +510,20 @@ namespace NG::vnext::typecheck
             }
           }
           traits_.emplace(trait.name, std::move(info));
+        }
+        // Compiler-known lifecycle traits (legacy 55 derive targets): Copy is
+        // a marker; Clone carries the `clone(self: Self ref) -> Self` contract.
+        if (!traits_.contains("Copy"))
+        {
+          TraitInfo copy{.name = "Copy", .selfParameter = interner_.internTypeParameter("Self", 0)};
+          traits_.emplace("Copy", std::move(copy));
+        }
+        if (!traits_.contains("Clone"))
+        {
+          TraitInfo clone{.name = "Clone", .selfParameter = interner_.internTypeParameter("Self", 0)};
+          clone.methodParameters.emplace("clone", std::vector<TypeId>{interner_.internReference(clone.selfParameter, false)});
+          clone.methodReturns.emplace("clone", clone.selfParameter);
+          traits_.emplace("Clone", std::move(clone));
         }
       }
 
@@ -576,6 +613,13 @@ namespace NG::vnext::typecheck
 
       [[nodiscard]] auto hasImpl(const std::string &traitName, TypeId target) const -> bool
       {
+        const auto declared = traits_.find(traitName);
+        if (declared != traits_.end() && declared->second.autoTrait)
+        {
+          const auto kind = interner_.descriptor(target).kind;
+          return kind != TypeKind::TypeParameter && kind != TypeKind::TypeConstructor &&
+                 kind != TypeKind::TypeApplication;
+        }
         for (const auto &impl : impls_)
         {
           if (impl.target != target) continue;
@@ -639,6 +683,16 @@ namespace NG::vnext::typecheck
                                                          {{owning->selfParameter.value, dispatchType}});
           record(expression, returnType);
           return returnType;
+        }
+        if (expression.text == "clone" && derivedCloneTypes_.contains(dispatchType.value))
+        {
+          if (expression.operands.size() != firstArgument)
+            throw TypeError("derived clone takes no arguments", expression.span);
+          methodReceiverMutable_.insert_or_assign(&expression, false);
+          methodReceiverRefTypes_.insert_or_assign(&expression, interner_.internReference(dispatchType, false));
+          derivedCloneCalls_.insert_or_assign(&expression, dispatchType);
+          record(expression, dispatchType);
+          return dispatchType;
         }
         const hir::DefId *selected = nullptr;
         for (const auto &impl : impls_)
@@ -2558,6 +2612,8 @@ namespace NG::vnext::typecheck
       std::unordered_map<const hir::Statement *, std::vector<std::pair<uint32_t, uint32_t>>> returnDrops_;
       std::unordered_map<uint32_t, std::vector<std::pair<uint32_t, uint32_t>>> fallthroughDrops_;
       std::unordered_set<uint32_t> placeholderFunctions_;
+      std::unordered_set<uint32_t> derivedCloneTypes_;
+      std::unordered_map<const hir::Expression *, TypeId> derivedCloneCalls_;
       std::unordered_map<const hir::Expression *, bool> methodReceiverMutable_;
       std::unordered_map<const hir::Expression *, TypeId> methodReceiverRefTypes_;
       std::unordered_map<std::string, hir::DefId> instanceTable_;

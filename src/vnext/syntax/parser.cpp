@@ -126,10 +126,12 @@ namespace NG::vnext::syntax
           ++offset;
         }
         const std::string text{source.substr(begin, offset - begin)};
-        const TokenKind kind = text == "case" ? TokenKind::KeywordCase
+        const TokenKind kind = text == "auto" ? TokenKind::KeywordAuto
+                             : text == "case" ? TokenKind::KeywordCase
                              : text == "clone" ? TokenKind::KeywordClone
                              : text == "const" ? TokenKind::KeywordConst
                              : text == "delete" ? TokenKind::KeywordDelete
+                             : text == "derive" ? TokenKind::KeywordDerive
                              : text == "else" ? TokenKind::KeywordElse
                              : text == "enum" ? TokenKind::KeywordEnum
                              : text == "export" ? TokenKind::KeywordExport
@@ -497,7 +499,8 @@ namespace NG::vnext::syntax
       if (current().kind == TokenKind::Dot)
       {
         static_cast<void>(consume());
-        if (current().kind != TokenKind::Identifier && current().kind != TokenKind::IntegerLiteral)
+        if (current().kind != TokenKind::Identifier && current().kind != TokenKind::IntegerLiteral &&
+            current().kind != TokenKind::KeywordClone)
         {
           throw ParseError("expected a member name after `.`", current().span);
         }

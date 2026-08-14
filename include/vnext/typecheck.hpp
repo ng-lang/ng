@@ -226,6 +226,9 @@ namespace NG::vnext::typecheck
     /// Declared functions containing deferred (abstract) method calls; their
     /// bodies cannot be lowered type-erased and are skipped by the driver.
     std::unordered_set<uint32_t> deferredMethodFunctions;
+    /// Derived `clone()` calls: expression -> receiver type; lowered to a
+    /// shared borrow followed by a deep-copying load.
+    std::unordered_map<const hir::Expression *, TypeId> derivedCloneCalls;
     std::vector<TypeDescriptor> typeDescriptors;
 
     [[nodiscard]] auto typeOf(const hir::Expression &expression) const -> const std::string &

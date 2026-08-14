@@ -639,12 +639,15 @@ namespace NG::vnext::syntax
   {
     const std::string name;
     std::vector<std::string> genericParameters;
+    /// `derive(Copy + Clone)` synthesized impl targets.
+    std::vector<std::string> derivedTraits;
     std::vector<StructFieldDeclaration> fields;
 
     StructDeclaration(std::string structName, std::vector<std::string> parameters,
-                      std::vector<StructFieldDeclaration> structFields, SourceSpan sourceSpan)
+                      std::vector<std::string> derived, std::vector<StructFieldDeclaration> structFields,
+                      SourceSpan sourceSpan)
       : ModuleItem(ModuleItemKind::Struct, sourceSpan), name(std::move(structName)),
-        genericParameters(std::move(parameters)), fields(std::move(structFields))
+        genericParameters(std::move(parameters)), derivedTraits(std::move(derived)), fields(std::move(structFields))
     {
     }
   };
@@ -733,11 +736,13 @@ namespace NG::vnext::syntax
     const std::string name;
     std::vector<std::string> supertraits;
     std::vector<TraitMethodDeclaration> methods;
+    /// `auto trait X {}`: every concrete type implements it implicitly.
+    const bool autoTrait;
 
     TraitDeclaration(std::string traitName, std::vector<std::string> supertraitList,
-                     std::vector<TraitMethodDeclaration> traitMethods, SourceSpan sourceSpan)
+                     std::vector<TraitMethodDeclaration> traitMethods, bool automatic, SourceSpan sourceSpan)
       : ModuleItem(ModuleItemKind::Trait, sourceSpan), name(std::move(traitName)), supertraits(std::move(supertraitList)),
-        methods(std::move(traitMethods))
+        methods(std::move(traitMethods)), autoTrait(automatic)
     {
     }
   };

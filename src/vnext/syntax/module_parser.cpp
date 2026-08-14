@@ -37,7 +37,8 @@ namespace NG::vnext::syntax
         else if (current().kind == TokenKind::KeywordFun) items.push_back(parseFunctionDeclaration(false, true));
         else if (current().kind == TokenKind::KeywordStruct) items.push_back(parseStructDeclaration());
         else if (current().kind == TokenKind::KeywordEnum) items.push_back(parseEnumDeclaration());
-        else if (current().kind == TokenKind::KeywordTrait) items.push_back(parseTraitDeclaration());
+        else if (current().kind == TokenKind::KeywordTrait || current().kind == TokenKind::KeywordAuto)
+          items.push_back(parseTraitDeclaration());
         else if (current().kind == TokenKind::KeywordImpl) items.push_back(parseImplDeclaration());
         else if (current().kind == TokenKind::KeywordConst) items.push_back(parseConstDeclaration());
         else if (current().kind == TokenKind::KeywordType) items.push_back(parseOpaqueTypeDeclaration());
@@ -65,7 +66,7 @@ namespace NG::vnext::syntax
         if (peek(1).kind == TokenKind::KeywordFun) items.push_back(parseFunctionDeclaration(true));
         else items.push_back(parseConstDeclaration());
       }
-      else if (current().kind == TokenKind::KeywordTrait)
+      else if (current().kind == TokenKind::KeywordTrait || current().kind == TokenKind::KeywordAuto)
       {
         items.push_back(parseTraitDeclaration());
       }
@@ -272,6 +273,21 @@ namespace NG::vnext::syntax
       }
       expect(TokenKind::Greater, "expected `>` after struct generic parameters");
     }
+    std::vector<std::string> derivedTraits;
+    if (current().kind == TokenKind::Colon)
+    {
+      static_cast<void>(consume());
+      expect(TokenKind::KeywordDerive, "expected `derive` after `:` in struct declaration");
+      expect(TokenKind::LeftParen, "expected `(` after `derive`");
+      while (current().kind != TokenKind::RightParen)
+      {
+        if (current().kind != TokenKind::Identifier) throw ParseError("expected a derived trait name", current().span);
+        derivedTraits.push_back(consume().text);
+        if (current().kind != TokenKind::Plus) break;
+        static_cast<void>(consume());
+      }
+      expect(TokenKind::RightParen, "expected `)` after derived traits");
+    }
     expect(TokenKind::LeftBrace, "expected `{` after struct name");
     std::vector<StructFieldDeclaration> fields;
     while (current().kind != TokenKind::RightBrace)
@@ -285,8 +301,8 @@ namespace NG::vnext::syntax
       else if (current().kind != TokenKind::RightBrace) throw ParseError("expected `,` between struct fields", current().span);
     }
     const Token close = consume();
-    return std::make_unique<StructDeclaration>(name.text, std::move(genericParameters), std::move(fields),
-                                              SourceSpan{structToken.span.begin, close.span.end});
+    return std::make_unique<StructDeclaration>(name.text, std::move(genericParameters), std::move(derivedTraits),
+                                              std::move(fields), SourceSpan{structToken.span.begin, close.span.end});
   }
 
   auto ModuleParser::parseOpaqueTypeDeclaration() -> ModuleItemPtr
@@ -494,6 +510,13 @@ namespace NG::vnext::syntax
 
   auto ModuleParser::parseTraitDeclaration() -> ModuleItemPtr
   {
+    bool autoTrait = false;
+    if (current().kind == TokenKind::KeywordAuto)
+    {
+      static_cast<void>(consume());
+      autoTrait = true;
+    }
+    if (current().kind != TokenKind::KeywordTrait) throw ParseError("expected `trait` after `auto`", current().span);
     const Token traitToken = consume();
     if (current().kind != TokenKind::Identifier) throw ParseError("expected a trait name after `trait`", current().span);
     const Token name = consume();
@@ -518,7 +541,7 @@ namespace NG::vnext::syntax
     }
     const Token close = current();
     expect(TokenKind::RightBrace, "expected `}` to close trait");
-    return std::make_unique<TraitDeclaration>(name.text, std::move(supertraits), std::move(methods),
+    return std::make_unique<TraitDeclaration>(name.text, std::move(supertraits), std::move(methods), autoTrait,
                                               SourceSpan{traitToken.span.begin, close.span.end});
   }
 
