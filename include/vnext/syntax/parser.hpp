@@ -42,6 +42,7 @@ namespace NG::vnext::syntax
     KeywordMove,
     KeywordClone,
     KeywordTrue,
+    KeywordType,
     KeywordFalse,
     LeftParen,
     RightParen,

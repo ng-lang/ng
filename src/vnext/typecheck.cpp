@@ -21,6 +21,18 @@ namespace NG::vnext::typecheck
       [[nodiscard]] auto check(const hir::Module &module) -> TypeCheckResult
       {
         module_ = &module;
+        {
+          std::unordered_map<std::string, syntax::SourceSpan> typeNames;
+          const auto declareName = [&](const std::string &name, syntax::SourceSpan span) {
+            if (!typeNames.emplace(name, span).second)
+              throw TypeError(std::format("duplicate type declaration `{}`", name), span);
+          };
+          for (const auto &structure : module.structs) declareName(structure.name, structure.span);
+          for (const auto &enumeration : module.enums) declareName(enumeration.name, enumeration.span);
+          for (const auto &opaque : module.opaqueTypes) declareName(opaque.name, opaque.span);
+        }
+        for (const auto &opaque : module.opaqueTypes)
+          static_cast<void>(interner_.declareOpaqueType(opaque.name, opaque.abstract, opaque.span));
         for (const auto &structure : module.structs) static_cast<void>(interner_.declareStruct(structure.id, structure.name));
         for (const auto &enumeration : module.enums)
         {
@@ -343,6 +355,9 @@ namespace NG::vnext::typecheck
           }
           case hir::ExpressionKind::GenericApplication:
           {
+            if (const auto builtin = evaluateTraitIntrospection(expression.text, expression.genericArguments, expression.span);
+                builtin.has_value())
+              return *builtin;
             std::vector<TypeId> typeArguments;
             for (const auto &argument : expression.genericArguments)
             {
@@ -1098,6 +1113,7 @@ namespace NG::vnext::typecheck
         }
         case TypeKind::Builtin:
         case TypeKind::DependentArray:
+        case TypeKind::Opaque:
           return pattern == actual;
         case TypeKind::Reference:
         case TypeKind::RawPointer:
@@ -1218,10 +1234,36 @@ namespace NG::vnext::typecheck
         return std::nullopt;
       }
 
+      /// Evaluates the built-in trait/abstractness const predicates
+      /// `is_trait<T>` and `is_abstract<T>`. Trait names are looked up
+      /// textually (traits are not first-class types); other names resolve
+      /// through the interner. Returns nullopt for any other name.
+      [[nodiscard]] auto evaluateTraitIntrospection(std::string_view name,
+                                                    const std::vector<hir::TypeArgument> &arguments,
+                                                    syntax::SourceSpan span) -> std::optional<const_eval::ConstValueId>
+      {
+        if (name != "is_trait" && name != "is_abstract") return std::nullopt;
+        if (arguments.size() != 1 || arguments[0].type == nullptr)
+          throw TypeError(std::format("{}<T> expects exactly 1 type argument", name), span);
+        const auto &type = *arguments[0].type;
+        const bool isTrait = type.kind == hir::TypeKind::Named && traits_.contains(type.name);
+        if (isTrait) return interner_.constInterner().internBool(true);
+        const TypeId resolved = interner_.resolveInScope(type, genericBindings_);
+        const auto &descriptor = interner_.descriptor(resolved);
+        if (descriptor.kind == TypeKind::TypeParameter)
+          throw TypeError(std::format("cannot evaluate const declaration `{}` for abstract type parameter `{}`",
+                                      name, interner_.display(resolved)), span);
+        if (name == "is_trait") return interner_.constInterner().internBool(false);
+        return interner_.constInterner().internBool(descriptor.kind == TypeKind::Opaque && descriptor.abstractType);
+      }
+
       /// Evaluates a const predicate application (`name<types>`). Used by the
       /// `const if` extension and, later, by where clauses.
       [[nodiscard]] auto evaluateConstApplication(const hir::Expression &expression) -> const_eval::ConstValueId
       {
+        if (const auto builtin = evaluateTraitIntrospection(expression.text, expression.genericArguments, expression.span);
+            builtin.has_value())
+          return *builtin;
         std::vector<TypeId> typeArguments;
         for (const auto &argument : expression.genericArguments)
         {
@@ -1869,6 +1911,12 @@ namespace NG::vnext::typecheck
         case hir::ExpressionKind::Grouped: type = infer(*expression.operands[0], locals); break;
         case hir::ExpressionKind::GenericApplication:
         {
+          if (const auto builtin = evaluateTraitIntrospection(expression.text, expression.genericArguments, expression.span);
+              builtin.has_value())
+          {
+            type = builtin::Bool;
+            break;
+          }
           std::vector<TypeId> typeArguments;
           for (const auto &argument : expression.genericArguments)
           {

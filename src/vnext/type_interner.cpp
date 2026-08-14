@@ -94,6 +94,15 @@ namespace NG::vnext::typecheck
                                  .elements = elements});
   }
 
+  auto TypeInterner::declareOpaqueType(std::string name, bool abstract, syntax::SourceSpan span) -> TypeId
+  {
+    if (namedTypes_.contains(name))
+      throw TypeError(std::format("duplicate type declaration `{}`", name), span);
+    TypeId type = append(TypeDescriptor{.kind = TypeKind::Opaque, .name = name, .abstractType = abstract});
+    namedTypes_.emplace(std::move(name), type);
+    return type;
+  }
+
   auto TypeInterner::declareStruct(hir::StructId id, std::string name) -> TypeId
   {
     if (const auto found = structTypes_.find(id.value); found != structTypes_.end()) return found->second;
@@ -457,7 +466,9 @@ namespace NG::vnext::typecheck
       return std::format("{} {}", display(item.element), item.referenceMutable ? "ref mut" : "ref");
     if (item.kind == TypeKind::RawPointer)
       return std::format("{} {}", display(item.element), item.referenceMutable ? "*mut" : "*const");
-    if (item.kind == TypeKind::Struct || item.kind == TypeKind::Enum || item.kind == TypeKind::TypeParameter) return item.name;
+    if (item.kind == TypeKind::Struct || item.kind == TypeKind::Enum || item.kind == TypeKind::TypeParameter ||
+        item.kind == TypeKind::Opaque)
+      return item.name;
     if (item.kind == TypeKind::TypePack) return display(item.element) + "...";
     if (item.kind == TypeKind::Range) return "range<" + display(item.element) + ">";
     std::string result{"tuple<"};

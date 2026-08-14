@@ -19,6 +19,7 @@ namespace NG::vnext::syntax
                                                 bool nativeFunction = false) -> ModuleItemPtr;
     [[nodiscard]] auto parseImportDeclaration() -> ModuleItemPtr;
     [[nodiscard]] auto parseStructDeclaration() -> ModuleItemPtr;
+    [[nodiscard]] auto parseOpaqueTypeDeclaration() -> ModuleItemPtr;
     [[nodiscard]] auto parseEnumDeclaration() -> ModuleItemPtr;
     [[nodiscard]] auto parseConstDeclaration() -> ModuleItemPtr;
     [[nodiscard]] auto parseTraitDeclaration() -> ModuleItemPtr;

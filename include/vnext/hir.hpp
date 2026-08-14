@@ -329,6 +329,15 @@ namespace NG::vnext::hir
     syntax::SourceSpan span;
   };
 
+  /// A declaration-site abstract (`type Name;`) or native opaque
+  /// (`type Name = native;`) type.
+  struct OpaqueType
+  {
+    std::string name;
+    bool abstract;
+    syntax::SourceSpan span;
+  };
+
   struct Impl
   {
     std::string traitName;
@@ -347,6 +356,8 @@ namespace NG::vnext::hir
     std::vector<ConstDeclaration> consts;
     std::vector<Trait> traits;
     std::vector<Impl> impls;
+    /// `type Name;` abstract types and `type Name = native;` opaque handles.
+    std::vector<OpaqueType> opaqueTypes;
   };
 
   /// Deep-clones a resolved function for generic instantiation, renumbering
@@ -385,6 +396,7 @@ namespace NG::vnext::hir
     std::unordered_map<std::string, StructId> structs_;
     std::unordered_map<std::string, EnumId> enums_;
     std::unordered_map<std::string, syntax::SourceSpan> traits_;
+    std::unordered_map<std::string, syntax::SourceSpan> opaqueTypes_;
     std::unordered_map<std::string, std::vector<std::string>> enumVariants_;
     std::vector<Scope> scopes_;
     std::vector<ActiveLoop> loops_;

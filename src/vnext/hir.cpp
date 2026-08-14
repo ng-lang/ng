@@ -80,6 +80,7 @@ namespace NG::vnext::hir
     functionIds_.clear();
     structs_.clear();
     enums_.clear();
+    opaqueTypes_.clear();
     enumVariants_.clear();
     nextLocal_ = 0;
     nextConstId_ = 0;
@@ -112,6 +113,11 @@ namespace NG::vnext::hir
       {
         static_cast<void>(declaration);
         ++constCount;
+      }
+      else if (const auto *opaque = dynamic_cast<const syntax::OpaqueTypeDeclaration *>(item.get()))
+      {
+        if (!opaqueTypes_.emplace(opaque->name, opaque->span).second)
+          throw ResolutionError(std::format("duplicate module declaration `{}`", opaque->name), opaque->span);
       }
       else if (const auto *trait = dynamic_cast<const syntax::TraitDeclaration *>(item.get()))
       {
@@ -159,6 +165,10 @@ namespace NG::vnext::hir
       else if (const auto *declaration = dynamic_cast<const syntax::ConstDeclaration *>(item.get()))
       {
         module.consts.push_back(resolveConstDeclaration(*declaration, DefId{nextConstId_++}));
+      }
+      else if (const auto *opaque = dynamic_cast<const syntax::OpaqueTypeDeclaration *>(item.get()))
+      {
+        module.opaqueTypes.push_back(OpaqueType{.name = opaque->name, .abstract = opaque->abstract, .span = opaque->span});
       }
       else if (const auto *trait = dynamic_cast<const syntax::TraitDeclaration *>(item.get()))
       {

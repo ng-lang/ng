@@ -51,6 +51,8 @@ namespace NG::vnext::typecheck
     Struct,
     Enum,
     TypeParameter,
+    /// `type Name;` (abstract) or `type Name = native;` (native opaque handle).
+    Opaque,
   };
 
   struct TypeDescriptor
@@ -67,6 +69,9 @@ namespace NG::vnext::typecheck
     std::optional<uint32_t> constParameterIndex{};
     std::string constParameterName;
     bool referenceMutable{};
+    /// For Opaque descriptors: true for `type Name;` (no representation),
+    /// false for `type Name = native;` (native handle).
+    bool abstractType{};
     auto operator==(const TypeDescriptor &) const -> bool = default;
   };
 
@@ -100,6 +105,7 @@ namespace NG::vnext::typecheck
     [[nodiscard]] auto internRange(TypeId element) -> TypeId;
     [[nodiscard]] auto internTypeParameter(std::string name, uint32_t index) -> TypeId;
     [[nodiscard]] auto declareStruct(hir::StructId id, std::string name) -> TypeId;
+    [[nodiscard]] auto declareOpaqueType(std::string name, bool abstract, syntax::SourceSpan span) -> TypeId;
     void defineStruct(hir::StructId id, std::vector<std::string> fields, std::vector<TypeId> types);
     [[nodiscard]] auto typeForStruct(hir::StructId id) const -> TypeId;
     [[nodiscard]] auto declareEnum(hir::EnumId id, std::string name, std::vector<std::string> genericParameters = {}) -> TypeId;

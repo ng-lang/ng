@@ -1,0 +1,24 @@
+// vNext opaque and abstract type declarations (legacy 45): `type X = native;`
+// declares a native opaque handle, `type X;` an abstract type, and the
+// built-in const predicates `is_trait`/`is_abstract` classify them.
+
+trait Show {
+    fun show(self: Self ref) -> string;
+}
+
+type NativeHandle = native;
+type AbstractHandle;
+
+struct Widget {
+    value: i64,
+}
+
+fun main() -> i64 {
+    let mut total = 0;
+    const if (is_trait<Show>) { total := total + 1; }
+    const if (!is_abstract<NativeHandle>) { total := total + 2; }
+    const if (is_abstract<AbstractHandle>) { total := total + 4; }
+    const if (!is_abstract<Widget>) { total := total + 8; }
+    const if (!is_trait<Widget>) { total := total + 16; }
+    return total;
+}

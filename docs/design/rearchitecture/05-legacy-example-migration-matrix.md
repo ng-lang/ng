@@ -46,7 +46,7 @@ bytecode, VM, and negative diagnostics coverage in vNext.
 | 11 | Higher-kinded generics | `48`, `49` | Explicit kind system and kind-checked type constructor application. | R4 |
 | 12 | Static traits and generic bounds | `25`–`33`, `37`–`39`, `46`, `55`, `59` | Trait declarations, impls with coherence, supertraits, default methods, qualified calls, static dispatch on concrete receivers, and `T: Trait` bounds in generics/where clauses are supported, and method calls through bounded type parameters monomorphize per concrete instance (`example/vnext/traits.ng`); generic impls, auto/derive, and `ref<Trait>` dynamic views remain. | R4–R7 |
 | 13 | Abstract trait types and `ref<Trait>` dispatch | `34`–`36`, `40`, `59` | Abstract-type legality, object-safety, checked reference coercion, immutable vtable descriptor, reference-view ABI. | R4–R7 |
-| 14 | FFI and opaque/native handles | `39`, `45`, `51` | `native fun` runtime intrinsics with a registry and `print`/`assert` builtins (`example/vnext/native_io.ng`); declared C ABI (`extern "C"`), opaque handles, and lifecycle policies remain. | R9 |
+| 14 | FFI and opaque/native handles | `39`, `45`, `51` | `native fun` runtime intrinsics with a registry and `print`/`assert` builtins (`example/vnext/native_io.ng`), opaque type declarations (`type X = native;` native handles, `type X;` abstract types) with built-in `is_trait<T>`/`is_abstract<T>` const predicates (`example/vnext/opaque_types.ng`); declared C ABI (`extern "C"`) and native handle lifecycle policies remain. | R9 |
 | 15 | Concurrency | none in the stable legacy corpus | RuntimeSession isolation, ownership transfer/capabilities, experimental-only design. | R10 |
 
 ## Deliberate non-goals during the scalar-to-aggregate transition

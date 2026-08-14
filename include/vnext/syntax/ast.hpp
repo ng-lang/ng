@@ -619,6 +619,7 @@ namespace NG::vnext::syntax
     Trait,
     Impl,
     Import,
+    Opaque,
   };
 
   struct ModuleItem
@@ -639,6 +640,19 @@ namespace NG::vnext::syntax
 
     StructDeclaration(std::string structName, std::vector<StructFieldDeclaration> structFields, SourceSpan sourceSpan)
       : ModuleItem(ModuleItemKind::Struct, sourceSpan), name(std::move(structName)), fields(std::move(structFields))
+    {
+    }
+  };
+
+  /// `type Name;` (abstract) or `type Name = native;` (native opaque handle).
+  struct OpaqueTypeDeclaration final : ModuleItem
+  {
+    const std::string name;
+    /// True for `type Name;` (no representation); false for `= native`.
+    const bool abstract;
+
+    OpaqueTypeDeclaration(std::string typeName, bool abstractType, SourceSpan sourceSpan)
+      : ModuleItem(ModuleItemKind::Opaque, sourceSpan), name(std::move(typeName)), abstract(abstractType)
     {
     }
   };

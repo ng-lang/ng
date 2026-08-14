@@ -152,6 +152,7 @@ namespace NG::vnext::syntax
                              : text == "switch" ? TokenKind::KeywordSwitch
                              : text == "trait" ? TokenKind::KeywordTrait
                              : text == "true" ? TokenKind::KeywordTrue
+                             : text == "type" ? TokenKind::KeywordType
                              : text == "where" ? TokenKind::KeywordWhere
                              : text == "false" ? TokenKind::KeywordFalse
                                                : TokenKind::Identifier;

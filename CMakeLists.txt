@@ -125,6 +125,7 @@ set(NG_TEST_SRC
         test/vnext/map_comprehension_test.cpp
         test/vnext/fold_test.cpp
         test/vnext/tuple_introspection_test.cpp
+        test/vnext/opaque_type_test.cpp
         test/vnext/ref_type_test.cpp
         test/vnext/ref_runtime_test.cpp
         test/vnext/switch_statement_test.cpp

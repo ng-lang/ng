@@ -40,6 +40,7 @@ namespace NG::vnext::syntax
         else if (current().kind == TokenKind::KeywordTrait) items.push_back(parseTraitDeclaration());
         else if (current().kind == TokenKind::KeywordImpl) items.push_back(parseImplDeclaration());
         else if (current().kind == TokenKind::KeywordConst) items.push_back(parseConstDeclaration());
+        else if (current().kind == TokenKind::KeywordType) items.push_back(parseOpaqueTypeDeclaration());
         else if (current().kind == TokenKind::KeywordNative) items.push_back(parseFunctionDeclaration(false, true, true));
         else throw ParseError("expected a declaration after `export`", current().span);
       }
@@ -50,6 +51,10 @@ namespace NG::vnext::syntax
       else if (current().kind == TokenKind::KeywordStruct)
       {
         items.push_back(parseStructDeclaration());
+      }
+      else if (current().kind == TokenKind::KeywordType)
+      {
+        items.push_back(parseOpaqueTypeDeclaration());
       }
       else if (current().kind == TokenKind::KeywordEnum)
       {
@@ -268,6 +273,26 @@ namespace NG::vnext::syntax
     }
     const Token close = consume();
     return std::make_unique<StructDeclaration>(name.text, std::move(fields), SourceSpan{structToken.span.begin, close.span.end});
+  }
+
+  auto ModuleParser::parseOpaqueTypeDeclaration() -> ModuleItemPtr
+  {
+    const Token typeToken = consume();
+    if (current().kind != TokenKind::Identifier) throw ParseError("expected a type name after `type`", current().span);
+    const Token name = consume();
+    bool abstract = true;
+    if (current().kind == TokenKind::Equal)
+    {
+      static_cast<void>(consume());
+      if (current().kind != TokenKind::KeywordNative)
+        throw ParseError("expected `native` after `=` in opaque type declaration", current().span);
+      static_cast<void>(consume());
+      abstract = false;
+    }
+    const Token semicolon = current();
+    expect(TokenKind::Semicolon, "expected `;` after opaque type declaration");
+    return std::make_unique<OpaqueTypeDeclaration>(name.text, abstract,
+                                                   SourceSpan{typeToken.span.begin, semicolon.span.end});
   }
 
   auto ModuleParser::parseFunctionDeclaration(bool constFunction, bool exported, bool nativeFunction) -> ModuleItemPtr

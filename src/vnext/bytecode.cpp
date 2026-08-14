@@ -314,7 +314,7 @@ namespace NG::vnext::bytecode
           descriptor.kind != typecheck::TypeKind::Range &&
           descriptor.kind != typecheck::TypeKind::Tuple &&
           descriptor.kind != typecheck::TypeKind::Struct && descriptor.kind != typecheck::TypeKind::Enum &&
-          descriptor.kind != typecheck::TypeKind::TypeParameter)
+          descriptor.kind != typecheck::TypeKind::TypeParameter && descriptor.kind != typecheck::TypeKind::Opaque)
         throw BytecodeError("bytecode type descriptor kind is invalid");
       if (descriptor.kind == typecheck::TypeKind::Reference || descriptor.kind == typecheck::TypeKind::RawPointer ||
           descriptor.kind == typecheck::TypeKind::TypePack || descriptor.kind == typecheck::TypeKind::Range)
