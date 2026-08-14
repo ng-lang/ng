@@ -145,6 +145,21 @@ namespace NG::vnext::vm::detail
     *target = values.at(instruction.operands[2]).deepCopy();
   }
 
+  void loadVariantInstruction(const bytecode::DecodedInstruction &instruction, std::vector<Value> &values)
+  {
+    const uint32_t result = instruction.operands[0];
+    if (values.size() <= result) values.resize(result + 1);
+    values[result] = Value::integer(values.at(instruction.operands[1]).asEnumVariant());
+  }
+
+  void extractPayloadInstruction(const bytecode::DecodedInstruction &instruction, std::vector<Value> &values)
+  {
+    const uint32_t result = instruction.operands[0];
+    if (values.size() <= result) values.resize(result + 1);
+    const auto &payload = values.at(instruction.operands[1]).asEnumPayload();
+    values[result] = payload.empty() ? Value{} : payload.front().deepCopy();
+  }
+
   void evaluateInstruction(const bytecode::DecodedInstruction &instruction, const std::vector<std::string> &stringConstants,
                            std::vector<Value> &values, const LocalCells &locals)
   {

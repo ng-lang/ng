@@ -435,6 +435,9 @@ namespace NG::vnext::flowir
         case hir::StatementKind::Next:
           lowerNext(statement);
           return;
+        case hir::StatementKind::Switch:
+          lowerSwitch(statement);
+          return;
         case hir::StatementKind::Expression:
           static_cast<void>(lowerExpression(*statement.expression));
           return;
@@ -523,6 +526,102 @@ namespace NG::vnext::flowir
                                         .arguments = std::move(arguments)};
       }
 
+      void lowerSwitch(const hir::Statement &statement)
+      {
+        const ValueId scrutinee = lowerExpression(*statement.expression);
+        const ValueId index{nextValue_++};
+        if (types_ != nullptr) function_.valueTypes.emplace(index.value, typecheck::builtin::I64);
+        block().instructions.push_back(
+            Instruction{.kind = InstructionKind::EnumVariantIndex, .result = index, .source = scrutinee});
+
+        const auto variantOf = [&](size_t fallback) -> int64_t {
+          if (types_ == nullptr) return static_cast<int64_t>(fallback);
+          const auto scrutineeType = types_->typeIdOf(*statement.expression);
+          const auto &descriptor = types_->typeDescriptors.at(scrutineeType.value);
+          const auto found = std::find(descriptor.fieldNames.begin(), descriptor.fieldNames.end(), statement.switchCases[fallback].variantName);
+          if (found == descriptor.fieldNames.end()) return static_cast<int64_t>(fallback);
+          return std::distance(descriptor.fieldNames.begin(), found);
+        };
+
+        const size_t caseCount = statement.switchCases.size();
+        std::vector<BlockId> caseBlocks;
+        caseBlocks.reserve(caseCount);
+        for (size_t indexCase = 0; indexCase < caseCount; ++indexCase) caseBlocks.push_back(appendBlock());
+        const BlockId tailBlock = appendBlock();
+        const BlockId exitBlock = appendBlock();
+        if (caseCount == 0)
+        {
+          block().terminator = Terminator{.kind = TerminatorKind::Jump, .targets = {tailBlock}, .arguments = {}};
+        }
+
+        BlockId nextCheck = current_;
+        for (size_t indexCase = 0; indexCase < caseCount; ++indexCase)
+        {
+          current_ = nextCheck;
+          const ValueId variantConstant{nextValue_++};
+          if (types_ != nullptr) function_.valueTypes.emplace(variantConstant.value, typecheck::builtin::I64);
+          block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
+                                                     .result = variantConstant,
+                                                     .expressionKind = hir::ExpressionKind::IntegerLiteral,
+                                                     .payload = variantOf(indexCase)});
+          const ValueId matches{nextValue_++};
+          if (types_ != nullptr) function_.valueTypes.emplace(matches.value, typecheck::builtin::Bool);
+          block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
+                                                     .result = matches,
+                                                     .expressionKind = hir::ExpressionKind::Binary,
+                                                     .text = "==",
+                                                     .payload = 6,
+                                                     .operands = {index, variantConstant}});
+          if (indexCase + 1 < caseCount)
+          {
+            nextCheck = appendBlock();
+          }
+          else
+          {
+            nextCheck = tailBlock;
+          }
+          block().terminator = Terminator{.kind = TerminatorKind::Branch,
+                                          .targets = {caseBlocks[indexCase], nextCheck},
+                                          .arguments = {matches}};
+        }
+
+        current_ = tailBlock;
+        if (statement.alternative != nullptr) lowerBlock(*statement.alternative);
+        if (!block().terminator.has_value())
+        {
+          block().terminator = Terminator{.kind = TerminatorKind::Jump, .targets = {exitBlock}, .arguments = {}};
+        }
+
+        for (size_t indexCase = 0; indexCase < caseCount; ++indexCase)
+        {
+          current_ = caseBlocks[indexCase];
+          const auto &switchCase = statement.switchCases[indexCase];
+          if (switchCase.binding.has_value())
+          {
+            const ValueId payload{nextValue_++};
+            if (types_ != nullptr)
+            {
+              function_.valueTypes.emplace(payload.value, types_->localTypeIds.at(switchCase.binding->value));
+              function_.localTypes.emplace(switchCase.binding->value, types_->localTypeIds.at(switchCase.binding->value));
+            }
+            block().instructions.push_back(
+                Instruction{.kind = InstructionKind::ExtractEnumPayload, .result = payload, .source = scrutinee});
+            const ValueId binding{nextValue_++};
+            if (types_ != nullptr) function_.valueTypes.emplace(binding.value, function_.valueTypes.at(payload.value));
+            block().instructions.push_back(Instruction{.kind = InstructionKind::BindLocal,
+                                                       .result = binding,
+                                                       .local = switchCase.binding,
+                                                       .source = payload});
+          }
+          lowerBlock(*switchCase.body);
+          if (!block().terminator.has_value())
+          {
+            block().terminator = Terminator{.kind = TerminatorKind::Jump, .targets = {exitBlock}, .arguments = {}};
+          }
+        }
+        current_ = exitBlock;
+      }
+
       Function function_;
       BlockId current_{};
       uint32_t nextValue_{};
@@ -574,6 +673,9 @@ namespace NG::vnext::flowir
           throw VerificationError("FlowIR tuple extraction requires one source operand");
         if (instruction.kind == InstructionKind::LoadRef && instruction.operands.size() != 1)
           throw VerificationError("FlowIR reference load requires one source operand");
+        if ((instruction.kind == InstructionKind::EnumVariantIndex || instruction.kind == InstructionKind::ExtractEnumPayload) &&
+            !instruction.source.has_value())
+          throw VerificationError("FlowIR enum operation requires a source operand");
         if (instruction.kind == InstructionKind::MakeRef)
         {
           if (!instruction.placeRootLocal.has_value() || instruction.placeRootRef.has_value())

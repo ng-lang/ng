@@ -3,6 +3,7 @@
 
 #include <cstddef>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -261,6 +262,7 @@ namespace NG::vnext::syntax
     ConstIf,
     Loop,
     Next,
+    Switch,
     Expression,
   };
 
@@ -389,6 +391,38 @@ namespace NG::vnext::syntax
 
     NextStatement(std::vector<ExpressionPtr> nextArguments, SourceSpan sourceSpan)
       : Statement(StatementKind::Next, sourceSpan), arguments(std::move(nextArguments))
+    {
+    }
+  };
+
+  struct SwitchCasePattern final
+  {
+    const std::string variantName;
+    std::optional<std::string> bindingName;
+    const SourceSpan span;
+
+    SwitchCasePattern(std::string variant, std::optional<std::string> binding, SourceSpan sourceSpan)
+      : variantName(std::move(variant)), bindingName(std::move(binding)), span(sourceSpan)
+    {
+    }
+  };
+
+  struct SwitchCase final
+  {
+    SwitchCasePattern pattern;
+    Block body;
+  };
+
+  struct SwitchStatement final : Statement
+  {
+    ExpressionPtr value;
+    std::vector<SwitchCase> cases;
+    std::unique_ptr<Block> otherwise;
+
+    SwitchStatement(ExpressionPtr scrutinee, std::vector<SwitchCase> switchCases, std::unique_ptr<Block> fallback,
+                    SourceSpan sourceSpan)
+      : Statement(StatementKind::Switch, sourceSpan), value(std::move(scrutinee)), cases(std::move(switchCases)),
+        otherwise(std::move(fallback))
     {
     }
   };

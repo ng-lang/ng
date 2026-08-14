@@ -110,6 +110,7 @@ namespace NG::vnext::hir
     ConstIf,
     Loop,
     Next,
+    Switch,
     Expression,
   };
 
@@ -129,6 +130,17 @@ namespace NG::vnext::hir
 
   struct Type;
 
+  /// One switch case: the variant name is resolved to its ordinal by the
+  /// checker; the optional payload binding is a lexical local scoped to the
+  /// case body.
+  struct SwitchCase
+  {
+    std::string variantName;
+    std::optional<LocalId> binding;
+    std::unique_ptr<Block> body;
+    syntax::SourceSpan span;
+  };
+
   struct Statement
   {
     StatementKind kind;
@@ -144,6 +156,7 @@ namespace NG::vnext::hir
     ExpressionPtr assignmentTarget;
     std::vector<ExpressionPtr> arguments;
     std::vector<LocalId> loopBindings;
+    std::vector<SwitchCase> switchCases;
     std::unique_ptr<Block> consequence;
     std::unique_ptr<Block> alternative;
     std::unique_ptr<Block> body;

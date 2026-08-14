@@ -248,6 +248,7 @@ namespace NG::vnext::typecheck
           return;
         }
         case hir::StatementKind::Next: checkNext(statement, locals, loops); return;
+        case hir::StatementKind::Switch: checkSwitch(statement, locals, loops, returnType); return;
         case hir::StatementKind::Expression: static_cast<void>(infer(*statement.expression, locals)); return;
         }
       }
@@ -263,6 +264,48 @@ namespace NG::vnext::typecheck
         for (size_t index = 0; index < expected->size(); ++index)
           static_cast<void>(inferExpected(*statement.arguments[index], (*expected)[index], locals,
                                           std::format("next argument {}", index + 1)));
+      }
+
+      void checkSwitch(const hir::Statement &statement, const LocalTypes &locals, const LoopTypes &loops, TypeId returnType)
+      {
+        const TypeId scrutinee = infer(*statement.expression, locals);
+        const auto &descriptor = interner_.descriptor(scrutinee);
+        if (descriptor.kind != TypeKind::Enum)
+          throw TypeError(std::format("switch value must be an enum type, got {}", interner_.display(scrutinee)),
+                          statement.expression->span);
+        std::vector<bool> covered(descriptor.fieldNames.size());
+        for (const auto &switchCase : statement.switchCases)
+        {
+          const auto found = std::find(descriptor.fieldNames.begin(), descriptor.fieldNames.end(), switchCase.variantName);
+          if (found == descriptor.fieldNames.end())
+            throw TypeError(std::format("unknown variant `{}` for enum `{}`", switchCase.variantName, descriptor.name),
+                            switchCase.span);
+          const size_t variant = static_cast<size_t>(std::distance(descriptor.fieldNames.begin(), found));
+          if (covered[variant])
+            throw TypeError(std::format("duplicate variant `{}` in switch", switchCase.variantName), switchCase.span);
+          covered[variant] = true;
+          if (!switchCase.binding.has_value())
+          {
+            checkBlock(*switchCase.body, locals, loops, returnType);
+            continue;
+          }
+          if (!descriptor.variantHasPayload[variant])
+            throw TypeError(std::format("variant `{}` has no payload to bind", switchCase.variantName), switchCase.span);
+          LocalTypes caseLocals = locals;
+          caseLocals.emplace(switchCase.binding->value, descriptor.elements[variant]);
+          recordLocal(*switchCase.binding, descriptor.elements[variant]);
+          checkBlock(*switchCase.body, std::move(caseLocals), loops, returnType);
+        }
+        if (statement.alternative != nullptr)
+        {
+          checkBlock(*statement.alternative, locals, loops, returnType);
+        }
+        else if (const auto missing = std::find(covered.begin(), covered.end(), false); missing != covered.end())
+        {
+          const size_t variant = static_cast<size_t>(std::distance(covered.begin(), missing));
+          throw TypeError(std::format("switch is not exhaustive: missing variant `{}`", descriptor.fieldNames[variant]),
+                          statement.span);
+        }
       }
 
       [[nodiscard]] static auto isPlace(const hir::Expression &expression) -> bool

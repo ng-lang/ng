@@ -17,6 +17,8 @@ namespace NG::vnext::bytecode
         OpcodeDescriptor{Opcode::MakeRef, "make_ref", OperandLayout::CountPrefixedTail, 3},
         OpcodeDescriptor{Opcode::LoadRef, "load_ref", OperandLayout::Fixed, 2},
         OpcodeDescriptor{Opcode::AssignPlace, "assign_place", OperandLayout::CountPrefixedTail, 3},
+        OpcodeDescriptor{Opcode::LoadVariant, "load_variant", OperandLayout::Fixed, 2},
+        OpcodeDescriptor{Opcode::ExtractPayload, "extract_payload", OperandLayout::Fixed, 2},
         OpcodeDescriptor{Opcode::Return, "return", OperandLayout::CountPrefixedTail, 0},
         OpcodeDescriptor{Opcode::Jump, "jump", OperandLayout::CountPrefixedTail, 1},
         OpcodeDescriptor{Opcode::Branch, "branch", OperandLayout::Fixed, 3},
@@ -145,6 +147,14 @@ namespace NG::vnext::bytecode
         else if (instruction.kind == flowir::InstructionKind::LoadRef)
         {
           appendInstruction(result.code, Opcode::LoadRef, {instruction.result.value, instruction.operands[0].value});
+        }
+        else if (instruction.kind == flowir::InstructionKind::EnumVariantIndex)
+        {
+          appendInstruction(result.code, Opcode::LoadVariant, {instruction.result.value, instruction.source->value});
+        }
+        else if (instruction.kind == flowir::InstructionKind::ExtractEnumPayload)
+        {
+          appendInstruction(result.code, Opcode::ExtractPayload, {instruction.result.value, instruction.source->value});
         }
         else
         {
@@ -560,6 +570,26 @@ namespace NG::vnext::bytecode
           }
           if (requireValueType(instruction.operands[2]) != current)
             throw BytecodeError("bytecode place assignment value type mismatch");
+        }
+        else if (instruction.opcode == Opcode::LoadVariant)
+        {
+          const auto source = requireValueType(instruction.operands[1]);
+          if (source.value >= function.typeDescriptors.size()) throw BytecodeError("bytecode value type descriptor is out of range");
+          if (function.typeDescriptors[source.value].kind != typecheck::TypeKind::Enum)
+            throw BytecodeError("bytecode variant load source is not an enum type");
+          if (requireValueType(instruction.operands[0]) != typecheck::builtin::I64)
+            throw BytecodeError("bytecode variant load result is not i64");
+        }
+        else if (instruction.opcode == Opcode::ExtractPayload)
+        {
+          const auto source = requireValueType(instruction.operands[1]);
+          if (source.value >= function.typeDescriptors.size()) throw BytecodeError("bytecode value type descriptor is out of range");
+          const auto &enumeration = function.typeDescriptors[source.value];
+          if (enumeration.kind != typecheck::TypeKind::Enum)
+            throw BytecodeError("bytecode payload extraction source is not an enum type");
+          const auto resultType = requireValueType(instruction.operands[0]);
+          if (std::find(enumeration.elements.begin(), enumeration.elements.end(), resultType) == enumeration.elements.end())
+            throw BytecodeError("bytecode payload extraction result does not match any variant payload type");
         }
         else if (instruction.opcode == Opcode::Branch)
         {

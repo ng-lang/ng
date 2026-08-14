@@ -27,4 +27,6 @@ namespace NG::vnext::vm::detail
   void loadRefInstruction(const bytecode::DecodedInstruction &instruction, std::vector<Value> &values);
   void assignPlaceInstruction(const bytecode::DecodedInstruction &instruction, std::vector<Value> &values,
                               const LocalCells &locals);
+  void loadVariantInstruction(const bytecode::DecodedInstruction &instruction, std::vector<Value> &values);
+  void extractPayloadInstruction(const bytecode::DecodedInstruction &instruction, std::vector<Value> &values);
 } // namespace NG::vnext::vm::detail

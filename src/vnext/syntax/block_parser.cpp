@@ -71,6 +71,11 @@ namespace NG::vnext::syntax
         statements.push_back(parseNextStatement());
         continue;
       }
+      if (current().kind == TokenKind::KeywordSwitch)
+      {
+        statements.push_back(parseSwitchStatement());
+        continue;
+      }
 
       auto expression = parseExpressionUntil(TokenKind::RightBrace);
       if (current().kind == TokenKind::Semicolon)
@@ -286,6 +291,61 @@ namespace NG::vnext::syntax
 
     return std::make_unique<ConstIfStatement>(std::move(condition), std::move(consequence), std::move(alternative),
                                               SourceSpan{constToken.span.begin, end});
+  }
+
+  auto BlockParser::parseSwitchStatement() -> StatementPtr
+  {
+    const Token switchToken = consume();
+    expect(TokenKind::LeftParen, "expected `(` after `switch`");
+    auto value = parseExpressionUntil(TokenKind::RightParen);
+    expect(TokenKind::RightParen, "expected `)` after switch value");
+    expect(TokenKind::LeftBrace, "expected `{` after switch value");
+
+    std::vector<SwitchCase> cases;
+    std::unique_ptr<Block> otherwise;
+    while (current().kind != TokenKind::RightBrace)
+    {
+      if (current().kind == TokenKind::End)
+      {
+        throw ParseError("expected `}` to close switch", current().span);
+      }
+      if (current().kind == TokenKind::KeywordOtherwise)
+      {
+        static_cast<void>(consume());
+        Block fallback = parseNestedBlock();
+        otherwise = std::make_unique<Block>(std::move(fallback));
+        continue;
+      }
+      if (current().kind != TokenKind::KeywordCase)
+      {
+        throw ParseError("expected `case` or `otherwise` in switch", current().span);
+      }
+      const Token caseToken = consume();
+      if (current().kind != TokenKind::Identifier)
+      {
+        throw ParseError("expected a variant name after `case`", current().span);
+      }
+      const Token variant = consume();
+      std::optional<std::string> bindingName;
+      if (current().kind == TokenKind::LeftParen)
+      {
+        static_cast<void>(consume());
+        if (current().kind != TokenKind::Identifier)
+        {
+          throw ParseError("expected a payload binding name", current().span);
+        }
+        bindingName = consume().text;
+        expect(TokenKind::RightParen, "expected `)` after payload binding");
+      }
+      Block body = parseNestedBlock();
+      cases.push_back(SwitchCase{SwitchCasePattern{variant.text, std::move(bindingName),
+                                                   SourceSpan{caseToken.span.begin, body.span.end}},
+                                 std::move(body)});
+    }
+    const Token close = current();
+    expect(TokenKind::RightBrace, "expected `}` to close switch");
+    return std::make_unique<SwitchStatement>(std::move(value), std::move(cases), std::move(otherwise),
+                                             SourceSpan{switchToken.span.begin, close.span.end});
   }
 
   auto BlockParser::parseNestedBlock() -> Block

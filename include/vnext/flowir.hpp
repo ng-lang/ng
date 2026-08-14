@@ -35,6 +35,10 @@ namespace NG::vnext::flowir
     LoadRef,
     /// Writes through a place: a local-rooted path or a reference-rooted path.
     AssignPlace,
+    /// Reads the variant ordinal of an enum value as i64.
+    EnumVariantIndex,
+    /// Reads the payload of an enum value (unit for payloadless variants).
+    ExtractEnumPayload,
   };
 
   /// One step of a lowered place path. Member steps carry a product field

@@ -99,6 +99,12 @@ namespace NG::vnext::vm
       case bytecode::Opcode::AssignPlace:
         detail::assignPlaceInstruction(instruction, values, locals);
         break;
+      case bytecode::Opcode::LoadVariant:
+        detail::loadVariantInstruction(instruction, values);
+        break;
+      case bytecode::Opcode::ExtractPayload:
+        detail::extractPayloadInstruction(instruction, values);
+        break;
       case bytecode::Opcode::Return:
       {
         std::optional<Value> result;
@@ -239,6 +245,16 @@ namespace NG::vnext::vm
       if (instruction.opcode == bytecode::Opcode::AssignPlace)
       {
         detail::assignPlaceInstruction(instruction, frame.values, frame.locals);
+        continue;
+      }
+      if (instruction.opcode == bytecode::Opcode::LoadVariant)
+      {
+        detail::loadVariantInstruction(instruction, frame.values);
+        continue;
+      }
+      if (instruction.opcode == bytecode::Opcode::ExtractPayload)
+      {
+        detail::extractPayloadInstruction(instruction, frame.values);
         continue;
       }
       if (instruction.opcode == bytecode::Opcode::Call)

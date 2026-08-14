@@ -112,6 +112,7 @@ set(NG_TEST_SRC
         test/vnext/const_if_test.cpp
         test/vnext/ref_type_test.cpp
         test/vnext/ref_runtime_test.cpp
+        test/vnext/switch_statement_test.cpp
         test/vnext/driver_test.cpp
         test/vnext/value_test.cpp
         test/module/native_module_artifact_test.cpp

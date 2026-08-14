@@ -367,6 +367,29 @@ namespace NG::vnext::hir
       return resolved;
     }
 
+    if (const auto *switchStatement = dynamic_cast<const syntax::SwitchStatement *>(&statement))
+    {
+      Statement resolved{.kind = StatementKind::Switch,
+                         .span = switchStatement->span,
+                         .expression = resolveExpression(*switchStatement->value)};
+      resolved.switchCases.reserve(switchStatement->cases.size());
+      for (const auto &switchCase : switchStatement->cases)
+      {
+        SwitchCase caseResolved{.variantName = switchCase.pattern.variantName, .span = switchCase.pattern.span};
+        if (switchCase.pattern.bindingName.has_value())
+        {
+          scopes_.emplace_back();
+          caseResolved.binding = declareLocal(*switchCase.pattern.bindingName, switchCase.pattern.span);
+        }
+        caseResolved.body = std::make_unique<Block>(resolveBlock(switchCase.body, false));
+        if (switchCase.pattern.bindingName.has_value()) scopes_.pop_back();
+        resolved.switchCases.push_back(std::move(caseResolved));
+      }
+      if (switchStatement->otherwise != nullptr)
+        resolved.alternative = std::make_unique<Block>(resolveBlock(*switchStatement->otherwise, true));
+      return resolved;
+    }
+
     if (const auto *expression = dynamic_cast<const syntax::ExpressionStatement *>(&statement))
     {
       return Statement{.kind = StatementKind::Expression,

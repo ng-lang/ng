@@ -23,6 +23,7 @@ namespace NG::vnext::syntax
     [[nodiscard]] auto parseConstIfStatement() -> StatementPtr;
     [[nodiscard]] auto parseLoopStatement() -> StatementPtr;
     [[nodiscard]] auto parseNextStatement() -> StatementPtr;
+    [[nodiscard]] auto parseSwitchStatement() -> StatementPtr;
     [[nodiscard]] auto parseNestedBlock() -> Block;
     [[nodiscard]] auto parseExpressionUntil(TokenKind terminator) -> ExpressionPtr;
     [[nodiscard]] auto parseExpressionUntilAny(const std::vector<TokenKind> &terminators) -> ExpressionPtr;

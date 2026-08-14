@@ -19,6 +19,8 @@ namespace NG::vnext::bytecode
     MakeRef,
     LoadRef,
     AssignPlace,
+    LoadVariant,
+    ExtractPayload,
     Return,
     Jump,
     Branch,

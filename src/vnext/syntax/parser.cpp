@@ -114,7 +114,8 @@ namespace NG::vnext::syntax
           ++offset;
         }
         const std::string text{source.substr(begin, offset - begin)};
-        const TokenKind kind = text == "const" ? TokenKind::KeywordConst
+        const TokenKind kind = text == "case" ? TokenKind::KeywordCase
+                             : text == "const" ? TokenKind::KeywordConst
                              : text == "else" ? TokenKind::KeywordElse
                              : text == "enum" ? TokenKind::KeywordEnum
                              : text == "fun" ? TokenKind::KeywordFun
@@ -123,9 +124,11 @@ namespace NG::vnext::syntax
                              : text == "loop" ? TokenKind::KeywordLoop
                              : text == "mut" ? TokenKind::KeywordMut
                              : text == "next" ? TokenKind::KeywordNext
+                             : text == "otherwise" ? TokenKind::KeywordOtherwise
                              : text == "ref" ? TokenKind::KeywordRef
                              : text == "return" ? TokenKind::KeywordReturn
                              : text == "struct" ? TokenKind::KeywordStruct
+                             : text == "switch" ? TokenKind::KeywordSwitch
                              : text == "true" ? TokenKind::KeywordTrue
                              : text == "false" ? TokenKind::KeywordFalse
                                                : TokenKind::Identifier;
