@@ -127,6 +127,7 @@ namespace NG::vnext::typecheck
                                .callTargets = std::move(callTargets_),
                                .callPackArgCounts = std::move(callPackArgCounts_),
                                .callPackTupleTypes = std::move(callPackTupleTypes_),
+                               .callSpreadPositions = std::move(callSpreadPositions_),
                                .returnDrops = std::move(returnDrops_),
                                .fallthroughDrops = std::move(fallthroughDrops_),
                                .placeholderFunctions = std::move(placeholderFunctions_),
@@ -1206,6 +1207,52 @@ namespace NG::vnext::typecheck
         }
       }
 
+      /// Collects the static spread structure of a call argument list:
+      /// returns the number of expanded arguments and records, per spread
+      /// argument, its positional index for lowering.
+      struct CallSpreadInfo
+      {
+        size_t expandedCount{};
+        std::vector<size_t> spreadPositions;
+        std::vector<TypeId> expandedTypes;
+        std::vector<bool> spreadSlot;
+        std::vector<const hir::Expression *> argumentExpressions;
+      };
+
+      [[nodiscard]] auto analyzeCallSpread(const hir::Expression &expression, size_t firstArgument,
+                                           const LocalTypes &locals, CallSpreadInfo &info) -> bool
+      {
+        bool anySpread = false;
+        for (size_t index = firstArgument; index < expression.operands.size(); ++index)
+        {
+          const auto &argument = *expression.operands[index];
+          if (argument.kind == hir::ExpressionKind::Prefix && argument.text == "...")
+          {
+            const TypeId operand = infer(*argument.operands[0], locals);
+            const auto &descriptor = interner_.descriptor(operand);
+            if (descriptor.kind != TypeKind::Tuple)
+              throw TypeError(std::format("cannot spread value of type {}", interner_.display(operand)), argument.span);
+            info.spreadPositions.push_back(index - firstArgument);
+            info.expandedTypes.insert(info.expandedTypes.end(), descriptor.elements.begin(), descriptor.elements.end());
+            for (const auto element : descriptor.elements)
+            {
+              static_cast<void>(element);
+              info.spreadSlot.push_back(true);
+              info.argumentExpressions.push_back(argument.operands[0].get());
+            }
+            anySpread = true;
+          }
+          else
+          {
+            info.expandedTypes.push_back(infer(argument, locals));
+            info.spreadSlot.push_back(false);
+            info.argumentExpressions.push_back(&argument);
+          }
+        }
+        info.expandedCount = info.expandedTypes.size();
+        return anySpread;
+      }
+
       [[nodiscard]] auto isAffine(TypeId type) const -> bool
       {
         const auto &descriptor = interner_.descriptor(type);
@@ -1724,38 +1771,56 @@ namespace NG::vnext::typecheck
             if (bestScore < 0) throw TypeError("no matching function specialization", expression.span);
           }
           const auto &signature = signatures_.at(selected.value);
-          const size_t supplied = expression.operands.size() - 1;
+          CallSpreadInfo spreadInfo;
+          const bool hasSpread = analyzeCallSpread(expression, 1, locals, spreadInfo);
+          const size_t supplied = hasSpread ? spreadInfo.expandedCount : expression.operands.size() - 1;
           const bool variadic = !signature.packParameters.empty();
           const size_t fixedParameters = signature.parameters.size() - (variadic ? 1 : 0);
           if (variadic ? supplied < fixedParameters : supplied != signature.parameters.size())
             throw TypeError(std::format("call argument count mismatch: expected {}, got {}", signature.parameters.size(), supplied),
                             expression.span);
           const size_t packCount = variadic ? supplied - fixedParameters : 0;
+          if (hasSpread) callSpreadPositions_.insert_or_assign(&expression, spreadInfo.spreadPositions);
           Substitution substitution;
+          const auto argumentTypeAt = [&](size_t index) -> TypeId {
+            return hasSpread ? spreadInfo.expandedTypes[index] : infer(*expression.operands[index + 1], locals);
+          };
           if (!expression.genericArguments.empty())
           {
             substitution = explicitSubstitution(expression, signature);
             for (size_t index = 0; index < supplied; ++index)
-              static_cast<void>(inferExpected(*expression.operands[index + 1],
-                                              specialize(signature.parameters[index], substitution), locals,
-                                              std::format("call argument {}", index + 1)));
+            {
+              const TypeId parameterType = index < fixedParameters ? signature.parameters[index]
+                                                                   : interner_.descriptor(signature.parameters.back()).element;
+              if (hasSpread && spreadInfo.spreadSlot[index])
+                requireType(specialize(parameterType, substitution), argumentTypeAt(index),
+                            spreadInfo.argumentExpressions[index]->span, std::format("call argument {}", index + 1));
+              else
+                static_cast<void>(inferExpected(*expression.operands[index + 1],
+                                                specialize(parameterType, substitution), locals,
+                                                std::format("call argument {}", index + 1)));
+            }
           }
           else
           {
             for (size_t index = 0; index < supplied; ++index)
             {
-              const auto &argument = *expression.operands[index + 1];
+              const hir::Expression &argument = hasSpread ? *spreadInfo.argumentExpressions[index]
+                                                            : *expression.operands[index + 1];
               const TypeId parameterType = index < fixedParameters ? signature.parameters[index]
                                                                    : interner_.descriptor(signature.parameters.back()).element;
+              const TypeId argumentType = argumentTypeAt(index);
               if (!isGeneric(signature))
               {
-                static_cast<void>(inferExpected(argument, parameterType, locals,
-                                                std::format("call argument {}", index + 1)));
+                if (hasSpread && spreadInfo.spreadSlot[index])
+                  requireType(parameterType, argumentType, argument.span, std::format("call argument {}", index + 1));
+                else
+                  static_cast<void>(inferExpected(argument, parameterType, locals,
+                                                  std::format("call argument {}", index + 1)));
                 continue;
               }
               if (variadic && index >= fixedParameters)
               {
-                const TypeId argumentType = infer(argument, locals);
                 auto &pack = substitution.packs[parameterType.value];
                 const size_t packPosition = index - fixedParameters;
                 if (packPosition < pack.size())
@@ -1771,6 +1836,11 @@ namespace NG::vnext::typecheck
                 continue;
               }
               const auto &expectedDescriptor = interner_.descriptor(parameterType);
+              if (hasSpread && spreadInfo.spreadSlot[index])
+              {
+                unify(parameterType, argumentType, substitution, argument.span);
+                continue;
+              }
               if (argument.kind == hir::ExpressionKind::EnumLiteral && expectedDescriptor.kind == TypeKind::Enum)
               {
                 if (!argument.enumId.has_value() || !argument.variant.has_value() ||
@@ -1786,7 +1856,7 @@ namespace NG::vnext::typecheck
               }
               else
               {
-                unify(parameterType, infer(argument, locals), substitution, argument.span);
+                unify(parameterType, argumentType, substitution, argument.span);
               }
             }
           }
@@ -1799,20 +1869,34 @@ namespace NG::vnext::typecheck
               !evaluateWhereCondition(*module_->functions.at(selected.value).whereClause, substitution, signature))
             throw TypeError(std::format("call to `{}` does not satisfy its where clause", module_->functions.at(selected.value).name),
                             expression.span);
-          for (size_t index = 0; index < supplied; ++index)
+          if (!hasSpread)
           {
-            const TypeId parameterType = index < fixedParameters ? signature.parameters[index]
-                                                                 : interner_.descriptor(signature.parameters.back()).element;
-            const auto &parameterDescriptor = interner_.descriptor(parameterType);
-            if (parameterDescriptor.kind != TypeKind::Reference && parameterDescriptor.kind != TypeKind::RawPointer)
-              trackConsumption(*expression.operands[index + 1], locals);
+            for (size_t index = 0; index < supplied; ++index)
+            {
+              const TypeId parameterType = index < fixedParameters ? signature.parameters[index]
+                                                                   : interner_.descriptor(signature.parameters.back()).element;
+              const auto &parameterDescriptor = interner_.descriptor(parameterType);
+              if (parameterDescriptor.kind != TypeKind::Reference && parameterDescriptor.kind != TypeKind::RawPointer)
+                trackConsumption(*expression.operands[index + 1], locals);
+            }
+          }
+          else
+          {
+            for (size_t index = 0; index < supplied; ++index)
+            {
+              if (!spreadInfo.spreadSlot[index]) continue;
+              const TypeId parameterType = index < fixedParameters ? signature.parameters[index]
+                                                                   : interner_.descriptor(signature.parameters.back()).element;
+              const auto &parameterDescriptor = interner_.descriptor(parameterType);
+              if (parameterDescriptor.kind != TypeKind::Reference && parameterDescriptor.kind != TypeKind::RawPointer)
+                trackConsumption(*spreadInfo.argumentExpressions[index], locals);
+            }
           }
           if (variadic)
           {
             callPackArgCounts_.insert_or_assign(&expression, packCount);
             std::vector<TypeId> packedTypes;
-            for (size_t index = fixedParameters; index < supplied; ++index)
-              packedTypes.push_back(infer(*expression.operands[index + 1], locals));
+            for (size_t index = fixedParameters; index < supplied; ++index) packedTypes.push_back(argumentTypeAt(index));
             callPackTupleTypes_.insert_or_assign(&expression, interner_.internTuple(std::move(packedTypes)));
           }
           selected = instantiateFunction(selected, substitution, packCount, expression.span);
@@ -2016,6 +2100,7 @@ namespace NG::vnext::typecheck
       std::vector<ImplInfo> impls_;
       std::unordered_map<const hir::Expression *, size_t> callPackArgCounts_;
       std::unordered_map<const hir::Expression *, TypeId> callPackTupleTypes_;
+      std::unordered_map<const hir::Expression *, std::vector<size_t>> callSpreadPositions_;
       std::unordered_set<uint32_t> dropTypes_;
       std::unordered_map<const hir::Statement *, std::vector<std::pair<uint32_t, uint32_t>>> returnDrops_;
       std::unordered_map<uint32_t, std::vector<std::pair<uint32_t, uint32_t>>> fallthroughDrops_;

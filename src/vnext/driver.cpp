@@ -294,6 +294,11 @@ namespace NG::vnext
         errors << "bytecode error: " << error.what() << '\n';
         return 1;
       }
+      catch (const std::exception &error)
+      {
+        errors << "internal error: " << error.what() << '\n';
+        return 1;
+      }
     }
     [[nodiscard]] auto parseSourceAndReport(std::string_view source, const std::vector<std::string_view> &runtimeArguments,
                                             std::ostream &output, std::ostream &errors) -> int

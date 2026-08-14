@@ -9,16 +9,26 @@ fun append_value<T...>(args: T...) -> tuple<T..., i64> {
     return (...args, 42);
 }
 
+fun pick_middle(left: i64, value: string, ok: bool) -> string {
+    return value;
+}
+
 fun main() -> i64 {
     let packed: tuple<i64, string, bool> = gather(1, "pack", false);
     let extended: tuple<i64, string, i64> = append_value(1, "two");
     let solo: tuple<string> = gather("solo");
     let pair: tuple<i64, bool> = gather(5, true);
 
+    // Call-site tuple spreads flatten statically into argument lists.
+    let spread = pick_middle(...(7, "spread", true));
+    let spread_var = pick_middle(...packed);
+
     let mut total = 0;
     if (packed.1 == "pack") { total := total + 1; }
     if (extended.2 == 42) { total := total + 2; }
     if (solo.0 == "solo") { total := total + 4; }
     if (pair.0 == 5 && pair.1) { total := total + 8; }
+    if (spread == "spread") { total := total + 16; }
+    if (spread_var == "pack") { total := total + 32; }
     return total;
 }

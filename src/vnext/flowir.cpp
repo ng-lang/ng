@@ -87,9 +87,46 @@ namespace NG::vnext::flowir
                                 expression.operands[0]->resolvedName->kind == hir::ResolvedNameKind::Function;
         std::vector<ValueId> operands;
         operands.reserve(expression.operands.size() - (directCall ? 1 : 0));
-        for (size_t index = directCall ? 1 : 0; index < expression.operands.size(); ++index)
+        const auto spreadPositions = directCall && types_ != nullptr
+                                         ? types_->callSpreadPositions.find(&expression)
+                                         : types_->callSpreadPositions.end();
+        if (directCall && types_ != nullptr && spreadPositions != types_->callSpreadPositions.end())
         {
-          operands.push_back(lowerExpression(*expression.operands[index]));
+          // Tuple spreads flatten statically: each element extracts from the
+          // spread tuple into its own call argument.
+          size_t spreadIndex = 0;
+          for (size_t index = 1; index < expression.operands.size(); ++index)
+          {
+            if (spreadIndex < spreadPositions->second.size() && spreadPositions->second[spreadIndex] == index - 1)
+            {
+              const auto &spreadOperand = *expression.operands[index]->operands[0];
+              const ValueId tuple = lowerExpression(spreadOperand);
+              const auto tupleType = types_->typeIdOf(spreadOperand);
+
+              const auto &descriptor = types_->typeDescriptors.at(tupleType.value);
+              for (size_t element = 0; element < descriptor.elements.size(); ++element)
+              {
+                const ValueId extracted{nextValue_++};
+                function_.valueTypes.emplace(extracted.value, descriptor.elements[element]);
+                block().instructions.push_back(Instruction{.kind = InstructionKind::ExtractTuple,
+                                                           .result = extracted,
+                                                           .source = tuple,
+                                                           .payload = static_cast<int64_t>(element),
+                                                           .operands = {tuple}});
+                operands.push_back(extracted);
+              }
+              ++spreadIndex;
+              continue;
+            }
+            operands.push_back(lowerExpression(*expression.operands[index]));
+          }
+        }
+        else
+        {
+          for (size_t index = directCall ? 1 : 0; index < expression.operands.size(); ++index)
+          {
+            operands.push_back(lowerExpression(*expression.operands[index]));
+          }
         }
         if (directCall && types_ != nullptr)
         {

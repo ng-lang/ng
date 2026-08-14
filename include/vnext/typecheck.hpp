@@ -159,6 +159,8 @@ namespace NG::vnext::typecheck
     std::unordered_map<const hir::Expression *, size_t> callPackArgCounts;
     /// Static tuple type of a variadic call's packed trailing arguments.
     std::unordered_map<const hir::Expression *, TypeId> callPackTupleTypes;
+    /// Syntactic argument offsets that are tuple spreads at a call site.
+    std::unordered_map<const hir::Expression *, std::vector<size_t>> callSpreadPositions;
     /// Drop calls to emit at return statements: (local, drop method DefId).
     std::unordered_map<const hir::Statement *, std::vector<std::pair<uint32_t, uint32_t>>> returnDrops;
     /// Drop calls to emit at function fall-through, keyed by function id.

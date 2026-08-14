@@ -87,6 +87,7 @@ namespace NG::vnext::vm
         const uint32_t index = instruction.operands[2];
         if (index >= tuple.size())
           throw bytecode::BytecodeError(std::format("tuple index out of bounds: index {}, length {}", index, tuple.size()));
+        if (values.size() <= instruction.operands[0]) values.resize(instruction.operands[0] + 1);
         values[instruction.operands[0]] = tuple[index].deepCopy();
         break;
       }
@@ -217,6 +218,7 @@ namespace NG::vnext::vm
       const auto &preparedFunction = prepared.at(frame.functionIndex);
       const auto &function = *preparedFunction.function;
       const auto &instruction = preparedFunction.instructions.at(frame.programCounter++);
+
       ++executed;
       const auto blockInstruction = [&preparedFunction, &function](uint32_t block) { return preparedFunction.offsets.at(function.blockOffsets.at(block)); };
       const auto bindBlockArguments = [&frame, &function](uint32_t target, const std::vector<uint32_t> &operands, size_t first) {
@@ -244,6 +246,7 @@ namespace NG::vnext::vm
         const uint32_t index = instruction.operands[2];
         if (index >= tuple.size())
           throw bytecode::BytecodeError(std::format("tuple index out of bounds: index {}, length {}", index, tuple.size()));
+        if (frame.values.size() <= instruction.operands[0]) frame.values.resize(instruction.operands[0] + 1);
         frame.values[instruction.operands[0]] = tuple[index].deepCopy();
         continue;
       }

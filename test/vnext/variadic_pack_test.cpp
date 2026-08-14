@@ -104,6 +104,32 @@ TEST_CASE("vNext variadic functions instantiate per concrete pack", "[vNext][Pac
               "9");
 }
 
+TEST_CASE("vNext call-site tuple spreads flatten into argument lists", "[vNext][Pack][Runtime]")
+{
+  expectValue("fun pick_two(a: i64, b: i64) -> i64 { return a + b; } "
+              "fun main() -> i64 { let p: tuple<i64, i64> = (3, 4); return pick_two(...p); }",
+              "7");
+
+  expectValue("fun pick_middle(left: i64, value: string, ok: bool) -> string { return value; } "
+              "fun main() -> i64 { let r = pick_middle(...(7, \"spread\", true)); "
+              "if (r == \"spread\") { return 7; } return 0; }",
+              "7");
+}
+
+TEST_CASE("vNext call-site spreads reject non-tuple values", "[vNext][Pack][Errors]")
+{
+  try
+  {
+    check("fun pick_two(a: i64, b: i64) -> i64 { return a + b; } "
+          "fun main() { let value = 3; return pick_two(...value); }");
+    FAIL("expected a non-tuple spread error");
+  }
+  catch (const typecheck::TypeError &error)
+  {
+    REQUIRE(std::string{error.what()} == "cannot spread value of type i64");
+  }
+}
+
 TEST_CASE("vNext variadic call arity is checked against fixed parameters", "[vNext][Pack][Errors]")
 {
   try
@@ -125,5 +151,5 @@ TEST_CASE("vNext variadic packs example file runs end to end through ngi", "[vNe
   REQUIRE(runExample("example/vnext/variadic_packs.ng", output, errors) == 0);
   INFO("errors: " << errors);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("with value 15") != std::string::npos);
+  REQUIRE(output.find("with value 63") != std::string::npos);
 }
