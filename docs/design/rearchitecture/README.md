@@ -42,7 +42,7 @@ This plan uses a **replacement-first rewrite**, not an additive shim strategy. E
 | R2 | Source model, lexer, parser, and syntax AST | In progress — vNext expressions, blocks, module items, and immutable syntax nodes | R1 | Immutable syntax tree with spans and recovery |
 | R3 | CompilationSession and module graph | In progress — vNext module name-resolution seed | R1 | Session-scoped resolver/artifact cache |
 | R4 | Symbols, types, resolved HIR, and typed HIR | In progress — name-only HIR lowering with `DefId` / `LocalId` | R2, R3 | Canonical IDs and no semantic AST mutation |
-| R5 | Const evaluator, ownership analysis, and FlowIR | In progress — scalar FlowIR CFG and verifier; const design now established, evaluator/ownership remain pending | R4 | Typed compile-time evaluation and CFG dataflow |
+| R5 | Const evaluator, ownership analysis, and FlowIR | In progress — scalar FlowIR CFG and verifier; const expression parser, checked `ConstEvaluator`/`ConstInterner`, and const generic parameter declarations implemented; ownership analysis and const-generic call instantiation remain pending | R4 | Typed compile-time evaluation and CFG dataflow |
 | R6 | RuntimeSession and module instances | Not started | R3, R5 | One runtime value model and lifecycle service |
 | R7 | Bytecode v3 compiler, VM, and artifact format | In progress — scalar/module compiler, verifier, VM, and versioned artifact; runtime/module interface work remains pending | R5, R6 | Verified bytecode consuming FlowIR |
 | R8 | Reference interpreter convergence and legacy removal | Not started | R5, R6, R7 | Typed-HIR reference evaluator; old AST interpreter removed |

@@ -247,17 +247,21 @@ namespace NG::vnext::bytecode
     {
       const auto &descriptor = function.typeDescriptors[index];
       if (descriptor.kind != typecheck::TypeKind::Builtin && descriptor.kind != typecheck::TypeKind::DynamicArray &&
-          descriptor.kind != typecheck::TypeKind::FixedArray && descriptor.kind != typecheck::TypeKind::Tuple &&
+          descriptor.kind != typecheck::TypeKind::FixedArray && descriptor.kind != typecheck::TypeKind::DependentArray &&
+          descriptor.kind != typecheck::TypeKind::Tuple &&
           descriptor.kind != typecheck::TypeKind::Struct && descriptor.kind != typecheck::TypeKind::Enum &&
           descriptor.kind != typecheck::TypeKind::TypeParameter)
         throw BytecodeError("bytecode type descriptor kind is invalid");
-      if (descriptor.kind == typecheck::TypeKind::DynamicArray || descriptor.kind == typecheck::TypeKind::FixedArray)
+      if (descriptor.kind == typecheck::TypeKind::DynamicArray || descriptor.kind == typecheck::TypeKind::FixedArray ||
+          descriptor.kind == typecheck::TypeKind::DependentArray)
       {
         verifyTypeId(descriptor.element);
         if (descriptor.kind == typecheck::TypeKind::DynamicArray && descriptor.length.has_value())
           throw BytecodeError("bytecode dynamic array descriptor has a fixed length");
         if (descriptor.kind == typecheck::TypeKind::FixedArray && !descriptor.length.has_value())
           throw BytecodeError("bytecode fixed array descriptor has no length");
+        if (descriptor.kind == typecheck::TypeKind::DependentArray && descriptor.length.has_value())
+          throw BytecodeError("bytecode dependent array descriptor has a fixed length");
       }
       if (descriptor.kind == typecheck::TypeKind::Tuple || descriptor.kind == typecheck::TypeKind::Struct ||
           descriptor.kind == typecheck::TypeKind::Enum)

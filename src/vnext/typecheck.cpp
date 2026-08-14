@@ -51,21 +51,31 @@ namespace NG::vnext::typecheck
         {
           FunctionTypeIds signature;
           std::unordered_map<std::string, TypeId> genericBindings;
+          TypeInterner::ConstParamBindings constBindings;
           for (size_t index = 0; index < function.genericParameters.size(); ++index)
           {
             const auto parameter = interner_.internTypeParameter(function.genericParameters[index], static_cast<uint32_t>(index));
             signature.genericParameters.push_back(parameter);
             genericBindings.emplace(function.genericParameters[index], parameter);
           }
+          for (size_t index = 0; index < function.constParameters.size(); ++index)
+          {
+            const auto &parameter = function.constParameters[index];
+            const TypeId type = interner_.resolve(parameter.type);
+            if (type != builtin::I64)
+              throw TypeError(std::format("const generic parameter `{}` must be i64, got {}", parameter.name,
+                                          interner_.display(type)), parameter.span);
+            constBindings.emplace(parameter.name, static_cast<uint32_t>(index));
+          }
           FunctionType displaySignature;
           for (const auto &parameter : function.parameters)
           {
-            const TypeId type = interner_.resolveInScope(parameter.type, genericBindings);
+            const TypeId type = interner_.resolveInScope(parameter.type, genericBindings, constBindings);
             signature.parameters.push_back(type);
             displaySignature.parameters.push_back(interner_.display(type));
           }
           signature.returnType = function.returnType != nullptr
-                                   ? interner_.resolveInScope(*function.returnType, genericBindings)
+                                   ? interner_.resolveInScope(*function.returnType, genericBindings, constBindings)
                                    : builtin::Unit;
           displaySignature.returnType = interner_.display(signature.returnType);
           signatures_.emplace(function.id.value, signature);
@@ -543,7 +553,9 @@ namespace NG::vnext::typecheck
         int score = descriptor.kind == TypeKind::Builtin ? 1 : 0;
         for (const auto element : descriptor.elements) score += specificity(element);
         for (const auto argument : descriptor.typeArguments) score += specificity(argument);
-        if (descriptor.kind == TypeKind::DynamicArray || descriptor.kind == TypeKind::FixedArray) score += specificity(descriptor.element);
+        if (descriptor.kind == TypeKind::DynamicArray || descriptor.kind == TypeKind::FixedArray ||
+            descriptor.kind == TypeKind::DependentArray)
+          score += specificity(descriptor.element);
         return score;
       }
       auto unify(TypeId expected, TypeId actual, std::unordered_map<uint32_t, TypeId> &substitution,

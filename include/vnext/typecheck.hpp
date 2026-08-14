@@ -41,6 +41,7 @@ namespace NG::vnext::typecheck
     Builtin,
     DynamicArray,
     FixedArray,
+    DependentArray,
     Tuple,
     Struct,
     Enum,
@@ -58,19 +59,27 @@ namespace NG::vnext::typecheck
     std::vector<std::string> fieldNames;
     std::vector<bool> variantHasPayload;
     std::vector<TypeId> typeArguments;
+    std::optional<uint32_t> constParameterIndex{};
+    std::string constParameterName;
     auto operator==(const TypeDescriptor &) const -> bool = default;
   };
 
   class TypeInterner final
   {
   public:
+    /// Maps const-parameter names to their declaration index inside the
+    /// current generic function signature.
+    using ConstParamBindings = std::unordered_map<std::string, uint32_t>;
+
     TypeInterner();
 
     [[nodiscard]] auto specialize(TypeId type, const std::unordered_map<uint32_t, TypeId> &bindings) -> TypeId;
-    [[nodiscard]] auto resolveInScope(const hir::Type &type, const std::unordered_map<std::string, TypeId> &bindings) -> TypeId;
+    [[nodiscard]] auto resolveInScope(const hir::Type &type, const std::unordered_map<std::string, TypeId> &bindings,
+                                      const ConstParamBindings &constBindings = {}) -> TypeId;
     [[nodiscard]] auto resolve(const hir::Type &type) -> TypeId;
     [[nodiscard]] auto internDynamicArray(TypeId element) -> TypeId;
     [[nodiscard]] auto internFixedArray(TypeId element, uint64_t length) -> TypeId;
+    [[nodiscard]] auto internDependentArray(TypeId element, uint32_t constParameterIndex, std::string name) -> TypeId;
     [[nodiscard]] auto internTuple(const std::vector<TypeId> &elements) -> TypeId;
     [[nodiscard]] auto internTypeParameter(std::string name, uint32_t index) -> TypeId;
     [[nodiscard]] auto declareStruct(hir::StructId id, std::string name) -> TypeId;
@@ -88,7 +97,8 @@ namespace NG::vnext::typecheck
 
   private:
     [[nodiscard]] auto append(TypeDescriptor descriptor) -> TypeId;
-    [[nodiscard]] auto resolveWithBindings(const hir::Type &type, const std::unordered_map<std::string, TypeId> &bindings) -> TypeId;
+    [[nodiscard]] auto resolveWithBindings(const hir::Type &type, const std::unordered_map<std::string, TypeId> &bindings,
+                                           const ConstParamBindings &constBindings) -> TypeId;
     [[nodiscard]] auto evaluateArrayLength(const hir::TypeArgument &argument) -> uint64_t;
     std::vector<TypeDescriptor> descriptors_;
     std::unordered_map<std::string, TypeId> namedTypes_;

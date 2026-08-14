@@ -50,10 +50,13 @@ namespace NG::vnext::syntax
     if (current().kind != TokenKind::Less) return type;
 
     static_cast<void>(consume());
+    const bool arrayConstructor = type->kind == TypeSyntaxKind::Named &&
+                                  static_cast<const NamedTypeSyntax *>(type.get())->name == "array";
     std::vector<GenericArgumentSyntax> arguments;
     while (true)
     {
-      if (isConstArgumentStart())
+      const bool arrayLengthPosition = arrayConstructor && arguments.size() == 1;
+      if (isConstArgumentStart() || arrayLengthPosition)
       {
         ConstExprParser parser{tokens_, cursor_};
         ConstExprPtr expression = parser.parse();

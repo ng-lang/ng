@@ -116,16 +116,37 @@ namespace NG::vnext::syntax
       throw ParseError("expected a function name after `fun`", current().span);
     }
     const Token name = consume();
-    std::vector<std::string> genericParameters;
+    std::vector<GenericParameter> genericParameters;
     if (current().kind == TokenKind::Less)
     {
       static_cast<void>(consume());
       while (current().kind != TokenKind::Greater)
       {
-        if (current().kind != TokenKind::Identifier) throw ParseError("expected a function generic parameter", current().span);
-        genericParameters.push_back(consume().text);
+        if (current().kind == TokenKind::KeywordConst)
+        {
+          const Token constToken = consume();
+          if (current().kind != TokenKind::Identifier) throw ParseError("expected a const parameter name after `const`", current().span);
+          const Token parameter = consume();
+          expect(TokenKind::Colon, "expected `:` after const parameter name");
+          auto type = parseTypeUntil({TokenKind::Comma, TokenKind::Greater});
+          const SourceSpan parameterSpan{constToken.span.begin, type->span.end};
+          genericParameters.push_back(GenericParameter{.kind = GenericParameterKind::Const,
+                                                       .name = parameter.text,
+                                                       .type = std::move(type),
+                                                       .span = parameterSpan});
+        }
+        else
+        {
+          if (current().kind != TokenKind::Identifier) throw ParseError("expected a function generic parameter", current().span);
+          const Token parameter = consume();
+          genericParameters.push_back(GenericParameter{.kind = GenericParameterKind::Type,
+                                                       .name = parameter.text,
+                                                       .type = nullptr,
+                                                       .span = parameter.span});
+        }
         if (current().kind != TokenKind::Comma) break;
         static_cast<void>(consume());
+        if (current().kind == TokenKind::Greater) throw ParseError("expected a generic parameter after `,`", current().span);
       }
       expect(TokenKind::Greater, "expected `>` after function generic parameters");
     }

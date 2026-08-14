@@ -467,6 +467,20 @@ namespace NG::vnext::syntax
     }
   };
 
+  enum class GenericParameterKind
+  {
+    Type,
+    Const,
+  };
+
+  struct GenericParameter
+  {
+    GenericParameterKind kind;
+    std::string name;
+    TypeSyntaxPtr type;
+    SourceSpan span;
+  };
+
   struct StructFieldDeclaration final
   {
     const std::string name;
@@ -537,16 +551,16 @@ namespace NG::vnext::syntax
   struct FunctionDeclaration final : ModuleItem
   {
     const std::string name;
-    std::vector<std::string> genericParameters;
+    std::vector<GenericParameter> genericParameters;
     std::vector<FunctionParameter> parameters;
     TypeSyntaxPtr returnType;
     Block body;
 
-    FunctionDeclaration(std::string functionName, std::vector<std::string> genericParameterNames,
+    FunctionDeclaration(std::string functionName, std::vector<GenericParameter> genericParameterList,
                         std::vector<FunctionParameter> functionParameters,
                         TypeSyntaxPtr functionReturnType, Block functionBody, SourceSpan sourceSpan)
       : ModuleItem(ModuleItemKind::Function, sourceSpan), name(std::move(functionName)),
-        genericParameters(std::move(genericParameterNames)), parameters(std::move(functionParameters)), returnType(std::move(functionReturnType)), body(std::move(functionBody))
+        genericParameters(std::move(genericParameterList)), parameters(std::move(functionParameters)), returnType(std::move(functionReturnType)), body(std::move(functionBody))
     {
     }
   };

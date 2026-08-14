@@ -159,8 +159,21 @@ namespace NG::vnext::hir
     nextLocal_ = 0;
     nextLoop_ = 0;
 
-    Function resolved{.id = id, .name = function.name, .span = function.span,
-                      .genericParameters = function.genericParameters};
+    Function resolved{.id = id, .name = function.name, .span = function.span};
+    for (const auto &parameter : function.genericParameters)
+    {
+      if (parameter.kind == syntax::GenericParameterKind::Const)
+      {
+        resolved.constParameters.push_back(ConstParameter{.name = parameter.name,
+                                                          .typeName = renderTypeName(*parameter.type),
+                                                          .type = lowerType(*parameter.type),
+                                                          .span = parameter.span});
+      }
+      else
+      {
+        resolved.genericParameters.push_back(parameter.name);
+      }
+    }
     resolved.parameters.reserve(function.parameters.size());
     for (const auto &parameter : function.parameters)
     {

@@ -26,7 +26,35 @@ TEST_CASE("vNext module parser accepts generic function declarations", "[vNext][
   const auto source = syntax::parseSourceUnit("fun identity<T>(value: T) -> T { return value; }");
   const auto *function = dynamic_cast<const syntax::FunctionDeclaration *>(source.items.front().get());
   REQUIRE(function != nullptr);
-  REQUIRE(function->genericParameters == std::vector<std::string>{"T"});
+  REQUIRE(function->genericParameters.size() == 1);
+  REQUIRE(function->genericParameters[0].kind == syntax::GenericParameterKind::Type);
+  REQUIRE(function->genericParameters[0].name == "T");
+}
+
+TEST_CASE("vNext module parser accepts const generic parameter declarations", "[vNext][Syntax][Module]")
+{
+  const auto source = syntax::parseSourceUnit("fun repeat<const N: i64>(value: i64) -> array<i64, N> { }");
+  const auto *function = dynamic_cast<const syntax::FunctionDeclaration *>(source.items.front().get());
+  REQUIRE(function != nullptr);
+  REQUIRE(function->genericParameters.size() == 1);
+  REQUIRE(function->genericParameters[0].kind == syntax::GenericParameterKind::Const);
+  REQUIRE(function->genericParameters[0].name == "N");
+  REQUIRE(function->genericParameters[0].type != nullptr);
+  const auto *lengthType = dynamic_cast<const syntax::NamedTypeSyntax *>(function->genericParameters[0].type.get());
+  REQUIRE(lengthType != nullptr);
+  REQUIRE(lengthType->name == "i64");
+}
+
+TEST_CASE("vNext module parser accepts mixed type and const generic parameters", "[vNext][Syntax][Module]")
+{
+  const auto source = syntax::parseSourceUnit("fun mix<T, const N: i64>(value: T) -> array<T, N> { }");
+  const auto *function = dynamic_cast<const syntax::FunctionDeclaration *>(source.items.front().get());
+  REQUIRE(function != nullptr);
+  REQUIRE(function->genericParameters.size() == 2);
+  REQUIRE(function->genericParameters[0].kind == syntax::GenericParameterKind::Type);
+  REQUIRE(function->genericParameters[0].name == "T");
+  REQUIRE(function->genericParameters[1].kind == syntax::GenericParameterKind::Const);
+  REQUIRE(function->genericParameters[1].name == "N");
 }
 
 TEST_CASE("vNext module parser accepts generic enum declarations", "[vNext][Syntax][Module]")

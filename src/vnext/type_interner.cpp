@@ -42,6 +42,17 @@ namespace NG::vnext::typecheck
     return append(TypeDescriptor{.kind = TypeKind::FixedArray, .name = "array", .element = element, .length = length});
   }
 
+  auto TypeInterner::internDependentArray(TypeId element, uint32_t constParameterIndex, std::string name) -> TypeId
+  {
+    for (uint32_t index = 6; index < descriptors_.size(); ++index)
+      if (descriptors_[index].kind == TypeKind::DependentArray && descriptors_[index].element == element &&
+          descriptors_[index].constParameterIndex == constParameterIndex)
+        return TypeId{index};
+    return append(TypeDescriptor{.kind = TypeKind::DependentArray, .name = "array", .element = element,
+                                 .length = std::nullopt, .constParameterIndex = constParameterIndex,
+                                 .constParameterName = std::move(name)});
+  }
+
   auto TypeInterner::internTuple(const std::vector<TypeId> &elements) -> TypeId
   {
     for (uint32_t index = 6; index < descriptors_.size(); ++index)
@@ -146,12 +157,14 @@ namespace NG::vnext::typecheck
     return type;
   }
 
-  auto TypeInterner::resolveInScope(const hir::Type &type, const std::unordered_map<std::string, TypeId> &bindings) -> TypeId
+  auto TypeInterner::resolveInScope(const hir::Type &type, const std::unordered_map<std::string, TypeId> &bindings,
+                                    const ConstParamBindings &constBindings) -> TypeId
   {
-    return resolveWithBindings(type, bindings);
+    return resolveWithBindings(type, bindings, constBindings);
   }
 
-  auto TypeInterner::resolveWithBindings(const hir::Type &type, const std::unordered_map<std::string, TypeId> &bindings) -> TypeId
+  auto TypeInterner::resolveWithBindings(const hir::Type &type, const std::unordered_map<std::string, TypeId> &bindings,
+                                         const ConstParamBindings &constBindings) -> TypeId
   {
     if (type.kind == hir::TypeKind::Named)
     {
@@ -164,14 +177,19 @@ namespace NG::vnext::typecheck
     {
       if (type.arguments.size() != 1 && type.arguments.size() != 2)
         throw TypeError(std::format("array type expects 1 or 2 arguments, got {}", type.arguments.size()), type.span);
-      const TypeId element = resolveWithBindings(*type.arguments[0].type, bindings);
-      return type.arguments.size() == 1 ? internDynamicArray(element)
-                                        : internFixedArray(element, evaluateArrayLength(type.arguments[1]));
+      const TypeId element = resolveWithBindings(*type.arguments[0].type, bindings, constBindings);
+      if (type.arguments.size() == 1) return internDynamicArray(element);
+      if (const auto *identifier = dynamic_cast<const syntax::ConstIdentifier *>(type.arguments[1].constExpr.get()))
+      {
+        if (const auto found = constBindings.find(identifier->name); found != constBindings.end())
+          return internDependentArray(element, found->second, identifier->name);
+      }
+      return internFixedArray(element, evaluateArrayLength(type.arguments[1]));
     }
     if (type.target->name == "tuple")
     {
       std::vector<TypeId> elements;
-      for (const auto &argument : type.arguments) elements.push_back(resolveWithBindings(*argument.type, bindings));
+      for (const auto &argument : type.arguments) elements.push_back(resolveWithBindings(*argument.type, bindings, constBindings));
       return internTuple(elements);
     }
     const auto constructor = namedTypes_.find(type.target->name);
@@ -184,7 +202,7 @@ namespace NG::vnext::typecheck
     std::vector<TypeId> arguments;
     for (size_t index = 0; index < parameters.size(); ++index)
     {
-      const TypeId argument = resolveWithBindings(*type.arguments[index].type, bindings);
+      const TypeId argument = resolveWithBindings(*type.arguments[index].type, bindings, constBindings);
       nested.emplace(parameters[index], argument);
       arguments.push_back(argument);
     }
@@ -199,7 +217,7 @@ namespace NG::vnext::typecheck
     {
       names.push_back(variant.name);
       hasPayload.push_back(variant.payloadType != nullptr);
-      payloads.push_back(variant.payloadType != nullptr ? resolveWithBindings(*variant.payloadType, nested) : builtin::Unit);
+      payloads.push_back(variant.payloadType != nullptr ? resolveWithBindings(*variant.payloadType, nested, constBindings) : builtin::Unit);
     }
     return append(TypeDescriptor{.kind = TypeKind::Enum, .name = type.target->name, .element = TypeId{},
                                  .length = payloads.size(), .elements = std::move(payloads), .nominalId = enumId,
@@ -254,7 +272,7 @@ namespace NG::vnext::typecheck
       for (const auto &variant : enumeration->variants)
       {
         hasPayload.push_back(variant.payloadType != nullptr);
-        payloads.push_back(variant.payloadType != nullptr ? resolveWithBindings(*variant.payloadType, bindings) : builtin::Unit);
+        payloads.push_back(variant.payloadType != nullptr ? resolveWithBindings(*variant.payloadType, bindings, {}) : builtin::Unit);
       }
       for (uint32_t index = 6; index < descriptors_.size(); ++index)
         if (descriptors_[index].kind == TypeKind::Enum && descriptors_[index].nominalId == enumId && descriptors_[index].typeArguments.size() == bindings.size())
@@ -316,6 +334,8 @@ namespace NG::vnext::typecheck
     if (item.kind == TypeKind::Builtin) return item.name;
     if (item.kind == TypeKind::DynamicArray) return std::format("array<{}>", display(item.element));
     if (item.kind == TypeKind::FixedArray) return std::format("array<{}, {}>", display(item.element), *item.length);
+    if (item.kind == TypeKind::DependentArray)
+      return std::format("array<{}, {}>", display(item.element), item.constParameterName);
     if (item.kind == TypeKind::Struct || item.kind == TypeKind::Enum || item.kind == TypeKind::TypeParameter) return item.name;
     std::string result{"tuple<"};
     for (size_t index = 0; index < item.elements.size(); ++index)

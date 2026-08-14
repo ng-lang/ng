@@ -189,12 +189,21 @@ namespace NG::vnext::hir
     syntax::SourceSpan span;
   };
 
+  struct ConstParameter
+  {
+    std::string name;
+    std::string typeName;
+    Type type;
+    syntax::SourceSpan span;
+  };
+
   struct Function
   {
     DefId id;
     std::string name;
     syntax::SourceSpan span;
     std::vector<std::string> genericParameters;
+    std::vector<ConstParameter> constParameters;
     std::vector<Parameter> parameters;
     std::optional<std::string> returnTypeName;
     std::unique_ptr<Type> returnType;
