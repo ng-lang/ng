@@ -1,0 +1,11 @@
+// vNext std.string: string utilities supplied by the embedding.
+
+export native fun split(text: string, delimiter: string) -> array<string>;
+export native fun join(items: array<string>, separator: string) -> string;
+export native fun trim(text: string) -> string;
+export native fun contains(haystack: string, needle: string) -> bool;
+export native fun replace(text: string, old: string, replacement: string) -> string;
+export native fun startsWith(text: string, prefix: string) -> bool;
+export native fun endsWith(text: string, suffix: string) -> bool;
+export native fun toUpper(text: string) -> string;
+export native fun toLower(text: string) -> string;

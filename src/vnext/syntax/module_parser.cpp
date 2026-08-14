@@ -28,18 +28,19 @@ namespace NG::vnext::syntax
       }
       else if (current().kind == TokenKind::KeywordNative && peek(1).kind == TokenKind::KeywordFun)
       {
-        static_cast<void>(consume());
         items.push_back(parseFunctionDeclaration(false, false, true));
       }
       else if (current().kind == TokenKind::KeywordExport)
       {
         static_cast<void>(consume());
-        if (current().kind == TokenKind::KeywordFun) items.push_back(parseFunctionDeclaration(false, true));
+        if (current().kind == TokenKind::KeywordImport) items.push_back(parseImportDeclaration());
+        else if (current().kind == TokenKind::KeywordFun) items.push_back(parseFunctionDeclaration(false, true));
         else if (current().kind == TokenKind::KeywordStruct) items.push_back(parseStructDeclaration());
         else if (current().kind == TokenKind::KeywordEnum) items.push_back(parseEnumDeclaration());
         else if (current().kind == TokenKind::KeywordTrait) items.push_back(parseTraitDeclaration());
         else if (current().kind == TokenKind::KeywordImpl) items.push_back(parseImplDeclaration());
         else if (current().kind == TokenKind::KeywordConst) items.push_back(parseConstDeclaration());
+        else if (current().kind == TokenKind::KeywordNative) items.push_back(parseFunctionDeclaration(false, true, true));
         else throw ParseError("expected a declaration after `export`", current().span);
       }
       else if (current().kind == TokenKind::KeywordFun)
@@ -272,7 +273,7 @@ namespace NG::vnext::syntax
   auto ModuleParser::parseFunctionDeclaration(bool constFunction, bool exported, bool nativeFunction) -> ModuleItemPtr
   {
     const Token funToken = consume();
-    if (constFunction)
+    if (constFunction || nativeFunction)
     {
       expect(TokenKind::KeywordFun, "expected `fun` after `const`");
     }

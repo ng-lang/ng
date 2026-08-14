@@ -11,9 +11,12 @@
 #include "vnext/syntax/parser.hpp"
 #include <algorithm>
 #include <charconv>
+#include <cctype>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <ostream>
+#include <sstream>
 #include <string>
 
 namespace NG::vnext
@@ -125,6 +128,108 @@ namespace NG::vnext
             else throw bytecode::BytecodeError("print does not support this value type");
             output << '\n';
             return Value{};
+          });
+          const auto expectStrings = [](const std::vector<Value> &arguments, size_t count) {
+            std::vector<std::string> result;
+            if (arguments.size() != count) throw bytecode::BytecodeError("native argument count mismatch");
+            for (const auto &argument : arguments)
+            {
+              if (!argument.isString()) throw bytecode::BytecodeError("native argument is not a string");
+              result.push_back(argument.asString());
+            }
+            return result;
+          };
+          natives.registerNative("readLine", [](const std::vector<Value> &, const std::vector<typecheck::TypeId> &) {
+            std::string line;
+            std::getline(std::cin, line);
+            return Value::string(std::move(line));
+          });
+          natives.registerNative("readFile", [&expectStrings](const std::vector<Value> &arguments, const std::vector<typecheck::TypeId> &) {
+            const auto strings = expectStrings(arguments, 1);
+            std::ifstream input{strings.front()};
+            if (!input) throw bytecode::BytecodeError(std::format("cannot read file `{}`", strings.front()));
+            std::ostringstream buffer;
+            buffer << input.rdbuf();
+            return Value::string(buffer.str());
+          });
+          natives.registerNative("writeFile", [&expectStrings](const std::vector<Value> &arguments, const std::vector<typecheck::TypeId> &) {
+            const auto strings = expectStrings(arguments, 2);
+            std::ofstream output{strings.front()};
+            if (!output) throw bytecode::BytecodeError(std::format("cannot write file `{}`", strings.front()));
+            output << strings[1];
+            return Value{};
+          });
+          natives.registerNative("trim", [&expectStrings](const std::vector<Value> &arguments, const std::vector<typecheck::TypeId> &) {
+            const auto strings = expectStrings(arguments, 1);
+            const auto first = strings.front().find_first_not_of(" \t\n\r");
+            const auto last = strings.front().find_last_not_of(" \t\n\r");
+            if (first == std::string::npos) return Value::string("");
+            return Value::string(strings.front().substr(first, last - first + 1));
+          });
+          natives.registerNative("split", [&expectStrings](const std::vector<Value> &arguments, const std::vector<typecheck::TypeId> &) {
+            const auto strings = expectStrings(arguments, 2);
+            std::vector<Value> parts;
+            size_t start = 0;
+            while (start <= strings[0].size())
+            {
+              const auto found = strings[0].find(strings[1], start);
+              if (found == std::string::npos)
+              {
+                parts.push_back(Value::string(strings[0].substr(start)));
+                break;
+              }
+              parts.push_back(Value::string(strings[0].substr(start, found - start)));
+              start = found + strings[1].size();
+            }
+            return Value::array(std::move(parts));
+          });
+          natives.registerNative("join", [](const std::vector<Value> &arguments, const std::vector<typecheck::TypeId> &) {
+            if (arguments.size() != 2 || !arguments[0].isArray() || !arguments[1].isString())
+              throw bytecode::BytecodeError("join expects an array of strings and a separator");
+            std::string joined;
+            const auto &items = arguments[0].asArray();
+            for (size_t index = 0; index < items.size(); ++index)
+            {
+              if (!items[index].isString()) throw bytecode::BytecodeError("join expects an array of strings");
+              if (index != 0) joined += arguments[1].asString();
+              joined += items[index].asString();
+            }
+            return Value::string(std::move(joined));
+          });
+          natives.registerNative("contains", [&expectStrings](const std::vector<Value> &arguments, const std::vector<typecheck::TypeId> &) {
+            const auto strings = expectStrings(arguments, 2);
+            return Value::integer(strings[0].find(strings[1]) != std::string::npos);
+          });
+          natives.registerNative("replace", [&expectStrings](const std::vector<Value> &arguments, const std::vector<typecheck::TypeId> &) {
+            const auto strings = expectStrings(arguments, 3);
+            std::string result = strings[0];
+            size_t position = 0;
+            while ((position = result.find(strings[1], position)) != std::string::npos)
+            {
+              result.replace(position, strings[1].size(), strings[2]);
+              position += strings[2].size();
+            }
+            return Value::string(std::move(result));
+          });
+          natives.registerNative("startsWith", [&expectStrings](const std::vector<Value> &arguments, const std::vector<typecheck::TypeId> &) {
+            const auto strings = expectStrings(arguments, 2);
+            return Value::integer(strings[0].starts_with(strings[1]));
+          });
+          natives.registerNative("endsWith", [&expectStrings](const std::vector<Value> &arguments, const std::vector<typecheck::TypeId> &) {
+            const auto strings = expectStrings(arguments, 2);
+            return Value::integer(strings[0].ends_with(strings[1]));
+          });
+          natives.registerNative("toUpper", [&expectStrings](const std::vector<Value> &arguments, const std::vector<typecheck::TypeId> &) {
+            const auto strings = expectStrings(arguments, 1);
+            std::string result = strings[0];
+            for (auto &character : result) character = static_cast<char>(std::toupper(static_cast<unsigned char>(character)));
+            return Value::string(std::move(result));
+          });
+          natives.registerNative("toLower", [&expectStrings](const std::vector<Value> &arguments, const std::vector<typecheck::TypeId> &) {
+            const auto strings = expectStrings(arguments, 1);
+            std::string result = strings[0];
+            for (auto &character : result) character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
+            return Value::string(std::move(result));
           });
           natives.registerNative("assert", [](const std::vector<Value> &arguments, const std::vector<typecheck::TypeId> &) {
             if (arguments.size() != 1) throw bytecode::BytecodeError("assert expects one argument");

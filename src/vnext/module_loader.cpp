@@ -34,7 +34,9 @@ namespace NG::vnext::modules
       if (dynamic_cast<const syntax::ImportDeclaration *>(item.get()) != nullptr)
       {
         const auto *import = static_cast<const syntax::ImportDeclaration *>(item.get());
-        loadModule(canonical.parent_path() / (import->name + ".ng"), merged);
+        const auto direct = canonical.parent_path() / (import->name + ".ng");
+        if (std::filesystem::exists(direct)) loadModule(direct, merged);
+        else loadModule(std::filesystem::current_path() / "lib" / "vnext_std" / (import->name + ".ng"), merged);
         continue;
       }
       merged.push_back(std::move(item));
@@ -60,7 +62,9 @@ namespace NG::vnext::modules
       if (dynamic_cast<const syntax::ImportDeclaration *>(item.get()) != nullptr)
       {
         const auto *import = static_cast<const syntax::ImportDeclaration *>(item.get());
-        loadModule(baseDirectory / (import->name + ".ng"), merged);
+        const auto direct = baseDirectory / (import->name + ".ng");
+        if (std::filesystem::exists(direct)) loadModule(direct, merged);
+        else loadModule(std::filesystem::current_path() / "lib" / "vnext_std" / (import->name + ".ng"), merged);
         continue;
       }
       merged.push_back(std::move(item));

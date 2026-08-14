@@ -1,0 +1,5 @@
+// vNext std.io: runtime I/O intrinsics supplied by the embedding.
+
+export native fun readLine() -> string;
+export native fun readFile(path: string) -> string;
+export native fun writeFile(path: string, content: string) -> unit;

@@ -1,0 +1,16 @@
+// vNext std.prelude: printing, assertions, and basic predicates.
+
+import io;
+import string;
+
+export native fun print(value: i64) -> unit;
+export native fun print(value: string) -> unit;
+export native fun print(value: bool) -> unit;
+export native fun assert(condition: bool) -> unit;
+
+export fun not(value: bool) -> bool {
+    return !value;
+}
+
+export const is_ref<T>: bool = false;
+export const<T> is_ref<ref<T>>: bool = true;
