@@ -102,6 +102,7 @@ TEST_CASE("vNext VM executes instantiated generic function calls", "[vNext][VM]"
   const auto typed = typecheck::TypeChecker{}.check(hirModule);
   std::vector<flowir::Function> flows;
   for (const auto &function : hirModule.functions) flows.push_back(flowir::Lowerer{}.lower(function, typed));
+  for (const auto &instance : typed.instances) flows.push_back(flowir::Lowerer{}.lower(instance, typed));
   const auto module = bytecode::ModuleCompiler{}.compile(flows);
   REQUIRE(vm::VM{}.run(module, hir::DefId{1}).returnValue == 42);
 }

@@ -51,6 +51,20 @@ fun describe<T>(value: T ref) -> i64 where T: Display {
     return 32;
 }
 
+trait Show {
+    fun show(self: Self ref) -> i64;
+}
+
+impl Show for Counter {
+    fun show(self: Self ref) -> i64 {
+        return (*self).value;
+    }
+}
+
+fun render<T: Show>(value: T ref) -> i64 {
+    return value.show();
+}
+
 fun main() -> i64 {
     let one = Counter { value: 1 };
     let mut two = Counter { value: 2 };
@@ -64,5 +78,6 @@ fun main() -> i64 {
     let fallback = Display.text(two);
     if (fallback == "many") { total := total + 16; }
     total := total + describe(ref one);
+    total := total + render(ref two);
     return total;
 }

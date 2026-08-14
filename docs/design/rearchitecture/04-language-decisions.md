@@ -579,8 +579,12 @@ second user-visible ownership domain.
   receivers with implicit `ref`/`ref mut` receiver borrowing, qualified
   calls (`Trait.method(receiver)`), and `T: Trait` bounds in generic
   parameters and where clauses (impl evidence per instance). Method calls
-  through abstract type parameters are a span-carrying boundary error until
-  monomorphization lands.
+  through bounded type parameters now monomorphize: concrete call
+  substitutions clone the generic function (renumbered locals), re-check the
+  body under concrete bindings, and dispatch to the selected impl method;
+  bodies with deferred abstract calls are inert in the type-erased original.
+  Calls with non-concrete substitutions from other generic bodies remain a
+  span-carrying boundary error (`no trait bound provides method ...`).
 - Stage 2 (dynamic, requires D-015 reference checking): `ref<Trait>` coercion
   and immutable dispatch descriptors.
 - Stage 3: coherence/orphan policy confirmation (legacy #35's "any impl,

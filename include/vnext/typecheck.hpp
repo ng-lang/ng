@@ -7,6 +7,7 @@
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace NG::vnext::typecheck
@@ -156,6 +157,12 @@ namespace NG::vnext::typecheck
     /// Per-`const if` branch selection: true means the consequence was chosen.
     /// The inactive branch is resolved but never typechecked or lowered.
     std::unordered_map<const hir::Statement *, bool> constIfSelections;
+    /// Monomorphized generic function instances (D-002 instance model): the
+    /// driver lowers these alongside the module's declared functions.
+    std::vector<hir::Function> instances;
+    /// Declared functions containing deferred (abstract) method calls; their
+    /// bodies cannot be lowered type-erased and are skipped by the driver.
+    std::unordered_set<uint32_t> deferredMethodFunctions;
     std::vector<TypeDescriptor> typeDescriptors;
 
     [[nodiscard]] auto typeOf(const hir::Expression &expression) const -> const std::string &

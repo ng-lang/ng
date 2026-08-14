@@ -220,14 +220,37 @@ TEST_CASE("vNext trait checking rejects incoherent and incomplete impls", "[vNex
   {
     check("struct Counter { value: i64 } "
           "trait Show { fun show(self: Self ref) -> i64; } "
-          "fun render<T: Show>(value: T ref) -> i64 { return value.show(); } "
+          "fun render<T>(value: T ref) -> i64 { return value.show(); } "
           "fun main() -> i64 { return 0; }");
-    FAIL("expected a method-through-type-parameter boundary error");
+    FAIL("expected a missing bound error");
   }
   catch (const typecheck::TypeError &error)
   {
-    REQUIRE(std::string{error.what()} == "method calls through an abstract type parameter are not yet supported");
+    REQUIRE(std::string{error.what()} == "no trait bound provides method `show` for type parameter `T`");
   }
+}
+
+TEST_CASE("vNext method calls through bounded type parameters monomorphize per instance", "[vNext][Trait][Monomorphize]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(run("struct Counter { value: i64 } "
+              "trait Show { fun show(self: Self ref) -> i64; } "
+              "impl Show for Counter { fun show(self: Self ref) -> i64 { return (*self).value; } } "
+              "fun render<T: Show>(value: T ref) -> i64 { return value.show(); } "
+              "fun main() -> i64 { let counter = Counter { value: 7 }; let read = ref counter; return render(read); }",
+              output, errors) == 0);
+  REQUIRE(errors.empty());
+  REQUIRE(output.find("with value 7") != std::string::npos);
+
+  REQUIRE(run("struct Box { value: i64 } "
+              "trait Show { fun show(self: Self ref) -> i64; } "
+              "impl Show for Box { fun show(self: Self ref) -> i64 { return (*self).value + 1; } } "
+              "fun render<T: Show>(value: T ref) -> i64 { return value.show(); } "
+              "fun main() -> i64 { let box = Box { value: 6 }; let read = ref box; return render(read); }",
+              output, errors) == 0);
+  REQUIRE(errors.empty());
+  REQUIRE(output.find("with value 7") != std::string::npos);
 }
 
 TEST_CASE("vNext traits example file runs end to end through ngi", "[vNext][Trait][Examples]")
@@ -237,5 +260,5 @@ TEST_CASE("vNext traits example file runs end to end through ngi", "[vNext][Trai
   REQUIRE(runExample("example/vnext/traits.ng", output, errors) == 0);
   INFO("errors: " << errors);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("with value 63") != std::string::npos);
+  REQUIRE(output.find("with value 66") != std::string::npos);
 }

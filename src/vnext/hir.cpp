@@ -796,3 +796,139 @@ namespace NG::vnext::hir
     return local;
   }
 } // namespace NG::vnext::hir
+
+namespace NG::vnext::hir
+{
+namespace
+{
+  struct CloneContext
+  {
+    std::unordered_map<uint32_t, uint32_t> locals;
+    std::unordered_map<uint32_t, uint32_t> loops;
+    uint32_t &nextLocal;
+  };
+
+  [[nodiscard]] auto remapLocal(CloneContext &context, hir::LocalId local) -> hir::LocalId
+  {
+    const auto found = context.locals.find(local.value);
+    if (found != context.locals.end()) return hir::LocalId{found->second};
+    const uint32_t fresh = context.nextLocal++;
+    context.locals.emplace(local.value, fresh);
+    return hir::LocalId{fresh};
+  }
+
+  [[nodiscard]] auto remapLoop(CloneContext &context, hir::LoopId loop) -> hir::LoopId
+  {
+    const auto found = context.loops.find(loop.value);
+    if (found != context.loops.end()) return hir::LoopId{found->second};
+    const uint32_t fresh = context.nextLocal++;
+    context.loops.emplace(loop.value, fresh);
+    return hir::LoopId{fresh};
+  }
+
+  [[nodiscard]] auto cloneType(const hir::Type &type) -> hir::Type
+  {
+    hir::Type cloned{.kind = type.kind, .span = type.span, .name = type.name, .isMutable = type.isMutable};
+    if (type.target != nullptr) cloned.target = std::make_unique<hir::Type>(cloneType(*type.target));
+    for (const auto &argument : type.arguments)
+    {
+      hir::TypeArgument lowered{.kind = argument.kind, .span = argument.span};
+      if (argument.type != nullptr) lowered.type = std::make_unique<hir::Type>(cloneType(*argument.type));
+      if (argument.constExpr != nullptr) lowered.constExpr = cloneConstExpr(*argument.constExpr);
+      cloned.arguments.push_back(std::move(lowered));
+    }
+    return cloned;
+  }
+
+  [[nodiscard]] auto cloneExpression(CloneContext &context, const hir::Expression &source) -> hir::ExpressionPtr
+  {
+    auto cloned = std::make_unique<hir::Expression>();
+    cloned->kind = source.kind;
+    cloned->span = source.span;
+    cloned->text = source.text;
+    cloned->resolvedName = source.resolvedName;
+    cloned->functionCandidates = source.functionCandidates;
+    cloned->structId = source.structId;
+    cloned->enumId = source.enumId;
+    cloned->variant = source.variant;
+    cloned->memberNames = source.memberNames;
+    for (const auto &argument : source.genericArguments)
+    {
+      hir::TypeArgument lowered{.kind = argument.kind, .span = argument.span};
+      if (argument.type != nullptr) lowered.type = std::make_unique<hir::Type>(cloneType(*argument.type));
+      if (argument.constExpr != nullptr) lowered.constExpr = cloneConstExpr(*argument.constExpr);
+      cloned->genericArguments.push_back(std::move(lowered));
+    }
+    if (source.testedType != nullptr) cloned->testedType = std::make_unique<hir::Type>(cloneType(*source.testedType));
+    cloned->traitNames = source.traitNames;
+    cloned->methodCall = source.methodCall;
+    if (cloned->resolvedName.has_value() && cloned->resolvedName->kind == hir::ResolvedNameKind::Local)
+      cloned->resolvedName->id = remapLocal(context, LocalId{cloned->resolvedName->id}).value;
+    for (const auto &operand : source.operands) cloned->operands.push_back(cloneExpression(context, *operand));
+    return cloned;
+  }
+
+  [[nodiscard]] auto cloneBlock(CloneContext &context, const hir::Block &source) -> hir::Block
+  {
+    hir::Block cloned{.span = source.span};
+    for (const auto &statement : source.statements)
+    {
+      hir::Statement copy{.kind = statement.kind, .span = statement.span};
+      if (statement.local.has_value()) copy.local = remapLocal(context, *statement.local);
+      if (statement.bindingType != nullptr) copy.bindingType = std::make_shared<hir::Type>(cloneType(*statement.bindingType));
+      for (const auto local : statement.destructuredLocals) copy.destructuredLocals.push_back(remapLocal(context, local));
+      copy.destructuredIndices = statement.destructuredIndices;
+      copy.mutableBinding = statement.mutableBinding;
+      if (statement.loop.has_value()) copy.loop = remapLoop(context, *statement.loop);
+      if (statement.nextTarget.has_value())
+        copy.nextTarget = statement.nextTarget->kind == hir::NextTargetKind::Loop
+                              ? NextTarget{.kind = NextTargetKind::Loop, .id = remapLoop(context, LoopId{statement.nextTarget->id}).value}
+                              : *statement.nextTarget;
+      if (statement.expression != nullptr) copy.expression = cloneExpression(context, *statement.expression);
+      if (statement.assignmentTarget != nullptr) copy.assignmentTarget = cloneExpression(context, *statement.assignmentTarget);
+      for (const auto &argument : statement.arguments) copy.arguments.push_back(cloneExpression(context, *argument));
+      for (const auto local : statement.loopBindings) copy.loopBindings.push_back(remapLocal(context, local));
+      for (const auto &switchCase : statement.switchCases)
+      {
+        hir::SwitchCase clonedCase{.variantName = switchCase.variantName, .span = switchCase.span};
+        if (switchCase.binding.has_value()) clonedCase.binding = remapLocal(context, *switchCase.binding);
+        clonedCase.body = std::make_unique<hir::Block>(cloneBlock(context, *switchCase.body));
+        copy.switchCases.push_back(std::move(clonedCase));
+      }
+      if (statement.consequence != nullptr) copy.consequence = std::make_unique<hir::Block>(cloneBlock(context, *statement.consequence));
+      if (statement.alternative != nullptr) copy.alternative = std::make_unique<hir::Block>(cloneBlock(context, *statement.alternative));
+      if (statement.body != nullptr) copy.body = std::make_unique<hir::Block>(cloneBlock(context, *statement.body));
+      cloned.statements.push_back(std::move(copy));
+    }
+    if (source.tailExpression != nullptr) cloned.tailExpression = cloneExpression(context, *source.tailExpression);
+    return cloned;
+  }
+} // namespace
+
+  auto cloneFunction(const Function &source, uint32_t &nextLocal) -> Function
+  {
+    CloneContext context{.nextLocal = nextLocal};
+    Function cloned{.id = source.id,
+                    .name = source.name,
+                    .span = source.span,
+                    .genericParameters = source.genericParameters,
+                    .constFunction = source.constFunction,
+                    .traitBounds = source.traitBounds};
+    for (const auto &parameter : source.constParameters)
+      cloned.constParameters.push_back(ConstParameter{.name = parameter.name,
+                                                      .typeName = parameter.typeName,
+                                                      .type = cloneType(parameter.type),
+                                                      .span = parameter.span});
+    if (source.returnType != nullptr) cloned.returnType = std::make_unique<Type>(cloneType(*source.returnType));
+    for (const auto &parameter : source.parameters)
+    {
+      Parameter copy{.name = parameter.name, .typeName = parameter.typeName, .span = parameter.span};
+      copy.type = cloneType(parameter.type);
+      copy.local = remapLocal(context, parameter.local);
+      cloned.parameters.push_back(std::move(copy));
+    }
+    if (source.whereClause != nullptr) cloned.whereClause = cloneExpression(context, *source.whereClause);
+    cloned.body = cloneBlock(context, source.body);
+    return cloned;
+  }
+} // namespace NG::vnext::hir

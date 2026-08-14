@@ -342,6 +342,11 @@ namespace NG::vnext::hir
     std::vector<Impl> impls;
   };
 
+  /// Deep-clones a resolved function for generic instantiation, renumbering
+  /// every `LocalId` and `LoopId` so the instance occupies a fresh identity
+  /// space. Types, where clauses, and names are copied structurally.
+  [[nodiscard]] auto cloneFunction(const Function &source, uint32_t &nextLocal) -> Function;
+
   class Resolver final
   {
   public:

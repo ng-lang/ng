@@ -83,10 +83,15 @@ namespace NG::vnext
         const auto typed = typecheck::TypeChecker{}.check(resolved);
 
         std::vector<flowir::Function> flows;
-        flows.reserve(resolved.functions.size());
+        flows.reserve(resolved.functions.size() + typed.instances.size());
         for (const auto &function : resolved.functions)
         {
           flows.push_back(flowir::Lowerer{}.lower(function, typed));
+          flowir::Verifier{}.verify(flows.back());
+        }
+        for (const auto &instance : typed.instances)
+        {
+          flows.push_back(flowir::Lowerer{}.lower(instance, typed));
           flowir::Verifier{}.verify(flows.back());
         }
         const auto artifact = bytecode::ModuleCompiler{}.compile(flows);

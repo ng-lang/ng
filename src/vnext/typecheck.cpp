@@ -4,9 +4,11 @@
 
 #include <algorithm>
 #include <charconv>
+#include <deque>
 #include <format>
-#include <unordered_map>
+#include <iterator>
 #include <memory>
+#include <unordered_map>
 #include <unordered_set>
 
 namespace NG::vnext::typecheck
@@ -117,6 +119,9 @@ namespace NG::vnext::typecheck
                                .methodReceiverMutable = std::move(methodReceiverMutable_),
                                .methodReceiverRefTypes = std::move(methodReceiverRefTypes_),
                                .constIfSelections = std::move(constIfSelections_),
+                               .instances = std::vector<hir::Function>{std::make_move_iterator(instances_.begin()),
+                                                                       std::make_move_iterator(instances_.end())},
+                               .deferredMethodFunctions = std::move(deferredMethodFunctions_),
                                .typeDescriptors = interner_.descriptors()};
       }
 
@@ -449,7 +454,40 @@ namespace NG::vnext::typecheck
           passReferenceThrough = true;
         }
         if (interner_.descriptor(dispatchType).kind == TypeKind::TypeParameter)
-          throw TypeError("method calls through an abstract type parameter are not yet supported", expression.span);
+        {
+          // Abstract dispatch through a trait bound: resolve the signature
+          // against the bound and defer the target to monomorphization.
+          const std::string parameterName = interner_.descriptor(dispatchType).name;
+          const hir::Function *current = currentFunctionId_.value < module_->functions.size()
+                                             ? &module_->functions.at(currentFunctionId_.value)
+                                             : nullptr;
+          const TraitInfo *owning = nullptr;
+          if (current != nullptr)
+          {
+            for (const auto &[boundParameter, boundTraits] : current->traitBounds)
+            {
+              if (boundParameter != parameterName) continue;
+              for (const auto &traitName : boundTraits)
+              {
+                const auto found = traits_.find(traitName);
+                if (found != traits_.end() && found->second.methodParameters.contains(expression.text))
+                {
+                  owning = &found->second;
+                  break;
+                }
+              }
+              if (owning != nullptr) break;
+            }
+          }
+          if (owning == nullptr)
+            throw TypeError(std::format("no trait bound provides method `{}` for type parameter `{}`", expression.text,
+                                        parameterName), expression.span);
+          deferredMethodFunctions_.insert(currentFunctionId_.value);
+          const TypeId returnType = interner_.specialize(owning->methodReturns.at(expression.text),
+                                                         {{owning->selfParameter.value, dispatchType}});
+          record(expression, returnType);
+          return returnType;
+        }
         const hir::DefId *selected = nullptr;
         for (const auto &impl : impls_)
         {
@@ -493,8 +531,70 @@ namespace NG::vnext::typecheck
         return signature.returnType;
       }
 
+      /// Instantiates a generic function with a fully concrete substitution:
+      /// the clone is renumbered, registered with specialized types, and its
+      /// body re-checked under concrete bindings. Non-generic functions and
+      /// non-concrete substitutions return the original id (type-erased).
+      [[nodiscard]] auto instantiateFunction(hir::DefId original, const Substitution &substitution, syntax::SourceSpan span)
+          -> hir::DefId
+      {
+        const auto &source = module_->functions.at(original.value);
+        const auto &signature = signatures_.at(original.value);
+        if (!isGeneric(signature)) return original;
+        std::string key = source.name;
+        std::vector<TypeId> concreteTypes;
+        bool concrete = true;
+        for (size_t index = 0; index < signature.genericParameters.size(); ++index)
+        {
+          const TypeId parameter = signature.genericParameters[index];
+          const auto found = substitution.types.find(parameter.value);
+          const TypeId instantiated = found != substitution.types.end() ? found->second : parameter;
+          if (interner_.descriptor(instantiated).kind == TypeKind::TypeParameter) concrete = false;
+          key += "|" + interner_.display(instantiated);
+          concreteTypes.push_back(instantiated);
+        }
+        for (size_t index = 0; index < signature.constParameters.size(); ++index)
+        {
+          const auto found = substitution.consts.find(static_cast<uint32_t>(index));
+          if (found == substitution.consts.end())
+          {
+            concrete = false;
+            continue;
+          }
+          const auto &value = interner_.constInterner().value(found->second);
+          if (value.kind != const_eval::ConstValueKind::Integer)
+            throw TypeError("const generic argument is not an integer", span);
+          key += "|" + std::to_string(value.integerValue);
+        }
+        if (!concrete) return original;
+        if (const auto existing = instanceTable_.find(key); existing != instanceTable_.end()) return existing->second;
+
+        hir::Function clone = hir::cloneFunction(source, nextInstanceLocal_);
+        const hir::DefId instanceId{static_cast<uint32_t>(module_->functions.size() + instances_.size())};
+        clone.id = instanceId;
+        clone.name = std::format("{}#{}", source.name, instances_.size());
+        FunctionTypeIds instanceSignature;
+        instanceSignature.parameters.reserve(signature.parameters.size());
+        for (const auto parameter : signature.parameters) instanceSignature.parameters.push_back(specialize(parameter, substitution));
+        instanceSignature.genericParameters = std::move(concreteTypes);
+        instanceSignature.genericParameterNames = signature.genericParameterNames;
+        instanceSignature.constParameters = signature.constParameters;
+        instanceSignature.constParameterNames = signature.constParameterNames;
+        instanceSignature.returnType = specialize(signature.returnType, substitution);
+        FunctionType displaySignature;
+        for (const auto parameter : instanceSignature.parameters) displaySignature.parameters.push_back(interner_.display(parameter));
+        displaySignature.returnType = interner_.display(instanceSignature.returnType);
+        signatures_.emplace(instanceId.value, std::move(instanceSignature));
+        functionTypes_.emplace(instanceId.value, std::move(displaySignature));
+        instanceTable_.emplace(std::move(key), instanceId);
+        instances_.push_back(std::move(clone));
+        checkFunction(instances_.back());
+        return instanceId;
+      }
+
       void checkFunction(const hir::Function &function)
       {
+        currentFunctionId_ = function.id;
         LocalTypes locals;
         mutableBindings_.clear();
         const auto &signature = signatures_.at(function.id.value);
@@ -1018,6 +1118,7 @@ namespace NG::vnext::typecheck
                 !evaluateWhereCondition(*module_->functions.at(selected.value).whereClause, substitution, signature))
               throw TypeError(std::format("call to `{}` does not satisfy its where clause", module_->functions.at(selected.value).name),
                               expression.span);
+            selected = instantiateFunction(selected, substitution, expression.span);
             requireType(expected, specialized, expression.span, context);
             record(expression, specialized);
             callTargets_.insert_or_assign(&expression, selected);
@@ -1300,6 +1401,7 @@ namespace NG::vnext::typecheck
               !evaluateWhereCondition(*module_->functions.at(selected.value).whereClause, substitution, signature))
             throw TypeError(std::format("call to `{}` does not satisfy its where clause", module_->functions.at(selected.value).name),
                             expression.span);
+          selected = instantiateFunction(selected, substitution, expression.span);
           callTargets_.insert_or_assign(&expression, selected);
           break;
         }
@@ -1447,6 +1549,11 @@ namespace NG::vnext::typecheck
       std::vector<ImplInfo> impls_;
       std::unordered_map<const hir::Expression *, bool> methodReceiverMutable_;
       std::unordered_map<const hir::Expression *, TypeId> methodReceiverRefTypes_;
+      std::unordered_map<std::string, hir::DefId> instanceTable_;
+      std::deque<hir::Function> instances_;
+      std::unordered_set<uint32_t> deferredMethodFunctions_;
+      hir::DefId currentFunctionId_{};
+      uint32_t nextInstanceLocal_{1'000'000};
       std::unordered_set<uint32_t> constFunctions_;
       std::unique_ptr<const_eval::ConstInterpreter> interpreter_;
       /// Generic parameter bindings of the function currently being checked;
