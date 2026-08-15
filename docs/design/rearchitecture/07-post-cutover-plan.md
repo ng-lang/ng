@@ -112,13 +112,18 @@ list with re-checked bodies; explicit and inferred generic call arguments;
 
 **Remaining work:**
 
-1. Instance descriptor reuse: identical `InstanceId`s share one checked body
-   and one artifact function; no duplicate re-check per call site.
-2. Overload-set artifacts: encode resolved overloads per call site in the
+1. Overload-set artifacts: encode resolved overloads per call site in the
    artifact; keep specificity resolution (`specificityGuarded`) out of the
-   runtime path.
-3. Partial specialization semantics for `const` predicates where the design
+   runtime path (call sites already carry their resolved targets, so this
+   is an encoding/interface concern for the R6/R7 session work).
+2. Partial specialization semantics for `const` predicates where the design
    demands it (currently exact/pattern/primary priority at module level).
+
+**Delivered by construction (2026-08):** instance descriptor reuse —
+`instantiateFunction` deduplicates by a key over the source function id plus
+concrete type/const/constructor arguments (`instanceTable_`), so identical
+substitutions share one checked body and one artifact function, and every
+generic call site records its instance target in `callTargets`.
 
 **Blocks:** R4 instance graph, R7 artifact encoding.
 **Legacy evidence:** examples `15`, `43`, `44`, `60`; matrix row 7.

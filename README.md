@@ -1,102 +1,79 @@
 # A NostalGic (NG) Programming Language
 
-[![build](https://github.com/ng-lang/ng/actions/workflows/build.yml/badge.svg)](https://github.com/ng-lang/ng/actions/workflows/build.yml) 
-[![Codacy Badge](https://app.codacy.com/project/badge/Grade/e72d75eb4dbf4a0e9617cbced2f4ec1e)](https://app.codacy.com/gh/ng-lang/ng/dashboard?utm_source=gh&utm_medium=referral&utm_content=&utm_campaign=Badge_grade) 
-[![Codacy Badge](https://app.codacy.com/project/badge/Coverage/e72d75eb4dbf4a0e9617cbced2f4ec1e)](https://app.codacy.com/gh/ng-lang/ng/dashboard?utm_source=gh&utm_medium=referral&utm_content=&utm_campaign=Badge_coverage) 
+[![build](https://github.com/ng-lang/ng/actions/workflows/build.yml/badge.svg)](https://github.com/ng-lang/ng/actions/workflows/build.yml)
+[![Codacy Badge](https://app.codacy.com/project/badge/Grade/e72d75eb4dbf4a0e9617cbced2f4ec1e)](https://app.codacy.com/gh/ng-lang/ng/dashboard?utm_source=gh&utm_medium=referral&utm_content=&utm_campaign=Badge_grade)
+[![Codacy Badge](https://app.codacy.com/project/badge/Coverage/e72d75eb4dbf4a0e9617cbced2f4ec1e)](https://app.codacy.com/gh/ng-lang/ng/dashboard?utm_source=gh&utm_medium=referral&utm_content=&utm_campaign=Badge_coverage)
 [![codecov](https://codecov.io/github/ng-lang/ng/graph/badge.svg?token=T5RV6EWVSG)](https://codecov.io/github/ng-lang/ng)
 
-NG is a static-typed, multiple paradigm programming language designed for efficiency and productivity.
+NG is a statically-typed, multi-paradigm programming language implemented in modern C++23, with a single clean pipeline:
+
+**Lexer → Parser → Resolver (HIR) → Type Checker → FlowIR → Bytecode → VM**
 
 ## Features
 
-- Minimum mutability required
-- Minimum runtime overhead
-- Let others rewrite everything and bind them
-- Direct hardware mapping
+- Fixed-width integers (`i8`–`i64`, `u8`–`u64`) and `f32`/`f64` with checked arithmetic, strings, arrays, tuples, structs, tagged unions, ranges, and union annotations
+- Copy-first ownership: affine moves/clones, field-aware partial moves, `impl Drop`, and borrow-checked scoped references with non-lexical loans — no GC
+- Traits with default methods, concrete and generic impls, bounds, auto traits, `derive`, and `ref<Trait>` dynamic views
+- Generics (monomorphized), higher-kinded constructors, variadic packs, const generics
+- Compile-time programming: `const if`, const declarations with pattern specialization, `const fun` (incl. generic const funs), const-capable native hosts
+- A redesigned standard library (`lib/std`), a Dear ImGui binding over SDL3, and a minimal IDE written in NG
+- The test suite sweeps every example end to end (1700+ assertions / 430+ cases)
 
 ## Getting Started
 
 ### Prerequisites
 
--   **C++ Compiler:** A C++23 compatible compiler (e.g., GCC, Clang, MSVC).
--   **CMake:** Version 4.0 or higher.
--   **Build Tool:** Make or Ninja.
+- A C++23 compiler (macOS pins `clang`/`clang++` with libc++; Homebrew LLVM supplies `clang-tidy`/`clang-format`)
+- CMake 3.25+ and Ninja
 
-### Building the Project
-
-1.  **Clone the repository:**
-
-    ```bash
-    git clone https://github.com/ng-lang/ng.git
-    cd ng
-    ```
-
-2.  **Create a build directory:**
-
-    ```bash
-    mkdir build
-    cd build
-    ```
-
-3.  **Configure the project with CMake:**
-
-    ```bash
-    cmake -GNinja ..
-    ```
-
-4.  **Build the project:**
-
-    ```bash
-    ninja
-    ```
-
-### Running the Interpreter
-
-After building the project, you can use the `ngi` interpreter to run NG scripts.
+### Build and run
 
 ```bash
-./ngi ../example/01.id.ng
+cmake -S . -B build -GNinja
+cmake --build build -j
+./build/ngi example/hello_world.ng                 # run an example
+./build/ngi --source 'import prelude; fun main() { print("hi"); }'
+./build/ngi_imgui example/ng_ide.ng --fuel 0       # the imgui IDE (GUI)
+```
+
+Run the tests:
+
+```bash
+./build/ng_test            # full suite
+ctest --test-dir build -j  # or through CTest
 ```
 
 ## Documentation
 
-- [A Guide to the NG Programming Language](./docs/guide/language_guide.md)
+- [Language Guide](./docs/guide/language_guide.md) (site: `docs/index.md` via VitePress)
+- [Internals](./docs/ref/Internals.md) · [Memory](./docs/ref/Memory.md) · [C++ Compatibility](./docs/ref/cxx-compatibility.md)
+- [Design decisions](./docs/design/rearchitecture/README.md) (the current authority) and the [post-cutover plan](./docs/design/rearchitecture/07-post-cutover-plan.md)
 
 ## Roadmap
 
-### Core Language Features
-- [ ] Robust error handling (e.g., `try/catch` or a `Result` type)
-- [x] Pattern matching (tagged union switch/case)
-- [ ] Closures/Lambdas
-- [x] Generics (v0.5.0 — type parameters, parameter packs, monomorphization)
-- [x] Enums (tagged unions: `type Result = Ok(value) | Err(msg)`)
-- [ ] Compile to Native
-- [x] Type Checking (bidirectional type inference)
-- [x] Bytecode Based Runtime - ORGASM (Organized Assembly)
+### Done
 
-### Standard Library
-- [ ] Comprehensive file I/O module
-- [ ] Advanced string manipulation module (e.g., regex)
-- [ ] Rich collections library (e.g., hashmaps, sets)
-- [ ] Process management module
-- [ ] Networking module (e.g., HTTP)
-- [ ] Date and time module
+- Pattern matching: enum-variant switches (exhaustive) and scalar literal-or switches
+- Generics: type parameters, parameter packs, monomorphization, const generics, HKT
+- Ownership: moves, partial moves, Drop, scoped refs, NLL borrow release
+- Traits: static dispatch, default methods (through views too), generic impls, auto traits, derive, `ref<Trait>` views
+- Compile-time: `const if`, const declarations, `const fun`, const-capable natives
+- Modules and imports; redesigned stdlib (string/seq/list/memory/imgui); bytecode VM with verified artifacts
+- Self-hosting `runNgi` and the NG IDE on the imgui binding
 
-### Tooling and Ecosystem
-- [ ] Package manager
-- [x] REPL (Read-Eval-Print Loop)
-- [ ] Automatic code formatter
-- [ ] Linter
-- [ ] Debugger
+### Deferred (see the post-cutover plan for gating)
+
+- `span<T>` views; in-place `pushBack`/array growth (runtime-session heap work)
+- Tuple switch patterns; Self-typed trait-view methods
+- Heap domains (`Box<T>`, `Gc`, `Arc`); `isize`/`usize`; declared C ABI/bindgen
+- Concurrency (R10) and tooling (R11: formatter, LSP, debugger, package manager)
 
 ## Community
 
-We welcome contributions and feedback from the community! Here are a few ways to get involved:
-
--   **Discussions:** For general discussions, questions, and ideas, please use the [GitHub Discussions](https://github.com/ng-lang/ng/discussions).
--   **Issue Tracker:** For bug reports and feature requests, please use the [GitHub Issues](https://github.com/ng-lang/ng/issues).
--   **Pull Requests:** For contributions, please use [GitHub Pull Requests](https://github.com/ng-lang/ng/pulls).
+- **Discussions:** [GitHub Discussions](https://github.com/ng-lang/ng/discussions)
+- **Issue Tracker:** [GitHub Issues](https://github.com/ng-lang/ng/issues)
+- **Pull Requests:** [GitHub Pull Requests](https://github.com/ng-lang/ng/pulls)
 
 ## Contributing
 
-We welcome contributions from everyone. Please read our [Contribution Guide](./CONTRIBUTING.md) to get started.
+Please read our [Contribution Guide](./CONTRIBUTING.md) to get started.
