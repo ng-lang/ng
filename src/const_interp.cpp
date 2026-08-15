@@ -47,8 +47,9 @@ namespace NG::const_eval
   } // namespace
 
   ConstInterpreter::ConstInterpreter(const hir::Module &module, const std::unordered_set<uint32_t> &constFunctions,
-                                     ConstInterner &interner, PredicateEvaluator predicate)
-    : module_(module), constFunctions_(constFunctions), interner_(interner), predicate_(std::move(predicate))
+                                     ConstInterner &interner, PredicateEvaluator predicate, ConstNativeHost host)
+    : module_(module), constFunctions_(constFunctions), interner_(interner), predicate_(std::move(predicate)),
+      host_(std::move(host))
   {
   }
 
@@ -66,9 +67,21 @@ namespace NG::const_eval
         call.operands[0]->resolvedName->kind != hir::ResolvedNameKind::Function)
       throw ConstEvalError("const call target is not a function", span);
     const hir::DefId target{call.operands[0]->resolvedName->id};
+    const auto &function = module_.functions.at(target.value);
+    if (function.nativeFunction)
+    {
+      // Const-capable native hosts: only names the embedding registered as
+      // pure are evaluable at compile time.
+      if (!host_)
+        throw ConstEvalError(std::format("function `{}` is not const-capable", call.operands[0]->text), span);
+      std::vector<ConstValueId> arguments;
+      arguments.reserve(call.operands.size() - 1);
+      for (size_t index = 1; index < call.operands.size(); ++index)
+        arguments.push_back(evaluateExpression(*call.operands[index], locals));
+      return host_(function.name, arguments, interner_, span);
+    }
     if (!constFunctions_.contains(target.value))
       throw ConstEvalError(std::format("function `{}` is not const-capable", call.operands[0]->text), span);
-    const auto &function = module_.functions.at(target.value);
     if (!function.genericParameters.empty() || !function.constParameters.empty())
       throw ConstEvalError(std::format("compile-time calls to generic const fun `{}` are not yet supported", function.name),
                            span);

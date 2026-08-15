@@ -66,6 +66,12 @@ namespace NG::const_eval
     std::unordered_map<std::string, ConstValueId> strings_;
   };
 
+  /// Pure host function callable from const contexts (D-012 `= native`
+  /// capability): receives the native's registered name, its evaluated const
+  /// arguments, and the interner for building the result.
+  using ConstNativeHost = std::function<ConstValueId(const std::string &name, const std::vector<ConstValueId> &arguments,
+                                                     ConstInterner &interner, syntax::SourceSpan span)>;
+
   struct ConstEvalError : std::runtime_error
   {
     syntax::SourceSpan span;

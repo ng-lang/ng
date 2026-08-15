@@ -301,6 +301,6 @@ namespace NG::typecheck
   class TypeChecker final
   {
   public:
-    [[nodiscard]] auto check(const hir::Module &module) -> TypeCheckResult;
+    [[nodiscard]] auto check(const hir::Module &module, const const_eval::ConstNativeHost &host = {}) -> TypeCheckResult;
   };
 } // namespace NG::typecheck

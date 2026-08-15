@@ -27,7 +27,7 @@ namespace NG::const_eval
     using LocalValues = std::unordered_map<uint32_t, ConstValueId>;
 
     ConstInterpreter(const hir::Module &module, const std::unordered_set<uint32_t> &constFunctions,
-                     ConstInterner &interner, PredicateEvaluator predicate);
+                     ConstInterner &interner, PredicateEvaluator predicate, ConstNativeHost host = {});
 
     /// Evaluates a const-capable call expression to a canonical value. Used by
     /// the checker's const-condition extension and where-clause evaluation;
@@ -43,6 +43,9 @@ namespace NG::const_eval
     [[nodiscard]] auto evaluateCondition(const hir::Expression &expression, const LocalValues &locals) -> bool;
 
   private:
+    /// Pure hosts callable from const contexts (`= native` capability); empty
+    /// means no native is const-evaluable.
+    ConstNativeHost host_;
     struct Control
     {
       enum class Kind

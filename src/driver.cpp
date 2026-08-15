@@ -91,7 +91,96 @@ namespace NG
       try
       {
         const auto resolved = hir::Resolver{}.resolve(unit);
-        const auto typed = typecheck::TypeChecker{}.check(resolved);
+        // Pure hosts callable from const contexts (D-012 `= native`
+        // capability): string utilities over canonical const values. Impure
+        // natives (IO, heap, GUI) are deliberately absent.
+        const const_eval::ConstNativeHost constHost = [](const std::string &name,
+                                                         const std::vector<const_eval::ConstValueId> &arguments,
+                                                         const_eval::ConstInterner &interner,
+                                                         syntax::SourceSpan span) -> const_eval::ConstValueId {
+          const auto requireString = [&](size_t index) -> const std::string & {
+            if (index >= arguments.size() ||
+                interner.value(arguments[index]).kind != const_eval::ConstValueKind::String)
+              throw const_eval::ConstEvalError(std::format("const native `{}` expects a string argument {}", name, index + 1),
+                                               span);
+            return interner.value(arguments[index]).stringValue;
+          };
+          const auto requireInteger = [&](size_t index) -> int64_t {
+            if (index >= arguments.size() ||
+                interner.value(arguments[index]).kind != const_eval::ConstValueKind::Integer)
+              throw const_eval::ConstEvalError(std::format("const native `{}` expects an integer argument {}", name, index + 1),
+                                               span);
+            return interner.value(arguments[index]).integerValue;
+          };
+          if (name == "length") return interner.internInteger(static_cast<int64_t>(requireString(0).size()));
+          if (name == "contains")
+            return interner.internBool(requireString(0).find(requireString(1)) != std::string::npos);
+          if (name == "startsWith") return interner.internBool(requireString(0).starts_with(requireString(1)));
+          if (name == "endsWith") return interner.internBool(requireString(0).ends_with(requireString(1)));
+          if (name == "toUpper" || name == "toLower")
+          {
+            std::string result = requireString(0);
+            for (auto &character : result)
+              character = static_cast<char>(name == "toUpper"
+                                                ? std::toupper(static_cast<unsigned char>(character))
+                                                : std::tolower(static_cast<unsigned char>(character)));
+            return interner.internString(std::move(result));
+          }
+          if (name == "trim")
+          {
+            const auto &text = requireString(0);
+            const auto first = text.find_first_not_of(" \t\n\r");
+            const auto last = text.find_last_not_of(" \t\n\r");
+            return interner.internString(first == std::string::npos ? "" : text.substr(first, last - first + 1));
+          }
+          if (name == "replace")
+          {
+            std::string result = requireString(0);
+            const auto &needle = requireString(1);
+            const auto &replacement = requireString(2);
+            size_t position = 0;
+            while ((position = result.find(needle, position)) != std::string::npos)
+            {
+              result.replace(position, needle.size(), replacement);
+              position += replacement.size();
+            }
+            return interner.internString(std::move(result));
+          }
+          if (name == "substring")
+          {
+            const auto &text = requireString(0);
+            const int64_t start = requireInteger(1);
+            const int64_t end = requireInteger(2);
+            if (start < 0 || end < start || static_cast<size_t>(end) > text.size())
+              throw const_eval::ConstEvalError(std::format("const substring bounds out of range: [{}..{}) of length {}", start,
+                                                           end, text.size()),
+                                               span);
+            return interner.internString(text.substr(static_cast<size_t>(start), static_cast<size_t>(end - start)));
+          }
+          if (name == "charAt")
+          {
+            const auto &text = requireString(0);
+            const int64_t index = requireInteger(1);
+            if (index < 0 || static_cast<size_t>(index) >= text.size())
+              throw const_eval::ConstEvalError(std::format("const charAt index out of bounds: index {}, length {}", index,
+                                                           text.size()),
+                                               span);
+            return interner.internString(std::string(1, text[static_cast<size_t>(index)]));
+          }
+          if (name == "regexMatch")
+          {
+            try
+            {
+              return interner.internBool(std::regex_search(requireString(0), std::regex(requireString(1))));
+            }
+            catch (const std::regex_error &)
+            {
+              throw const_eval::ConstEvalError(std::format("const regexMatch: invalid pattern `{}`", requireString(1)), span);
+            }
+          }
+          throw const_eval::ConstEvalError(std::format("native `{}` is not const-capable", name), span);
+        };
+        const auto typed = typecheck::TypeChecker{}.check(resolved, constHost);
 
         std::vector<flowir::Function> flows;
         flows.reserve(resolved.functions.size() + typed.instances.size());

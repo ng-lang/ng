@@ -969,6 +969,10 @@ let writable = ref mut value;
   checker no longer rejects `T ref` annotations.
 - Const predicates such as `is_ref<T>` (D-012) can pattern-match `ref<T>`
   types once references resolve.
+- Const-capable native hosts (D-012 `= native` capability, 2026-08): pure
+  string hosts registered by the embedding evaluate inside `const fun`,
+  `const if`, and where clauses at compile time; impure natives are rejected
+  (`native \`X\` is not const-capable`).
 - The runtime `Value` representation may share structural storage internally;
   the deep-copy rule is a language semantic enforced where copies occur.
 

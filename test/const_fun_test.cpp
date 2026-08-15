@@ -185,3 +185,63 @@ TEST_CASE("vNext const fun example file runs end to end through ngi", "[vNext][C
   REQUIRE(errors.empty());
   REQUIRE(output.find("with value 32") != std::string::npos);
 }
+
+TEST_CASE("vNext const-capable natives fold inside const fun and const if", "[vNext][ConstFun][NativeHosts]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(run("import prelude; "
+              "const fun isShort(s: string) -> bool => length(s) < 5; "
+              "fun main() { const if (isShort(\"abc\")) { print(\"short\"); } else { assert(false); } "
+              "const if (regexMatch(\"a1b2\", \"a.b.\")) { print(\"matched\"); } else { assert(false); } }",
+              output, errors) == 0);
+  REQUIRE(errors.empty());
+  REQUIRE(output.find("short\nmatched\n") != std::string::npos);
+}
+
+TEST_CASE("vNext const-capable natives evaluate in where clauses over const parameters", "[vNext][ConstFun][NativeHosts]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(run("import prelude; "
+              "const fun fits(value: i64) -> bool { return length(\"12345\") + value < 10; } "
+              "fun make<const N: i64>() -> unit where fits(N) { } "
+              "fun main() { make<2>(); }",
+              output, errors) == 0);
+  REQUIRE(errors.empty());
+
+  REQUIRE(run("import prelude; "
+              "const fun fits(value: i64) -> bool { return length(\"12345\") + value < 10; } "
+              "fun make<const N: i64>() -> unit where fits(N) { } "
+              "fun main() { make<8>(); }",
+              output, errors) == 1);
+  REQUIRE_THAT(errors, ContainsSubstring("does not satisfy its where clause"));
+}
+
+TEST_CASE("vNext const-capable natives report compile-time bounds errors", "[vNext][ConstFun][NativeHosts]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(run("import prelude; fun main() { const if (charAt(\"ab\", 5) == \"x\") { } }", output, errors) == 1);
+  REQUIRE_THAT(errors, ContainsSubstring("const charAt index out of bounds"));
+}
+
+TEST_CASE("vNext impure natives stay rejected in const contexts", "[vNext][ConstFun][NativeHosts]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(run("import prelude; const fun bad() -> bool { print(\"x\"); return true; } "
+              "fun main() { const if (bad()) { } }",
+              output, errors) == 1);
+  REQUIRE_THAT(errors, ContainsSubstring("native `print` is not const-capable"));
+}
+
+TEST_CASE("vNext const_native_hosts example runs end to end through ngi", "[vNext][ConstFun][NativeHosts][Examples]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(runExample("example/const_native_hosts.ng", output, errors) == 0);
+  INFO("errors: " << errors);
+  REQUIRE(errors.empty());
+  REQUIRE(output.find("short folded\nregex folded\ntrim folded\n") != std::string::npos);
+}

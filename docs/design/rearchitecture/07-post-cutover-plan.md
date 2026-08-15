@@ -188,12 +188,18 @@ clauses, and per-instance `const if` (`example/const_predicates.ng`,
 
 **Remaining work:**
 
-1. `= native` hosts inside `const fun` / const contexts: const-evaluable
-   native functions with capability declarations (invariant 8), so const
-   evaluation can call declared pure hosts.
-2. Generic `const fun` compile-time calls: calling a `const fun` over
-   const-generic parameters during type checking of another instance.
-3. Trait bounds in const predicates (interacts with A5).
+1. Generic `const fun` compile-time calls over type-generic functions
+   (calls over const-generic parameters already work through value-parameter
+   const funs in where clauses).
+2. Trait bounds in const predicates (interacts with A5).
+
+**Delivered (2026-08):** const-capable native hosts — the embedding registers
+pure hosts (string utilities incl. regexMatch, with compile-time bounds and
+pattern diagnostics); const fun bodies, `const if` conditions, and where
+clauses evaluate them through the `ConstInterpreter`, while unregistered
+(impure) natives fail with `native \`X\` is not const-capable`
+(`example/const_native_hosts.ng`, `test/const_fun_test.cpp` native-host
+cases).
 
 **Blocks:** R9 declared native descriptors for pure hosts.
 **Legacy evidence:** examples `17`, `42`, `46`, `47`, `53`; matrix row 8.

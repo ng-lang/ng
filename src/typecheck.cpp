@@ -19,9 +19,10 @@ namespace NG::typecheck
     class Checker final
     {
     public:
-      [[nodiscard]] auto check(const hir::Module &module) -> TypeCheckResult
+      [[nodiscard]] auto check(const hir::Module &module, const const_eval::ConstNativeHost &host = {}) -> TypeCheckResult
       {
         module_ = &module;
+        constNativeHost_ = host;
         {
           std::unordered_map<std::string, syntax::SourceSpan> typeNames;
           const auto declareName = [&](const std::string &name, syntax::SourceSpan span) {
@@ -183,7 +184,7 @@ namespace NG::typecheck
         }
         interpreter_ = std::make_unique<const_eval::ConstInterpreter>(
             module, constFunctions_, interner_.constInterner(),
-            [this](const hir::Expression &node) { return evaluateConstApplication(node); });
+            [this](const hir::Expression &node) { return evaluateConstApplication(node); }, constNativeHost_);
         for (const auto &function : module.functions) checkFunction(function);
         return TypeCheckResult{.expressionTypes = std::move(expressionTypes_),
                                .expressionTypeIds = std::move(expressionTypeIds_),
@@ -3526,6 +3527,8 @@ namespace NG::typecheck
       uint32_t nextInstanceLocal_{1'000'000};
       std::unordered_set<uint32_t> constFunctions_;
       std::unique_ptr<const_eval::ConstInterpreter> interpreter_;
+      /// Pure hosts callable from const contexts (`= native` capability).
+      const_eval::ConstNativeHost constNativeHost_;
       /// Generic parameter bindings of the function currently being checked;
       /// used to resolve in-body const predicate arguments.
       std::unordered_map<std::string, TypeId> genericBindings_;
@@ -3552,5 +3555,8 @@ namespace NG::typecheck
     };
   } // namespace
 
-  auto TypeChecker::check(const hir::Module &module) -> TypeCheckResult { return Checker{}.check(module); }
+  auto TypeChecker::check(const hir::Module &module, const const_eval::ConstNativeHost &host) -> TypeCheckResult
+  {
+    return Checker{}.check(module, host);
+  }
 } // namespace NG::typecheck
