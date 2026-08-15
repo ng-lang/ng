@@ -11,6 +11,7 @@
 #include <sstream>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace NG::native
@@ -80,6 +81,9 @@ namespace NG::native
     {
       std::set<std::string> usedHelpers;
       bool needsTraitDispatch{};
+      /// DefIds of `native fun` placeholders: calling one from native code is
+      /// rejected until the declared-descriptor shims land (M5).
+      std::unordered_set<uint32_t> nativeDefIds;
     };
 
     /// Builds a QBE symbol for a named function. `main` keeps its C-runtime
@@ -106,6 +110,13 @@ namespace NG::native
     [[nodiscard]] auto ngrtHelpers() -> const std::unordered_map<std::string, std::string> &
     {
       static const std::unordered_map<std::string, std::string> helpers = {
+        {"panic",
+         // Halting trap for paths the VM rejects (e.g. unresolved trait-slot
+         // calls in dead generic originals).
+         "function l $ngrt_panic() {\n"
+         "@start\n"
+         "\thlt\n"
+         "}\n"},
         {"str_concat",
          "function l $ngrt_str_concat(l %a, l %b) {\n"
          "@start\n"
@@ -429,6 +440,8 @@ namespace NG::native
         case TypeKind::TraitReference:
           return QType::Long;
         case TypeKind::TypeParameter:
+        case TypeKind::TypeConstructor:
+        case TypeKind::TypeApplication:
           // Monomorphized instance bodies can carry the generic type
           // parameter id in value/local type tables (e.g. `*a` types as the
           // reference's element, which stays `T` until specialize substitutes
@@ -575,6 +588,8 @@ namespace NG::native
       [[nodiscard]] auto emit() -> std::string
       {
         returnType_ = findReturnType();
+        // `main` is the C entry point: a unit return becomes an i64 exit code.
+        if (function_.name == "main" && (!returnType_ || *returnType_ == QType::None)) returnType_ = QType::Long;
         out_ << (function_.name == "main" ? "export function" : "function");
         if (returnType_ && *returnType_ != QType::None) out_ << ' ' << suffix(*returnType_);
         out_ << ' ' << symbolFor(function_.source) << '(';
@@ -612,7 +627,11 @@ namespace NG::native
         // carries its own label.
         if (index != 0 || hasTailRecur_) out_ << labels_[index] << '\n';
         // Block parameters become phi temporaries stored into their slots.
+        // QBE requires every phi of a block to be consecutive at the top, so
+        // all phis are emitted before any store.
         const auto &predecessors = predecessors_[index];
+        std::vector<std::string> phiTemps;
+        phiTemps.reserve(block.parameterLocals.size());
         for (size_t param = 0; param < block.parameterLocals.size(); ++param)
         {
           const auto local = block.parameterLocals[param].value;
@@ -629,7 +648,13 @@ namespace NG::native
           }
           const auto phi = fresh();
           line(std::format("{} ={} phi {}", phi, suffix(type), arguments));
-          line(std::format("store{} {}, {}", suffix(type), phi, localSlots_.at(local)));
+          phiTemps.push_back(phi);
+        }
+        for (size_t param = 0; param < block.parameterLocals.size(); ++param)
+        {
+          const auto local = block.parameterLocals[param].value;
+          line(std::format("store{} {}, {}", suffix(localQTypes_.at(local)), phiTemps[param],
+                           localSlots_.at(local)));
         }
         for (const auto &instruction : block.instructions) lowerInstruction(instruction);
         lowerTerminator(*block.terminator, index);
@@ -849,12 +874,37 @@ namespace NG::native
           const auto valueType = qtypeOf(function_.valueTypes.at(instruction.operands.back().value));
           if (instruction.placeRootRef)
           {
-            if (!instruction.placeSteps.empty())
-              throw LoweringError(std::format("native lowering (M2): ref-rooted place paths are not supported yet in `{}`",
-                                              function_.name));
-            useHelper("ref_addr");
-            const auto address = fresh();
-            line(std::format("{} =l call $ngrt_ref_addr(l {})", address, operandTemp(*instruction.placeRootRef)));
+            const auto reference = operandTemp(*instruction.placeRootRef);
+            if (instruction.placeSteps.empty())
+            {
+              useHelper("ref_addr");
+              const auto address = fresh();
+              line(std::format("{} =l call $ngrt_ref_addr(l {})", address, reference));
+              line(std::format("store{} {}, {}", suffix(valueType), value, address));
+              return;
+            }
+            // Ref-rooted place with a path (`(*self).field := ...`): the
+            // ref's prefix steps walk to the containing aggregate value,
+            // then the static path steps walk to the target address.
+            useHelper("ref_load");
+            const auto current = fresh();
+            line(std::format("{} =l call $ngrt_ref_load(l {})", current, reference));
+            std::string address = current;
+            for (const auto &step : instruction.placeSteps)
+            {
+              const auto next = fresh();
+              if (step.kind == flowir::PlaceStep::Kind::Member)
+              {
+                line(std::format("{} =l add {}, {}", next, address, step.field * 8));
+              }
+              else
+              {
+                useHelper("arr_addr");
+                line(std::format("{} =l call $ngrt_arr_addr(l {}, l {})", next, address,
+                                 operandTemp(step.indexValue)));
+              }
+              address = next;
+            }
             line(std::format("store{} {}, {}", suffix(valueType), value, address));
             return;
           }
@@ -989,6 +1039,18 @@ namespace NG::native
         }
         case ExpressionKind::Prefix: lowerPrefix(instruction); return;
         case ExpressionKind::Binary: lowerBinary(instruction); return;
+        case ExpressionKind::Call:
+          // An unresolved trait-slot call inside a generic original body:
+          // the VM throws on the same path (evaluateInstruction rejects
+          // ExpressionKind::Call), so this code is dead for every reachable
+          // program. Emit a defined-but-halting trap.
+          bindResult(instruction, qtypeOf(function_.valueTypes.at(instruction.result.value)), "copy 0");
+          useHelper("panic");
+          {
+            const auto unused = fresh();
+            line(std::format("{} =l call $ngrt_panic()", unused));
+          }
+          return;
         default:
           throw LoweringError(std::format("native lowering (M1): expression kind {} is not supported yet in `{}`",
                                           static_cast<int>(kind), function_.name));
@@ -1000,6 +1062,10 @@ namespace NG::native
       /// deferred to the descriptor/shim work of M5.
       void lowerCall(const Instruction &instruction)
       {
+        if (ngrt_.nativeDefIds.contains(instruction.callTarget->value))
+          throw LoweringError(std::format(
+              "native function call is not available in the native tier yet (`{}`; native shims arrive in M5)",
+              names_.contains(instruction.callTarget->value) ? names_.at(instruction.callTarget->value) : "unknown"));
         std::string arguments;
         for (size_t index = 0; index < instruction.operands.size(); ++index)
         {
@@ -1345,7 +1411,7 @@ namespace NG::native
         switch (terminator.kind)
         {
         case TerminatorKind::Return:
-          if (terminator.arguments.empty()) line("ret");
+          if (terminator.arguments.empty()) line(function_.name == "main" ? "ret 0" : "ret");
           else line(std::format("ret {}", operandTemp(terminator.arguments[0])));
           return;
         case TerminatorKind::Jump:
@@ -1381,6 +1447,8 @@ namespace NG::native
     FunctionNames names;
     for (const auto &function : functions) names.emplace(function.source.value, function.name);
     NgrtContext ngrt;
+    for (const auto &function : functions)
+      if (function.nativeFunction) ngrt.nativeDefIds.insert(function.source.value);
     std::string result;
     for (const auto &function : functions)
     {

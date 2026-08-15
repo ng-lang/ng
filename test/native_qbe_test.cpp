@@ -370,4 +370,38 @@ TEST_CASE("vNext native lowering round-trips polymorphic view arrays through qbe
                                  "trait_view_arrays");
   CHECK(exitCode == 48); // 42 + 6
 }
+
+TEST_CASE("vNext native mode compiles, links, and runs a program end to end", "[vNext][Native][Qbe]")
+{
+  std::ostringstream output;
+  std::ostringstream errors;
+  const int status = NG::runDriver(
+      {"--native", "--source",
+       "fun fib(n: i64) -> i64 { if (n <= 1) { return n; } return fib(n - 1) + fib(n - 2); } "
+       "fun main() -> i64 => fib(10);"},
+      output, errors);
+  INFO(errors.str());
+  REQUIRE(status == 0);
+  REQUIRE_THAT(output.str(), ContainsSubstring("native main exited with code 55"));
+}
+
+TEST_CASE("vNext native mode maps a unit main to exit code 0", "[vNext][Native][Qbe]")
+{
+  std::ostringstream output;
+  std::ostringstream errors;
+  const int status = NG::runDriver({"--native", "--source", "fun main() -> unit { let x = 1 + 2; }"}, output, errors);
+  INFO(errors.str());
+  REQUIRE(status == 0);
+  REQUIRE_THAT(output.str(), ContainsSubstring("native main exited with code 0"));
+}
+
+TEST_CASE("vNext native mode rejects native function calls until shims land", "[vNext][Native][Qbe]")
+{
+  std::ostringstream output;
+  std::ostringstream errors;
+  const int status = NG::runDriver(
+      {"--native", "--source", "export native fun probe() -> unit; fun main() -> unit { probe(); }"}, output, errors);
+  REQUIRE(status == 1);
+  REQUIRE_THAT(errors.str(), ContainsSubstring("native function call is not available"));
+}
 #endif

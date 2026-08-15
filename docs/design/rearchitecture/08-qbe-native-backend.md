@@ -298,9 +298,17 @@ Final generated results:
   the VM). Polymorphic view arrays dispatch per element. Remaining: native
   shims, `ngrt` as a linked archive, unions, ref-rooted view/place paths,
   deep-copy-on-bind for aggregates.
-- **M3:** aggregates (strings/arrays/structs/enums), direct and trait-view
-  calls, drop lowering; a stdlib subset runs natively; executables link
-  `libngrt`.
+- **M3 (delivered):** `ngi --native` compiles, links, and runs an
+  executable end to end (emit → qbe → cc → run; per-process temp dir);
+  `main` maps to the C entry point (unit returns become exit code 0). The
+  `libngrt` archive is superseded: ngrt helpers stay as emitted IL calling
+  libc directly, so executables need no host runtime until native shims
+  (M5). 24/45 example programs run natively (folds, ref_places, traits,
+  trait_objects, enums, recursion, …); the rest are blocked on native
+  shims (`assert`/`print`/`len`/`sum`/imgui), unions, and opaque types.
+  Delivered alongside: ref-rooted place paths (`(*self).field := ...`),
+  halt traps (`$ngrt_panic`) for VM-rejected unresolved trait-slot calls in
+  dead generic originals, and type-constructor fallbacks.
 - **M4:** Tier 1 typed unboxing for monomorphized hot paths; layout pass;
   benchmarks (R11).
 - **M5:** declared native descriptors (R9) consumed by native codegen;
