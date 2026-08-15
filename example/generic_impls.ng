@@ -1,0 +1,57 @@
+// vNext generic impls: `impl<T> Trait for Type<T>` matches concrete
+// receivers per instantiation, coexists with concrete impls (which win),
+// satisfies trait bounds, and dispatches through `ref<Trait>` views.
+
+import prelude;
+import seq;
+import list;
+
+trait Show {
+    fun show(self: Self ref) -> string;
+}
+
+impl<T> Show for List<T> {
+    fun show(self: Self ref) -> string {
+        if (length(self) == 0) { return "[]"; }
+        return "list";
+    }
+}
+
+impl<T> Show for array<T> {
+    fun show(self: Self ref) -> string {
+        return "array";
+    }
+}
+
+impl Show for List<i64> {
+    fun show(self: Self ref) -> string {
+        return "int-list";
+    }
+}
+
+fun render<U: Show>(value: U ref) -> string {
+    return value.show();
+}
+
+fun main() -> unit {
+    let numbers = listFrom([1, 2, 3]);
+    let words = listFrom(["a", "b"]);
+    let values = [1, 2, 3];
+    let empty: List<i64> = List.Nil;
+    let emptyWords: List<string> = List.Nil;
+
+    // Concrete impls beat generic ones.
+    assert(numbers.show() == "int-list");
+    assert(words.show() == "list");
+    assert(values.show() == "array");
+    assert(empty.show() == "int-list");
+    assert(emptyWords.show() == "[]");
+
+    // Generic impls satisfy trait bounds.
+    assert(render(ref words) == "list");
+    assert(render(ref values) == "array");
+
+    // Dynamic dispatch through a trait view.
+    let view: ref<Show> = words;
+    assert(view.show() == "list");
+}

@@ -807,12 +807,15 @@ namespace NG::syntax
   struct ImplDeclaration final : ModuleItem
   {
     const std::string traitName;
+    /// Generic impl type parameters (`impl<T> Trait for List<T>`).
+    std::vector<GenericParameter> genericParameters;
     TypeSyntaxPtr targetType;
     std::vector<TraitMethodDeclaration> methods;
 
-    ImplDeclaration(std::string implementedTrait, TypeSyntaxPtr implTarget,
-                    std::vector<TraitMethodDeclaration> implMethods, SourceSpan sourceSpan)
-      : ModuleItem(ModuleItemKind::Impl, sourceSpan), traitName(std::move(implementedTrait)), targetType(std::move(implTarget)),
+    ImplDeclaration(std::string implementedTrait, std::vector<GenericParameter> implGenericParameters,
+                    TypeSyntaxPtr implTarget, std::vector<TraitMethodDeclaration> implMethods, SourceSpan sourceSpan)
+      : ModuleItem(ModuleItemKind::Impl, sourceSpan), traitName(std::move(implementedTrait)),
+        genericParameters(std::move(implGenericParameters)), targetType(std::move(implTarget)),
         methods(std::move(implMethods))
     {
     }

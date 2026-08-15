@@ -615,6 +615,26 @@ namespace NG::syntax
   auto ModuleParser::parseImplDeclaration() -> ModuleItemPtr
   {
     const Token implToken = consume();
+    std::vector<GenericParameter> genericParameters;
+    if (current().kind == TokenKind::Less)
+    {
+      // Generic impls (`impl<T> Trait for List<T>`): type parameters only in
+      // this slice; const/constructor parameters are rejected.
+      static_cast<void>(consume());
+      while (current().kind != TokenKind::Greater && current().kind != TokenKind::ShiftRight)
+      {
+        if (current().kind != TokenKind::Identifier)
+          throw ParseError("expected a generic impl type parameter", current().span);
+        const Token parameter = consume();
+        genericParameters.push_back(GenericParameter{.kind = GenericParameterKind::Type,
+                                                     .name = parameter.text,
+                                                     .type = nullptr,
+                                                     .span = parameter.span});
+        if (current().kind != TokenKind::Comma) break;
+        static_cast<void>(consume());
+      }
+      expect(TokenKind::Greater, "expected `>` after generic impl parameters");
+    }
     if (current().kind != TokenKind::Identifier) throw ParseError("expected a trait name after `impl`", current().span);
     const Token trait = consume();
     expect(TokenKind::KeywordFor, "expected `for` after impl trait name");
@@ -628,8 +648,8 @@ namespace NG::syntax
     }
     const Token close = current();
     expect(TokenKind::RightBrace, "expected `}` to close impl");
-    return std::make_unique<ImplDeclaration>(trait.text, std::move(target), std::move(methods),
-                                             SourceSpan{implToken.span.begin, close.span.end});
+    return std::make_unique<ImplDeclaration>(trait.text, std::move(genericParameters), std::move(target),
+                                             std::move(methods), SourceSpan{implToken.span.begin, close.span.end});
   }
 
   auto ModuleParser::parseTraitMethod() -> TraitMethodDeclaration

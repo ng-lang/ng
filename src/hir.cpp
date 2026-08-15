@@ -270,6 +270,7 @@ namespace NG::hir
   auto Resolver::resolveImpl(const syntax::ImplDeclaration &declaration) -> Impl
   {
     Impl resolved{.traitName = declaration.traitName, .span = declaration.span};
+    for (const auto &parameter : declaration.genericParameters) resolved.genericParameters.push_back(parameter.name);
     if (declaration.targetType != nullptr) resolved.targetType = std::make_unique<Type>(lowerType(*declaration.targetType));
     const uint32_t previousOrigin = currentOrigin_;
     currentOrigin_ = declaration.originModule;

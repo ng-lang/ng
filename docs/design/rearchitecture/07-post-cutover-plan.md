@@ -159,12 +159,18 @@ vtables and dynamic calls (`example/traits.ng`, `derive.ng`,
 
 **Remaining work:**
 
-1. Generic impls: `impl<T> Trait for Type<T> { ... }` with per-instance method
-   instantiation and coherence across instances.
-2. Self-typed view methods: methods whose `self` type appears in the
+1. Self-typed view methods: methods whose `self` type appears in the
    signature (e.g. `clone() -> Self`), callable through `ref<Trait>`.
-3. Trait bounds in const predicates/functions (`where T: Trait` inside
+2. Trait bounds in const predicates/functions (`where T: Trait` inside
    `const fun`) — see A6.
+
+**Delivered (2026-08):** generic impls — `impl<T> Trait for List<T>` /
+`impl<T> Trait for array<T>` patterns match concrete receivers per call
+(binding the impl's parameters), method bodies instantiate per concrete
+type, generic impls satisfy trait bounds, feed trait-view dispatch tables,
+and concrete impls take precedence; duplicate generic patterns are
+rejected (`example/generic_impls.ng`, `test/trait_stage1_test.cpp`
+generic-impl cases).
 
 **Delivered (2026-08):** default methods through views and static receivers —
 trait defaults are now generic over the trait's `Self` parameter and

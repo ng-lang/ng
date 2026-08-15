@@ -253,7 +253,15 @@ namespace NG::typecheck
       struct ImplInfo
       {
         std::string traitName;
+        /// Concrete impl target; unused (0) for generic impls.
         TypeId target;
+        /// Generic impl (`impl<T> Trait for List<T>`): the resolved target
+        /// pattern (a nominal type with TypeParameter arguments) plus its
+        /// parameter list.
+        bool generic{};
+        std::vector<TypeId> typeParameters;
+        TypeId targetPatternId;
+        std::string targetPatternDisplay;
         std::unordered_map<std::string, hir::DefId> methods;
       };
 
@@ -754,6 +762,64 @@ namespace NG::typecheck
           }
           if (!traits_.contains(impl.traitName))
             throw TypeError(std::format("unknown trait `{}` in impl", impl.traitName), impl.span);
+          if (!impl.genericParameters.empty())
+          {
+            // Generic impl (`impl<T> Trait for List<T>`): the target is a
+            // pattern over the impl's own type parameters; methods are
+            // generic functions instantiated per concrete receiver.
+            std::vector<TypeId> parameters;
+            std::unordered_map<std::string, TypeId> bindings;
+            for (size_t index = 0; index < impl.genericParameters.size(); ++index)
+            {
+              const TypeId parameter =
+                  interner_.internTypeParameter(impl.genericParameters[index], static_cast<uint32_t>(index));
+              parameters.push_back(parameter);
+              bindings.emplace(impl.genericParameters[index], parameter);
+            }
+            const TypeId pattern = interner_.resolveInScope(*impl.targetType, bindings);
+            const std::string patternDisplay = interner_.display(pattern);
+            for (const auto &existing : impls_)
+              if (existing.generic && existing.traitName == impl.traitName && existing.targetPatternDisplay == patternDisplay)
+                throw TypeError(std::format("duplicate generic impl for trait `{}` on `{}`", impl.traitName, patternDisplay),
+                                impl.span);
+            std::vector<const TraitInfo *> closure;
+            std::unordered_set<std::string> seen;
+            collectSupertraits(impl.traitName, closure, seen);
+            std::unordered_map<std::string, const TraitInfo *> required;
+            for (const auto *trait : closure)
+              for (const auto &[methodName, _] : trait->methodParameters) required.emplace(methodName, trait);
+            ImplInfo info{.traitName = impl.traitName,
+                          .generic = true,
+                          .typeParameters = parameters,
+                          .targetPatternId = pattern,
+                          .targetPatternDisplay = patternDisplay};
+            for (size_t index = 0; index < impl.methods.size(); ++index)
+            {
+              const auto &method = impl.methods[index];
+              if (!required.contains(method.name))
+                throw TypeError(std::format("impl for trait `{}` provides unknown method `{}`", impl.traitName, method.name),
+                                method.span);
+              resolveImplMethodSignature(impl.methodIds.at(index), module_->functions.at(impl.methodIds.at(index).value),
+                                         pattern);
+              // Genericize the method signature over the impl's parameters
+              // and keep the generic body inert (never lowered directly).
+              signatures_.at(impl.methodIds.at(index).value).genericParameters = parameters;
+              signatures_.at(impl.methodIds.at(index).value).genericParameterNames = impl.genericParameters;
+              placeholderFunctions_.insert(impl.methodIds.at(index).value);
+              info.methods.emplace(method.name, impl.methodIds.at(index));
+            }
+            for (const auto &[methodName, owner] : required)
+            {
+              if (info.methods.contains(methodName)) continue;
+              const auto defaultMethod = owner->methodDefaults.find(methodName);
+              if (defaultMethod == owner->methodDefaults.end())
+                throw TypeError(std::format("impl for trait `{}` is missing method `{}`", impl.traitName, methodName),
+                                impl.span);
+              info.methods.emplace(methodName, defaultMethod->second);
+            }
+            impls_.push_back(std::move(info));
+            continue;
+          }
           const TypeId target = interner_.resolve(*impl.targetType);
           if (interner_.descriptor(target).kind == TypeKind::TypeParameter)
             throw TypeError("impl target must be a concrete type", impl.span);
@@ -785,7 +851,40 @@ namespace NG::typecheck
             info.methods.emplace(methodName, defaultMethod->second);
           }
           impls_.push_back(std::move(info));
+          continue;
         }
+      }
+
+      /// Unifies one pattern type argument against a concrete one: type
+      /// parameters bind (consistently), anything else must match exactly.
+      [[nodiscard]] auto unifyPatternArgument(TypeId pattern, TypeId concrete, Substitution &substitution) const -> bool
+      {
+        if (interner_.descriptor(pattern).kind == TypeKind::TypeParameter)
+        {
+          const auto existing = substitution.types.find(pattern.value);
+          if (existing != substitution.types.end()) return existing->second == concrete;
+          substitution.types.emplace(pattern.value, concrete);
+          return true;
+        }
+        return pattern == concrete;
+      }
+
+      /// Matches a generic impl pattern (`List<T>`) against a concrete type
+      /// (`List<i64>`), producing the parameter substitution on success.
+      [[nodiscard]] auto matchImplPattern(const ImplInfo &impl, TypeId concreteType, Substitution &substitution) const -> bool
+      {
+        if (!impl.generic) return false;
+        const auto &pattern = interner_.descriptor(impl.targetPatternId);
+        const auto &concrete = interner_.descriptor(concreteType);
+        if (pattern.kind != concrete.kind) return false;
+        if (pattern.kind == TypeKind::DynamicArray)
+          return unifyPatternArgument(pattern.element, concrete.element, substitution);
+        if (pattern.kind != TypeKind::Enum && pattern.kind != TypeKind::Struct) return false;
+        if (*pattern.nominalId != *concrete.nominalId) return false;
+        if (pattern.typeArguments.size() != concrete.typeArguments.size()) return false;
+        for (size_t index = 0; index < pattern.typeArguments.size(); ++index)
+          if (!unifyPatternArgument(pattern.typeArguments[index], concrete.typeArguments[index], substitution)) return false;
+        return true;
       }
 
       [[nodiscard]] auto hasImpl(const std::string &traitName, TypeId target) const -> bool
@@ -799,7 +898,15 @@ namespace NG::typecheck
         }
         for (const auto &impl : impls_)
         {
-          if (impl.target != target) continue;
+          if (impl.generic)
+          {
+            Substitution substitution;
+            if (!matchImplPattern(impl, target, substitution)) continue;
+          }
+          else if (impl.target != target)
+          {
+            continue;
+          }
           std::vector<const TraitInfo *> closure;
           std::unordered_set<std::string> seen;
           collectSupertraits(impl.traitName, closure, seen);
@@ -917,35 +1024,59 @@ namespace NG::typecheck
           record(expression, dispatchType);
           return dispatchType;
         }
-        const hir::DefId *selected = nullptr;
+        hir::DefId selected;
+        bool selectedFound = false;
+        Substitution matchedSubstitution;
         for (const auto &impl : impls_)
         {
-          if (impl.target != dispatchType) continue;
+          if (impl.generic || impl.target != dispatchType) continue;
           if (const auto found = impl.methods.find(expression.text); found != impl.methods.end())
           {
-            selected = &found->second;
+            selected = found->second;
+            selectedFound = true;
             break;
           }
         }
-        if (selected == nullptr)
+        if (!selectedFound)
+        {
+          // Generic impls (`impl<T> Trait for List<T>`): match the target
+          // pattern against the receiver type to derive the substitution.
+          for (const auto &impl : impls_)
+          {
+            if (!impl.generic) continue;
+            Substitution substitution;
+            if (!matchImplPattern(impl, dispatchType, substitution)) continue;
+            if (const auto found = impl.methods.find(expression.text); found != impl.methods.end())
+            {
+              selected = found->second;
+              matchedSubstitution = std::move(substitution);
+              selectedFound = true;
+              break;
+            }
+          }
+        }
+        if (!selectedFound)
           throw TypeError(std::format("no method `{}` for value of type {}", expression.text, interner_.display(dispatchType)),
                           expression.span);
-        const auto &signature = signatures_.at(selected->value);
-        hir::DefId target = *selected;
+        const auto &signature = signatures_.at(selected.value);
+        hir::DefId target = selected;
         if (isGeneric(signature))
         {
-          // Trait default methods are generic over Self: instantiate per
-          // concrete receiver so inner method calls resolve concretely.
-          Substitution substitution;
+          // Generic methods (trait defaults over Self, generic-impl methods
+          // over the impl's parameters) instantiate per concrete receiver so
+          // inner method calls resolve concretely.
+          Substitution substitution = matchedSubstitution;
           for (const auto parameter : signature.genericParameters)
-            substitution.types.emplace(parameter.value, dispatchType);
-          target = instantiateFunction(*selected, substitution, 0, expression.span);
+            if (!substitution.types.contains(parameter.value))
+              substitution.types.emplace(parameter.value, dispatchType);
+          target = instantiateFunction(selected, substitution, 0, expression.span);
         }
+        const auto &effectiveSignature = signatures_.at(target.value);
         const size_t supplied = expression.operands.size() - firstArgument;
-        if (supplied != signature.parameters.size() - 1)
-          throw TypeError(std::format("method argument count mismatch: expected {}, got {}", signature.parameters.size() - 1,
+        if (supplied != effectiveSignature.parameters.size() - 1)
+          throw TypeError(std::format("method argument count mismatch: expected {}, got {}", effectiveSignature.parameters.size() - 1,
                                       supplied), expression.span);
-        const TypeId receiverParameter = signature.parameters.front();
+        const TypeId receiverParameter = effectiveSignature.parameters.front();
         const auto &receiverDescriptor = interner_.descriptor(receiverParameter);
         if (passReferenceThrough)
         {
@@ -953,26 +1084,21 @@ namespace NG::typecheck
         }
         else
         {
-          if (interner_.descriptor(receiverDescriptor.element).kind != TypeKind::TypeParameter)
-            requireType(receiverDescriptor.element, receiverType, receiver.span, "method receiver");
+          requireType(receiverDescriptor.element, receiverType, receiver.span, "method receiver");
           if (receiverDescriptor.referenceMutable) requireMutableRoot(receiver, receiver.span);
         }
         for (size_t index = 0; index < supplied; ++index)
         {
-          const auto &parameterDescriptor = interner_.descriptor(signature.parameters[index + 1]);
+          const auto &parameterDescriptor = interner_.descriptor(effectiveSignature.parameters[index + 1]);
           if (parameterDescriptor.kind != TypeKind::Reference && parameterDescriptor.kind != TypeKind::RawPointer)
             trackConsumption(*expression.operands[firstArgument + index], locals);
         }
         methodReceiverMutable_.insert_or_assign(&expression, receiverDescriptor.referenceMutable);
-        TypeId recordedReference = receiverParameter;
-        if (interner_.descriptor(receiverDescriptor.element).kind == TypeKind::TypeParameter)
-          recordedReference = interner_.internReference(dispatchType, receiverDescriptor.referenceMutable);
-        methodReceiverRefTypes_.insert_or_assign(&expression, recordedReference);
+        methodReceiverRefTypes_.insert_or_assign(&expression, receiverParameter);
         for (size_t index = 0; index < supplied; ++index)
-          static_cast<void>(inferExpected(*expression.operands[firstArgument + index], signature.parameters[index + 1], locals,
-                                          std::format("method argument {}", index + 1)));
-        const TypeId returnType = target.value == selected->value ? signature.returnType
-                                                                     : signatures_.at(target.value).returnType;
+          static_cast<void>(inferExpected(*expression.operands[firstArgument + index], effectiveSignature.parameters[index + 1],
+                                          locals, std::format("method argument {}", index + 1)));
+        const TypeId returnType = effectiveSignature.returnType;
         record(expression, returnType);
         callTargets_.insert_or_assign(&expression, target);
         return returnType;
@@ -2281,6 +2407,42 @@ namespace NG::typecheck
               for (const auto parameter : methodSignature.genericParameters)
                 substitution.types.emplace(parameter.value, concreteType);
               methodId = instantiateFunction(methodId, substitution, 0, syntax::SourceSpan{});
+            }
+            table.push_back(methodId);
+          }
+          traitViewTables_[traitName].emplace(concreteType.value, std::move(table));
+          return true;
+        }
+        // Generic impls: match the target pattern against the concrete type
+        // and instantiate both impl methods and trait defaults per concrete.
+        for (const auto &impl : impls_)
+        {
+          if (!impl.generic) continue;
+          Substitution substitution;
+          if (!matchImplPattern(impl, concreteType, substitution)) continue;
+          std::vector<const TraitInfo *> closure;
+          std::unordered_set<std::string> seen;
+          collectSupertraits(impl.traitName, closure, seen);
+          const bool covers = std::any_of(closure.begin(), closure.end(),
+                                          [&](const TraitInfo *candidate) { return candidate->name == traitName; });
+          if (!covers) continue;
+          std::vector<hir::DefId> table;
+          for (const auto &methodName : trait.methodOrder)
+          {
+            hir::DefId methodId;
+            if (const auto found = impl.methods.find(methodName); found != impl.methods.end())
+              methodId = found->second;
+            else if (const auto fallback = trait.methodDefaults.find(methodName); fallback != trait.methodDefaults.end())
+              methodId = fallback->second;
+            else
+              return false;
+            const auto &methodSignature = signatures_.at(methodId.value);
+            if (isGeneric(methodSignature))
+            {
+              Substitution full = substitution;
+              for (const auto parameter : methodSignature.genericParameters)
+                if (!full.types.contains(parameter.value)) full.types.emplace(parameter.value, concreteType);
+              methodId = instantiateFunction(methodId, full, 0, syntax::SourceSpan{});
             }
             table.push_back(methodId);
           }

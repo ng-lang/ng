@@ -304,3 +304,77 @@ TEST_CASE("vNext empty impls use trait defaults on static and view receivers", "
   REQUIRE(errors.empty());
   REQUIRE(output.find("with value 3") != std::string::npos);
 }
+
+TEST_CASE("vNext generic impls instantiate per concrete receiver", "[vNext][Trait][GenericImpls]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(run("import prelude; import list; "
+              "trait Show { fun show(self: Self ref) -> string; } "
+              "impl<T> Show for List<T> { fun show(self: Self ref) -> string { return \"list\"; } } "
+              "fun main() -> i64 { let xs = listFrom([1, 2, 3]); "
+              "if (xs.show() == \"list\") { return 1; } return 0; }",
+              output, errors) == 0);
+  REQUIRE(errors.empty());
+  REQUIRE(output.find("with value 1") != std::string::npos);
+
+  REQUIRE(run("import prelude; "
+              "trait Show { fun show(self: Self ref) -> string; } "
+              "impl<T> Show for array<T> { fun show(self: Self ref) -> string { return \"array\"; } } "
+              "fun main() -> i64 { let xs = [1, 2, 3]; "
+              "if (xs.show() == \"array\") { return 2; } return 0; }",
+              output, errors) == 0);
+  REQUIRE(errors.empty());
+  REQUIRE(output.find("with value 2") != std::string::npos);
+}
+
+TEST_CASE("vNext generic impls satisfy trait bounds and views, concrete wins", "[vNext][Trait][GenericImpls]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(run("import prelude; import list; "
+              "trait Show { fun show(self: Self ref) -> string; } "
+              "impl<T> Show for List<T> { fun show(self: Self ref) -> string { return \"generic\"; } } "
+              "impl Show for List<i64> { fun show(self: Self ref) -> string { return \"concrete\"; } } "
+              "fun render<U: Show>(value: U ref) -> string { return value.show(); } "
+              "fun main() -> i64 { let numbers = listFrom([1]); let words = listFrom([\"a\"]); "
+              "let view: ref<Show> = words; "
+              "if (numbers.show() == \"concrete\" && words.show() == \"generic\" && view.show() == \"generic\") "
+              "{ return 1; } return 0; }",
+              output, errors) == 0);
+  REQUIRE(errors.empty());
+  REQUIRE(output.find("with value 1") != std::string::npos);
+}
+
+TEST_CASE("vNext generic impls diagnose duplicates and missing methods", "[vNext][Trait][GenericImpls][Errors]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(run("import prelude; import list; "
+              "trait Show { fun show(self: Self ref) -> string; } "
+              "impl<T> Show for List<T> { fun show(self: Self ref) -> string { return \"a\"; } } "
+              "impl<U> Show for List<U> { fun show(self: Self ref) -> string { return \"b\"; } } "
+              "fun main() { }",
+              output, errors) == 1);
+  REQUIRE_THAT(errors, ContainsSubstring("duplicate generic impl"));
+
+  REQUIRE(run("import prelude; import list; "
+              "trait Show { fun show(self: Self ref) -> string; } "
+              "impl<T> Show for List<T> { fun show(self: Self ref) -> string { return \"list\"; } } "
+              "fun main() { let n = 5; n.show(); }",
+              output, errors) == 1);
+  REQUIRE_THAT(errors, ContainsSubstring("no method `show` for value of type i64"));
+}
+
+TEST_CASE("vNext generic_impls example runs end to end through ngi", "[vNext][Trait][GenericImpls][Examples]")
+{
+  std::string output;
+  std::string errors;
+  std::string path{"example/generic_impls.ng"};
+  if (!std::filesystem::is_directory(std::filesystem::current_path() / "example")) path = std::string{"../"} + path;
+  std::ostringstream outputStream;
+  std::ostringstream errorStream;
+  REQUIRE(NG::runDriver({path}, outputStream, errorStream) == 0);
+  REQUIRE(errorStream.str().empty());
+  REQUIRE(outputStream.str().find("main returned") != std::string::npos);
+}

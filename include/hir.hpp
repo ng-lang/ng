@@ -368,6 +368,8 @@ namespace NG::hir
   struct Impl
   {
     std::string traitName;
+    /// Generic impl type parameter names (`impl<T> Trait for List<T>`).
+    std::vector<std::string> genericParameters;
     std::unique_ptr<Type> targetType;
     std::vector<TraitMethod> methods;
     /// DefId of each provided impl method lowered as a module function.
