@@ -1011,8 +1011,7 @@ namespace NG::flowir
           for (size_t index = qualified ? 2 : 1; index < expression.operands.size(); ++index)
             operands.push_back(lowerExpression(*expression.operands[index]));
           const ValueId value{nextValue_++};
-          if (types_ != nullptr)
-            function_.valueTypes.emplace(value.value, types_->typeIdOf(expression));
+          function_.valueTypes.emplace(value.value, types_->typeIdOf(expression));
           block().instructions.push_back(
               Instruction{.kind = InstructionKind::CallTrait,
                           .result = value,
@@ -1064,8 +1063,7 @@ namespace NG::flowir
           // Derived clone: shared-borrow the receiver place and deep-copy the
           // referenced value (LoadRef copies); no function call is emitted.
           const ValueId value{nextValue_++};
-          if (types_ != nullptr)
-            function_.valueTypes.emplace(value.value, types_->typeIdOf(expression));
+          function_.valueTypes.emplace(value.value, types_->typeIdOf(expression));
           block().instructions.push_back(
               Instruction{.kind = InstructionKind::LoadRef, .result = value, .operands = {receiverValue}});
           return value;
