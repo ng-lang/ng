@@ -1230,9 +1230,86 @@ namespace NG::flowir
                                         .arguments = std::move(arguments)};
       }
 
+      /// Lowers a scalar literal-or switch into an equality-dispatch chain:
+      /// each case's literals compare against the scrutinee and branch to the
+      /// shared case block; unmatched values fall through to `otherwise`.
+      void lowerLiteralSwitch(const hir::Statement &statement, const ValueId scrutinee)
+      {
+        const size_t caseCount = statement.switchCases.size();
+        std::vector<BlockId> caseBlocks;
+        caseBlocks.reserve(caseCount);
+        for (size_t indexCase = 0; indexCase < caseCount; ++indexCase) caseBlocks.push_back(appendBlock());
+        const BlockId tailBlock = appendBlock();
+        const BlockId exitBlock = appendBlock();
+        if (caseCount == 0)
+        {
+          block().terminator = Terminator{.kind = TerminatorKind::Jump, .targets = {tailBlock}, .arguments = {}};
+        }
+
+        BlockId nextCheck = current_;
+        for (size_t indexCase = 0; indexCase < caseCount; ++indexCase)
+        {
+          const auto &switchCase = statement.switchCases[indexCase];
+          const BlockId afterCase = indexCase + 1 < caseCount ? appendBlock() : tailBlock;
+          for (size_t indexLiteral = 0; indexLiteral < switchCase.literalTexts.size(); ++indexLiteral)
+          {
+            current_ = nextCheck;
+            std::string text = switchCase.literalTexts[indexLiteral];
+            hir::ExpressionKind literalKind = hir::ExpressionKind::IntegerLiteral;
+            if (text == "true" || text == "false") literalKind = hir::ExpressionKind::BooleanLiteral;
+            else if (!text.empty() && !std::isdigit(static_cast<unsigned char>(text[0])) && text[0] != '-')
+              literalKind = hir::ExpressionKind::StringLiteral;
+            int64_t literalPayload = 0;
+            if (literalKind == hir::ExpressionKind::IntegerLiteral) literalPayload = std::stoll(text);
+            else if (literalKind == hir::ExpressionKind::BooleanLiteral) literalPayload = text == "true" ? 1 : 0;
+            const ValueId literal{nextValue_++};
+            if (types_ != nullptr) function_.valueTypes.emplace(literal.value, types_->typeIdOf(*statement.expression));
+            block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
+                                                       .result = literal,
+                                                       .expressionKind = literalKind,
+                                                       .payload = literalPayload,
+                                                       .text = std::move(text)});
+            const ValueId matches{nextValue_++};
+            if (types_ != nullptr) function_.valueTypes.emplace(matches.value, typecheck::builtin::Bool);
+            block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
+                                                       .result = matches,
+                                                       .expressionKind = hir::ExpressionKind::Binary,
+                                                       .text = "==",
+                                                       .payload = 6,
+                                                       .operands = {scrutinee, literal}});
+            nextCheck = indexLiteral + 1 < switchCase.literalTexts.size() ? appendBlock() : afterCase;
+            block().terminator = Terminator{.kind = TerminatorKind::Branch,
+                                            .targets = {caseBlocks[indexCase], nextCheck},
+                                            .arguments = {matches}};
+          }
+        }
+
+        current_ = tailBlock;
+        if (statement.alternative != nullptr) lowerBlock(*statement.alternative);
+        if (!block().terminator.has_value())
+        {
+          block().terminator = Terminator{.kind = TerminatorKind::Jump, .targets = {exitBlock}, .arguments = {}};
+        }
+        for (size_t indexCase = 0; indexCase < caseCount; ++indexCase)
+        {
+          current_ = caseBlocks[indexCase];
+          lowerBlock(*statement.switchCases[indexCase].body);
+          if (!block().terminator.has_value())
+          {
+            block().terminator = Terminator{.kind = TerminatorKind::Jump, .targets = {exitBlock}, .arguments = {}};
+          }
+        }
+        current_ = exitBlock;
+      }
+
       void lowerSwitch(const hir::Statement &statement)
       {
         const ValueId scrutinee = lowerExpression(*statement.expression);
+        if (!statement.switchCases.empty() && !statement.switchCases.front().literalTexts.empty())
+        {
+          lowerLiteralSwitch(statement, scrutinee);
+          return;
+        }
         const ValueId index{nextValue_++};
         if (types_ != nullptr) function_.valueTypes.emplace(index.value, typecheck::builtin::I64);
         block().instructions.push_back(

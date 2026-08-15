@@ -198,3 +198,76 @@ TEST_CASE("vNext switch example file runs end to end through ngi", "[vNext][Swit
   REQUIRE(errors.empty());
   REQUIRE(output.find("with value 50") != std::string::npos);
 }
+
+TEST_CASE("vNext scalar switches dispatch integer literal-or patterns", "[vNext][Switch][Literals]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(run("import prelude; fun main() -> i64 { let n = 2; let mut hit = 0; "
+              "switch (n) { case 1 { hit := 1; } case 2 | 3 { hit := 2; } otherwise { hit := 9; } } return hit; }",
+              output, errors) == 0);
+  REQUIRE(errors.empty());
+  REQUIRE(output.find("with value 2") != std::string::npos);
+
+  REQUIRE(run("import prelude; fun main() -> i64 { let n = -1; let mut hit = 0; "
+              "switch (n) { case -1 { hit := 1; } case 0 { hit := 2; } } return hit; }",
+              output, errors) == 0);
+  REQUIRE(errors.empty());
+  REQUIRE(output.find("with value 1") != std::string::npos);
+
+  REQUIRE(run("import prelude; fun main() -> i64 { let m = 5; let mut miss = 0; "
+              "switch (m) { case 0 | 1 { miss := 1; } otherwise { miss := 7; } } return miss; }",
+              output, errors) == 0);
+  REQUIRE(errors.empty());
+  REQUIRE(output.find("with value 7") != std::string::npos);
+}
+
+TEST_CASE("vNext scalar switches dispatch string and bool literals", "[vNext][Switch][Literals]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(run("import prelude; fun main() -> i64 { let s = \"beta\"; let mut hit = \"\"; "
+              "switch (s) { case \"alpha\" { hit := \"a\"; } case \"beta\" | \"gamma\" { hit := \"b\"; } "
+              "otherwise { hit := \"z\"; } } if (hit == \"b\") { return 1; } return 0; }",
+              output, errors) == 0);
+  REQUIRE(errors.empty());
+  REQUIRE(output.find("with value 1") != std::string::npos);
+
+  REQUIRE(run("import prelude; fun main() -> i64 { let b = true; let mut hit = 0; "
+              "switch (b) { case true { hit := 1; } otherwise { hit := 0; } } return hit; }",
+              output, errors) == 0);
+  REQUIRE(errors.empty());
+  REQUIRE(output.find("with value 1") != std::string::npos);
+}
+
+TEST_CASE("vNext scalar switches validate literals and patterns", "[vNext][Switch][Literals][Errors]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(run("import prelude; fun main() { let n = 1; switch (n) { case 1 { } case 1 | 2 { } } }",
+              output, errors) == 1);
+  REQUIRE_THAT(errors, ContainsSubstring("duplicate literal `1` in switch"));
+
+  REQUIRE(run("import prelude; fun main() { let n = 1; switch (n) { case \"x\" { } } }", output, errors) == 1);
+  REQUIRE_THAT(errors, ContainsSubstring("does not match switch type i64"));
+
+  REQUIRE(run("import prelude; fun main() { let n: u8 = 200; switch (n) { case 300 { } } }", output, errors) == 1);
+  REQUIRE_THAT(errors, ContainsSubstring("out of range for type u8"));
+
+  REQUIRE(run("import prelude; enum E { A, B } fun main() { let e = E.A; switch (e) { case A { } case 1 { } } }",
+              output, errors) == 1);
+  REQUIRE_THAT(errors, ContainsSubstring("cannot mix literal and variant patterns"));
+}
+
+TEST_CASE("vNext switch_patterns example runs end to end through ngi", "[vNext][Switch][Literals][Examples]")
+{
+  std::string output;
+  std::string errors;
+  std::string path{"example/switch_patterns.ng"};
+  if (!std::filesystem::is_directory(std::filesystem::current_path() / "example")) path = std::string{"../"} + path;
+  std::ostringstream outputStream;
+  std::ostringstream errorStream;
+  REQUIRE(NG::runDriver({path}, outputStream, errorStream) == 0);
+  REQUIRE(errorStream.str().empty());
+  REQUIRE(outputStream.str().find("main returned") != std::string::npos);
+}

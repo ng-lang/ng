@@ -321,9 +321,58 @@ namespace NG::syntax
         throw ParseError("expected `case` or `otherwise` in switch", current().span);
       }
       const Token caseToken = consume();
+      const auto isLiteralToken = [](TokenKind kind) {
+        return kind == TokenKind::IntegerLiteral || kind == TokenKind::FloatLiteral || kind == TokenKind::StringLiteral ||
+               kind == TokenKind::KeywordTrue || kind == TokenKind::KeywordFalse;
+      };
+      if (isLiteralToken(current().kind) || current().kind == TokenKind::Minus)
+      {
+        // Scalar literal-or patterns: `case 1 | "a" | true | -1 { ... }`.
+        std::vector<std::string> texts;
+        const auto stripSuffix = [](std::string text) {
+          for (const auto *suffix : {"i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "f32", "f64"})
+          {
+            const size_t length = std::char_traits<char>::length(suffix);
+            if (text.size() > length && text.ends_with(suffix))
+            {
+              text.resize(text.size() - length);
+              return text;
+            }
+          }
+          return text;
+        };
+        do
+        {
+          std::string text;
+          if (current().kind == TokenKind::Minus)
+          {
+            static_cast<void>(consume());
+            if (current().kind != TokenKind::IntegerLiteral)
+              throw ParseError("expected an integer literal after `-` in case pattern", current().span);
+            text = "-" + consume().text;
+          }
+          else
+          {
+            if (!isLiteralToken(current().kind))
+              throw ParseError("expected a literal after `|` in case pattern", current().span);
+            const Token literal = consume();
+            text = literal.kind == TokenKind::KeywordTrue   ? "true"
+                   : literal.kind == TokenKind::KeywordFalse ? "false"
+                                                             : stripSuffix(literal.text);
+          }
+          texts.push_back(std::move(text));
+          if (current().kind != TokenKind::Pipe) break;
+          static_cast<void>(consume());
+        } while (true);
+        Block body = parseNestedBlock();
+        cases.push_back(SwitchCase{SwitchCasePattern::literals(std::move(texts),
+                                                               SourceSpan{caseToken.span.begin, body.span.end}),
+                                   std::move(body)});
+        continue;
+      }
       if (current().kind != TokenKind::Identifier)
       {
-        throw ParseError("expected a variant name after `case`", current().span);
+        throw ParseError("expected a variant name or literal after `case`", current().span);
       }
       const Token variant = consume();
       std::optional<std::string> bindingName;

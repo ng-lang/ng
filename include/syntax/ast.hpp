@@ -428,12 +428,28 @@ namespace NG::syntax
     std::optional<std::string> bindingName;
     /// Additional tuple-payload bindings (`case Cell(value, rest)`).
     std::vector<std::string> bindingNames;
+    /// Scalar literal-or patterns (`case 1 | 2 | "x" { ... }`): raw literal
+    /// texts; empty for variant patterns.
+    const std::vector<std::string> literalTexts;
     const SourceSpan span;
 
     SwitchCasePattern(std::string variant, std::optional<std::string> binding, std::vector<std::string> extraBindings,
                       SourceSpan sourceSpan)
       : variantName(std::move(variant)), bindingName(std::move(binding)), bindingNames(std::move(extraBindings)),
         span(sourceSpan)
+    {
+    }
+
+    static auto literals(std::vector<std::string> texts, SourceSpan sourceSpan) -> SwitchCasePattern
+    {
+      return SwitchCasePattern{{}, {}, {}, std::move(texts), sourceSpan};
+    }
+
+  private:
+    SwitchCasePattern(std::string variant, std::optional<std::string> binding, std::vector<std::string> extraBindings,
+                      std::vector<std::string> texts, SourceSpan sourceSpan)
+      : variantName(std::move(variant)), bindingName(std::move(binding)), bindingNames(std::move(extraBindings)),
+        literalTexts(std::move(texts)), span(sourceSpan)
     {
     }
   };

@@ -1502,9 +1502,85 @@ namespace NG::typecheck
                                           std::format("next argument {}", index + 1)));
       }
 
+      /// Scalar literal-or switches: `switch (n) { case 1 | 2 { } otherwise { } }`
+      /// over integer, bool, and string values. Literals adopt the scrutinee
+      /// type (integers are range-checked), duplicates are rejected, and no
+      /// exhaustiveness requirement applies (the `otherwise` branch is
+      /// optional).
+      void checkLiteralSwitch(const hir::Statement &statement, TypeId scrutinee, const LocalTypes &locals,
+                              const LoopTypes &loops, TypeId returnType)
+      {
+        if (!isIntegerBuiltin(scrutinee) && scrutinee != builtin::Bool && scrutinee != builtin::String)
+          throw TypeError(std::format("literal switch patterns require an integer, bool, or string value, got {}",
+                                      interner_.display(scrutinee)),
+                          statement.expression->span);
+        std::unordered_set<std::string> seen;
+        const MoveState beforeSwitch = moveState_;
+        const BorrowState borrowsBeforeSwitch = borrowState_;
+        MoveState merged;
+        BorrowState borrowsMerged;
+        bool anyBranch = false;
+        const auto checkBranch = [&](const hir::Block &branch, const LocalTypes &branchLocals) {
+          const MoveState beforeBranch = moveState_;
+          const BorrowState borrowsBeforeBranch = borrowState_;
+          checkBlock(branch, branchLocals, loops, returnType, true);
+          merged = merged.mergedWith(moveState_);
+          borrowsMerged = borrowsMerged.mergedWith(borrowState_);
+          moveState_ = beforeBranch;
+          borrowState_ = borrowsBeforeBranch;
+          anyBranch = true;
+        };
+        for (const auto &switchCase : statement.switchCases)
+        {
+          if (switchCase.literalTexts.empty())
+            throw TypeError("cannot mix literal and variant patterns in one switch", switchCase.span);
+          for (const auto &text : switchCase.literalTexts)
+          {
+            if (!seen.insert(text).second)
+              throw TypeError(std::format("duplicate literal `{}` in switch", text), switchCase.span);
+            if (isIntegerBuiltin(scrutinee))
+            {
+              if (text.empty() || (text[0] != '-' && !std::isdigit(static_cast<unsigned char>(text[0]))))
+                throw TypeError(std::format("literal `{}` does not match switch type {}", text,
+                                            interner_.display(scrutinee)),
+                                switchCase.span);
+              int64_t value{};
+              try
+              {
+                value = std::stoll(text);
+              }
+              catch (const std::exception &)
+              {
+                throw TypeError(std::format("integer literal `{}` is out of range for type {}", text,
+                                            interner_.display(scrutinee)),
+                                switchCase.span);
+              }
+              checkIntegerLiteral(value, text, scrutinee, switchCase.span);
+            }
+            else if (scrutinee == builtin::Bool)
+            {
+              if (text != "true" && text != "false")
+                throw TypeError(std::format("literal `{}` does not match switch type bool", text), switchCase.span);
+            }
+          }
+          checkBranch(*switchCase.body, locals);
+        }
+        if (statement.alternative != nullptr) checkBranch(*statement.alternative, locals);
+        if (anyBranch)
+        {
+          moveState_ = beforeSwitch.mergedWith(merged);
+          borrowState_ = borrowsBeforeSwitch.mergedWith(borrowsMerged);
+        }
+      }
+
       void checkSwitch(const hir::Statement &statement, const LocalTypes &locals, const LoopTypes &loops, TypeId returnType)
       {
         const TypeId scrutinee = infer(*statement.expression, locals);
+        if (!statement.switchCases.empty() && !statement.switchCases.front().literalTexts.empty())
+        {
+          checkLiteralSwitch(statement, scrutinee, locals, loops, returnType);
+          return;
+        }
         const auto &descriptor = interner_.descriptor(scrutinee);
         if (descriptor.kind != TypeKind::Enum)
           throw TypeError(std::format("switch value must be an enum type, got {}", interner_.display(scrutinee)),
@@ -1527,6 +1603,8 @@ namespace NG::typecheck
         };
         for (const auto &switchCase : statement.switchCases)
         {
+          if (!switchCase.literalTexts.empty())
+            throw TypeError("cannot mix literal and variant patterns in one switch", switchCase.span);
           const auto found = std::find(descriptor.fieldNames.begin(), descriptor.fieldNames.end(), switchCase.variantName);
           if (found == descriptor.fieldNames.end())
             throw TypeError(std::format("unknown variant `{}` for enum `{}`", switchCase.variantName, descriptor.name),

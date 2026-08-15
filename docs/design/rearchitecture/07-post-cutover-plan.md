@@ -132,12 +132,19 @@ recursive payloads through `ref<Node<T>>` (`example/enum_match.ng`,
 
 **Remaining work:**
 
-1. Structural patterns in `case`: tuple patterns (`(a, b)`), literal patterns
-   (`1`, `"x"`), and or-patterns (`A | B`) — legacy `20`'s surface.
+1. Tuple patterns in `case` (`(a, b)`) — deferred until union tags make
+   heterogeneous scrutinees meaningful.
 2. Rest patterns in destructuring (`(first, ...rest)`) and tuple spread/rest
    bindings — legacy `50`, `54` remainder.
 3. Pattern bindings as move-into-bindings with the A1 partial-move rules
    (field-aware, per-branch merge).
+
+**Delivered (2026-08):** scalar literal-or switch patterns — `case 1 | 2`,
+`case "a"`, `case true`, `case -1` over integer/bool/string scrutinees with
+optional `otherwise`, scrutinee-typed literal adoption (integer range
+checks, suffix stripping, negatives), duplicate and mixed-pattern
+diagnostics, and equality-dispatch lowering (`example/switch_patterns.ng`,
+`test/switch_statement_test.cpp` literal cases).
 
 **Blocks:** A1 for move-aware pattern bindings; R4 pattern lowering.
 **Legacy evidence:** examples `14`, `20`, `50`, `54`; matrix row 4.

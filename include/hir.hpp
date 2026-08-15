@@ -153,6 +153,9 @@ namespace NG::hir
   struct SwitchCase
   {
     std::string variantName;
+    /// Scalar literal-or pattern texts (`case 1 | "a" | true`); empty for
+    /// variant patterns.
+    std::vector<std::string> literalTexts;
     std::optional<LocalId> binding;
     /// Additional tuple-payload bindings (`case Cell(value, rest)`).
     std::vector<LocalId> bindings;

@@ -1,0 +1,38 @@
+// vNext scalar switch patterns: `switch` over integer, bool, and string
+// values with literal-or cases (`case 1 | 2 | "a"`) and an optional
+// `otherwise` branch. Variant switches over enums keep exhaustive coverage.
+
+import prelude;
+
+fun classify(score: i64) -> string {
+    switch (score) {
+        case 0 | 1 | 2 { return "low"; }
+        case 3 | 4 { return "mid"; }
+        otherwise { return "high"; }
+    }
+}
+
+fun main() -> unit {
+    assert(classify(1) == "low");
+    assert(classify(4) == "mid");
+    assert(classify(9) == "high");
+
+    let direction = "west";
+    switch (direction) {
+        case "north" { assert(false); }
+        case "east" | "west" { assert(direction == "west"); }
+        otherwise { assert(false); }
+    }
+
+    let ready = false;
+    switch (ready) {
+        case true { assert(false); }
+        case false { assert(!ready); }
+    }
+
+    let negative = -3;
+    switch (negative) {
+        case -3 { assert(negative == -3); }
+        otherwise { assert(false); }
+    }
+}

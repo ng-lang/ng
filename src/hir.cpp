@@ -588,7 +588,9 @@ namespace NG::hir
       resolved.switchCases.reserve(switchStatement->cases.size());
       for (const auto &switchCase : switchStatement->cases)
       {
-        SwitchCase caseResolved{.variantName = switchCase.pattern.variantName, .span = switchCase.pattern.span};
+        SwitchCase caseResolved{.variantName = switchCase.pattern.variantName,
+                                .literalTexts = switchCase.pattern.literalTexts,
+                                .span = switchCase.pattern.span};
         if (switchCase.pattern.bindingName.has_value() || !switchCase.pattern.bindingNames.empty())
         {
           scopes_.emplace_back();
@@ -995,7 +997,8 @@ namespace
       for (const auto local : statement.loopBindings) copy.loopBindings.push_back(remapLocal(context, local));
       for (const auto &switchCase : statement.switchCases)
       {
-        hir::SwitchCase clonedCase{.variantName = switchCase.variantName, .span = switchCase.span};
+        hir::SwitchCase clonedCase{.variantName = switchCase.variantName, .literalTexts = switchCase.literalTexts,
+                                   .span = switchCase.span};
         if (switchCase.binding.has_value()) clonedCase.binding = remapLocal(context, *switchCase.binding);
         for (const auto binding : switchCase.bindings) clonedCase.bindings.push_back(remapLocal(context, binding));
         clonedCase.body = std::make_unique<hir::Block>(cloneBlock(context, *switchCase.body));
