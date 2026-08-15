@@ -1,7 +1,9 @@
 // AI-generated code; reviewed for this repository's vNext rewrite.
-#include "test.hpp"
 #include "driver.hpp"
+#include "test.hpp"
 
+#include <filesystem>
+#include <fstream>
 #include <sstream>
 
 namespace
@@ -48,7 +50,8 @@ TEST_CASE("vNext ngi driver passes string arguments and reports string returns",
 {
   std::string output;
   std::string errors;
-  REQUIRE(run({"--source", "fun main(name: string) -> string { return \"hello, \" + name; }", "--", "Ada"}, output, errors) == 0);
+  REQUIRE(run({"--source", "fun main(name: string) -> string { return \"hello, \" + name; }", "--", "Ada"}, output,
+              errors) == 0);
   REQUIRE(output == "compiled 1 vNext function(s); main returned after 4 instruction(s) with value hello, Ada\n");
   REQUIRE(errors.empty());
 }
@@ -66,8 +69,9 @@ TEST_CASE("vNext ngi driver executes direct calls through the module VM", "[vNex
 {
   std::string output;
   std::string errors;
-  REQUIRE(run({"--source", "fun helper(value: i64) -> i64 { return value + 1; } fun main() -> i64 { return helper(41); }"}, output,
-              errors) == 0);
+  REQUIRE(
+      run({"--source", "fun helper(value: i64) -> i64 { return value + 1; } fun main() -> i64 { return helper(41); }"},
+          output, errors) == 0);
   REQUIRE(output == "compiled 2 vNext function(s); main returned after 7 instruction(s) with value 42\n");
   REQUIRE(errors.empty());
 }
@@ -99,6 +103,31 @@ TEST_CASE("vNext ngi driver reports syntax errors through its new frontend bound
   REQUIRE(errors == "syntax error at bytes [4, 5): unexpected character `@`\n");
 }
 
+TEST_CASE("vNext ngi driver reports syntax errors in --source units instead of aborting", "[vNext][Driver]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(run({"--source", "fun main() { return if (true) { 1 } else { 0 }; }"}, output, errors) == 1);
+  REQUIRE(output.empty());
+  REQUIRE_THAT(errors, ContainsSubstring("syntax error at bytes ["));
+  REQUIRE_THAT(errors, ContainsSubstring("expected an expression"));
+}
+
+TEST_CASE("vNext ngi driver reports syntax errors in file mode instead of aborting", "[vNext][Driver]")
+{
+  const auto path = std::filesystem::temp_directory_path() / "ng_driver_syntax_error.ng";
+  {
+    std::ofstream file{path};
+    file << "fun main() { let x = ; }\n";
+  }
+  std::string output;
+  std::string errors;
+  REQUIRE(run({path.string()}, output, errors) == 1);
+  REQUIRE(output.empty());
+  REQUIRE_THAT(errors, ContainsSubstring("syntax error at bytes ["));
+  std::filesystem::remove(path);
+}
+
 TEST_CASE("vNext ngi driver provides deterministic command-line diagnostics", "[vNext][Driver]")
 {
   std::string output;
@@ -112,8 +141,9 @@ TEST_CASE("vNext ngi driver lifts the fuel budget with --fuel 0", "[vNext][Drive
 {
   std::string output;
   std::string errors;
-  REQUIRE(run({"--source", "fun main() -> unit { loop (i = 0) { if (i == 9) { return; } next (i + 1); } }", "--fuel", "0"},
-              output, errors) == 0);
+  REQUIRE(
+      run({"--source", "fun main() -> unit { loop (i = 0) { if (i == 9) { return; } next (i + 1); } }", "--fuel", "0"},
+          output, errors) == 0);
   REQUIRE_THAT(output, ContainsSubstring("main returned"));
   REQUIRE(errors.empty());
 }
@@ -122,7 +152,8 @@ TEST_CASE("vNext ngi driver exhausts a small fuel budget", "[vNext][Driver][Fuel
 {
   std::string output;
   std::string errors;
-  REQUIRE(run({"--source", "fun main() -> unit { loop (i = 0) { next (i + 1); } }", "--fuel", "3"}, output, errors) == 0);
+  REQUIRE(run({"--source", "fun main() -> unit { loop (i = 0) { next (i + 1); } }", "--fuel", "3"}, output, errors) ==
+          0);
   REQUIRE_THAT(output, ContainsSubstring("exhausted fuel"));
   REQUIRE(errors.empty());
 }

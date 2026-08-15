@@ -1,8 +1,8 @@
 // AI-generated code; reviewed for this repository's vNext rewrite.
-#include "test.hpp"
 #include "driver.hpp"
 #include "hir.hpp"
 #include "syntax/module_parser.hpp"
+#include "test.hpp"
 #include "typecheck.hpp"
 
 #include <filesystem>
@@ -37,7 +37,8 @@ namespace
   [[nodiscard]] auto runExample(std::string_view filename, std::string &output, std::string &errors) -> int
   {
     std::string path{filename};
-    if (!std::filesystem::is_directory(std::filesystem::current_path() / "example")) path = std::string{"../"} + path;
+    if (!std::filesystem::is_directory(std::filesystem::current_path() / "example"))
+      path = std::string{"../"} + path;
     std::ostringstream outputStream;
     std::ostringstream errorStream;
     const int status = NG::runDriver({path}, outputStream, errorStream);
@@ -49,10 +50,9 @@ namespace
 
 TEST_CASE("vNext module parser accepts const fun declarations and expression bodies", "[vNext][ConstFun][Syntax]")
 {
-  const auto unit = syntax::parseSourceUnit(
-      "const fun is_large(value: i64) -> bool { return value > 10; } "
-      "const fun positive(n: i64) -> bool => n > 0; "
-      "fun double(x: i64) -> i64 => x * 2;");
+  const auto unit = syntax::parseSourceUnit("const fun is_large(value: i64) -> bool { return value > 10; } "
+                                            "const fun positive(n: i64) -> bool => n > 0; "
+                                            "fun double(x: i64) -> i64 => x * 2;");
   REQUIRE(unit.items.size() == 3);
   const auto &first = *static_cast<const syntax::FunctionDeclaration *>(unit.items[0].get());
   REQUIRE(first.constFunction);
@@ -127,7 +127,8 @@ TEST_CASE("vNext const fun bodies may use const predicates and const if", "[vNex
   REQUIRE(output.find("with value 1") != std::string::npos);
 }
 
-TEST_CASE("vNext const evaluation rejects non-const functions, runtime locals, and generic const fun", "[vNext][ConstFun][Errors]")
+TEST_CASE("vNext const evaluation rejects non-const functions, runtime locals, and generic const fun",
+          "[vNext][ConstFun][Errors]")
 {
   try
   {
@@ -193,7 +194,8 @@ TEST_CASE("vNext const-capable natives fold inside const fun and const if", "[vN
   REQUIRE(output.find("short\nmatched\n") != std::string::npos);
 }
 
-TEST_CASE("vNext const-capable natives evaluate in where clauses over const parameters", "[vNext][ConstFun][NativeHosts]")
+TEST_CASE("vNext const-capable natives evaluate in where clauses over const parameters",
+          "[vNext][ConstFun][NativeHosts]")
 {
   std::string output;
   std::string errors;
@@ -290,4 +292,168 @@ TEST_CASE("vNext generic_const_fun example runs end to end through ngi", "[vNext
   INFO("errors: " << errors);
   REQUIRE(errors.empty());
   REQUIRE(output.find("i64 showable\nidentity folded\n") != std::string::npos);
+}
+
+TEST_CASE("vNext const fun interpreter guards arithmetic overflow at compile time", "[vNext][ConstFun][ConstEval]")
+{
+  try
+  {
+    check("const fun add(a: i64, b: i64) -> i64 { return a + b; } "
+          "fun main() { const if (add(9223372036854775807, 1) == 0) { } }");
+    FAIL("expected an addition overflow error");
+  }
+  catch (const typecheck::TypeError &error)
+  {
+    REQUIRE(std::string{error.what()} == "const integer addition overflow");
+  }
+
+  try
+  {
+    check("const fun sub(a: i64, b: i64) -> i64 { return a - b; } "
+          "fun main() { const if (sub(-9223372036854775808, 1) == 0) { } }");
+    FAIL("expected a subtraction overflow error");
+  }
+  catch (const typecheck::TypeError &error)
+  {
+    REQUIRE(std::string{error.what()} == "const integer subtraction overflow");
+  }
+
+  try
+  {
+    check("const fun mul(a: i64, b: i64) -> i64 { return a * b; } "
+          "fun main() { const if (mul(9223372036854775807, 2) == 0) { } }");
+    FAIL("expected a multiplication overflow error");
+  }
+  catch (const typecheck::TypeError &error)
+  {
+    REQUIRE(std::string{error.what()} == "const integer multiplication overflow");
+  }
+}
+
+TEST_CASE("vNext const fun interpreter guards division and remainder edge cases", "[vNext][ConstFun][ConstEval]")
+{
+  const auto expect = [](std::string_view source, std::string_view message)
+  {
+    try
+    {
+      check(source);
+      FAIL("expected an interpreter error");
+    }
+    catch (const typecheck::TypeError &error)
+    {
+      REQUIRE(std::string{error.what()} == message);
+    }
+  };
+  expect("const fun f(a: i64, b: i64) -> i64 { return a / b; } "
+         "fun main() { const if (f(1, 0) == 0) { } }",
+         "const integer division by zero");
+  expect("const fun f(a: i64, b: i64) -> i64 { return a % b; } "
+         "fun main() { const if (f(1, 0) == 0) { } }",
+         "const integer modulo by zero");
+  expect("const fun f(a: i64, b: i64) -> i64 { return a / b; } "
+         "fun main() { const if (f(-9223372036854775807 - 1, -1) == 0) { } }",
+         "const integer division overflow");
+  expect("const fun f(a: i64, b: i64) -> i64 { return a % b; } "
+         "fun main() { const if (f(-9223372036854775807 - 1, -1) == 0) { } }",
+         "const integer remainder overflow");
+  expect("const fun neg(n: i64) -> i64 { return -n; } "
+         "fun main() { const if (neg(-9223372036854775807 - 1) == 0) { } }",
+         "const integer negation overflow");
+}
+
+TEST_CASE("vNext const fun interpreter supports prefix and logical operators", "[vNext][ConstFun][ConstEval]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(run("import prelude; "
+              "const fun id(n: i64) -> i64 { return +n; } "
+              "const fun negate(b: bool) -> bool { return !b; } "
+              "const fun andShort() -> bool { return false && (1 / 0 == 0); } "
+              "const fun orShort() -> bool { return true || (1 / 0 == 0); } "
+              "fun main() { const if (id(5) == 5 && negate(true) == false && andShort() == false && orShort() == true) "
+              "{ print(\"ops-ok\"); } }",
+              output, errors) == 0);
+  REQUIRE(errors.empty());
+  REQUIRE(output.find("ops-ok\n") != std::string::npos);
+}
+
+TEST_CASE("vNext const fun interpreter handles if fallthrough, tail expressions, and comparisons",
+          "[vNext][ConstFun][ConstEval]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(run("import prelude; "
+              "const fun noElse(n: i64) -> i64 { if (n > 0) { return 1; } return 0; } "
+              "const fun fallthrough(n: i64) -> i64 { let mut m = n; if (m > 10) { m := m - 10; } return m; } "
+              "const fun tailExpr() -> i64 => 5; "
+              "const fun sameText(a: string, b: string) -> bool { return a == b; } "
+              "const fun ordered(a: i64, b: i64) -> bool { return a < b && a <= b && b > a && b >= a; } "
+              "fun main() { const if (noElse(0) == 0 && fallthrough(5) == 5 && tailExpr() == 5 && "
+              "sameText(\"a\", \"a\") && ordered(1, 2)) { print(\"blocks-ok\"); } }",
+              output, errors) == 0);
+  REQUIRE(errors.empty());
+  REQUIRE(output.find("blocks-ok\n") != std::string::npos);
+}
+
+TEST_CASE("vNext const fun interpreter rejects unsupported constructs at compile time", "[vNext][ConstFun][ConstEval]")
+{
+  const auto expect = [](std::string_view source, std::string_view message)
+  {
+    try
+    {
+      check(source);
+      FAIL("expected an interpreter error");
+    }
+    catch (const typecheck::TypeError &error)
+    {
+      REQUIRE(std::string{error.what()} == message);
+    }
+  };
+  expect("const fun f() -> i64 { let (a, b) = (1, 2); return a; } "
+         "fun main() { const if (f() == 0) { } }",
+         "tuple destructuring is not supported during const evaluation");
+  expect("const fun f() -> i64 { let xs = [1, 2]; return 1; } "
+         "fun main() { const if (f() == 0) { } }",
+         "expression is not supported during const evaluation");
+  expect("const fun f(n: i64) -> i64 { switch (n) { case 0 { return 0; } otherwise { } } return 1; } "
+         "fun main() { const if (f(0) == 0) { } }",
+         "switch is not supported during const evaluation");
+  expect("struct P { x: i64 } const fun f() -> i64 { let mut p = P { x: 1 }; p.x := 5; return p.x; } "
+         "fun main() { const if (f() == 0) { } }",
+         "expression is not supported during const evaluation");
+  expect("const fun f() -> i64 { let mut t = (1, 2); t.0 := 5; return t.0; } "
+         "fun main() { const if (f() == 0) { } }",
+         "expression is not supported during const evaluation");
+}
+
+TEST_CASE("vNext const fun interpreter enforces the call depth limit", "[vNext][ConstFun][ConstEval]")
+{
+  try
+  {
+    check("const fun rec(n: i64) -> i64 { return rec(n); } "
+          "fun main() { const if (rec(0) == 0) { } }");
+    FAIL("expected a call depth error");
+  }
+  catch (const typecheck::TypeError &error)
+  {
+    REQUIRE(std::string{error.what()} == "const call depth exceeded in `rec`");
+  }
+}
+
+TEST_CASE("vNext const fun bodies fold const if and i64::min literals at compile time", "[vNext][ConstFun][ConstEval]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(run("const is_ref<T>: bool = false; const<T> is_ref<ref<T>>: bool = true; "
+              "const fun classify() -> i64 { const if (is_ref<ref<i64>>) { return 1; } return 0; } "
+              "fun main() -> i64 { const if (classify() == 1) { return 1; } return 0; }",
+              output, errors) == 0);
+  REQUIRE(errors.empty());
+  REQUIRE(output.find("with value 1") != std::string::npos);
+
+  REQUIRE(run("const fun minv() -> i64 { return -9223372036854775808; } "
+              "fun main() -> i64 { const if (minv() == -9223372036854775808) { return 1; } return 0; }",
+              output, errors) == 0);
+  REQUIRE(errors.empty());
+  REQUIRE(output.find("with value 1") != std::string::npos);
 }

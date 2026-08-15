@@ -8,6 +8,10 @@ export native fun print(value: string) -> unit;
 export native fun print(value: bool) -> unit;
 export native fun print(value: f64) -> unit;
 export native fun print(value: f32) -> unit;
+export native fun print(value: u8) -> unit;
+export native fun print(value: u16) -> unit;
+export native fun print(value: u32) -> unit;
+export native fun print(value: u64) -> unit;
 export native fun assert(condition: bool) -> unit;
 
 // Compiles and runs an NG source unit inside the running program, returning

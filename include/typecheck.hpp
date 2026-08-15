@@ -42,6 +42,18 @@ namespace NG::typecheck
            type == builtin::U8 || type == builtin::U16 || type == builtin::U32 || type == builtin::U64;
   }
 
+  /// True for the unsigned fixed-width integer builtin types (u8–u64).
+  [[nodiscard]] inline auto isUnsignedIntegerBuiltin(TypeId type) -> bool
+  {
+    return type == builtin::U8 || type == builtin::U16 || type == builtin::U32 || type == builtin::U64;
+  }
+
+  /// True for the signed fixed-width integer builtin types (i8–i64).
+  [[nodiscard]] inline auto isSignedIntegerBuiltin(TypeId type) -> bool
+  {
+    return type == builtin::I8 || type == builtin::I16 || type == builtin::I32 || type == builtin::I64;
+  }
+
   /// True for the D-008 floating-point builtin types (f32, f64).
   [[nodiscard]] inline auto isFloatBuiltin(TypeId type) -> bool
   {
@@ -59,7 +71,7 @@ namespace NG::typecheck
     syntax::SourceSpan span;
 
     TypeError(std::string message, syntax::SourceSpan sourceSpan)
-      : std::runtime_error(std::move(message)), span(sourceSpan)
+        : std::runtime_error(std::move(message)), span(sourceSpan)
     {
     }
   };
@@ -135,8 +147,8 @@ namespace NG::typecheck
     /// template base types (struct or enum).
     using ConstructorSubstitution = std::unordered_map<uint32_t, TypeId>;
     [[nodiscard]] auto specialize(TypeId type, const std::unordered_map<uint32_t, TypeId> &bindings,
-                                  const ConstSubstitution &constBindings,
-                                  const ConstructorSubstitution &constructors) -> TypeId;
+                                  const ConstSubstitution &constBindings, const ConstructorSubstitution &constructors)
+        -> TypeId;
     [[nodiscard]] auto internConstInteger(int64_t value) -> const_eval::ConstValueId;
     [[nodiscard]] auto constInterner() -> const_eval::ConstInterner & { return constInterner_; }
     [[nodiscard]] auto resolveInScope(const hir::Type &type, const std::unordered_map<std::string, TypeId> &bindings,
@@ -167,7 +179,8 @@ namespace NG::typecheck
     /// Looks a declared type up by name without instantiating generics;
     /// used for explicit type-constructor generic arguments (`accept<Box, ...>`).
     [[nodiscard]] auto templateForName(const std::string &name, syntax::SourceSpan span) const -> TypeId;
-    [[nodiscard]] auto declareEnum(hir::EnumId id, std::string name, std::vector<std::string> genericParameters = {}) -> TypeId;
+    [[nodiscard]] auto declareEnum(hir::EnumId id, std::string name, std::vector<std::string> genericParameters = {})
+        -> TypeId;
     void registerEnumTemplate(const hir::Enum &enumeration);
     void defineEnum(hir::EnumId id, std::vector<std::string> variants, std::vector<TypeId> payloads,
                     std::vector<bool> hasPayload);
@@ -179,7 +192,8 @@ namespace NG::typecheck
 
   private:
     [[nodiscard]] auto append(TypeDescriptor descriptor) -> TypeId;
-    [[nodiscard]] auto resolveWithBindings(const hir::Type &type, const std::unordered_map<std::string, TypeId> &bindings,
+    [[nodiscard]] auto resolveWithBindings(const hir::Type &type,
+                                           const std::unordered_map<std::string, TypeId> &bindings,
                                            const ConstParamBindings &constBindings) -> TypeId;
     /// Resolves the built-in tuple introspection type constructors
     /// `tuple_element<T, I>` and `tuple_concat<A, B>`; returns nullopt for
@@ -301,6 +315,7 @@ namespace NG::typecheck
   class TypeChecker final
   {
   public:
-    [[nodiscard]] auto check(const hir::Module &module, const const_eval::ConstNativeHost &host = {}) -> TypeCheckResult;
+    [[nodiscard]] auto check(const hir::Module &module, const const_eval::ConstNativeHost &host = {})
+        -> TypeCheckResult;
   };
 } // namespace NG::typecheck

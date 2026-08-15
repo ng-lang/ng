@@ -1,8 +1,8 @@
 // AI-generated code; reviewed for this repository's vNext rewrite.
-#include "test.hpp"
 #include "driver.hpp"
 #include "hir.hpp"
 #include "syntax/module_parser.hpp"
+#include "test.hpp"
 #include "typecheck.hpp"
 
 #include <filesystem>
@@ -37,7 +37,8 @@ namespace
   [[nodiscard]] auto runExample(std::string_view filename, std::string &output, std::string &errors) -> int
   {
     std::string path{filename};
-    if (!std::filesystem::is_directory(std::filesystem::current_path() / "example")) path = std::string{"../"} + path;
+    if (!std::filesystem::is_directory(std::filesystem::current_path() / "example"))
+      path = std::string{"../"} + path;
     std::ostringstream outputStream;
     std::ostringstream errorStream;
     const int status = NG::runDriver({path}, outputStream, errorStream);
@@ -114,19 +115,95 @@ TEST_CASE("vNext integer literal range checks reject out-of-range values", "[vNe
 TEST_CASE("vNext runtime arithmetic checks per-width overflow", "[vNext][Numerics][Runtime]")
 {
   // In-range narrow arithmetic executes.
-  expectValue("fun main() -> i64 { let a: i8 = 100; let b: i8 = a + 20; if (b == 120) { return 1; } return 0; }",
-              "1");
+  expectValue("fun main() -> i64 { let a: i8 = 100; let b: i8 = a + 20; if (b == 120) { return 1; } return 0; }", "1");
   // Overflowing narrow arithmetic fails at runtime with a typed diagnostic.
   std::string output;
   std::string errors;
-  REQUIRE(run("fun main() -> i64 { let a: i8 = 100; let b: i8 = a + a; if (b == 0) { return 1; } return 0; }",
-              output, errors) == 1);
+  REQUIRE(run("fun main() -> i64 { let a: i8 = 100; let b: i8 = a + a; if (b == 0) { return 1; } return 0; }", output,
+              errors) == 1);
   REQUIRE(errors.find("integer overflow for type `i8`") != std::string::npos);
   REQUIRE(run("fun main() -> i32 { let a: i32 = 2000000000; let b: i32 = a * 2; return b; }", output, errors) == 1);
   REQUIRE(errors.find("integer overflow for type `i32`") != std::string::npos);
-  REQUIRE(run("fun main() -> i64 { let a: u8 = 200; let b: u8 = a + a; if (b == 0) { return 1; } return 0; }",
-              output, errors) == 1);
+  REQUIRE(run("fun main() -> i64 { let a: u8 = 200; let b: u8 = a + a; if (b == 0) { return 1; } return 0; }", output,
+              errors) == 1);
   REQUIRE(errors.find("integer overflow for type `u8`") != std::string::npos);
+}
+
+TEST_CASE("vNext i64::min is expressible as a literal", "[vNext][Numerics][Literals]")
+{
+  expectValue("fun main() -> i64 { return -9223372036854775808; }", "-9223372036854775808");
+  expectValue(
+      "fun main() -> i64 { let x = -9223372036854775808; if (x == -9223372036854775807 - 1) { return 1; } return 0; }",
+      "1");
+  expectValue("fun main() -> i64 { let x: i64 = -9223372036854775808; if (x + 1 == -9223372036854775807) { return 1; } "
+              "return 0; }",
+              "1");
+}
+
+TEST_CASE("vNext u64 literals reach the full unsigned range", "[vNext][Numerics][Literals]")
+{
+  expectValue("fun main() -> u64 { return 18446744073709551615u64; }", "18446744073709551615");
+  expectValue("fun main() -> i64 { let x: u64 = 18446744073709551615u64; "
+              "if (x == 18446744073709551614u64 + 1u64) { return 1; } return 0; }",
+              "1");
+  std::string output;
+  std::string errors;
+  REQUIRE(run("import prelude; fun main() { print(18446744073709551615u64); }", output, errors) == 0);
+  REQUIRE(errors.empty());
+  REQUIRE(output.find("18446744073709551615\n") != std::string::npos);
+}
+
+TEST_CASE("vNext out-of-range literals report clean type diagnostics", "[vNext][Numerics][Errors]")
+{
+  try
+  {
+    check("fun main() { let x: i64 = 9223372036854775808; }");
+    FAIL("expected an i64 range error");
+  }
+  catch (const typecheck::TypeError &error)
+  {
+    REQUIRE(std::string{error.what()} == "integer literal `9223372036854775808` is out of range for type i64");
+  }
+
+  try
+  {
+    check("fun main() { let x: i64 = -9223372036854775809; }");
+    FAIL("expected an i64 range error");
+  }
+  catch (const typecheck::TypeError &error)
+  {
+    REQUIRE(std::string{error.what()} == "integer literal `-9223372036854775809` is out of range for type i64");
+  }
+
+  try
+  {
+    check("fun main() { let x: u64 = 18446744073709551616u64; }");
+    FAIL("expected a u64 range error");
+  }
+  catch (const typecheck::TypeError &error)
+  {
+    REQUIRE(std::string{error.what()} == "integer literal `18446744073709551616` is out of range for type u64");
+  }
+
+  try
+  {
+    check("fun main() { let x = 99999999999999999999; }");
+    FAIL("expected an untyped literal range error");
+  }
+  catch (const typecheck::TypeError &error)
+  {
+    REQUIRE(std::string{error.what()} == "integer literal `99999999999999999999` is out of range for type i64");
+  }
+
+  try
+  {
+    check("fun main() { let x = -9223372036854775809; }");
+    FAIL("expected an untyped literal range error");
+  }
+  catch (const typecheck::TypeError &error)
+  {
+    REQUIRE(std::string{error.what()} == "integer literal `-9223372036854775809` is out of range");
+  }
 }
 
 TEST_CASE("vNext numeric example file runs end to end through ngi", "[vNext][Numerics][Examples]")

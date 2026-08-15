@@ -49,8 +49,8 @@ namespace NG::const_eval
   ConstInterpreter::ConstInterpreter(const hir::Module &module, const std::unordered_set<uint32_t> &constFunctions,
                                      ConstInterner &interner, PredicateEvaluator predicate, ConstNativeHost host,
                                      FunctionResolver resolver)
-    : module_(module), constFunctions_(constFunctions), interner_(interner), predicate_(std::move(predicate)),
-      host_(std::move(host)), resolver_(std::move(resolver))
+      : module_(module), constFunctions_(constFunctions), interner_(interner), predicate_(std::move(predicate)),
+        host_(std::move(host)), resolver_(std::move(resolver))
   {
   }
 
@@ -65,14 +65,18 @@ namespace NG::const_eval
     }
     const ConstBindings saved = std::move(constBindings_);
     constBindings_ = constBindings;
-    if (call.kind != hir::ExpressionKind::Call || call.operands.empty() || !call.operands[0]->resolvedName.has_value() ||
+    if (call.kind != hir::ExpressionKind::Call || call.operands.empty() ||
+        !call.operands[0]->resolvedName.has_value() ||
         call.operands[0]->resolvedName->kind != hir::ResolvedNameKind::Function)
       throw ConstEvalError("const call target is not a function", span);
     const hir::DefId target = targetOverride.value_or(hir::DefId{call.operands[0]->resolvedName->id});
     const hir::Function *function = nullptr;
-    if (target.value < module_.functions.size()) function = &module_.functions[target.value];
-    else if (resolver_) function = resolver_(target);
-    if (function == nullptr) throw ConstEvalError("const call target is not a function", span);
+    if (target.value < module_.functions.size())
+      function = &module_.functions[target.value];
+    else if (resolver_)
+      function = resolver_(target);
+    if (function == nullptr)
+      throw ConstEvalError("const call target is not a function", span);
     if (function->nativeFunction)
     {
       // Const-capable native hosts: only names the embedding registered as
@@ -88,8 +92,8 @@ namespace NG::const_eval
     if (!targetOverride.has_value() && !constFunctions_.contains(target.value))
       throw ConstEvalError(std::format("function `{}` is not const-capable", call.operands[0]->text), span);
     if (!targetOverride.has_value() && (!function->genericParameters.empty() || !function->constParameters.empty()))
-      throw ConstEvalError(std::format("compile-time calls to generic const fun `{}` are not yet supported", function->name),
-                           span);
+      throw ConstEvalError(
+          std::format("compile-time calls to generic const fun `{}` are not yet supported", function->name), span);
     std::vector<ConstValueId> arguments;
     arguments.reserve(call.operands.size() - 1);
     for (size_t index = 1; index < call.operands.size(); ++index)
@@ -97,23 +101,29 @@ namespace NG::const_eval
     if (arguments.size() != function->parameters.size())
     {
       constBindings_ = std::move(saved);
-      throw ConstEvalError(std::format("const call argument count mismatch: expected {}, got {}", function->parameters.size(),
-                                       arguments.size()), span);
+      throw ConstEvalError(std::format("const call argument count mismatch: expected {}, got {}",
+                                       function->parameters.size(), arguments.size()),
+                           span);
     }
     const ConstValueId result = runFunction(*function, arguments);
     constBindings_ = std::move(saved);
     return result;
   }
 
-  auto ConstInterpreter::evaluateExpression(const hir::Expression &expression, const LocalValues &locals) -> ConstValueId
+  auto ConstInterpreter::evaluateExpression(const hir::Expression &expression, const LocalValues &locals)
+      -> ConstValueId
   {
     consumeStep(expression.span);
     switch (expression.kind)
     {
-    case hir::ExpressionKind::IntegerLiteral: return interner_.internInteger(parseInteger(expression.text, expression.span));
-    case hir::ExpressionKind::BooleanLiteral: return interner_.internBool(expression.text == "true");
-    case hir::ExpressionKind::StringLiteral: return interner_.internString(expression.text);
-    case hir::ExpressionKind::Grouped: return evaluateExpression(*expression.operands[0], locals);
+    case hir::ExpressionKind::IntegerLiteral:
+      return interner_.internInteger(parseInteger(expression.text, expression.span));
+    case hir::ExpressionKind::BooleanLiteral:
+      return interner_.internBool(expression.text == "true");
+    case hir::ExpressionKind::StringLiteral:
+      return interner_.internString(expression.text);
+    case hir::ExpressionKind::Grouped:
+      return evaluateExpression(*expression.operands[0], locals);
     case hir::ExpressionKind::ResolvedName:
     {
       if (!expression.resolvedName.has_value())
@@ -129,21 +139,51 @@ namespace NG::const_eval
         throw ConstEvalError(std::format("`{}` is not a compile-time constant", expression.text), expression.span);
       const auto found = locals.find(expression.resolvedName->id);
       if (found == locals.end())
-        throw ConstEvalError(std::format("runtime local `{}` is not a compile-time constant", expression.text), expression.span);
+        throw ConstEvalError(std::format("runtime local `{}` is not a compile-time constant", expression.text),
+                             expression.span);
       return found->second;
     }
-    case hir::ExpressionKind::GenericApplication: return predicate_(expression);
-    case hir::ExpressionKind::Call: return evaluateCall(expression, locals, constBindings_, expression.span);
+    case hir::ExpressionKind::GenericApplication:
+      return predicate_(expression);
+    case hir::ExpressionKind::Call:
+      return evaluateCall(expression, locals, constBindings_, expression.span);
     case hir::ExpressionKind::Prefix:
     {
+      if ((expression.text == "+" || expression.text == "-") &&
+          expression.operands[0]->kind == hir::ExpressionKind::IntegerLiteral)
+      {
+        // Fold the sign onto the literal so `-9223372036854775808` (i64::min)
+        // evaluates without overflowing the positive operand encoding.
+        uint64_t magnitude{};
+        const auto [end, error] =
+            std::from_chars(expression.operands[0]->text.data(),
+                            expression.operands[0]->text.data() + expression.operands[0]->text.size(), magnitude);
+        if (error != std::errc{} || end != expression.operands[0]->text.data() + expression.operands[0]->text.size())
+          throw ConstEvalError(std::format("const integer `{}` is out of range", expression.operands[0]->text),
+                               expression.span);
+        if (expression.text == "+")
+        {
+          if (magnitude > static_cast<uint64_t>(std::numeric_limits<int64_t>::max()))
+            throw ConstEvalError(std::format("const integer `{}` is out of range", expression.operands[0]->text),
+                                 expression.span);
+          return interner_.internInteger(static_cast<int64_t>(magnitude));
+        }
+        if (magnitude > (1ULL << 63))
+          throw ConstEvalError(std::format("const integer `-{}` is out of range", expression.operands[0]->text),
+                               expression.span);
+        return interner_.internInteger(magnitude == (1ULL << 63) ? std::numeric_limits<int64_t>::min()
+                                                                 : -static_cast<int64_t>(magnitude));
+      }
       const ConstValueId operand = evaluateExpression(*expression.operands[0], locals);
       if (expression.text == "!")
         return interner_.internBool(!asBool(operand, expression.operands[0]->span));
       const int64_t value = asInteger(operand, expression.operands[0]->span);
-      if (expression.text == "+") return interner_.internInteger(value);
+      if (expression.text == "+")
+        return interner_.internInteger(value);
       if (expression.text == "-")
       {
-        if (value == std::numeric_limits<int64_t>::min()) throw ConstEvalError("const integer negation overflow", expression.span);
+        if (value == std::numeric_limits<int64_t>::min())
+          throw ConstEvalError("const integer negation overflow", expression.span);
         return interner_.internInteger(-value);
       }
       throw ConstEvalError(std::format("unsupported const operator `{}`", expression.text), expression.span);
@@ -155,40 +195,53 @@ namespace NG::const_eval
       {
         if (!asBool(evaluateExpression(*expression.operands[0], locals), expression.operands[0]->span))
           return interner_.internBool(false);
-        return interner_.internBool(asBool(evaluateExpression(*expression.operands[1], locals), expression.operands[1]->span));
+        return interner_.internBool(
+            asBool(evaluateExpression(*expression.operands[1], locals), expression.operands[1]->span));
       }
       if (op == "||")
       {
         if (asBool(evaluateExpression(*expression.operands[0], locals), expression.operands[0]->span))
           return interner_.internBool(true);
-        return interner_.internBool(asBool(evaluateExpression(*expression.operands[1], locals), expression.operands[1]->span));
+        return interner_.internBool(
+            asBool(evaluateExpression(*expression.operands[1], locals), expression.operands[1]->span));
       }
       const ConstValueId left = evaluateExpression(*expression.operands[0], locals);
       const ConstValueId right = evaluateExpression(*expression.operands[1], locals);
       const auto &leftValue = interner_.value(left);
       const auto &rightValue = interner_.value(right);
-      if (op == "==") return interner_.internBool(leftValue == rightValue);
-      if (op == "!=") return interner_.internBool(!(leftValue == rightValue));
+      if (op == "==")
+        return interner_.internBool(leftValue == rightValue);
+      if (op == "!=")
+        return interner_.internBool(!(leftValue == rightValue));
       const int64_t l = asInteger(left, expression.operands[0]->span);
       const int64_t r = asInteger(right, expression.operands[1]->span);
-      if (op == "<") return interner_.internBool(l < r);
-      if (op == "<=") return interner_.internBool(l <= r);
-      if (op == ">") return interner_.internBool(l > r);
-      if (op == ">=") return interner_.internBool(l >= r);
+      if (op == "<")
+        return interner_.internBool(l < r);
+      if (op == "<=")
+        return interner_.internBool(l <= r);
+      if (op == ">")
+        return interner_.internBool(l > r);
+      if (op == ">=")
+        return interner_.internBool(l >= r);
       if ((op == "/" || op == "%") && r == 0)
         throw ConstEvalError(std::format("const integer {} by zero", op == "/" ? "division" : "modulo"),
                              expression.operands[1]->span);
-      if (op == "+") return interner_.internInteger(checkedAdd(l, r, expression.span));
-      if (op == "-") return interner_.internInteger(checkedSub(l, r, expression.span));
-      if (op == "*") return interner_.internInteger(checkedMul(l, r, expression.span));
+      if (op == "+")
+        return interner_.internInteger(checkedAdd(l, r, expression.span));
+      if (op == "-")
+        return interner_.internInteger(checkedSub(l, r, expression.span));
+      if (op == "*")
+        return interner_.internInteger(checkedMul(l, r, expression.span));
       if (op == "/")
       {
-        if (l == std::numeric_limits<int64_t>::min() && r == -1) throw ConstEvalError("const integer division overflow", expression.span);
+        if (l == std::numeric_limits<int64_t>::min() && r == -1)
+          throw ConstEvalError("const integer division overflow", expression.span);
         return interner_.internInteger(l / r);
       }
       if (op == "%")
       {
-        if (l == std::numeric_limits<int64_t>::min() && r == -1) throw ConstEvalError("const integer remainder overflow", expression.span);
+        if (l == std::numeric_limits<int64_t>::min() && r == -1)
+          throw ConstEvalError("const integer remainder overflow", expression.span);
         return interner_.internInteger(l % r);
       }
       throw ConstEvalError(std::format("unsupported const operator `{}`", op), expression.span);
@@ -266,24 +319,29 @@ namespace NG::const_eval
       {
         const bool consequence = asBool(evaluateExpression(*statement.expression, locals), statement.expression->span);
         const hir::Block *selected = consequence ? statement.consequence.get() : statement.alternative.get();
-        if (selected == nullptr) break;
+        if (selected == nullptr)
+          break;
         Control control = runBlock(*selected, locals);
-        if (control.kind != Control::Kind::Fallthrough) return control;
+        if (control.kind != Control::Kind::Fallthrough)
+          return control;
         break;
       }
       case hir::StatementKind::ConstIf:
       {
         const bool consequence = evaluateCondition(*statement.expression, locals);
         const hir::Block *selected = consequence ? statement.consequence.get() : statement.alternative.get();
-        if (selected == nullptr) break;
+        if (selected == nullptr)
+          break;
         Control control = runBlock(*selected, locals);
-        if (control.kind != Control::Kind::Fallthrough) return control;
+        if (control.kind != Control::Kind::Fallthrough)
+          return control;
         break;
       }
       case hir::StatementKind::Loop:
       {
         Control control = runLoop(statement, locals);
-        if (control.kind != Control::Kind::Fallthrough) return control;
+        if (control.kind != Control::Kind::Fallthrough)
+          return control;
         break;
       }
       case hir::StatementKind::Next:
@@ -350,13 +408,15 @@ namespace NG::const_eval
   {
     const auto &value = interner_.value(id);
     if (value.kind != ConstValueKind::Integer)
-      throw ConstEvalError(std::format("const value of kind `{}` is not an integer", static_cast<int>(value.kind)), span);
+      throw ConstEvalError(std::format("const value of kind `{}` is not an integer", static_cast<int>(value.kind)),
+                           span);
     return value.integerValue;
   }
 
   void ConstInterpreter::consumeStep(syntax::SourceSpan span) const
   {
-    if (steps_ == 0) throw ConstEvalError("const evaluation exceeded the fuel budget", span);
+    if (steps_ == 0)
+      throw ConstEvalError("const evaluation exceeded the fuel budget", span);
     --steps_;
   }
 } // namespace NG::const_eval
