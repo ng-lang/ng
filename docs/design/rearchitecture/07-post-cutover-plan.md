@@ -197,10 +197,17 @@ clauses, and per-instance `const if` (`example/const_predicates.ng`,
 
 **Remaining work:**
 
-1. Generic `const fun` compile-time calls over type-generic functions
-   (calls over const-generic parameters already work through value-parameter
-   const funs in where clauses).
-2. Trait bounds in const predicates (interacts with A5).
+1. Trait bounds in const predicates (interacts with A5) — the remaining
+   A6 surface after generic const fun calls.
+
+**Delivered (2026-08):** generic `const fun` compile-time calls — explicit
+type arguments (`is_showable<i64>()`) instantiate the const fun per type and
+evaluate its body (where clauses checked concretely); inferred arguments
+reuse the runtime-instantiated body; abstract calls inside generic bodies
+defer to the monomorphized instance; nested instantiation checks now restore
+`currentFunctionId_` and abstract where-clause calls defer to instances
+(`example/generic_const_fun.ng`, `test/const_fun_test.cpp` generic-call
+cases).
 
 **Delivered (2026-08):** const-capable native hosts — the embedding registers
 pure hosts (string utilities incl. regexMatch, with compile-time bounds and

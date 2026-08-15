@@ -151,15 +151,25 @@ TEST_CASE("vNext where clauses call const fun over const parameters", "[vNext][W
 
 TEST_CASE("vNext where clauses are checked per instance and at module level", "[vNext][Where][Typecheck]")
 {
-  try
+  // Abstract calls defer the where-clause check to the monomorphized
+  // instance, where the bindings are concrete.
   {
-    check("fun exact<T>(value: T) -> i64 where T is i64 { return 1; } "
-          "fun wrap<T>(x: T) -> i64 { return exact(x); } fun main() -> i64 { return wrap(1); }");
-    FAIL("expected an abstract where clause evaluation error");
+    std::string output;
+    std::string errors;
+    REQUIRE(run("fun exact<T>(value: T) -> i64 where T is i64 { return 1; } "
+                "fun wrap<T>(x: T) -> i64 { return exact(x); } fun main() -> i64 { return wrap(1); }",
+                output, errors) == 0);
+    REQUIRE(errors.empty());
+    REQUIRE(output.find("with value 1") != std::string::npos);
   }
-  catch (const typecheck::TypeError &error)
+
   {
-    REQUIRE(std::string{error.what()} == "cannot evaluate where clause of generic function with abstract type parameter `T`");
+    std::string output;
+    std::string errors;
+    REQUIRE(run("fun exact<T>(value: T) -> i64 where T is i64 { return 1; } "
+                "fun wrap<T>(x: T) -> i64 { return exact(x); } fun main() -> i64 { return wrap(\"no\"); }",
+                output, errors) == 1);
+    REQUIRE_THAT(errors, ContainsSubstring("does not satisfy its where clause"));
   }
 
   try

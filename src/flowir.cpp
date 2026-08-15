@@ -1182,7 +1182,14 @@ namespace NG::flowir
           lowerSwitch(statement);
           return;
         case hir::StatementKind::Expression:
-          static_cast<void>(lowerExpression(*statement.expression));
+          try
+          {
+            static_cast<void>(lowerExpression(*statement.expression));
+          }
+          catch (const std::exception &error)
+          {
+            throw;
+          }
           return;
         }
       }

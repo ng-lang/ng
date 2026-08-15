@@ -184,7 +184,13 @@ namespace NG::typecheck
         }
         interpreter_ = std::make_unique<const_eval::ConstInterpreter>(
             module, constFunctions_, interner_.constInterner(),
-            [this](const hir::Expression &node) { return evaluateConstApplication(node); }, constNativeHost_);
+            [this](const hir::Expression &node) { return evaluateConstApplication(node); }, constNativeHost_,
+            [this](hir::DefId id) -> const hir::Function * {
+              if (id.value < module_->functions.size()) return &module_->functions[id.value];
+              for (const auto &instance : instances_)
+                if (instance.id == id) return &instance;
+              return nullptr;
+            });
         for (const auto &function : module.functions) checkFunction(function);
         return TypeCheckResult{.expressionTypes = std::move(expressionTypes_),
                                .expressionTypeIds = std::move(expressionTypeIds_),
@@ -498,7 +504,7 @@ namespace NG::typecheck
             return value;
           }
           case hir::ExpressionKind::Call:
-            return interpreter_->evaluateCall(expression, {}, constBindings, expression.span);
+            return evaluateConstCall(expression, bindings, constBindings);
           case hir::ExpressionKind::TypeTest:
           {
             const auto found = bindings.find(expression.text);
@@ -853,6 +859,72 @@ namespace NG::typecheck
           impls_.push_back(std::move(info));
           continue;
         }
+      }
+
+      /// Evaluates a const-call expression with explicit generic type
+      /// arguments (`is_showable<i64>()`): instantiates the generic const fun
+      /// per the arguments, checks its where clause, and evaluates the
+      /// concrete instance body. Abstract or non-generic calls fall through
+      /// to the interpreter unchanged.
+      [[nodiscard]] auto evaluateConstCall(const hir::Expression &call, const std::unordered_map<std::string, TypeId> &bindings,
+                                           const const_eval::ConstBindings &constBindings) -> const_eval::ConstValueId
+      {
+        if (!call.operands.empty() && call.operands[0]->resolvedName.has_value() &&
+            call.operands[0]->resolvedName->kind == hir::ResolvedNameKind::Function)
+        {
+          if (call.genericArguments.empty())
+          {
+            // Inferred generic arguments: the runtime inference already
+            // instantiated the const fun; evaluate the recorded instance.
+            if (const auto recorded = callTargets_.find(&call); recorded != callTargets_.end() &&
+                                                               recorded->second.value != call.operands[0]->resolvedName->id)
+              return interpreter_->evaluateCall(call, {}, constBindings, call.span, recorded->second);
+          }
+          if (call.genericArguments.empty())
+          {
+            return interpreter_->evaluateCall(call, {}, constBindings, call.span);
+          }
+          const hir::DefId target{call.operands[0]->resolvedName->id};
+          const auto &function = module_->functions.at(target.value);
+          const auto &signature = signatures_.at(target.value);
+          if (!signature.genericParameters.empty())
+          {
+            // Explicit generic arguments sit on the call node; declaration
+            // order comes from the signature's explicit parameter order.
+            std::vector<TypeId> typeArguments;
+            if (call.genericArguments.size() != signature.explicitParameterOrder.size())
+              throw TypeError(std::format("generic argument count mismatch: expected {}, got {}",
+                                          signature.explicitParameterOrder.size(), call.genericArguments.size()),
+                              call.span);
+            for (size_t index = 0; index < call.genericArguments.size(); ++index)
+            {
+              if (signature.explicitParameterOrder[index] != syntax::GenericParameterKind::Type)
+                throw TypeError("const generic call arguments must be types", call.span);
+              if (call.genericArguments[index].kind != syntax::GenericArgumentKind::Type)
+                throw TypeError("const generic call arguments must be types", call.span);
+              typeArguments.push_back(interner_.resolveInScope(*call.genericArguments[index].type, bindings));
+            }
+            if (typeArguments.size() != signature.genericParameters.size())
+              throw TypeError(std::format("const generic call to `{}` has {} type argument(s), expected {}", function.name,
+                                          typeArguments.size(), signature.genericParameters.size()),
+                              call.span);
+            Substitution substitution;
+            bool concrete = true;
+            for (size_t index = 0; index < typeArguments.size(); ++index)
+            {
+              substitution.types.emplace(signature.genericParameters[index].value, typeArguments[index]);
+              if (interner_.descriptor(typeArguments[index]).kind == TypeKind::TypeParameter) concrete = false;
+            }
+            if (concrete)
+            {
+              if (function.whereClause != nullptr && !evaluateWhereCondition(*function.whereClause, substitution, signature))
+                throw TypeError(std::format("call to `{}` does not satisfy its where clause", function.name), call.span);
+              const hir::DefId instance = instantiateFunction(target, substitution, 0, call.span);
+              return interpreter_->evaluateCall(call, {}, constBindings, call.span, instance);
+            }
+          }
+        }
+        return interpreter_->evaluateCall(call, {}, constBindings, call.span);
       }
 
       /// Unifies one pattern type argument against a concrete one: type
@@ -1240,6 +1312,7 @@ namespace NG::typecheck
 
       void checkFunction(const hir::Function &function, const const_eval::ConstBindings &constBindings = {})
       {
+        const hir::DefId previousFunction = currentFunctionId_;
         currentFunctionId_ = function.id;
         const const_eval::ConstBindings previousBindings = std::move(activeConstBindings_);
         activeConstBindings_ = constBindings;
@@ -1272,7 +1345,6 @@ namespace NG::typecheck
         inConstGenericFunction_ = !signature.constParameters.empty();
         if (function.whereClause != nullptr && !isGeneric(signature))
         {
-          if (!evaluateWhereCondition(*function.whereClause, {}, signature))
             throw TypeError(std::format("function `{}` does not satisfy its where clause", function.name), function.span);
         }
         checkBlock(function.body, locals, {}, signature.returnType);
@@ -1281,6 +1353,7 @@ namespace NG::typecheck
         genericBindings_ = std::move(previousGenericBindings);
         inConstGenericFunction_ = previousConstGeneric;
         activeConstBindings_ = previousBindings;
+        currentFunctionId_ = previousFunction;
       }
 
       void recordFallthroughDrops(const hir::Function &function, const LocalTypes &locals)
@@ -1580,7 +1653,7 @@ namespace NG::typecheck
                 }
                 if (node.kind == hir::ExpressionKind::GenericApplication) return evaluateConstApplication(node);
                 if (node.kind == hir::ExpressionKind::Call)
-                  return interpreter_->evaluateCall(node, {}, activeConstBindings_, node.span);
+                  return evaluateConstCall(node, genericBindings_, activeConstBindings_);
                 throw const_eval::ConstEvalError("const if condition is not a compile-time constant expression", node.span);
               });
             }
@@ -1606,12 +1679,19 @@ namespace NG::typecheck
               selected = evaluator.evaluateBool(*statement.expression, [this](const hir::Expression &node) {
                 if (node.kind == hir::ExpressionKind::GenericApplication) return evaluateConstApplication(node);
                 if (node.kind == hir::ExpressionKind::Call)
-                  return interpreter_->evaluateCall(node, {}, {}, node.span);
+                  return evaluateConstCall(node, genericBindings_, {});
                 throw const_eval::ConstEvalError("const if condition is not a compile-time constant expression", node.span);
               });
             }
             catch (const const_eval::ConstEvalError &error)
             {
+              // Abstract const-if conditions inside generic functions defer
+              // to the monomorphized instance, where bindings are concrete.
+              if (isGeneric(signatures_.at(currentFunctionId_.value)))
+              {
+                placeholderFunctions_.insert(currentFunctionId_.value);
+                return;
+              }
               throw TypeError(error.what(), error.span);
             }
           }
@@ -2706,7 +2786,12 @@ namespace NG::typecheck
             }
             const TypeId specialized = specializeReturnType(signature, substitution, packCount);
             requireConstArguments(signature, substitution, expression.operands[0]->text, expression.span);
-            if (module_ != nullptr && selected.value < module_->functions.size() &&
+            // Abstract substitutions defer the where-clause check to the
+            // monomorphized instance, where the bindings are concrete.
+            bool substitutionConcrete = true;
+            for (const auto &[parameter, argument] : substitution.types)
+              if (interner_.descriptor(argument).kind == TypeKind::TypeParameter) substitutionConcrete = false;
+            if (substitutionConcrete && module_ != nullptr && selected.value < module_->functions.size() &&
                 module_->functions.at(selected.value).whereClause != nullptr &&
                 !evaluateWhereCondition(*module_->functions.at(selected.value).whereClause, substitution, signature))
               throw TypeError(std::format("call to `{}` does not satisfy its where clause", module_->functions.at(selected.value).name),
@@ -3372,7 +3457,10 @@ namespace NG::typecheck
           if (!signature.genericParameters.empty() && interner_.descriptor(type).kind == TypeKind::TypeParameter)
             throw TypeError(std::format("cannot infer generic arguments for function `{}`", expression.operands[0]->text), expression.span);
           requireConstArguments(signature, substitution, expression.operands[0]->text, expression.span);
-          if (module_ != nullptr && selected.value < module_->functions.size() &&
+          bool substitutionConcrete = true;
+          for (const auto &[parameter, argument] : substitution.types)
+            if (interner_.descriptor(argument).kind == TypeKind::TypeParameter) substitutionConcrete = false;
+          if (substitutionConcrete && module_ != nullptr && selected.value < module_->functions.size() &&
               module_->functions.at(selected.value).whereClause != nullptr &&
               !evaluateWhereCondition(*module_->functions.at(selected.value).whereClause, substitution, signature))
             throw TypeError(std::format("call to `{}` does not satisfy its where clause", module_->functions.at(selected.value).name),

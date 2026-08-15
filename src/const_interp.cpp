@@ -47,14 +47,16 @@ namespace NG::const_eval
   } // namespace
 
   ConstInterpreter::ConstInterpreter(const hir::Module &module, const std::unordered_set<uint32_t> &constFunctions,
-                                     ConstInterner &interner, PredicateEvaluator predicate, ConstNativeHost host)
+                                     ConstInterner &interner, PredicateEvaluator predicate, ConstNativeHost host,
+                                     FunctionResolver resolver)
     : module_(module), constFunctions_(constFunctions), interner_(interner), predicate_(std::move(predicate)),
-      host_(std::move(host))
+      host_(std::move(host)), resolver_(std::move(resolver))
   {
   }
 
   auto ConstInterpreter::evaluateCall(const hir::Expression &call, const LocalValues &locals,
-                                      const ConstBindings &constBindings, syntax::SourceSpan span) -> ConstValueId
+                                      const ConstBindings &constBindings, syntax::SourceSpan span,
+                                      std::optional<hir::DefId> targetOverride) -> ConstValueId
   {
     if (depth_ == 0)
     {
@@ -66,9 +68,12 @@ namespace NG::const_eval
     if (call.kind != hir::ExpressionKind::Call || call.operands.empty() || !call.operands[0]->resolvedName.has_value() ||
         call.operands[0]->resolvedName->kind != hir::ResolvedNameKind::Function)
       throw ConstEvalError("const call target is not a function", span);
-    const hir::DefId target{call.operands[0]->resolvedName->id};
-    const auto &function = module_.functions.at(target.value);
-    if (function.nativeFunction)
+    const hir::DefId target = targetOverride.value_or(hir::DefId{call.operands[0]->resolvedName->id});
+    const hir::Function *function = nullptr;
+    if (target.value < module_.functions.size()) function = &module_.functions[target.value];
+    else if (resolver_) function = resolver_(target);
+    if (function == nullptr) throw ConstEvalError("const call target is not a function", span);
+    if (function->nativeFunction)
     {
       // Const-capable native hosts: only names the embedding registered as
       // pure are evaluable at compile time.
@@ -78,24 +83,24 @@ namespace NG::const_eval
       arguments.reserve(call.operands.size() - 1);
       for (size_t index = 1; index < call.operands.size(); ++index)
         arguments.push_back(evaluateExpression(*call.operands[index], locals));
-      return host_(function.name, arguments, interner_, span);
+      return host_(function->name, arguments, interner_, span);
     }
-    if (!constFunctions_.contains(target.value))
+    if (!targetOverride.has_value() && !constFunctions_.contains(target.value))
       throw ConstEvalError(std::format("function `{}` is not const-capable", call.operands[0]->text), span);
-    if (!function.genericParameters.empty() || !function.constParameters.empty())
-      throw ConstEvalError(std::format("compile-time calls to generic const fun `{}` are not yet supported", function.name),
+    if (!targetOverride.has_value() && (!function->genericParameters.empty() || !function->constParameters.empty()))
+      throw ConstEvalError(std::format("compile-time calls to generic const fun `{}` are not yet supported", function->name),
                            span);
     std::vector<ConstValueId> arguments;
     arguments.reserve(call.operands.size() - 1);
     for (size_t index = 1; index < call.operands.size(); ++index)
       arguments.push_back(evaluateExpression(*call.operands[index], locals));
-    if (arguments.size() != function.parameters.size())
+    if (arguments.size() != function->parameters.size())
     {
       constBindings_ = std::move(saved);
-      throw ConstEvalError(std::format("const call argument count mismatch: expected {}, got {}", function.parameters.size(),
+      throw ConstEvalError(std::format("const call argument count mismatch: expected {}, got {}", function->parameters.size(),
                                        arguments.size()), span);
     }
-    const ConstValueId result = runFunction(function, arguments);
+    const ConstValueId result = runFunction(*function, arguments);
     constBindings_ = std::move(saved);
     return result;
   }

@@ -150,16 +150,10 @@ TEST_CASE("vNext const evaluation rejects non-const functions, runtime locals, a
     REQUIRE(std::string{error.what()} == "runtime local `input` is not a compile-time constant");
   }
 
-  try
-  {
-    check("const fun identity<T>(value: T) -> T { return value; } "
-          "fun main() { const if (identity(1) == 1) { return; } }");
-    FAIL("expected a generic const fun error");
-  }
-  catch (const typecheck::TypeError &error)
-  {
-    REQUIRE(std::string{error.what()} == "compile-time calls to generic const fun `identity` are not yet supported");
-  }
+  // Generic const funs evaluate at compile time: inferred arguments reuse
+  // the runtime-instantiated body, explicit arguments instantiate per type.
+  REQUIRE_NOTHROW(check("const fun identity<T>(value: T) -> T { return value; } "
+                        "fun main() { const if (identity(1) == 1) { return; } }"));
 }
 
 TEST_CASE("vNext const evaluation enforces the fuel budget", "[vNext][ConstFun][Errors]")
@@ -244,4 +238,56 @@ TEST_CASE("vNext const_native_hosts example runs end to end through ngi", "[vNex
   INFO("errors: " << errors);
   REQUIRE(errors.empty());
   REQUIRE(output.find("short folded\nregex folded\ntrim folded\n") != std::string::npos);
+}
+
+TEST_CASE("vNext generic const funs evaluate at compile time per type argument", "[vNext][ConstFun][GenericCalls]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(run("import prelude; "
+              "trait Show { fun show(self: Self ref) -> string; } "
+              "impl Show for i64 { fun show(self: Self ref) -> string { return \"int\"; } } "
+              "const fun is_showable<T>() -> bool where T: Show { return true; } "
+              "fun main() { const if (is_showable<i64>()) { print(\"yes\"); } else { assert(false); } }",
+              output, errors) == 0);
+  REQUIRE(errors.empty());
+  REQUIRE(output.find("yes\n") != std::string::npos);
+
+  REQUIRE(run("import prelude; "
+              "const fun identity<T>(value: T) -> T { return value; } "
+              "fun main() { const if (identity(7) == 7) { print(\"folded\"); } else { assert(false); } }",
+              output, errors) == 0);
+  REQUIRE(errors.empty());
+  REQUIRE(output.find("folded\n") != std::string::npos);
+
+  REQUIRE(run("import prelude; "
+              "trait Show { fun show(self: Self ref) -> string; } "
+              "const fun is_showable<T>() -> bool where T: Show { return true; } "
+              "fun main() { const if (is_showable<string>()) { assert(false); } }",
+              output, errors) == 1);
+  REQUIRE_THAT(errors, ContainsSubstring("does not satisfy its where clause"));
+}
+
+TEST_CASE("vNext generic const funs defer abstract calls to instances", "[vNext][ConstFun][GenericCalls]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(run("import prelude; "
+              "trait Show { fun show(self: Self ref) -> string; } "
+              "impl Show for i64 { fun show(self: Self ref) -> string { return \"int\"; } } "
+              "const fun is_showable<T>() -> bool where T: Show { return true; } "
+              "fun classify<U: Show>() -> i64 { const if (is_showable<U>()) { return 1; } return 0; } "
+              "fun main() { assert(classify<i64>() == 1); }",
+              output, errors) == 0);
+  REQUIRE(errors.empty());
+}
+
+TEST_CASE("vNext generic_const_fun example runs end to end through ngi", "[vNext][ConstFun][GenericCalls][Examples]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(runExample("example/generic_const_fun.ng", output, errors) == 0);
+  INFO("errors: " << errors);
+  REQUIRE(errors.empty());
+  REQUIRE(output.find("i64 showable\nidentity folded\n") != std::string::npos);
 }
