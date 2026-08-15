@@ -1,8 +1,8 @@
 // AI-generated code; reviewed for this repository's vNext rewrite.
-#include "test.hpp"
 #include "driver.hpp"
 #include "hir.hpp"
 #include "syntax/module_parser.hpp"
+#include "test.hpp"
 #include "typecheck.hpp"
 
 #include <sstream>
@@ -54,8 +54,7 @@ TEST_CASE("vNext type interner rejects unknown type names", "[vNext][TypeInterne
 
 TEST_CASE("vNext type interner validates builtin type constructor arities", "[vNext][TypeInterner][Errors]")
 {
-  expectTypeError("fun main() { let x: array<i64, i64, i64> = [1, 2]; }",
-                  "array type expects 1 or 2 arguments, got 3");
+  expectTypeError("fun main() { let x: array<i64, i64, i64> = [1, 2]; }", "array type expects 1 or 2 arguments, got 3");
   expectTypeError("fun main() { let r: range<i64, i64> = 1..2; }", "range type expects 1 element argument, got 2");
 }
 
@@ -90,4 +89,36 @@ TEST_CASE("vNext generic instantiations intern range fields and struct arguments
               output, errors) == 0);
   REQUIRE(errors.empty());
   REQUIRE(output.find("with value 7") != std::string::npos);
+}
+
+TEST_CASE("vNext generic instantiations intern nested struct and fixed array fields", "[vNext][TypeInterner][Runtime]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(run("struct P<T> { x: T } struct W<T> { inner: P<T> } "
+              "fun main() -> i64 { let p: P<i64> = P { x: 7 }; let w: W<i64> = W { inner: p }; return w.inner.x; }",
+              output, errors) == 0);
+  REQUIRE(errors.empty());
+  REQUIRE(output.find("with value 7") != std::string::npos);
+
+  REQUIRE(run("struct A<T> { xs: array<T, 2> } "
+              "fun main() -> i64 { let a: A<i64> = A { xs: [1, 2] }; return a.xs[1]; }",
+              output, errors) == 0);
+  REQUIRE(errors.empty());
+  REQUIRE(output.find("with value 2") != std::string::npos);
+}
+
+TEST_CASE("vNext variadic opaque templates accept pack arguments", "[vNext][TypeInterner][Runtime]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(run("type Pack<T...> = native; fun f(p: Pack<i64, i64>) { } fun main() { }", output, errors) == 0);
+  REQUIRE(errors.empty());
+}
+
+TEST_CASE("vNext tuple introspection validates arity", "[vNext][TypeInterner][Errors]")
+{
+  expectTypeError("fun main() { let x: tuple_element<i64> = 1; }",
+                  "tuple_element<T, I> expects a tuple type and a const index");
+  expectTypeError("fun main() { let x: tuple_concat<i64> = (1); }", "tuple_concat<A, B> expects two tuple types");
 }
