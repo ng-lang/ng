@@ -343,6 +343,21 @@ TEST_CASE("vNext native lowering round-trips trait-view dispatch through qbe and
   CHECK(exitCode == 42);
 }
 
+TEST_CASE("vNext native lowering round-trips constant-index references through qbe and the system toolchain",
+          "[vNext][Native][Qbe]")
+{
+  const int exitCode = runNative("fun set(target: i64 ref mut, value: i64) {\n"
+                                 "    *target := value;\n"
+                                 "}\n"
+                                 "fun main() -> i64 {\n"
+                                 "    let mut xs = [1, 2, 3];\n"
+                                 "    set(ref mut xs[1], 9);\n"
+                                 "    return xs[0] + xs[1] + xs[2];\n"
+                                 "}",
+                                 "const_index_refs");
+  CHECK(exitCode == 13); // 1 + 9 + 3
+}
+
 TEST_CASE("vNext native lowering round-trips polymorphic view arrays through qbe and the system toolchain",
           "[vNext][Native][Qbe]")
 {

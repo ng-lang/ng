@@ -117,6 +117,59 @@ namespace NG::native
          "@start\n"
          "\thlt\n"
          "}\n"},
+        {"str_clone",
+         "function l $ngrt_str_clone(l %s) {\n"
+         "@start\n"
+         "\t%len =l loadl %s\n"
+         "\t%total =l add %len, 8\n"
+         "\t%p =l call $malloc(l %total)\n"
+         "\tstorel %len, %p\n"
+         "\t%dst =l add %p, 8\n"
+         "\t%src =l add %s, 8\n"
+         "\t%m =l call $memcpy(l %dst, l %src, l %len)\n"
+         "\tret %p\n"
+         "}\n"},
+        {"arr_clone_words",
+         "function l $ngrt_arr_clone_words(l %src) {\n"
+         "@start\n"
+         "\t%len =l loadl %src\n"
+         "\t%size =l mul %len, 8\n"
+         "\t%total =l add %size, 16\n"
+         "\t%p =l call $malloc(l %total)\n"
+         "\tstorel %len, %p\n"
+         "\t%cap =l add %p, 8\n"
+         "\tstorel %len, %cap\n"
+         "\t%dst =l add %p, 16\n"
+         "\t%srcp =l add %src, 16\n"
+         "\t%m =l call $memcpy(l %dst, l %srcp, l %size)\n"
+         "\tret %p\n"
+         "}\n"},
+        {"arr_clone_strings",
+         "function l $ngrt_arr_clone_strings(l %src) {\n"
+         "@start\n"
+         "\t%len =l loadl %src\n"
+         "\t%size =l mul %len, 8\n"
+         "\t%total =l add %size, 16\n"
+         "\t%p =l call $malloc(l %total)\n"
+         "\tstorel %len, %p\n"
+         "\t%cap =l add %p, 8\n"
+         "\tstorel %len, %cap\n"
+         "\t%i =l copy 0\n"
+         "@loop\n"
+         "\t%done =w csgel %i, %len\n"
+         "\tjnz %done, @end, @copy\n"
+         "@copy\n"
+         "\t%v =l call $ngrt_arr_get(l %src, l %i)\n"
+         "\t%c =l call $ngrt_str_clone(l %v)\n"
+         "\t%off =l mul %i, 8\n"
+         "\t%base =l add %p, 16\n"
+         "\t%addr =l add %base, %off\n"
+         "\tstorel %c, %addr\n"
+         "\t%i =l add %i, 1\n"
+         "\tjmp @loop\n"
+         "@end\n"
+         "\tret %p\n"
+         "}\n"},
         {"str_concat",
          "function l $ngrt_str_concat(l %a, l %b) {\n"
          "@start\n"
@@ -219,81 +272,93 @@ namespace NG::native
          "\t%m =l call $memcpy(l %dst, l %src, l %size)\n"
          "\tret %p\n"
          "}\n"},
-        {"ref_load",
-         // A reference value is { l root-slot, l count, { l kind, l payload }[] }.
-         // Loading walks from the root slot's current value, mirroring the
-         // VM's (cell + path) view semantics (rebinding the root is observed).
-         "function l $ngrt_ref_load(l %ref) {\n"
-         "@start\n"
-         "\t%root =l loadl %ref\n"
-         "\t%cntp =l add %ref, 8\n"
-         "\t%cnt =l loadl %cntp\n"
-         "\t%cur =l loadl %root\n"
-         "\t%sp =l add %ref, 16\n"
-         "\t%i =l copy 0\n"
-         "@loop\n"
-         "\t%done =w csgel %i, %cnt\n"
-         "\tjnz %done, @end, @step\n"
-         "@step\n"
-         "\t%off =l mul %i, 16\n"
-         "\t%kindp =l add %sp, %off\n"
-         "\t%kind =l loadl %kindp\n"
-         "\t%zero =w ceql %kind, 0\n"
-         "\t%payloadp =l add %kindp, 8\n"
-         "\t%payload =l loadl %payloadp\n"
-         "\tjnz %zero, @member, @index\n"
-         "@member\n"
-         "\t%moff =l mul %payload, 8\n"
-         "\t%addr =l add %cur, %moff\n"
-         "\t%cur =l loadl %addr\n"
-         "\tjmp @next\n"
-         "@index\n"
-         "\t%cur =l call $ngrt_arr_get(l %cur, l %payload)\n"
-         "@next\n"
-         "\t%i =l add %i, 1\n"
-         "\tjmp @loop\n"
-         "@end\n"
-         "\tret %cur\n"
-         "}\n"},
-        {"ref_addr",
-         // Walks to the address of the referenced place; a plain local
-         // reference addresses the slot itself (stores must not target the
-         // loaded value).
-         "function l $ngrt_ref_addr(l %ref) {\n"         "@start\n"
-         "\t%root =l loadl %ref\n"
-         "\t%cntp =l add %ref, 8\n"
-         "\t%cnt =l loadl %cntp\n"
-         "\t%none =w ceql %cnt, 0\n"
-         "\t%cur =l loadl %root\n"
-         "\tjnz %none, @end0, @pre\n"
-         "@end0\n"
-         "\tret %root\n"
-         "@pre\n"
-         "\t%sp =l add %ref, 16\n"
-         "\t%i =l copy 0\n"
-         "@loop\n"
-         "\t%done =w csgel %i, %cnt\n"
-         "\tjnz %done, @end, @step\n"
-         "@step\n"
-         "\t%off =l mul %i, 16\n"
-         "\t%kindp =l add %sp, %off\n"
-         "\t%kind =l loadl %kindp\n"
-         "\t%zero =w ceql %kind, 0\n"
-         "\t%payloadp =l add %kindp, 8\n"
-         "\t%payload =l loadl %payloadp\n"
-         "\tjnz %zero, @member, @index\n"
-         "@member\n"
-         "\t%moff =l mul %payload, 8\n"
-         "\t%cur =l add %cur, %moff\n"
-         "\tjmp @next\n"
-         "@index\n"
-         "\t%cur =l call $ngrt_arr_addr(l %cur, l %payload)\n"
-         "@next\n"
-         "\t%i =l add %i, 1\n"
-         "\tjmp @loop\n"
-         "@end\n"
-         "\tret %cur\n"
-         "}\n"},
+         {"ref_load",
+          // A reference value is { l root-cell, l count, { l kind, l payload }[] }.
+          // Steps: 0 = struct field (offset 8p), 1 = runtime index
+          // (bounds-checked element), 2 = constant index into an array/tuple
+          // (offset 16 + 8p). Loading walks from the root cell's current
+          // value, mirroring the VM's (cell + path) view semantics.
+          "function l $ngrt_ref_load(l %ref) {\n"
+          "@start\n"
+          "\t%root =l loadl %ref\n"
+          "\t%cntp =l add %ref, 8\n"
+          "\t%cnt =l loadl %cntp\n"
+          "\t%cur =l loadl %root\n"
+          "\t%sp =l add %ref, 16\n"
+          "\t%i =l copy 0\n"
+          "@loop\n"
+          "\t%done =w csgel %i, %cnt\n"
+          "\tjnz %done, @end, @step\n"
+          "@step\n"
+          "\t%off =l mul %i, 16\n"
+          "\t%kindp =l add %sp, %off\n"
+          "\t%kind =l loadl %kindp\n"
+          "\t%isIndex =w ceql %kind, 1\n"
+          "\t%payloadp =l add %kindp, 8\n"
+          "\t%payload =l loadl %payloadp\n"
+          "\tjnz %isIndex, @index, @memberlike\n"
+          "@memberlike\n"
+          "\t%moff =l mul %payload, 8\n"
+          "\t%isHeader =w ceql %kind, 2\n"
+          "\tjnz %isHeader, @header, @plain\n"
+          "@header\n"
+          "\t%moff =l add %moff, 16\n"
+          "@plain\n"
+          "\t%addr =l add %cur, %moff\n"
+          "\t%cur =l loadl %addr\n"
+          "\tjmp @next\n"
+          "@index\n"
+          "\t%cur =l call $ngrt_arr_get(l %cur, l %payload)\n"
+          "@next\n"
+          "\t%i =l add %i, 1\n"
+          "\tjmp @loop\n"
+          "@end\n"
+          "\tret %cur\n"
+          "}\n"},
+         {"ref_addr",
+          // Walks to the address of the referenced place (same step kinds as
+          // ref_load); a plain local reference addresses the cell itself.
+          "function l $ngrt_ref_addr(l %ref) {\n"
+          "@start\n"
+          "\t%root =l loadl %ref\n"
+          "\t%cntp =l add %ref, 8\n"
+          "\t%cnt =l loadl %cntp\n"
+          "\t%none =w ceql %cnt, 0\n"
+          "\t%cur =l loadl %root\n"
+          "\tjnz %none, @end0, @pre\n"
+          "@end0\n"
+          "\tret %root\n"
+          "@pre\n"
+          "\t%sp =l add %ref, 16\n"
+          "\t%i =l copy 0\n"
+          "@loop\n"
+          "\t%done =w csgel %i, %cnt\n"
+          "\tjnz %done, @end, @step\n"
+          "@step\n"
+          "\t%off =l mul %i, 16\n"
+          "\t%kindp =l add %sp, %off\n"
+          "\t%kind =l loadl %kindp\n"
+          "\t%isIndex =w ceql %kind, 1\n"
+          "\t%payloadp =l add %kindp, 8\n"
+          "\t%payload =l loadl %payloadp\n"
+          "\tjnz %isIndex, @index, @memberlike\n"
+          "@memberlike\n"
+          "\t%moff =l mul %payload, 8\n"
+          "\t%isHeader =w ceql %kind, 2\n"
+          "\tjnz %isHeader, @header, @plain\n"
+          "@header\n"
+          "\t%moff =l add %moff, 16\n"
+          "@plain\n"
+          "\t%cur =l add %cur, %moff\n"
+          "\tjmp @next\n"
+          "@index\n"
+          "\t%cur =l call $ngrt_arr_addr(l %cur, l %payload)\n"
+          "@next\n"
+          "\t%i =l add %i, 1\n"
+          "\tjmp @loop\n"
+          "@end\n"
+          "\tret %cur\n"
+          "}\n"},
         {"copy_elements",
          // Copies `count` 8-byte elements from src's payload into dst
          // (tuple-splice building block).
@@ -402,7 +467,17 @@ namespace NG::native
       bool hasTailRecur_{};
       /// Per block: (predecessor index, block-parameter argument values).
       std::vector<std::vector<std::pair<size_t, std::vector<ValueId>>>> predecessors_;
-      std::vector<uint32_t> slotOrder_;
+      struct SlotSpec
+      {
+        uint32_t local;
+        bool heapCell;
+      };
+      std::vector<SlotSpec> slotOrder_;
+      /// Locals that are ever borrowed (`ref` roots, incl. trait views): their
+      /// storage must be a heap cell so escaping references (recursive enum
+      /// payloads) stay valid after the frame returns — the VM's locals are
+      /// shared cells for the same reason.
+      std::unordered_set<uint32_t> cellLocals_;
       std::unordered_map<uint32_t, std::string> localSlots_;
       std::unordered_map<uint32_t, QType> localQTypes_;
       std::unordered_map<uint32_t, std::string> valueTemps_;
@@ -576,11 +651,50 @@ namespace NG::native
           type = qtypeOf(found->second);
         localSlots_.emplace(local, fresh());
         localQTypes_.emplace(local, type);
-        slotOrder_.push_back(local);
+        slotOrder_.push_back(SlotSpec{.local = local, .heapCell = cellLocals_.contains(local)});
+      }
+
+      [[nodiscard]] auto isCellLocal(uint32_t local) -> bool { return cellLocals_.contains(local); }
+
+      /// Loads a local's value; cell locals use the slot -> cell indirection
+      /// (two loads).
+      [[nodiscard]] auto loadLocal(uint32_t local) -> std::string
+      {
+        const auto &slot = localSlots_.at(local);
+        if (!isCellLocal(local))
+        {
+          const auto value = fresh();
+          line(std::format("{} =l loadl {}", value, slot));
+          return value;
+        }
+        const auto cell = fresh();
+        line(std::format("{} =l loadl {}", cell, slot));
+        const auto value = fresh();
+        line(std::format("{} =l loadl {}", value, cell));
+        return value;
+      }
+
+      /// Allocates a fresh cell for a cell local and stores a value in it;
+      /// the slot is repointed to the new cell (BindLocal semantics: the VM
+      /// creates a fresh shared cell on every bind, so outstanding refs keep
+      /// observing the old cell — a snapshot, not a mutation).
+      void bindFreshCell(uint32_t local, const std::string &value)
+      {
+        const auto &slot = localSlots_.at(local);
+        const auto cell = fresh();
+        line(std::format("{} =l call $malloc(l 8)", cell));
+        line(std::format("storel {}, {}", cell, slot));
+        line(std::format("storel {}, {}", value, cell));
       }
 
       void collectLocals()
       {
+        // First pass: locals rooted by MakeRef/MakeTraitView need heap cells.
+        for (const auto &block : function_.blocks)
+          for (const auto &instruction : block.instructions)
+            if ((instruction.kind == InstructionKind::MakeRef || instruction.kind == InstructionKind::MakeTraitView) &&
+                instruction.placeRootLocal)
+              cellLocals_.insert(instruction.placeRootLocal->value);
         paramTemps_.reserve(function_.parameterLocals.size());
         for (size_t index = 0; index < function_.parameterLocals.size(); ++index)
         {
@@ -653,12 +767,36 @@ namespace NG::native
         // One-shot entry logic: frame slots and parameter stores live under
         // `@start` so tail recursion never re-runs them.
         out_ << "@start\n";
-        for (const auto local : slotOrder_) line(std::format("{} =l alloc8 8", localSlots_.at(local)));
+        for (const auto &slot : slotOrder_)
+        {
+          if (slot.heapCell)
+          {
+            // Cell locals: the slot stores a pointer to the current cell.
+            line(std::format("{} =l call $malloc(l 8)", localSlots_.at(slot.local)));
+            const auto cell = fresh();
+            line(std::format("{} =l call $malloc(l 8)", cell));
+            line(std::format("storel {}, {}", cell, localSlots_.at(slot.local)));
+            line(std::format("storel 0, {}", cell));
+          }
+          else
+          {
+            line(std::format("{} =l alloc8 8", localSlots_.at(slot.local)));
+          }
+        }
         for (size_t param = 0; param < paramTemps_.size(); ++param)
         {
           const auto local = function_.parameterLocals[param].value;
-          line(std::format("store{} {}, {}", suffix(localQTypes_.at(local)), paramTemps_[param],
-                           localSlots_.at(local)));
+          if (isCellLocal(local))
+          {
+            const auto cell = fresh();
+            line(std::format("{} =l loadl {}", cell, localSlots_.at(local)));
+            line(std::format("storel {}, {}", paramTemps_[param], cell));
+          }
+          else
+          {
+            line(std::format("store{} {}, {}", suffix(localQTypes_.at(local)), paramTemps_[param],
+                             localSlots_.at(local)));
+          }
         }
         if (hasTailRecur_) line(std::format("jmp {}", labels_.front()));
         for (size_t index = 0; index < function_.blocks.size(); ++index) emitBlock(index);
@@ -704,8 +842,18 @@ namespace NG::native
         for (size_t param = 0; param < block.parameterLocals.size(); ++param)
         {
           const auto local = block.parameterLocals[param].value;
-          line(std::format("store{} {}, {}", suffix(localQTypes_.at(local)), phiTemps[param],
-                           localSlots_.at(local)));
+          if (isCellLocal(local))
+          {
+            // The VM rebinds block parameters into fresh cells on every
+            // entry (jumpToBlock), so loop accumulators observed through
+            // refs keep their per-iteration snapshot.
+            bindFreshCell(local, phiTemps[param]);
+          }
+          else
+          {
+            line(std::format("store{} {}, {}", suffix(localQTypes_.at(local)), phiTemps[param],
+                             localSlots_.at(local)));
+          }
         }
         for (const auto &instruction : block.instructions) lowerInstruction(instruction);
         lowerTerminator(*block.terminator, index);
@@ -799,17 +947,25 @@ namespace NG::native
           const auto sourceType = function_.valueTypes.at(instruction.source->value);
           const auto localType = function_.localTypes.at(instruction.local->value);
           const auto type = localQTypes_.at(instruction.local->value);
+          std::string boundValue = source;
+          // Copy-first semantics: aggregates are deep-copied on bind so
+          // later in-place mutation cannot alias the source.
+          if (needsClone(sourceType)) boundValue = emitClone(source, sourceType);
           if (isUnionType(localType) && !isUnionType(sourceType))
           {
             // Values flowing into a union slot are wrapped in a tagged box.
-            bindUnionBox(instruction, localType, unionMemberFor(localType, sourceType), source, qtypeOf(sourceType));
+            bindUnionBox(instruction, localType, unionMemberFor(localType, sourceType), boundValue,
+                         qtypeOf(sourceType));
           }
           else
           {
-            bindResult(instruction, type, std::format("copy {}", source));
+            bindResult(instruction, type, std::format("copy {}", boundValue));
           }
-          line(std::format("store{} {}, {}", suffix(type), valueTemps_.at(instruction.result.value),
-                           localSlots_.at(instruction.local->value)));
+          if (isCellLocal(instruction.local->value))
+            bindFreshCell(instruction.local->value, valueTemps_.at(instruction.result.value));
+          else
+            line(std::format("store{} {}, {}", suffix(type), valueTemps_.at(instruction.result.value),
+                             localSlots_.at(instruction.local->value)));
           return;
         }
         case InstructionKind::EnumVariantIndex:
@@ -926,7 +1082,12 @@ namespace NG::native
           const auto loaded = fresh();
           line(std::format("{} =l call $ngrt_ref_load(l {})", loaded, reference));
           const auto resultType = qtypeOf(function_.valueTypes.at(instruction.result.value));
-          bindResult(instruction, resultType, std::format("copy {}", castFromSlot(loaded, resultType)));
+          const auto resultTypeId = function_.valueTypes.at(instruction.result.value);
+          std::string value = loaded;
+          // Copy-first semantics: `*r` yields a deep copy of aggregates
+          // (the VM deep-copies on every reference load).
+          if (needsClone(resultTypeId)) value = emitClone(loaded, resultTypeId);
+          bindResult(instruction, resultType, std::format("copy {}", castFromSlot(value, resultType)));
           return;
         }
         case InstructionKind::AssignPlace:
@@ -951,18 +1112,23 @@ namespace NG::native
             const auto current = fresh();
             line(std::format("{} =l call $ngrt_ref_load(l {})", current, reference));
             std::string address = current;
-            for (const auto &step : instruction.placeSteps)
+            const auto referent = function_.typeDescriptors[function_.valueTypes.at(instruction.placeRootRef->value).value].element;
+            for (const auto &step : normalizeSteps(referent, instruction.placeSteps))
             {
               const auto next = fresh();
-              if (step.kind == flowir::PlaceStep::Kind::Member)
+              if (step.kind == 1)
               {
-                line(std::format("{} =l add {}, {}", next, address, step.field * 8));
+                useHelper("arr_addr");
+                line(std::format("{} =l call $ngrt_arr_addr(l {}, l {})", next, address, step.payload));
+              }
+              else if (step.kind == 2)
+              {
+                line(std::format("{} =l add {}, {}", next, address,
+                                 std::format("{}", 16 + 8 * std::stoll(step.payload))));
               }
               else
               {
-                useHelper("arr_addr");
-                line(std::format("{} =l call $ngrt_arr_addr(l {}, l {})", next, address,
-                                 operandTemp(step.indexValue)));
+                line(std::format("{} =l add {}, {}", next, address, std::format("{}", 8 * std::stoll(step.payload))));
               }
               address = next;
             }
@@ -973,41 +1139,61 @@ namespace NG::native
             throw LoweringError(std::format("native lowering (M2): malformed place in `{}`", function_.name));
           // Local-rooted place: walk the static steps from the slot value to
           // the target address.
-          const auto rootSlot = localSlots_.at(instruction.placeRootLocal->value);
+          const auto rootLocal = instruction.placeRootLocal->value;
+          const auto rootSlot = localSlots_.at(rootLocal);
           if (instruction.placeSteps.empty())
           {
-            const auto localType = function_.localTypes.at(instruction.placeRootLocal->value);
+            const auto localType = function_.localTypes.at(rootLocal);
             const auto valueTypeId = function_.valueTypes.at(instruction.operands.back().value);
+            std::string wrappedBox;
+            std::string storedValue = value;
             if (isUnionType(localType) && !isUnionType(valueTypeId))
             {
-              const auto wrapped = fresh();
-              line(std::format("{} =l call $malloc(l 16)", wrapped));
-              line(std::format("storel {}, {}", unionMemberFor(localType, valueTypeId), wrapped));
+              wrappedBox = fresh();
+              line(std::format("{} =l call $malloc(l 16)", wrappedBox));
+              line(std::format("storel {}, {}", unionMemberFor(localType, valueTypeId), wrappedBox));
               const auto address = fresh();
-              line(std::format("{} =l add {}, 8", address, wrapped));
+              line(std::format("{} =l add {}, 8", address, wrappedBox));
               line(std::format("store{} {}, {}", suffix(valueType), value, address));
-              line(std::format("storel {}, {}", wrapped, rootSlot));
+              storedValue = wrappedBox;
+            }
+            if (isCellLocal(rootLocal))
+            {
+              // `:=` mutates the current cell (outstanding refs observe it).
+              const auto cell = fresh();
+              line(std::format("{} =l loadl {}", cell, rootSlot));
+              line(std::format("storel {}, {}", storedValue, cell));
             }
             else
             {
-              line(std::format("store{} {}, {}", suffix(valueType), value, rootSlot));
+              line(std::format("store{} {}, {}", suffix(valueType), storedValue, rootSlot));
             }
             return;
           }
-          const auto current = fresh();
-          line(std::format("{} =l loadl {}", current, rootSlot));
+          std::string current;
+          if (isCellLocal(rootLocal)) current = loadLocal(rootLocal);
+          else
+          {
+            current = fresh();
+            line(std::format("{} =l loadl {}", current, rootSlot));
+          }
           std::string address = current;
-          for (const auto &step : instruction.placeSteps)
+          for (const auto &step : normalizeSteps(function_.localTypes.at(rootLocal), instruction.placeSteps))
           {
             const auto next = fresh();
-            if (step.kind == flowir::PlaceStep::Kind::Member)
+            if (step.kind == 1)
             {
-              line(std::format("{} =l add {}, {}", next, address, step.field * 8));
+              useHelper("arr_addr");
+              line(std::format("{} =l call $ngrt_arr_addr(l {}, l {})", next, address, step.payload));
+            }
+            else if (step.kind == 2)
+            {
+              // Constant index into an array/tuple: header + element offset.
+              line(std::format("{} =l add {}, {}", next, address, std::format("{}", 16 + 8 * std::stoll(step.payload))));
             }
             else
             {
-              useHelper("arr_addr");
-              line(std::format("{} =l call $ngrt_arr_addr(l {}, l {})", next, address, operandTemp(step.indexValue)));
+              line(std::format("{} =l add {}, {}", next, address, std::format("{}", 8 * std::stoll(step.payload))));
             }
             address = next;
           }
@@ -1133,7 +1319,8 @@ namespace NG::native
         {
           const uint32_t local = static_cast<uint32_t>(payload);
           const auto type = localQTypes_.at(local);
-          bindResult(instruction, type, std::format("load{} {}", suffix(type), localSlots_.at(local)));
+          if (isCellLocal(local)) bindResult(instruction, type, std::format("copy {}", castFromSlot(loadLocal(local), type)));
+          else bindResult(instruction, type, std::format("load{} {}", suffix(type), localSlots_.at(local)));
           if (const auto found = function_.localTypes.find(local); found != function_.localTypes.end() &&
                                                                isUnionType(found->second))
             unionBoxedValues_.emplace(instruction.result.value, found->second);
@@ -1291,33 +1478,152 @@ namespace NG::native
       /// on the heap; shared by MakeRef and MakeTraitView.
       [[nodiscard]] auto emitRefObject(uint32_t rootLocal, const std::vector<flowir::PlaceStep> &steps) -> std::string
       {
-        const auto rootSlot = localSlots_.at(rootLocal);
-        const size_t count = steps.size();
+        // The ref's root is the local's current cell (captured now); cell
+        // locals keep the snapshot semantics of the VM's shared cells.
+        std::string root;
+        if (isCellLocal(rootLocal))
+        {
+          const auto cell = fresh();
+          line(std::format("{} =l loadl {}", cell, localSlots_.at(rootLocal)));
+          root = cell;
+        }
+        else
+        {
+          root = localSlots_.at(rootLocal);
+        }
+        const auto rootType = function_.localTypes.at(rootLocal);
+        const auto normalized = normalizeSteps(rootType, steps);
+        const size_t count = normalized.size();
         const auto pointer = fresh();
         line(std::format("{} =l call $malloc(l {})", pointer, 16 + count * 16));
-        line(std::format("storel {}, {}", rootSlot, pointer));
+        line(std::format("storel {}, {}", root, pointer));
         const auto countAddress = fresh();
         line(std::format("{} =l add {}, 8", countAddress, pointer));
         line(std::format("storel {}, {}", count, countAddress));
         for (size_t index = 0; index < count; ++index)
         {
-          const auto &step = steps[index];
           const auto stepAddress = fresh();
           line(std::format("{} =l add {}, {}", stepAddress, pointer, 16 + index * 16));
           const auto payloadAddress = fresh();
           line(std::format("{} =l add {}, 8", payloadAddress, stepAddress));
+          line(std::format("storel {}, {}", normalized[index].kind, stepAddress));
+          line(std::format("storel {}, {}", normalized[index].payload, payloadAddress));
+        }
+        return pointer;
+      }
+
+      /// True for aggregate kinds whose copy-first semantics require a deep
+      /// copy at bind/load sites (the VM deep-copies all of these).
+      [[nodiscard]] auto needsClone(TypeId type) -> bool
+      {
+        if (type.value >= function_.typeDescriptors.size()) return false;
+        const auto kind = function_.typeDescriptors[type.value].kind;
+        return kind == TypeKind::Struct || kind == TypeKind::Tuple || kind == TypeKind::DynamicArray ||
+               kind == TypeKind::FixedArray ||
+               (kind == TypeKind::Builtin && type == typecheck::builtin::String);
+      }
+
+      /// Emits a deep copy of a Tier 0 aggregate value (static type-driven:
+      /// structs clone field-by-field recursively, tuples unroll statically,
+      /// arrays pick a per-element-kind helper, strings use $ngrt_str_clone).
+      [[nodiscard]] auto emitClone(const std::string &source, TypeId type) -> std::string
+      {
+        const auto &descriptor = function_.typeDescriptors[type.value];
+        if (descriptor.kind == TypeKind::Builtin)
+        {
+          if (type != typecheck::builtin::String) return source;
+          useHelper("str_clone");
+          const auto clone = fresh();
+          line(std::format("{} =l call $ngrt_str_clone(l {})", clone, source));
+          return clone;
+        }
+        if (descriptor.kind == TypeKind::Struct || descriptor.kind == TypeKind::Tuple)
+        {
+          const size_t count = descriptor.kind == TypeKind::Struct ? descriptor.fieldNames.size()
+                                                                   : descriptor.elements.size();
+          const size_t header = descriptor.kind == TypeKind::Struct ? 0 : 16;
+          const auto clone = fresh();
+          line(std::format("{} =l call $malloc(l {})", clone, count * 8 + header));
+          if (descriptor.kind == TypeKind::Tuple)
+          {
+            line(std::format("storel {}, {}", count, clone));
+            const auto capAddress = fresh();
+            line(std::format("{} =l add {}, 8", capAddress, clone));
+            line(std::format("storel {}, {}", count, capAddress));
+          }
+          for (size_t index = 0; index < count; ++index)
+          {
+            const auto fieldAddress = fresh();
+            line(std::format("{} =l add {}, {}", fieldAddress, source, header + index * 8));
+            const auto fieldValue = fresh();
+            line(std::format("{} =l loadl {}", fieldValue, fieldAddress));
+            const auto fieldClone = emitClone(fieldValue, descriptor.elements[index]);
+            const auto target = fresh();
+            line(std::format("{} =l add {}, {}", target, clone, header + index * 8));
+            line(std::format("storel {}, {}", fieldClone, target));
+          }
+          return clone;
+        }
+        if (descriptor.kind == TypeKind::DynamicArray || descriptor.kind == TypeKind::FixedArray)
+        {
+          const auto elementKind = function_.typeDescriptors[descriptor.element.value].kind;
+          if (elementKind == TypeKind::Builtin && descriptor.element == typecheck::builtin::String)
+          {
+            useHelper("arr_clone_strings");
+            const auto clone = fresh();
+            line(std::format("{} =l call $ngrt_arr_clone_strings(l {})", clone, source));
+            return clone;
+          }
+          if (elementKind == TypeKind::Struct || elementKind == TypeKind::Tuple || elementKind == TypeKind::DynamicArray ||
+              elementKind == TypeKind::FixedArray)
+            throw LoweringError(std::format("native lowering (M2): deep copy of nested aggregate arrays is not "
+                                            "supported yet in `{}`",
+                                            function_.name));
+          useHelper("arr_clone_words");
+          const auto clone = fresh();
+          line(std::format("{} =l call $ngrt_arr_clone_words(l {})", clone, source));
+          return clone;
+        }
+        return source;
+      }
+
+      /// Normalized place-step for emission: 0 = struct field (offset 8f),
+      /// 1 = runtime index (bounds-checked element address), 2 = constant
+      /// index into an array/tuple (offset 16 + 8f — FlowIR encodes constant
+      /// indexes as Member steps, matching the VM's walkStep).
+      struct NormalizedStep
+      {
+        int64_t kind{};
+        std::string payload{};
+      };
+
+      /// Walks a static place path with type tracking, normalizing constant
+      /// indexes over arrays/tuples to header-aware offsets.
+      [[nodiscard]] auto normalizeSteps(TypeId rootType, const std::vector<flowir::PlaceStep> &steps)
+          -> std::vector<NormalizedStep>
+      {
+        std::vector<NormalizedStep> result;
+        result.reserve(steps.size());
+        TypeId current = rootType;
+        for (const auto &step : steps)
+        {
           if (step.kind == flowir::PlaceStep::Kind::Member)
           {
-            line(std::format("storel 0, {}", stepAddress));
-            line(std::format("storel {}, {}", step.field, payloadAddress));
+            const auto &descriptor = function_.typeDescriptors[current.value];
+            const bool elementLike = descriptor.kind == TypeKind::DynamicArray ||
+                                     descriptor.kind == TypeKind::FixedArray || descriptor.kind == TypeKind::Tuple;
+            result.push_back(NormalizedStep{.kind = elementLike ? 2 : 0, .payload = std::format("{}", step.field)});
+            current = elementLike ? (descriptor.kind == TypeKind::Tuple ? descriptor.elements[step.field]
+                                                                        : descriptor.element)
+                                  : descriptor.elements[step.field];
           }
           else
           {
-            line(std::format("storel 1, {}", stepAddress));
-            line(std::format("storel {}, {}", operandTemp(step.indexValue), payloadAddress));
+            result.push_back(NormalizedStep{.kind = 1, .payload = operandTemp(step.indexValue)});
+            current = function_.typeDescriptors[current.value].element;
           }
         }
-        return pointer;
+        return result;
       }
 
       /// Array/tuple literal: allocates a { len, cap, elements } object and
@@ -1708,8 +2014,10 @@ namespace NG::native
           for (size_t index = 0; index < function_.parameterLocals.size(); ++index)
           {
             const auto local = function_.parameterLocals[index].value;
-            line(std::format("store{} {}, {}", suffix(localQTypes_.at(local)), operandTemp(terminator.arguments[index]),
-                             localSlots_.at(local)));
+            if (isCellLocal(local)) bindFreshCell(local, operandTemp(terminator.arguments[index]));
+            else
+              line(std::format("store{} {}, {}", suffix(localQTypes_.at(local)), operandTemp(terminator.arguments[index]),
+                               localSlots_.at(local)));
           }
           line(std::format("jmp {}", labels_.front()));
           return;
@@ -1741,8 +2049,9 @@ namespace NG::native
     // Emit each used ngrt helper (with its dependencies) exactly once, after
     // all functions.
     const std::unordered_map<std::string, std::vector<std::string>> helperDependencies = {
-      {"arr_get", {"arr_addr"}},          {"ref_load", {"arr_get", "arr_addr"}},
-      {"ref_addr", {"arr_addr"}},         {"copy_elements", {"arr_get", "arr_addr"}}};
+      {"arr_get", {"arr_addr"}},       {"ref_load", {"arr_get", "arr_addr"}},
+      {"ref_addr", {"arr_addr"}},      {"copy_elements", {"arr_get", "arr_addr"}},
+      {"arr_clone_strings", {"arr_get", "arr_addr", "str_clone"}}};
     std::set<std::string> helpersToEmit;
     std::function<void(const std::string &)> addHelper = [&](const std::string &name) {
       if (!helpersToEmit.insert(name).second) return;

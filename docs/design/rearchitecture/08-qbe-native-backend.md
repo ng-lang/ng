@@ -229,9 +229,14 @@ Final generated results:
 
 ## 7. Testing strategy
 
-- **Differential:** run the `example/` corpus through the VM and the native
-  executable; compare stdout and exit codes (the VM is the oracle; the
-  matrix in [05](05-legacy-example-migration-matrix.md) is the checklist).
+- **Differential (delivered):** `test/native_differential_test.cpp` runs
+  every `example/*.ng` through the VM and through `--native` and asserts the
+  VM's main return value (low 8 bits) equals the native exit code; a hidden
+  `[.benchmark]` case times fib under both tiers. The sweep caught and drove
+  the fixes for: QBE's all-phis-first rule, shell signal collapse (the
+  runner now fork/execs directly), escaping refs in recursive enums (cell
+  locals), copy-first deep-copy-on-bind, and constant-index place steps
+  (header-aware offsets).
 - **Toolchain:** `qbe_smoke` CTest (implemented, §9); the upstream
   `tools/test.sh` suite as a manual gate for the vendored copy.
 - **Unit:** one lowering test per FlowIR instruction; layout tests asserting
@@ -274,9 +279,15 @@ Final generated results:
   `ref mut` as `{ root-slot, count, steps[] }` objects with
   `$ngrt_ref_load`/`$ngrt_ref_addr` helpers mirroring the VM's (cell +
   path) view semantics — rebinding the root is observed and writes flow
-  through the referenced place. Boxed objects are shared on bind (safe
-  while every aggregate op is a non-mutating value producer;
-  deep-copy-on-bind arrives with in-place mutation in M3). Known gap:
+  through the referenced place. Delivered in the M2 close-out: copy-first
+  deep copy at bind/load sites (static type-driven: structs clone
+  field-by-field, tuples unroll statically, arrays use per-element-kind
+  helpers, strings use `$ngrt_str_clone`); borrowed locals become heap
+  cells with slot → cell indirection, so BindLocal rebinds a fresh cell
+  (VM shared-cell snapshot semantics) while `:=` mutates the current cell
+  (outstanding refs observe it); constant indexes in place paths are
+  normalized to header-aware offsets (FlowIR encodes them as Member steps,
+  matching the VM's `walkStep`). Known gap:
   monomorphized instance bodies can carry the generic type-parameter id in
   value/local type tables (`*a` types as the reference's element, which
   stays `T` until `TypeInterner::specialize` substitutes it); the lowering

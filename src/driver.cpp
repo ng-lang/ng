@@ -101,23 +101,46 @@ namespace NG
       std::string output;
     };
 
-    /// Runs a shell command and captures merged stdout/stderr. The returned
-    /// status is the wait(2) status of the child.
-    [[nodiscard]] auto runCommand(const std::string &command) -> CommandResult
+#if defined(NG_QBE_PATH) && !defined(_WIN32)
+    /// Executes argv directly (no shell) and captures merged output. The
+    /// returned status is the raw wait(2) status, so WIFSIGNALED/WEXITSTATUS
+    /// reflect the real child (a shell would collapse signals into
+    /// 128+signal exit codes).
+    [[nodiscard]] auto runCommand(const std::vector<std::string> &argv) -> CommandResult
     {
       CommandResult result;
-      FILE *pipe = popen((command + " 2>&1").c_str(), "r");
-      if (pipe == nullptr)
+      int pipeDescriptors[2];
+      if (pipe(pipeDescriptors) != 0)
       {
         result.status = -1;
-        result.output = "popen failed";
+        result.output = "pipe failed";
         return result;
       }
-      std::array<char, 256> buffer{};
-      while (fgets(buffer.data(), static_cast<int>(buffer.size()), pipe) != nullptr) result.output += buffer.data();
-      result.status = pclose(pipe);
+      const pid_t child = fork();
+      if (child == 0)
+      {
+        dup2(pipeDescriptors[1], STDOUT_FILENO);
+        dup2(pipeDescriptors[1], STDERR_FILENO);
+        close(pipeDescriptors[0]);
+        close(pipeDescriptors[1]);
+        std::vector<char *> pointers;
+        pointers.reserve(argv.size() + 1);
+        for (const auto &argument : argv) pointers.push_back(const_cast<char *>(argument.c_str()));
+        pointers.push_back(nullptr);
+        execvp(pointers[0], pointers.data());
+        _exit(127);
+      }
+      close(pipeDescriptors[1]);
+      char buffer[256];
+      ssize_t count = 0;
+      while ((count = read(pipeDescriptors[0], buffer, sizeof buffer)) > 0) result.output.append(buffer, count);
+      close(pipeDescriptors[0]);
+      int status = 0;
+      waitpid(child, &status, 0);
+      result.status = status;
       return result;
     }
+#endif
 
 #if defined(NG_QBE_PATH) && !defined(_WIN32)
     /// Emits QBE IL, assembles it with the vendored qbe, links it with the
@@ -140,22 +163,22 @@ namespace NG
         std::ofstream stream(ilFile);
         stream << il;
       }
-      const auto assemble = runCommand(std::format("'{}' -o '{}' '{}'", NG_QBE_PATH, asmFile.string(), ilFile.string()));
+      const auto assemble = runCommand({NG_QBE_PATH, "-o", asmFile.string(), ilFile.string()});
       if (!WIFEXITED(assemble.status) || WEXITSTATUS(assemble.status) != 0)
       {
         errors << "native: qbe failed:\n" << assemble.output;
         return 1;
       }
-      const auto link = runCommand(std::format("cc '{}' '{}' -o '{}'", asmFile.string(), NG_NGRT_PATH, executable.string()));
+      const auto link = runCommand({"cc", asmFile.string(), NG_NGRT_PATH, "-o", executable.string()});
       if (!WIFEXITED(link.status) || WEXITSTATUS(link.status) != 0)
       {
         errors << "native: cc failed:\n" << link.output;
         return 1;
       }
-      const auto run = runCommand(std::format("'{}'", executable.string()));
+      const auto run = runCommand({executable.string()});
       if (!WIFEXITED(run.status))
       {
-        errors << "native: the program was killed by a signal\n";
+        errors << "native: the program was killed by a signal\n" << run.output;
         return 1;
       }
       output << run.output;
