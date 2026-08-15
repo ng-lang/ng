@@ -5,6 +5,7 @@
 #include "hir.hpp"
 #include "module_loader.hpp"
 #include "native.hpp"
+#include "native/lowering.hpp"
 #include "syntax/module_parser.hpp"
 #include "syntax/parser.hpp"
 #include "typecheck.hpp"
@@ -28,9 +29,10 @@ namespace NG
     {
       output << "Usage: ngi --expr <expression>\n"
              << "       ngi --source <source-unit>\n"
-             << "       ngi <source-file> [--fuel <instructions>]\n"
+             << "       ngi <source-file> [--fuel <instructions>] [--emit=ssa]\n"
              << "\n"
-             << "`--fuel 0` lifts the instruction budget (used by interactive programs such as the imgui IDE).\n";
+             << "`--fuel 0` lifts the instruction budget (used by interactive programs such as the imgui IDE).\n"
+             << "`--emit=ssa` lowers the module to QBE IL text instead of running it.\n";
     }
 
     [[nodiscard]] auto parseExpressionAndReport(std::string_view source, std::ostream &output, std::ostream &errors)
@@ -89,7 +91,7 @@ namespace NG
                                                   const std::vector<std::string_view> &runtimeArguments,
                                                   std::ostream &output, std::ostream &errors,
                                                   const NativeRegistration *extraNatives = nullptr,
-                                                  size_t fuel = 1'000'000) -> int
+                                                  size_t fuel = 1'000'000, bool emitSsa = false) -> int
     {
       try
       {
@@ -230,6 +232,13 @@ namespace NG
               ids.push_back(method.value);
             vtables.emplace((static_cast<uint64_t>(traitId) << 32) | concrete, std::move(ids));
           }
+        }
+        if (emitSsa)
+        {
+          // M1 native milestone: lower the module to QBE IL text instead of
+          // compiling bytecode and running the VM.
+          output << native::lowerModule(flows);
+          return 0;
         }
         const auto artifact = bytecode::ModuleCompiler{}.compile(flows, vtables);
         for (const auto &function : artifact.functions)
@@ -696,12 +705,12 @@ namespace NG
     [[nodiscard]] auto parseSourceAndReport(std::string_view source,
                                             const std::vector<std::string_view> &runtimeArguments, std::ostream &output,
                                             std::ostream &errors, const NativeRegistration *extraNatives = nullptr,
-                                            size_t fuel = 1'000'000) -> int
+                                            size_t fuel = 1'000'000, bool emitSsa = false) -> int
     {
       try
       {
         const auto unit = modules::ModuleLoader{}.loadSource(source, std::filesystem::current_path());
-        return compileSourceUnitAndReport(unit, runtimeArguments, output, errors, extraNatives, fuel);
+        return compileSourceUnitAndReport(unit, runtimeArguments, output, errors, extraNatives, fuel, emitSsa);
       }
       catch (const modules::LoadError &error)
       {
@@ -721,6 +730,7 @@ namespace NG
                      const NativeRegistration *extraNatives) -> int
   {
     size_t fuel = 1'000'000;
+    bool emitSsa = false;
     std::vector<std::string_view> cleaned;
     cleaned.reserve(arguments.size());
     for (size_t index = 0; index < arguments.size(); ++index)
@@ -739,6 +749,28 @@ namespace NG
           }
           fuel = static_cast<size_t>(parsed);
           ++index;
+          continue;
+        }
+        if (arguments[index].starts_with("--emit"))
+        {
+          std::string_view value;
+          if (arguments[index] == "--emit" && index + 1 < arguments.size())
+            value = arguments[++index];
+          else if (arguments[index].starts_with("--emit="))
+            value = arguments[index].substr(std::string_view{"--emit="}.size());
+          else
+          {
+            // Not an --emit form we recognize; the unknown-argument check
+            // below reports it.
+            cleaned.push_back(arguments[index]);
+            continue;
+          }
+          if (value != "ssa")
+          {
+            errors << "unsupported --emit value `" << value << "` (only `ssa` is supported)\n";
+            return 1;
+          }
+          emitSsa = true;
           continue;
         }
       }
@@ -777,7 +809,7 @@ namespace NG
         }
         runtimeArguments.assign(cleaned.begin() + 3, cleaned.end());
       }
-      return parseSourceAndReport(cleaned[1], runtimeArguments, output, errors, extraNatives, fuel);
+      return parseSourceAndReport(cleaned[1], runtimeArguments, output, errors, extraNatives, fuel, emitSsa);
     }
 
     if (cleaned[0].starts_with('-') || cleaned.size() != 1)
@@ -791,7 +823,7 @@ namespace NG
     try
     {
       const auto unit = modules::ModuleLoader{}.loadFile(std::filesystem::path{std::string{cleaned[0]}});
-      return compileSourceUnitAndReport(unit, {}, output, errors, extraNatives, fuel);
+      return compileSourceUnitAndReport(unit, {}, output, errors, extraNatives, fuel, emitSsa);
     }
     catch (const modules::LoadError &error)
     {

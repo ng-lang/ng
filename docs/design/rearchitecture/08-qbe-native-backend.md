@@ -243,8 +243,16 @@ Final generated results:
 
 - **M0 (implemented this round):** vendored `qbe` built by CMake + toolchain
   smoke test (§9).
-- **M1:** QBE IL emitter; a trivial NG function emits a valid `.ssa`;
-  `--emit=ssa`.
+- **M1 (delivered):** QBE IL emitter (`include/native/lowering.hpp`,
+  `src/native/lowering.cpp`) lowers FlowIR to `.ssa`; `ngi --emit=ssa`
+  prints the module IL. Delivered scope: scalar literals (int/bool/float),
+  prefix/binary arithmetic and comparisons with mixed int/float promotion,
+  locals as stack slots, block parameters as phi instructions, plain local
+  assignment, and return/branch/jump/loop-backedge/tail-recur terminators.
+  Tests: `test/native_qbe_test.cpp`, incl. an end-to-end round trip
+  (emit → `qbe` → `cc` → run, exit code checked). Unsupported constructs
+  fail with `LoweringError`; calls, aggregates, refs, and trait dispatch
+  arrive in M2/M3.
 - **M2:** Tier 0 lowering of the full FlowIR instruction set + `ngrt` core;
   differential tests on scalar/branch/loop examples.
 - **M3:** aggregates (strings/arrays/structs/enums), direct and trait-view
