@@ -17,7 +17,20 @@ namespace NG::syntax
 
   auto ConstExprParser::parse() -> ConstExprPtr
   {
-    return parseComparison();
+    return parseLogical();
+  }
+
+  auto ConstExprParser::parseLogical() -> ConstExprPtr
+  {
+    ConstExprPtr expression = parseComparison();
+    while (current().kind == TokenKind::AndAnd || current().kind == TokenKind::OrOr)
+    {
+      const Token op = consume();
+      ConstExprPtr right = parseComparison();
+      expression = std::make_unique<ConstBinaryExpr>(op.text, std::move(expression), std::move(right),
+                                                     SourceSpan{expression->span.begin, right->span.end});
+    }
+    return expression;
   }
 
   auto ConstExprParser::parseComparison() -> ConstExprPtr
@@ -94,7 +107,7 @@ namespace NG::syntax
     if (token.kind == TokenKind::LeftParen)
     {
       static_cast<void>(consume());
-      ConstExprPtr inner = parseComparison();
+      ConstExprPtr inner = parseLogical();
       if (current().kind != TokenKind::RightParen)
       {
         throw ParseError("expected `)` after const expression", current().span);

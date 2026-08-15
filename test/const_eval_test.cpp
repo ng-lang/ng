@@ -122,3 +122,62 @@ TEST_CASE("vNext const evaluator validates array lengths", "[vNext][Const][Eval]
   REQUIRE(fixture.evaluator.evaluateArrayLength(*parseExpr("1 + 2"), {}) == 3);
   REQUIRE_THROWS_WITH(fixture.evaluator.evaluateArrayLength(*parseExpr("-1"), {}), "array length must be non-negative, got -1");
 }
+
+TEST_CASE("vNext const evaluator diagnoses arithmetic edge cases", "[vNext][Const][Errors]")
+{
+  Fixture fixture;
+  REQUIRE_THROWS_WITH(fixture.eval("1 / 0"), "const integer division by zero");
+  REQUIRE_THROWS_WITH(fixture.eval("5 % 0"), "const integer modulo by zero");
+  REQUIRE_THROWS_WITH(fixture.eval("9223372036854775807 + 1"), "const integer `+` overflow");
+  REQUIRE_THROWS_WITH(fixture.eval("-9223372036854775807 - 2"), "const integer `-` overflow");
+  REQUIRE_THROWS_WITH(fixture.eval("9223372036854775807 * 2"), "const integer `*` overflow");
+  REQUIRE_THROWS_WITH(fixture.eval("-(-9223372036854775807 - 1)"), "const integer negation overflow");
+}
+
+TEST_CASE("vNext const evaluator rejects malformed and unsupported input", "[vNext][Const][Errors]")
+{
+  Fixture fixture;
+  REQUIRE_THROWS_AS(fixture.eval("99999999999999999999999"), const_eval::ConstEvalError);
+  REQUIRE_THROWS_WITH(fixture.eval("true < false"), "const value of kind `2` is not an integer");
+  REQUIRE_THROWS_WITH(fixture.eval("!1"), "const value of kind `3` is not a bool");
+}
+
+TEST_CASE("vNext const evaluator evaluates every arithmetic operator", "[vNext][Const][Ops]")
+{
+  Fixture fixture;
+  REQUIRE(fixture.interner.value(fixture.eval("2 + 3")).integerValue == 5);
+  REQUIRE(fixture.interner.value(fixture.eval("7 - 10")).integerValue == -3);
+  REQUIRE(fixture.interner.value(fixture.eval("6 * 7")).integerValue == 42);
+  REQUIRE(fixture.interner.value(fixture.eval("7 / 2")).integerValue == 3);
+  REQUIRE(fixture.interner.value(fixture.eval("7 % 2")).integerValue == 1);
+  REQUIRE(fixture.interner.value(fixture.eval("1 < 2")).boolValue);
+  REQUIRE(fixture.interner.value(fixture.eval("2 <= 2")).boolValue);
+  REQUIRE(fixture.interner.value(fixture.eval("2 > 1")).boolValue);
+  REQUIRE(fixture.interner.value(fixture.eval("2 >= 2")).boolValue);
+  REQUIRE(fixture.interner.value(fixture.eval("1 == 1")).boolValue);
+  REQUIRE(fixture.interner.value(fixture.eval("1 != 2")).boolValue);
+  REQUIRE(!fixture.interner.value(fixture.eval("false && true")).boolValue);
+  REQUIRE(fixture.interner.value(fixture.eval("false || true")).boolValue);
+  REQUIRE(fixture.interner.value(fixture.eval("!false")).boolValue);
+  REQUIRE(fixture.interner.value(fixture.eval("-(5)")).integerValue == -5);
+  REQUIRE(fixture.interner.value(fixture.eval("+(5)")).integerValue == 5);
+}
+
+TEST_CASE("vNext const evaluator honors bindings and tuple values", "[vNext][Const][Bindings]")
+{
+  Fixture fixture;
+  const const_eval::ConstBindings bindings{{"N", fixture.interner.internInteger(9)}};
+  const auto value = fixture.evaluator.evaluate(*parseExpr("N * 3"), bindings);
+  REQUIRE(fixture.interner.value(value).integerValue == 27);
+}
+
+TEST_CASE("vNext const evaluator short-circuits logical operators", "[vNext][Const][Logic]")
+{
+  Fixture fixture;
+  REQUIRE(fixture.interner.value(fixture.eval("false || true")).boolValue);
+  REQUIRE(!fixture.interner.value(fixture.eval("true && false")).boolValue);
+  REQUIRE(fixture.interner.value(fixture.eval("(true && false) || (false || true)")).boolValue);
+  // Short-circuiting skips the right operand's errors.
+  REQUIRE(fixture.interner.value(fixture.eval("true || (1 / 0 == 0)")).boolValue);
+  REQUIRE(!fixture.interner.value(fixture.eval("false && (1 / 0 == 0)")).boolValue);
+}

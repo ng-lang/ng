@@ -21,6 +21,7 @@ namespace NG::syntax
     [[nodiscard]] auto cursor() const -> size_t { return cursor_; }
 
   private:
+    [[nodiscard]] auto parseLogical() -> ConstExprPtr;
     [[nodiscard]] auto parseComparison() -> ConstExprPtr;
     [[nodiscard]] auto parseAdditive() -> ConstExprPtr;
     [[nodiscard]] auto parseMultiplicative() -> ConstExprPtr;

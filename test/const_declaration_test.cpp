@@ -232,3 +232,12 @@ TEST_CASE("vNext const predicates example file runs end to end through ngi", "[v
   REQUIRE(errors.empty());
   REQUIRE(output.find("with value 86") != std::string::npos);
 }
+
+TEST_CASE("vNext const declaration bodies evaluate logical operators", "[vNext][ConstDecl][ConstExpr]")
+{
+  expectPredicate("const<T> alwaysT<T>: bool = false || true; ", "alwaysT<i64>", true);
+  expectPredicate("const<T> neverT<T>: bool = true && false; ", "neverT<i64>", false);
+  expectPredicate("const<T> mixed<T>: bool = (true && false) || (false || true); ", "mixed<i64>", true);
+  expectPredicate("const<T> shortT<T>: bool = true || (1 / 0 == 0); ", "shortT<i64>", true);
+  expectPredicate("const<T> shortF<T>: bool = false && (1 / 0 == 0); ", "shortF<i64>", false);
+}

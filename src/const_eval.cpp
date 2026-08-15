@@ -150,6 +150,16 @@ namespace NG::const_eval
     }
     if (const auto *binary = dynamic_cast<const syntax::ConstBinaryExpr *>(&expression))
     {
+      if (binary->operatorText == "&&")
+      {
+        if (!asBool(evaluateNode(*binary->left, bindings), binary->left->span)) return interner_.internBool(false);
+        return interner_.internBool(asBool(evaluateNode(*binary->right, bindings), binary->right->span));
+      }
+      if (binary->operatorText == "||")
+      {
+        if (asBool(evaluateNode(*binary->left, bindings), binary->left->span)) return interner_.internBool(true);
+        return interner_.internBool(asBool(evaluateNode(*binary->right, bindings), binary->right->span));
+      }
       if (binary->operatorText == "==" || binary->operatorText == "!=" || binary->operatorText == "<" ||
           binary->operatorText == "<=" || binary->operatorText == ">" || binary->operatorText == ">=")
       {
