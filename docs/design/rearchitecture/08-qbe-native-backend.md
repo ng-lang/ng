@@ -376,11 +376,15 @@ git tree — no submodule. Upstream: `git://c9x.me/qbe.git`, tag `1.3`
 - **Tail calls:** QBE has no tail-call guarantee. Self tail-recursion lowers
   to loops (as the VM models it); general tail calls become calls. This is a
   documented semantic difference from the VM's tail-recursion counters.
-- **Checked arithmetic (decided):** QBE has no built-in overflow
-  instructions, but the lowering emits a compare-based overflow check
-  (branch to a panic path) after each operation — neither the VM nor QBE
-  changes, and VM overflow errors remain the oracle semantics. A
-  `--release` wraparound mode is a separate, later language decision.
+- **Checked arithmetic (decided and delivered):** QBE has no built-in
+  overflow instructions, so the lowering emits checked helper calls
+  (`$ngrt_checked_add/sub/mul/div/rem/neg/shl/shr` — compare-based overflow
+  detection, division-by-zero and MIN/-1 guards, shift-count range checks,
+  halting on violation) plus D-008 narrow-width range checks
+  (`$ngrt_check_w_i8`...`u32`) after integer results — neither the VM nor
+  QBE changes, and VM overflow errors remain the oracle semantics (both
+  tiers fail loudly; the VM reports, the native tier halts). A
+  `--release` wraparound mode remains a separate, later language decision.
 - **Subprocess integration** is the sanctioned QBE model (no library
   interface upstream); pipe vs temp file is an implementation detail.
 - **Decided (owner):** (1) VM remains the default `ngi` mode after the

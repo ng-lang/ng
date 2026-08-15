@@ -500,4 +500,37 @@ TEST_CASE("vNext native lowering round-trips string unions through qbe and the s
                                  "string_unions");
   CHECK(exitCode == 3);
 }
+
+TEST_CASE("vNext native tier fails loudly on integer overflow like the VM", "[vNext][Native][Qbe]")
+{
+  constexpr std::string_view source = "fun main() -> i64 { let x = 9223372036854775807; let y = x + 1; return 0; }";
+  std::ostringstream output;
+  std::ostringstream errors;
+  REQUIRE(NG::runDriver({"--source", source}, output, errors) == 1);
+  REQUIRE_THAT(errors.str(), ContainsSubstring("overflow"));
+  REQUIRE(NG::runDriver({"--native", "--source", source}, output, errors) == 1);
+  REQUIRE_THAT(errors.str(), ContainsSubstring("killed by a signal"));
+}
+
+TEST_CASE("vNext native tier enforces narrow integer widths like the VM", "[vNext][Native][Qbe]")
+{
+  constexpr std::string_view source = "fun main() -> i64 { let x: i8 = 100; let y = x + x; return 0; }";
+  std::ostringstream output;
+  std::ostringstream errors;
+  REQUIRE(NG::runDriver({"--source", source}, output, errors) == 1);
+  REQUIRE_THAT(errors.str(), ContainsSubstring("overflow for type `i8`"));
+  REQUIRE(NG::runDriver({"--native", "--source", source}, output, errors) == 1);
+  REQUIRE_THAT(errors.str(), ContainsSubstring("killed by a signal"));
+}
+
+TEST_CASE("vNext native tier rejects out-of-range shift counts like the VM", "[vNext][Native][Qbe]")
+{
+  constexpr std::string_view source = "fun main() -> i64 { return 1 << 64; }";
+  std::ostringstream output;
+  std::ostringstream errors;
+  REQUIRE(NG::runDriver({"--source", source}, output, errors) == 1);
+  REQUIRE_THAT(errors.str(), ContainsSubstring("shift count is out of range"));
+  REQUIRE(NG::runDriver({"--native", "--source", source}, output, errors) == 1);
+  REQUIRE_THAT(errors.str(), ContainsSubstring("killed by a signal"));
+}
 #endif

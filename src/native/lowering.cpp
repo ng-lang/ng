@@ -117,6 +117,207 @@ namespace NG::native
          "@start\n"
          "\thlt\n"
          "}\n"},
+        {"checked_add",
+         "function l $ngrt_checked_add(l %a, l %b) {\n"
+         "@start\n"
+         "\t%r =l add %a, %b\n"
+         "\t%ap =w csgtl %a, 0\n"
+         "\t%bp =w csgtl %b, 0\n"
+         "\t%rn =w cslel %r, 0\n"
+         "\t%an =w csltl %a, 0\n"
+         "\t%bn =w csltl %b, 0\n"
+         "\t%rz =w csgel %r, 0\n"
+         "\t%o1 =w and %ap, %bp\n"
+         "\t%o1 =w and %o1, %rn\n"
+         "\t%o2 =w and %an, %bn\n"
+         "\t%o2 =w and %o2, %rz\n"
+         "\t%ov =w or %o1, %o2\n"
+         "\tjnz %ov, @halt, @ok\n"
+         "@halt\n"
+         "\thlt\n"
+         "@ok\n"
+         "\tret %r\n"
+         "}\n"},
+        {"checked_sub",
+         "function l $ngrt_checked_sub(l %a, l %b) {\n"
+         "@start\n"
+         "\t%r =l sub %a, %b\n"
+         "\t%ap =w csgel %a, 0\n"
+         "\t%bn =w csltl %b, 0\n"
+         "\t%rn =w csltl %r, 0\n"
+         "\t%an =w csltl %a, 0\n"
+         "\t%bp =w csgtl %b, 0\n"
+         "\t%rz =w csgel %r, 0\n"
+         "\t%o1 =w and %ap, %bn\n"
+         "\t%o1 =w and %o1, %rn\n"
+         "\t%o2 =w and %an, %bp\n"
+         "\t%o2 =w and %o2, %rz\n"
+         "\t%ov =w or %o1, %o2\n"
+         "\tjnz %ov, @halt, @ok\n"
+         "@halt\n"
+         "\thlt\n"
+         "@ok\n"
+         "\tret %r\n"
+         "}\n"},
+        {"checked_mul",
+         "function l $ngrt_checked_mul(l %a, l %b) {\n"
+         "@start\n"
+         "\t%r =l mul %a, %b\n"
+         "\t%bz =w ceql %b, 0\n"
+         "\t%bm1 =w ceql %b, -1\n"
+         "\t%amin =w ceql %a, -9223372036854775808\n"
+         "\t%edge =w and %bm1, %amin\n"
+         "\t%skip =w or %bz, %edge\n"
+         "\t%neg =w ceqw %skip, 0\n"
+         "\tjnz %neg, @check, @ok\n"
+         "@check\n"
+         "\t%q =l div %r, %b\n"
+         "\t%same =w ceql %q, %a\n"
+         "\tjnz %same, @ok, @halt\n"
+         "@halt\n"
+         "\thlt\n"
+         "@ok\n"
+         "\tret %r\n"
+         "}\n"},
+        {"checked_div",
+         "function l $ngrt_checked_div(l %a, l %b) {\n"
+         "@start\n"
+         "\t%bz =w ceql %b, 0\n"
+         "\t%bm1 =w ceql %b, -1\n"
+         "\t%amin =w ceql %a, -9223372036854775808\n"
+         "\t%edge =w and %bm1, %amin\n"
+         "\t%bad =w or %bz, %edge\n"
+         "\tjnz %bad, @halt, @ok\n"
+         "@halt\n"
+         "\thlt\n"
+         "@ok\n"
+         "\t%r =l div %a, %b\n"
+         "\tret %r\n"
+         "}\n"},
+        {"checked_rem",
+         "function l $ngrt_checked_rem(l %a, l %b) {\n"
+         "@start\n"
+         "\t%bz =w ceql %b, 0\n"
+         "\t%bm1 =w ceql %b, -1\n"
+         "\t%amin =w ceql %a, -9223372036854775808\n"
+         "\t%edge =w and %bm1, %amin\n"
+         "\t%bad =w or %bz, %edge\n"
+         "\tjnz %bad, @halt, @ok\n"
+         "@halt\n"
+         "\thlt\n"
+         "@ok\n"
+         "\t%r =l rem %a, %b\n"
+         "\tret %r\n"
+         "}\n"},
+        {"checked_neg",
+         "function l $ngrt_checked_neg(l %a) {\n"
+         "@start\n"
+         "\t%amin =w ceql %a, -9223372036854775808\n"
+         "\tjnz %amin, @halt, @ok\n"
+         "@halt\n"
+         "\thlt\n"
+         "@ok\n"
+         "\t%r =l neg %a\n"
+         "\tret %r\n"
+         "}\n"},
+        {"checked_shl",
+         "function l $ngrt_checked_shl(l %a, l %b) {\n"
+         "@start\n"
+         "\t%neg =w csltl %b, 0\n"
+         "\t%high =w csgel %b, 64\n"
+         "\t%bad =w or %neg, %high\n"
+         "\tjnz %bad, @halt, @ok\n"
+         "@halt\n"
+         "\thlt\n"
+         "@ok\n"
+         "\t%r =l shl %a, %b\n"
+         "\tret %r\n"
+         "}\n"},
+        {"checked_shr",
+         "function l $ngrt_checked_shr(l %a, l %b) {\n"
+         "@start\n"
+         "\t%neg =w csltl %b, 0\n"
+         "\t%high =w csgel %b, 64\n"
+         "\t%bad =w or %neg, %high\n"
+         "\tjnz %bad, @halt, @ok\n"
+         "@halt\n"
+         "\thlt\n"
+         "@ok\n"
+         "\t%r =l shr %a, %b\n"
+         "\tret %r\n"
+         "}\n"},
+        {"check_w_i8",
+         "function l $ngrt_check_w_i8(l %v) {\n"
+         "@start\n"
+         "\t%lo =w csltl %v, -128\n"
+         "\t%hi =w csgtl %v, 127\n"
+         "\t%bad =w or %lo, %hi\n"
+         "\tjnz %bad, @halt, @ok\n"
+         "@halt\n"
+         "\thlt\n"
+         "@ok\n"
+         "\tret %v\n"
+         "}\n"},
+        {"check_w_i16",
+         "function l $ngrt_check_w_i16(l %v) {\n"
+         "@start\n"
+         "\t%lo =w csltl %v, -32768\n"
+         "\t%hi =w csgtl %v, 32767\n"
+         "\t%bad =w or %lo, %hi\n"
+         "\tjnz %bad, @halt, @ok\n"
+         "@halt\n"
+         "\thlt\n"
+         "@ok\n"
+         "\tret %v\n"
+         "}\n"},
+        {"check_w_i32",
+         "function l $ngrt_check_w_i32(l %v) {\n"
+         "@start\n"
+         "\t%lo =w csltl %v, -2147483648\n"
+         "\t%hi =w csgtl %v, 2147483647\n"
+         "\t%bad =w or %lo, %hi\n"
+         "\tjnz %bad, @halt, @ok\n"
+         "@halt\n"
+         "\thlt\n"
+         "@ok\n"
+         "\tret %v\n"
+         "}\n"},
+        {"check_w_u8",
+         "function l $ngrt_check_w_u8(l %v) {\n"
+         "@start\n"
+         "\t%lo =w csltl %v, 0\n"
+         "\t%hi =w csgtl %v, 255\n"
+         "\t%bad =w or %lo, %hi\n"
+         "\tjnz %bad, @halt, @ok\n"
+         "@halt\n"
+         "\thlt\n"
+         "@ok\n"
+         "\tret %v\n"
+         "}\n"},
+        {"check_w_u16",
+         "function l $ngrt_check_w_u16(l %v) {\n"
+         "@start\n"
+         "\t%lo =w csltl %v, 0\n"
+         "\t%hi =w csgtl %v, 65535\n"
+         "\t%bad =w or %lo, %hi\n"
+         "\tjnz %bad, @halt, @ok\n"
+         "@halt\n"
+         "\thlt\n"
+         "@ok\n"
+         "\tret %v\n"
+         "}\n"},
+        {"check_w_u32",
+         "function l $ngrt_check_w_u32(l %v) {\n"
+         "@start\n"
+         "\t%lo =w csltl %v, 0\n"
+         "\t%hi =w csgtl %v, 4294967295\n"
+         "\t%bad =w or %lo, %hi\n"
+         "\tjnz %bad, @halt, @ok\n"
+         "@halt\n"
+         "\thlt\n"
+         "@ok\n"
+         "\tret %v\n"
+         "}\n"},
         {"str_clone",
          "function l $ngrt_str_clone(l %s) {\n"
          "@start\n"
@@ -876,6 +1077,37 @@ namespace NG::native
         const auto compared = fresh();
         line(std::format("{} =w {} {}, {}", compared, qbeOp, left, right));
         bindResult(instruction, QType::Long, std::format("extsw {}", compared));
+      }
+
+      /// Emits a checked arithmetic helper call into the instruction's result
+      /// temp (overflow/division/shift violations halt, matching the VM's
+      /// BytecodeError), then a narrow-width check when the result type
+      /// requires one (D-008).
+      void emitCheckedOp(const Instruction &instruction, std::string_view helper, std::string_view arguments)
+      {
+        useHelper(helper);
+        line(std::format("{} =l call $ngrt_{}({})", valueTemps_.at(instruction.result.value), helper, arguments));
+        applyWidthCheck(instruction);
+      }
+
+      /// D-008 per-width range check on an integer result (i8-i32, u8-u32).
+      void applyWidthCheck(const Instruction &instruction)
+      {
+        const auto type = function_.valueTypes.at(instruction.result.value);
+        const char *name = nullptr;
+        switch (type.value)
+        {
+        case typecheck::builtin::I8.value: name = "check_w_i8"; break;
+        case typecheck::builtin::I16.value: name = "check_w_i16"; break;
+        case typecheck::builtin::I32.value: name = "check_w_i32"; break;
+        case typecheck::builtin::U8.value: name = "check_w_u8"; break;
+        case typecheck::builtin::U16.value: name = "check_w_u16"; break;
+        case typecheck::builtin::U32.value: name = "check_w_u32"; break;
+        default: return;
+        }
+        useHelper(name);
+        const auto temp = valueTemps_.at(instruction.result.value);
+        line(std::format("{} =l call $ngrt_{}(l {})", temp, name, temp));
       }
 
       void lowerInstruction(const Instruction &instruction)
@@ -1804,13 +2036,15 @@ namespace NG::native
         if (payload == 3 || payload == 4 || payload == 5)
         {
           bindResult(instruction, resultType, std::format("copy {}", operand));
+          if (payload == 3 && typecheck::isIntegerBuiltin(operandType)) applyWidthCheck(instruction);
           if (const auto found = unionBoxedValues_.find(instruction.operands[0].value); found != unionBoxedValues_.end())
             unionBoxedValues_.emplace(instruction.result.value, found->second);
           return;
         }
         if (payload == 2)
         {
-          bindResult(instruction, resultType, std::format("neg {}", operand));
+          if (isFloat(operandType)) bindResult(instruction, resultType, std::format("neg {}", operand));
+          else emitCheckedOp(instruction, "checked_neg", std::format("l {}", operand));
           return;
         }
         if (payload == 1)
@@ -1958,11 +2192,11 @@ namespace NG::native
 
         switch (payload)
         {
-        case 1: bindResult(instruction, QType::Long, std::format("add {}, {}", left, right)); return;
-        case 2: bindResult(instruction, QType::Long, std::format("sub {}, {}", left, right)); return;
-        case 3: bindResult(instruction, QType::Long, std::format("mul {}, {}", left, right)); return;
-        case 4: bindResult(instruction, QType::Long, std::format("div {}, {}", left, right)); return;
-        case 5: bindResult(instruction, QType::Long, std::format("rem {}, {}", left, right)); return;
+        case 1: emitCheckedOp(instruction, "checked_add", std::format("l {}, l {}", left, right)); return;
+        case 2: emitCheckedOp(instruction, "checked_sub", std::format("l {}, l {}", left, right)); return;
+        case 3: emitCheckedOp(instruction, "checked_mul", std::format("l {}, l {}", left, right)); return;
+        case 4: emitCheckedOp(instruction, "checked_div", std::format("l {}, l {}", left, right)); return;
+        case 5: emitCheckedOp(instruction, "checked_rem", std::format("l {}, l {}", left, right)); return;
         case 6: integerCompare(instruction, "ceql", left, right); return;
         case 7: integerCompare(instruction, "cnel", left, right); return;
         case 8: integerCompare(instruction, "csltl", left, right); return;
@@ -1986,8 +2220,8 @@ namespace NG::native
         case 14: bindResult(instruction, QType::Long, std::format("and {}, {}", left, right)); return;
         case 15: bindResult(instruction, QType::Long, std::format("or {}, {}", left, right)); return;
         case 16: bindResult(instruction, QType::Long, std::format("xor {}, {}", left, right)); return;
-        case 17: bindResult(instruction, QType::Long, std::format("shl {}, {}", left, right)); return;
-        case 18: bindResult(instruction, QType::Long, std::format("shr {}, {}", left, right)); return;
+        case 17: emitCheckedOp(instruction, "checked_shl", std::format("l {}, l {}", left, right)); return;
+        case 18: emitCheckedOp(instruction, "checked_shr", std::format("l {}, l {}", left, right)); return;
         default:
           throw LoweringError(std::format("native lowering (M1): unsupported integer binary payload {} in `{}`",
                                           payload, function_.name));
