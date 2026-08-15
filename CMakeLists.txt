@@ -21,35 +21,34 @@ add_subdirectory(vendored/Catch2@v3.8.1 EXCLUDE_FROM_ALL)
 Include(CTest)
 Include(Catch)
 
-set(NG_VNEXT_SRC
-        src/vnext/driver.cpp
-        src/vnext/bytecode.cpp
-        src/vnext/bytecode/artifact.cpp
-        src/vnext/flowir.cpp
-        src/vnext/hir.cpp
-        src/vnext/typecheck.cpp
-        src/vnext/type_interner.cpp
-        src/vnext/const_eval.cpp
-        src/vnext/const_interp.cpp
-        src/vnext/module_loader.cpp
-        src/vnext/vm.cpp
-        src/vnext/vm/value_ops.cpp
-        src/vnext/syntax/block_parser.cpp
-        src/vnext/syntax/const_expr.cpp
-        src/vnext/syntax/module_parser.cpp
-        src/vnext/syntax/parser.cpp
-        src/vnext/syntax/type_parser.cpp
+set(NG_SRC
+        src/driver.cpp
+        src/bytecode.cpp
+        src/bytecode/artifact.cpp
+        src/flowir.cpp
+        src/hir.cpp
+        src/typecheck.cpp
+        src/type_interner.cpp
+        src/const_eval.cpp
+        src/const_interp.cpp
+        src/module_loader.cpp
+        src/vm.cpp
+        src/vm/value_ops.cpp
+        src/syntax/block_parser.cpp
+        src/syntax/const_expr.cpp
+        src/syntax/module_parser.cpp
+        src/syntax/parser.cpp
+        src/syntax/type_parser.cpp
 )
 
-add_library(ng_vnext ${NG_VNEXT_SRC})
-target_include_directories(ng_vnext PUBLIC include)
+add_library(ng ${NG_SRC})
+target_include_directories(ng PUBLIC include)
 
 # region ngi
 
-# `ngi` is the replacement frontend. It deliberately has no link dependency on
-# the legacy interpreter/runtime library.
-add_executable(ngi src/vnext/main.cpp)
-target_link_libraries(ngi PRIVATE ng_vnext)
+# `ngi` is the NG frontend over the promoted vNext pipeline.
+add_executable(ngi src/main.cpp)
+target_link_libraries(ngi PRIVATE ng)
 
 if (APPLE)
 target_link_options(ngi PRIVATE -fprofile-instr-generate -fcoverage-mapping -coverage)
@@ -61,9 +60,9 @@ endif()
 
 # region ng_test
 
-file(GLOB NG_TEST_SRC CONFIGURE_DEPENDS test/vnext/*.cpp)
+file(GLOB NG_TEST_SRC CONFIGURE_DEPENDS test/*.cpp)
 add_executable(ng_test ${NG_TEST_SRC})
-target_link_libraries(ng_test PRIVATE ng_vnext Catch2::Catch2WithMain)
+target_link_libraries(ng_test PRIVATE ng Catch2::Catch2WithMain)
 
 if (APPLE)
 target_compile_options(ng_test PRIVATE -fprofile-instr-generate -fcoverage-mapping -fcoverage-mcdc)

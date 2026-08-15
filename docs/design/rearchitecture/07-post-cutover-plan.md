@@ -16,19 +16,19 @@ repository. The state at cutover:
 
 - **Only pipeline:** syntax → HIR (`hir::Resolver`) → type checker
   (side tables + `TypeInterner`) → FlowIR → bytecode v3 → VM. `ngi` links only
-  `ng_vnext`; the legacy `ng` library, headers, sources, stdlib
+  `ng`; the legacy `ng` library, headers, sources, stdlib
   (`lib/std/`, `lib/std.ng`), legacy tests, and the legacy example corpus
   (`example/01..60`, `example/design-draft`, `example/legacy`, imgui/shebang/
   external/interpreter/IDE examples) are deleted.
-- **vNext examples:** 33 files under `example/vnext/` (plus
-  `example/vnext/modules/`), each runnable end to end through `ngi`.
-- **vNext stdlib:** redesigned `lib/vnext_std/` — `prelude`, `io`, `string`
+- **vNext examples:** 33 files under `example/` (plus
+  `example/modules/`), each runnable end to end through `ngi`.
+- **vNext stdlib:** redesigned `lib/std/` — `prelude`, `io`, `string`
   (`length`/`charAt`/`substring`/`toUpper`/`toLower`), `seq`
   (`len`/`sum`/`arrayContains`/`reverse`), `list` (recursive-enum `List<T>`
   with `length`/`get`/`contains`), and `memory` (native handles,
   `allocate`/`load`/`store`/`release`/`outstanding`, and a concrete `Box` with
   `impl Drop` release). No GC exists; heap domains are deferred (D-015 rule 7).
-- **Tests:** 48 suites under `test/vnext/`; the full suite
+- **Tests:** 48 suites under `test/`; the full suite
   (`./build/ng_test`) is the only green gate (1425 assertions / 386 test cases
   passing at cutover).
 - **Docs:** `AGENTS.md` rewritten for the vNext-only structure.
@@ -55,7 +55,7 @@ legacy evidence it covers.
 
 **Current slice:** scoped `ref`/`ref mut`/`*` places with cell-backed bindings,
 deep-copy bind/call/return, simple shared/mut exclusivity checks, block-scoped
-release, escaped-reference rejection (`example/vnext/ref_swap.ng`,
+release, escaped-reference rejection (`example/ref_swap.ng`,
 `ref_places.ng`).
 
 **Remaining work:**
@@ -77,7 +77,7 @@ release, escaped-reference rejection (`example/vnext/ref_swap.ng`,
 
 **Current slice:** transitive `import` loading with per-module visible-name
 sets, selective imports, export gating, transitive re-export, and
-deterministic cycle/missing-module diagnostics (`example/vnext/modules/`).
+deterministic cycle/missing-module diagnostics (`example/modules/`).
 
 **Remaining work:**
 
@@ -97,7 +97,7 @@ deterministic cycle/missing-module diagnostics (`example/vnext/modules/`).
 
 **Current slice:** generic functions/enums instantiate per concrete argument
 list with re-checked bodies; explicit and inferred generic call arguments;
-`GenericDefId`/`InstanceId` identity (`example/vnext/generic_functions.ng`).
+`GenericDefId`/`InstanceId` identity (`example/generic_functions.ng`).
 
 **Remaining work:**
 
@@ -116,7 +116,7 @@ list with re-checked bodies; explicit and inferred generic call arguments;
 
 **Current slice:** `switch` with `case Variant(binding)`/`otherwise`,
 exhaustiveness, multi-field variant tuple payloads, positional destructuring,
-recursive payloads through `ref<Node<T>>` (`example/vnext/enum_match.ng`,
+recursive payloads through `ref<Node<T>>` (`example/enum_match.ng`,
 `recursive_enums.ng`).
 
 **Remaining work:**
@@ -136,7 +136,7 @@ recursive payloads through `ref<Node<T>>` (`example/vnext/enum_match.ng`,
 **Current slice:** trait declarations, impls with coherence, supertraits,
 default methods, qualified calls, static dispatch, `T: Trait` bounds, auto
 traits with `derive(Copy + Clone)`, `ref<Trait>` views with per-concrete
-vtables and dynamic calls (`example/vnext/traits.ng`, `derive.ng`,
+vtables and dynamic calls (`example/traits.ng`, `derive.ng`,
 `trait_objects.ng`).
 
 **Remaining work:**
@@ -158,7 +158,7 @@ vtables and dynamic calls (`example/vnext/traits.ng`, `derive.ng`,
 **Current slice:** `const if` folding, module-level `const` predicates with
 pattern specialization and `= delete`, typed-HIR `ConstInterpreter` for
 `const fun` (loops, recursion, tail recursion, runtime callability), `where`
-clauses, and per-instance `const if` (`example/vnext/const_predicates.ng`,
+clauses, and per-instance `const if` (`example/const_predicates.ng`,
 `const_fun.ng`, `where_clauses.ng`, `const_if_instances.ng`).
 
 **Remaining work:**
@@ -177,7 +177,7 @@ clauses, and per-instance `const if` (`example/vnext/const_predicates.ng`,
 
 **Current slice:** `seq` `len`/`sum`/`arrayContains`/`reverse`,
 `currentExecutablePath`, string utilities, recursive-enum `List<T>`,
-concrete `Box` (`example/vnext/std_seq.ng`, `std_list.ng`, `heap_box.ng`,
+concrete `Box` (`example/std_seq.ng`, `std_list.ng`, `heap_box.ng`,
 `fixed_arrays.ng`).
 
 **Remaining work** (decided surface, no new decision needed):
@@ -190,7 +190,7 @@ concrete `Box` (`example/vnext/std_seq.ng`, `std_list.ng`, `heap_box.ng`,
 3. `regexMatch` string intrinsic (legacy 56).
 4. Range-spread-into-array literals `[...(1..5)]` (legacy 56).
 5. List builders: `List<T>` collection literals lowering to push loops.
-6. Move `reverse` from a driver-native into `lib/vnext_std` once it can be
+6. Move `reverse` from a driver-native into `lib/std` once it can be
    expressed in NG (or keep as a declared native in the ABI layer).
 
 **Blocks:** B1 for growth allocation; R7 for span ABI.
