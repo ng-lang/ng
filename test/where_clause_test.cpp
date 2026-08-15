@@ -1,8 +1,8 @@
 // AI-generated code; reviewed for this repository's vNext rewrite.
-#include "test.hpp"
 #include "driver.hpp"
 #include "hir.hpp"
 #include "syntax/module_parser.hpp"
+#include "test.hpp"
 #include "typecheck.hpp"
 
 #include <filesystem>
@@ -37,7 +37,8 @@ namespace
   [[nodiscard]] auto runExample(std::string_view filename, std::string &output, std::string &errors) -> int
   {
     std::string path{filename};
-    if (!std::filesystem::is_directory(std::filesystem::current_path() / "example")) path = std::string{"../"} + path;
+    if (!std::filesystem::is_directory(std::filesystem::current_path() / "example"))
+      path = std::string{"../"} + path;
     std::ostringstream outputStream;
     std::ostringstream errorStream;
     const int status = NG::runDriver({path}, outputStream, errorStream);
@@ -49,10 +50,9 @@ namespace
 
 TEST_CASE("vNext module parser builds where clauses on function declarations", "[vNext][Where][Syntax]")
 {
-  const auto unit = syntax::parseSourceUnit(
-      "const is_box<T>: bool = false; "
-      "fun describe<T>(value: T) -> i64 where is_box<T> { return 1; } "
-      "fun exact<T>(value: T) -> i64 where T is i64 => 1;");
+  const auto unit = syntax::parseSourceUnit("const is_box<T>: bool = false; "
+                                            "fun describe<T>(value: T) -> i64 where is_box<T> { return 1; } "
+                                            "fun exact<T>(value: T) -> i64 where T is i64 => 1;");
   REQUIRE(unit.items.size() == 3);
   const auto &describe = *static_cast<const syntax::FunctionDeclaration *>(unit.items[1].get());
   REQUIRE(describe.whereClause != nullptr);
@@ -193,4 +193,83 @@ TEST_CASE("vNext where clauses example file runs end to end through ngi", "[vNex
   INFO("errors: " << errors);
   REQUIRE(errors.empty());
   REQUIRE(output.find("with value 31") != std::string::npos);
+}
+
+TEST_CASE("vNext where clauses combine predicates with logical operators", "[vNext][Where][Typecheck]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(run("import prelude; "
+              "const fun positive(n: i64) -> bool { return n > 0; } "
+              "const fun small(n: i64) -> bool { return n < 10; } "
+              "fun make<const N: i64>() -> unit where positive(N) && small(N) { } "
+              "fun main() { make<3>(); }",
+              output, errors) == 0);
+  REQUIRE(errors.empty());
+
+  REQUIRE(run("import prelude; "
+              "const fun positive(n: i64) -> bool { return n > 0; } "
+              "const fun small(n: i64) -> bool { return n < 10; } "
+              "fun make<const N: i64>() -> unit where positive(N) || small(N) { } "
+              "fun main() { make<-5>(); }",
+              output, errors) == 0);
+  REQUIRE(errors.empty());
+
+  REQUIRE(run("import prelude; "
+              "const fun positive(n: i64) -> bool { return n > 0; } "
+              "fun make<const N: i64>() -> unit where !positive(N) { } "
+              "fun main() { make<-5>(); }",
+              output, errors) == 0);
+  REQUIRE(errors.empty());
+
+  REQUIRE(run("import prelude; "
+              "const fun positive(n: i64) -> bool { return n > 0; } "
+              "const fun small(n: i64) -> bool { return n < 10; } "
+              "fun make<const N: i64>() -> unit where positive(N) && small(N) { } "
+              "fun main() { make<11>(); }",
+              output, errors) == 1);
+  REQUIRE_THAT(errors, ContainsSubstring("does not satisfy its where clause"));
+}
+
+TEST_CASE("vNext where clauses reject non-bool and unknown predicates", "[vNext][Where][Typecheck]")
+{
+  try
+  {
+    check("const k<T>: i64 = 5; fun make<T>() -> unit where k<i64> { } fun main() { make<i64>(); }");
+    FAIL("expected a non-bool predicate error");
+  }
+  catch (const typecheck::TypeError &error)
+  {
+    REQUIRE(std::string{error.what()} == "const declaration `k` must evaluate to bool in predicate position");
+  }
+
+  try
+  {
+    check("fun f<T>() -> unit where Q is i64 { } fun main() { f<i64>(); }");
+    FAIL("expected an unknown parameter error");
+  }
+  catch (const typecheck::TypeError &error)
+  {
+    REQUIRE(std::string{error.what()} == "where clause tests unknown type parameter `Q`");
+  }
+}
+
+TEST_CASE("vNext traits are rejected as value types", "[vNext][Where][Typecheck]")
+{
+  const auto expect = [](std::string_view source, std::string_view message)
+  {
+    try
+    {
+      check(source);
+      FAIL("expected a trait value error");
+    }
+    catch (const typecheck::TypeError &error)
+    {
+      REQUIRE(std::string{error.what()} == message);
+    }
+  };
+  expect("trait Show { fun show(self: Self ref) -> string; } fun f(x: Show) { } fun main() { }",
+         "trait `Show` is not a value type; use `ref<Show>`");
+  expect("trait Show { fun show(self: Self ref) -> string; } fun f() -> Show { } fun main() { }",
+         "trait `Show` is not a value type; use `ref<Show>`");
 }
