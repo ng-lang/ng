@@ -39,6 +39,12 @@ add_subdirectory(vendored/imgui)
 Include(CTest)
 Include(Catch)
 
+# Vendored QBE backend tool (vendored/qbe-1.3): builds the `qbe` executable
+# and registers the toolchain smoke test. The native code generator drives
+# `qbe` as a subprocess (QBE IL -> assembly);
+# see docs/design/rearchitecture/08-qbe-native-backend.md.
+include(cmake/qbe.cmake)
+
 set(NG_SRC
         src/driver.cpp
         src/bytecode.cpp
@@ -61,6 +67,13 @@ set(NG_SRC
 
 add_library(ng ${NG_SRC})
 target_include_directories(ng PUBLIC include)
+
+if(NG_QBE_AVAILABLE)
+  # The native backend shells out to the sibling `qbe` binary; expose its
+  # absolute path as a compile definition and order the build after it.
+  target_compile_definitions(ng PUBLIC "NG_QBE_PATH=\"$<TARGET_FILE:qbe>\"")
+  add_dependencies(ng qbe)
+endif()
 
 # Instrument the pipeline sources so llvm-cov measures src/ and include/
 # (the coverage gate ignores vendored/ and test/).

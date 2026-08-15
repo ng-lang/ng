@@ -1,0 +1,25 @@
+# End-to-end smoke test for the vendored QBE backend.
+# Exercises branching, an internal call (fib recursion), and a C variadic
+# call (printf) before being assembled, linked, and run by the system
+# toolchain. Driven by cmake/qbe_smoke.cmake.
+export function w $fib(w %n) {
+@start
+	%c =w cslew %n, 1
+	jnz %c, @base, @rec
+@base
+	ret %n
+@rec
+	%n1 =w sub %n, 1
+	%n2 =w sub %n, 2
+	%f1 =w call $fib(w %n1)
+	%f2 =w call $fib(w %n2)
+	%r =w add %f1, %f2
+	ret %r
+}
+export function w $main() {
+@start
+	%r =w call $fib(w 10)
+	%i =w call $printf(l $fmt, ..., w %r)
+	ret 0
+}
+data $fmt = { b "fib(10) = %d\n", b 0 }

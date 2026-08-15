@@ -31,6 +31,7 @@ This plan uses a **replacement-first rewrite**, not an additive shim strategy. E
 | [Legacy example migration matrix](05-legacy-example-migration-matrix.md) | vNext feature ladder derived from the legacy example corpus; evidence, not compatibility policy. |
 | [Const evaluation and generic instances](06-const-evaluation-and-generic-instances.md) | ConstValue identity, restricted evaluator, const generics, and generic instance construction. |
 | [Post-cutover plan](07-post-cutover-plan.md) | Remaining vNext work after legacy removal: decided-edge completion, gated decisions, and unstarted phases. |
+| [QBE native backend](08-qbe-native-backend.md) | Decision for QBE over LLVM, FlowIR → QBE IL lowering, tiered value representation, the native/ABI rewrite, workflow and artifacts, and the CMake toolchain integration. |
 
 ## Progress board
 

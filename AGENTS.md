@@ -38,6 +38,11 @@
 cmake -S . -B build -GNinja
 cmake --build build -j
 ```
+
+The build also compiles the vendored QBE backend into `build/qbe`
+(`cmake/qbe.cmake`) for the planned native code generator; `ctest` includes
+the `qbe_smoke` toolchain test (`test/native/qbe_smoke.ssa` → qbe → cc →
+run).
 **Run tests:**
 
 ```bash
@@ -82,6 +87,7 @@ clang-tidy -p build src/<file>.cpp   # uses build/compile_commands.json
 - [vNext design decisions](../docs/design/rearchitecture/04-language-decisions.md)
 - [Legacy example migration matrix](../docs/design/rearchitecture/05-legacy-example-migration-matrix.md)
 - [Post-cutover roadmap](../docs/design/rearchitecture/07-post-cutover-plan.md)
+- [QBE native backend design](../docs/design/rearchitecture/08-qbe-native-backend.md)
 - [Contribution Guide](../CONTRIBUTING.md)
 
 ---
