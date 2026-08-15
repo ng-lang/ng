@@ -195,3 +195,40 @@ TEST_CASE("vNext runNgi re-enters the pipeline and captures diagnostics", "[vNex
   REQUIRE_THAT(output, ContainsSubstring("syntax error at bytes ["));
   REQUIRE_THAT(output, ContainsSubstring("[exit 1]"));
 }
+
+TEST_CASE("vNext stdlib prints floats and trims whitespace-only strings", "[vNext][Stdlib][Runtime]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(run({"--source", "import prelude; fun main() { print(trim(\"   \")); print(1.5); }"}, output, errors) == 0);
+  REQUIRE(errors.empty());
+  REQUIRE(output.find("\n1.5\n") != std::string::npos);
+}
+
+TEST_CASE("vNext std.io reports file errors", "[vNext][Stdlib][Runtime]")
+{
+  std::string output;
+  std::string errors;
+  const auto missing = (std::filesystem::temp_directory_path() / "ng_definitely_missing_file.txt").string();
+  REQUIRE(run({"--source", "import prelude; import io; fun main() { print(readFile(\"" + missing + "\")); }"}, output,
+              errors) == 1);
+  REQUIRE_THAT(errors, ContainsSubstring("cannot read file"));
+
+  const auto directory = std::filesystem::temp_directory_path() / "ng_no_such_dir";
+  const auto unwritable = (directory / "file.txt").string();
+  REQUIRE(run({"--source", "import prelude; import io; fun main() { writeFile(\"" + unwritable + "\", \"x\"); }"},
+              output, errors) == 1);
+  REQUIRE_THAT(errors, ContainsSubstring("cannot write file"));
+
+  const auto empty = std::filesystem::temp_directory_path() / "ng_empty_file.txt";
+  {
+    std::ofstream file{empty};
+  }
+  REQUIRE(run({"--source", "import prelude; import io; fun main() { let text = readFile(\"" + empty.string() +
+                               "\"); "
+                               "assert(length(text) == 0); }"},
+              output, errors) == 0);
+  REQUIRE(errors.empty());
+  std::error_code ignored;
+  std::filesystem::remove(empty, ignored);
+}
