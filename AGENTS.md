@@ -70,6 +70,7 @@ clang-tidy -p build src/<file>.cpp   # uses build/compile_commands.json
 - **Framework:** Catch2 v3 (vendored). Include `test/test.hpp` for the shared macros
 - **Patterns:** one suite per feature slice; runtime behavior via `NG::runDriver({"--source", ...})`, examples via the shared `runExample("example/...")` helper
 - **Keep the full suite green:** `./build/ng_test` must pass before committing; each feature round ends with a commit
+- **Corpus sweep:** `test/examples_sweep_test.cpp` runs every `example/*.ng` (and `example/modules/`) end to end through `ngi` (the imgui IDE is exercised headless via stub natives in the imgui suite)
 
 ## Commit & PR Guidelines
 - **Prefer Conventional Commits** like history: `feat(vnext): ...`, `fix(parsing): ...`
