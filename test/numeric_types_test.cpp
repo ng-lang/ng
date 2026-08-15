@@ -129,6 +129,41 @@ TEST_CASE("vNext runtime arithmetic checks per-width overflow", "[vNext][Numeric
   REQUIRE(errors.find("integer overflow for type `u8`") != std::string::npos);
 }
 
+TEST_CASE("vNext per-width overflow checks cover every narrow width", "[vNext][Numerics][Runtime]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(run("fun main() -> i64 { let a: i16 = 30000; let b: i16 = a + a; if (b == 0) { return 1; } return 0; }",
+              output, errors) == 1);
+  REQUIRE(errors.find("integer overflow for type `i16`") != std::string::npos);
+  REQUIRE(run("fun main() -> i64 { let a: u16 = 60000; let b: u16 = a + a; if (b == 0) { return 1; } return 0; }",
+              output, errors) == 1);
+  REQUIRE(errors.find("integer overflow for type `u16`") != std::string::npos);
+  REQUIRE(run("fun main() -> i64 { let a: u32 = 4000000000; let b: u32 = a + a; if (b == 0) { return 1; } return 0; }",
+              output, errors) == 1);
+  REQUIRE(errors.find("integer overflow for type `u32`") != std::string::npos);
+  REQUIRE(run("fun main() -> i64 { let a: i8 = -100; let b: i8 = a - 30; if (b == 0) { return 1; } return 0; }", output,
+              errors) == 1);
+  REQUIRE(errors.find("integer overflow for type `i8`") != std::string::npos);
+  REQUIRE(run("fun main() -> i64 { let a: i64 = -9223372036854775808; let b: i64 = a - 1; return b; }", output,
+              errors) == 1);
+  REQUIRE(errors.find("integer subtraction overflow") != std::string::npos);
+}
+
+TEST_CASE("vNext unary sign and narrow division execute on locals", "[vNext][Numerics][Runtime]")
+{
+  expectValue("fun main() -> i64 { let x: i8 = 100; let negated: i8 = -x; let kept: i8 = +x; "
+              "let halved: i8 = x / 2; if (negated == -100 && kept == 100 && halved == 50) { return 1; } return 0; }",
+              "1");
+}
+
+TEST_CASE("vNext f64 subtraction division and comparisons execute end to end", "[vNext][Numerics][Runtime]")
+{
+  expectValue("fun main() -> i64 { let a: f64 = 5.5; let b: f64 = a - 1.5; if (b == 4.0 && b <= 4.0 && b >= 4.0 && "
+              "b / 2.0 == 2.0) { return 1; } return 0; }",
+              "1");
+}
+
 TEST_CASE("vNext i64::min is expressible as a literal", "[vNext][Numerics][Literals]")
 {
   expectValue("fun main() -> i64 { return -9223372036854775808; }", "-9223372036854775808");

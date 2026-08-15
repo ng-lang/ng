@@ -1,10 +1,10 @@
 // AI-generated code; reviewed for this repository's vNext rewrite.
-#include "test.hpp"
 #include "bytecode.hpp"
 #include "driver.hpp"
 #include "flowir.hpp"
 #include "hir.hpp"
 #include "syntax/module_parser.hpp"
+#include "test.hpp"
 #include "typecheck.hpp"
 #include "value.hpp"
 
@@ -59,7 +59,8 @@ namespace
   [[nodiscard]] auto runExample(std::string_view filename, std::string &output, std::string &errors) -> int
   {
     std::string path{filename};
-    if (!std::filesystem::is_directory(std::filesystem::current_path() / "example")) path = std::string{"../"} + path;
+    if (!std::filesystem::is_directory(std::filesystem::current_path() / "example"))
+      path = std::string{"../"} + path;
     std::ostringstream outputStream;
     std::ostringstream errorStream;
     const int status = NG::runDriver({path}, outputStream, errorStream);
@@ -78,14 +79,27 @@ TEST_CASE("vNext generic swap through mutable references executes end to end", "
 
 TEST_CASE("vNext references read and write array elements in place", "[vNext][Ref][Runtime]")
 {
-  expectMainValue("fun main() -> i64 { let mut values = [10, 20, 30]; let second = ref mut values[1]; *second := 99; return values[1]; }",
+  expectMainValue("fun main() -> i64 { let mut values = [10, 20, 30]; let second = ref mut values[1]; *second := 99; "
+                  "return values[1]; }",
                   "99", "array element");
+}
+
+TEST_CASE("vNext references read through index and member place steps", "[vNext][Ref][Runtime]")
+{
+  expectMainValue("fun main() -> i64 { let values = [10, 20]; let second = ref values[1]; return *second; }", "20",
+                  "array index read");
+  expectMainValue("fun main() -> i64 { let pair = (1, 2); let first = ref pair.0; return *first; }", "1",
+                  "tuple member read");
+  expectMainValue("struct P { xs: array<i64> } "
+                  "fun main() -> i64 { let p = P { xs: [1, 2] }; let r = ref p.xs[1]; return *r; }",
+                  "2", "chained member plus index read");
 }
 
 TEST_CASE("vNext references read and write struct fields in place", "[vNext][Ref][Runtime]")
 {
   expectMainValue("struct Box { value: i64 } "
-                  "fun main() -> i64 { let mut box = Box { value: 20 }; let field = ref mut box.value; *field := 21; return box.value; }",
+                  "fun main() -> i64 { let mut box = Box { value: 20 }; let field = ref mut box.value; *field := 21; "
+                  "return box.value; }",
                   "21", "struct field");
 }
 
@@ -98,13 +112,15 @@ TEST_CASE("vNext references read and write tuple projections in place", "[vNext]
 
 TEST_CASE("vNext references follow binding rebinds through the shared cell", "[vNext][Ref][Runtime]")
 {
-  expectMainValue("fun main() -> i64 { let mut value = 1; let write = ref mut value; value := 5; *write := 6; return value; }",
-                  "6", "rebind");
+  expectMainValue(
+      "fun main() -> i64 { let mut value = 1; let write = ref mut value; value := 5; *write := 6; return value; }", "6",
+      "rebind");
 }
 
 TEST_CASE("vNext compound writes through a dereferenced reference path", "[vNext][Ref][Runtime]")
 {
-  expectMainValue("fun main() -> i64 { let mut values = [[1, 2], [3, 4]]; let row = ref mut values[0]; (*row)[0] := 9; return values[0][0]; }",
+  expectMainValue("fun main() -> i64 { let mut values = [[1, 2], [3, 4]]; let row = ref mut values[0]; (*row)[0] := 9; "
+                  "return values[0][0]; }",
                   "9", "nested path");
 }
 
@@ -177,20 +193,16 @@ TEST_CASE("vNext type checker rejects assigning through non-reference values", "
 
 TEST_CASE("vNext bytecode encodes reference creation, load, and place assignment", "[vNext][Ref][Bytecode]")
 {
-  const auto instructions = decode(
-      "fun main() -> i64 { let mut value = 1; let write = ref mut value; let read = *write; *write := 2; return read + value; }");
-  REQUIRE(std::ranges::count_if(instructions, [](const auto &instruction) {
-            return instruction.opcode == bytecode::Opcode::MakeRef;
-          }) == 1);
-  REQUIRE(std::ranges::count_if(instructions, [](const auto &instruction) {
-            return instruction.opcode == bytecode::Opcode::LoadRef;
-          }) == 1);
-  REQUIRE(std::ranges::count_if(instructions, [](const auto &instruction) {
-            return instruction.opcode == bytecode::Opcode::AssignPlace;
-          }) == 1);
-  const auto makeRef = std::find_if(instructions.begin(), instructions.end(), [](const auto &instruction) {
-    return instruction.opcode == bytecode::Opcode::MakeRef;
-  });
+  const auto instructions = decode("fun main() -> i64 { let mut value = 1; let write = ref mut value; let read = "
+                                   "*write; *write := 2; return read + value; }");
+  REQUIRE(std::ranges::count_if(instructions, [](const auto &instruction)
+                                { return instruction.opcode == bytecode::Opcode::MakeRef; }) == 1);
+  REQUIRE(std::ranges::count_if(instructions, [](const auto &instruction)
+                                { return instruction.opcode == bytecode::Opcode::LoadRef; }) == 1);
+  REQUIRE(std::ranges::count_if(instructions, [](const auto &instruction)
+                                { return instruction.opcode == bytecode::Opcode::AssignPlace; }) == 1);
+  const auto makeRef = std::find_if(instructions.begin(), instructions.end(), [](const auto &instruction)
+                                    { return instruction.opcode == bytecode::Opcode::MakeRef; });
   REQUIRE(makeRef != instructions.end());
   REQUIRE(makeRef->operands[2] == 1); // mutable
 }
