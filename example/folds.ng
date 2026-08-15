@@ -1,0 +1,29 @@
+// vNext fold expressions (legacy 58): `f(acc, xs...)` / `f(xs..., acc)` fold
+// a two-argument function over an array, slice, or range. The accumulator seed
+// sits in one argument position and each source element feeds the other; the
+// final accumulator becomes the call result.
+
+fun foldRightStep(value: i64, acc: i64) -> i64 {
+    return value - acc;
+}
+
+fun foldLeftStep(acc: i64, value: i64) -> i64 {
+    return acc - value;
+}
+
+fun main() -> i64 {
+    let xs = [1, 2, 3];
+    let r = 0..4;
+    let sp = xs[0..2];
+    let right = foldRightStep(xs..., 0);
+    let left = foldLeftStep(0, xs...);
+    let rangeSum = foldRightStep(r..., 0);
+    let spanSum = foldLeftStep(0, sp...);
+
+    let mut total = 0;
+    if (right == 2) { total := total + 1; }
+    if (left == -6) { total := total + 2; }
+    if (rangeSum == -2) { total := total + 4; }
+    if (spanSum == -3) { total := total + 8; }
+    return total;
+}

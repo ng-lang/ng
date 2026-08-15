@@ -1,0 +1,36 @@
+// vNext enums and switch dispatch: qualified constructors, exhaustive cases
+// with payload bindings, and the `otherwise` fallback.
+
+enum Result<T, E> {
+    Ok(value: T),
+    Err(error: E),
+}
+
+enum Shape {
+    Circle(radius: i64),
+    Square(side: i64),
+    Empty,
+}
+
+fun main() -> i64 {
+    let success: Result<i64, string> = Result.Ok(42);
+    let mut total = 0;
+    switch (success) {
+        case Ok(value) { total := value; }
+        case Err(error) { total := -1; }
+    }
+
+    let shape: Shape = Shape.Circle(7);
+    switch (shape) {
+        case Circle(radius) { total := total + radius; }
+        case Square(side) { total := total - side; }
+        case Empty { total := total * 2; }
+    }
+
+    let fallback: Shape = Shape.Empty;
+    switch (fallback) {
+        case Circle(radius) { total := -100; }
+        otherwise { total := total + 1; }
+    }
+    return total;
+}

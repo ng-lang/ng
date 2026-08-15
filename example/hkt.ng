@@ -1,0 +1,30 @@
+// vNext higher-kinded generics (legacy 48): `F<_>` declares a type
+// constructor parameter of kind * -> *, applied as `F<T>` in parameter and
+// return types. Calls instantiate constructors explicitly
+// (`accept<i64, Box>(ref box)`) or by inference (`accept(ref box)`).
+
+struct Box<T> {
+    value: T,
+}
+
+fun accept<F<_>, T>(value: F<T> ref) -> i64 {
+    return 1;
+}
+
+fun unwrap<F<_>, T>(value: F<T>) -> F<T> {
+    return value;
+}
+
+fun main() -> i64 {
+    let ints: Box<i64> = Box { value: 42 };
+    let texts: Box<string> = Box { value: "boxed" };
+    let back: Box<i64> = unwrap(ints);
+
+    let mut total = 0;
+    total := total + accept<Box, i64>(ref ints);
+    total := total + accept<Box, string>(ref texts);
+    total := total + accept(ref ints);
+    total := total + accept(ref texts);
+    if (back.value == 42) { total := total + 1; }
+    return total;
+}

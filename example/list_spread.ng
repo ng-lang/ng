@@ -1,0 +1,28 @@
+// vNext list spreads (legacy 59's `[...items]`): recursive-list enums splice
+// their Cons heads into array literals — the final piece of the legacy 59
+// sequence surface.
+
+import prelude;
+import list;
+
+fun main() -> unit {
+    let items = listFrom([10, 32]);
+    let flat = [...items];
+    assert(flat[0] == 10);
+    assert(flat[1] == 32);
+
+    let mixed = [0, ...items, 9];
+    assert(mixed[0] == 0);
+    assert(mixed[1] == 10);
+    assert(mixed[2] == 32);
+    assert(mixed[3] == 9);
+
+    let words: List<string> = ["a", "b"];
+    let text = [...words];
+    assert(text[0] == "a");
+    assert(text[1] == "b");
+
+    let empty: List<i64> = [];
+    let none = [...empty];
+    assert(len(none) == 0);
+}

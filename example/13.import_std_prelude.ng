@@ -1,6 +1,0 @@
-
-assert(!false);
-
-if (!false) {
-    print(not(true));
-}

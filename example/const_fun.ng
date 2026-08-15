@@ -1,0 +1,40 @@
+// vNext const fun (D-013): compile-time capable and runtime callable. Const
+// evaluation runs on typed HIR with fuel and recursion budgets; the same
+// bodies execute normally at runtime.
+
+const fun is_large(value: i64) -> bool {
+    return value > 10;
+}
+
+const fun fact(value: i64) -> i64 {
+    if (value == 0) {
+        return 1;
+    }
+    return value * fact(value - 1);
+}
+
+const fun sum_to(n: i64) -> i64 {
+    let mut total = 0;
+    loop (i = 0) {
+        total := total + i;
+        if (i == n) {
+            return total;
+        }
+        next (i + 1);
+    }
+}
+
+const fun positive(n: i64) -> bool => n > 0;
+
+fun main() -> i64 {
+    let mut total = 0;
+
+    const if (is_large(fact(4))) { total := 24; }
+    const if (is_large(5)) { total := total + 100; }
+    const if (sum_to(10) == 55) { total := total + 1; }
+    const if (positive(7)) { total := total + 1; }
+
+    let runtime_input = 3;
+    let runtime_result = fact(runtime_input);
+    return total + runtime_result;
+}

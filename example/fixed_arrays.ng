@@ -1,0 +1,30 @@
+// vNext fixed arrays (legacy 52 adapted): fixed-size array types and a loop
+// sum over value-typed arrays. Legacy vector<T> maps to array<T>; span views
+// and vector growth arrive with the post-cutover plan.
+
+import seq;
+
+fun first3(xs: array<i64, 3>) -> i64 {
+    return xs[0];
+}
+
+fun sum_values(xs: array<i64>) -> i64 {
+    let mut total = 0;
+    loop (i = 0) {
+        if (i == len(xs)) { return total; }
+        total := total + xs[i];
+        next (i + 1);
+    }
+}
+
+fun main() -> i64 {
+    let fixed: array<i64, 3> = [1, 2, 3];
+    let dynamic: array<i64> = [4, 5, 6];
+    let reversed = reverse(dynamic);
+    let mut total = 0;
+    if (first3(fixed) == 1) { total := total + 1; }
+    if (sum_values(dynamic) == 15) { total := total + 2; }
+    if (len(dynamic) == 3) { total := total + 4; }
+    if (reversed[0] == 6 && reversed[2] == 4) { total := total + 8; }
+    return total;
+}

@@ -1,0 +1,24 @@
+// vNext fixed-width integers (D-008 slice): i8–i64 and u8–u64 resolve as
+// builtin types; integer literals adopt the contextual type with range
+// checks, and same-type arithmetic, comparisons, ranges, and slicing work
+// throughout.
+
+fun add(a: i32, b: i32) -> i32 {
+    return a + b;
+}
+
+struct Point {
+    x: i32,
+    y: u32,
+}
+
+fun main() -> i32 {
+    let small: i32 = 7;
+    let big: i32 = 1000;
+    let pair = Point { x: 300, y: 4000 };
+    let xs: array<i32> = [1, 2, 3];
+    let sum = add(1, 2);
+    let r: range<i32> = 0..3;
+    let sliced = xs[r];
+    return small + big + sum + sliced[1] + pair.x;
+}

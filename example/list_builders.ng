@@ -1,0 +1,38 @@
+// vNext std.list builders (legacy 59 adapted): listof/pushBack/append as
+// immutable rebuilds over the recursive-enum List<T>. Each builder returns a
+// new sequence; cells are shared through scoped refs, and in-place mutating
+// builders stay deferred to the R6 heap domain.
+
+import prelude;
+import list;
+
+fun main() -> unit {
+    // listof(1, 2, 3) -> listFrom([1, 2, 3]).
+    let made = listFrom([1, 2, 3]);
+    assert(length(ref made) == 3);
+    assert(get(ref made, 0) == 1);
+    assert(get(ref made, 2) == 3);
+
+    // pushBack/append.
+    let items = listFrom([10, 32]);
+    let grown = append(ref items, 7);
+    assert(length(ref grown) == 3);
+    assert(get(ref grown, 2) == 7);
+    assert(length(ref items) == 2);
+
+    // pushFront.
+    let front = pushFront(ref items, 5);
+    assert(get(ref front, 0) == 5);
+    assert(get(ref front, 1) == 10);
+
+    // reverse.
+    let reversed = reverseList(ref items);
+    assert(get(ref reversed, 0) == 32);
+    assert(get(ref reversed, 1) == 10);
+
+    // Empty base.
+    let empty: List<i64> = List.Nil;
+    let solo = append(ref empty, 42);
+    assert(length(ref solo) == 1);
+    assert(get(ref solo, 0) == 42);
+}

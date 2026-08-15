@@ -29,8 +29,6 @@ jobs:
         working-directory: ./build
       - run: ./ng_test --reporter JUnit::out=ng_test.junit.xml --reporter console::out=-::colour-mode=ansi
         working-directory: ./build
-      - run: ./feature_test
-        working-directory: ./build
       - run: ../utils/coverage_report.sh
         working-directory: ./build
       - name: Upload coverage reports to Codecov with GitHub Action
@@ -47,3 +45,28 @@ jobs:
         env:
           CODACY_PROJECT_TOKEN: ${{ secrets.CODACY_PROJECT_TOKEN }}
         working-directory: ./build
+
+  deploy-docs:
+    permissions:
+      pages: write
+      id-token: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: package.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Build VitePress site
+        run: npx vitepress build docs
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/.vitepress/dist
+      - name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v4

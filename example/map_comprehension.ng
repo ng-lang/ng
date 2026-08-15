@@ -1,0 +1,28 @@
+// vNext array map comprehensions (legacy 58 core): `[f(xs)...]` applies a
+// single-argument function elementwise over an array, lowered to a runtime
+// loop with per-element calls and array appends.
+
+fun inc(value: i64) -> i64 {
+    return value + 1;
+}
+
+fun square(value: i64) -> i64 => value * value;
+
+fun even(value: i64) -> bool {
+    return (value % 2) == 0;
+}
+
+fun main() -> i64 {
+    let xs = [1, 2, 3];
+    let incremented = [inc(xs)...];
+    let squared = [square(xs)...];
+    let evens = [even(xs)?...];
+    let fromRange = [inc(0..3)...];
+
+    let mut total = 0;
+    if (incremented[0] == 2 && incremented[2] == 4) { total := total + 1; }
+    if (squared[1] == 4) { total := total + 2; }
+    if (evens[0] == 2) { total := total + 4; }
+    if (fromRange[0] == 1 && fromRange[2] == 3) { total := total + 8; }
+    return total;
+}

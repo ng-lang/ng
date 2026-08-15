@@ -1,5 +1,8 @@
 cmake_minimum_required(VERSION 3.25.1)
 set(CMAKE_CXX_STANDARD 23)
+# clang-tidy/clang-format support: export the compilation database so
+# `clang-tidy -p build` resolves include paths and flags.
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Debug)
 endif()
@@ -8,6 +11,13 @@ if(NOT DEFINED ENV{RUNNING_ON_GITHUB})
 
 set(CMAKE_C_COMPILER clang)
 set(CMAKE_CXX_COMPILER clang++)
+
+# clang-tidy/clang-format come from Homebrew LLVM (/opt/homebrew/opt/llvm).
+# Emit an explicit -isysroot so clang-tidy resolves the SDK libc++ headers
+# (its toolchain dir ships none) when reading build/compile_commands.json.
+execute_process(COMMAND xcrun --sdk macosx --show-sdk-path OUTPUT_VARIABLE NG_MACOS_SDK OUTPUT_STRIP_TRAILING_WHITESPACE)
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -isysroot ${NG_MACOS_SDK}")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -isysroot ${NG_MACOS_SDK}")
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -stdlib=libc++ -lc++abi")
@@ -29,124 +39,72 @@ add_subdirectory(vendored/imgui)
 Include(CTest)
 Include(Catch)
 
-set(NG_LIB_SRC
-        src/ast/ast.cpp
-        src/token.cpp
-        src/parsing/LexState.cpp
-        src/parsing/Lexer.cpp
-        src/parsing/ParseState.cpp
-        src/parsing/ParserImpl.cpp
-        src/ast/AstVisitor.cpp
-        src/ast/DummyVisitor.cpp
-        src/intp/stupid.cpp
-        src/runtime/NGBoolean.cpp
-        src/runtime/runtime_env.cpp
-        src/runtime/NGString.cpp
-        src/runtime/NGArray.cpp
-        src/runtime/NGNumeral.cpp
-        src/runtime/NGStructuralObject.cpp
-        src/runtime/NGModule.cpp
-        src/runtime/NGTuple.cpp
-        src/runtime/NGRange.cpp
-        src/runtime/NGUnit.cpp
-        src/runtime/NGTaggedValue.cpp
-        src/runtime/NGReference.cpp
-        src/runtime/buffer_runtime.cpp
-        src/runtime/storage_layout.cpp
-        src/runtime/managed_heap.cpp
-        src/sysdep/process.cpp
-        src/stdlib/prelude.cpp
-        src/stdlib/imgui.cpp
-        src/module/ModuleLoader.cpp
-        src/module/ModuleRegistry.cpp
-        src/typecheck/typecheck.cpp
-        src/typecheck/typecheck_utils.cpp
-        src/typecheck/mangling.cpp
-        src/typecheck/typeinfo.cpp
-        src/typecheck/pattern_matching.cpp
-        src/typecheck/overload_resolver.cpp
-        src/typecheck/trait_resolution.cpp
-        src/typecheck/receiver_effect_collector.cpp
-        src/typecheck/PrimitiveType.cpp
-        src/typecheck/FunctionType.cpp
-        src/typecheck/ArrayType.cpp
-        src/typecheck/TupleType.cpp
-        src/typecheck/GenericType.cpp
-        src/orgasm/Compiler.cpp
-        src/orgasm/VM.cpp
-        src/orgasm/module.cpp
-        )
-
-set(NG_TEST_SRC
-        test/parsing/lexer_test.cpp
-        test/parsing/lexer_keyword_test.cpp
-        test/parsing/lexer_symbol_identifier_test.cpp
-        test/parsing/lexer_values_test.cpp
-        test/parsing/lexer_tuple_range_test.cpp
-        test/parsing/parser_test.cpp
-        test/parsing/parser_function_test.cpp
-        test/parsing/parser_module_import_export_test.cpp
-        test/parsing/parser_type_object_test.cpp
-        test/parsing/parser_control_flow_test.cpp
-        test/parsing/parser_unary_expression_test.cpp
-        test/parsing/parse_composite_type_test.cpp
-        test/parsing/parse_tuple_range_test.cpp
-        test/parsing/parser_ref_move_test.cpp
-        test/parsing/parser_generics_test.cpp
-        test/parsing/parser_traits_test.cpp
-        test/module/native_module_artifact_test.cpp
-        test/integration_test.cpp
-        test/runtime/interpreter_test.cpp
-        test/runtime/nominal_test.cpp
-        test/runtime/runtime_numeral_test.cpp
-        test/runtime/tagged_value_test.cpp
-        test/runtime/runtime_value_ops_test.cpp
-        test/runtime/buffer_runtime_test.cpp
-        test/typecheck/typeinfo_primitive_test.cpp
-        test/typecheck/typeinfo_function_test.cpp
-        test/typecheck/typeinfo_generic_test.cpp
-        test/typecheck/typecheck_primitive_test.cpp
-        test/typecheck/typecheck_function_test.cpp
-        test/typecheck/typecheck_expression_test.cpp
-        test/typecheck/typecheck_array_test.cpp
-        test/typecheck/typecheck_ref_move_test.cpp
-        test/typecheck/typecheck_generic_test.cpp
-        test/typecheck/typecheck_traits_test.cpp
-        test/typecheck/typecheck_parameter_pack_test.cpp
-        test/typecheck/typecheck_controlflow_test.cpp
-        test/typecheck/typecheck_tuple_test.cpp
-        test/typecheck/typecheck_union_test.cpp
-        test/typecheck/nominal_test.cpp
-        test/orgasm/compiler_vm_test.cpp
-        test/orgasm/examples_test.cpp
-        test/orgasm/module_test.cpp
-        test/orgasm/native_bridge_test.cpp
-        test/orgasm/nominal_test.cpp
+set(NG_SRC
+        src/driver.cpp
+        src/bytecode.cpp
+        src/bytecode/artifact.cpp
+        src/flowir.cpp
+        src/hir.cpp
+        src/typecheck.cpp
+        src/type_interner.cpp
+        src/const_eval.cpp
+        src/const_interp.cpp
+        src/module_loader.cpp
+        src/vm.cpp
+        src/vm/value_ops.cpp
+        src/syntax/block_parser.cpp
+        src/syntax/const_expr.cpp
+        src/syntax/module_parser.cpp
+        src/syntax/parser.cpp
+        src/syntax/type_parser.cpp
 )
 
-add_executable(feature_test test/feature_test.cpp)
-
-add_library(ng ${NG_LIB_SRC})
+add_library(ng ${NG_SRC})
 target_include_directories(ng PUBLIC include)
-target_link_libraries(ng PRIVATE imgui SDL3::SDL3-static)
+
+# Instrument the pipeline sources so llvm-cov measures src/ and include/
+# (the coverage gate ignores vendored/ and test/).
+if (APPLE)
+  target_compile_options(ng PRIVATE -fprofile-instr-generate -fcoverage-mapping -fcoverage-mcdc)
+elseif (DEFINED ENV{RUNNING_ON_GITHUB} AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  target_compile_options(ng PRIVATE -fprofile-instr-generate -fcoverage-mapping)
+endif()
 
 # region ngi
 
+# `ngi` is the NG frontend over the promoted vNext pipeline.
 add_executable(ngi src/main.cpp)
 target_link_libraries(ngi PRIVATE ng)
 
 if (APPLE)
-target_compile_options(ng PRIVATE -fprofile-instr-generate -fcoverage-mapping -fcoverage-mcdc)
 target_link_options(ngi PRIVATE -fprofile-instr-generate -fcoverage-mapping -coverage)
 elseif (DEFINED ENV{RUNNING_ON_GITHUB} AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-target_compile_options(ng PRIVATE -fprofile-instr-generate -fcoverage-mapping -fcoverage-mcdc)
 target_link_options(ngi PRIVATE -fprofile-instr-generate -fcoverage-mapping)
 endif()
 # endregion ngi
 
 
+# region ngi_imgui
+
+# `ngi_imgui` is the same frontend plus the imgui native binding
+# (`lib/std/imgui.ng`), powering the NG IDE example.
+add_library(ng_imgui STATIC src/imgui_natives.cpp)
+target_link_libraries(ng_imgui PUBLIC ng imgui)
+target_include_directories(ng_imgui PUBLIC include)
+
+add_executable(ngi_imgui src/imgui_main.cpp)
+target_link_libraries(ngi_imgui PRIVATE ng_imgui)
+if (APPLE)
+target_link_options(ngi_imgui PRIVATE -fprofile-instr-generate -fcoverage-mapping -coverage)
+elseif (DEFINED ENV{RUNNING_ON_GITHUB} AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+target_link_options(ngi_imgui PRIVATE -fprofile-instr-generate -fcoverage-mapping)
+endif()
+# endregion ngi_imgui
+
+
 # region ng_test
 
+file(GLOB NG_TEST_SRC CONFIGURE_DEPENDS test/*.cpp)
 add_executable(ng_test ${NG_TEST_SRC})
 target_link_libraries(ng_test PRIVATE ng Catch2::Catch2WithMain)
 
@@ -158,12 +116,5 @@ target_compile_options(ng_test PRIVATE -fprofile-instr-generate -fcoverage-mappi
 target_link_options(ng_test PRIVATE  -fprofile-instr-generate -fcoverage-mapping)
 endif()
 # endregion ng_test
-
-# region ng_imgui_demo
-
-add_executable(ng_imgui_demo test/imgui/main.cpp)
-target_link_libraries(ng_imgui_demo PRIVATE imgui SDL3::SDL3-static)
-
-# endregion ng_imgui_demo
 
 catch_discover_tests(ng_test)

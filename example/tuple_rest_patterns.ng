@@ -1,0 +1,28 @@
+// vNext tuple rest patterns: `let (first, ...rest) = tuple;` binds the prefix
+// elements by name and the remaining elements as a tuple (heterogeneous,
+// indexable, and re-destructurable).
+
+import prelude;
+
+fun main() -> unit {
+    let pair = (1, "two", true);
+    let (first, ...rest) = pair;
+    assert(first == 1);
+    assert(rest[0] == "two");
+    assert(rest[1] == true);
+
+    // The rest tuple destructures again.
+    let (a, b) = rest;
+    assert(a == "two");
+    assert(b == true);
+
+    // Multi-element and single-element rests.
+    let (head, ...tail) = (9, 8, 7);
+    assert(head == 9);
+    assert(tail[0] == 8);
+    assert(tail[1] == 7);
+
+    let (x, ...none) = (5, 6);
+    assert(x == 5);
+    assert(none[0] == 6);
+}

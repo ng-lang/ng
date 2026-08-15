@@ -1,0 +1,17 @@
+// vNext ranges and slicing (legacy 57 core): `a..b` range values slice
+// arrays with checked bounds; slices deep-copy their elements.
+
+fun main() -> i64 {
+    let r = 1..4;
+    let values = [10, 20, 30, 40, 50];
+
+    let middle = values[r];
+    let head = values[0..2];
+    let tail = values[2..5];
+
+    let mut total = 0;
+    if (middle[0] == 20 && middle[2] == 40) { total := total + 1; }
+    if (head[1] == 20) { total := total + 2; }
+    if (tail[0] == 30 && tail[2] == 50) { total := total + 4; }
+    return total;
+}

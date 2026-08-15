@@ -1,11 +1,33 @@
-module std.memory exports *;
+// vNext std.memory (redesign, legacy 41 spirit): a session-owned native
+// handle table plus a concrete heap Box with Drop-driven release. There is no
+// GC; generic Box<T> and Gc/Arc arrive with the R6 heap domain.
 
-type UniquePtr<T> = native;
+type Handle = native;
 
-fun nativeMalloc<T>(size: i32) -> UniquePtr<T> = native;
+export native fun allocate(value: i64) -> Handle;
+export native fun load(handle: Handle) -> i64;
+export native fun store(handle: Handle, value: i64) -> unit;
+export native fun release(handle: Handle) -> unit;
+export native fun outstanding() -> i64;
 
-fun nativeFree<T>(ptr: UniquePtr<T>) -> unit = native;
+export struct Box {
+    handle: Handle,
+}
 
-fun nativeOutstandingAllocations() -> i32 = native;
+export impl Drop for Box {
+    fun drop(self: Self ref) -> unit {
+        release((*self).handle);
+    }
+}
 
-fun gcFree() -> unit = native;
+export fun box(value: i64) -> Box {
+    return Box { handle: allocate(value) };
+}
+
+export fun read(value: Box ref) -> i64 {
+    return load((*value).handle);
+}
+
+export fun write(value: Box ref, updated: i64) -> unit {
+    store((*value).handle, updated);
+}

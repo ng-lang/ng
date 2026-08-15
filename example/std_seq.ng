@@ -1,0 +1,13 @@
+// vNext std.seq (redesigned): array helpers as free functions over
+// value-typed arrays; the legacy Sequence trait abstraction is unnecessary.
+
+import seq;
+
+fun main() -> i64 {
+    let xs = [1, 2, 3];
+    let mut total = 0;
+    if (sum(xs) == 6) { total := total + 1; }
+    if (arrayContains(xs, 2)) { total := total + 2; }
+    if (!arrayContains(xs, 9)) { total := total + 4; }
+    return total;
+}

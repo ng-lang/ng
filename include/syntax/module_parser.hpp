@@ -1,0 +1,41 @@
+// AI-generated code; reviewed for this repository's vNext rewrite.
+#pragma once
+
+#include "syntax/block_parser.hpp"
+
+namespace NG::syntax
+{
+  /// Parses source-unit items. This parser never accepts a block statement at
+  /// module scope; declarations and local statements have distinct boundaries.
+  class ModuleParser final
+  {
+  public:
+    explicit ModuleParser(std::vector<Token> tokens);
+
+    [[nodiscard]] auto parse() -> SourceUnit;
+
+  private:
+    [[nodiscard]] auto parseFunctionDeclaration(bool constFunction = false, bool exported = false,
+                                                bool nativeFunction = false) -> ModuleItemPtr;
+    [[nodiscard]] auto parseImportDeclaration() -> ModuleItemPtr;
+    [[nodiscard]] auto parseStructDeclaration() -> ModuleItemPtr;
+    [[nodiscard]] auto parseOpaqueTypeDeclaration() -> ModuleItemPtr;
+    [[nodiscard]] auto parseEnumDeclaration() -> ModuleItemPtr;
+    [[nodiscard]] auto parseConstDeclaration() -> ModuleItemPtr;
+    [[nodiscard]] auto parseTraitDeclaration() -> ModuleItemPtr;
+    [[nodiscard]] auto parseImplDeclaration() -> ModuleItemPtr;
+    [[nodiscard]] auto parseTraitMethod() -> TraitMethodDeclaration;
+    [[nodiscard]] auto parseExpressionUntil(TokenKind terminator) -> ExpressionPtr;
+    [[nodiscard]] auto parseTypeUntil(const std::vector<TokenKind> &terminators) -> TypeSyntaxPtr;
+    [[nodiscard]] auto consumeBlockTokens() -> std::vector<Token>;
+    [[nodiscard]] auto current() const -> const Token &;
+    [[nodiscard]] auto peek(size_t offset) const -> const Token &;
+    [[nodiscard]] auto consume() -> Token;
+    void expect(TokenKind kind, std::string_view message);
+
+    std::vector<Token> tokens_;
+    size_t cursor_{};
+  };
+
+  [[nodiscard]] auto parseSourceUnit(std::string_view source) -> SourceUnit;
+} // namespace NG::syntax

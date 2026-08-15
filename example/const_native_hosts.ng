@@ -1,0 +1,22 @@
+// vNext const-capable natives (D-012 `= native` capability): pure string
+// hosts registered by the embedding run at compile time inside const fun,
+// const if, and where-clause evaluation, while impure natives stay rejected.
+
+import prelude;
+
+const fun isShort(s: string) -> bool => length(s) < 5;
+const fun fits(value: i64) -> bool { return length("12345") + value < 10; }
+const fun sanitized(s: string) -> string { return trim(toUpper(s)); }
+
+fun make<const N: i64>() -> unit where fits(N) { }
+
+fun main() -> unit {
+    const if (isShort("abc")) { print("short folded"); } else { assert(false); }
+    const if (regexMatch("a1b2", "a.b.")) { print("regex folded"); } else { assert(false); }
+    const if (sanitized("  ng  ") == "NG") { print("trim folded"); } else { assert(false); }
+
+    make<2>();
+
+    // Const funs stay runtime-callable.
+    assert(sanitized("  ok  ") == "OK");
+}

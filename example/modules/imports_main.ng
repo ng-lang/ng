@@ -1,0 +1,10 @@
+// vNext module imports: the loader merges the transitive import graph into
+// one compilation unit before resolution and typechecking.
+
+import hello;
+
+fun main() -> i64 {
+    let text = greeting();
+    if (text != "hello from module") { return 0; }
+    return double(21);
+}

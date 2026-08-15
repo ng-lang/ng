@@ -1,395 +1,84 @@
-# A Guide to the NG Programming Language
+# NG Language Guide
 
-Welcome to the NG programming language! This guide will provide a comprehensive introduction to the language, from the basics to more advanced topics. Whether you are a beginner or an experienced programmer, this guide will help you get started with NG.
+Welcome to the NG language guide. NG is a statically-typed, multi-paradigm
+programming language implemented in modern C++23, with a single clean
+pipeline:
 
-## 1. Introduction
+**Lexer → Parser → Resolver (HIR) → Type Checker → FlowIR → Bytecode → VM**
 
-NG is a modern, statically-typed programming language that is designed to be simple, efficient, and easy to learn. It is a general-purpose language that can be used for a wide range of applications, from scripting to systems programming.
+## What is NG?
 
-### Philosophy
+- **Rich type system** — fixed-width integers (`i8`–`i64`, `u8`–`u64`),
+  `f32`/`f64`, `bool`, `string`, arrays (dynamic and fixed-size), tuples,
+  structs, tagged unions (`enum`), union annotations (`A | B`), ranges,
+  references, trait views, opaque/native handles, generics, and
+  higher-kinded type constructors.
+- **Ownership model** — copy-first value semantics: `Copy` types copy on
+  bind/call/return, affine nominal types move (`move`/`clone`) with
+  `impl Drop` lifecycle, and scoped `ref`/`ref mut` views are borrow-checked
+  with non-lexical loan release. No GC.
+- **Traits** — trait declarations with default methods, impls (concrete and
+  generic), `T: Trait` bounds, auto traits, `derive(Copy + Clone)`, and
+  `ref<Trait>` dynamic views.
+- **Compile-time programming** — `const if`, const declarations with pattern
+  specialization, `const fun` (compile-time capable and runtime callable),
+  where clauses, const generics, and const-capable native hosts.
+- **Modules** — transitive imports with per-module visibility, a redesigned
+  standard library (`lib/std`), and an embedding-friendly `native fun`
+  interface.
+- **ImGui binding** — a Dear ImGui binding over SDL3 and a minimal IDE
+  written in NG itself.
 
-The design of NG is guided by the following principles:
+## Quick Start
 
-*   **Simplicity:** The language should have a small, consistent set of features that are easy to understand and use.
-*   **Readability:** The syntax should be clean and easy to read, making it easier to maintain and debug code.
-*   **Performance:** The language should be able to generate efficient code that runs close to the metal.
-*   **Safety:** The language should prevent common programming errors, such as null pointer dereferences and buffer overflows.
-
-## 2. Getting Started
-
-### Prerequisites
-
-Before you can start using NG, you will need to have the following tools installed on your system:
-
-*   **C++ Compiler:** A C++23 compatible compiler (e.g., GCC, Clang, MSVC).
-*   **CMake:** Version 3.25.1 or higher.
-*   **Build Tool:** Make or Ninja.
-
-### Building the Project
-
-1.  **Clone the repository:**
-
-    ```bash
-    git clone https://github.com/ng-lang/ng.git
-    cd ng
-    ```
-
-2.  **Create a build directory:**
-
-    ```bash
-    mkdir build
-    cd build
-    ```
-
-3.  **Configure the project with CMake:**
-
-    ```bash
-    cmake -GNinja ..
-    ```
-
-4.  **Build the project:**
-
-    ```bash
-    ninja
-    ```
-
-### Your First Program
-
-Let's start with a simple "Hello, World!" program.
-
-```ng
-// This is a comment.
-print("Hello, World!");
-```
-
-To run this program, save it to a file called `hello.ng` and run the following command from the `build` directory:
+### Build
 
 ```bash
-./ngi ../hello.ng
+cmake -S . -B build -GNinja
+cmake --build build -j
 ```
 
-This will print "Hello, World!" to the console. The `print` function is a built-in function that prints its argument to the standard output.
+### Run a program
 
-## 3. Language Basics
-
-### Comments
-
-NG supports single-line comments using `//`.
-
-```ng
-// This is a single-line comment.
+```bash
+./build/ngi example/stdlib_basics.ng        # run an example file
+./build/ngi --source 'import prelude; fun main() { print("hi"); }'
+./build/ngi_imgui example/ng_ide.ng --fuel 0   # the imgui IDE (GUI)
 ```
 
-### Variables and Mutability
+`ngi --fuel <n>` bounds the instruction budget (`0` lifts it, used by
+interactive programs).
 
-Variables are declared using the `val` keyword. By default, variables are mutable, which means their values can be changed after they are declared.
-
-```ng
-val x = 1; // x is 1
-x = 2;     // now x is 2
-```
-
-### Data Types
-
-NG is a statically-typed language, which means that every variable has a type that is known at compile time. NG has a rich set of built-in data types.
-
-#### Primitive Types
-
-*   **Integers**: `i8`, `i16`, `i32`, `i64` (signed) and `u8`, `u16`, `u32`, `u64` (unsigned).
-*   **Floating-point numbers**: `f32`, `f64`.
-*   **Booleans**: `true`, `false`.
-*   **Strings**: `"hello"`, `'world'`.
-*   **Unit**: `unit`, which represents the absence of a value.
-
-#### Type Annotations
-
-You can explicitly specify the type of a variable using a type annotation.
+### First program
 
 ```ng
-val x: i32 = 1;
-val name: string = "NG";
-```
-
-### Operators
-
-NG supports a variety of operators.
-
-*   **Arithmetic**: `+`, `-`, `*`, `/`, `%`
-*   **Comparison**: `==`, `!=`, `>`, `<`, `>=`, `<=`
-*   **Array Append**: `<<`
-*   **Type Check**: `is`
-
-There are no logical operators like `&&` or `||`. Instead, you can use the `not` function from the standard prelude.
-
-### Expressions and Statements
-
-NG is an expression-oriented language, which means that most things are expressions that evaluate to a value. A statement is a piece of code that performs an action but does not produce a value.
-
-## 4. Control Flow
-
-### Conditional Execution
-
-`if/else` statements are used for conditional execution.
-
-```ng
-if (x > 0) {
-    print("positive");
-} else if (x < 0) {
-    print("negative");
-} else {
-    print("zero");
-}
-```
-
-### Loops
-
-NG has a `loop` construct for iteration.
-
-```ng
-fun sum(n: i32) -> i32 {
-  val s = 0;
-  loop i = 0 {
-    s = s + i;
-    if (i < n) {
-      next i + 1;
-    }
-  }
-  return s;
-}
-```
-
-The `next` keyword is used to continue the loop, optionally with a new value for the loop variable.
-
-## 5. Functions
-
-Functions are defined with the `fun` keyword.
-
-```ng
-fun add(x: i32, y: i32) -> i32 {
-    return x + y;
-}
-```
-
-### Shorthand Syntax
-
-For single-expression functions, you can use the `=>` shorthand.
-
-```ng
-fun add(x: i32, y: i32) -> i32 => x + y;
-```
-
-### Recursion
-
-Functions can call themselves, which is called recursion.
-
-```ng
-fun factorial(n: i32) -> i32 {
-    if (n == 0) {
-        return 1;
-    }
-    return n * factorial(n - 1);
-}
-```
-
-### Native Functions
-
-Functions can be marked as `native`, which means they are implemented in the host language.
-
-```ng
-fun my_native_function(arg: i32) -> unit = native;
-```
-
-The NG-side declaration syntax stays the same even as the runtime evolves. Internally, native registration is being refactored away from the older callback shape that manually unpacks runtime objects (`self`, `context`, `invocationContext`) and toward a more direct signature-mapped FFI, so native functions can follow the same receiver/parameter/return layout model as interpreted code, ORGASM, and future native lowering.
-
-At the moment there are two host-side integration paths:
-
-- runtime native libraries use the env-based callable ABI (`NGCallable`) and can inspect slot-backed arguments through `NativeArgsView`
-- ORGASM VM natives can be registered directly with `vm.register_native(...)`, which maps ordinary C++ signatures to NG values automatically
-
-The VM now keeps its internal bytecode-to-bytecode call ABI slot-backed; only the native boundary still adapts arguments back to boxed runtime values for the current host bridge.
-
-## 6. Data Structures
-
-### Arrays
-
-Arrays are collections of elements of the same type.
-
-```ng
-val arr = [1, 2, 3, 4, 5];
-print(arr[0]); // 1
-
-arr[0] = 10;
-print(arr[0]); // 10
-
-arr << 6; // append 6 to the end
-```
-
-### Objects and Types
-
-You can define your own custom types using the `type` keyword.
-
-```ng
-type Person {
-    property firstName: string;
-    property lastName: string;
-
-    fun name() -> string {
-        return self.firstName + " " + self.lastName;
-    }
-}
-
-val person = new Person {
-    firstName: "John",
-    lastName: "Doe"
-};
-
-print(person.name()); // "John Doe"
-```
-
-`new` allocates on the managed heap and returns `ref<T>`, so heap-allocated objects alias by reference unless you explicitly copy out their fields.
-
-## 7. Modules and Code Organization
-
-### Modules
-
-Each file in NG is a module. You can control what is visible outside the module using the `export` keyword.
-
-```ng
-// my_module.ng
-module my_module exports *;
-
-export fun my_fun() { ... }
-```
-
-### Importing Modules
-
-You can import other modules using the `import` statement.
-
-```ng
-// main.ng
-import my_module (*);
-
-my_fun();
-```
-
-## 8. Generic Functions
-
-NG supports generic functions with type parameters, allowing you to write reusable code that works with multiple types.
-
-### Type Parameters
-
-Generic functions are declared by placing type parameters in angle brackets `<...>` after the function name:
-
-```ng
-fun identity<T>(x: T) -> T {
-    return x;
-}
-
-identity(42);       // T is inferred as i32
-identity("hello");  // T is inferred as string
-identity(true);     // T is inferred as bool
-```
-
-Type parameters can be inferred from argument types, so explicit type arguments at the call site are not required.
-
-### Multiple Type Parameters
-
-Functions can have multiple type parameters:
-
-```ng
-fun pair<A, B>(a: A, b: B) -> (A, B) {
-    return (a, b);
-}
-
-val p = pair(1, "world"); // A is i32, B is string
-```
-
-### Parameter Packs
-
-Parameter packs allow functions to accept a variable number of arguments. A parameter pack is declared using the `...` suffix on a type parameter:
-
-```ng
-fun count<T...>(args: T...) -> i32 {
+import prelude;
+
+fun main() -> i64 {
+    let greeting = "hello";
+    print(greeting);
     return 42;
 }
-
-count(1, "two", 3.0, true); // Works with any number of any type
 ```
 
-Type constraints can be applied to parameter packs:
+## Language tours
 
-```ng
-fun sum<T: i32 | f64...>(args: T...) -> T {
-    // sum is only valid for numeric types
-}
-```
+- [Getting Started](/guide/getting-started) — setup, first programs, `ngi`
+- [Basic Syntax](/guide/basic-syntax) — bindings, types, operators
+- [Control Flow](/guide/control-flow) — if, loop/next, switch, const if
+- [Functions](/guide/functions) — declarations, generics, native/const fun
+- [Data Structures](/guide/data-structures) — structs, enums, tuples, arrays
+- [Modules and Imports](/guide/modules-and-imports) — visibility, stdlib
+- [References, Moves & Ownership](/guide/references-moves) — the ownership model
+- [Traits](/guide/traits) — traits, impls, bounds, views
+- [Generics](/guide/generics) and [Advanced Generics](/guide/advanced-generics)
+- [Compile-Time Programming](/guide/compile-time-programming)
+- [Standard Library](/guide/standard-library)
+- [Memory Management](/guide/memory-management) — the GC-free heap
+- [ImGui Integration](/guide/imgui-integration) — the binding and the IDE
 
-The built-in `print` and `assert` functions are implemented using parameter packs, so they accept any number of arguments:
+## Reference
 
-```ng
-print(1, "hello", 3.14, true);  // "1, hello, 3.140000, true"
-```
-
-## 9. Standard Library
-
-NG has a small standard library that provides basic functionalities.
-
-### Prelude
-
-The `std.prelude` module is implicitly imported into every module. It provides the following functions:
-
-*   `print<T...>(args: T...)`: Prints one or more values to the console.
-*   `assert<T...>(assertion: T...)`: Asserts that a condition is true.
-*   `not(value: bool)`: Returns the logical negation of a boolean value.
-*   `len<T>(xs: string | vector<T>) -> u32`: Returns the length of a string or vector.
-
-#### I/O
-
-*   `readLine() -> string`: Reads a line from standard input.
-*   `readFile(path: string) -> string`: Reads the entire contents of a file.
-*   `writeFile(path: string, content: string) -> unit`: Writes a string to a file (overwrites).
-
-#### String Operations
-
-*   `split(s: string, delimiter: string) -> vector<string>`: Splits a string by a delimiter.
-*   `join(items: vector<string>, separator: string) -> string`: Joins a vector of strings with a separator.
-*   `trim(s: string) -> string`: Removes leading and trailing whitespace.
-*   `contains(haystack: string, needle: string) -> bool`: Checks if a string contains a substring.
-*   `replace(s: string, old: string, replacement: string) -> string`: Replaces all occurrences of a substring.
-*   `startsWith(s: string, prefix: string) -> bool`: Checks if a string starts with a prefix.
-*   `endsWith(s: string, suffix: string) -> bool`: Checks if a string ends with a suffix.
-*   `toUpper(s: string) -> string`: Converts a string to uppercase.
-*   `toLower(s: string) -> string`: Converts a string to lowercase.
-
-#### Collection Operations
-
-*   `reverse<T>(xs: vector<T>) -> vector<T>`: Reverses a vector.
-
-Ranges and slices are language syntax, not stdlib helper calls:
-
-*   `a..b` creates an end-exclusive `Range<T>`.
-*   `a..=b` creates an end-inclusive `Range<T>`.
-*   `xs[a..b]`, `xs[..b]`, and `xs[a..]` create `span<T>` views for contiguous sequences.
-*   `[...rangeOrSpan]` materializes a range or span into a `vector<T>`.
-
-## 10. Computer Science Concepts
-
-### Static Typing
-
-NG is a statically-typed language. This means that the type of every variable is known at compile time, which helps to catch errors early and improve performance.
-
-### Memory Management
-
-NG uses automatic memory management, which means you don't have to manually allocate and deallocate memory. The compiler takes care of this for you.
-
-## 11. Contributing
-
-We welcome contributions from the community! If you are interested in contributing to the NG programming language, please read our [Contribution Guide](https://github.com/ng-lang/ng/blob/main/CONTRIBUTING.md) to get started.
-
-## 12. Community
-
-Join the NG community to ask questions, share your ideas, and collaborate with other developers.
-
--   **Discussions:** For general discussions, questions, and ideas, please use the [GitHub Discussions](https://github.com/ng-lang/ng/discussions).
--   **Issue Tracker:** For bug reports and feature requests, please use the [GitHub Issues](https://github.com/ng-lang/ng/issues).
--   **Pull Requests:** For contributions, please use [GitHub Pull Requests](https://github.com/ng-lang/ng/pulls).
+- [Internals](/ref/Internals) — the compiler pipeline
+- [Memory](/ref/Memory) — the runtime value model
+- [C++ Compatibility](/ref/cxx-compatibility)

@@ -1,23 +1,29 @@
-module std.prelude exports *;
+// vNext std.prelude: printing, assertions, and basic predicates.
 
-export import std.tuple (*);
-export import std.io (*);
-export import std.string (*);
-export import std.array (*);
-export import std.seq (*);
-export import std.memory (*);
+import io;
+import string;
 
-fun not(value: bool) -> bool {
-    return value == false;
+export native fun print(value: i64) -> unit;
+export native fun print(value: string) -> unit;
+export native fun print(value: bool) -> unit;
+export native fun print(value: f64) -> unit;
+export native fun print(value: f32) -> unit;
+export native fun print(value: i8) -> unit;
+export native fun print(value: i16) -> unit;
+export native fun print(value: i32) -> unit;
+export native fun print(value: u8) -> unit;
+export native fun print(value: u16) -> unit;
+export native fun print(value: u32) -> unit;
+export native fun print(value: u64) -> unit;
+export native fun assert(condition: bool) -> unit;
+
+// Compiles and runs an NG source unit inside the running program, returning
+// its captured output (and diagnostics with a trailing `[exit N]` on failure).
+export native fun runNgi(source: string) -> string;
+
+export fun not(value: bool) -> bool {
+    return !value;
 }
 
-fun print<T...>(value: T...) -> unit = native;
-
-fun assert<T...>(assertion: T...) -> unit = native;
-
-const is_ref<T>: bool = false;
-const<T> is_ref<ref<T>>: bool = true;
-const is_trait<T>: bool = native;
-const is_abstract<T>: bool = native;
-
-fun len<T>(xs: string | vector<T>) -> u32 = native;
+export const is_ref<T>: bool = false;
+export const<T> is_ref<ref<T>>: bool = true;

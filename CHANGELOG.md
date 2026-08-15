@@ -5,6 +5,56 @@ All notable changes to the NG programming language project will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Each pull request is documented as a separate entry.
 
+## [Unreleased] — vNext migration (2026-08)
+
+The legacy orgasm/interpreter pipeline was removed and every legacy language
+feature was reimplemented on the vNext pipeline
+(Lexer → Parser → Resolver (HIR) → Type Checker → FlowIR → Bytecode → VM).
+
+### Added
+
+- Numeric tower (i8–i64, u8–u64, f32/f64) with contextual literals, suffixes,
+  and per-width overflow checks; cross-width equality/ordering
+- Ownership: copy-first semantics, affine move/clone, field-aware partial
+  moves, `impl Drop`, scoped refs with non-lexical loan release (no GC)
+- Traits: default methods (incl. through `self` and views), supertraits,
+  concrete and generic impls, auto traits, `derive(Copy + Clone)`,
+  `ref<Trait>` dynamic views
+- Generics: monomorphized instances, const generics, higher-kinded
+  constructors, variadic packs, tuple introspection, folds
+- Compile-time programming: `const if`, const declarations with pattern
+  specialization, `const fun`, generic const funs, const-capable native
+  hosts
+- Scalar literal-or switch patterns; tuple rest patterns; list collection
+  literals; array value spreads and list spreads; value-semantics `<<`
+  append; regexMatch
+- Modules: transitive imports with per-module visibility; redesigned stdlib
+  (`lib/std`: prelude/io/string/seq/list/memory/imgui)
+- Embedding surface: `runNgi` self-hosting, `--fuel` budgets,
+  `runDriverWithNatives`, Dear ImGui binding (`ngi_imgui`) and the NG IDE
+- Documentation: `docs/guide` rewritten for the new language, `docs/ref`
+  updated, legacy design/review documents archived
+
+### Changed
+
+- The `ngi` frontend links only the vNext pipeline; the legacy library,
+  sources, tests, stdlib, and example corpus were deleted
+- Standard library redesigned (not a 1:1 port): value-typed seq, recursive
+  `List<T>`, GC-free memory module with Drop-released `Box`
+
+### Deferred
+
+- `span<T>`, in-place growing collections, heap domains (`Box<T>`/`Gc`/`Arc`),
+  `isize`/`usize`, declared C ABI/bindgen, concurrency, tooling — tracked in
+  `docs/design/rearchitecture/07-post-cutover-plan.md`
+
+---
+
+## Legacy (pre-vNext)
+
+The entries below describe the removed orgasm/interpreter implementation and
+are kept as historical record only.
+
 ## [Unreleased]
 
 ### Bug Fixes: Example Runtime Errors

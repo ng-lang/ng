@@ -1,11 +1,6 @@
-module std.io exports *;
+// vNext std.io: runtime I/O intrinsics supplied by the embedding.
 
-fun readLine() -> string = native;
-
-fun readFile(path: string) -> string = native;
-
-fun writeFile(path: string, content: string) -> unit = native;
-
-fun currentExecutablePath() -> string = native;
-
-fun runNgi(path: string) -> string = native;
+export native fun readLine() -> string;
+export native fun readFile(path: string) -> string;
+export native fun writeFile(path: string, content: string) -> unit;
+export native fun currentExecutablePath() -> string;

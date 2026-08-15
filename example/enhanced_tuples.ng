@@ -1,0 +1,35 @@
+// vNext enhanced tuple types (legacy 54): built-in tuple/pack introspection
+// (`is_tuple`, `tuple_size`, `sizeof_pack`, `tuple_element`, `tuple_concat`)
+// alongside variadic pack gathering and call-site tuple spreads.
+
+fun gather<T...>(args: T...) -> tuple<T...> {
+    return (...args,);
+}
+
+fun pick_middle(left: i64, value: string, ok: bool) -> string {
+    return value;
+}
+
+fun main() -> i64 {
+    let mut total = 0;
+
+    const if (is_tuple<tuple<i64, string, bool>>) { total := total + 1; }
+    const if (tuple_size<tuple<i64, string, bool>> == 3) { total := total + 2; }
+    const if (sizeof_pack<i64, string, bool> == 3) { total := total + 4; }
+
+    let first: tuple_element<tuple<i64, string, bool>, 0> = 7;
+    let second: tuple_element<tuple<i64, string, bool>, 1> = "tuple";
+    let joined: tuple_concat<tuple<i64, string>, tuple<bool, i64>> = (1, "joined", true, 9);
+
+    let packed: tuple<i64, string, bool> = gather(1, "pack", false);
+    let spread = pick_middle(...(7, "spread", true));
+    let spread_args = (8, "spread-var", false);
+    let spread_from_var = pick_middle(...spread_args);
+
+    if (first == 7 && second == "tuple") { total := total + 8; }
+    if (joined.1 == "joined") { total := total + 16; }
+    if (packed.1 == "pack") { total := total + 32; }
+    if (spread == "spread") { total := total + 64; }
+    if (spread_from_var == "spread-var") { total := total + 128; }
+    return total;
+}

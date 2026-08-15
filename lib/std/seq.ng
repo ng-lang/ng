@@ -1,6 +1,8 @@
-module std.seq exports *;
+// vNext std.seq (redesign): array helpers as free functions over value-typed
+// arrays. The legacy Sequence trait abstraction is unnecessary: arrays already
+// carry len, indexing, comprehensions, folds, and slices in the language.
 
-trait Sequence<T> {
-    fun size(self: ref<Self>) -> u32;
-    fun get(self: ref<Self>, index: i32) -> T;
-}
+export native fun len<T>(values: array<T>) -> i64;
+export native fun sum(values: array<i64>) -> i64;
+export native fun arrayContains(values: array<i64>, value: i64) -> bool;
+export native fun reverse(values: array<i64>) -> array<i64>;

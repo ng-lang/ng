@@ -1,103 +1,91 @@
-module std.list exports *;
+// vNext std.list (redesign, legacy 59 spirit): a read-only recursive sequence
+// over the recursive-enum List<T>; node construction uses caller bindings and
+// scoped refs, and mutating builders arrive with the R6 heap domain.
 
-import std.seq (Sequence);
+import prelude;
+import seq;
 
-type Node<T> = Cell(value: T, prev: ref<Node<T>>, rest: ref<Node<T>>) | Empty;
+export enum List<T> {
+    Cons(head: T, tail: ref<List<T>>),
+    Nil,
+}
 
-fun getNode<T>(node: ref<Node<T>>, index: i32) -> T {
-    switch (*node) {
-        case Empty {
+export fun length<T>(list: ref<List<T>>) -> i64 {
+    switch (*list) {
+        case Nil { return 0; }
+        case Cons(value, rest) { return 1 + length(rest); }
+    }
+}
+
+export fun get<T>(list: ref<List<T>>, index: i64) -> T {
+    switch (*list) {
+        case Nil {
             assert(false);
-            return getNode(node, index);
+            return get(list, index);
         }
-        case Cell(value, previous, rest) {
-            if (index == 0) {
-                return value;
-            }
-            return getNode(rest, index - 1);
+        case Cons(value, rest) {
+            if (index == 0) { return value; }
+            return get(rest, index - 1);
         }
     }
 }
 
-type List<T> {
-    head: ref<Node<T>>;
-    tail: ref<Node<T>>;
-    sizeValue: u32;
+export fun contains<T>(list: ref<List<T>>, value: T) -> bool {
+    switch (*list) {
+        case Nil { return false; }
+        case Cons(head, rest) { return head == value || contains(rest, value); }
+    }
+}
 
-    fun pushBack(self: ref<Self>, value: T) -> unit {
-        switch (*self.tail) {
-            case Empty {
-                *self.head := Cell(value, new Empty {}, new Empty {});
-                self.tail := self.head;
-            }
-            case Cell(existing, previous, rest) {
-                *rest := Cell(value, self.tail, new Empty {});
-                self.tail := rest;
-            }
+// Immutable builders (redesign of legacy 59's listof/pushBack/append):
+// each call rebuilds the sequence over the recursive enum, sharing cells
+// through scoped refs. Mutating in-place builders arrive with the R6 heap
+// domain.
+
+fun listFromInner<T>(values: array<T>, index: i64) -> List<T> {
+    if (index == len(values)) {
+        let empty: List<T> = List.Nil;
+        return empty;
+    }
+    let rest = listFromInner(values, index + 1);
+    return List.Cons(values[index], ref rest);
+}
+
+/// Builds a List from an array (`listFrom([1, 2, 3])`).
+export fun listFrom<T>(values: array<T>) -> List<T> {
+    return listFromInner(values, 0);
+}
+
+/// Prepends a value (`pushFront(ref list, 1)`).
+export fun pushFront<T>(list: ref<List<T>>, value: T) -> List<T> {
+    let tail = *list;
+    return List.Cons(value, ref tail);
+}
+
+/// Appends a value (`append(ref list, 9)`).
+export fun append<T>(list: ref<List<T>>, value: T) -> List<T> {
+    switch (*list) {
+        case Nil {
+            let tail = *list;
+            return List.Cons(value, ref tail);
         }
-        self.sizeValue := self.sizeValue + 1u32;
-    }
-
-    fun append(self: ref<Self>, value: T) -> unit {
-        self.pushBack(value);
-    }
-
-    fun size(self: ref<Self>) -> u32 {
-        return self.sizeValue;
-    }
-
-    fun get(self: ref<Self>, index: i32) -> T {
-        return getNode(self.head, index);
-    }
-}
-
-fun list<T>() -> List<T> {
-    return *new List<T> {
-        head: new Empty {},
-        tail: new Empty {},
-        sizeValue: 0u32
-    };
-}
-
-fun listof<T>(args: T...) -> List<T> {
-    val result: List<T> = list<T>();
-    loop i = 0 {
-        if (i < args.size) {
-            pushBack(ref result, args[i]);
-            next i + 1;
+        case Cons(head, rest) {
+            let appended = append(rest, value);
+            return List.Cons(head, ref appended);
         }
     }
-    return result;
 }
 
-fun pushBack<T>(list: ref<List<T>>, value: T) -> unit {
-    switch (*list.tail) {
-        case Empty {
-            *list.head := Cell(value, new Empty {}, new Empty {});
-            list.tail := list.head;
+/// Reverses a list.
+export fun reverseList<T>(list: ref<List<T>>) -> List<T> {
+    switch (*list) {
+        case Nil {
+            let empty = *list;
+            return empty;
         }
-        case Cell(existing, previous, rest) {
-            *rest := Cell(value, list.tail, new Empty {});
-            list.tail := rest;
+        case Cons(head, rest) {
+            let reversed = reverseList(rest);
+            return append(ref reversed, head);
         }
-    }
-    list.sizeValue := list.sizeValue + 1u32;
-}
-
-fun append<T>(list: ref<List<T>>, value: T) -> unit {
-    pushBack(list, value);
-}
-
-fun get<T>(list: ref<List<T>>, index: i32) -> T {
-    return getNode(list.head, index);
-}
-
-impl<T> Sequence<T> for List<T> {
-    fun size(self: ref<Self>) -> u32 {
-        return self.sizeValue;
-    }
-
-    fun get(self: ref<Self>, index: i32) -> T {
-        return getNode(self.head, index);
     }
 }

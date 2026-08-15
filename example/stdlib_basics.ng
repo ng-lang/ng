@@ -1,0 +1,22 @@
+// vNext standard library basics (legacy 18 adapted): std.string operations
+// supplied by the embedding, imported through the std.prelude graph.
+
+import prelude;
+
+fun main() {
+    let greeting = "  Hello, World!  ";
+    print(trim(greeting));
+
+    let csv = "apple,banana,cherry";
+    let fruits = split(csv, ",");
+    print(join(fruits, " | "));
+
+    print(contains("Hello, World!", "World"));
+    print(replace("foo bar foo", "foo", "baz"));
+    print(startsWith("Hello", "He"));
+    print(endsWith("Hello", "llo"));
+    print(toUpper("hello"));
+    print(toLower("WORLD"));
+    print(not(false));
+    assert(contains("programming", "gram"));
+}
