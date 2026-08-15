@@ -3246,6 +3246,22 @@ namespace NG::typecheck
             type = interner_.internRange(left);
             break;
           }
+          if (expression.text == "<<")
+          {
+            // Value-semantics array append (`xs << value`, legacy 52): the
+            // element adopts the array's element type; the receiver is
+            // unchanged. Integer `<<` keeps its bitwise-shift meaning.
+            const auto &leftDescriptor = interner_.descriptor(left);
+            if (leftDescriptor.kind == TypeKind::DynamicArray)
+            {
+              if (expression.operands[1]->kind == hir::ExpressionKind::IntegerLiteral &&
+                  isIntegerBuiltin(leftDescriptor.element) && right != leftDescriptor.element)
+                right = inferExpected(*expression.operands[1], leftDescriptor.element, locals, "appended element");
+              requireType(leftDescriptor.element, right, expression.operands[1]->span, "appended element");
+              type = left;
+              break;
+            }
+          }
           // Union sides narrow to the other operand's member type for
           // equality and ordering comparisons.
           if (equality || ordering)

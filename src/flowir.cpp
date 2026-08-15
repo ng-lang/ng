@@ -65,6 +65,21 @@ namespace NG::flowir
           return lowerLogicalExpression(expression);
         }
 
+        if (expression.kind == hir::ExpressionKind::Binary && expression.text == "<<" && types_ != nullptr &&
+            types_->typeDescriptors.at(types_->typeIdOf(*expression.operands[0]).value).kind ==
+                typecheck::TypeKind::DynamicArray)
+        {
+          // Value-semantics array append (`xs << value`).
+          const ValueId left = lowerExpression(*expression.operands[0]);
+          const ValueId right = lowerExpression(*expression.operands[1]);
+          const ValueId result{nextValue_++};
+          function_.valueTypes.emplace(result.value, types_->typeIdOf(expression));
+          block().instructions.push_back(Instruction{.kind = InstructionKind::AppendArray,
+                                                     .result = result,
+                                                     .operands = {left, right}});
+          return result;
+        }
+
         if (expression.kind == hir::ExpressionKind::Prefix &&
             (expression.text == "ref" || expression.text == "ref mut" || expression.text == "*"))
         {
@@ -496,6 +511,14 @@ namespace NG::flowir
                                         .arguments = {condition}};
 
         current_ = body;
+        // The accumulator flows through the loop header; append to it rather
+        // than to the seed so each iteration extends the growing array.
+        const ValueId accumulatorRead{nextValue_++};
+        if (types_ != nullptr) function_.valueTypes.emplace(accumulatorRead.value, types_->typeIdOf(expression));
+        block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
+                                                   .result = accumulatorRead,
+                                                   .expressionKind = hir::ExpressionKind::ResolvedName,
+                                                   .payload = resultLocal.value});
         const ValueId element{nextValue_++};
         const bool rangeSource = types_ != nullptr &&
                                  types_->typeDescriptors.at(types_->typeIdOf(sourceExpr).value).kind ==
@@ -551,7 +574,7 @@ namespace NG::flowir
           if (types_ != nullptr) function_.valueTypes.emplace(appended.value, types_->typeIdOf(expression));
           block().instructions.push_back(Instruction{.kind = InstructionKind::AppendArray,
                                                      .result = appended,
-                                                     .operands = {empty, element}});
+                                                     .operands = {accumulatorRead, element}});
           const ValueId nextIndex{nextValue_++};
           if (types_ != nullptr) function_.valueTypes.emplace(nextIndex.value, typecheck::builtin::I64);
           block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
@@ -575,7 +598,7 @@ namespace NG::flowir
                                                      .operands = {indexRead, one}});
           block().terminator = Terminator{.kind = TerminatorKind::LoopBackedge,
                                           .targets = {header},
-                                          .arguments = {skipNext, empty}};
+                                          .arguments = {skipNext, accumulatorRead}};
           current_ = exit;
           ValueId accumulator{nextValue_++};
           if (types_ != nullptr) function_.valueTypes.emplace(accumulator.value, types_->typeIdOf(expression));
@@ -599,7 +622,7 @@ namespace NG::flowir
         if (types_ != nullptr) function_.valueTypes.emplace(appended.value, types_->typeIdOf(expression));
         block().instructions.push_back(Instruction{.kind = InstructionKind::AppendArray,
                                                    .result = appended,
-                                                   .operands = {empty, appendedSource}});
+                                                   .operands = {accumulatorRead, appendedSource}});
         const ValueId nextIndex{nextValue_++};
         if (types_ != nullptr) function_.valueTypes.emplace(nextIndex.value, typecheck::builtin::I64);
         block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,

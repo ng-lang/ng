@@ -126,7 +126,8 @@ namespace NG::vm
       case bytecode::Opcode::AppendArray:
       {
         if (values.size() <= instruction.operands[0]) values.resize(instruction.operands[0] + 1);
-        values[instruction.operands[0]] = values.at(instruction.operands[1]);
+        // Deep-copy the source so appending never aliases the receiver.
+        values[instruction.operands[0]] = values.at(instruction.operands[1]).deepCopy();
         values[instruction.operands[0]].asArrayMut().push_back(values.at(instruction.operands[2]).deepCopy());
         break;
       }
@@ -329,7 +330,8 @@ namespace NG::vm
       if (instruction.opcode == bytecode::Opcode::AppendArray)
       {
         if (frame.values.size() <= instruction.operands[0]) frame.values.resize(instruction.operands[0] + 1);
-        frame.values[instruction.operands[0]] = frame.values.at(instruction.operands[1]);
+        // Deep-copy the source so appending never aliases the receiver.
+        frame.values[instruction.operands[0]] = frame.values.at(instruction.operands[1]).deepCopy();
         frame.values[instruction.operands[0]].asArrayMut().push_back(frame.values.at(instruction.operands[2]).deepCopy());
         continue;
       }

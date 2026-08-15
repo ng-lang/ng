@@ -108,3 +108,32 @@ TEST_CASE("vNext ranges and slicing example file runs end to end through ngi", "
   REQUIRE(errors.empty());
   REQUIRE(output.find("with value 7") != std::string::npos);
 }
+
+TEST_CASE("vNext array append keeps value semantics and element types", "[vNext][ArrayAppend]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(run("import prelude; fun main() { "
+               "let xs = [1, 2, 3]; let longer = xs << 9; "
+               "assert(xs[2] == 3); assert(longer[3] == 9); }",
+               output, errors) == 0);
+  REQUIRE(errors.empty());
+
+  REQUIRE(run("import prelude; fun main() { "
+               "let mut acc = [1]; acc := acc << 2 << 3; "
+               "assert(acc[0] == 1); assert(acc[2] == 3); }",
+               output, errors) == 0);
+  REQUIRE(errors.empty());
+
+  REQUIRE(run("import prelude; fun main() { "
+               "let words = [\"a\"]; let more = words << \"b\"; "
+               "assert(words[0] == \"a\"); assert(more[1] == \"b\"); }",
+               output, errors) == 0);
+  REQUIRE(errors.empty());
+
+  REQUIRE(run("import prelude; fun main() { let n = 1 << 3; assert(n == 8); }", output, errors) == 0);
+  REQUIRE(errors.empty());
+
+  REQUIRE(run("import prelude; fun main() { let xs = [1]; let bad = xs << \"no\"; }", output, errors) == 1);
+  REQUIRE_THAT(errors, ContainsSubstring("appended element"));
+}

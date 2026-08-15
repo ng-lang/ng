@@ -231,9 +231,17 @@ concrete `Box` (`example/std_seq.ng`, `std_list.ng`, `heap_box.ng`,
 
 1. `span<T>` views over array storage, with bounds-checked slicing
    (`fixed_arrays.ng` maps legacy vector→array; span is the remaining 52 item).
-2. In-place growing collections (`pushBack` mutating the receiver) and
-   array growth — depends on the B1 heap domain for allocation beyond the
-   current fixed-size native handles.
+2. In-place mutating `pushBack` for `List<T>` (rebuilds already exist) and
+   fixed-size array growth — depends on the B1 heap domain for allocation
+   beyond the current fixed-size native handles.
+
+**Delivered (2026-08):** value-semantics array append `xs << value` (legacy
+52's `dynamic << 6`; integer `<<` stays bitwise) — element-typed, receiver
+unchanged, chainable through rebinding; the map/spread append lowering now
+sources the loop accumulator and the VM AppendArray deep-copies, fixing a
+latent aliasing bug that value spreads and filtered map comprehensions had
+been accidentally relying on (`example/array_append.ng`,
+`test/range_slice_test.cpp` append cases).
 3. `List<T>` collection literals (`[1, 2, 3]` as `List<i64>`) lowering to
    push loops — syntax sugar over the now-existing builders.
 4. Move `reverse` from a driver-native into `lib/std` once it can be
