@@ -253,14 +253,26 @@ Final generated results:
   (emit → `qbe` → `cc` → run, exit code checked). Unsupported constructs
   fail with `LoweringError`; calls, aggregates, refs, and trait dispatch
   arrive in M2/M3.
-- **M2 (in progress — direct calls delivered):** Tier 0 lowering of the full
-  FlowIR instruction set + `ngrt` core; differential tests on
-  scalar/branch/loop examples. Delivered: direct calls with collision-free
-  symbols (`<sanitized-name>_<defid>`; `main` keeps its C-runtime name),
-  recursion, and NG `next f(...)` tail recursion lowered to a loop (the
-  one-shot entry logic lives under `@start`, the loop jumps back to
-  `@body0` — QBE forbids jumping to `@start`). Remaining: aggregates, refs,
-  trait dispatch, native shims, `ngrt`.
+- **M2 (in progress — calls and Tier 0 aggregates delivered):** Tier 0
+  lowering of the full FlowIR instruction set + `ngrt` core; differential
+  tests on scalar/branch/loop examples. Delivered: direct calls with
+  collision-free symbols (`<sanitized-name>_<defid>`; `main` keeps its
+  C-runtime name), recursion, and NG `next f(...)` tail recursion lowered
+  to a loop (the one-shot entry logic lives under `@start`, the loop jumps
+  back to `@body0` — QBE forbids jumping to `@start`). Also delivered: Tier
+  0 aggregates as 8-byte pointers into malloc'd objects — strings
+  (`{ len, bytes }`, literals as QBE `data` items), arrays and tuples
+  (`{ len, cap, 8-byte elements }`), ranges (`{ start, end }`); string
+  concat/content equality, literal construction, bounds-checked indexing
+  (`hlt` on violation), `<<` append, and range slicing. The ngrt helpers
+  (`$ngrt_str_concat`, `$ngrt_str_eq`, `$ngrt_arr_get`,
+  `$ngrt_arr_append`, `$ngrt_arr_slice`) are emitted as IL once per module
+  on first use and call libc `malloc`/`memcpy`/`memcmp` through QBE's C
+  ABI — no external runtime archive yet. Boxed objects are shared on bind
+  (safe while every aggregate op is a non-mutating value producer;
+  deep-copy-on-bind arrives with in-place mutation in M3). Remaining:
+  structs/enums, refs, trait dispatch, native shims, `ngrt` as a linked
+  archive.
 - **M3:** aggregates (strings/arrays/structs/enums), direct and trait-view
   calls, drop lowering; a stdlib subset runs natively; executables link
   `libngrt`.

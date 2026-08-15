@@ -87,14 +87,24 @@ TEST_CASE("vNext native lowering emits direct calls with collision-free symbols"
   REQUIRE_THAT(il, ContainsSubstring("call $fib_"));
 }
 
+TEST_CASE("vNext native lowering emits string data items and ngrt helpers", "[vNext][Native][Qbe]")
+{
+  const auto il = emitSsa("fun main() -> i64 { let a = \"hi\"; let b = a + \"!\"; if (b == \"hi!\") { return 1; } return 0; }");
+  REQUIRE_THAT(il, ContainsSubstring("data $ngstr_"));
+  REQUIRE_THAT(il, ContainsSubstring("$ngrt_str_concat"));
+  REQUIRE_THAT(il, ContainsSubstring("$ngrt_str_eq"));
+  REQUIRE_THAT(il, ContainsSubstring("$malloc"));
+}
+
 TEST_CASE("vNext native lowering rejects unsupported M1 constructs with a clear error", "[vNext][Native][Qbe]")
 {
   std::ostringstream output;
   std::ostringstream errors;
-  const int status = NG::runDriver({"--emit=ssa", "--source", "fun main() -> i64 { let xs = [1, 2, 3]; 7 }"},
-                                   output, errors);
+  const int status = NG::runDriver(
+      {"--emit=ssa", "--source", "struct Point { x: i64, y: i64 } fun main() -> i64 { let p = Point { x: 1, y: 2 }; 7 }"},
+      output, errors);
   REQUIRE(status == 1);
-  REQUIRE_THAT(errors.str(), ContainsSubstring("native lowering (M1)"));
+  REQUIRE_THAT(errors.str(), ContainsSubstring("native lowering (M"));
 }
 
 #if defined(NG_QBE_PATH) && !defined(_WIN32)
@@ -126,8 +136,7 @@ TEST_CASE("vNext native lowering round-trips recursion through qbe and the syste
 
 TEST_CASE("vNext native lowering round-trips tail recursion through qbe and the system toolchain",
           "[vNext][Native][Qbe]")
-{
-  const auto il = emitSsa("fun sumTo(n: i64, acc: i64) -> i64 {\n"
+{  const auto il = emitSsa("fun sumTo(n: i64, acc: i64) -> i64 {\n"
                           "    if (n == 0) { return acc; }\n"
                           "    next (n - 1, acc + n);\n"
                           "}\n"
@@ -152,5 +161,62 @@ TEST_CASE("vNext native lowering round-trips tail recursion through qbe and the 
   const int status = run(std::format("'{}'", executable.string()));
   REQUIRE(WIFEXITED(status));
   CHECK(WEXITSTATUS(status) == 55);
+}
+
+TEST_CASE("vNext native lowering round-trips strings through qbe and the system toolchain", "[vNext][Native][Qbe]")
+{
+  const int exitCode = runNative("fun main() -> i64 {\n"
+                                 "    let a = \"hello\";\n"
+                                 "    let b = a + \", world\";\n"
+                                 "    if (b == \"hello, world\" && a != b) { return 1; }\n"
+                                 "    return 0;\n"
+                                 "}",
+                                 "strings");
+  CHECK(exitCode == 1);
+}
+
+TEST_CASE("vNext native lowering round-trips arrays through qbe and the system toolchain", "[vNext][Native][Qbe]")
+{
+  const int exitCode = runNative("fun main() -> i64 {\n"
+                                 "    let xs = [1, 2, 3];\n"
+                                 "    let ys = xs << 4;\n"
+                                 "    return xs[0] + ys[3] + xs[2];\n"
+                                 "}",
+                                 "arrays");
+  CHECK(exitCode == 8); // 1 + 4 + 3
+}
+
+TEST_CASE("vNext native lowering round-trips tuples through qbe and the system toolchain", "[vNext][Native][Qbe]")
+{
+  const int exitCode = runNative("fun main() -> i64 {\n"
+                                 "    let t = (10, 20, 30);\n"
+                                 "    return t.0 + t.2;\n"
+                                 "}",
+                                 "tuples");
+  CHECK(exitCode == 40);
+}
+
+TEST_CASE("vNext native lowering round-trips range slices through qbe and the system toolchain",
+          "[vNext][Native][Qbe]")
+{
+  const int exitCode = runNative("fun main() -> i64 {\n"
+                                 "    let xs = [10, 20, 30, 40];\n"
+                                 "    let ys = xs[1..3];\n"
+                                 "    return ys[0] + ys[1];\n"
+                                 "}",
+                                 "ranges");
+  CHECK(exitCode == 50); // 20 + 30
+}
+
+TEST_CASE("vNext native lowering round-trips string arrays through qbe and the system toolchain",
+          "[vNext][Native][Qbe]")
+{
+  const int exitCode = runNative("fun main() -> i64 {\n"
+                                 "    let xs = [\"ab\", \"cd\"];\n"
+                                 "    if (xs[0] + xs[1] == \"abcd\") { return 1; }\n"
+                                 "    return 0;\n"
+                                 "}",
+                                 "string_arrays");
+  CHECK(exitCode == 1);
 }
 #endif

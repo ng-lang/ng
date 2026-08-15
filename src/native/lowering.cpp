@@ -5,6 +5,7 @@
 #include <cctype>
 #include <format>
 #include <optional>
+#include <set>
 #include <sstream>
 #include <string_view>
 #include <unordered_map>
@@ -22,6 +23,7 @@ namespace NG::native
     using flowir::ValueId;
     using hir::ExpressionKind;
     using typecheck::TypeId;
+    using typecheck::TypeKind;
 
     // Tier 0 scalar mapping: every NG integer (incl. bool — stored as i64
     // 0/1) is a QBE `l`, and every float (f32/f64; Value stores doubles) is a
@@ -32,14 +34,6 @@ namespace NG::native
       Double,
       None,
     };
-
-    [[nodiscard]] auto qtype(TypeId type) -> QType
-    {
-      if (type == typecheck::builtin::Bool || typecheck::isIntegerBuiltin(type)) return QType::Long;
-      if (typecheck::isFloatBuiltin(type)) return QType::Double;
-      if (type == typecheck::builtin::Unit) return QType::None;
-      throw LoweringError(std::format("native lowering (M1): type id {} has no QBE mapping yet", type.value));
-    }
 
     [[nodiscard]] auto suffix(QType type) -> const char *
     {
@@ -63,10 +57,145 @@ namespace NG::native
       return "d_" + text;
     }
 
+    /// Escapes a raw byte string for a QBE `b "..."` data item. QBE's string
+    /// lexer copies characters verbatim; only `\` and `"` carry escape
+    /// meaning.
+    [[nodiscard]] auto escapeQbeString(std::string_view text) -> std::string
+    {
+      std::string escaped;
+      escaped.reserve(text.size());
+      for (const char character : text)
+      {
+        if (character == '\\' || character == '"') escaped += '\\';
+        escaped += character;
+      }
+      return escaped;
+    }
+
+    /// Per-module ngrt bookkeeping: runtime helper functions are emitted once
+    /// per module, on first use, as QBE IL text appended after all functions.
+    struct NgrtContext
+    {
+      std::set<std::string> usedHelpers;
+    };
+
+    // Tier 0 runtime helpers. Aggregate values are 8-byte pointers into
+    // malloc'd objects (or QBE data items for string literals):
+    //   string: { l len, b data[len], b 0 }
+    //   array/tuple: { l len, l cap, l-or-d elements[cap] }
+    //   range: { l start, l end }
+    // All aggregate slots hold `l`; double elements are bit-cast at the
+    // boundary. Helpers call libc (malloc/memcpy/memcmp) through QBE's C ABI.
+    [[nodiscard]] auto ngrtHelpers() -> const std::unordered_map<std::string, std::string> &
+    {
+      static const std::unordered_map<std::string, std::string> helpers = {
+        {"str_concat",
+         "function l $ngrt_str_concat(l %a, l %b) {\n"
+         "@start\n"
+         "\t%la =l loadl %a\n"
+         "\t%lb =l loadl %b\n"
+         "\t%n =l add %la, %lb\n"
+         "\t%size =l add %n, 8\n"
+         "\t%p =l call $malloc(l %size)\n"
+         "\tstorel %n, %p\n"
+         "\t%pa =l add %p, 8\n"
+         "\t%sa =l add %a, 8\n"
+         "\t%m =l call $memcpy(l %pa, l %sa, l %la)\n"
+         "\t%pd =l add %pa, %la\n"
+         "\t%sb =l add %b, 8\n"
+         "\t%m2 =l call $memcpy(l %pd, l %sb, l %lb)\n"
+         "\tret %p\n"
+         "}\n"},
+        {"str_eq",
+         "function w $ngrt_str_eq(l %a, l %b) {\n"
+         "@start\n"
+         "\t%la =l loadl %a\n"
+         "\t%lb =l loadl %b\n"
+         "\t%eq =w ceql %la, %lb\n"
+         "\tjnz %eq, @cmp, @no\n"
+         "@cmp\n"
+         "\t%pa =l add %a, 8\n"
+         "\t%pb =l add %b, 8\n"
+         "\t%c =w call $memcmp(l %pa, l %pb, l %la)\n"
+         "\t%z =w ceqw %c, 0\n"
+         "\tret %z\n"
+         "@no\n"
+         "\tret 0\n"
+         "}\n"},
+        {"arr_get",
+         "function l $ngrt_arr_get(l %a, l %i) {\n"
+         "@start\n"
+         "\t%len =l loadl %a\n"
+         "\t%neg =w csltl %i, 0\n"
+         "\t%high =w csgel %i, %len\n"
+         "\t%bad =w or %neg, %high\n"
+         "\tjnz %bad, @halt, @ok\n"
+         "@halt\n"
+         "\thlt\n"
+         "@ok\n"
+         "\t%off =l mul %i, 8\n"
+         "\t%base =l add %a, 16\n"
+         "\t%addr =l add %base, %off\n"
+         "\t%v =l loadl %addr\n"
+         "\tret %v\n"
+         "}\n"},
+        {"arr_append",
+         "function l $ngrt_arr_append(l %a, l %e) {\n"
+         "@start\n"
+         "\t%len =l loadl %a\n"
+         "\t%n =l add %len, 1\n"
+         "\t%total =l mul %n, 8\n"
+         "\t%total =l add %total, 16\n"
+         "\t%p =l call $malloc(l %total)\n"
+         "\tstorel %n, %p\n"
+         "\t%cap =l add %p, 8\n"
+         "\tstorel %n, %cap\n"
+         "\t%dst =l add %p, 16\n"
+         "\t%src =l add %a, 16\n"
+         "\t%oldsize =l mul %len, 8\n"
+         "\t%m =l call $memcpy(l %dst, l %src, l %oldsize)\n"
+         "\t%last =l add %dst, %oldsize\n"
+         "\tstorel %e, %last\n"
+         "\tret %p\n"
+         "}\n"},
+        {"arr_slice",
+         "function l $ngrt_arr_slice(l %a, l %s, l %e) {\n"
+         "@start\n"
+         "\t%len =l loadl %a\n"
+         "\t%sneg =w csltl %s, 0\n"
+         "\t%shigh =w csgel %s, %e\n"
+         "\t%ehigh =w csgtl %e, %len\n"
+         "\t%bad =w or %sneg, %shigh\n"
+         "\t%bad =w or %bad, %ehigh\n"
+         "\tjnz %bad, @halt, @ok\n"
+         "@halt\n"
+         "\thlt\n"
+         "@ok\n"
+         "\t%n =l sub %e, %s\n"
+         "\t%size =l mul %n, 8\n"
+         "\t%total =l add %size, 16\n"
+         "\t%p =l call $malloc(l %total)\n"
+         "\tstorel %n, %p\n"
+         "\t%cap =l add %p, 8\n"
+         "\tstorel %n, %cap\n"
+         "\t%dst =l add %p, 16\n"
+         "\t%off =l mul %s, 8\n"
+         "\t%src =l add %a, 16\n"
+         "\t%src =l add %src, %off\n"
+         "\t%m =l call $memcpy(l %dst, l %src, l %size)\n"
+         "\tret %p\n"
+         "}\n"},
+      };
+      return helpers;
+    }
+
     class FunctionLowerer final
     {
     public:
-      FunctionLowerer(const Function &function, const FunctionNames &names) : function_(function), names_(names) {}
+      FunctionLowerer(const Function &function, const FunctionNames &names, NgrtContext &ngrt)
+          : function_(function), names_(names), ngrt_(ngrt)
+      {
+      }
 
       [[nodiscard]] auto run() -> std::string
       {
@@ -81,8 +210,10 @@ namespace NG::native
     private:
       const Function &function_;
       const FunctionNames &names_;
+      NgrtContext &ngrt_;
       std::ostringstream out_;
       size_t tempCounter_{};
+      std::vector<std::string> dataItems_;
       std::vector<std::string> labels_;
       bool hasTailRecur_{};
       /// Per block: (predecessor index, block-parameter argument values).
@@ -95,6 +226,54 @@ namespace NG::native
       std::optional<QType> returnType_;
 
       [[nodiscard]] auto fresh() -> std::string { return std::format("%t{}", tempCounter_++); }
+
+      void useHelper(std::string_view name) { ngrt_.usedHelpers.emplace(name); }
+
+      /// Tier 0 QBE mapping: integers/bools are `l`, floats are `d`, unit is
+      /// `None`, and every aggregate value (string/array/tuple/range) is an
+      /// 8-byte pointer (`l`).
+      [[nodiscard]] auto qtypeOf(TypeId type) -> QType
+      {
+        if (type.value >= function_.typeDescriptors.size())
+          throw LoweringError(
+              std::format("native lowering (M2): type id {} is out of range in `{}`", type.value, function_.name));
+        const auto &descriptor = function_.typeDescriptors[type.value];
+        switch (descriptor.kind)
+        {
+        case TypeKind::Builtin:
+          if (type == typecheck::builtin::String || type == typecheck::builtin::Bool || typecheck::isIntegerBuiltin(type))
+            return QType::Long;
+          if (typecheck::isFloatBuiltin(type)) return QType::Double;
+          if (type == typecheck::builtin::Unit) return QType::None;
+          break;
+        case TypeKind::DynamicArray:
+        case TypeKind::FixedArray:
+        case TypeKind::Tuple:
+        case TypeKind::Range:
+          return QType::Long;
+        default: break;
+        }
+        throw LoweringError(
+            std::format("native lowering (M2): type `{}` has no QBE mapping yet", descriptor.name));
+      }
+
+      /// Aggregate slots hold `l`; doubles are bit-cast when stored/loaded.
+      [[nodiscard]] auto castForSlot(const std::string &temp, QType type) -> std::string
+      {
+        if (type != QType::Double) return temp;
+        const auto cast = fresh();
+        line(std::format("{} =l cast {}", cast, temp));
+        return cast;
+      }
+
+      /// Reverses castForSlot after a load from an aggregate slot.
+      [[nodiscard]] auto castFromSlot(const std::string &temp, QType type) -> std::string
+      {
+        if (type != QType::Double) return temp;
+        const auto cast = fresh();
+        line(std::format("{} =d cast {}", cast, temp));
+        return cast;
+      }
 
       /// Builds the QBE symbol for a function. `main` keeps its C-runtime
       /// name; everything else is `<sanitized-name>_<defid>` so that
@@ -153,7 +332,7 @@ namespace NG::native
         if (localSlots_.contains(local)) return;
         QType type = QType::Long;
         if (const auto found = function_.localTypes.find(local); found != function_.localTypes.end())
-          type = qtype(found->second);
+          type = qtypeOf(found->second);
         localSlots_.emplace(local, fresh());
         localQTypes_.emplace(local, type);
         slotOrder_.push_back(local);
@@ -211,7 +390,7 @@ namespace NG::native
         {
           const auto &terminator = *block.terminator;
           if (terminator.kind == TerminatorKind::Return && !terminator.arguments.empty())
-            return qtype(function_.valueTypes.at(terminator.arguments[0].value));
+            return qtypeOf(function_.valueTypes.at(terminator.arguments[0].value));
         }
         return std::nullopt;
       }
@@ -241,6 +420,10 @@ namespace NG::native
         if (hasTailRecur_) line(std::format("jmp {}", labels_.front()));
         for (size_t index = 0; index < function_.blocks.size(); ++index) emitBlock(index);
         out_ << "}\n";
+        // String-literal data items are collected while emitting blocks, so
+        // they are written after the body — data declarations are top-level
+        // and order-independent.
+        for (const auto &item : dataItems_) out_ << item << '\n';
         return out_.str();
       }
 
@@ -299,6 +482,64 @@ namespace NG::native
         switch (instruction.kind)
         {
         case InstructionKind::Evaluate: lowerEvaluate(instruction); return;
+        case InstructionKind::ExtractTuple:
+        {
+          // Tuple representation == array representation.
+          useHelper("arr_get");
+          const auto source = operandTemp(*instruction.source);
+          const auto loaded = fresh();
+          line(std::format("{} =l call $ngrt_arr_get(l {}, l {})", loaded, source, instruction.payload));
+          const auto resultType = qtypeOf(function_.valueTypes.at(instruction.result.value));
+          bindResult(instruction, resultType, std::format("copy {}", castFromSlot(loaded, resultType)));
+          return;
+        }
+        case InstructionKind::AppendArray:
+        {
+          useHelper("arr_append");
+          const auto array = operandTemp(instruction.operands[0]);
+          const auto elementType = qtypeOf(function_.valueTypes.at(instruction.operands[1].value));
+          const auto element = castForSlot(operandTemp(instruction.operands[1]), elementType);
+          bindResult(instruction, QType::Long, std::format("call $ngrt_arr_append(l {}, l {})", array, element));
+          return;
+        }
+        case InstructionKind::ArrayLength:
+        {
+          const auto source = operandTemp(*instruction.source);
+          const auto sourceType = function_.valueTypes.at(instruction.source->value);
+          const auto &descriptor = function_.typeDescriptors[sourceType.value];
+          if (descriptor.kind == TypeKind::Range)
+          {
+            const auto start = fresh();
+            line(std::format("{} =l loadl {}", start, source));
+            const auto endAddress = fresh();
+            line(std::format("{} =l add {}, 8", endAddress, source));
+            const auto end = fresh();
+            line(std::format("{} =l loadl {}", end, endAddress));
+            bindResult(instruction, QType::Long, std::format("sub {}, {}", end, start));
+          }
+          else
+          {
+            bindResult(instruction, QType::Long, std::format("loadl {}", source));
+          }
+          return;
+        }
+        case InstructionKind::RangeStart:
+          bindResult(instruction, QType::Long, std::format("loadl {}", operandTemp(*instruction.source)));
+          return;
+        case InstructionKind::Slice:
+        {
+          useHelper("arr_slice");
+          const auto array = operandTemp(instruction.operands[0]);
+          const auto range = operandTemp(instruction.operands[1]);
+          const auto start = fresh();
+          line(std::format("{} =l loadl {}", start, range));
+          const auto endAddress = fresh();
+          line(std::format("{} =l add {}, 8", endAddress, range));
+          const auto end = fresh();
+          line(std::format("{} =l loadl {}", end, endAddress));
+          bindResult(instruction, QType::Long, std::format("call $ngrt_arr_slice(l {}, l {}, l {})", array, start, end));
+          return;
+        }
         case InstructionKind::BindLocal:
         {
           const auto source = operandTemp(*instruction.source);
@@ -343,6 +584,29 @@ namespace NG::native
         case ExpressionKind::FloatLiteral:
           bindResult(instruction, QType::Double, std::format("copy {}", doubleConstant(std::bit_cast<double>(payload))));
           return;
+        case ExpressionKind::StringLiteral:
+        {
+          const auto name = std::format("$ngstr_{}_{}", function_.source.value, dataItems_.size());
+          dataItems_.push_back(std::format("data {} = {{ l {}, b \"{}\", b 0 }}", name, instruction.text.size(),
+                                            escapeQbeString(instruction.text)));
+          bindResult(instruction, QType::Long, std::format("copy {}", name));
+          return;
+        }
+        case ExpressionKind::ArrayLiteral:
+        case ExpressionKind::TupleLiteral:
+          lowerAggregateLiteral(instruction);
+          return;
+        case ExpressionKind::Index:
+        {
+          useHelper("arr_get");
+          const auto receiver = operandTemp(instruction.operands[0]);
+          const auto index = operandTemp(instruction.operands[1]);
+          const auto loaded = fresh();
+          line(std::format("{} =l call $ngrt_arr_get(l {}, l {})", loaded, receiver, index));
+          const auto resultType = qtypeOf(function_.valueTypes.at(instruction.result.value));
+          bindResult(instruction, resultType, std::format("copy {}", castFromSlot(loaded, resultType)));
+          return;
+        }
         case ExpressionKind::ResolvedName:
         {
           const uint32_t local = static_cast<uint32_t>(payload);
@@ -353,7 +617,7 @@ namespace NG::native
         case ExpressionKind::Grouped:
         {
           const auto source = operandTemp(instruction.operands[0]);
-          bindResult(instruction, qtype(function_.valueTypes.at(instruction.result.value)),
+          bindResult(instruction, qtypeOf(function_.valueTypes.at(instruction.result.value)),
                      std::format("copy {}", source));
           return;
         }
@@ -373,13 +637,13 @@ namespace NG::native
         std::string arguments;
         for (size_t index = 0; index < instruction.operands.size(); ++index)
         {
-          const auto type = qtype(function_.valueTypes.at(instruction.operands[index].value));
+          const auto type = qtypeOf(function_.valueTypes.at(instruction.operands[index].value));
           if (type == QType::None)
             throw LoweringError(std::format("native lowering (M2): unit call argument in `{}`", function_.name));
           if (index != 0) arguments += ", ";
           arguments += std::format("{} {}", suffix(type), operandTemp(instruction.operands[index]));
         }
-        const auto resultType = qtype(function_.valueTypes.at(instruction.result.value));
+        const auto resultType = qtypeOf(function_.valueTypes.at(instruction.result.value));
         const auto symbol = symbolFor(*instruction.callTarget);
         if (resultType == QType::None) line(std::format("call {}({})", symbol, arguments));
         else
@@ -387,12 +651,34 @@ namespace NG::native
                            arguments));
       }
 
+      /// Array/tuple literal: allocates a { len, cap, elements } object and
+      /// stores the elements (doubles are bit-cast into `l` slots).
+      void lowerAggregateLiteral(const Instruction &instruction)
+      {
+        const size_t count = instruction.operands.size();
+        const auto pointer = fresh();
+        line(std::format("{} =l call $malloc(l {})", pointer, count * 8 + 16));
+        line(std::format("storel {}, {}", count, pointer));
+        const auto cap = fresh();
+        line(std::format("{} =l add {}, 8", cap, pointer));
+        line(std::format("storel {}, {}", count, cap));
+        for (size_t index = 0; index < count; ++index)
+        {
+          const auto elementType = qtypeOf(function_.valueTypes.at(instruction.operands[index].value));
+          const auto element = castForSlot(operandTemp(instruction.operands[index]), elementType);
+          const auto address = fresh();
+          line(std::format("{} =l add {}, {}", address, pointer, 16 + index * 8));
+          line(std::format("storel {}, {}", element, address));
+        }
+        bindResult(instruction, QType::Long, std::format("copy {}", pointer));
+      }
+
       void lowerPrefix(const Instruction &instruction)
       {
         const auto payload = instruction.payload;
         const auto operand = operandTemp(instruction.operands[0]);
         const auto operandType = function_.valueTypes.at(instruction.operands[0].value);
-        const auto resultType = qtype(function_.valueTypes.at(instruction.result.value));
+        const auto resultType = qtypeOf(function_.valueTypes.at(instruction.result.value));
         // Unary +, move, and clone are all plain copies for scalars.
         if (payload == 3 || payload == 4 || payload == 5)
         {
@@ -428,13 +714,46 @@ namespace NG::native
       void lowerBinary(const Instruction &instruction)
       {
         const auto payload = instruction.payload;
-        if (payload == 19)
-          throw LoweringError(std::format("native lowering (M1): range construction is not supported yet in `{}`",
-                                          function_.name));
         const auto left = operandTemp(instruction.operands[0]);
         const auto right = operandTemp(instruction.operands[1]);
         const auto leftType = function_.valueTypes.at(instruction.operands[0].value);
         const auto rightType = function_.valueTypes.at(instruction.operands[1].value);
+
+        // Strings: concatenation and content equality/inequality.
+        if (leftType == typecheck::builtin::String)
+        {
+          if (payload == 1)
+          {
+            useHelper("str_concat");
+            bindResult(instruction, QType::Long, std::format("call $ngrt_str_concat(l {}, l {})", left, right));
+            return;
+          }
+          if (payload == 6 || payload == 7)
+          {
+            useHelper("str_eq");
+            const auto compared = fresh();
+            line(std::format("{} =w call $ngrt_str_eq(l {}, l {})", compared, left, right));
+            const auto extended = fresh();
+            line(std::format("{} =l extsw {}", extended, compared));
+            if (payload == 6) bindResult(instruction, QType::Long, std::format("copy {}", extended));
+            else bindResult(instruction, QType::Long, std::format("xor {}, 1", extended));
+            return;
+          }
+          throw LoweringError(std::format("native lowering (M2): unsupported string binary payload {} in `{}`",
+                                          payload, function_.name));
+        }
+        // Range construction: { l start, l end }.
+        if (payload == 19)
+        {
+          const auto pointer = fresh();
+          line(std::format("{} =l call $malloc(l 16)", pointer));
+          line(std::format("storel {}, {}", left, pointer));
+          const auto endAddress = fresh();
+          line(std::format("{} =l add {}, 8", endAddress, pointer));
+          line(std::format("storel {}, {}", right, endAddress));
+          bindResult(instruction, QType::Long, std::format("copy {}", pointer));
+          return;
+        }
 
         if (isFloat(leftType) || isFloat(rightType))
         {
@@ -564,20 +883,24 @@ namespace NG::native
 
   auto lower(const Function &function, const FunctionNames &names) -> std::string
   {
-    return FunctionLowerer{function, names}.run();
+    NgrtContext ngrt;
+    return FunctionLowerer{function, names, ngrt}.run();
   }
 
   auto lowerModule(const std::vector<Function> &functions) -> std::string
   {
     FunctionNames names;
     for (const auto &function : functions) names.emplace(function.source.value, function.name);
+    NgrtContext ngrt;
     std::string result;
     for (const auto &function : functions)
     {
       if (function.nativeFunction) continue;
-      result += lower(function, names);
+      result += FunctionLowerer{function, names, ngrt}.run();
       result += '\n';
     }
+    // Emit each used ngrt helper exactly once, after all functions.
+    for (const auto &name : ngrt.usedHelpers) result += ngrtHelpers().at(name) + '\n';
     return result;
   }
 } // namespace NG::native
