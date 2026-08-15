@@ -65,3 +65,10 @@ node_modules/
 # VitePress build output
 docs/.vitepress/dist/**
 docs/.vitepress/cache/**
+
+# Archived legacy docs (kept locally for reference, not tracked)
+docs/design/archive/
+
+# VitePress build artifacts
+docs/.vitepress/cache/
+docs/.vitepress/dist/

@@ -30,15 +30,7 @@ export default defineConfig({
 
     nav: [
       { text: 'Guide', link: '/guide/language_guide', activeMatch: '/guide/' },
-      { text: 'Design', link: '/design/README', activeMatch: '/design/' },
       { text: 'Reference', link: '/ref/Internals', activeMatch: '/ref/' },
-      {
-        text: 'More',
-        items: [
-          { text: 'Code Review (2026-06)', link: '/code_review_2026_06' },
-          { text: 'Refactoring Plan (2026-06)', link: '/refactoring_plan_2026_06' },
-        ],
-      },
       {
         text: 'Resources',
         items: [
@@ -71,65 +63,6 @@ export default defineConfig({
             { text: 'Memory Management', link: '/guide/memory-management' },
             { text: 'ORGASM Backend', link: '/guide/orgasm-backend' },
             { text: 'ImGui Integration', link: '/guide/imgui-integration' },
-          ],
-        },
-      ],
-
-      '/design/': [
-        {
-          text: 'Design Documents',
-          link: '/design/README',
-          items: [
-            {
-              text: 'Active Follow-Ups',
-              collapsed: false,
-              items: [
-                { text: 'Enhanced Tuple Types', link: '/design/enhanced_tuples' },
-                { text: 'Auto & Derive Traits', link: '/design/auto_derive_traits' },
-                { text: 'Ranges, Slicing & Pipeline', link: '/design/ranges_slicing_pipeline' },
-                { text: 'Symbol Import Aliases', link: '/design/symbol_import_aliases' },
-              ],
-            },
-            {
-              text: 'Gap Proposals',
-              collapsed: false,
-              items: [
-                { text: 'Error Handling', link: '/design/gap-error-handling' },
-                { text: 'Test Framework', link: '/design/gap-test-framework' },
-                { text: 'Build System', link: '/design/gap-build-system' },
-                { text: 'C FFI', link: '/design/gap-c-ffi' },
-                { text: 'Package Manager', link: '/design/gap-package-manager' },
-                { text: 'Standard Library Expansion', link: '/design/gap-stdlib-expansion' },
-                { text: 'Runtime Optimization', link: '/design/gap-runtime-optimization' },
-                { text: 'Concurrency', link: '/design/gap-concurrency' },
-                { text: 'Type System Enhancements', link: '/design/gap-type-system-enhancements' },
-                { text: 'Syntax Ergonomics', link: '/design/gap-syntax-ergonomics' },
-                { text: 'LSP / IDE Support', link: '/design/gap-lsp-ide' },
-                { text: 'Formatter', link: '/design/gap-formatter' },
-                { text: 'Documentation Generator', link: '/design/gap-docgen' },
-                { text: 'Debugger', link: '/design/gap-debugger' },
-                { text: 'Community Infrastructure', link: '/design/gap-community-infrastructure' },
-              ],
-            },
-            {
-              text: 'Archived Designs',
-              collapsed: true,
-              items: [
-                { text: 'Auto Derive Traits (Baseline)', link: '/design/archive/auto_derive_traits_baseline' },
-                { text: 'Bytecode Module Loading', link: '/design/archive/bytecode_module_loading' },
-                { text: 'Constant Generic Parameters', link: '/design/archive/constant_generic_parameters' },
-                { text: 'Const Functions', link: '/design/archive/const_fun' },
-                { text: 'Enhanced Tuples (Baseline)', link: '/design/archive/enhanced_tuples_baseline' },
-                { text: 'Generalized Delete', link: '/design/archive/generalized_delete' },
-                { text: 'Module Artifact Typechecker', link: '/design/archive/module_artifact_typechecker' },
-                { text: 'Module System', link: '/design/archive/module_system' },
-                { text: 'Native Module Artifacts', link: '/design/archive/native_module_artifacts' },
-                { text: 'Partial Move Semantics', link: '/design/archive/partial_move_semantics' },
-                { text: 'Ranges Slicing Pipeline (Baseline)', link: '/design/archive/ranges_slicing_pipeline_baseline' },
-                { text: 'Stdlib Modularization', link: '/design/archive/stdlib_modularization' },
-                { text: 'Tuples', link: '/design/archive/tuples' },
-              ],
-            },
           ],
         },
       ],
