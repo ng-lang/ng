@@ -438,6 +438,7 @@ namespace NG::native
         case TypeKind::Struct:
         case TypeKind::Enum:
         case TypeKind::TraitReference:
+        case TypeKind::Opaque:
           return QType::Long;
         case TypeKind::TypeParameter:
         case TypeKind::TypeConstructor:
@@ -1063,9 +1064,10 @@ namespace NG::native
       void lowerCall(const Instruction &instruction)
       {
         if (ngrt_.nativeDefIds.contains(instruction.callTarget->value))
-          throw LoweringError(std::format(
-              "native function call is not available in the native tier yet (`{}`; native shims arrive in M5)",
-              names_.contains(instruction.callTarget->value) ? names_.at(instruction.callTarget->value) : "unknown"));
+        {
+          lowerNativeCall(instruction);
+          return;
+        }
         std::string arguments;
         for (size_t index = 0; index < instruction.operands.size(); ++index)
         {
@@ -1226,6 +1228,94 @@ namespace NG::native
           line(std::format("storel {}, {}", element, address));
         }
         bindResult(instruction, QType::Long, std::format("copy {}", pointer));
+      }
+
+      /// AOT shims for the standard natives: emitted per call site from the
+      /// native's name and the call site's static signature. The C
+      /// implementations live in src/native/ngrt_shims.c (linked as
+      /// `libngrt.a`); the declared-descriptor registry (M5) will supersede
+      /// this name-keyed table.
+      void lowerNativeCall(const Instruction &instruction)
+      {
+        const auto name = names_.at(instruction.callTarget->value);
+        const auto arg = [&](size_t index) -> std::string { return operandTemp(instruction.operands[index]); };
+        const auto argType = [&](size_t index) -> TypeId
+        {
+          return function_.valueTypes.at(instruction.operands[index].value);
+        };
+        // Emits a call to a C shim; long-returning shims always receive a
+        // temp (QBE requires one), unit results get a throwaway temp.
+        const auto emitShim = [&](std::string_view symbol, bool returnsLong, std::string_view arguments)
+        {
+          if (returnsLong)
+          {
+            const auto target = qtypeOf(function_.valueTypes.at(instruction.result.value)) == QType::None
+                                    ? fresh()
+                                    : valueTemps_.at(instruction.result.value);
+            line(std::format("{} =l call {}({})", target, symbol, arguments));
+          }
+          else
+          {
+            line(std::format("call {}({})", symbol, arguments));
+          }
+        };
+        if (name == "print")
+        {
+          const auto type = argType(0);
+          if (type == typecheck::builtin::String) emitShim("$ngshim_print_str", true, "l " + arg(0));
+          else if (type == typecheck::builtin::Bool) emitShim("$ngshim_print_bool", true, "l " + arg(0));
+          else if (typecheck::isUnsignedIntegerBuiltin(type)) emitShim("$ngshim_print_u64", true, "l " + arg(0));
+          else if (isFloat(type)) emitShim("$ngshim_print_f64", true, "d " + arg(0));
+          else emitShim("$ngshim_print_i64", true, "l " + arg(0));
+          return;
+        }
+        if (name == "assert")
+        {
+          emitShim("$ngshim_assert", false, "l " + arg(0));
+          return;
+        }
+        if (name == "length")
+        {
+          emitShim("$ngshim_str_len", true, "l " + arg(0));
+          return;
+        }
+        if (name == "len")
+        {
+          // Array length is a direct header load.
+          bindResult(instruction, QType::Long, std::format("loadl {}", arg(0)));
+          return;
+        }
+        if (name == "charAt") return emitShim("$ngshim_str_char_at", true, std::format("l {}, l {}", arg(0), arg(1)));
+        if (name == "substring")
+          return emitShim("$ngshim_str_substring", true, std::format("l {}, l {}, l {}", arg(0), arg(1), arg(2)));
+        if (name == "trim") return emitShim("$ngshim_str_trim", true, "l " + arg(0));
+        if (name == "toUpper") return emitShim("$ngshim_str_to_upper", true, "l " + arg(0));
+        if (name == "toLower") return emitShim("$ngshim_str_to_lower", true, "l " + arg(0));
+        if (name == "contains") return emitShim("$ngshim_str_contains", true, std::format("l {}, l {}", arg(0), arg(1)));
+        if (name == "startsWith")
+          return emitShim("$ngshim_str_starts_with", true, std::format("l {}, l {}", arg(0), arg(1)));
+        if (name == "endsWith") return emitShim("$ngshim_str_ends_with", true, std::format("l {}, l {}", arg(0), arg(1)));
+        if (name == "replace")
+          return emitShim("$ngshim_str_replace", true, std::format("l {}, l {}, l {}", arg(0), arg(1), arg(2)));
+        if (name == "split") return emitShim("$ngshim_str_split", true, std::format("l {}, l {}", arg(0), arg(1)));
+        if (name == "join") return emitShim("$ngshim_str_join", true, std::format("l {}, l {}", arg(0), arg(1)));
+        if (name == "regexMatch")
+          return emitShim("$ngshim_regex_match", true, std::format("l {}, l {}", arg(0), arg(1)));
+        if (name == "sum") return emitShim("$ngshim_arr_sum", true, "l " + arg(0));
+        if (name == "arrayContains")
+          return emitShim("$ngshim_arr_contains", true, std::format("l {}, l {}", arg(0), arg(1)));
+        if (name == "reverse") return emitShim("$ngshim_arr_reverse", true, "l " + arg(0));
+        if (name == "allocate") return emitShim("$ngshim_allocate", true, "l " + arg(0));
+        if (name == "load") return emitShim("$ngshim_load", true, "l " + arg(0));
+        if (name == "store") return emitShim("$ngshim_store", false, std::format("l {}, l {}", arg(0), arg(1)));
+        if (name == "release") return emitShim("$ngshim_release", false, "l " + arg(0));
+        if (name == "outstanding") return emitShim("$ngshim_outstanding", true, "");
+        if (name == "currentExecutablePath") return emitShim("$ngshim_current_executable_path", true, "");
+        if (name == "readLine") return emitShim("$ngshim_read_line", true, "");
+        if (name == "readFile") return emitShim("$ngshim_read_file", true, "l " + arg(0));
+        if (name == "writeFile")
+          return emitShim("$ngshim_write_file", false, std::format("l {}, l {}", arg(0), arg(1)));
+        throw LoweringError(std::format("native `{}` has no AOT shim yet", name));
       }
 
       void lowerPrefix(const Instruction &instruction)

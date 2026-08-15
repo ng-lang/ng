@@ -304,15 +304,28 @@ Final generated results:
   `libngrt` archive is superseded: ngrt helpers stay as emitted IL calling
   libc directly, so executables need no host runtime until native shims
   (M5). 24/45 example programs run natively (folds, ref_places, traits,
-  trait_objects, enums, recursion, …); the rest are blocked on native
-  shims (`assert`/`print`/`len`/`sum`/imgui), unions, and opaque types.
+  trait_objects, enums, recursion, …); the rest were blocked on native
+  shims, unions, and opaque types at that point (all but two resolved by
+  the M5 shim slice below).
   Delivered alongside: ref-rooted place paths (`(*self).field := ...`),
   halt traps (`$ngrt_panic`) for VM-rejected unresolved trait-slot calls in
   dead generic originals, and type-constructor fallbacks.
 - **M4:** Tier 1 typed unboxing for monomorphized hot paths; layout pass;
   benchmarks (R11).
-- **M5:** declared native descriptors (R9) consumed by native codegen;
-  `extern "C"` / `repr(C)` (B3); exported C ABI wrappers (doc 02 §7.3).
+- **M5 (first slice delivered):** AOT shims for the standard natives —
+  `libngrt` (`src/native/ngrt_shims.c`, pure C99, layouts matching the
+  Tier 0 representations) is linked into every `--native` executable, and
+  the lowering emits per-call-site shim calls keyed by native name plus
+  static signature: `print` (i64/u64/f64/bool/string), `assert`, the
+  string ops (length/charAt/substring/trim/toUpper/toLower/contains/
+  startsWith/endsWith/replace/split/join/regexMatch), seq ops
+  (len/sum/arrayContains/reverse), memory handles
+  (allocate/load/store/release/outstanding), file/line I/O, and cwd.
+  Coverage: **43/45 examples run natively** — the remaining two are the
+  host-bound imgui binding (recorded decision: R9 std-module work) and
+  union types. regexMatch uses POSIX ERE, a documented deviation from the
+  VM's std::regex. Remaining M5: the declared-descriptor registry (R9)
+  superseding the name-keyed table, and `extern "C"`/`repr(C)` (B3).
 - **Later:** cross-target linking, debug info (R11), Windows when QBE's
   `amd64_win` matures.
 

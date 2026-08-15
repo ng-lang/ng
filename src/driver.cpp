@@ -146,7 +146,7 @@ namespace NG
         errors << "native: qbe failed:\n" << assemble.output;
         return 1;
       }
-      const auto link = runCommand(std::format("cc '{}' -o '{}'", asmFile.string(), executable.string()));
+      const auto link = runCommand(std::format("cc '{}' '{}' -o '{}'", asmFile.string(), NG_NGRT_PATH, executable.string()));
       if (!WIFEXITED(link.status) || WEXITSTATUS(link.status) != 0)
       {
         errors << "native: cc failed:\n" << link.output;

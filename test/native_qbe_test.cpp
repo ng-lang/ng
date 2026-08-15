@@ -395,13 +395,80 @@ TEST_CASE("vNext native mode maps a unit main to exit code 0", "[vNext][Native][
   REQUIRE_THAT(output.str(), ContainsSubstring("native main exited with code 0"));
 }
 
-TEST_CASE("vNext native mode rejects native function calls until shims land", "[vNext][Native][Qbe]")
+TEST_CASE("vNext native mode rejects natives without an AOT shim", "[vNext][Native][Qbe]")
 {
   std::ostringstream output;
   std::ostringstream errors;
   const int status = NG::runDriver(
       {"--native", "--source", "export native fun probe() -> unit; fun main() -> unit { probe(); }"}, output, errors);
   REQUIRE(status == 1);
-  REQUIRE_THAT(errors.str(), ContainsSubstring("native function call is not available"));
+  REQUIRE_THAT(errors.str(), ContainsSubstring("native `probe` has no AOT shim yet"));
+}
+
+TEST_CASE("vNext native mode runs prelude print and assert through the AOT shims", "[vNext][Native][Qbe]")
+{
+  std::ostringstream output;
+  std::ostringstream errors;
+  const int status = NG::runDriver(
+      {"--native", "--source",
+       "import prelude;\n"
+       "fun main() -> i64 {\n"
+       "    print(\"hello native\");\n"
+       "    print(42);\n"
+       "    print(true);\n"
+       "    assert(true);\n"
+       "    return 0;\n"
+       "}"},
+      output, errors);
+  INFO(errors.str());
+  REQUIRE(status == 0);
+  REQUIRE_THAT(output.str(), ContainsSubstring("hello native\n42\ntrue\n"));
+  REQUIRE_THAT(output.str(), ContainsSubstring("native main exited with code 0"));
+}
+
+TEST_CASE("vNext native mode runs string and seq natives through the AOT shims", "[vNext][Native][Qbe]")
+{
+  std::ostringstream output;
+  std::ostringstream errors;
+  const int status = NG::runDriver(
+      {"--native", "--source",
+       "export native fun trim(s: string) -> string;\n"
+       "export native fun sum(xs: array<i64>) -> i64;\n"
+       "export native fun len(xs: array<i64>) -> i64;\n"
+       "fun main() -> i64 {\n"
+       "    let xs = [1, 2, 3];\n"
+       "    let t = trim(\"  hi  \");\n"
+       "    if (t == \"hi\") { return len(xs) + sum(xs); }\n"
+       "    return 0;\n"
+       "}"},
+      output, errors);
+  INFO(errors.str());
+  REQUIRE(status == 0);
+  REQUIRE_THAT(output.str(), ContainsSubstring("native main exited with code 9"));
+}
+
+TEST_CASE("vNext native mode runs opaque-handle memory natives through the AOT shims", "[vNext][Native][Qbe]")
+{
+  std::ostringstream output;
+  std::ostringstream errors;
+  const int status = NG::runDriver(
+      {"--native", "--source",
+       "type Handle = native;\n"
+       "export native fun allocate(value: i64) -> Handle;\n"
+       "export native fun load(handle: Handle) -> i64;\n"
+       "export native fun store(handle: Handle, value: i64) -> unit;\n"
+       "export native fun release(handle: Handle) -> unit;\n"
+       "export native fun outstanding() -> i64;\n"
+       "fun main() -> i64 {\n"
+       "    let h = allocate(7);\n"
+       "    store(h, 42);\n"
+       "    let v = load(h);\n"
+       "    release(h);\n"
+       "    return v + outstanding();\n"
+       "}"},
+      output, errors);
+  INFO(errors.str());
+  REQUIRE(status == 0);
+  REQUIRE_THAT(output.str(), ContainsSubstring("native main exited with code 42"));
 }
 #endif

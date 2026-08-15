@@ -69,6 +69,14 @@ set(NG_SRC
 add_library(ng ${NG_SRC})
 target_include_directories(ng PUBLIC include)
 
+# AOT shim implementations of the standard natives for the QBE native tier
+# (`ngi --native` links this archive into every generated executable).
+add_library(ngrt STATIC src/native/ngrt_shims.c)
+set_target_properties(ngrt PROPERTIES C_STANDARD 99 C_STANDARD_REQUIRED ON)
+target_compile_options(ngrt PRIVATE -Wall -Wextra -Wpedantic)
+target_compile_definitions(ng PUBLIC "NG_NGRT_PATH=\"$<TARGET_FILE:ngrt>\"")
+add_dependencies(ng ngrt)
+
 if(NG_QBE_AVAILABLE)
   # The native backend shells out to the sibling `qbe` binary; expose its
   # absolute path as a compile definition and order the build after it.
