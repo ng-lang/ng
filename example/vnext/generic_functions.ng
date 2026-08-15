@@ -1,0 +1,20 @@
+// vNext generic functions (legacy 60): generic enums, type substitution, and
+// identity-style generics with expression bodies.
+
+enum Result<T, E> {
+    Ok(value: T),
+    Err(error: E),
+}
+
+fun identity<T>(value: T) -> T {
+    return value;
+}
+
+fun main() -> i64 {
+    let ok: Result<i64, string> = Result.Ok(42);
+    switch (ok) {
+        case Ok(value) { return identity(value); }
+        case Err(error) { return 0; }
+    }
+    return 0;
+}

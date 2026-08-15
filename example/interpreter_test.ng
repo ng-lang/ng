@@ -1,5 +1,0 @@
-module;
-
-assert(not(1 == 2));
-
-print(not(1 == 2));

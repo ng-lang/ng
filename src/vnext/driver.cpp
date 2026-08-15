@@ -278,6 +278,24 @@ namespace NG::vnext
               throw bytecode::BytecodeError(std::format("substring bounds out of range: [{}..{}) of length {}", start, end, text.size()));
             return Value::string(text.substr(static_cast<size_t>(start), static_cast<size_t>(end - start)));
           });
+          natives.registerNative("len", [](const std::vector<Value> &arguments, const std::vector<typecheck::TypeId> &) {
+            if (arguments.size() != 1 || !arguments.front().isArray())
+              throw bytecode::BytecodeError("len expects an array");
+            return Value::integer(static_cast<int64_t>(arguments.front().asArray().size()));
+          });
+          natives.registerNative("reverse", [](const std::vector<Value> &arguments, const std::vector<typecheck::TypeId> &) {
+            if (arguments.size() != 1 || !arguments.front().isArray())
+              throw bytecode::BytecodeError("reverse expects an array");
+            std::vector<Value> reversed;
+            const auto &items = arguments.front().asArray();
+            reversed.reserve(items.size());
+            for (auto it = items.rbegin(); it != items.rend(); ++it) reversed.push_back(it->deepCopy());
+            return Value::array(std::move(reversed));
+          });
+          natives.registerNative("currentExecutablePath", [](const std::vector<Value> &, const std::vector<typecheck::TypeId> &) {
+            std::error_code ignored;
+            return Value::string(std::filesystem::absolute(std::filesystem::current_path(), ignored).string());
+          });
           natives.registerNative("sum", [](const std::vector<Value> &arguments, const std::vector<typecheck::TypeId> &) {
             if (arguments.size() != 1 || !arguments.front().isArray())
               throw bytecode::BytecodeError("sum expects an array of i64");

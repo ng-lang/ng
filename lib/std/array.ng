@@ -1,3 +1,0 @@
-module std.array exports *;
-
-fun reverse<T>(xs: vector<T>) -> vector<T> = native;

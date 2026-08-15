@@ -3,3 +3,4 @@
 export native fun readLine() -> string;
 export native fun readFile(path: string) -> string;
 export native fun writeFile(path: string, content: string) -> unit;
+export native fun currentExecutablePath() -> string;

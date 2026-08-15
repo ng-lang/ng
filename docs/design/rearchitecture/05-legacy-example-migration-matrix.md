@@ -1,10 +1,13 @@
 # Legacy Example Migration Matrix
 
-> **Status:** living vNext migration inventory.
+> **Status:** migration complete — the legacy corpus has been removed and every
+> surviving feature surface is implemented on the vNext pipeline. Remaining
+> edge work is tracked in the
+> [post-cutover plan](07-post-cutover-plan.md), not here.
 >
-> **AI-assisted document:** drafted with AI assistance and based on the current
-> `example/*.ng` corpus. Legacy syntax and output are evidence, not a vNext
-> compatibility commitment.
+> **AI-assisted document:** drafted with AI assistance and based on the
+> former `example/*.ng` corpus. Legacy syntax and output were evidence, not a
+> vNext compatibility commitment.
 
 ## Purpose
 

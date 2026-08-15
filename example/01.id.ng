@@ -1,7 +1,0 @@
-module;
-
-fun id(n: i32) -> i32 {
-    return n;
-}
-
-print(id(1));

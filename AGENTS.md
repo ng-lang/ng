@@ -1,116 +1,84 @@
-
-
 # AGENTS.md
 
 ## Project Overview
 
-**NG** is a statically-typed, multi-paradigm programming language implemented in modern C++ (C++23). The codebase is structured as a classic compiler pipeline:
+**NG** is a statically-typed, multi-paradigm programming language implemented in modern C++ (C++23). The active pipeline is the **vNext** architecture (the legacy orgasm/interpreter pipeline has been removed):
 
-**Lexer → Parser → AST → Type Checker → Interpreter**
+**Lexer → Parser (syntax AST) → Resolver (HIR) → Type Checker → FlowIR → Bytecode → VM**
 
 **Key directories and file patterns:**
-- `src/ast/` — AST nodes and visitors (`ast.cpp`, `AstVisitor.cpp`)
-- `src/parsing/` — Lexer, parser, reserved tokens (`Lexer.cpp`, `ParserImpl.cpp`, `reserved.inc`)
-- `src/runtime/` — StorageCell/slot-based NG runtime values and layout helpers (`NGArray.cpp`, `runtime_env.cpp`, `NGString.cpp`, `NGTuple.cpp`)
-- `src/typecheck/` — Type info and checker (`PrimitiveType.cpp`, `FunctionType.cpp`, `typecheck.cpp`)
-- `src/module/` — Module loading/registry; `src/stdlib/` — built-ins (e.g., `prelude.cpp`, `imgui.cpp`)
-- `src/orgasm/` — ORGASM bytecode compiler and VM (`Compiler.cpp`, `VM.cpp`, `module.cpp`)
-- `src/main.cpp` — Builds the `ngi` interpreter
-- `include/` — Public headers mirror modules (e.g., `ast.hpp`, `parser.hpp`, `token.hpp`, `visitor.hpp`)
-- `include/orgasm/` — ORGASM bytecode headers (`opcode.hpp`, `module.hpp`, `compiler.hpp`, `vm.hpp`, `native_bridge.hpp`)
-- `example/*.ng` — Runnable language examples (e.g., `14.tuple.ng`)
-- `test/` — Catch2 v3 tests grouped by `parsing/`, `runtime/`, `typecheck/`, `orgasm/` + helpers (`test.hpp`)
-- `lib/` — Standard library in NG
-- `docs/` — Language and internals documentation
-
+- `src/vnext/syntax/` — lexer and parsers (`parser.cpp`, `module_parser.cpp`, `block_parser.cpp`, `type_parser.cpp`, `const_expr.cpp`)
+- `src/vnext/hir.cpp` — name resolution: syntax AST → immutable `hir::Module` (functions, structs, enums, traits, impls, consts, opaque types)
+- `src/vnext/typecheck.cpp` + `type_interner.cpp` — side-table style checker: expression types, call targets, trait/impl resolution, monomorphization, ownership (move/borrow/drop), const evaluation
+- `src/vnext/flowir.cpp` — HIR → CFG (`flowir::Function`), incl. fold/map lowering, drop edges, trait-view dispatch
+- `src/vnext/bytecode.cpp` + `bytecode/artifact.cpp` — FlowIR → verified bytecode + artifact codec
+- `src/vnext/vm.cpp` + `vm/value_ops.cpp` — interpreter (`vm::VM`) over bytecode with native dispatch
+- `src/vnext/const_eval.cpp` + `const_interp.cpp` — compile-time const evaluation / `const fun` interpreter
+- `src/vnext/module_loader.cpp` — transitive `import` loading with per-module name visibility
+- `src/vnext/driver.cpp` — `ngi` frontend: load → resolve → check → lower → compile → run, with registered natives
+- `include/vnext/` — public vNext headers (`hir.hpp`, `typecheck.hpp`, `flowir.hpp`, `bytecode.hpp`, `value.hpp`, `syntax/*.hpp`, `driver.hpp`, ...)
+- `example/vnext/*.ng` — runnable vNext examples; `lib/vnext_std/*.ng` — the vNext stdlib (prelude/io/string/seq/list/memory)
+- `test/vnext/*.cpp` — Catch2 v3 test suites, one per feature area (`test/test.hpp` is the shared header)
+- `docs/design/rearchitecture/` — vNext design decisions (D-0xx), the legacy example migration matrix, and the post-cutover roadmap
 
 ## Architecture & Patterns
-- **Lexer:** `src/parsing/Lexer.cpp` (`LexState` struct) — tokenizes source code
-- **Parser:** `src/parsing/ParserImpl.cpp` (`ParserImpl` class, recursive descent) — builds AST nodes (`include/ast.hpp`)
-- **AST:** Visitor pattern (`AstVisitor`), base class `ASTNode` (`include/ast.hpp`, `src/ast/`)
-- **Type Checking:** `src/typecheck/` — traverses AST for type inference/validation
-- **Interpreter:** `src/intp/` — executes AST directly (see `Interpreter` class)
-- **ORGASM:** `src/orgasm/` — bytecode backend for typed AST
-  - **Compiler:** `src/orgasm/Compiler.cpp` — lowers checked AST into `BytecodeModule`
-  - **VM:** `src/orgasm/VM.cpp` — executes StorageCell-based bytecode
-  - **Module model:** `include/orgasm/module.hpp` + `src/orgasm/module.cpp` — bytecode functions, types, imports, exports, and merge/remap logic
-  - **Opcode set:** `include/orgasm/opcode.hpp` — the single active ORGASM opcode enum
-- **Modules:** Each `.ng` file is a module. Use `export`/`import` for visibility (see `docs/guide/language_guide.md`)
-- **Standard Library:** Minimal, in `lib/std.ng` and `lib/std/`
-- **Native functions:** NG supports native (C++) functions via `= native;` in NG code. Register with the interpreter (`register_native_library`).
-- **Memory management:** Runtime values are `StorageCell` slots managed with `std::shared_ptr`; heap values are cloned into managed heap cells and traced through slot references, `RuntimeEnv`, and call-frame roots.
-
+- **Syntax:** `syntax::parseSourceUnit` / `Lexer` — a full-file lexer producing `Token` spans; `ModuleParser` handles module items, `ExpressionParser`/`BlockParser`/`TypeParser` handle nested forms. `>>` lexes as `ShiftRight` and is split by the generic-argument/type collectors.
+- **HIR:** `hir::Resolver` resolves syntax into an immutable module. Expressions are `std::unique_ptr<hir::Expression>` nodes; types are `hir::Type` trees. Generic instances are produced by cloning + re-checking, not by AST mutation.
+- **Type checking:** `typecheck::TypeChecker{}.check(module)` returns a `TypeCheckResult` of side tables (expression types, call targets, spread/fold positions, drop edges, trait-view tables, instances). Types are interned `typecheck::TypeId`s over `TypeDescriptor`s (builtins, arrays, tuples, structs/enums, refs, trait references, unions, type constructors/applications, opaque). Monomorphization re-checks cloned bodies under concrete substitutions.
+- **Values:** `NG::vnext::Value` is a variant of int64/double/string/array/tuple/struct/enum/reference/trait-view/opaque/range (aggregates shared_ptr-backed). Copy-first deep-copy semantics; affine nominal types use `move`/`clone` + `impl Drop`; scoped `ref`/`ref mut` are non-returnable views. There is no GC (heap domains are deferred).
+- **Lowering & VM:** FlowIR lowers to per-function CFGs with block parameters; bytecode is verified (operand/result type checks); the VM interprets with native dispatch keyed by function name (`native fun`).
+- **Modules:** `import name;` / `import name (a, b);` merge transitively with per-module visible-name sets (own names, selective lists, exported surfaces with transitive re-export).
+- **Testing:** each feature slice ships `test/vnext/<feature>_test.cpp` plus an `example/vnext/<feature>.ng` run end-to-end through `ngi`; the migration matrix (`docs/design/rearchitecture/05-legacy-example-migration-matrix.md`) records coverage of the removed legacy corpus.
 
 ## Build, Test, and Development Workflows
-**Fetch dependencies:**
-
-```bash
-git submodule update --init --recursive
-```
 **Configure & build (Ninja):**
 
 ```bash
 cmake -S . -B build -GNinja
 cmake --build build -j
 ```
-**Run tests (CTest/Catch2):**
+**Run tests:**
 
 ```bash
 ctest --test-dir build -j
 ./build/ng_test --list-tests
-./build/ng_test "parser*"   # example filter
+./build/ng_test "vNext*"   # example filter
 ```
 **Run interpreter:**
 
 ```bash
-./build/ngi example/14.tuple.ng
+./build/ngi example/vnext/<example>.ng
 ```
-**Coverage report:**
+**Format C++ code:**
 
 ```bash
-./utils/coverage_report.sh
-# Output in build/reports/cov/
+clang-format -i src/vnext/**/*.cpp include/vnext/**/*.hpp
 ```
-**Format and lint C++ code:**
-
-```bash
-clang-format -i src/**/*.cpp include/**/*.hpp
-clang-tidy -p build src/<file>.cpp
-```
-
 
 ## Coding Style & Naming Conventions
 - **C++23**; prefer RAII, `const` correctness, and explicit ownership
-- **Types/classes:** Use `PascalCase` (runtime often prefixed `NG*`)
-- **Headers/sources:** Use `snake_case` (`token.hpp`, `typeinfo.cpp`)
-- **Tests:** `test/<area>/<topic>_test.cpp`
-- **NG code style:** Follow examples in `example/`
-- **External dependencies:** Vendored in `build/_deps/` and `vendored/` (e.g., Catch2, SDL, imgui)
+- **Types/classes:** PascalCase; **headers/sources:** snake_case (`type_interner.cpp`, `value.hpp`)
+- **Tests:** `test/vnext/<topic>_test.cpp`; **examples:** `example/vnext/<topic>.ng` (NG code)
+- **External dependencies:** vendored in `build/_deps/` and `vendored/`
 - **Do not modify** files in `vendored/` or `build/_deps/`
 - **AI-generated code** must be marked as such (see `CONTRIBUTING.md`)
 
-
 ## Testing Guidelines
-- **Framework:** Catch2 v3 (vendored). Include shared helpers from `test/test.hpp`
-- **Add focused unit tests** near their domain; keep deterministic and isolated from FS/network
-- **Test patterns:** All tests use Catch2; test files are in `test/` and follow the pattern `REQUIRE(...)`
-- **CI reports coverage** (Codecov/Codacy). Maintain or improve coverage for modified areas
+- **Framework:** Catch2 v3 (vendored). Include `test/test.hpp` for the shared macros
+- **Patterns:** one suite per feature slice; runtime behavior via `NG::vnext::runDriver({"--source", ...})`, examples via the shared `runExample("example/vnext/...")` helper
+- **Keep the full suite green:** `./build/ng_test` must pass before committing; each feature round ends with a commit
 
-## Commit & Pull Request Guidelines
-- **Prefer Conventional Commits** like history: `feat(tuple): ...`, `fix(parsing): ...`, `chore: ...`
-- **Messages in imperative mood**; link issues (`resolve #14`)
-- **PRs must include:** clear description, linked issues, tests, docs/examples updates where relevant (e.g., `docs/`, `example/`). Add screenshots for ImGui/UI changes
-- **Disclose any AI‑generated code** per `CONTRIBUTING.md`
-
-## Security & Configuration Tips
-- **Local builds** default to `clang++` with `libc++`; CI toggled via `RUNNING_ON_GITHUB=1`
-- **macOS/CI** enable coverage flags via CMake; no action needed unless reproducing CI locally
+## Commit & PR Guidelines
+- **Prefer Conventional Commits** like history: `feat(vnext): ...`, `fix(parsing): ...`
+- **Messages in imperative mood**
+- **PRs must include:** clear description, linked issues, tests, docs/examples updates where relevant (e.g. `docs/design/rearchitecture/`, `example/vnext/`)
+- **Disclose any AI-generated code** per `CONTRIBUTING.md`
 
 ## References
-- [Language Guide](../docs/guide/language_guide.md)
-- [Internals](../docs/ref/Internals.md)
+- [vNext design decisions](../docs/design/rearchitecture/04-language-decisions.md)
+- [Legacy example migration matrix](../docs/design/rearchitecture/05-legacy-example-migration-matrix.md)
+- [Post-cutover roadmap](../docs/design/rearchitecture/07-post-cutover-plan.md)
 - [Contribution Guide](../CONTRIBUTING.md)
-- [README](../README.md)
 
 ---
 For any unclear conventions or missing documentation, consult the above references or ask in project discussions.

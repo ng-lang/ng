@@ -1,6 +1,0 @@
-
-import external (*);
-
-hello();
-
-hello2();
