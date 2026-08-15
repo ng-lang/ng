@@ -11,6 +11,11 @@ export default defineConfig({
   // Clean URLs
   cleanUrls: true,
 
+  // Design/rearchitecture documents are developer-facing only (removed from
+  // the site navigation); exclude them from the build so their prose angle
+  // brackets are never parsed as HTML tags.
+  srcExclude: ['design/**'],
+
   lastUpdated: true,
 
   head: [
