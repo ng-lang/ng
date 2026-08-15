@@ -273,3 +273,87 @@ TEST_CASE("vNext traits are rejected as value types", "[vNext][Where][Typecheck]
   expect("trait Show { fun show(self: Self ref) -> string; } fun f() -> Show { } fun main() { }",
          "trait `Show` is not a value type; use `ref<Show>`");
 }
+
+TEST_CASE("vNext where clauses short-circuit logical operators", "[vNext][Where][Typecheck]")
+{
+  std::string output;
+  std::string errors;
+  // `&&` short-circuits on the false first operand, so the unsatisfied
+  // second predicate never evaluates.
+  REQUIRE(run("import prelude; "
+              "const fun positive(n: i64) -> bool { return n > 0; } "
+              "const fun small(n: i64) -> bool { return n < 10; } "
+              "fun make<const N: i64>() -> unit where positive(N) && small(N) { } "
+              "fun main() { make<-5>(); }",
+              output, errors) == 1);
+  REQUIRE_THAT(errors, ContainsSubstring("does not satisfy its where clause"));
+
+  // `||` short-circuits on the true first operand.
+  REQUIRE(run("import prelude; "
+              "const fun positive(n: i64) -> bool { return n > 0; } "
+              "const fun small(n: i64) -> bool { return n < 10; } "
+              "fun make<const N: i64>() -> unit where positive(N) || small(N) { } "
+              "fun main() { make<3>(); }",
+              output, errors) == 0);
+  REQUIRE(errors.empty());
+}
+
+TEST_CASE("vNext where clauses reject unsupported operators and non-bool predicates", "[vNext][Where][Typecheck]")
+{
+  const auto expect = [](std::string_view source, std::string_view message)
+  {
+    try
+    {
+      check(source);
+      FAIL("expected a where clause error");
+    }
+    catch (const typecheck::TypeError &error)
+    {
+      REQUIRE(std::string{error.what()} == message);
+    }
+  };
+  expect("fun make<const N: i64>() -> unit where N + 1 { } fun main() { make<1>(); }",
+         "unsupported where clause operator `+`");
+  expect("fun f() -> unit where tuple_size<tuple<i64, i64>> { } fun main() { f(); }",
+         "const predicate `tuple_size` must evaluate to bool in predicate position");
+}
+
+TEST_CASE("vNext non-generic functions evaluate their where clauses", "[vNext][Where][Typecheck]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(run("trait Show { fun show(self: Self ref) -> string; } "
+              "fun f() -> unit where is_trait<Show> { } "
+              "fun main() { f(); }",
+              output, errors) == 0);
+  REQUIRE(errors.empty());
+
+  REQUIRE(run("const yes<T>: bool = true; fun f() -> unit where yes<i64> { } fun main() { f(); }", output, errors) ==
+          0);
+  REQUIRE(errors.empty());
+
+  REQUIRE(run("const no<T>: bool = false; fun f() -> unit where no<i64> { } fun main() { f(); }", output, errors) == 1);
+  REQUIRE_THAT(errors, ContainsSubstring("function `f` does not satisfy its where clause"));
+}
+
+TEST_CASE("vNext where clauses validate traits and trait methods", "[vNext][Where][Typecheck]")
+{
+  const auto expect = [](std::string_view source, std::string_view message)
+  {
+    try
+    {
+      check(source);
+      FAIL("expected a where clause error");
+    }
+    catch (const typecheck::TypeError &error)
+    {
+      REQUIRE(std::string{error.what()} == message);
+    }
+  };
+  expect("trait Show { fun show(self: Self ref) -> string; } "
+         "fun f<T>() -> unit where T: NoSuch { } fun main() { f<i64>(); }",
+         "unknown trait `NoSuch` in where clause");
+  expect("trait T { fun m(x: i64); } fun main() { }", "trait method `m` must take `self: Self ref`");
+  expect("trait T { fun m(self: Self ref); } impl T for i64 { fun m(x: i64) { } } fun main() { }",
+         "trait method `impl$T$m$i64` must take `self: Self ref`");
+}

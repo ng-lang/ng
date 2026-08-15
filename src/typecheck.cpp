@@ -1482,7 +1482,11 @@ namespace NG::typecheck
         inConstGenericFunction_ = !signature.constParameters.empty();
         if (function.whereClause != nullptr && !isGeneric(signature))
         {
-          throw TypeError(std::format("function `{}` does not satisfy its where clause", function.name), function.span);
+          // Non-generic functions carry concrete where clauses; evaluate them
+          // once against empty bindings instead of rejecting unconditionally.
+          if (!evaluateWhereCondition(*function.whereClause, Substitution{}, signature))
+            throw TypeError(std::format("function `{}` does not satisfy its where clause", function.name),
+                            function.span);
         }
         checkBlock(function.body, locals, {}, signature.returnType);
         inConstGenericFunction_ = false;
