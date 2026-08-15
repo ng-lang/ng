@@ -290,7 +290,14 @@ Final generated results:
   `ref` payloads and switch-recursive walks; the `$ngrt_enum_list_len`/
   `$ngrt_enum_list_get` helpers are implemented for the VM-parity
   `EnumList*` instructions but currently unreachable from the typechecker.
-  Remaining: trait dispatch, native shims, `ngrt` as a linked archive.
+  Also delivered: `ref<Trait>` dynamic dispatch — a trait view is
+  `{ ref-object, trait-id, concrete-id }`, vtables become per-module `data`
+  items (`{ l method-symbol, ... }`) with a linear key -> vtable lookup
+  helper, and `CallTrait` performs an indirect QBE call passing the view's
+  ref object as `Self ref` (so method bodies observe root rebinding like
+  the VM). Polymorphic view arrays dispatch per element. Remaining: native
+  shims, `ngrt` as a linked archive, unions, ref-rooted view/place paths,
+  deep-copy-on-bind for aggregates.
 - **M3:** aggregates (strings/arrays/structs/enums), direct and trait-view
   calls, drop lowering; a stdlib subset runs natively; executables link
   `libngrt`.

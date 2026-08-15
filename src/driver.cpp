@@ -237,7 +237,7 @@ namespace NG
         {
           // M1 native milestone: lower the module to QBE IL text instead of
           // compiling bytecode and running the VM.
-          output << native::lowerModule(flows);
+          output << native::lowerModule(flows, vtables);
           return 0;
         }
         const auto artifact = bytecode::ModuleCompiler{}.compile(flows, vtables);

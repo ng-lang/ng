@@ -101,9 +101,7 @@ TEST_CASE("vNext native lowering rejects unsupported M1 constructs with a clear 
   std::ostringstream output;
   std::ostringstream errors;
   const int status = NG::runDriver(
-      {"--emit=ssa", "--source",
-       "struct Counter { value: i64 } trait Show { fun show(self: Self ref) -> i64; } impl Show for Counter { fun show(self: Self ref) -> i64 { return (*self).value; } } fun main() -> i64 { let c = Counter { value: 5 }; let view: ref<Show> = c; 7 }"},
-      output, errors);
+      {"--emit=ssa", "--source", "fun main() -> i64 { let x: i64 | string = 1; 7 }"}, output, errors);
   REQUIRE(status == 1);
   REQUIRE_THAT(errors.str(), ContainsSubstring("native lowering (M"));
 }
@@ -338,5 +336,38 @@ TEST_CASE("vNext native lowering round-trips recursive enum switches through qbe
                                  "}",
                                  "recursive_enum_switch");
   CHECK(exitCode == 2);
+}
+
+TEST_CASE("vNext native lowering round-trips trait-view dispatch through qbe and the system toolchain",
+          "[vNext][Native][Qbe]")
+{
+  const int exitCode = runNative("struct Counter { value: i64 }\n"
+                                 "trait Show { fun get(self: Self ref) -> i64; }\n"
+                                 "impl Show for Counter { fun get(self: Self ref) -> i64 { return (*self).value; } }\n"
+                                 "fun main() -> i64 {\n"
+                                 "    let c = Counter { value: 42 };\n"
+                                 "    let view: ref<Show> = c;\n"
+                                 "    return view.get();\n"
+                                 "}",
+                                 "trait_dispatch");
+  CHECK(exitCode == 42);
+}
+
+TEST_CASE("vNext native lowering round-trips polymorphic view arrays through qbe and the system toolchain",
+          "[vNext][Native][Qbe]")
+{
+  const int exitCode = runNative("struct Counter { value: i64 }\n"
+                                 "struct Other { n: i64 }\n"
+                                 "trait Show { fun get(self: Self ref) -> i64; }\n"
+                                 "impl Show for Counter { fun get(self: Self ref) -> i64 { return (*self).value; } }\n"
+                                 "impl Show for Other { fun get(self: Self ref) -> i64 { return (*self).n + 1; } }\n"
+                                 "fun main() -> i64 {\n"
+                                 "    let c = Counter { value: 42 };\n"
+                                 "    let o = Other { n: 5 };\n"
+                                 "    let views: array<ref<Show>> = [c, o];\n"
+                                 "    return views[0].get() + views[1].get();\n"
+                                 "}",
+                                 "trait_view_arrays");
+  CHECK(exitCode == 48); // 42 + 6
 }
 #endif

@@ -1,6 +1,7 @@
 // AI-generated code; reviewed for this repository's vNext rewrite.
 #include "native/lowering.hpp"
 
+#include <algorithm>
 #include <bit>
 #include <cctype>
 #include <format>
@@ -78,7 +79,22 @@ namespace NG::native
     struct NgrtContext
     {
       std::set<std::string> usedHelpers;
+      bool needsTraitDispatch{};
     };
+
+    /// Builds a QBE symbol for a named function. `main` keeps its C-runtime
+    /// name; everything else is `<sanitized-name>_<defid>` so that overloads,
+    /// generic instances (`foo#3`), and same-named functions from different
+    /// modules cannot collide.
+    [[nodiscard]] auto qbeSymbol(const std::string &name, uint32_t defId) -> std::string
+    {
+      if (name == "main") return "$main";
+      std::string cleaned = name;
+      for (auto &character : cleaned)
+        if (!std::isalnum(static_cast<unsigned char>(character)) && character != '_' && character != '.')
+          character = '_';
+      return std::format("${}_{}", cleaned, defId);
+    }
 
     // Tier 0 runtime helpers. Aggregate values are 8-byte pointers into
     // malloc'd objects (or QBE data items for string literals):
@@ -410,6 +426,7 @@ namespace NG::native
         case TypeKind::Reference:
         case TypeKind::Struct:
         case TypeKind::Enum:
+        case TypeKind::TraitReference:
           return QType::Long;
         case TypeKind::TypeParameter:
           // Monomorphized instance bodies can carry the generic type
@@ -443,21 +460,13 @@ namespace NG::native
         return cast;
       }
 
-      /// Builds the QBE symbol for a function. `main` keeps its C-runtime
-      /// name; everything else is `<sanitized-name>_<defid>` so that
-      /// overloads, generic instances (`foo#3`), and same-named functions
-      /// from different modules cannot collide.
       [[nodiscard]] auto symbolFor(hir::DefId id) -> std::string
       {
         std::string name;
         if (id == function_.source) name = function_.name;
         else if (const auto found = names_.find(id.value); found != names_.end()) name = found->second;
         else name = std::format("fn{}", id.value);
-        if (name == "main") return "$main";
-        for (auto &character : name)
-          if (!std::isalnum(static_cast<unsigned char>(character)) && character != '_' && character != '.')
-            character = '_';
-        return std::format("${}_{}", name, id.value);
+        return qbeSymbol(name, id.value);
       }
 
       void line(std::string_view text) { out_ << '\t' << text << '\n'; }
@@ -756,39 +765,72 @@ namespace NG::native
           return;
         case InstructionKind::MakeRef:
         {
-          // A reference value is { l root-slot, l count, { l kind, l payload }[] }
-          // — a malloc'd object so it can cross call boundaries as a plain
-          // pointer. Ref-rooted chaining (placeRootRef) is deferred.
+          // Ref-rooted chaining (placeRootRef) is deferred.
           if (!instruction.placeRootLocal || instruction.placeRootRef)
             throw LoweringError(std::format("native lowering (M2): only local-rooted references are supported in `{}`",
                                             function_.name));
-          const auto rootSlot = localSlots_.at(instruction.placeRootLocal->value);
-          const size_t count = instruction.placeSteps.size();
-          const auto pointer = fresh();
-          line(std::format("{} =l call $malloc(l {})", pointer, 16 + count * 16));
-          line(std::format("storel {}, {}", rootSlot, pointer));
-          const auto countAddress = fresh();
-          line(std::format("{} =l add {}, 8", countAddress, pointer));
-          line(std::format("storel {}, {}", count, countAddress));
-          for (size_t index = 0; index < count; ++index)
+          bindResult(instruction, QType::Long,
+                     std::format("copy {}", emitRefObject(instruction.placeRootLocal->value, instruction.placeSteps)));
+          return;
+        }
+        case InstructionKind::MakeTraitView:
+        {
+          // A trait view is { l ref-object, l trait-id, l concrete-id };
+          // the ref object carries the (cell + path) receiver so method
+          // bodies observe root rebinding exactly like the VM. Ref-rooted
+          // views are deferred.
+          if (!instruction.placeRootLocal || instruction.placeRootRef)
+            throw LoweringError(std::format("native lowering (M2): only local-rooted trait views are supported in `{}`",
+                                            function_.name));
+          const auto reference = emitRefObject(instruction.placeRootLocal->value, instruction.placeSteps);
+          const auto view = fresh();
+          line(std::format("{} =l call $malloc(l 24)", view));
+          line(std::format("storel {}, {}", reference, view));
+          const auto traitAddress = fresh();
+          line(std::format("{} =l add {}, 8", traitAddress, view));
+          line(std::format("storel {}, {}", instruction.traitType, traitAddress));
+          const auto concreteAddress = fresh();
+          line(std::format("{} =l add {}, 16", concreteAddress, view));
+          line(std::format("storel {}, {}", instruction.payload, concreteAddress));
+          bindResult(instruction, QType::Long, std::format("copy {}", view));
+          return;
+        }
+        case InstructionKind::CallTrait:
+        {
+          ngrt_.needsTraitDispatch = true;
+          const auto view = operandTemp(instruction.operands[0]);
+          const auto traitAddress = fresh();
+          line(std::format("{} =l add {}, 8", traitAddress, view));
+          const auto traitId = fresh();
+          line(std::format("{} =l loadl {}", traitId, traitAddress));
+          const auto concreteAddress = fresh();
+          line(std::format("{} =l add {}, 16", concreteAddress, view));
+          const auto concreteId = fresh();
+          line(std::format("{} =l loadl {}", concreteId, concreteAddress));
+          const auto shifted = fresh();
+          line(std::format("{} =l shl {}, 32", shifted, traitId));
+          const auto key = fresh();
+          line(std::format("{} =l or {}, {}", key, shifted, concreteId));
+          const auto table = fresh();
+          line(std::format("{} =l call $ngrt_trait_vtable(l {})", table, key));
+          const auto functionAddress = fresh();
+          line(std::format("{} =l add {}, {}", functionAddress, table, instruction.payload * 8));
+          const auto function = fresh();
+          line(std::format("{} =l loadl {}", function, functionAddress));
+          // The receiver is the view's ref object, passed as `Self ref`.
+          const auto receiver = fresh();
+          line(std::format("{} =l loadl {}", receiver, view));
+          std::string arguments = std::format("l {}", receiver);
+          for (size_t index = 1; index < instruction.operands.size(); ++index)
           {
-            const auto &step = instruction.placeSteps[index];
-            const auto stepAddress = fresh();
-            line(std::format("{} =l add {}, {}", stepAddress, pointer, 16 + index * 16));
-            const auto payloadAddress = fresh();
-            line(std::format("{} =l add {}, 8", payloadAddress, stepAddress));
-            if (step.kind == flowir::PlaceStep::Kind::Member)
-            {
-              line(std::format("storel 0, {}", stepAddress));
-              line(std::format("storel {}, {}", step.field, payloadAddress));
-            }
-            else
-            {
-              line(std::format("storel 1, {}", stepAddress));
-              line(std::format("storel {}, {}", operandTemp(step.indexValue), payloadAddress));
-            }
+            const auto type = qtypeOf(function_.valueTypes.at(instruction.operands[index].value));
+            arguments += std::format(", {} {}", suffix(type), operandTemp(instruction.operands[index]));
           }
-          bindResult(instruction, QType::Long, std::format("copy {}", pointer));
+          const auto resultType = qtypeOf(function_.valueTypes.at(instruction.result.value));
+          if (resultType == QType::None) line(std::format("call {}({})", function, arguments));
+          else
+            line(std::format("{} ={} call {}({})", valueTemps_.at(instruction.result.value), suffix(resultType),
+                             function, arguments));
           return;
         }
         case InstructionKind::LoadRef:
@@ -1065,6 +1107,39 @@ namespace NG::native
         bindResult(instruction, QType::Long, std::format("copy {}", pointer));
       }
 
+      /// Builds a ref object { l root-slot, l count, { l kind, l payload }[] }
+      /// on the heap; shared by MakeRef and MakeTraitView.
+      [[nodiscard]] auto emitRefObject(uint32_t rootLocal, const std::vector<flowir::PlaceStep> &steps) -> std::string
+      {
+        const auto rootSlot = localSlots_.at(rootLocal);
+        const size_t count = steps.size();
+        const auto pointer = fresh();
+        line(std::format("{} =l call $malloc(l {})", pointer, 16 + count * 16));
+        line(std::format("storel {}, {}", rootSlot, pointer));
+        const auto countAddress = fresh();
+        line(std::format("{} =l add {}, 8", countAddress, pointer));
+        line(std::format("storel {}, {}", count, countAddress));
+        for (size_t index = 0; index < count; ++index)
+        {
+          const auto &step = steps[index];
+          const auto stepAddress = fresh();
+          line(std::format("{} =l add {}, {}", stepAddress, pointer, 16 + index * 16));
+          const auto payloadAddress = fresh();
+          line(std::format("{} =l add {}, 8", payloadAddress, stepAddress));
+          if (step.kind == flowir::PlaceStep::Kind::Member)
+          {
+            line(std::format("storel 0, {}", stepAddress));
+            line(std::format("storel {}, {}", step.field, payloadAddress));
+          }
+          else
+          {
+            line(std::format("storel 1, {}", stepAddress));
+            line(std::format("storel {}, {}", operandTemp(step.indexValue), payloadAddress));
+          }
+        }
+        return pointer;
+      }
+
       /// Array/tuple literal: allocates a { len, cap, elements } object and
       /// stores the elements (doubles are bit-cast into `l` slots).
       void lowerAggregateLiteral(const Instruction &instruction)
@@ -1301,7 +1376,7 @@ namespace NG::native
     return FunctionLowerer{function, names, ngrt}.run();
   }
 
-  auto lowerModule(const std::vector<Function> &functions) -> std::string
+  auto lowerModule(const std::vector<Function> &functions, const VtableMap &vtables) -> std::string
   {
     FunctionNames names;
     for (const auto &function : functions) names.emplace(function.source.value, function.name);
@@ -1326,6 +1401,35 @@ namespace NG::native
     };
     for (const auto &name : ngrt.usedHelpers) addHelper(name);
     for (const auto &name : helpersToEmit) result += ngrtHelpers().at(name) + '\n';
+    // Trait dispatch: per-(trait, concrete) vtable data plus a linear
+    // key -> vtable lookup (keys are sorted for deterministic output).
+    if (ngrt.needsTraitDispatch)
+    {
+      std::vector<uint64_t> keys;
+      for (const auto &[key, methods] : vtables) keys.push_back(key);
+      std::sort(keys.begin(), keys.end());
+      for (const auto key : keys)
+      {
+        result += std::format("data $ngvtab_{} = {{ ", key);
+        const auto &methods = vtables.at(key);
+        for (size_t index = 0; index < methods.size(); ++index)
+        {
+          if (index != 0) result += ", ";
+          result += std::format("l {}", qbeSymbol(names.at(methods[index]), methods[index]));
+        }
+        result += " }\n";
+      }
+      result += "function l $ngrt_trait_vtable(l %key) {\n@start\n";
+      for (size_t index = 0; index < keys.size(); ++index)
+      {
+        const auto key = keys[index];
+        result += std::format("\t%k{} =w ceql %key, {}\n", index, key);
+        result += std::format("\tjnz %k{}, @hit{}, @next{}\n", index, index, index);
+        result += std::format("@hit{}\n\tret $ngvtab_{}\n", index, key);
+        result += std::format("@next{}\n", index);
+      }
+      result += "\thlt\n}\n";
+    }
     return result;
   }
 } // namespace NG::native
