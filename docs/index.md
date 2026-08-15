@@ -28,8 +28,8 @@ features:
     title: Safe by Default
     details: Prevents null pointer dereferences, buffer overflows, and use-after-move errors at compile time.
   - icon: ⚡
-    title: Dual Backend
-    details: Run via the AST interpreter (STUPID) for rapid development, or compile to efficient ORGASM bytecode for production.
+    title: One Clean Pipeline
+    details: Lexer → Parser → Resolver → Type Checker → FlowIR → Bytecode → VM — one implementation, no duplicated semantics.
   - icon: 🔧
     title: Compile-Time Metaprogramming
     details: Const if, const predicates, const functions, and type specialization — compute at compile time, not at runtime.
@@ -46,6 +46,6 @@ features:
     title: Module System
     details: Export/import visibility, clean namespace management. Every file is a module.
   - icon: 🚀
-    title: ORGASM VM
-    details: Type-preserving bytecode format with a high-performance VM. Compile once, run anywhere.
+    title: Verified Bytecode VM
+    details: Versioned, verified bytecode with per-run fuel budgets, trait-view dispatch tables, and re-entrant compilation (`runNgi`).
 ---

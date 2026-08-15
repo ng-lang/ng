@@ -1,131 +1,86 @@
 # NG Internals
 
-This document provides a detailed overview of the internal implementation of the NG programming language.
+The NG implementation is a single clean pipeline:
 
-## 1. Compiler Pipeline
+**Lexer → Parser (syntax AST) → Resolver (HIR) → Type Checker → FlowIR →
+Bytecode → VM**
 
-The NG compiler follows a traditional pipeline to process source code and execute it.
+All source lives in `src/` with public headers in `include/`; the
+`ngi`/`ngi_imgui` frontends drive the pipeline from `src/driver.cpp`.
 
-1.  **Lexical Analysis:** The source code is scanned and converted into a stream of tokens.
-2.  **Parsing:** The token stream is parsed to build an Abstract Syntax Tree (AST).
-3.  **Type Checking:** The AST is traversed to perform type checking and inference.
-4.  **Interpretation:** The AST is directly executed by the interpreter.
+## 1. Syntax — `src/syntax/`
 
-## 2. Lexer
+- `parser.cpp` lexes the full source into spanned tokens (strings are
+  unescaped at lex time, numeric suffixes preserved) and parses
+  expressions; `module_parser.cpp` handles module items (`fun`, `struct`,
+  `enum`, `trait`, `impl`, `const`, `type`, `import`, `export`, `native`);
+  `block_parser.cpp` handles statements; `type_parser.cpp` handles type
+  syntax; `const_expr.cpp` handles const-expression parsing.
+- The syntax AST (`include/syntax/ast.hpp`) is immutable and carries
+  source spans everywhere; semantic facts never live on syntax nodes.
 
-The lexer is responsible for converting the source code into a sequence of tokens. It is implemented in `src/parsing/Lexer.cpp`.
+## 2. Resolver — `src/hir.cpp`
 
-The lexer maintains a `LexState` struct, which keeps track of the current position in the source code.
+`hir::Resolver` turns a syntax unit into an immutable `hir::Module`:
+functions, structs, enums, traits, impls, const declarations, and opaque
+types, with local ids and name scopes. Module loading
+(`src/module_loader.cpp`) walks the transitive import graph, computes
+per-module visible-name sets (exports, selective imports, transitive
+re-export), and resolves `lib/std` imports.
 
-```cpp
-struct LexState
-{
-    Str source;
-    size_t size;
-    size_t index;
-    size_t line;
-    size_t col;
-    // ...
-};
-```
+## 3. Type checker — `src/typecheck.cpp` + `src/type_interner.cpp`
 
-The `Lexer::lex()` method iterates through the source code and produces a `std::vector<Token>`.
+`typecheck::TypeChecker{}.check(module)` returns a `TypeCheckResult` of
+side tables keyed by HIR node pointers — no AST mutation:
 
-## 3. Parser
+- expression types / expected types (`infer` / `inferExpected`)
+- call targets, fold/spread positions, trait-view calls and coercions
+- monomorphized instances (generic functions cloned, renumbered, and
+  re-checked per concrete argument set, deduplicated by key)
+- ownership: affine move/clone tracking, field-aware partial moves, drop
+  edges, and borrow loans with non-lexical release
+- trait/impl resolution, generic impl pattern matching, view tables
+- const evaluation via the const interpreter and const-capable hosts
 
-The parser takes the token stream from the lexer and builds an AST. The parser is implemented in `src/parsing/ParserImpl.cpp`.
+Types are interned `TypeId`s over descriptors (`TypeInterner`), which also
+handles two-phase recursive enum instantiation and type constructors.
 
-It uses a recursive descent parsing strategy to parse the language grammar. The `ParserImpl` class contains methods for parsing different parts of the grammar, such as `funDef()`, `statement()`, and `expression()`.
+## 4. FlowIR — `src/flowir.cpp`
 
-## 4. Abstract Syntax Tree (AST)
+The lowerer produces per-function CFGs with block parameters:
+fold/map-comprehension loops, drop calls on scope exits, trait-view
+construction/dispatch, switch lowering (variant dispatch and literal
+equality chains), and array spreads/appends. `flowir::Verifier` checks
+each block (terminators, operand/result types).
 
-The AST is a tree representation of the source code. The base class for all AST nodes is `ASTNode`, defined in `include/ast.hpp`.
+## 5. Bytecode — `src/bytecode.cpp` + `src/bytecode/artifact.cpp`
 
-```cpp
-struct ASTNode : NonCopyable
-{
-    virtual void accept(AstVisitor *visitor) = 0;
-    virtual auto astNodeType() const -> ASTNodeType = 0;
-    // ...
-};
-```
+`bytecode::ModuleCompiler` lowers verified FlowIR into a `Module` of
+functions with local type metadata; one opcode descriptor table drives
+encoding, decoding, verification, and disassembly. `ArtifactCodec`
+serializes modules (versioned magic, string constants, type descriptors,
+vtables) to bytes and back.
 
-NG uses the visitor pattern to traverse the AST. The `AstVisitor` interface defines a `visit` method for each type of AST node.
+## 6. VM — `src/vm.cpp` + `src/vm/value_ops.cpp`
 
-## 5. Type Checker
+The interpreter executes decoded bytecode with a per-run instruction
+budget (`--fuel 0` lifts it). Values (`NG::Value`) are
+int64/double/string/array/tuple/struct/enum/reference/trait-view/opaque/
+range variants; aggregate copies are deep. Native dispatch looks up
+registered hosts by function name; `runNgi` re-enters the whole pipeline
+from a running program.
 
-The type checker traverses the AST and verifies that the program is well-typed. The type checker is implemented in `src/typecheck/typecheck.cpp`.
+## 7. Driver and hosts — `src/driver.cpp`
 
-It uses a `TypeChecker` class, which is an `AstVisitor`, to visit each node in the AST and infer its type. The type information is stored in a `TypeIndex`, which is a map from variable names to `TypeInfo` objects.
+The driver parses CLI arguments (`--expr`, `--source`, file mode,
+`--fuel`), loads/compiles the module, registers the core natives
+(string/io/seq/memory, `runNgi`, `regexMatch`), and runs `main`. The
+const-capable host set (pure string ops) is registered for compile-time
+evaluation. `ngi_imgui` adds the imgui binding
+(`src/imgui_natives.cpp`, SDL3 GPU backend).
 
-## 6. Interpreter
+## 8. Testing
 
-The interpreter executes the AST directly. The main interpreter logic is in `src/intp/stupid.cpp`.
-
-The `Interpreter` class is also an `AstVisitor`. It traverses the AST and executes the code for each node.
-
-### Runtime Environment
-
-The runtime environment consists of the following components:
-
-*   **`RuntimeSymbolTable` + `CallFrame`:** Global definitions live in the shared symbol table, while active locals/parameters/receiver state lives in explicit `StorageCell` slots.
-*   **`NGObject`:** A historical object-carrier name; runtime values are represented by storage cells and type/layout metadata rather than boxed object instances.
-*   **`NGType`:** Represents runtime type metadata, including layout and cell-native protocol handlers.
-*   **`NGModule`:** Represents module state through a module-typed storage cell with symbol slots and native state.
-
-### Memory Management
-
-NG uses `std::shared_ptr` for storage cells and managed heap references. Heap values are cloned into `StorageCell` instances and traced from symbol tables, call frames, module slots, and registered GC roots.
-
-## 7. Foreign Function Interface (FFI)
-
-NG provides a native-function mechanism so NG declarations can be implemented in host code. On the NG side, the declaration surface remains:
-
-```ng
-fun my_native_function(arg: i32) -> unit = native;
-```
-
-### Current implementation
-
-Today, native functions are wired through the newer runtime env model:
-
-- runtime/native callables use `NGCallable = std::function<RuntimeRef<StorageCell>(NGSelf, NGEnv, NGArgs)>`
-- env-scoped runtime metadata (for example bound native module identity and slot-backed native args) flows through `RuntimeEnv`
-- native arguments can be read through `NativeArgsView`, which can expose canonical `StorageCell` slots when available
-- runtime native libraries are registered through `register_native_library(...)` / `bind_native_library_handlers(...)`
-- ORGASM VM natives are adapted through `wrap_native(...)` into the raw VM native bridge (`RuntimeRef<StorageCell>(Vec<RuntimeRef<StorageCell>>)`)
-- ORGASM bytecode-to-bytecode calls are slot-first internally (`execute_slots(...)`), so native adaptation stays on direct cell/handle semantics
-
-The remaining cleanup is no longer about `NGContext` or boxed object carriers; it is about keeping native boundaries aligned with direct cell/handle semantics.
-
-### Planned direction
-
-As the runtime moves to explicit object layouts, storage cells, and call frames, native FFI should move with it.
-
-The intended direction is:
-
-1. **Keep `= native` as the language-level declaration syntax.**
-2. **Replace the host-side default API** so native functions are registered through a shared callable descriptor and direct signature mapping instead of raw `NGInvocable(self, ctx, invCtx)` callbacks.
-3. **Use the same logical ABI** for interpreted functions, ORGASM functions, and native host functions:
-   - receiver slot
-   - parameter slots
-   - return slot
-   - layout metadata for aggregates
-4. **Keep a low-level raw escape hatch**, but make it an explicit advanced API rather than the default for stdlib/native bindings.
-
-In other words, the current split is:
-
-- **done:** runtime env + `NativeArgsView`, slot-backed STUPID frames, slot-backed ORGASM internal calls
-- **remaining:** host/native handle wrappers and a truly shared host-facing ABI for stdlib + VM native registration
-
-### Target host mapping
-
-The target FFI layer should support direct or near-1:1 mapping for the runtime categories that have stable layouts:
-
-- builtin numerics and `bool`
-- `unit` / `void`
-- string/string-view style host types
-- `ref<T>` as an explicit host-side reference/cell handle
-- layout-backed tuple/array/object/tagged-union views or handles
-
-This is especially important for the standard library, because stdlib native functions should eventually be implemented once and reused by STUPID, ORGASM, and future native code generation without adapter shims.
+`test/*.cpp` are Catch2 suites per feature area; `test/examples_sweep_test.cpp`
+runs every example end to end. `./build/ng_test` must be green before
+each commit.
