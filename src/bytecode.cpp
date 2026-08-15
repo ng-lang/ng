@@ -25,6 +25,8 @@ namespace NG::bytecode
         OpcodeDescriptor{Opcode::ArrayLength, "array_length", OperandLayout::Fixed, 2},
         OpcodeDescriptor{Opcode::AppendArray, "append_array", OperandLayout::Fixed, 3},
         OpcodeDescriptor{Opcode::RangeStart, "range_start", OperandLayout::Fixed, 2},
+        OpcodeDescriptor{Opcode::EnumListLength, "enum_list_length", OperandLayout::Fixed, 2},
+        OpcodeDescriptor{Opcode::EnumListGet, "enum_list_get", OperandLayout::Fixed, 3},
         OpcodeDescriptor{Opcode::MakeTraitView, "make_trait_view", OperandLayout::CountPrefixedTail, 5},
         OpcodeDescriptor{Opcode::CallTrait, "call_trait", OperandLayout::CountPrefixedTail, 3},
         OpcodeDescriptor{Opcode::Return, "return", OperandLayout::CountPrefixedTail, 0},
@@ -192,6 +194,15 @@ namespace NG::bytecode
         else if (instruction.kind == flowir::InstructionKind::AppendArray)
         {
           appendInstruction(result.code, Opcode::AppendArray,
+                            {instruction.result.value, instruction.operands[0].value, instruction.operands[1].value});
+        }
+        else if (instruction.kind == flowir::InstructionKind::EnumListLength)
+        {
+          appendInstruction(result.code, Opcode::EnumListLength, {instruction.result.value, instruction.source->value});
+        }
+        else if (instruction.kind == flowir::InstructionKind::EnumListGet)
+        {
+          appendInstruction(result.code, Opcode::EnumListGet,
                             {instruction.result.value, instruction.operands[0].value, instruction.operands[1].value});
         }
         else if (instruction.kind == flowir::InstructionKind::Slice)
@@ -776,6 +787,40 @@ namespace NG::bytecode
             throw BytecodeError("bytecode array length source is not an array or range");
           if (requireValueType(instruction.operands[0]) != typecheck::builtin::I64)
             throw BytecodeError("bytecode array length result is not i64");
+        }
+        else if (instruction.opcode == Opcode::EnumListLength)
+        {
+          if (requireValueType(instruction.operands[0]) != typecheck::builtin::I64)
+            throw BytecodeError("bytecode enum list length result is not i64");
+          const auto sourceType = requireValueType(instruction.operands[1]);
+          if (sourceType.value >= function.typeDescriptors.size())
+            throw BytecodeError("bytecode value type descriptor is out of range");
+          if (function.typeDescriptors[sourceType.value].kind != typecheck::TypeKind::Enum)
+            throw BytecodeError("bytecode enum list length source is not an enum");
+        }
+        else if (instruction.opcode == Opcode::EnumListGet)
+        {
+          const auto sourceType = requireValueType(instruction.operands[1]);
+          if (sourceType.value >= function.typeDescriptors.size())
+            throw BytecodeError("bytecode value type descriptor is out of range");
+          const auto &descriptor = function.typeDescriptors[sourceType.value];
+          if (descriptor.kind != typecheck::TypeKind::Enum)
+            throw BytecodeError("bytecode enum list get source is not an enum");
+          typecheck::TypeId element{};
+          for (const auto payload : descriptor.elements)
+          {
+            if (payload.value >= function.typeDescriptors.size()) continue;
+            const auto &payloadDescriptor = function.typeDescriptors[payload.value];
+            if (payloadDescriptor.kind == typecheck::TypeKind::Tuple && payloadDescriptor.elements.size() == 2 &&
+                payloadDescriptor.elements[1].value < function.typeDescriptors.size() &&
+                function.typeDescriptors[payloadDescriptor.elements[1].value].kind == typecheck::TypeKind::Reference)
+              element = payloadDescriptor.elements[0];
+          }
+          if (element.value == 0) throw BytecodeError("bytecode enum list get source is not a recursive list");
+          if (requireValueType(instruction.operands[2]) != typecheck::builtin::I64)
+            throw BytecodeError("bytecode enum list get index is not i64");
+          if (requireValueType(instruction.operands[0]) != element)
+            throw BytecodeError("bytecode enum list get result type mismatch");
         }
         else if (instruction.opcode == Opcode::AppendArray)
         {

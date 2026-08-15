@@ -131,6 +131,8 @@ namespace NG::vm
         values[instruction.operands[0]].asArrayMut().push_back(values.at(instruction.operands[2]).deepCopy());
         break;
       }
+      case bytecode::Opcode::EnumListLength: detail::enumListLengthInstruction(instruction, values); break;
+      case bytecode::Opcode::EnumListGet: detail::enumListGetInstruction(instruction, values); break;
       case bytecode::Opcode::Slice:
       {
         const auto &receiver = values.at(instruction.operands[1]);
@@ -333,6 +335,16 @@ namespace NG::vm
         // Deep-copy the source so appending never aliases the receiver.
         frame.values[instruction.operands[0]] = frame.values.at(instruction.operands[1]).deepCopy();
         frame.values[instruction.operands[0]].asArrayMut().push_back(frame.values.at(instruction.operands[2]).deepCopy());
+        continue;
+      }
+      if (instruction.opcode == bytecode::Opcode::EnumListLength)
+      {
+        detail::enumListLengthInstruction(instruction, frame.values);
+        continue;
+      }
+      if (instruction.opcode == bytecode::Opcode::EnumListGet)
+      {
+        detail::enumListGetInstruction(instruction, frame.values);
         continue;
       }
       if (instruction.opcode == bytecode::Opcode::Slice)

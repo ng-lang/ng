@@ -216,6 +216,58 @@ namespace NG::vm::detail
     values[result] = payload.empty() ? Value{} : payload.front().deepCopy();
   }
 
+  namespace
+  {
+    /// Walks a recursive-list enum chain: a Cons cell is an enum value whose
+    /// payload is a single tuple `(head, ref tail)`. Returns the next node,
+    /// or null when the walk ends (Nil or a malformed/foreign value).
+    auto nextListCell(const Value &node) -> const Value *
+    {
+      if (!node.isEnum()) return nullptr;
+      const auto &payload = node.asEnumPayload();
+      if (payload.empty() || !payload.front().isTuple()) return nullptr;
+      const auto &tuple = payload.front().asTuple();
+      if (tuple.size() < 2 || !tuple[1].isReference()) return nullptr;
+      return tuple[1].asReference().root.get();
+    }
+  } // namespace
+
+  void enumListLengthInstruction(const bytecode::DecodedInstruction &instruction, std::vector<Value> &values)
+  {
+    const uint32_t result = instruction.operands[0];
+    if (values.size() <= result) values.resize(result + 1);
+    const auto isListCell = [](const Value &node) {
+      return node.isEnum() && !node.asEnumPayload().empty() && node.asEnumPayload().front().isTuple();
+    };
+    int64_t length = 0;
+    const Value *node = &values.at(instruction.operands[1]);
+    while (node != nullptr && isListCell(*node))
+    {
+      ++length;
+      node = nextListCell(*node);
+    }
+    values[result] = Value::integer(length);
+  }
+
+  void enumListGetInstruction(const bytecode::DecodedInstruction &instruction, std::vector<Value> &values)
+  {
+    const uint32_t result = instruction.operands[0];
+    if (values.size() <= result) values.resize(result + 1);
+    const auto &indexValue = values.at(instruction.operands[2]);
+    if (!indexValue.isInteger()) throw bytecode::BytecodeError("enum list get index is not an integer");
+    int64_t index = indexValue.asInteger();
+    const Value *node = &values.at(instruction.operands[1]);
+    while (index > 0 && node != nullptr)
+    {
+      node = nextListCell(*node);
+      --index;
+    }
+    if (node == nullptr || !node->isEnum() || node->asEnumPayload().empty() || !node->asEnumPayload().front().isTuple())
+      throw bytecode::BytecodeError(std::format("enum list get index out of bounds: index {}", indexValue.asInteger()));
+    const auto &tuple = node->asEnumPayload().front().asTuple();
+    values[result] = tuple.empty() ? Value{} : tuple.front().deepCopy();
+  }
+
   void evaluateInstruction(const bytecode::DecodedInstruction &instruction, const std::vector<std::string> &stringConstants,
                            const std::unordered_map<uint32_t, typecheck::TypeId> &valueTypes, std::vector<Value> &values,
                            const LocalCells &locals)

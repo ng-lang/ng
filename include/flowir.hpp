@@ -44,8 +44,12 @@ namespace NG::flowir
     ArrayLength,
     /// Reads the start bound of a range value.
     RangeStart,
-    /// Appends an element to an array value (aliases its storage).
+    /// Appends an element to an array value (deep-copies its storage).
     AppendArray,
+    /// Walks a recursive-list enum and reports its Cons-chain length.
+    EnumListLength,
+    /// Walks a recursive-list enum and extracts the head at an index.
+    EnumListGet,
     /// Creates a trait view (`ref<Trait>`) over a place: shared root cell plus
     /// the trait/concrete type ids for dynamic dispatch.
     MakeTraitView,

@@ -69,6 +69,13 @@ let xs: List<i64> = [1, 2, 3];
 let empty: List<i64> = [];
 ```
 
+Lists spread back into array literals:
+
+```ng
+let flat = [...xs];          // [1, 2, 3]
+let mixed = [0, ...xs, 9];
+```
+
 ## Tuples
 
 ```ng

@@ -3012,12 +3012,30 @@ namespace NG::typecheck
                                          sourceDescriptor.kind == TypeKind::FixedArray ||
                                          sourceDescriptor.kind == TypeKind::DependentArray;
                 const bool rangeSource = sourceDescriptor.kind == TypeKind::Range;
-                if (!arraySource && !rangeSource)
+                bool listSource = false;
+                TypeId listElement{};
+                if (sourceDescriptor.kind == TypeKind::Enum)
+                {
+                  // Recursive-list enums spread their Cons heads
+                  // (`[...items]`, legacy 59).
+                  for (const auto payload : sourceDescriptor.elements)
+                  {
+                    const auto &payloadDescriptor = interner_.descriptor(payload);
+                    if (payloadDescriptor.kind == TypeKind::Tuple && payloadDescriptor.elements.size() == 2 &&
+                        interner_.descriptor(payloadDescriptor.elements[1]).kind == TypeKind::Reference &&
+                        interner_.descriptor(payloadDescriptor.elements[1]).element == source)
+                    {
+                      listSource = true;
+                      listElement = payloadDescriptor.elements[0];
+                    }
+                  }
+                }
+                if (!arraySource && !rangeSource && !listSource)
                   throw TypeError(std::format("cannot spread value of type {}", interner_.display(source)),
                                   candidate->span);
                 if (rangeSource && sourceDescriptor.element != builtin::I64)
                   throw TypeError("spreading ranges currently requires i64 elements", candidate->span);
-                const TypeId sourceElement = sourceDescriptor.element;
+                const TypeId sourceElement = listSource ? listElement : sourceDescriptor.element;
                 if (element.value == 0) element = sourceElement;
                 else requireType(element, sourceElement, candidate->span, "array spread");
                 continue;

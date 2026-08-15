@@ -563,10 +563,15 @@ namespace NG::flowir
                                                    .result = empty,
                                                    .expressionKind = hir::ExpressionKind::ArrayLiteral,
                                                    .operands = std::move(leading)});
+        const bool listSource = types_ != nullptr &&
+                                 types_->typeDescriptors.at(types_->typeIdOf(sourceExpr).value).kind ==
+                                     typecheck::TypeKind::Enum;
         const ValueId length{nextValue_++};
         if (types_ != nullptr) function_.valueTypes.emplace(length.value, typecheck::builtin::I64);
-        block().instructions.push_back(
-            Instruction{.kind = InstructionKind::ArrayLength, .result = length, .source = source});
+        block().instructions.push_back(Instruction{.kind = listSource ? InstructionKind::EnumListLength
+                                                                      : InstructionKind::ArrayLength,
+                                                   .result = length,
+                                                   .source = source});
 
         const hir::LocalId indexLocal{nextSyntheticLocal_++};
         const hir::LocalId resultLocal{nextSyntheticLocal_++};
@@ -629,6 +634,23 @@ namespace NG::flowir
                                                      .text = "+",
                                                      .payload = 1,
                                                      .operands = {start, indexRead}});
+        }
+        else if (listSource)
+        {
+          if (types_ != nullptr)
+          {
+            const auto &sourceDescriptor = types_->typeDescriptors.at(types_->typeIdOf(sourceExpr).value);
+            for (const auto payload : sourceDescriptor.elements)
+            {
+              const auto &payloadDescriptor = types_->typeDescriptors.at(payload.value);
+              if (payloadDescriptor.kind == typecheck::TypeKind::Tuple && payloadDescriptor.elements.size() == 2 &&
+                  types_->typeDescriptors.at(payloadDescriptor.elements[1].value).kind == typecheck::TypeKind::Reference)
+                function_.valueTypes.emplace(element.value, payloadDescriptor.elements[0]);
+            }
+          }
+          block().instructions.push_back(Instruction{.kind = InstructionKind::EnumListGet,
+                                                     .result = element,
+                                                     .operands = {source, indexRead}});
         }
         else
         {

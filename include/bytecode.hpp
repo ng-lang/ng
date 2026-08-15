@@ -27,6 +27,8 @@ namespace NG::bytecode
     ArrayLength,
     AppendArray,
     RangeStart,
+    EnumListLength,
+    EnumListGet,
     MakeTraitView,
     CallTrait,
     Return,

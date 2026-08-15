@@ -142,6 +142,7 @@ TEST_CASE("vNext redesigned stdlib examples run end to end through ngi", "[vNext
            {"example/std_list.ng", "with value 15"},
            {"example/list_builders.ng", "main returned"},
            {"example/list_literals.ng", "main returned"},
+           {"example/list_spread.ng", "main returned"},
            {"example/heap_box.ng", "with value 12"},
            {"example/std_seq.ng", "with value 7"}})
   {
@@ -171,4 +172,26 @@ TEST_CASE("vNext list collection literals build recursive lists in order", "[vNe
   std::string errors;
   REQUIRE(run("import list; fun main() { let xs: List<i64> = [\"a\"]; }", output, errors) == 1);
   REQUIRE_THAT(errors, ContainsSubstring("list element"));
+}
+
+TEST_CASE("vNext list spreads splice Cons heads into array literals", "[vNext][Stdlib][Runtime]")
+{
+  expectValue("import list; fun main() -> i64 { "
+              "let items = listFrom([10, 32]); "
+              "let flat = [...items]; "
+              "let mixed = [0, ...items, 9]; "
+              "let empty: List<i64> = []; let none = [...empty]; "
+              "let mut total = 0; "
+              "if (flat[0] == 10 && flat[1] == 32) { total := total + 1; } "
+              "if (mixed[0] == 0 && mixed[2] == 32 && mixed[3] == 9) { total := total + 2; } "
+              "if (len(none) == 0) { total := total + 4; } "
+              "return total; }",
+              "7");
+
+  std::string output;
+  std::string errors;
+  REQUIRE(run("import list; enum Shape { Circle(r: f64), Point } "
+              "fun main() { let s: Shape = Shape.Circle(1.0); let bad = [...s]; }",
+              output, errors) == 1);
+  REQUIRE_THAT(errors, ContainsSubstring("cannot spread value of type Shape"));
 }

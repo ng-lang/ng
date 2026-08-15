@@ -31,5 +31,7 @@ namespace NG::vm::detail
   void assignPlaceInstruction(const bytecode::DecodedInstruction &instruction, std::vector<Value> &values,
                               const LocalCells &locals);
   void loadVariantInstruction(const bytecode::DecodedInstruction &instruction, std::vector<Value> &values);
+  void enumListLengthInstruction(const bytecode::DecodedInstruction &instruction, std::vector<Value> &values);
+  void enumListGetInstruction(const bytecode::DecodedInstruction &instruction, std::vector<Value> &values);
   void extractPayloadInstruction(const bytecode::DecodedInstruction &instruction, std::vector<Value> &values);
 } // namespace NG::vm::detail
