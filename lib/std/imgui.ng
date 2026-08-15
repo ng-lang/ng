@@ -1,0 +1,44 @@
+// vNext std.imgui (redesign): a minimal Dear ImGui binding over the SDL3 GPU
+// backend. Every function is a `native fun` registered by the `ngi_imgui`
+// frontend; running them under plain `ngi` reports an unregistered native.
+//
+// The NG program drives the frame loop itself:
+//
+//     imguiInit();
+//     loop (frame = 0) {
+//         imguiEventLoop();
+//         imguiNewFrame();
+//         // ... declare windows and widgets ...
+//         imguiRender();
+//         if (not(imguiAborted())) { next (frame + 1); }
+//     }
+//     imguiCleanup();
+
+export native fun imguiInit() -> unit;
+export native fun imguiCleanup() -> unit;
+export native fun imguiEventLoop() -> unit;
+export native fun imguiNewFrame() -> unit;
+export native fun imguiRender() -> unit;
+export native fun imguiAborted() -> bool;
+
+// Windows.
+export native fun imguiBegin(title: string) -> bool;
+export native fun imguiEnd() -> unit;
+export native fun imguiSetNextWindowSize(width: f32, height: f32) -> unit;
+export native fun imguiBeginChild(id: string, width: f32, height: f32) -> bool;
+export native fun imguiEndChild() -> unit;
+
+// Layout and text.
+export native fun imguiText(text: string) -> unit;
+export native fun imguiTextWrapped(text: string) -> unit;
+export native fun imguiSeparator() -> unit;
+
+// Widgets.
+export native fun imguiButton(label: string) -> bool;
+export native fun imguiCheckbox(label: string, checked: bool) -> bool;
+export native fun imguiInputTextMultiline(label: string, value: string, width: f32, height: f32) -> string;
+
+// Style and queries.
+export native fun imguiStyleColorsDark() -> unit;
+export native fun imguiStyleColorsLight() -> unit;
+export native fun imguiGetTime() -> f64;

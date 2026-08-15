@@ -107,3 +107,30 @@ TEST_CASE("vNext ngi driver provides deterministic command-line diagnostics", "[
   REQUIRE(output.empty());
   REQUIRE(errors == "--expr requires exactly one expression argument\n");
 }
+
+TEST_CASE("vNext ngi driver lifts the fuel budget with --fuel 0", "[vNext][Driver][Fuel]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(run({"--source", "fun main() -> unit { loop (i = 0) { if (i == 9) { return; } next (i + 1); } }", "--fuel", "0"},
+              output, errors) == 0);
+  REQUIRE_THAT(output, ContainsSubstring("main returned"));
+  REQUIRE(errors.empty());
+}
+
+TEST_CASE("vNext ngi driver exhausts a small fuel budget", "[vNext][Driver][Fuel]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(run({"--source", "fun main() -> unit { loop (i = 0) { next (i + 1); } }", "--fuel", "3"}, output, errors) == 0);
+  REQUIRE_THAT(output, ContainsSubstring("exhausted fuel"));
+  REQUIRE(errors.empty());
+}
+
+TEST_CASE("vNext ngi driver rejects malformed --fuel values", "[vNext][Driver][Fuel]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(run({"--source", "fun main() { let x = 1; x }", "--fuel", "many"}, output, errors) == 1);
+  REQUIRE_THAT(errors, ContainsSubstring("invalid --fuel value `many`"));
+}

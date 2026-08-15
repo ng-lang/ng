@@ -60,7 +60,7 @@ namespace NG::vm
       return blockInstruction(target);
     };
 
-    while (executed < fuel)
+    while (fuel == 0 || executed < fuel)
     {
       const auto &instruction = instructions.at(programCounter++);
       ++executed;
@@ -253,7 +253,7 @@ namespace NG::vm
     frames.push_back(makeFrame(entry.value, arguments, std::nullopt));
     size_t executed{};
     size_t tailRecursions{};
-    while (executed < fuel)
+    while (fuel == 0 || executed < fuel)
     {
       auto &frame = frames.back();
       const auto &preparedFunction = prepared.at(frame.functionIndex);

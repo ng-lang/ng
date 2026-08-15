@@ -1,0 +1,66 @@
+// NG IDE: a minimal editor-and-runner built on the std.imgui binding.
+//
+// Run with:
+//   ./build/ngi_imgui example/ng_ide.ng --fuel 0
+//
+// The editor text runs through the real NG pipeline (parse -> resolve ->
+// typecheck -> FlowIR -> bytecode -> VM) via the `runNgi` native from
+// std.prelude, and the captured output is shown in the output panel.
+
+import prelude;
+import imgui;
+
+fun main() -> unit {
+    let mut source = "fun main() -> i64 {\n    return 42;\n}\n";
+    let mut output = "NG IDE ready. Edit the source, then press Run.";
+    let mut dark = false;
+
+    imguiInit();
+    imguiStyleColorsLight();
+
+    loop (frame = 0) {
+        imguiEventLoop();
+        imguiNewFrame();
+
+        imguiSetNextWindowSize(1100.0, 720.0);
+        imguiBegin("NG IDE");
+
+        imguiTextWrapped("NG IDE: the editor below runs through the NG compiler and VM. Press Run to execute the source.");
+
+        if (imguiButton("Run")) {
+            output := runNgi(source);
+        }
+        if (imguiButton("Reset")) {
+            source := "fun main() -> i64 {\n    return 42;\n}\n";
+            output := "Source reset.";
+        }
+        if (imguiCheckbox("Dark theme", dark)) {
+            dark := true;
+            imguiStyleColorsDark();
+        } else {
+            dark := false;
+            imguiStyleColorsLight();
+        }
+
+        imguiSeparator();
+        imguiTextWrapped("Source (fun main() -> i64 { return 42; })");
+        imguiBeginChild("editor", 0.0, 380.0);
+        source := imguiInputTextMultiline("##source", source, 0.0, 360.0);
+        imguiEndChild();
+
+        imguiSeparator();
+        imguiTextWrapped("Output");
+        imguiBeginChild("output", 0.0, 170.0);
+        imguiTextWrapped(output);
+        imguiEndChild();
+
+        imguiEnd();
+        imguiRender();
+
+        if (not(imguiAborted())) {
+            next (frame + 1);
+        }
+    }
+
+    imguiCleanup();
+}

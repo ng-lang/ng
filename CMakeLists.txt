@@ -16,7 +16,15 @@ endif()
 
 project(ng)
 
+if(DEFINED ENV{RUNNING_ON_GITHUB})
+set(SDL_UNIX_CONSOLE_BUILD ON)
+endif()
+
+set(SDL_STATIC ON CACHE BOOL "Build SDL as a static library." FORCE)
+
 add_subdirectory(vendored/Catch2@v3.8.1 EXCLUDE_FROM_ALL)
+add_subdirectory(vendored/SDL@release-3.2.22 EXCLUDE_FROM_ALL)
+add_subdirectory(vendored/imgui)
 
 Include(CTest)
 Include(Catch)
@@ -56,6 +64,19 @@ elseif (DEFINED ENV{RUNNING_ON_GITHUB} AND CMAKE_CXX_COMPILER_ID MATCHES "Clang"
 target_link_options(ngi PRIVATE -fprofile-instr-generate -fcoverage-mapping)
 endif()
 # endregion ngi
+
+
+# region ngi_imgui
+
+# `ngi_imgui` is the same frontend plus the imgui native binding
+# (`lib/std/imgui.ng`), powering the NG IDE example.
+add_library(ng_imgui STATIC src/imgui_natives.cpp)
+target_link_libraries(ng_imgui PUBLIC ng imgui)
+target_include_directories(ng_imgui PUBLIC include)
+
+add_executable(ngi_imgui src/imgui_main.cpp)
+target_link_libraries(ngi_imgui PRIVATE ng_imgui)
+# endregion ngi_imgui
 
 
 # region ng_test

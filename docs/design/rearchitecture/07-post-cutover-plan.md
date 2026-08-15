@@ -32,6 +32,12 @@ repository. The state at cutover:
   (`./build/ng_test`) is the only green gate (1425 assertions / 386 test cases
   passing at cutover).
 - **Docs:** `AGENTS.md` rewritten for the vNext-only structure.
+- **Host-boundary validation:** after the cutover the imgui corpus was
+  re-implemented on the promoted pipeline — a redesigned Dear ImGui binding
+  (`lib/std/imgui.ng`, SDL3 GPU backend, `ngi_imgui` frontend), a self-hosting
+  `runNgi` native, an unlimited-fuel `--fuel 0` mode, and a minimal NG IDE
+  (`example/ng_ide.ng`) — proving `native fun`, opaque handles, re-entrant
+  compilation, and interactive loops end to end (matrix row 14).
 
 ## 2. How to read this plan
 

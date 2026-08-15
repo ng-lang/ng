@@ -48,6 +48,23 @@ namespace NG::modules
       std::vector<std::pair<uint32_t, std::vector<std::string>>> imports;
     };
 
+    /// Resolves an import name against the importer's directory first, then
+    /// walks `lib/std` search paths from the working directory upward so both
+    /// repo-root and build-directory invocations find the stdlib.
+    [[nodiscard]] auto resolveImportPath(const std::string &name, const std::filesystem::path &baseDirectory)
+        -> std::filesystem::path
+    {
+      const auto direct = baseDirectory / (name + ".ng");
+      if (std::filesystem::exists(direct)) return direct;
+      for (auto directory = std::filesystem::current_path();; directory = directory.parent_path())
+      {
+        const auto candidate = directory / "lib" / "std" / (name + ".ng");
+        if (std::filesystem::exists(candidate)) return candidate;
+        if (!directory.has_parent_path() || directory.parent_path() == directory) break;
+      }
+      return std::filesystem::current_path() / "lib" / "std" / (name + ".ng");
+    }
+
     /// Loads a module file into `modules`, recursing through imports. Returns
     /// the assigned module index.
     auto collectModuleFile(const std::filesystem::path &path, std::vector<CollectedModule> &modules,
@@ -66,9 +83,7 @@ namespace NG::modules
       {
         if (const auto *import = dynamic_cast<const syntax::ImportDeclaration *>(item.get()); import != nullptr)
         {
-          const auto direct = canonical.parent_path() / (import->name + ".ng");
-          const auto fallback = std::filesystem::current_path() / "lib" / "std" / (import->name + ".ng");
-          const auto resolved = std::filesystem::exists(direct) ? direct : fallback;
+          const auto resolved = resolveImportPath(import->name, canonical.parent_path());
           const uint32_t imported = self(self, resolved);
           modules[index].imports.push_back({imported, import->names});
           continue;
@@ -97,9 +112,7 @@ namespace NG::modules
       {
         if (const auto *import = dynamic_cast<const syntax::ImportDeclaration *>(item.get()); import != nullptr)
         {
-          const auto direct = baseDirectory / (import->name + ".ng");
-          const auto fallback = std::filesystem::current_path() / "lib" / "std" / (import->name + ".ng");
-          const auto resolved = std::filesystem::exists(direct) ? direct : fallback;
+          const auto resolved = resolveImportPath(import->name, baseDirectory);
           const uint32_t imported = self(self, resolved);
           modules.front().imports.push_back({imported, import->names});
           continue;
