@@ -1,177 +1,71 @@
 # Type System in Depth
 
-NG's type system combines nominal typing, structural typing, and powerful inference. This chapter explores advanced type system features.
+Type kinds, inference, numeric rules, and opaque types.
 
-## Type Inference
+## Type kinds
 
-NG infers types in most contexts without explicit annotations:
+Types are interned canonical `TypeId`s over descriptors:
 
-```ng
-val x = 42;                 // x: i32
-val y = 3.14;               // y: f32
-val z = [1, 2, 3];          // z: [i32]
-```
+- **Builtins** — `i8`–`i64`, `u8`–`u64`, `f32`, `f64`, `bool`, `string`,
+  `unit`
+- **Arrays** — dynamic `array<T>`, fixed `array<T, N>` (N is a const
+  parameter), dependent arrays in const-generic signatures
+- **Tuples** — heterogeneous products
+- **Structs / enums** — nominal types, per-instantiation for generics
+- **References** — `T ref`, `T ref mut` (non-returnable views)
+- **Raw pointers** — `T *const` / `T *mut` behind the unsafe boundary
+- **Ranges** — `range<T>`
+- **Unions** — `A | B` annotations
+- **Trait references** — `ref<Trait>` dynamic views
+- **Type parameters / constructors / applications** — generics and HKT
+- **Opaque** — `type X = native;` handles and `type X;` abstract types
 
-### Bidirectional Inference
+## Inference
 
-Type information flows both from the expression to the context, and from the context to the expression:
+- Bindings infer from initializers; annotations win and constrain the
+  initializer (`inferExpected`).
+- Integer literals keep their text until a contextual type selects them,
+  with per-width range checks; float literals adopt `f32`/`f64`.
+- Generic call arguments unify against parameter types; explicit
+  arguments (`name<types>(...)`) bind in declaration order.
+- Overload resolution is specificity-ordered (guarded against recursive
+  types).
 
-```ng
-val arr: [i32] = [];        // [] is typed as empty [i32]
-val p: f64 = 3.14;          // 3.14 is typed as f64 (not f32)
+## Numeric rules
 
-fun foo() -> string {
-    return "hello";          // return type inferred from annotation
-}
+- Same-type arithmetic only — no implicit conversions.
+- Equality/ordering compare across numeric widths (and integer/float
+  pairs) at runtime.
+- Runtime arithmetic is checked per static width (overflow diagnostics);
+  const evaluation checks the same way.
 
-fun bar(x: i32) -> i32 => x; // parameter constrained by annotation
-```
+## Nominal vs structural
 
-### Default Numeric Types
+Structs and enums are nominal (`Point` ≠ any other struct); tuples and
+arrays are structural. `type X = T;` aliases share the underlying type's
+identity; `newtype`-style wrappers use structs.
 
-Without annotations:
-- Integer literals default to `i32`
-- Float literals default to `f32`
+## Unions
 
-```ng
-val a = 42;                  // a: i32
-val b = 3000000000;          // b: i32 (will wrap — use i64 or u64 explicitly)
-val c = 42u64;               // c: u64
-val d = 3.14;                // d: f32
-val e = 3.14f64;             // e: f64
-```
+`A | B` accepts member values; the value keeps its member type at
+runtime. Member-typed construction, equality/ordering narrowing, and
+parameter flow are checked; no tag is stored.
 
-## Nominal Types
-
-A **nominal type** is a distinct type identified by its name, not its structure. NG supports two forms:
-
-### Wrapped Types (Newtypes)
-
-```ng
-type UserId wraps i32;
-type ProductId wraps i32;
-
-val uid: UserId = UserId(1);
-val pid: ProductId = ProductId(2);
-
-// uid = pid;  // TYPE ERROR: UserId != ProductId
-```
-
-Newtypes are **opaque** — they must be explicitly wrapped and unwrapped. Use `as` to cast:
+## Opaque and native types
 
 ```ng
-val raw: i32 = uid as i32;
+type Connection;             // abstract (no construction)
+type NativeHandle = native;  // embedding-supplied handle
 ```
 
-### Type Aliases
+Built-in predicates classify them: `is_abstract<T>`, `is_trait<T>`.
+Native handles are `Value`-level opaque tokens passed to `native fun`
+hosts (the `memory` module's handles, imgui's binding).
 
-```ng
-type Age = i32;     // transparent: Age and i32 are the same type
-type Point = (x: i32, y: i32);
-```
+## References and trait views
 
-Type aliases are **transparent** — `Age` and `i32` are interchangeable in all contexts.
+`ref<T>` is a scoped view, never a first-class value in aggregates or
+returns. `ref<Trait>` erases the concrete type but keeps the dispatch
+table; its method set is the trait's declaration order.
 
-## Structural Types
-
-Structural types compare by their shape rather than name:
-
-```ng
-type PointA { x: i32; y: i32; }
-type PointB { x: i32; y: i32; }
-
-// PointA and PointB are compatible because they have the same structure
-```
-
-## Union Types
-
-Union types allow a value to be one of several types:
-
-```ng
-type Value = i32 | string | bool;
-
-val v1: Value = 42;
-val v2: Value = "hello";
-
-// Runtime type check
-const if (v1 is i32) {
-    print("v1 is an integer");
-}
-```
-
-### Untagged Union vs Tagged Union
-
-| Feature | Union Type (`A \| B`) | Tagged Union (`A(x) \| B(y)`) |
-|---|---|---|
-| Tag | No (runtime check via `is`) | Yes (stored tag) |
-| Patterns | `is` operator | `switch` with `case` |
-| Exhaustiveness | Not checked | Checked by compiler |
-| Payload | The value itself | Named/numbered fields per variant |
-
-## Type Checking with `is`
-
-The `is` operator checks an expression's type at runtime:
-
-```ng
-val x: Value = 42;
-val isInt = x is i32;       // true
-val isStr = x is string;    // false
-```
-
-This works with union types and tagged unions.
-
-## Type Queries with `typeof`
-
-The `typeof` operator queries type properties at compile time:
-
-```ng
-fun checkType<T>(value: T) {
-    const if (is_ref<T>) {
-        print("T is a reference type");
-    }
-}
-```
-
-## Type Casting with `as`
-
-Use `as` to convert between related types:
-
-```ng
-val x: i32 = 42;
-val y: i64 = x as i64;        // numeric widening
-val z = UserId(x);            // newtype wrapping
-val raw = userId as i32;       // newtype unwrapping
-```
-
-## Literal Type Inference
-
-```ng
-val a = true;       // bool
-val b = false;      // bool
-val c = unit;       // unit
-val d = "str";      // string
-val e = 'str';      // string (single quotes also OK)
-```
-
-## Exhaustiveness Checking
-
-The type checker ensures `switch` statements cover all variants of a tagged union:
-
-```ng
-type Result = Ok(i32) | Err(string);
-
-switch (result) {
-    case Ok(v) { print(v); }
-    case Err(m) { print(m); }
-    // No "otherwise" needed — all variants covered
-}
-```
-
-If you omit a variant and don't provide `otherwise`, the compiler reports an error.
-
-## What's Next?
-
-Continue to [Compile-Time Programming](compile-time-programming.md) to explore NG's powerful compile-time evaluation features.
-
-> **Try it:** `example/44.type_specialization.ng` — Type specialization patterns
-> **Try it:** `example/48.higher_kinded_generics.ng` — Higher-kinded types
+Next: [Compile-Time Programming](/guide/compile-time-programming).

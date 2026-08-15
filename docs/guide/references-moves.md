@@ -1,206 +1,114 @@
 # References, Moves & Ownership
 
-NG uses a **value semantics** model by default — variables are copied on assignment — with explicit **references** and **moves** for shared ownership and efficient transfers.
+NG's ownership model: copy-first value semantics, affine nominal types
+with `move`/`clone`, `impl Drop` lifecycle, and borrow-checked scoped
+references. There is no GC and no user-visible lifetime syntax.
 
-## Value Semantics (Default)
+## Copy-first value semantics
 
-By default, bindings are independent copies:
+`Copy` types (integers, floats, bools, strings, tuples, and `Copy`-derived
+types) copy deeply on bind, call, and return — values never alias:
 
 ```ng
-val a = [1, 2, 3];
-val b = a;        // b is a copy of a
-b[0] := 99;
-print(a[0]);      // 1 (a is unchanged)
+let a = "hello";
+let b = a;          // deep copy; a is untouched
 ```
 
-This applies to function arguments and return values too:
+## Affine nominal types
+
+Structs/enums are affine by default: binding, calling, or returning one
+**moves** it, and use-after-move is a compile error:
 
 ```ng
-fun modify(arr: [i32]) {
-    arr[0] := 99;   // modifies the local copy only
+let first = makeCounter();
+let second = first;        // move
+print(first.value);        // type error: use of moved value
+```
+
+`clone` makes an explicit copy; `move` makes an implicit move explicit:
+
+```ng
+let second = clone first;
+let third = move second;
+```
+
+### Partial moves
+
+Move a struct field or tuple element and the rest stays usable
+(field-aware tracking across branches, loops, and switches):
+
+```ng
+let pair = (3, "kept");
+let movedHead = move pair[0];
+assert(pair[1] == "kept");
+```
+
+## `impl Drop`
+
+Affine types can declare a destructor that runs exactly once when an
+initialized value leaves scope (returns and fall-through included):
+
+```ng
+struct Handle {
+    id: i64,
 }
 
-val arr = [1, 2, 3];
-modify(arr);
-print(arr[0]);     // 1 (unchanged)
-```
-
-## Reference Types: `ref<T>`
-
-Create a reference to share access to a value:
-
-```ng
-val x = 42;
-val r: ref<i32> = ref x;   // r refers to x
-x = 43;
-print(*r);                  // 43 (reads through the reference)
-```
-
-### Creating References
-
-Use the `ref` operator on a mutable place:
-
-```ng
-val x = 1;
-val r = ref x;     // reference to x
-```
-
-### Reading Through References
-
-Dereference with `*`:
-
-```ng
-print(*r);         // reads the value
-```
-
-### Writing Through References
-
-Use deref assignment `:=`:
-
-```ng
-*r := 10;          // writes through the reference
-print(x);          // 10
-```
-
-### Reference Parameters
-
-Functions can accept references:
-
-```ng
-fun swap<T>(a: ref<T>, b: ref<T>) {
-    val tmp = move *a;
-    *a := move *b;
-    *b := move tmp;
-}
-
-val x = 1;
-val y = 2;
-swap(ref x, ref y);
-print(x, y);       // 2, 1
-```
-
-## Move Semantics
-
-`move` transfers ownership of a value, invalidating the original location:
-
-```ng
-val a = [1, 2, 3];
-val b = move a;     // a is now invalid
-// print(a[0]);     // ERROR: use after move
-print(b[0]);        // 1
-```
-
-### Move Dereference
-
-Combine `move` and `*` to move a value out of a reference:
-
-```ng
-fun take<T>(dest: ref<T>, src: ref<T>) {
-    *dest := move *src;   // moves value from src into dest
+impl Drop for Handle {
+    fun drop(self: Self ref) -> unit {
+        print("dropping handle");
+    }
 }
 ```
 
-### Runtime Move Checking
+Drop edges are block-scoped, field-aware (moving a field out skips
+double-ownership), and emitted by the lowering — never user-visible.
 
-The interpreter tracks moved values at runtime and throws an error if you try to read a moved location before reassigning it:
+## References
 
-```ng
-val x = move a;    // a is now "moved"
-// print(a);       // Runtime error: use after move
-a = [4, 5, 6];     // reassign — OK now
-print(a);          // OK
-```
-
-## References to Object Properties
-
-References can point to object fields:
+`ref` is a scoped, non-returnable view; `ref mut` is exclusive:
 
 ```ng
-type Point { x: i32; y: i32; }
-val p = new Point { x: 10, y: 20 };
-val rx = ref p.x;
-*rx := 99;
-print(p.x);        // 99
+let mut value = 1;
+let read = ref value;
+assert(*read == 1);
+let write = ref mut value;
+*write := 2;
 ```
 
-## Partial Moves
+References cannot be returned from functions or stored in aggregates
+(the one sanctioned exception is a recursive enum's own `ref<...>` payload).
 
-You can move individual fields from an object while leaving others accessible:
+### Borrow checking with non-lexical loans
+
+Shared and mutable borrows conflict, but loans end at **last use**, not
+block exit:
 
 ```ng
-type Person {
-    name: string;
-    age: i32;
-}
-
-val p = new Person { name: "Alice", age: 30 };
-
-val name = move p.name;   // p.name is moved
-// print(p.name);         // ERROR: field was partially moved
-print(p.age);             // OK: age is still accessible
+let read = ref value;
+let seen = *read;            // last use of read
+let write = ref mut value;   // ok: the loan is already released
 ```
 
-### Restoration After Partial Move
-
-Writing to a partially-moved field restores full access:
+Overlapping borrows are rejected:
 
 ```ng
-p.name = "Bob";           // restores p.name
-print(p.name);            // OK now
+let read = ref value;
+let write = ref mut value;   // error: value is shared-borrowed
 ```
 
-### Partial Move Tracking in Objects
-
-The type checker tracks which fields have been partially moved and prevents reads from moved fields. This extends to nested objects and tuple fields:
+Inline call-site borrows live only for their statement:
 
 ```ng
-val nested = new Wrapper { inner: new Inner { x: 1, y: 2 } };
-val x = move nested.inner.x;
-// print(nested.inner.x); // ERROR: partially moved
-print(nested.inner.y);    // OK
+bump(ref mut value);         // loan ends after this statement
+let read = ref value;        // ok
 ```
 
-## References and Aliasing
+## The heap (no GC)
 
-### Direct Ref Aliasing
+The stdlib `memory` module provides native handles with explicit
+release and a concrete `Box` whose `Drop` frees the cell
+(`example/heap_box.ng`). Generic `Box<T>`/`Gc`/`Arc` arrive with the
+runtime-session work; recursive data structures use `ref`-payload enums
+instead (see [Data Structures](/guide/data-structures)).
 
-A `ref` creates a borrow that remains active within its lexical scope. While a direct ref is alive, neither the original value nor the ref can be invalidated by moves:
-
-```ng
-val x = 1;
-val r = ref x;
-// val y = move x;       // ERROR: can't move while ref is active
-print(*r);                // OK — ref is still usable
-```
-
-### Ref Borrow Ends at Scope Boundary
-
-```ng
-val x = 1;
-{
-    val r = ref x;        // borrow starts
-    print(*r);
-}                         // borrow ends
-val y = move x;           // OK — ref is gone
-```
-
-## Heap-Allocated Objects (`new`)
-
-Objects created with `new` are heap-allocated and alias by reference:
-
-```ng
-val a = new Point { x: 1, y: 2 };
-val b = a;                // b aliases the same heap object
-a.x = 10;
-print(b.x);               // 10 (shared)
-```
-
-## What's Next?
-
-Continue to [Traits](traits.md) to learn about NG's trait system for abstraction and polymorphism.
-
-> **Try it:** `example/22.ref_move_swap.ng` — Reference swap
-> **Try it:** `example/23.ref_places.ng` — References to places
-> **Try it:** `example/24.move_value_semantics.ng` — Move semantics
-> **Try it:** `example/50.partial_move.ng` — Partial moves
-> **Try it:** `example/51.partial_move_drop.ng` — Partial moves with Drop
+Next: [Traits](/guide/traits).

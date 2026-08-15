@@ -1,155 +1,81 @@
 # Generics
 
-Generics allow you to write code that works with multiple types while preserving static type safety.
+Generic functions and types keep static safety across many concrete types.
 
-## Generic Functions
-
-### Basic Type Parameters
-
-Place type parameters in angle brackets after the function name:
+## Generic functions
 
 ```ng
-fun identity<T>(x: T) -> T {
-    return x;
-}
-
-identity(42);        // T is inferred as i32
-identity("hello");   // T is inferred as string
-identity(true);      // T is inferred as bool
-```
-
-Type parameters are **inferred** from the arguments — you rarely need to specify them explicitly.
-
-### Multiple Type Parameters
-
-```ng
-fun pair<A, B>(a: A, b: B) -> (A, B) {
-    return (a, b);
-}
-
-val p = pair(1, "world");   // (i32, string)
-```
-
-### Type Constraints
-
-You can constrain type parameters with a fixed set of allowed types:
-
-```ng
-fun add<T: i32 | f64>(a: T, b: T) -> T {
-    return a + b;
-}
-
-add(1, 2);          // OK: i32
-add(1.5, 2.5);      // OK: f64
-// add("a", "b");   // ERROR: string not in constraint
-```
-
-## Parameter Packs
-
-Parameter packs allow variable-arity generic functions. A pack parameter uses `...` suffix and receives a tuple:
-
-```ng
-fun count<T...>(args: T...) -> u32 {
-    return args.size;
-}
-
-count(1, "two", 3.0, true);   // returns 4
-```
-
-### Destructuring Packs
-
-```ng
-fun printEach<T...>(args: T...) {
-    if (args.size > 0) {
-        val (head, ...tail) = args;
-        print(head);
-        next ...tail;    // recurse with remaining elements
-    }
-}
-
-printEach(1, "hello", true);
-```
-
-### Constraints on Packs
-
-```ng
-fun sum<T: i32 | f64...>(args: T...) -> T {
-    // Only works for numeric types
+fun first<T>(values: array<T>) -> T {
+    return values[0];
 }
 ```
 
-## Generic Types
-
-### Generic Object Types
-
-Types can be parameterized too:
+Type arguments are inferred from the arguments, or written explicitly:
 
 ```ng
-type Box<T> {
-    value: T;
-}
-
-val intBox = new Box<i32> { value: 42 };
-val strBox = new Box<string> { value: "hello" };
+let head = first([1, 2, 3]);
+let typed = first<i64>([1, 2, 3]);
 ```
 
-### Generic Tagged Unions
+Each distinct concrete argument set produces one monomorphized instance:
+the body is cloned, renumbered, and re-checked under concrete bindings, so
+inner calls dispatch to the right impls.
+
+## Generic types
 
 ```ng
-type Option<T> = Some(value: T) | None;
+struct Box<T> {
+    value: T,
+}
 
-fun unwrapOr<T>(opt: Option<T>, fallback: T) -> T {
-    switch (opt) {
-        case Some(v) { return v; }
-        case None { return fallback; }
-    }
+enum List<T> {
+    Cons(head: T, tail: ref<List<T>>),
+    Nil,
 }
 ```
 
-### Generic Type Aliases
+Generic structs and enums instantiate per concrete argument list
+(`Box<i64>`, `List<string>`); recursive payloads go through
+`ref<Self>`.
+
+## Where clauses
+
+Where clauses constrain parameters with trait bounds, type tests,
+const-predicate calls, and negation:
 
 ```ng
-type Pair<T> = (T, T);
-type Result<T, E> = Ok(value: T) | Err(error: E);
-```
-
-## Generic Wrapped Types
-
-```ng
-type Wrapper<T> wraps T;
-
-val w = Wrapper<i32>(42);
-```
-
-## Generic Instance Mangling
-
-Each generic instantiation gets a unique **mangled name** that encodes the module path and concrete type arguments. This ensures type safety across module boundaries:
-
-```ng
-// Module A
-export fun foo<T>(x: T) -> T => x;
-
-// Module B
-import A;
-val x = foo(42);    // calls A::foo<i32>
-val y = foo("hi");  // calls A::foo<string> — different instance
-```
-
-## Const Generic Parameters
-
-Type parameters can be constrained by compile-time constant values:
-
-```ng
-fun fixedArray<T, const N: i32>() -> array<T, N> {
-    // Returns a fixed-size array of type array<T, N>
+fun describe<T>(value: T ref) -> i64 where T: Show {
+    return 32;
 }
 
-val arr: array<i32, 5> = fixedArray<i32, 5>();
+fun exact<T>(value: T) -> i64 where T is i64 {
+    return value;
+}
+
+fun requireLarge<const N: i64>() -> unit where is_large(N) { }
 ```
 
-## What's Next?
+Checks run per concrete instance; abstract calls inside generic bodies
+defer to monomorphization.
 
-Continue to [References, Moves & Ownership](references-moves.md) to learn about NG's ownership model.
+## Const generics
 
-> **Try it:** `example/15.generics.ng` — Basic generics
-> **Try it:** `example/52.const_array_vector_span.ng` — Const generic parameters
+```ng
+fun makeFixed<const N: i64>() -> array<i64, N> { ... }
+```
+
+Const parameters participate in instance identity (`array<T, N>` layouts,
+const predicates), are compared by value, and can be passed explicitly
+(`requireLarge<42>()`).
+
+## Generic impls
+
+Trait impls can be generic over their target (see
+[Traits](/guide/traits)):
+
+```ng
+impl<T> Show for List<T> { ... }
+impl<T> Show for array<T> { ... }
+```
+
+Next: [References, Moves & Ownership](/guide/references-moves).

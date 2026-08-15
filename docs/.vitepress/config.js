@@ -61,7 +61,6 @@ export default defineConfig({
             { text: 'Advanced Generics', link: '/guide/advanced-generics' },
             { text: 'Standard Library', link: '/guide/standard-library' },
             { text: 'Memory Management', link: '/guide/memory-management' },
-            { text: 'ORGASM Backend', link: '/guide/orgasm-backend' },
             { text: 'ImGui Integration', link: '/guide/imgui-integration' },
           ],
         },
