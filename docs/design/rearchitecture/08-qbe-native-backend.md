@@ -333,8 +333,12 @@ Final generated results:
   VM against the compiled executable directly — fib(22) ≈ 30x, loop
   200000 ≈ 17x (the native column includes ~0.3 ms fork/exec startup per
   run, so startup-dominated micro-programs show no gain). Remaining M4:
-  typed unboxing for aggregate hot paths (layout pass), inlining of the
-  checked helpers.
+  typed unboxing for aggregate hot paths (layout pass). Note on checked
+  helpers: they stay as calls — QBE cannot inline across calls, and an
+  inline overflow trap must fire even when the result is dead (the VM
+  throws on dead code too), so any trap-retention mechanism (indirect
+  call, load QBE assumes non-trapping) costs a call anyway; the
+  helper-call form is therefore retained.
 - **M5 (first slice delivered):** AOT shims for the standard natives —
   `libngrt` (`src/native/ngrt_shims.c`, pure C99, layouts matching the
   Tier 0 representations) is linked into every `--native` executable, and
