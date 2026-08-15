@@ -208,6 +208,11 @@ TEST_CASE("vNext ref example files run end to end through ngi", "[vNext][Ref][Ex
   INFO("errors: " << errors);
   REQUIRE(errors.empty());
   REQUIRE(output.find("with value 32") != std::string::npos);
+
+  REQUIRE(runExample("example/nll_borrows.ng", output, errors) == 0);
+  INFO("errors: " << errors);
+  REQUIRE(errors.empty());
+  REQUIRE(output.find("main returned") != std::string::npos);
 }
 
 TEST_CASE("vNext runtime values deep-copy aggregates while references share their root cell", "[vNext][Ref][Value]")

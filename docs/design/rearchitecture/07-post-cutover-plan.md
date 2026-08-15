@@ -66,14 +66,19 @@ release, escaped-reference rejection (`example/ref_swap.ng`,
 
 **Remaining work:**
 
-1. Non-lexical borrows: loans released at last use, not block exit;
-   reborrow after release; mut-after-shared-loan diagnostics with spans.
-2. D-002 origin contracts (`T ref(a)`, `T ref(a | b)`) and returning
+1. D-002 origin contracts (`T ref(a)`, `T ref(a | b)`) and returning
    references (`T ref` results) — currently rejected as escaped.
-3. Refs stored in aggregates/globals/task payloads remain rejected until the
+2. Refs stored in aggregates/globals/task payloads remain rejected until the
    full loan analysis and R10 transfer rules land.
-4. Use-after-move through an outstanding ref, and borrows across calls
+3. Use-after-move through an outstanding ref, and borrows across calls
    (argument loan scopes, return-places).
+
+**Delivered (2026-08):** the non-lexical loan-release slice — loans tied to
+`let r = ref x;` bindings release after `r`'s last use (per-block last-use
+index, conservative across branch/loop containment and block tails), inline
+call-site `ref`/`ref mut` arguments release after their statement, nested
+scope exits discard loans of dead block locals, and overlapping borrows stay
+rejected (`example/nll_borrows.ng`, `test/borrow_check_test.cpp`).
 
 **Blocks:** R5 ownership, R10 concurrency transfer (invariants 10–11).
 **Legacy evidence:** examples `21`–`24`, `39`, `41`, `50`, `51`.

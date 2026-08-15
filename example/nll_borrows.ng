@@ -1,0 +1,35 @@
+// vNext non-lexical borrows (D-015 NLL slice): loans release after the
+// ref's last use instead of at block exit, so sequential reuse of a binding
+// through shared and mutable references is allowed while overlapping borrows
+// stay rejected.
+
+import prelude;
+
+fun bump(r: i64 ref mut) -> unit {
+    *r := *r + 1;
+}
+
+fun main() -> unit {
+    let mut value = 1;
+
+    // Shared ref dies at its last use; the mutable borrow follows.
+    let read = ref value;
+    assert(*read == 1);
+    let write = ref mut value;
+    *write := 2;
+    assert(value == 2);
+
+    // Inline call-site refs live only for their statement.
+    bump(ref mut value);
+    let after = ref value;
+    assert(*after == 3);
+
+    // A ref used only inside a branch or loop releases right after it.
+    let scoped = ref value;
+    if (true) {
+        assert(*scoped == 3);
+    }
+    let rewrite = ref mut value;
+    *rewrite := 4;
+    assert(value == 4);
+}

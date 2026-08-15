@@ -117,3 +117,44 @@ TEST_CASE("vNext borrows release at block scope and allow sequential reuse", "[v
                         "if (true) { let write = ref mut value; *write := 2; } "
                         "if (true) { let read = ref value; let other = ref value; } return; }"));
 }
+
+TEST_CASE("vNext non-lexical borrows release loans after last use", "[vNext][Borrow][NLL]")
+{
+  REQUIRE_NOTHROW(check("fun main() { let mut value = 1; let read = ref value; let seen = *read; "
+                        "let write = ref mut value; *write := 2; let final = value; return; }"));
+
+  REQUIRE_NOTHROW(check("fun main() { let mut value = 1; let a = ref mut value; *a := 5; "
+                        "let b = ref mut value; *b := 6; let final = value; return; }"));
+
+  REQUIRE_NOTHROW(check("fun main() { let mut value = 1; let read = ref value; "
+                        "if (true) { let seen = *read; } "
+                        "let write = ref mut value; *write := 3; let final = value; return; }"));
+
+  REQUIRE_NOTHROW(check("fun main() { let mut value = 1; let read = ref value; "
+                        "loop (i = 0) { let seen = *read; if (i == 0) { next (i + 1); } } "
+                        "let write = ref mut value; *write := 4; let final = value; return; }"));
+
+  REQUIRE_NOTHROW(check("fun main() { let mut value = 1; if (true) { let read = ref value; let seen = *read; } "
+                        "let write = ref mut value; *write := 5; let final = value; return; }"));
+}
+
+TEST_CASE("vNext non-lexical borrows release inline call-site refs after the statement", "[vNext][Borrow][NLL]")
+{
+  REQUIRE_NOTHROW(check("fun bump(r: i64 ref mut) -> unit { *r := *r + 1; } "
+                        "fun main() { let mut value = 1; bump(ref mut value); "
+                        "let read = ref value; let seen = *read; return; }"));
+}
+
+TEST_CASE("vNext borrows still conflict when the shared ref outlives the mutable borrow", "[vNext][Borrow][NLL]")
+{
+  try
+  {
+    check("fun main() { let mut value = 1; let read = ref value; let write = ref mut value; "
+          "let seen = *read; return; }");
+    FAIL("expected a shared-then-mut conflict");
+  }
+  catch (const typecheck::TypeError &error)
+  {
+    REQUIRE(std::string{error.what()} == "cannot mutably borrow `value` while it is shared-borrowed");
+  }
+}

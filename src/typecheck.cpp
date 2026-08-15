@@ -7,6 +7,7 @@
 #include <deque>
 #include <format>
 #include <iterator>
+#include <limits>
 #include <memory>
 #include <unordered_map>
 #include <unordered_set>
@@ -255,9 +256,10 @@ namespace NG::typecheck
         std::unordered_map<std::string, hir::DefId> methods;
       };
 
-      /// Simple borrow conflict state (D-015 rule 5): shared and mutable
-      /// reference counts per root local, conservatively scoped to the
-      /// enclosing block.
+      /// Borrow conflict state (D-015 rule 5): one loan per `ref`/`ref mut`
+      /// expression site, plus per-root counts for diagnostics. Loans are
+      /// released by non-lexical last-use analysis instead of living to the
+      /// end of the enclosing block.
       struct BorrowState
       {
         struct Counts
@@ -265,18 +267,58 @@ namespace NG::typecheck
           size_t shared{};
           size_t mutableRefs{};
         };
+        struct Loan
+        {
+          const hir::Expression *site{};
+          uint32_t root{};
+          /// Ref-binding local this loan is tied to (`let r = ref x`), or 0
+          /// for an inline borrow that dies with its statement.
+          uint32_t tiedLocal{};
+          bool mutableLoan{};
+        };
+        std::vector<Loan> loans;
         std::unordered_map<uint32_t, Counts> counts;
         static constexpr size_t MaxShared{16};
+
+        void add(const hir::Expression *site, uint32_t root, uint32_t tiedLocal, bool mutableLoan)
+        {
+          loans.push_back(Loan{site, root, tiedLocal, mutableLoan});
+          rebuildCounts();
+        }
+
+        void remove(const hir::Expression *site)
+        {
+          for (auto it = loans.begin(); it != loans.end(); ++it)
+          {
+            if (it->site != site) continue;
+            loans.erase(it);
+            rebuildCounts();
+            return;
+          }
+        }
+
+        void rebuildCounts()
+        {
+          counts.clear();
+          for (const auto &loan : loans)
+          {
+            auto &count = counts[loan.root];
+            if (loan.mutableLoan) ++count.mutableRefs;
+            else ++count.shared;
+          }
+        }
 
         [[nodiscard]] auto mergedWith(const BorrowState &other) const -> BorrowState
         {
           BorrowState merged = *this;
-          for (const auto &[local, otherCounts] : other.counts)
+          for (const auto &loan : other.loans)
           {
-            auto &mine = merged.counts[local];
-            mine.shared = std::max(mine.shared, otherCounts.shared);
-            mine.mutableRefs = std::max(mine.mutableRefs, otherCounts.mutableRefs);
+            const bool present = std::any_of(merged.loans.begin(), merged.loans.end(), [&](const Loan &mine) {
+              return mine.site == loan.site;
+            });
+            if (!present) merged.loans.push_back(loan);
           }
+          merged.rebuildCounts();
           return merged;
         }
       };
@@ -1044,6 +1086,8 @@ namespace NG::typecheck
         mutableBindings_.clear();
         moveState_ = MoveState{};
         borrowState_ = BorrowState{};
+        releasedLoans_.clear();
+        lastUseCache_.clear();
         const auto &signature = signatures_.at(function.id.value);
         if (!signature.packParameters.empty()) placeholderFunctions_.insert(function.id.value);
         genericBindings_.clear();
@@ -1081,6 +1125,84 @@ namespace NG::typecheck
         }
       }
 
+      /// Non-lexical loan release (D-015): computes, per block, the last
+      /// containing statement index for every local use. Uses inside nested
+      /// blocks inherit their containing statement's index; block tail uses
+      /// map to `max()` so the loan stays active conservatively.
+      [[nodiscard]] auto lastUseByBlock(const hir::Block &block)
+          -> const std::unordered_map<uint32_t, size_t> &
+      {
+        if (const auto found = lastUseCache_.find(&block); found != lastUseCache_.end()) return found->second;
+        constexpr size_t neverReleased = std::numeric_limits<size_t>::max();
+        std::unordered_map<uint32_t, size_t> lastUse;
+        const auto visitExpression = [&](const auto &self, const hir::Expression &expression, size_t index) -> void {
+          if (expression.resolvedName.has_value() && expression.resolvedName->kind == hir::ResolvedNameKind::Local)
+            lastUse[expression.resolvedName->id] = std::max(lastUse[expression.resolvedName->id], index);
+          for (const auto &operand : expression.operands) self(self, *operand, index);
+        };
+        std::function<void(const hir::Block &, size_t)> visitBlock;
+        std::function<void(const hir::Statement &, size_t)> visitStatement;
+        visitBlock = [&](const hir::Block &nested, size_t index) {
+          for (const auto &statement : nested.statements) visitStatement(statement, index);
+          if (nested.tailExpression) visitExpression(visitExpression, *nested.tailExpression, neverReleased);
+        };
+        visitStatement = [&](const hir::Statement &statement, size_t index) {
+          if (statement.expression) visitExpression(visitExpression, *statement.expression, index);
+          if (statement.assignmentTarget) visitExpression(visitExpression, *statement.assignmentTarget, index);
+          for (const auto &argument : statement.arguments) visitExpression(visitExpression, *argument, index);
+          if (statement.consequence) visitBlock(*statement.consequence, index);
+          if (statement.alternative) visitBlock(*statement.alternative, index);
+          if (statement.body) visitBlock(*statement.body, index);
+          for (const auto &switchCase : statement.switchCases)
+            if (switchCase.body) visitBlock(*switchCase.body, index);
+        };
+        for (size_t index = 0; index < block.statements.size(); ++index)
+          visitStatement(block.statements[index], index);
+        if (block.tailExpression) visitExpression(visitExpression, *block.tailExpression, neverReleased);
+        return lastUseCache_.emplace(&block, std::move(lastUse)).first->second;
+      }
+
+      /// Releases loans whose lifetime ends at `statementIndex`: inline loans
+      /// created during the just-checked statement, and tied loans whose
+      /// ref binding had its last use in that statement.
+      void releaseLoansUsedUpTo(size_t statementIndex, const std::unordered_map<uint32_t, size_t> &lastUse,
+                                size_t loansBeforeStatement)
+      {
+        bool changed = false;
+        for (size_t loanIndex = 0; loanIndex < borrowState_.loans.size(); ++loanIndex)
+        {
+          const auto &loan = borrowState_.loans[loanIndex];
+          bool release = false;
+          if (loan.tiedLocal == 0) release = loanIndex >= loansBeforeStatement;
+          else
+          {
+            const auto found = lastUse.find(loan.tiedLocal);
+            release = found != lastUse.end() && found->second == statementIndex;
+          }
+          if (!release) continue;
+          releasedLoans_.insert(loan.site);
+          borrowState_.loans.erase(borrowState_.loans.begin() + static_cast<ptrdiff_t>(loanIndex));
+          --loanIndex;
+          changed = true;
+        }
+        if (changed) borrowState_.rebuildCounts();
+      }
+
+      /// Drops loans that were released inside nested scopes (their restores
+      /// would otherwise resurrect them).
+      void pruneReleasedLoans()
+      {
+        bool changed = false;
+        for (size_t index = 0; index < borrowState_.loans.size(); ++index)
+        {
+          if (!releasedLoans_.contains(borrowState_.loans[index].site)) continue;
+          borrowState_.loans.erase(borrowState_.loans.begin() + static_cast<ptrdiff_t>(index));
+          --index;
+          changed = true;
+        }
+        if (changed) borrowState_.rebuildCounts();
+      }
+
       void checkBlock(const hir::Block &block, LocalTypes locals, LoopTypes loops, TypeId returnType,
                       bool nestedScope = false)
       {
@@ -1088,7 +1210,13 @@ namespace NG::typecheck
         for (const auto &[local, type] : locals) incomingLocals.insert(local);
         const MutableBindings saved = mutableBindings_;
         const BorrowState borrowsSaved = borrowState_;
-        for (const auto &statement : block.statements) checkStatement(statement, locals, loops, returnType);
+        const auto &lastUse = lastUseByBlock(block);
+        for (size_t index = 0; index < block.statements.size(); ++index)
+        {
+          const size_t loansBefore = borrowState_.loans.size();
+          checkStatement(block.statements[index], locals, loops, returnType);
+          releaseLoansUsedUpTo(index, lastUse, loansBefore);
+        }
         if (block.tailExpression != nullptr) static_cast<void>(infer(*block.tailExpression, locals));
         if (nestedScope)
         {
@@ -1102,9 +1230,22 @@ namespace NG::typecheck
             drops.push_back(dropEdge(local, type, block.span));
           }
           if (!drops.empty()) blockDrops_.emplace(&block, std::move(drops));
+          // Loans tied to this block's own locals die with the scope.
+          bool changed = false;
+          for (size_t index = 0; index < borrowState_.loans.size(); ++index)
+          {
+            const auto &loan = borrowState_.loans[index];
+            if (loan.tiedLocal == 0 || incomingLocals.contains(loan.tiedLocal)) continue;
+            releasedLoans_.insert(loan.site);
+            borrowState_.loans.erase(borrowState_.loans.begin() + static_cast<ptrdiff_t>(index));
+            --index;
+            changed = true;
+          }
+          if (changed) borrowState_.rebuildCounts();
         }
         mutableBindings_ = std::move(saved);
         borrowState_ = std::move(borrowsSaved);
+        pruneReleasedLoans();
       }
 
       void checkStatement(const hir::Statement &statement, LocalTypes &locals, LoopTypes &loops, TypeId returnType)
@@ -1142,6 +1283,20 @@ namespace NG::typecheck
             locals.emplace(statement.local->value, type);
             recordLocal(*statement.local, type);
             if (statement.mutableBinding) mutableBindings_.insert(statement.local->value);
+          }
+          // Tie a `let r = ref x;` loan to `r` so non-lexical last-use
+          // analysis releases it when `r` is done instead of at block exit.
+          if (statement.local.has_value() && statement.expression->kind == hir::ExpressionKind::Prefix &&
+              (statement.expression->text == "ref" || statement.expression->text == "ref mut"))
+          {
+            for (auto &loan : borrowState_.loans)
+            {
+              if (loan.site == statement.expression.get() && loan.tiedLocal == 0)
+              {
+                loan.tiedLocal = statement.local->value;
+                break;
+              }
+            }
           }
           return;
         }
@@ -2609,7 +2764,7 @@ namespace NG::typecheck
                   if (counts.mutableRefs != 0)
                     throw TypeError(std::format("cannot mutably borrow `{}` while it is already mutably borrowed",
                                                 expression.operands[0]->text), expression.span);
-                  ++counts.mutableRefs;
+                  borrowState_.add(&expression, root->value, 0, true);
                 }
                 else
                 {
@@ -2618,7 +2773,7 @@ namespace NG::typecheck
                                                 expression.operands[0]->text), expression.span);
                   if (counts.shared >= BorrowState::MaxShared)
                     throw TypeError("too many shared borrows of one binding", expression.span);
-                  ++counts.shared;
+                  borrowState_.add(&expression, root->value, 0, false);
                 }
               }
             }
@@ -3248,10 +3403,15 @@ namespace NG::typecheck
       /// Move tracking for affine bindings (D-015): whole and per-field moved
       /// state, merged at branch and loop boundaries.
       MoveState moveState_;
-      /// Active shared/mutable borrow counts per root local (D-015 rule 5).
+      /// Active loans per root local (D-015 rule 5).
       BorrowState borrowState_;
       /// Borrow expressions already counted (re-inference is idempotent).
       std::unordered_set<const hir::Expression *> borrowExpressions_;
+      /// Loan sites released by non-lexical last-use analysis; survives
+      /// nested-block borrow-state restores so releases are not undone.
+      std::unordered_set<const hir::Expression *> releasedLoans_;
+      /// Cached last-use statement index per local, keyed by block.
+      std::unordered_map<const hir::Block *, std::unordered_map<uint32_t, size_t>> lastUseCache_;
       bool inConstGenericFunction_{};
       const_eval::ConstBindings activeConstBindings_;
     };

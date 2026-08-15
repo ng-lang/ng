@@ -983,7 +983,15 @@ let writable = ref mut value;
   field (keeping the rest usable), and every drop edge validates the Drop
   impl's own field moves against the current move state, rejecting
   double-ownership (`cannot drop a value with field ... moved out`).
-- Remaining D-015 work: full non-lexical loan analysis.
+- Non-lexical loan release (first slice): loans tied to `let r = ref x;`
+  bindings release after `r`'s last use (computed per block, conservative
+  across loop/branch containment), and inline call-site `ref`/`ref mut`
+  arguments release after their statement, so sequential reuse of a binding
+  through shared and mutable references is allowed while overlapping borrows
+  remain rejected (`example/nll_borrows.ng`, `test/borrow_check_test.cpp`).
+- Remaining D-015 work: returning references and D-002 origin contracts
+  (`T ref(a)`, `T ref(a | b)`), and reference fields in aggregates/task
+  payloads, all gated behind the full loan analysis and R10 transfer rules.
 - Heap domains stay deferred (no GC): a redesigned `memory` module provides
   native handles plus a concrete `Box` with `impl Drop` release; generic
   `Box<T>`, `Gc`, and `Arc` arrive with the R6 RuntimeSession.
