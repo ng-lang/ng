@@ -1,171 +1,120 @@
 # Basic Syntax
 
-This chapter covers the fundamental building blocks of NG: comments, variables, data types, operators, and expressions.
+This chapter covers NG's fundamental building blocks: comments, bindings,
+types, literals, and operators.
 
 ## Comments
 
-NG supports single-line comments only:
+Line comments start with `//`; block comments use `/* ... */`:
 
 ```ng
-// This is a comment.
-// Comments start with // and extend to the end of the line.
+// line comment
+/* block
+   comment */
 ```
 
-There is no multi-line `/* ... */` syntax.
+## Bindings
 
-## Variables and Mutability
-
-Variables are declared with the `val` keyword. By default, variables are **mutable** — you can reassign them using the `:=` operator:
+Bindings are immutable by default; `let mut` (or `:=` assignment) makes them
+mutable. Rebinding uses `:=`.
 
 ```ng
-val x = 1;   // x is 1 (initial binding via =)
-x := 2;      // now x is 2 (reassigned via :=)
+let value = 1;            // immutable
+let mut total = 0;        // mutable
+total := total + 1;       // rebind/assign
 ```
 
-### Immutability
-
-The language currently has no `const` or `let` distinction — all `val` bindings are mutable. If you need a value that shouldn't change, it's a convention not to reassign it.
-
-### Type Annotations
-
-You can explicitly annotate the type:
+`let` supports typed annotations (including generic type parameters):
 
 ```ng
-val x: i32 = 1;
-val name: string = "NG";
-val flag: bool = true;
-val pi: f64 = 3.14159;
+let n: i64 = 1;
+let xs: array<i64> = [1, 2, 3];
 ```
 
-If you omit the annotation, the type is **inferred** from the initializer. Numeric literals default to `i32` (integer) or `f32` (floating):
+Tuple destructuring and rest patterns:
 
 ```ng
-val a = 42;      // a is i32
-val b = 3.14;    // b is f32
+let pair = (1, "two", true);
+let (first, ...rest) = pair;   // first == 1, rest == ("two", true)
 ```
 
-## Primitive Data Types
+## Builtin types
 
-| Type | Description | Example |
-|---|---|---|
-| `i8`, `i16`, `i32`, `i64` | Signed integers | `-42`, `0xFF`, `0b1010` |
-| `u8`, `u16`, `u32`, `u64` | Unsigned integers | `42u`, `0xFEu8` |
-| `f32`, `f64` | Floating-point numbers | `3.14`, `1.0e-10f64` |
-| `bool` | Boolean | `true`, `false` |
-| `string` | UTF-8 string | `"hello"`, `'world'` |
-| `unit` | No value | `unit` (like `void` in C) |
+| Type | Meaning |
+|---|---|
+| `i8` `i16` `i32` `i64` | signed fixed-width integers |
+| `u8` `u16` `u32` `u64` | unsigned fixed-width integers |
+| `f32` `f64` | IEEE-754 floats |
+| `bool` | `true` / `false` |
+| `string` | UTF-8-ish string values |
+| `unit` | the no-value type (empty `{}` returns) |
+| `array<T>` | dynamic array |
+| `array<T, N>` | fixed-size array |
+| `range<T>` | half-open range value (`1..5` = 1,2,3,4) |
+| `T ref` / `T ref mut` | scoped shared/mutable reference (prefix `ref<T>` also works) |
+| `ref<Trait>` | dynamic trait view |
+| `A \| B` | union annotation |
 
-### Numeric Literals
+## Literals
 
 ```ng
-val a = 42;          // i32
-val b = 42u16;       // u16 (suffix)
-val c = -128i8;      // explicit i8
-val d = 0xFF;        // hexadecimal → i32
-val e = 0b1010;      // binary → i32
-val f = 3.14;        // f32 (default float)
-val g = 3.14f64;     // f64
-val h = 1.0e10;      // scientific notation
+let integer = 42;
+let signed = -7;
+let suffixed = 255u8;        // numeric suffixes: i8..i64, u8..u64, f32, f64
+let floating = 1.5f32;
+let text = "hello\nworld";   // escapes: \" \\ \n \t
+let yes = true;
+let tuple = (1, "two", true);
+let list = [1, 2, 3];
 ```
 
-### String Literals
+Integer literals adopt the expected type and are range-checked per width:
 
 ```ng
-val s1 = "double quoted";
-val s2 = 'single quoted';
-val s3 = "escape sequences: \n \t \\ \"";
+let byte: u8 = 200;   // ok
+let bad: u8 = 300;    // type error: out of range for type u8
 ```
+
+Mixed-width integer arithmetic is a type error (no implicit conversions);
+equality and ordering compare across numeric widths.
 
 ## Operators
 
-### Arithmetic
+- Arithmetic: `+ - * / %` (same-type; integers checked per width at
+  runtime, float ops follow IEEE-754)
+- Comparison/equality: `== != < <= > >=` (cross-width numeric)
+- Logic: `&& || !` (and the prelude's `not(...)`)
+- Bitwise: `& | ^ << >>` (integers)
+- String: `+` concatenation
+- Range: `..` (half-open)
+- Array append: `xs << value` (value semantics; integers keep `<<` shift)
+- Prefix: `-`, `+`, `!`, `*` (deref), `move`, `clone`, `ref`, `ref mut`
 
-| Operator | Description |
-|---|---|
-| `+` | Addition / string concatenation |
-| `-` | Subtraction / negation |
-| `*` | Multiplication |
-| `/` | Division |
-| `%` | Modulo |
+## Scope and shadowing
 
-### Comparison
-
-| Operator | Description |
-|---|---|
-| `==` | Equal |
-| `!=` | Not equal |
-| `>` | Greater than |
-| `<` | Less than |
-| `>=` | Greater than or equal |
-| `<=` | Less than or equal |
-
-### Logical
-
-There are no `&&` or `||` operators. Use functions from the standard prelude:
+Blocks introduce scopes; bindings shadow outer names:
 
 ```ng
-val result = not(x > 0);   // logical NOT
-```
-
-### Other Operators
-
-| Operator | Description | Example |
-|---|---|---|
-| `<<` | Array append | `arr << 6` |
-| `is` | Type check | `x is i32` |
-| `\|>` | Pipe forward | `value \|> transform` |
-| `..` | Range (exclusive end) | `0..10` |
-| `..=` | Range (inclusive end) | `0..=10` |
-| `...` | Spread / pack expansion | `...args` |
-| `.` | Property/method access | `obj.field` |
-| `:=` | **Assignment / mutation** | `x := 42` |
-| `=` | **Binding** (in `val` declaration) | `val x = 42` |
-| `*ptr := value` | Deref assignment | mutate through a reference |
-
-### Pipe Forward Operator
-
-The `|>` operator pipes a value into a function call:
-
-```ng
-fun double(x: i32) -> i32 => x * 2;
-fun inc(x: i32) -> i32 => x + 1;
-
-val result = 5 |> inc |> double;  // 12 (same as double(inc(5)))
-```
-
-## Expressions and Statements
-
-NG is **expression-oriented** — most constructs produce values. A **statement** is terminated by `;` and does not produce a value.
-
-```ng
-val x = 42;          // statement
-val y = x + 1;       // expression (x + 1) assigned to y
-```
-
-## Blocks and Scope
-
-A block `{ ... }` groups statements and creates a new scope. Variables declared inside a block are not visible outside it.
-
-```ng
-val outer = 1;
-{
-    val inner = 2;    // only visible inside this block
-    outer := inner;    // OK: outer is in scope (mutation via :=)
+fun main() -> unit {
+    let value = 1;
+    if (true) {
+        let value = "shadowed";   // different binding
+        print(value);
+    }
+    print(value == 1 ? "still one" : "changed");
 }
-// inner is not accessible here
 ```
 
-## Unit Type
+## Expression statements and `if` expressions
 
-The `unit` type represents the absence of a value. It is analogous to `void` in C or `None` in Python. Functions that don't return a value implicitly return `unit`.
+Bodies use statements and an optional tail expression; `if` is a statement
+(with `const if` for compile-time selection):
 
 ```ng
-val nothing = unit;   // nothing has type unit
+fun classify(value: i64) -> i64 {
+    if (value > 0) { return 1; }
+    return 0;
+}
 ```
 
-## What's Next?
-
-Now that you understand the basics, move on to [Control Flow](control-flow.md) to learn about conditionals and loops.
-
-> **Try it:** `example/02.many_defs.ng` — Multiple definitions and basic expressions
-> **Try it:** `example/05.valdef.ng` — Value definitions and type annotations
+Next: [Control Flow](/guide/control-flow).

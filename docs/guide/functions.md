@@ -1,180 +1,102 @@
 # Functions
 
-Functions are first-class citizens in NG. This chapter covers defining, calling, and composing functions.
+Defining, calling, and composing functions in NG.
 
-## Defining Functions
-
-Functions are defined with the `fun` keyword:
+## Defining functions
 
 ```ng
-fun add(x: i32, y: i32) -> i32 {
-    return x + y;
+fun add(left: i64, right: i64) -> i64 {
+    return left + right;
 }
 ```
 
-- `fun` — keyword
-- `add` — function name
-- `(x: i32, y: i32)` — parameters with types
-- `-> i32` — return type
-- `{ ... }` — function body
-
-### Shorthand Syntax
-
-Single-expression functions can use the `=>` arrow:
+Expression bodies use `=>`:
 
 ```ng
-fun add(x: i32, y: i32) -> i32 => x + y;
+fun double(value: i64) -> i64 => value * 2;
 ```
 
-## Calling Functions
+`main` is the entry point; it may take typed arguments and return `unit`,
+`i64`, `f64`, or `string`.
+
+## Calling
 
 ```ng
-val result = add(3, 4);  // 7
+let sum = add(20, 22);
 ```
 
-## Return Values
+Arguments and returns use copy-first value semantics (see
+[References, Moves & Ownership](/guide/references-moves)).
 
-The `return` keyword exits the function with a value. If omitted, the function returns `unit`:
+## Generic functions
 
 ```ng
-fun greet(name: string) {
-    print("Hello, ", name, "!");  // implicit return of unit
+fun first<T>(values: array<T>) -> T {
+    return values[0];
 }
 ```
 
-The last expression in a block is **not** automatically returned — you must use `return`:
+Type arguments are inferred from arguments, or written explicitly:
 
 ```ng
-fun double(x: i32) -> i32 {
-    return x * 2;   // The return is required here
-}
+let head = first([1, 2, 3]);
+let typed = first<i64>([1, 2, 3]);
 ```
 
-## Parameters
+Each distinct concrete argument set gets its own monomorphized instance,
+re-checked with concrete types.
 
-### Required Type Annotations
+## Methods
 
-All parameters must have explicit type annotations:
-
-```ng
-fun valid(x: i32, y: string) -> bool { ... }
-```
-
-### Default Arguments
-
-Parameters can have default values. Defaults are evaluated at each call site and can reference earlier parameters:
+Method-call syntax works on receivers with matching trait impls (see
+[Traits](/guide/traits)):
 
 ```ng
-fun greet(greeting: string, name: string = "World") -> string {
-    return greeting + ", " + name + "!";
+trait Show {
+    fun show(self: Self ref) -> string;
 }
 
-print(greet("Hello"));          // "Hello, World!"
-print(greet("Hi", "NG"));       // "Hi, NG!"
-```
-
-## Recursion
-
-Functions can call themselves:
-
-```ng
-fun factorial(n: i32) -> i32 {
-    if (n == 0) {
-        return 1;
-    }
-    return n * factorial(n - 1);
+impl Show for i64 {
+    fun show(self: Self ref) -> string { return "int"; }
 }
 
-print(factorial(5));  // 120
+let text = 42.show();            // "int"
+let qualified = Show.show(42);   // same
 ```
 
-### Tail Recursion
+## `native fun`
 
-NG optimizes tail-recursive calls. A function is tail-recursive when the recursive call is the last operation before returning:
+`native fun` declares a host function supplied by the embedding (the
+standard library's string/io/seq/memory/imgui functions are natives):
 
 ```ng
-fun sum_tail(n: i32, acc: i32 = 0) -> i32 {
-    if (n == 0) {
-        return acc;
-    }
-    return sum_tail(n - 1, acc + n);  // tail call
-}
+export native fun length(text: string) -> i64;
 ```
 
-## Native Functions
+The runtime registry dispatches by name; `runNgi` (from the prelude) even
+compiles and runs a source string from inside a running program.
 
-Functions can be implemented in C++ via the `= native;` declaration:
+## `const fun`
 
-```ng
-fun my_native(arg: i32) -> bool = native;
-```
-
-This tells the compiler that the function body is provided by the host runtime. The ORGASM VM uses `vm.register_native(...)` to bind the implementation.
-
-## Member Functions (Methods)
-
-Types can have member functions that receive `self`:
+`const fun` bodies are compile-time capable and runtime callable:
 
 ```ng
-type Counter {
-    property value: i32;
-
-    fun increment(self: ref<Self>, delta: i32) {
-        self.value := self.value + delta;
-    }
-
-    fun get(self: ref<Self>) -> i32 {
-        return self.value;
-    }
+const fun fact(value: i64) -> i64 {
+    if (value == 0) { return 1; }
+    return value * fact(value - 1);
 }
 
-val c = new Counter { value: 0 };
-c.increment(5);
-print(c.get());  // 5
+const if (fact(4) == 24) { print("folded"); }
+let runtimeResult = fact(5);   // also runs normally
 ```
 
-The `Self` type refers to the enclosing type. Methods use `ref<Self>` receiver parameters to allow mutation.
+Const funs support loops, recursion, tail recursion, const-capable native
+hosts, and — with type parameters — per-type compile-time evaluation (see
+[Compile-Time Programming](/guide/compile-time-programming)).
 
-## Higher-Order Functions
+## Recursion and tail calls
 
-Functions can accept other functions as parameters. This is typically done through trait objects (see [Traits](traits.md)), but simple function references work too:
+Recursion is unrestricted; tail recursion is recognized by the VM and runs
+in constant stack space.
 
-```ng
-fun apply_twice(f: (i32) -> i32, x: i32) -> i32 {
-    return f(f(x));
-}
-
-fun double(x: i32) -> i32 => x * 2;
-print(apply_twice(double, 5));  // 20 (5*2*2)
-```
-
-## Function Types
-
-Function types are written as `(ParamType1, ParamType2) -> ReturnType`:
-
-```ng
-type Op = (i32, i32) -> i32;
-
-fun execute(op: Op, a: i32, b: i32) -> i32 {
-    return op(a, b);
-}
-```
-
-## Overloading
-
-Multiple functions can share the same name if they have different parameter types. The type checker selects the best match through overload resolution:
-
-```ng
-fun print_value(x: i32) { print("int:", x); }
-fun print_value(x: string) { print("string:", x); }
-
-print_value(42);       // calls first overload
-print_value("hello");  // calls second overload
-```
-
-## What's Next?
-
-Continue to [Data Structures](data-structures.md) to learn about arrays, tuples, objects, and tagged unions.
-
-> **Try it:** `example/03.funcall_and_idexpr.ng` — Function calls and index expressions
-> **Try it:** `example/09.scope.ng` — Scope and closures
+Next: [Data Structures](/guide/data-structures).

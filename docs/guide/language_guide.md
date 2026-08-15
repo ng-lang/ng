@@ -1,117 +1,84 @@
-# NG Programming Language Guide
+# NG Language Guide
 
-Welcome to the NG programming language! This guide provides a comprehensive, progressive introduction to NG — from your first program to advanced metaprogramming.
+Welcome to the NG language guide. NG is a statically-typed, multi-paradigm
+programming language implemented in modern C++23, with a single clean
+pipeline:
+
+**Lexer → Parser → Resolver (HIR) → Type Checker → FlowIR → Bytecode → VM**
 
 ## What is NG?
 
-NG is a modern, statically-typed, multi-paradigm programming language implemented in C++23. It features:
-
-- **Rich type system** — Generics, traits, tagged unions, nominal types, higher-kinded types
-- **Ownership model** — Value semantics, references, moves, partial moves
-- **Compile-time metaprogramming** — Const if, const predicates, const functions, type specialization
-- **Dual backend** — AST interpreter (STUPID) and bytecode VM (ORGASM)
-- **Native FFI** — Seamless C++ function binding
-- **ImGui integration** — Immediate-mode GUI applications
+- **Rich type system** — fixed-width integers (`i8`–`i64`, `u8`–`u64`),
+  `f32`/`f64`, `bool`, `string`, arrays (dynamic and fixed-size), tuples,
+  structs, tagged unions (`enum`), union annotations (`A | B`), ranges,
+  references, trait views, opaque/native handles, generics, and
+  higher-kinded type constructors.
+- **Ownership model** — copy-first value semantics: `Copy` types copy on
+  bind/call/return, affine nominal types move (`move`/`clone`) with
+  `impl Drop` lifecycle, and scoped `ref`/`ref mut` views are borrow-checked
+  with non-lexical loan release. No GC.
+- **Traits** — trait declarations with default methods, impls (concrete and
+  generic), `T: Trait` bounds, auto traits, `derive(Copy + Clone)`, and
+  `ref<Trait>` dynamic views.
+- **Compile-time programming** — `const if`, const declarations with pattern
+  specialization, `const fun` (compile-time capable and runtime callable),
+  where clauses, const generics, and const-capable native hosts.
+- **Modules** — transitive imports with per-module visibility, a redesigned
+  standard library (`lib/std`), and an embedding-friendly `native fun`
+  interface.
+- **ImGui binding** — a Dear ImGui binding over SDL3 and a minimal IDE
+  written in NG itself.
 
 ## Quick Start
 
-### Build from Source
+### Build
 
 ```bash
-git clone <repository-url> ng
-cd ng
-git submodule update --init --recursive
 cmake -S . -B build -GNinja
 cmake --build build -j
 ```
 
-### Run Your First Program
+### Run a program
 
 ```bash
-./build/ngi example/01.id.ng
+./build/ngi example/stdlib_basics.ng        # run an example file
+./build/ngi --source 'import prelude; fun main() { print("hi"); }'
+./build/ngi_imgui example/ng_ide.ng --fuel 0   # the imgui IDE (GUI)
 ```
 
-### Try the REPL
+`ngi --fuel <n>` bounds the instruction budget (`0` lifts it, used by
+interactive programs).
 
-```bash
-./build/ngi
->> print("Hello, World!");
+### First program
+
+```ng
+import prelude;
+
+fun main() -> i64 {
+    let greeting = "hello";
+    print(greeting);
+    return 42;
+}
 ```
 
-### Run Tests
+## Language tours
 
-```bash
-./build/ng_test
-```
+- [Getting Started](/guide/getting-started) — setup, first programs, `ngi`
+- [Basic Syntax](/guide/basic-syntax) — bindings, types, operators
+- [Control Flow](/guide/control-flow) — if, loop/next, switch, const if
+- [Functions](/guide/functions) — declarations, generics, native/const fun
+- [Data Structures](/guide/data-structures) — structs, enums, tuples, arrays
+- [Modules and Imports](/guide/modules-and-imports) — visibility, stdlib
+- [References, Moves & Ownership](/guide/references-moves) — the ownership model
+- [Traits](/guide/traits) — traits, impls, bounds, views
+- [Generics](/guide/generics) and [Advanced Generics](/guide/advanced-generics)
+- [Compile-Time Programming](/guide/compile-time-programming)
+- [Standard Library](/guide/standard-library)
+- [Memory Management](/guide/memory-management) — the GC-free heap
+- [ImGui Integration](/guide/imgui-integration) — the binding and the IDE
 
-All 695+ tests pass with 3,327+ assertions.
+## Reference
 
-## Learning Path
-
-Start here and follow the guides in order:
-
-| # | Guide | Topics |
-|---|---|---|
-| 1 | [Getting Started](getting-started.md) | Build, first program, REPL, backends |
-| 2 | [Basic Syntax](basic-syntax.md) | Comments, variables, types, operators |
-| 3 | [Control Flow](control-flow.md) | if/else, loop, switch, const if |
-| 4 | [Functions](functions.md) | Definition, recursion, native functions, methods |
-| 5 | [Data Structures](data-structures.md) | Arrays, tuples, objects, tagged unions, ranges |
-| 6 | [Modules and Imports](modules-and-imports.md) | Module system, export/import, path resolution |
-| 7 | [Generics](generics.md) | Type parameters, constraints, parameter packs |
-| 8 | [References, Moves & Ownership](references-moves.md) | ref, move, partial moves, borrowing |
-| 9 | [Traits](traits.md) | Definition, impl, bounds, objects, derive, auto traits |
-| 10 | [Type System in Depth](type-system-in-depth.md) | Nominal types, inference, casting |
-| 11 | [Compile-Time Programming](compile-time-programming.md) | const if, typeof, const predicates, const functions |
-| 12 | [Advanced Generics](advanced-generics.md) | HKT, specialization, enhanced tuples, fold expressions |
-| 13 | [Standard Library](standard-library.md) | Prelude, I/O, strings, collections, tuples |
-| 14 | [Memory Management](memory-management.md) | Heap, GC, Drop, moves, smart pointers |
-| 15 | [ORGASM Backend](orgasm-backend.md) | Bytecode compilation, VM, native bridge |
-| 16 | [ImGui Integration](imgui-integration.md) | GUI programming with Dear ImGui |
-
-## Example Programs
-
-The `example/` directory contains 59 numbered examples that correspond to these guides:
-
-| Range | Topic Area |
-|---|---|
-| 01–14 | Basics: identity, definitions, functions, strings, arrays, objects, imports, loops, tuples |
-| 15 | Generics |
-| 16–21 | Tagged unions, switch, const if, union types, recursion |
-| 22–24 | References, moves, value semantics |
-| 25–40 | Traits: Show, bounds, supertraits, defaults, objects, Copy, Clone, Drop |
-| 42–47 | Compile-time: const predicates, specialization, native constraints |
-| 48–49 | Higher-kinded generics, variadic HKT |
-| 50–51 | Partial moves |
-| 52 | Const array/vector/span |
-| 53 | Const functions |
-| 54 | Enhanced tuple types |
-| 55 | Auto derive traits |
-| 56 | Standard library modules |
-| 57 | Ranges, slicing, pipeline |
-| 58 | Fold expressions |
-| 59 | List and sequence operations |
-
-## Additional Resources
-
-- **Design Documents** — `docs/design/` — Detailed design rationales for major features
-- **Internal Architecture** — `docs/ref/Internals.md` — Compiler and runtime internals
-- **Memory Model** — `docs/ref/Memory.md` — Memory management design
-- **C++ Compatibility** — `docs/ref/cxx-compatibility.md` — FFI with C++
-
-## Project Status
-
-- ✅ **Compiler Pipeline**: Lexer → Parser → AST → Type Checker → Bytecode Compiler → VM
-- ✅ **695+ tests passing** with 3,327+ assertions
-- ✅ **59 runnable examples** demonstrating all features
-- ✅ **Complete standard library** with prelude, I/O, strings, collections, tuples
-- ✅ **ImGui integration** for GUI applications
-
-## Contributing
-
-See `CONTRIBUTING.md` for guidelines. Notable points:
-
-- Use conventional commits (`feat:`, `fix:`, `chore:`)
-- All C++23 with RAII and const correctness
-- Tests use Catch2 v3 (vendored)
-- AI-generated code must be disclosed
+- [Internals](/ref/Internals) — the compiler pipeline
+- [Memory](/ref/Memory) — the runtime value model
+- [C++ Compatibility](/ref/cxx-compatibility)
