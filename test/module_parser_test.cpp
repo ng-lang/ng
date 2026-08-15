@@ -1,6 +1,6 @@
 // AI-generated code; reviewed for this repository's vNext rewrite.
-#include "test.hpp"
 #include "syntax/module_parser.hpp"
+#include "test.hpp"
 
 namespace syntax = NG::syntax;
 
@@ -59,7 +59,8 @@ TEST_CASE("vNext module parser accepts mixed type and const generic parameters",
 
 TEST_CASE("vNext module parser accepts generic enum declarations", "[vNext][Syntax][Module]")
 {
-  const auto source = syntax::parseSourceUnit("enum Result<T, E> { Ok(value: T), Err(error: E) } fun ok() -> Result<i64, string> { return Result.Ok(7); }");
+  const auto source = syntax::parseSourceUnit(
+      "enum Result<T, E> { Ok(value: T), Err(error: E) } fun ok() -> Result<i64, string> { return Result.Ok(7); }");
   const auto *result = dynamic_cast<const syntax::EnumDeclaration *>(source.items[0].get());
   REQUIRE(result != nullptr);
   REQUIRE(result->genericParameters == std::vector<std::string>{"T", "E"});
@@ -69,7 +70,8 @@ TEST_CASE("vNext module parser accepts generic enum declarations", "[vNext][Synt
 
 TEST_CASE("vNext module parser accepts enum declarations", "[vNext][Syntax][Module]")
 {
-  const auto source = syntax::parseSourceUnit("enum Result { Ok(i64), Error(string), Empty } fun empty() -> Result { return Result.Empty; }");
+  const auto source = syntax::parseSourceUnit(
+      "enum Result { Ok(i64), Error(string), Empty } fun empty() -> Result { return Result.Empty; }");
   REQUIRE(source.items.size() == 2);
   const auto *result = dynamic_cast<const syntax::EnumDeclaration *>(source.items[0].get());
   REQUIRE(result != nullptr);
@@ -81,7 +83,8 @@ TEST_CASE("vNext module parser accepts enum declarations", "[vNext][Syntax][Modu
 
 TEST_CASE("vNext module parser accepts struct declarations", "[vNext][Syntax][Module]")
 {
-  const auto source = syntax::parseSourceUnit("struct Point { x: i64, label: string } fun origin() -> Point { return Point { x: 0, label: \"origin\" }; }");
+  const auto source = syntax::parseSourceUnit(
+      "struct Point { x: i64, label: string } fun origin() -> Point { return Point { x: 0, label: \"origin\" }; }");
   REQUIRE(source.items.size() == 2);
   const auto *point = dynamic_cast<const syntax::StructDeclaration *>(source.items[0].get());
   REQUIRE(point != nullptr);
@@ -136,4 +139,61 @@ TEST_CASE("vNext module parser rejects local declarations in a function block", 
     REQUIRE(error.span().begin == 14);
     REQUIRE(error.span().end == 17);
   }
+}
+
+TEST_CASE("vNext module parser rejects malformed exports and function headers", "[vNext][Syntax][Module]")
+{
+  const auto expect = [](std::string_view source, std::string_view message)
+  {
+    try
+    {
+      static_cast<void>(syntax::parseSourceUnit(source));
+      FAIL("expected a parse error");
+    }
+    catch (const syntax::ParseError &error)
+    {
+      REQUIRE(std::string{error.what()} == message);
+    }
+  };
+  expect("export 5;", "expected a declaration after `export`");
+  expect("fun 5() {}", "expected a function name after `fun`");
+  expect("fun f(5) {}", "expected a parameter name");
+  expect("fun f<T,>() {}", "expected a generic parameter after `,`");
+  expect("fun f() where {}", "expected a where condition");
+  expect("impl<,> Show for i64 {}", "expected a generic impl type parameter");
+  expect("fun f()", "expected a function body block");
+  expect("fun f() {", "expected `}` to close function body");
+}
+
+TEST_CASE("vNext module parser rejects malformed const declarations", "[vNext][Syntax][Module]")
+{
+  const auto expect = [](std::string_view source, std::string_view message)
+  {
+    try
+    {
+      static_cast<void>(syntax::parseSourceUnit(source));
+      FAIL("expected a parse error");
+    }
+    catch (const syntax::ParseError &error)
+    {
+      REQUIRE(std::string{error.what()} == message);
+    }
+  };
+  expect("const<const N: i64> x: bool = true;", "const parameters on const declarations are not yet supported");
+  expect("const<5> x: bool = true;", "expected a const declaration generic parameter");
+  expect("const f<i64: bool = true;", "expected `>` after const declaration pattern");
+  expect("const x: bool = true fun main() {}", "expected `;` after const declaration body");
+}
+
+TEST_CASE("vNext module parser splits nested shift-right closers in const patterns", "[vNext][Syntax][Module]")
+{
+  const auto unit = syntax::parseSourceUnit("const nested<tuple<i64, i64>>: bool = true; fun main() {}");
+  REQUIRE(unit.items.size() == 2);
+  const auto &declaration = *static_cast<const syntax::ConstDeclaration *>(unit.items[0].get());
+  REQUIRE(declaration.patternArguments.size() == 1);
+
+  const auto deep = syntax::parseSourceUnit("const deep<array<tuple<i64>>>: bool = false; fun main() {}");
+  REQUIRE(deep.items.size() == 2);
+  const auto &nested = *static_cast<const syntax::ConstDeclaration *>(deep.items[0].get());
+  REQUIRE(nested.patternArguments.size() == 1);
 }
