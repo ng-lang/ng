@@ -321,11 +321,14 @@ Final generated results:
   startsWith/endsWith/replace/split/join/regexMatch), seq ops
   (len/sum/arrayContains/reverse), memory handles
   (allocate/load/store/release/outstanding), file/line I/O, and cwd.
-  Coverage: **43/45 examples run natively** — the remaining two are the
-  host-bound imgui binding (recorded decision: R9 std-module work) and
-  union types. regexMatch uses POSIX ERE, a documented deviation from the
-  VM's std::regex. Remaining M5: the declared-descriptor registry (R9)
-  superseding the name-keyed table, and `extern "C"`/`repr(C)` (B3).
+  Coverage: **44/45 examples run natively** — the only remaining one is
+  the host-bound imgui binding (recorded decision: R9 std-module work).
+  Union types are delivered as tagged `{ member-index, payload }` boxes
+  (wrapping at production sites, equality/ordering comparisons; ordering
+  compares raw payload words — a documented Tier 0 deviation from the VM's
+  value-nature checks). regexMatch uses POSIX ERE, a documented deviation
+  from the VM's std::regex. Remaining M5: the declared-descriptor registry
+  (R9) superseding the name-keyed table, and `extern "C"`/`repr(C)` (B3).
 - **Later:** cross-target linking, debug info (R11), Windows when QBE's
   `amd64_win` matures.
 

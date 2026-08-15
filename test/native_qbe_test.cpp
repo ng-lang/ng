@@ -96,16 +96,6 @@ TEST_CASE("vNext native lowering emits string data items and ngrt helpers", "[vN
   REQUIRE_THAT(il, ContainsSubstring("$malloc"));
 }
 
-TEST_CASE("vNext native lowering rejects unsupported M1 constructs with a clear error", "[vNext][Native][Qbe]")
-{
-  std::ostringstream output;
-  std::ostringstream errors;
-  const int status = NG::runDriver(
-      {"--emit=ssa", "--source", "fun main() -> i64 { let x: i64 | string = 1; 7 }"}, output, errors);
-  REQUIRE(status == 1);
-  REQUIRE_THAT(errors.str(), ContainsSubstring("native lowering (M"));
-}
-
 #if defined(NG_QBE_PATH) && !defined(_WIN32)
 TEST_CASE("vNext native lowering round-trips a loop through qbe and the system toolchain", "[vNext][Native][Qbe]")
 {
@@ -470,5 +460,29 @@ TEST_CASE("vNext native mode runs opaque-handle memory natives through the AOT s
   INFO(errors.str());
   REQUIRE(status == 0);
   REQUIRE_THAT(output.str(), ContainsSubstring("native main exited with code 42"));
+}
+
+TEST_CASE("vNext native lowering round-trips unions through qbe and the system toolchain",
+          "[vNext][Native][Qbe]")
+{
+  const int exitCode = runNative("fun read(value: bool | i64 | f64) -> i64 { if (value == 42) { return 7; } return 0; }\n"
+                                 "fun main() -> i64 {\n"
+                                 "    let w: bool | i64 | f64 = 42;\n"
+                                 "    return read(w);\n"
+                                 "}",
+                                 "unions");
+  CHECK(exitCode == 7);
+}
+
+TEST_CASE("vNext native lowering round-trips string unions through qbe and the system toolchain",
+          "[vNext][Native][Qbe]")
+{
+  const int exitCode = runNative("fun main() -> i64 {\n"
+                                 "    let x: i64 | string = \"hello\";\n"
+                                 "    if (x == \"hello\") { return 3; }\n"
+                                 "    return 0;\n"
+                                 "}",
+                                 "string_unions");
+  CHECK(exitCode == 3);
 }
 #endif

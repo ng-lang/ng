@@ -406,6 +406,11 @@ namespace NG::native
       std::unordered_map<uint32_t, std::string> localSlots_;
       std::unordered_map<uint32_t, QType> localQTypes_;
       std::unordered_map<uint32_t, std::string> valueTemps_;
+      /// ValueIds that carry a tagged union box -> the union type. The
+      /// checker records union operands as their member type at comparison
+      /// sites, so union-ness must be tracked by data flow, not by type
+      /// tables.
+      std::unordered_map<uint32_t, TypeId> unionBoxedValues_;
       std::vector<std::string> paramTemps_;
       std::optional<QType> returnType_;
 
@@ -439,6 +444,7 @@ namespace NG::native
         case TypeKind::Enum:
         case TypeKind::TraitReference:
         case TypeKind::Opaque:
+        case TypeKind::Union:
           return QType::Long;
         case TypeKind::TypeParameter:
         case TypeKind::TypeConstructor:
@@ -463,6 +469,50 @@ namespace NG::native
         const auto cast = fresh();
         line(std::format("{} =l cast {}", cast, temp));
         return cast;
+      }
+
+      [[nodiscard]] auto resultTypeId(const Instruction &instruction) -> TypeId
+      {
+        return function_.valueTypes.at(instruction.result.value);
+      }
+
+      [[nodiscard]] auto isUnionType(TypeId type) -> bool
+      {
+        return type.value < function_.typeDescriptors.size() &&
+               function_.typeDescriptors[type.value].kind == TypeKind::Union;
+      }
+
+      /// Index of the union member matching a value's natural type (first
+      /// integer/bool member for integers, first float member for floats,
+      /// the string member for strings).
+      [[nodiscard]] auto unionMemberFor(TypeId unionType, TypeId memberType) -> int64_t
+      {
+        const auto &descriptor = function_.typeDescriptors[unionType.value];
+        const auto matches = [&](TypeId candidate) {
+          if (memberType == typecheck::builtin::String) return candidate == typecheck::builtin::String;
+          if (typecheck::isFloatBuiltin(memberType)) return typecheck::isFloatBuiltin(candidate);
+          if (memberType == typecheck::builtin::Bool) return candidate == typecheck::builtin::Bool;
+          return typecheck::isIntegerBuiltin(candidate);
+        };
+        for (size_t index = 0; index < descriptor.elements.size(); ++index)
+          if (matches(descriptor.elements[index])) return static_cast<int64_t>(index);
+        throw LoweringError(std::format("native lowering (M2): value does not match any member of union `{}`",
+                                        descriptor.name));
+      }
+
+      /// Wraps a produced payload temp into a tagged union box
+      /// { l memberIndex, l payloadWord } and binds the instruction result.
+      void bindUnionBox(const Instruction &instruction, TypeId unionType, int64_t member, const std::string &payloadTemp,
+                        QType payloadType)
+      {
+        const auto pointer = fresh();
+        line(std::format("{} =l call $malloc(l 16)", pointer));
+        line(std::format("storel {}, {}", member, pointer));
+        const auto address = fresh();
+        line(std::format("{} =l add {}, 8", address, pointer));
+        line(std::format("store{} {}, {}", suffix(payloadType), payloadTemp, address));
+        bindResult(instruction, QType::Long, std::format("copy {}", pointer));
+        unionBoxedValues_.emplace(instruction.result.value, unionType);
       }
 
       /// Reverses castForSlot after a load from an aggregate slot.
@@ -746,8 +796,18 @@ namespace NG::native
         case InstructionKind::BindLocal:
         {
           const auto source = operandTemp(*instruction.source);
+          const auto sourceType = function_.valueTypes.at(instruction.source->value);
+          const auto localType = function_.localTypes.at(instruction.local->value);
           const auto type = localQTypes_.at(instruction.local->value);
-          bindResult(instruction, type, std::format("copy {}", source));
+          if (isUnionType(localType) && !isUnionType(sourceType))
+          {
+            // Values flowing into a union slot are wrapped in a tagged box.
+            bindUnionBox(instruction, localType, unionMemberFor(localType, sourceType), source, qtypeOf(sourceType));
+          }
+          else
+          {
+            bindResult(instruction, type, std::format("copy {}", source));
+          }
           line(std::format("store{} {}, {}", suffix(type), valueTemps_.at(instruction.result.value),
                            localSlots_.at(instruction.local->value)));
           return;
@@ -916,7 +976,22 @@ namespace NG::native
           const auto rootSlot = localSlots_.at(instruction.placeRootLocal->value);
           if (instruction.placeSteps.empty())
           {
-            line(std::format("store{} {}, {}", suffix(valueType), value, rootSlot));
+            const auto localType = function_.localTypes.at(instruction.placeRootLocal->value);
+            const auto valueTypeId = function_.valueTypes.at(instruction.operands.back().value);
+            if (isUnionType(localType) && !isUnionType(valueTypeId))
+            {
+              const auto wrapped = fresh();
+              line(std::format("{} =l call $malloc(l 16)", wrapped));
+              line(std::format("storel {}, {}", unionMemberFor(localType, valueTypeId), wrapped));
+              const auto address = fresh();
+              line(std::format("{} =l add {}, 8", address, wrapped));
+              line(std::format("store{} {}, {}", suffix(valueType), value, address));
+              line(std::format("storel {}, {}", wrapped, rootSlot));
+            }
+            else
+            {
+              line(std::format("store{} {}, {}", suffix(valueType), value, rootSlot));
+            }
             return;
           }
           const auto current = fresh();
@@ -958,17 +1033,47 @@ namespace NG::native
         {
         case ExpressionKind::IntegerLiteral:
         case ExpressionKind::BooleanLiteral:
-          bindResult(instruction, QType::Long, std::format("copy {}", payload));
+        {
+          if (isUnionType(resultTypeId(instruction)))
+          {
+            const auto temp = fresh();
+            line(std::format("{} =l copy {}", temp, payload));
+            bindUnionBox(instruction, resultTypeId(instruction),
+                         unionMemberFor(resultTypeId(instruction), typecheck::builtin::I64), temp, QType::Long);
+          }
+          else
+          {
+            bindResult(instruction, QType::Long, std::format("copy {}", payload));
+          }
           return;
+        }
         case ExpressionKind::FloatLiteral:
-          bindResult(instruction, QType::Double, std::format("copy {}", doubleConstant(std::bit_cast<double>(payload))));
+        {
+          if (isUnionType(resultTypeId(instruction)))
+          {
+            const auto temp = fresh();
+            line(std::format("{} =d copy {}", temp, doubleConstant(std::bit_cast<double>(payload))));
+            bindUnionBox(instruction, resultTypeId(instruction),
+                         unionMemberFor(resultTypeId(instruction), typecheck::builtin::F64), temp, QType::Double);
+          }
+          else
+          {
+            bindResult(instruction, QType::Double, std::format("copy {}", doubleConstant(std::bit_cast<double>(payload))));
+          }
           return;
+        }
         case ExpressionKind::StringLiteral:
         {
           const auto name = std::format("$ngstr_{}_{}", function_.source.value, dataItems_.size());
           dataItems_.push_back(std::format("data {} = {{ l {}, b \"{}\", b 0 }}", name, instruction.text.size(),
                                             escapeQbeString(instruction.text)));
-          bindResult(instruction, QType::Long, std::format("copy {}", name));
+          const auto text = fresh();
+          line(std::format("{} =l copy {}", text, name));
+          if (isUnionType(resultTypeId(instruction)))
+            bindUnionBox(instruction, resultTypeId(instruction),
+                         unionMemberFor(resultTypeId(instruction), typecheck::builtin::String), text, QType::Long);
+          else
+            bindResult(instruction, QType::Long, std::format("copy {}", text));
           return;
         }
         case ExpressionKind::ArrayLiteral:
@@ -1029,6 +1134,9 @@ namespace NG::native
           const uint32_t local = static_cast<uint32_t>(payload);
           const auto type = localQTypes_.at(local);
           bindResult(instruction, type, std::format("load{} {}", suffix(type), localSlots_.at(local)));
+          if (const auto found = function_.localTypes.find(local); found != function_.localTypes.end() &&
+                                                               isUnionType(found->second))
+            unionBoxedValues_.emplace(instruction.result.value, found->second);
           return;
         }
         case ExpressionKind::Grouped:
@@ -1036,6 +1144,8 @@ namespace NG::native
           const auto source = operandTemp(instruction.operands[0]);
           bindResult(instruction, qtypeOf(function_.valueTypes.at(instruction.result.value)),
                      std::format("copy {}", source));
+          if (const auto found = unionBoxedValues_.find(instruction.operands[0].value); found != unionBoxedValues_.end())
+            unionBoxedValues_.emplace(instruction.result.value, found->second);
           return;
         }
         case ExpressionKind::Prefix: lowerPrefix(instruction); return;
@@ -1083,6 +1193,8 @@ namespace NG::native
         else
           line(std::format("{} ={} call {}({})", valueTemps_.at(instruction.result.value), suffix(resultType), symbol,
                            arguments));
+        if (isUnionType(resultTypeId(instruction)))
+          unionBoxedValues_.emplace(instruction.result.value, resultTypeId(instruction));
       }
 
       /// Struct literal: a malloc'd object of 8-byte fields (Tier 0 layout:
@@ -1318,6 +1430,64 @@ namespace NG::native
         throw LoweringError(std::format("native `{}` has no AOT shim yet", name));
       }
 
+      /// Union equality/inequality against a member value: the tag must match
+      /// the member's index and the payload must equal the operand. Ordering
+      /// compares the integer payload directly (the VM throws for non-integer
+      /// payloads; the tagless native form silently compares raw words — a
+      /// documented Tier 0 deviation).
+      void lowerUnionCompare(const Instruction &instruction, TypeId unionType, bool leftIsUnion)
+      {
+        const auto payload = instruction.payload;
+        const auto memberType = function_.valueTypes.at(
+            (leftIsUnion ? instruction.operands[1] : instruction.operands[0]).value);
+        const auto unionTemp = leftIsUnion ? operandTemp(instruction.operands[0]) : operandTemp(instruction.operands[1]);
+        const auto memberTemp = leftIsUnion ? operandTemp(instruction.operands[1]) : operandTemp(instruction.operands[0]);
+        const auto member = unionMemberFor(unionType, memberType);
+        const auto payloadAddress = fresh();
+        line(std::format("{} =l add {}, 8", payloadAddress, unionTemp));
+        const auto payloadValue = fresh();
+        line(std::format("{} =l loadl {}", payloadValue, payloadAddress));
+        if (payload == 8 || payload == 9 || payload == 10 || payload == 11)
+        {
+          const char *qbeOp = payload == 8 ? "csltl" : payload == 9 ? "cslel" : payload == 10 ? "csgtl" : "csgel";
+          const auto compared = fresh();
+          line(std::format("{} =w {} {}, {}", compared, qbeOp, payloadValue, memberTemp));
+          const auto extended = fresh();
+          line(std::format("{} =l extsw {}", extended, compared));
+          bindResult(instruction, QType::Long, std::format("copy {}", extended));
+          return;
+        }
+        if (payload != 6 && payload != 7)
+          throw LoweringError(std::format("native lowering (M2): unsupported union binary payload {} in `{}`",
+                                          payload, function_.name));
+        const auto tag = fresh();
+        line(std::format("{} =l loadl {}", tag, unionTemp));
+        const auto tagOk = fresh();
+        line(std::format("{} =w ceql {}, {}", tagOk, tag, member));
+        const auto valueOk = fresh();
+        if (memberType == typecheck::builtin::String)
+        {
+          useHelper("str_eq");
+          line(std::format("{} =w call $ngrt_str_eq(l {}, l {})", valueOk, payloadValue, memberTemp));
+        }
+        else if (typecheck::isFloatBuiltin(memberType))
+        {
+          const auto payloadDouble = fresh();
+          line(std::format("{} =d cast {}", payloadDouble, payloadValue));
+          line(std::format("{} =w ceqd {}, {}", valueOk, payloadDouble, memberTemp));
+        }
+        else
+        {
+          line(std::format("{} =w ceql {}, {}", valueOk, payloadValue, memberTemp));
+        }
+        const auto combined = fresh();
+        line(std::format("{} =w and {}, {}", combined, tagOk, valueOk));
+        const auto extended = fresh();
+        line(std::format("{} =l extsw {}", extended, combined));
+        if (payload == 6) bindResult(instruction, QType::Long, std::format("copy {}", extended));
+        else bindResult(instruction, QType::Long, std::format("xor {}, 1", extended));
+      }
+
       void lowerPrefix(const Instruction &instruction)
       {
         const auto payload = instruction.payload;
@@ -1328,6 +1498,8 @@ namespace NG::native
         if (payload == 3 || payload == 4 || payload == 5)
         {
           bindResult(instruction, resultType, std::format("copy {}", operand));
+          if (const auto found = unionBoxedValues_.find(instruction.operands[0].value); found != unionBoxedValues_.end())
+            unionBoxedValues_.emplace(instruction.result.value, found->second);
           return;
         }
         if (payload == 2)
@@ -1363,6 +1535,26 @@ namespace NG::native
         const auto right = operandTemp(instruction.operands[1]);
         const auto leftType = function_.valueTypes.at(instruction.operands[0].value);
         const auto rightType = function_.valueTypes.at(instruction.operands[1].value);
+
+        // Unions compare against member values: (tag == member) && payload.
+        // Union-ness is tracked by data flow (unionBoxedValues_), because the
+        // checker records union operands as their member type at comparison
+        // sites.
+        const auto unionTypeOf = [&](ValueId value) -> std::optional<TypeId>
+        {
+          if (const auto found = unionBoxedValues_.find(value.value); found != unionBoxedValues_.end())
+            return found->second;
+          const auto type = function_.valueTypes.at(value.value);
+          if (isUnionType(type)) return type;
+          return std::nullopt;
+        };
+        const auto leftUnion = unionTypeOf(instruction.operands[0]);
+        const auto rightUnion = unionTypeOf(instruction.operands[1]);
+        if (leftUnion || rightUnion)
+        {
+          lowerUnionCompare(instruction, leftUnion ? *leftUnion : *rightUnion, leftUnion.has_value());
+          return;
+        }
 
         // Strings: concatenation and content equality/inequality.
         if (leftType == typecheck::builtin::String)
