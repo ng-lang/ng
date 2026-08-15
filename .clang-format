@@ -2,7 +2,7 @@
 
 BasedOnStyle: Microsoft
 Language: Cpp
-Standard: c++23
+Standard: Latest
 
 # Indentation
 IndentWidth: 2

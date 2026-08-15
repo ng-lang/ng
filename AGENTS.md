@@ -51,10 +51,11 @@ ctest --test-dir build -j
 ./build/ngi example/<example>.ng
 ./build/ngi_imgui example/ng_ide.ng --fuel 0   # GUI binding; --fuel 0 lifts the instruction budget
 ```
-**Format C++ code:**
+**Format and lint C++ code** (tools come from Homebrew LLVM at `/opt/homebrew/opt/llvm`):
 
 ```bash
 clang-format -i src/**/*.cpp include/**/*.hpp
+clang-tidy -p build src/<file>.cpp   # uses build/compile_commands.json
 ```
 
 ## Coding Style & Naming Conventions

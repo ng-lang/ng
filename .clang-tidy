@@ -1,5 +1,5 @@
 ---
-Checks: "clang-diagnostic-*,clang-analyzer-*,cppcoreguidelines-*,modernize-*,bugprone-*,performance-*,readability-*,portability-*"
+Checks: "clang-diagnostic-*,clang-analyzer-*,cppcoreguidelines-*,modernize-*,-modernize-use-trailing-return-type,bugprone-*,performance-*,readability-*,portability-*"
 WarningsAsErrors: ""
 HeaderFileExtensions:
   - ""
@@ -28,7 +28,7 @@ CheckOptions:
   cert-oop54-cpp.WarnOnlyIfThisHasSuspiciousField: "false"
   cert-str34-c.DiagnoseSignedUnsignedCharComparisons: "false"
   cppcoreguidelines-non-private-member-variables-in-classes.IgnoreClassesWithAllMemberVariablesBeingPublic: "true"
-  google-readability-braces-around-statements.ShortStatementLines: "1"
+  readability-braces-around-statements.ShortStatementLines: "1"
   google-readability-function-size.StatementThreshold: "800"
   google-readability-namespace-comments.ShortNamespaceLines: "10"
   google-readability-namespace-comments.SpacesBeforeComments: "2"

@@ -1,5 +1,8 @@
 cmake_minimum_required(VERSION 3.25.1)
 set(CMAKE_CXX_STANDARD 23)
+# clang-tidy/clang-format support: export the compilation database so
+# `clang-tidy -p build` resolves include paths and flags.
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Debug)
 endif()
@@ -8,6 +11,13 @@ if(NOT DEFINED ENV{RUNNING_ON_GITHUB})
 
 set(CMAKE_C_COMPILER clang)
 set(CMAKE_CXX_COMPILER clang++)
+
+# clang-tidy/clang-format come from Homebrew LLVM (/opt/homebrew/opt/llvm).
+# Emit an explicit -isysroot so clang-tidy resolves the SDK libc++ headers
+# (its toolchain dir ships none) when reading build/compile_commands.json.
+execute_process(COMMAND xcrun --sdk macosx --show-sdk-path OUTPUT_VARIABLE NG_MACOS_SDK OUTPUT_STRIP_TRAILING_WHITESPACE)
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -isysroot ${NG_MACOS_SDK}")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -isysroot ${NG_MACOS_SDK}")
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -stdlib=libc++ -lc++abi")
