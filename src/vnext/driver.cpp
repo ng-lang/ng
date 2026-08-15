@@ -255,6 +255,89 @@ namespace NG::vnext
             for (auto &character : result) character = static_cast<char>(std::toupper(static_cast<unsigned char>(character)));
             return Value::string(std::move(result));
           });
+          natives.registerNative("length", [&expectStrings](const std::vector<Value> &arguments, const std::vector<typecheck::TypeId> &) {
+            const auto strings = expectStrings(arguments, 1);
+            return Value::integer(static_cast<int64_t>(strings.front().size()));
+          });
+          natives.registerNative("charAt", [](const std::vector<Value> &arguments, const std::vector<typecheck::TypeId> &) {
+            if (arguments.size() != 2 || !arguments[0].isString() || !arguments[1].isInteger())
+              throw bytecode::BytecodeError("charAt expects a string and an index");
+            const auto &text = arguments[0].asString();
+            const int64_t index = arguments[1].asInteger();
+            if (index < 0 || static_cast<size_t>(index) >= text.size())
+              throw bytecode::BytecodeError(std::format("charAt index out of bounds: index {}, length {}", index, text.size()));
+            return Value::string(std::string(1, text[static_cast<size_t>(index)]));
+          });
+          natives.registerNative("substring", [](const std::vector<Value> &arguments, const std::vector<typecheck::TypeId> &) {
+            if (arguments.size() != 3 || !arguments[0].isString() || !arguments[1].isInteger() || !arguments[2].isInteger())
+              throw bytecode::BytecodeError("substring expects a string and two indexes");
+            const auto &text = arguments[0].asString();
+            const int64_t start = arguments[1].asInteger();
+            const int64_t end = arguments[2].asInteger();
+            if (start < 0 || end < start || static_cast<size_t>(end) > text.size())
+              throw bytecode::BytecodeError(std::format("substring bounds out of range: [{}..{}) of length {}", start, end, text.size()));
+            return Value::string(text.substr(static_cast<size_t>(start), static_cast<size_t>(end - start)));
+          });
+          natives.registerNative("sum", [](const std::vector<Value> &arguments, const std::vector<typecheck::TypeId> &) {
+            if (arguments.size() != 1 || !arguments.front().isArray())
+              throw bytecode::BytecodeError("sum expects an array of i64");
+            int64_t total = 0;
+            for (const auto &element : arguments.front().asArray())
+            {
+              if (!element.isInteger()) throw bytecode::BytecodeError("sum expects an array of i64");
+              total += element.asInteger();
+            }
+            return Value::integer(total);
+          });
+          natives.registerNative("arrayContains", [](const std::vector<Value> &arguments, const std::vector<typecheck::TypeId> &) {
+            if (arguments.size() != 2 || !arguments[0].isArray() || !arguments[1].isInteger())
+              throw bytecode::BytecodeError("arrayContains expects an array of i64 and a value");
+            for (const auto &element : arguments[0].asArray())
+              if (element.isInteger() && element.asInteger() == arguments[1].asInteger()) return Value::integer(1);
+            return Value::integer(0);
+          });
+          auto heapSlots = std::make_shared<std::vector<std::optional<Value>>>();
+          natives.registerNative("allocate", [heapSlots](const std::vector<Value> &arguments, const std::vector<typecheck::TypeId> &) {
+            if (arguments.size() != 1 || !arguments.front().isInteger())
+              throw bytecode::BytecodeError("allocate expects an i64");
+            for (size_t index = 0; index < heapSlots->size(); ++index)
+            {
+              if (!heapSlots->at(index).has_value())
+              {
+                heapSlots->at(index) = arguments.front();
+                return Value::opaque(static_cast<uint64_t>(index + 1));
+              }
+            }
+            heapSlots->push_back(arguments.front());
+            return Value::opaque(static_cast<uint64_t>(heapSlots->size()));
+          });
+          const auto slotOf = [heapSlots](const Value &handle) -> Value & {
+            if (!handle.isOpaque() || handle.asOpaque() == 0 || handle.asOpaque() > heapSlots->size() ||
+                !heapSlots->at(handle.asOpaque() - 1).has_value())
+              throw bytecode::BytecodeError("invalid heap handle");
+            return *heapSlots->at(handle.asOpaque() - 1);
+          };
+          natives.registerNative("load", [slotOf](const std::vector<Value> &arguments, const std::vector<typecheck::TypeId> &) {
+            if (arguments.size() != 1) throw bytecode::BytecodeError("load expects a handle");
+            return slotOf(arguments.front());
+          });
+          natives.registerNative("store", [slotOf](const std::vector<Value> &arguments, const std::vector<typecheck::TypeId> &) {
+            if (arguments.size() != 2 || !arguments[1].isInteger()) throw bytecode::BytecodeError("store expects a handle and an i64");
+            slotOf(arguments[0]) = arguments[1];
+            return Value{};
+          });
+          natives.registerNative("release", [heapSlots, slotOf](const std::vector<Value> &arguments, const std::vector<typecheck::TypeId> &) {
+            if (arguments.size() != 1) throw bytecode::BytecodeError("release expects a handle");
+            static_cast<void>(slotOf(arguments.front()));
+            heapSlots->at(arguments.front().asOpaque() - 1).reset();
+            return Value{};
+          });
+          natives.registerNative("outstanding", [heapSlots](const std::vector<Value> &, const std::vector<typecheck::TypeId> &) {
+            int64_t count = 0;
+            for (const auto &slot : *heapSlots)
+              if (slot.has_value()) ++count;
+            return Value::integer(count);
+          });
           natives.registerNative("toLower", [&expectStrings](const std::vector<Value> &arguments, const std::vector<typecheck::TypeId> &) {
             const auto strings = expectStrings(arguments, 1);
             std::string result = strings[0];

@@ -1,0 +1,19 @@
+// vNext std.list (legacy 59 spirit, redesigned): a recursive sequence over
+// the List<T> enum built from caller bindings and scoped refs; mutating
+// builders arrive with the R6 heap domain.
+
+import list;
+
+fun main() -> i64 {
+    let empty: List<i64> = List.Nil;
+    let one: List<i64> = List.Cons(1, ref empty);
+    let two: List<i64> = List.Cons(2, ref one);
+    let three: List<i64> = List.Cons(3, ref two);
+
+    let mut total = 0;
+    if (length(ref three) == 3) { total := total + 1; }
+    if (get(ref three, 0) == 3) { total := total + 2; }
+    if (get(ref three, 2) == 1) { total := total + 4; }
+    if (contains(ref three, 2)) { total := total + 8; }
+    return total;
+}

@@ -60,6 +60,13 @@ namespace NG::vnext
       bool mutableRef{};
       auto operator==(const ReferenceStorage &) const -> bool = default;
     };
+    /// An opaque native handle token (`type X = native;`): an integer token
+    /// owned by the embedding; runtime operations pass it through untouched.
+    struct OpaqueStorage
+    {
+      uint64_t token{};
+      auto operator==(const OpaqueStorage &) const -> bool = default;
+    };
     /// A dynamic trait view (`ref<Trait>`): a shared-borrowed root cell plus
     /// the trait/concrete type ids that select the dispatch table.
     struct TraitViewStorage
@@ -119,6 +126,12 @@ namespace NG::vnext
       value.storage_ = TraitViewStorage{std::move(root), std::move(steps), trait, concrete};
       return value;
     }
+    [[nodiscard]] static auto opaque(uint64_t token) -> Value
+    {
+      Value value;
+      value.storage_ = OpaqueStorage{token};
+      return value;
+    }
 
     [[nodiscard]] auto isInteger() const -> bool { return std::holds_alternative<int64_t>(storage_); }
     [[nodiscard]] auto isDouble() const -> bool { return std::holds_alternative<double>(storage_); }
@@ -129,6 +142,7 @@ namespace NG::vnext
     [[nodiscard]] auto isEnum() const -> bool { return std::holds_alternative<EnumStorage>(storage_); }
     [[nodiscard]] auto isReference() const -> bool { return std::holds_alternative<ReferenceStorage>(storage_); }
     [[nodiscard]] auto isTraitView() const -> bool { return std::holds_alternative<TraitViewStorage>(storage_); }
+    [[nodiscard]] auto isOpaque() const -> bool { return std::holds_alternative<OpaqueStorage>(storage_); }
     [[nodiscard]] auto isRange() const -> bool { return std::holds_alternative<RangeStorage>(storage_); }
     [[nodiscard]] auto asInteger() const -> int64_t
     {
@@ -211,6 +225,11 @@ namespace NG::vnext
       if (!isTraitView()) throw std::runtime_error("runtime value is not a trait view");
       return std::get<TraitViewStorage>(storage_);
     }
+    [[nodiscard]] auto asOpaque() const -> uint64_t
+    {
+      if (!isOpaque()) throw std::runtime_error("runtime value is not an opaque handle");
+      return std::get<OpaqueStorage>(storage_).token;
+    }
     [[nodiscard]] auto asRange() const -> const RangeStorage &
     {
       if (!isRange()) throw std::runtime_error("runtime value is not a range");
@@ -227,7 +246,7 @@ namespace NG::vnext
 
   private:
     std::variant<int64_t, double, std::string, ArrayStorage, TupleStorage, StructStorage, EnumStorage, ReferenceStorage,
-                 TraitViewStorage, RangeStorage>
+                 TraitViewStorage, OpaqueStorage, RangeStorage>
         storage_;
   };
 

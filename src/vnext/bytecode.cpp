@@ -2,6 +2,7 @@
 #include "vnext/bytecode.hpp"
 
 #include <algorithm>
+#include <format>
 #include <array>
 #include <utility>
 
@@ -538,7 +539,7 @@ namespace NG::vnext::bytecode
                   std::find(function.typeDescriptors[localType.value].elements.begin(),
                             function.typeDescriptors[localType.value].elements.end(),
                             resultType) == function.typeDescriptors[localType.value].elements.end())
-                throw BytecodeError("bytecode local read type does not match result type");
+                throw BytecodeError(std::format("bytecode local read type does not match result type in `{}`: local {} localType {} resultType {}", function.name, local, localType.value, resultType.value));
             }
           }
           else if (kind == hir::ExpressionKind::Grouped)

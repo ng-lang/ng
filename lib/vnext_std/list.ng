@@ -1,0 +1,37 @@
+// vNext std.list (redesign, legacy 59 spirit): a read-only recursive sequence
+// over the recursive-enum List<T>; node construction uses caller bindings and
+// scoped refs, and mutating builders arrive with the R6 heap domain.
+
+import prelude;
+
+export enum List<T> {
+    Cons(head: T, tail: ref<List<T>>),
+    Nil,
+}
+
+export fun length<T>(list: ref<List<T>>) -> i64 {
+    switch (*list) {
+        case Nil { return 0; }
+        case Cons(value, rest) { return 1 + length(rest); }
+    }
+}
+
+export fun get<T>(list: ref<List<T>>, index: i64) -> T {
+    switch (*list) {
+        case Nil {
+            assert(false);
+            return get(list, index);
+        }
+        case Cons(value, rest) {
+            if (index == 0) { return value; }
+            return get(rest, index - 1);
+        }
+    }
+}
+
+export fun contains<T>(list: ref<List<T>>, value: T) -> bool {
+    switch (*list) {
+        case Nil { return false; }
+        case Cons(head, rest) { return head == value || contains(rest, value); }
+    }
+}

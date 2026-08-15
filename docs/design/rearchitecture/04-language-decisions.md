@@ -984,6 +984,9 @@ let writable = ref mut value;
   impl's own field moves against the current move state, rejecting
   double-ownership (`cannot drop a value with field ... moved out`).
 - Remaining D-015 work: full non-lexical loan analysis.
+- Heap domains stay deferred (no GC): a redesigned `memory` module provides
+  native handles plus a concrete `Box` with `impl Drop` release; generic
+  `Box<T>`, `Gc`, and `Arc` arrive with the R6 RuntimeSession.
 
 ### Borrow status — 2026-08-15
 

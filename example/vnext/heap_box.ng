@@ -1,0 +1,20 @@
+// vNext heap Box (legacy 41 spirit, redesigned for a GC-free runtime): a
+// native-backed cell released automatically through Drop; generic Box<T>
+// and Gc/Arc arrive with the R6 heap domain.
+
+import memory;
+
+fun make() -> i64 {
+    let mut first = box(7);
+    write(ref first, 9);
+    let mut total = read(ref first);
+    let temp = box(100);
+    if (outstanding() == 2) { total := total + 1; }
+    return total;
+}
+
+fun main() -> i64 {
+    let result = make();
+    if (outstanding() == 0) { return result + 2; }
+    return 0;
+}

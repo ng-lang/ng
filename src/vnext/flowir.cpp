@@ -998,6 +998,12 @@ namespace NG::vnext::flowir
             for (const auto local : statement.loopBindings) observe(local);
             if (statement.expression != nullptr) visitExpression(visitExpression, *statement.expression);
             for (const auto &argument : statement.arguments) visitExpression(visitExpression, *argument);
+            for (const auto &switchCase : statement.switchCases)
+            {
+              if (switchCase.binding.has_value()) observe(*switchCase.binding);
+              for (const auto binding : switchCase.bindings) observe(binding);
+              if (switchCase.body != nullptr) self(self, *switchCase.body);
+            }
             if (statement.consequence != nullptr) self(self, *statement.consequence);
             if (statement.alternative != nullptr) self(self, *statement.alternative);
             if (statement.body != nullptr) self(self, *statement.body);

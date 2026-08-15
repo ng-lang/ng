@@ -1,0 +1,6 @@
+// vNext std.seq (redesign): array helpers as free functions over value-typed
+// arrays. The legacy Sequence trait abstraction is unnecessary: arrays already
+// carry len, indexing, comprehensions, folds, and slices in the language.
+
+export native fun sum(values: array<i64>) -> i64;
+export native fun arrayContains(values: array<i64>, value: i64) -> bool;

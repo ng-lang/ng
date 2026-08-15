@@ -2984,15 +2984,24 @@ namespace NG::vnext::typecheck
 
       [[nodiscard]] auto specificity(TypeId type) const -> int
       {
+        std::unordered_set<uint32_t> visited;
+        return specificityGuarded(type, visited);
+      }
+
+      /// Guarded specificity: recursive payload types are regular trees, so a
+      /// repeated type contributes once.
+      [[nodiscard]] auto specificityGuarded(TypeId type, std::unordered_set<uint32_t> &visited) const -> int
+      {
+        if (!visited.insert(type.value).second) return 0;
         const auto &descriptor = interner_.descriptor(type);
         if (descriptor.kind == TypeKind::TypeParameter) return 0;
         int score = descriptor.kind == TypeKind::Builtin ? 1 : 0;
-        for (const auto element : descriptor.elements) score += specificity(element);
-        for (const auto argument : descriptor.typeArguments) score += specificity(argument);
+        for (const auto element : descriptor.elements) score += specificityGuarded(element, visited);
+        for (const auto argument : descriptor.typeArguments) score += specificityGuarded(argument, visited);
         if (descriptor.kind == TypeKind::DynamicArray || descriptor.kind == TypeKind::FixedArray ||
             descriptor.kind == TypeKind::DependentArray || descriptor.kind == TypeKind::Reference ||
             descriptor.kind == TypeKind::RawPointer)
-          score += specificity(descriptor.element);
+          score += specificityGuarded(descriptor.element, visited);
         return score;
       }
       auto unify(TypeId expected, TypeId actual, Substitution &substitution, syntax::SourceSpan span) -> void
