@@ -4,6 +4,7 @@
 #include <bit>
 #include <cctype>
 #include <format>
+#include <functional>
 #include <optional>
 #include <set>
 #include <sstream>
@@ -122,8 +123,8 @@ namespace NG::native
          "@no\n"
          "\tret 0\n"
          "}\n"},
-        {"arr_get",
-         "function l $ngrt_arr_get(l %a, l %i) {\n"
+        {"arr_addr",
+         "function l $ngrt_arr_addr(l %a, l %i) {\n"
          "@start\n"
          "\t%len =l loadl %a\n"
          "\t%neg =w csltl %i, 0\n"
@@ -136,6 +137,12 @@ namespace NG::native
          "\t%off =l mul %i, 8\n"
          "\t%base =l add %a, 16\n"
          "\t%addr =l add %base, %off\n"
+         "\tret %addr\n"
+         "}\n"},
+        {"arr_get",
+         "function l $ngrt_arr_get(l %a, l %i) {\n"
+         "@start\n"
+         "\t%addr =l call $ngrt_arr_addr(l %a, l %i)\n"
          "\t%v =l loadl %addr\n"
          "\tret %v\n"
          "}\n"},
@@ -184,6 +191,82 @@ namespace NG::native
          "\t%src =l add %src, %off\n"
          "\t%m =l call $memcpy(l %dst, l %src, l %size)\n"
          "\tret %p\n"
+         "}\n"},
+        {"ref_load",
+         // A reference value is { l root-slot, l count, { l kind, l payload }[] }.
+         // Loading walks from the root slot's current value, mirroring the
+         // VM's (cell + path) view semantics (rebinding the root is observed).
+         "function l $ngrt_ref_load(l %ref) {\n"
+         "@start\n"
+         "\t%root =l loadl %ref\n"
+         "\t%cntp =l add %ref, 8\n"
+         "\t%cnt =l loadl %cntp\n"
+         "\t%cur =l loadl %root\n"
+         "\t%sp =l add %ref, 16\n"
+         "\t%i =l copy 0\n"
+         "@loop\n"
+         "\t%done =w csgel %i, %cnt\n"
+         "\tjnz %done, @end, @step\n"
+         "@step\n"
+         "\t%off =l mul %i, 16\n"
+         "\t%kindp =l add %sp, %off\n"
+         "\t%kind =l loadl %kindp\n"
+         "\t%zero =w ceql %kind, 0\n"
+         "\t%payloadp =l add %kindp, 8\n"
+         "\t%payload =l loadl %payloadp\n"
+         "\tjnz %zero, @member, @index\n"
+         "@member\n"
+         "\t%moff =l mul %payload, 8\n"
+         "\t%addr =l add %cur, %moff\n"
+         "\t%cur =l loadl %addr\n"
+         "\tjmp @next\n"
+         "@index\n"
+         "\t%cur =l call $ngrt_arr_get(l %cur, l %payload)\n"
+         "@next\n"
+         "\t%i =l add %i, 1\n"
+         "\tjmp @loop\n"
+         "@end\n"
+         "\tret %cur\n"
+         "}\n"},
+        {"ref_addr",
+         // Walks to the address of the referenced place; a plain local
+         // reference addresses the slot itself (stores must not target the
+         // loaded value).
+         "function l $ngrt_ref_addr(l %ref) {\n"
+         "@start\n"
+         "\t%root =l loadl %ref\n"
+         "\t%cntp =l add %ref, 8\n"
+         "\t%cnt =l loadl %cntp\n"
+         "\t%none =w ceql %cnt, 0\n"
+         "\t%cur =l loadl %root\n"
+         "\tjnz %none, @end0, @pre\n"
+         "@end0\n"
+         "\tret %root\n"
+         "@pre\n"
+         "\t%sp =l add %ref, 16\n"
+         "\t%i =l copy 0\n"
+         "@loop\n"
+         "\t%done =w csgel %i, %cnt\n"
+         "\tjnz %done, @end, @step\n"
+         "@step\n"
+         "\t%off =l mul %i, 16\n"
+         "\t%kindp =l add %sp, %off\n"
+         "\t%kind =l loadl %kindp\n"
+         "\t%zero =w ceql %kind, 0\n"
+         "\t%payloadp =l add %kindp, 8\n"
+         "\t%payload =l loadl %payloadp\n"
+         "\tjnz %zero, @member, @index\n"
+         "@member\n"
+         "\t%moff =l mul %payload, 8\n"
+         "\t%cur =l add %cur, %moff\n"
+         "\tjmp @next\n"
+         "@index\n"
+         "\t%cur =l call $ngrt_arr_addr(l %cur, l %payload)\n"
+         "@next\n"
+         "\t%i =l add %i, 1\n"
+         "\tjmp @loop\n"
+         "@end\n"
+         "\tret %cur\n"
          "}\n"},
       };
       return helpers;
@@ -250,6 +333,16 @@ namespace NG::native
         case TypeKind::FixedArray:
         case TypeKind::Tuple:
         case TypeKind::Range:
+        case TypeKind::Reference:
+        case TypeKind::Struct:
+          return QType::Long;
+        case TypeKind::TypeParameter:
+          // Monomorphized instance bodies can carry the generic type
+          // parameter id in value/local type tables (e.g. `*a` types as the
+          // reference's element, which stays `T` until specialize substitutes
+          // it). Tier 0 falls back to `l`; QBE rejects float-context misuse
+          // loudly, so this cannot silently miscompile. The proper fix is
+          // substitution-aware typing in the typechecker (tracked for M4).
           return QType::Long;
         default: break;
         }
@@ -549,15 +642,96 @@ namespace NG::native
                            localSlots_.at(instruction.local->value)));
           return;
         }
+        case InstructionKind::MakeRef:
+        {
+          // A reference value is { l root-slot, l count, { l kind, l payload }[] }
+          // — a malloc'd object so it can cross call boundaries as a plain
+          // pointer. Ref-rooted chaining (placeRootRef) is deferred.
+          if (!instruction.placeRootLocal || instruction.placeRootRef)
+            throw LoweringError(std::format("native lowering (M2): only local-rooted references are supported in `{}`",
+                                            function_.name));
+          const auto rootSlot = localSlots_.at(instruction.placeRootLocal->value);
+          const size_t count = instruction.placeSteps.size();
+          const auto pointer = fresh();
+          line(std::format("{} =l call $malloc(l {})", pointer, 16 + count * 16));
+          line(std::format("storel {}, {}", rootSlot, pointer));
+          const auto countAddress = fresh();
+          line(std::format("{} =l add {}, 8", countAddress, pointer));
+          line(std::format("storel {}, {}", count, countAddress));
+          for (size_t index = 0; index < count; ++index)
+          {
+            const auto &step = instruction.placeSteps[index];
+            const auto stepAddress = fresh();
+            line(std::format("{} =l add {}, {}", stepAddress, pointer, 16 + index * 16));
+            const auto payloadAddress = fresh();
+            line(std::format("{} =l add {}, 8", payloadAddress, stepAddress));
+            if (step.kind == flowir::PlaceStep::Kind::Member)
+            {
+              line(std::format("storel 0, {}", stepAddress));
+              line(std::format("storel {}, {}", step.field, payloadAddress));
+            }
+            else
+            {
+              line(std::format("storel 1, {}", stepAddress));
+              line(std::format("storel {}, {}", operandTemp(step.indexValue), payloadAddress));
+            }
+          }
+          bindResult(instruction, QType::Long, std::format("copy {}", pointer));
+          return;
+        }
+        case InstructionKind::LoadRef:
+        {
+          useHelper("ref_load");
+          const auto reference = operandTemp(instruction.operands[0]);
+          const auto loaded = fresh();
+          line(std::format("{} =l call $ngrt_ref_load(l {})", loaded, reference));
+          const auto resultType = qtypeOf(function_.valueTypes.at(instruction.result.value));
+          bindResult(instruction, resultType, std::format("copy {}", castFromSlot(loaded, resultType)));
+          return;
+        }
         case InstructionKind::AssignPlace:
         {
-          // M1: only whole-local assignment through a local-rooted place.
-          if (instruction.placeRootRef || !instruction.placeRootLocal || !instruction.placeSteps.empty())
-            throw LoweringError(std::format("native lowering (M1): only plain local assignment is supported in `{}`",
-                                            function_.name));
           const auto value = operandTemp(instruction.operands.back());
-          const auto type = localQTypes_.at(instruction.placeRootLocal->value);
-          line(std::format("store{} {}, {}", suffix(type), value, localSlots_.at(instruction.placeRootLocal->value)));
+          const auto valueType = qtypeOf(function_.valueTypes.at(instruction.operands.back().value));
+          if (instruction.placeRootRef)
+          {
+            if (!instruction.placeSteps.empty())
+              throw LoweringError(std::format("native lowering (M2): ref-rooted place paths are not supported yet in `{}`",
+                                              function_.name));
+            useHelper("ref_addr");
+            const auto address = fresh();
+            line(std::format("{} =l call $ngrt_ref_addr(l {})", address, operandTemp(*instruction.placeRootRef)));
+            line(std::format("store{} {}, {}", suffix(valueType), value, address));
+            return;
+          }
+          if (!instruction.placeRootLocal)
+            throw LoweringError(std::format("native lowering (M2): malformed place in `{}`", function_.name));
+          // Local-rooted place: walk the static steps from the slot value to
+          // the target address.
+          const auto rootSlot = localSlots_.at(instruction.placeRootLocal->value);
+          if (instruction.placeSteps.empty())
+          {
+            line(std::format("store{} {}, {}", suffix(valueType), value, rootSlot));
+            return;
+          }
+          const auto current = fresh();
+          line(std::format("{} =l loadl {}", current, rootSlot));
+          std::string address = current;
+          for (const auto &step : instruction.placeSteps)
+          {
+            const auto next = fresh();
+            if (step.kind == flowir::PlaceStep::Kind::Member)
+            {
+              line(std::format("{} =l add {}, {}", next, address, step.field * 8));
+            }
+            else
+            {
+              useHelper("arr_addr");
+              line(std::format("{} =l call $ngrt_arr_addr(l {}, l {})", next, address, operandTemp(step.indexValue)));
+            }
+            address = next;
+          }
+          line(std::format("store{} {}, {}", suffix(valueType), value, address));
           return;
         }
         default:
@@ -596,6 +770,21 @@ namespace NG::native
         case ExpressionKind::TupleLiteral:
           lowerAggregateLiteral(instruction);
           return;
+        case ExpressionKind::StructLiteral:
+          lowerStructLiteral(instruction);
+          return;
+        case ExpressionKind::Member:
+        {
+          const auto receiver = operandTemp(instruction.operands[0]);
+          const auto field = static_cast<size_t>(payload);
+          const auto address = fresh();
+          line(std::format("{} =l add {}, {}", address, receiver, field * 8));
+          const auto loaded = fresh();
+          line(std::format("{} =l loadl {}", loaded, address));
+          const auto resultType = qtypeOf(function_.valueTypes.at(instruction.result.value));
+          bindResult(instruction, resultType, std::format("copy {}", castFromSlot(loaded, resultType)));
+          return;
+        }
         case ExpressionKind::Index:
         {
           useHelper("arr_get");
@@ -649,6 +838,28 @@ namespace NG::native
         else
           line(std::format("{} ={} call {}({})", valueTemps_.at(instruction.result.value), suffix(resultType), symbol,
                            arguments));
+      }
+
+      /// Struct literal: a malloc'd object of 8-byte fields (Tier 0 layout:
+      /// offset = 8 * field ordinal; no header — the field count is static).
+      void lowerStructLiteral(const Instruction &instruction)
+      {
+        const auto typeId = function_.valueTypes.at(instruction.result.value);
+        const auto &descriptor = function_.typeDescriptors[typeId.value];
+        const size_t count = descriptor.fieldNames.size();
+        if (count != instruction.operands.size())
+          throw LoweringError(std::format("native lowering (M2): struct literal arity mismatch in `{}`", function_.name));
+        const auto pointer = fresh();
+        line(std::format("{} =l call $malloc(l {})", pointer, count * 8));
+        for (size_t index = 0; index < count; ++index)
+        {
+          const auto elementType = qtypeOf(descriptor.elements[index]);
+          const auto element = castForSlot(operandTemp(instruction.operands[index]), elementType);
+          const auto address = fresh();
+          line(std::format("{} =l add {}, {}", address, pointer, index * 8));
+          line(std::format("storel {}, {}", element, address));
+        }
+        bindResult(instruction, QType::Long, std::format("copy {}", pointer));
       }
 
       /// Array/tuple literal: allocates a { len, cap, elements } object and
@@ -899,8 +1110,18 @@ namespace NG::native
       result += FunctionLowerer{function, names, ngrt}.run();
       result += '\n';
     }
-    // Emit each used ngrt helper exactly once, after all functions.
-    for (const auto &name : ngrt.usedHelpers) result += ngrtHelpers().at(name) + '\n';
+    // Emit each used ngrt helper (with its dependencies) exactly once, after
+    // all functions.
+    const std::unordered_map<std::string, std::vector<std::string>> helperDependencies = {
+      {"arr_get", {"arr_addr"}}, {"ref_load", {"arr_get", "arr_addr"}}, {"ref_addr", {"arr_addr"}}};
+    std::set<std::string> helpersToEmit;
+    std::function<void(const std::string &)> addHelper = [&](const std::string &name) {
+      if (!helpersToEmit.insert(name).second) return;
+      if (const auto found = helperDependencies.find(name); found != helperDependencies.end())
+        for (const auto &dependency : found->second) addHelper(dependency);
+    };
+    for (const auto &name : ngrt.usedHelpers) addHelper(name);
+    for (const auto &name : helpersToEmit) result += ngrtHelpers().at(name) + '\n';
     return result;
   }
 } // namespace NG::native

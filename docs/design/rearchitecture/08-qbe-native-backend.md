@@ -268,11 +268,22 @@ Final generated results:
   (`$ngrt_str_concat`, `$ngrt_str_eq`, `$ngrt_arr_get`,
   `$ngrt_arr_append`, `$ngrt_arr_slice`) are emitted as IL once per module
   on first use and call libc `malloc`/`memcpy`/`memcmp` through QBE's C
-  ABI — no external runtime archive yet. Boxed objects are shared on bind
-  (safe while every aggregate op is a non-mutating value producer;
-  deep-copy-on-bind arrives with in-place mutation in M3). Remaining:
-  structs/enums, refs, trait dispatch, native shims, `ngrt` as a linked
-  archive.
+  ABI — no external runtime archive yet. Also delivered: structs (Tier 0
+  field layout `offset = 8 * ordinal`, literals, member reads, in-place
+  field mutation through static place paths) and scope-local `ref` /
+  `ref mut` as `{ root-slot, count, steps[] }` objects with
+  `$ngrt_ref_load`/`$ngrt_ref_addr` helpers mirroring the VM's (cell +
+  path) view semantics — rebinding the root is observed and writes flow
+  through the referenced place. Boxed objects are shared on bind (safe
+  while every aggregate op is a non-mutating value producer;
+  deep-copy-on-bind arrives with in-place mutation in M3). Known gap:
+  monomorphized instance bodies can carry the generic type-parameter id in
+  value/local type tables (`*a` types as the reference's element, which
+  stays `T` until `TypeInterner::specialize` substitutes it); the lowering
+  falls back to `l` for type parameters — QBE rejects float-context misuse
+  loudly, and the proper fix is substitution-aware typing in the
+  typechecker. Remaining: enums, trait dispatch, native shims, `ngrt` as a
+  linked archive.
 - **M3:** aggregates (strings/arrays/structs/enums), direct and trait-view
   calls, drop lowering; a stdlib subset runs natively; executables link
   `libngrt`.

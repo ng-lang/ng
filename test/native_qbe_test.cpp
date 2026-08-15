@@ -101,7 +101,7 @@ TEST_CASE("vNext native lowering rejects unsupported M1 constructs with a clear 
   std::ostringstream output;
   std::ostringstream errors;
   const int status = NG::runDriver(
-      {"--emit=ssa", "--source", "struct Point { x: i64, y: i64 } fun main() -> i64 { let p = Point { x: 1, y: 2 }; 7 }"},
+      {"--emit=ssa", "--source", "enum Shape { Circle(radius: i64) } fun main() -> i64 { let s = Shape.Circle(7); 7 }"},
       output, errors);
   REQUIRE(status == 1);
   REQUIRE_THAT(errors.str(), ContainsSubstring("native lowering (M"));
@@ -218,5 +218,71 @@ TEST_CASE("vNext native lowering round-trips string arrays through qbe and the s
                                  "}",
                                  "string_arrays");
   CHECK(exitCode == 1);
+}
+
+TEST_CASE("vNext native lowering round-trips structs through qbe and the system toolchain", "[vNext][Native][Qbe]")
+{
+  const int exitCode = runNative("struct Point { x: i64, y: i64 }\n"
+                                 "fun main() -> i64 {\n"
+                                 "    let p = Point { x: 3, y: 4 };\n"
+                                 "    return p.x + p.y;\n"
+                                 "}",
+                                 "structs");
+  CHECK(exitCode == 7);
+}
+
+TEST_CASE("vNext native lowering round-trips struct field mutation through qbe and the system toolchain",
+          "[vNext][Native][Qbe]")
+{
+  const int exitCode = runNative("struct Point { x: i64, y: i64 }\n"
+                                 "fun main() -> i64 {\n"
+                                 "    let mut p = Point { x: 3, y: 4 };\n"
+                                 "    p.x := 10;\n"
+                                 "    return p.x + p.y;\n"
+                                 "}",
+                                 "struct_mutation");
+  CHECK(exitCode == 14);
+}
+
+TEST_CASE("vNext native lowering round-trips mutable references through qbe and the system toolchain",
+          "[vNext][Native][Qbe]")
+{
+  const int exitCode = runNative("fun swap<T>(a: T ref mut, b: T ref mut) {\n"
+                                 "    let tmp = *a;\n"
+                                 "    *a := *b;\n"
+                                 "    *b := tmp;\n"
+                                 "}\n"
+                                 "fun main() -> i64 {\n"
+                                 "    let mut x = 1;\n"
+                                 "    let mut y = 2;\n"
+                                 "    swap(ref mut x, ref mut y);\n"
+                                 "    return x * 10 + y;\n"
+                                 "}",
+                                 "ref_swap");
+  CHECK(exitCode == 21);
+}
+
+TEST_CASE("vNext native lowering round-trips field references through qbe and the system toolchain",
+          "[vNext][Native][Qbe]")
+{
+  const int exitCode = runNative("struct Box {\n"
+                                 "    value: i64,\n"
+                                 "}\n"
+                                 "fun set_to(target: i64 ref mut, value: i64) {\n"
+                                 "    *target := value;\n"
+                                 "}\n"
+                                 "fun main() -> i64 {\n"
+                                 "    let mut n = 10;\n"
+                                 "    let mut nr = ref mut n;\n"
+                                 "    set_to(nr, 11);\n"
+                                 "    if (n != 11) { return 0; }\n"
+                                 "    let mut box = Box { value: 20 };\n"
+                                 "    let field = ref mut box.value;\n"
+                                 "    set_to(field, 21);\n"
+                                 "    if (box.value != 21) { return 0; }\n"
+                                 "    return n + box.value;\n"
+                                 "}",
+                                 "field_refs");
+  CHECK(exitCode == 32);
 }
 #endif
