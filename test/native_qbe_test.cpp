@@ -1,7 +1,7 @@
 // AI-generated code; reviewed for this repository's vNext rewrite.
-// M1 slice of the QBE native backend: FlowIR -> QBE IL emission for scalar
-// arithmetic and control flow, plus an end-to-end round trip through the
-// vendored qbe and the system toolchain.
+// M1/M2 slices of the QBE native backend: FlowIR -> QBE IL emission for
+// scalar arithmetic, control flow, and direct calls, plus end-to-end round
+// trips through the vendored qbe and the system toolchain.
 #include "test.hpp"
 
 #include "driver.hpp"
@@ -25,12 +25,37 @@ namespace
     REQUIRE(status == 0);
     return output.str();
   }
+
+#if defined(NG_QBE_PATH) && !defined(_WIN32)
+  /// Emits IL, assembles it with the vendored qbe, links it with the system
+  /// cc, runs the executable, and returns its exit code (-1 on a crash).
+  [[nodiscard]] auto runNative(std::string_view source, std::string_view label) -> int
+  {
+    const auto il = emitSsa(source);
+    const auto directory = std::filesystem::temp_directory_path() / std::format("ng_qbe_e2e_{}", label);
+    std::filesystem::create_directories(directory);
+    const auto ilFile = directory / "main.ssa";
+    const auto asmFile = directory / "main.s";
+    const auto executable = directory / "main";
+    {
+      std::ofstream stream(ilFile);
+      stream << il;
+    }
+    const auto run = [](const std::string &command) -> int { return std::system(command.c_str()); };
+    INFO(il);
+    REQUIRE(run(std::format("'{}' -o '{}' '{}'", NG_QBE_PATH, asmFile.string(), ilFile.string())) == 0);
+    REQUIRE(run(std::format("cc '{}' -o '{}'", asmFile.string(), executable.string())) == 0);
+    const int status = run(std::format("'{}'", executable.string()));
+    REQUIRE(WIFEXITED(status));
+    return WEXITSTATUS(status);
+  }
+#endif
 } // namespace
 
 TEST_CASE("vNext native lowering emits QBE IL for scalar arithmetic", "[vNext][Native][Qbe]")
 {
   const auto il = emitSsa("fun main() -> i64 => 6 * 7;");
-  REQUIRE_THAT(il, ContainsSubstring("function l $main"));
+  REQUIRE_THAT(il, ContainsSubstring("export function l $main"));
   REQUIRE_THAT(il, ContainsSubstring("=l mul "));
   REQUIRE_THAT(il, ContainsSubstring("ret %"));
 }
@@ -50,6 +75,18 @@ TEST_CASE("vNext native lowering emits branches, jumps, and phis for loops", "[v
   REQUIRE_THAT(il, ContainsSubstring("storel"));
 }
 
+TEST_CASE("vNext native lowering emits direct calls with collision-free symbols", "[vNext][Native][Qbe]")
+{
+  const auto il = emitSsa("fun fib(n: i64) -> i64 {\n"
+                          "    if (n <= 1) { return n; }\n"
+                          "    return fib(n - 1) + fib(n - 2);\n"
+                          "}\n"
+                          "fun main() -> i64 => fib(10);");
+  REQUIRE_THAT(il, ContainsSubstring("export function l $main"));
+  REQUIRE_THAT(il, ContainsSubstring("function l $fib_"));
+  REQUIRE_THAT(il, ContainsSubstring("call $fib_"));
+}
+
 TEST_CASE("vNext native lowering rejects unsupported M1 constructs with a clear error", "[vNext][Native][Qbe]")
 {
   std::ostringstream output;
@@ -61,17 +98,45 @@ TEST_CASE("vNext native lowering rejects unsupported M1 constructs with a clear 
 }
 
 #if defined(NG_QBE_PATH) && !defined(_WIN32)
-TEST_CASE("vNext native lowering round-trips through qbe and the system toolchain", "[vNext][Native][Qbe]")
+TEST_CASE("vNext native lowering round-trips a loop through qbe and the system toolchain", "[vNext][Native][Qbe]")
 {
-  const auto il = emitSsa("fun main() -> i64 {\n"
-                          "    let mut total = 0;\n"
-                          "    loop (i = 0) {\n"
-                          "        total := total + i;\n"
-                          "        if (i == 5) { return total; }\n"
-                          "        next (i + 1);\n"
-                          "    }\n"
-                          "}");
-  const auto directory = std::filesystem::temp_directory_path() / "ng_qbe_e2e";
+  const int exitCode = runNative("fun main() -> i64 {\n"
+                                 "    let mut total = 0;\n"
+                                 "    loop (i = 0) {\n"
+                                 "        total := total + i;\n"
+                                 "        if (i == 5) { return total; }\n"
+                                 "        next (i + 1);\n"
+                                 "    }\n"
+                                 "}",
+                                 "loop");
+  CHECK(exitCode == 15); // 0+1+2+3+4+5
+}
+
+TEST_CASE("vNext native lowering round-trips recursion through qbe and the system toolchain",
+          "[vNext][Native][Qbe]")
+{
+  const int exitCode = runNative("fun fib(n: i64) -> i64 {\n"
+                                 "    if (n <= 1) { return n; }\n"
+                                 "    return fib(n - 1) + fib(n - 2);\n"
+                                 "}\n"
+                                 "fun main() -> i64 => fib(10);",
+                                 "recursion");
+  CHECK(exitCode == 55);
+}
+
+TEST_CASE("vNext native lowering round-trips tail recursion through qbe and the system toolchain",
+          "[vNext][Native][Qbe]")
+{
+  const auto il = emitSsa("fun sumTo(n: i64, acc: i64) -> i64 {\n"
+                          "    if (n == 0) { return acc; }\n"
+                          "    next (n - 1, acc + n);\n"
+                          "}\n"
+                          "fun main() -> i64 => sumTo(10, 0);");
+  // The self call lowers to a loop (TailRecur): QBE forbids jumping back to
+  // `@start`, so the one-shot entry logic lives there and the loop jumps
+  // back to `@body0`.
+  REQUIRE_THAT(il, ContainsSubstring("jmp @body0"));
+  const auto directory = std::filesystem::temp_directory_path() / "ng_qbe_e2e_tailrec";
   std::filesystem::create_directories(directory);
   const auto ilFile = directory / "main.ssa";
   const auto asmFile = directory / "main.s";
@@ -86,6 +151,6 @@ TEST_CASE("vNext native lowering round-trips through qbe and the system toolchai
   REQUIRE(run(std::format("cc '{}' -o '{}'", asmFile.string(), executable.string())) == 0);
   const int status = run(std::format("'{}'", executable.string()));
   REQUIRE(WIFEXITED(status));
-  CHECK(WEXITSTATUS(status) == 15); // 0+1+2+3+4+5
+  CHECK(WEXITSTATUS(status) == 55);
 }
 #endif

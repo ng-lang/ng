@@ -2,6 +2,7 @@
 #include "native/lowering.hpp"
 
 #include <bit>
+#include <cctype>
 #include <format>
 #include <optional>
 #include <sstream>
@@ -65,7 +66,7 @@ namespace NG::native
     class FunctionLowerer final
     {
     public:
-      explicit FunctionLowerer(const Function &function) : function_(function) {}
+      FunctionLowerer(const Function &function, const FunctionNames &names) : function_(function), names_(names) {}
 
       [[nodiscard]] auto run() -> std::string
       {
@@ -79,9 +80,11 @@ namespace NG::native
 
     private:
       const Function &function_;
+      const FunctionNames &names_;
       std::ostringstream out_;
       size_t tempCounter_{};
       std::vector<std::string> labels_;
+      bool hasTailRecur_{};
       /// Per block: (predecessor index, block-parameter argument values).
       std::vector<std::vector<std::pair<size_t, std::vector<ValueId>>>> predecessors_;
       std::vector<uint32_t> slotOrder_;
@@ -93,6 +96,23 @@ namespace NG::native
 
       [[nodiscard]] auto fresh() -> std::string { return std::format("%t{}", tempCounter_++); }
 
+      /// Builds the QBE symbol for a function. `main` keeps its C-runtime
+      /// name; everything else is `<sanitized-name>_<defid>` so that
+      /// overloads, generic instances (`foo#3`), and same-named functions
+      /// from different modules cannot collide.
+      [[nodiscard]] auto symbolFor(hir::DefId id) -> std::string
+      {
+        std::string name;
+        if (id == function_.source) name = function_.name;
+        else if (const auto found = names_.find(id.value); found != names_.end()) name = found->second;
+        else name = std::format("fn{}", id.value);
+        if (name == "main") return "$main";
+        for (auto &character : name)
+          if (!std::isalnum(static_cast<unsigned char>(character)) && character != '_' && character != '.')
+            character = '_';
+        return std::format("${}_{}", name, id.value);
+      }
+
       void line(std::string_view text) { out_ << '\t' << text << '\n'; }
 
       void collectBlocks()
@@ -100,10 +120,11 @@ namespace NG::native
         const size_t count = function_.blocks.size();
         labels_.resize(count);
         predecessors_.assign(count, {});
+        hasTailRecur_ = false;
         for (size_t index = 0; index < count; ++index)
         {
-          labels_[index] = index == 0 ? "@start" : std::format("@b{}", index);
           const auto &terminator = *function_.blocks[index].terminator;
+          if (terminator.kind == TerminatorKind::TailRecur) hasTailRecur_ = true;
           if (terminator.kind == TerminatorKind::Jump || terminator.kind == TerminatorKind::LoopBackedge)
             predecessors_.at(terminator.targets[0].value).push_back({index, terminator.arguments});
           else if (terminator.kind == TerminatorKind::Branch)
@@ -119,6 +140,12 @@ namespace NG::native
             predecessors_.front().push_back({index, {}});
           }
         }
+        // QBE forbids jumping to `@start`. A function with tail recursion
+        // keeps the one-shot entry logic (allocs + parameter stores) under
+        // `@start`, which falls through a jump into `@body0`; the tail
+        // recursion loop jumps back to `@body0`, skipping the entry logic.
+        for (size_t index = 0; index < count; ++index)
+          labels_[index] = index == 0 ? (hasTailRecur_ ? "@body0" : "@start") : std::format("@b{}", index);
       }
 
       void ensureSlot(uint32_t local)
@@ -194,13 +221,24 @@ namespace NG::native
         returnType_ = findReturnType();
         out_ << (function_.name == "main" ? "export function" : "function");
         if (returnType_ && *returnType_ != QType::None) out_ << ' ' << suffix(*returnType_);
-        out_ << " $" << function_.name << '(';
+        out_ << ' ' << symbolFor(function_.source) << '(';
         for (size_t index = 0; index < paramTemps_.size(); ++index)
         {
           if (index != 0) out_ << ", ";
           out_ << suffix(localQTypes_.at(function_.parameterLocals[index].value)) << ' ' << paramTemps_[index];
         }
         out_ << ") {\n";
+        // One-shot entry logic: frame slots and parameter stores live under
+        // `@start` so tail recursion never re-runs them.
+        out_ << "@start\n";
+        for (const auto local : slotOrder_) line(std::format("{} =l alloc8 8", localSlots_.at(local)));
+        for (size_t param = 0; param < paramTemps_.size(); ++param)
+        {
+          const auto local = function_.parameterLocals[param].value;
+          line(std::format("store{} {}, {}", suffix(localQTypes_.at(local)), paramTemps_[param],
+                           localSlots_.at(local)));
+        }
+        if (hasTailRecur_) line(std::format("jmp {}", labels_.front()));
         for (size_t index = 0; index < function_.blocks.size(); ++index) emitBlock(index);
         out_ << "}\n";
         return out_.str();
@@ -209,17 +247,10 @@ namespace NG::native
       void emitBlock(size_t index)
       {
         const auto &block = function_.blocks[index];
-        out_ << labels_[index] << '\n';
-        if (index == 0)
-        {
-          for (const auto local : slotOrder_) line(std::format("{} =l alloc8 8", localSlots_.at(local)));
-          for (size_t param = 0; param < paramTemps_.size(); ++param)
-          {
-            const auto local = function_.parameterLocals[param].value;
-            line(std::format("store{} {}, {}", suffix(localQTypes_.at(local)), paramTemps_[param],
-                             localSlots_.at(local)));
-          }
-        }
+        // Block 0 without tail recursion continues `@start` directly; every
+        // other block (and block 0 behind the tail-recursion trampoline)
+        // carries its own label.
+        if (index != 0 || hasTailRecur_) out_ << labels_[index] << '\n';
         // Block parameters become phi temporaries stored into their slots.
         const auto &predecessors = predecessors_[index];
         for (size_t param = 0; param < block.parameterLocals.size(); ++param)
@@ -296,6 +327,11 @@ namespace NG::native
 
       void lowerEvaluate(const Instruction &instruction)
       {
+        if (instruction.callTarget)
+        {
+          lowerCall(instruction);
+          return;
+        }
         const auto kind = instruction.expressionKind;
         const auto payload = instruction.payload;
         switch (kind)
@@ -327,6 +363,28 @@ namespace NG::native
           throw LoweringError(std::format("native lowering (M1): expression kind {} is not supported yet in `{}`",
                                           static_cast<int>(kind), function_.name));
         }
+      }
+
+      /// Direct call: `%r =T call $sym(T %a, ...)`. A unit result emits a
+      /// bare `call`. Native callees and variadic (tuple-packed) calls are
+      /// deferred to the descriptor/shim work of M5.
+      void lowerCall(const Instruction &instruction)
+      {
+        std::string arguments;
+        for (size_t index = 0; index < instruction.operands.size(); ++index)
+        {
+          const auto type = qtype(function_.valueTypes.at(instruction.operands[index].value));
+          if (type == QType::None)
+            throw LoweringError(std::format("native lowering (M2): unit call argument in `{}`", function_.name));
+          if (index != 0) arguments += ", ";
+          arguments += std::format("{} {}", suffix(type), operandTemp(instruction.operands[index]));
+        }
+        const auto resultType = qtype(function_.valueTypes.at(instruction.result.value));
+        const auto symbol = symbolFor(*instruction.callTarget);
+        if (resultType == QType::None) line(std::format("call {}({})", symbol, arguments));
+        else
+          line(std::format("{} ={} call {}({})", valueTemps_.at(instruction.result.value), suffix(resultType), symbol,
+                           arguments));
       }
 
       void lowerPrefix(const Instruction &instruction)
@@ -391,42 +449,42 @@ namespace NG::native
           case 6:
           {
             const auto compared = fresh();
-            line(std::format("{} =w coeq {}, {}", compared, leftDouble, rightDouble));
+            line(std::format("{} =w ceqd {}, {}", compared, leftDouble, rightDouble));
             bindResult(instruction, QType::Long, std::format("extsw {}", compared));
             return;
           }
           case 7:
           {
             const auto compared = fresh();
-            line(std::format("{} =w cone {}, {}", compared, leftDouble, rightDouble));
+            line(std::format("{} =w cned {}, {}", compared, leftDouble, rightDouble));
             bindResult(instruction, QType::Long, std::format("extsw {}", compared));
             return;
           }
           case 8:
           {
             const auto compared = fresh();
-            line(std::format("{} =w colt {}, {}", compared, leftDouble, rightDouble));
+            line(std::format("{} =w cltd {}, {}", compared, leftDouble, rightDouble));
             bindResult(instruction, QType::Long, std::format("extsw {}", compared));
             return;
           }
           case 9:
           {
             const auto compared = fresh();
-            line(std::format("{} =w cole {}, {}", compared, leftDouble, rightDouble));
+            line(std::format("{} =w cled {}, {}", compared, leftDouble, rightDouble));
             bindResult(instruction, QType::Long, std::format("extsw {}", compared));
             return;
           }
           case 10:
           {
             const auto compared = fresh();
-            line(std::format("{} =w cogt {}, {}", compared, leftDouble, rightDouble));
+            line(std::format("{} =w cgtd {}, {}", compared, leftDouble, rightDouble));
             bindResult(instruction, QType::Long, std::format("extsw {}", compared));
             return;
           }
           case 11:
           {
             const auto compared = fresh();
-            line(std::format("{} =w coge {}, {}", compared, leftDouble, rightDouble));
+            line(std::format("{} =w cged {}, {}", compared, leftDouble, rightDouble));
             bindResult(instruction, QType::Long, std::format("extsw {}", compared));
             return;
           }
@@ -445,10 +503,10 @@ namespace NG::native
         case 5: bindResult(instruction, QType::Long, std::format("rem {}, {}", left, right)); return;
         case 6: integerCompare(instruction, "ceql", left, right); return;
         case 7: integerCompare(instruction, "cnel", left, right); return;
-        case 8: integerCompare(instruction, "cslt", left, right); return;
-        case 9: integerCompare(instruction, "csle", left, right); return;
-        case 10: integerCompare(instruction, "csgt", left, right); return;
-        case 11: integerCompare(instruction, "csge", left, right); return;
+        case 8: integerCompare(instruction, "csltl", left, right); return;
+        case 9: integerCompare(instruction, "cslel", left, right); return;
+        case 10: integerCompare(instruction, "csgtl", left, right); return;
+        case 11: integerCompare(instruction, "csgel", left, right); return;
         case 12:
         case 13:
         {
@@ -497,22 +555,27 @@ namespace NG::native
             line(std::format("store{} {}, {}", suffix(localQTypes_.at(local)), operandTemp(terminator.arguments[index]),
                              localSlots_.at(local)));
           }
-          line("jmp @start");
+          line(std::format("jmp {}", labels_.front()));
           return;
         }
       }
     };
   } // namespace
 
-  auto lower(const Function &function) -> std::string { return FunctionLowerer{function}.run(); }
+  auto lower(const Function &function, const FunctionNames &names) -> std::string
+  {
+    return FunctionLowerer{function, names}.run();
+  }
 
   auto lowerModule(const std::vector<Function> &functions) -> std::string
   {
+    FunctionNames names;
+    for (const auto &function : functions) names.emplace(function.source.value, function.name);
     std::string result;
     for (const auto &function : functions)
     {
       if (function.nativeFunction) continue;
-      result += lower(function);
+      result += lower(function, names);
       result += '\n';
     }
     return result;

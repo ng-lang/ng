@@ -4,6 +4,7 @@
 #include "flowir.hpp"
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace NG::native
@@ -13,13 +14,18 @@ namespace NG::native
     using std::runtime_error::runtime_error;
   };
 
-  /// Lowers one FlowIR function to QBE IL text.
+  /// DefId -> display-name table used to build callable QBE symbols for the
+  /// whole module (the callee's name is not visible from a call site alone).
+  using FunctionNames = std::unordered_map<uint32_t, std::string>;
+
+  /// Lowers one FlowIR function to QBE IL text. `names` supplies the display
+  /// names of callees so calls can build collision-free symbols.
   ///
   /// M1 subset: scalar literals (integer/boolean/float), prefix and binary
   /// arithmetic/comparisons, locals as stack slots, block parameters as phi
   /// instructions, branch/jump/loop-backedge/tail-recur terminators, and
-  /// return. Aggregates, calls, refs, and trait dispatch arrive in M2/M3.
-  [[nodiscard]] auto lower(const flowir::Function &function) -> std::string;
+  /// return. M2 adds direct calls (delivered) and aggregates (pending).
+  [[nodiscard]] auto lower(const flowir::Function &function, const FunctionNames &names = {}) -> std::string;
 
   /// Lowers a module of FlowIR functions (native placeholders are skipped).
   [[nodiscard]] auto lowerModule(const std::vector<flowir::Function> &functions) -> std::string;
