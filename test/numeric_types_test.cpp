@@ -164,6 +164,13 @@ TEST_CASE("vNext f64 subtraction division and comparisons execute end to end", "
               "1");
 }
 
+TEST_CASE("vNext unary plus on literals and constant logical operands fold correctly", "[vNext][Numerics][Runtime]")
+{
+  expectValue("fun main() -> i64 { return +5; }", "5");
+  expectValue("fun main() -> i64 { let c = true && false; if (c) { return 1; } return 0; }", "0");
+  expectValue("fun main() -> i64 { let c = true || false; if (c) { return 1; } return 0; }", "1");
+}
+
 TEST_CASE("vNext i64::min is expressible as a literal", "[vNext][Numerics][Literals]")
 {
   expectValue("fun main() -> i64 { return -9223372036854775808; }", "-9223372036854775808");
