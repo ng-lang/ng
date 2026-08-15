@@ -195,7 +195,13 @@ namespace NG::hir
         module.traits.push_back(resolveTrait(*trait));
         for (auto &method : module.traits.back().methods)
         {
-          if (!method.body.has_value()) continue;
+          if (!method.body.has_value())
+          {
+            // Declaration-only methods keep a zero placeholder so methodIds
+            // stays parallel to `methods` (indexed by declaration position).
+            module.traits.back().methodIds.push_back(DefId{});
+            continue;
+          }
           Function lowered{.id = DefId{static_cast<uint32_t>(module.functions.size())},
                            .name = std::format("default${}${}", trait->name, method.name),
                            .span = method.span};

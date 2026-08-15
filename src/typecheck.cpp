@@ -570,6 +570,14 @@ namespace NG::typecheck
               FunctionTypeIds defaultSignature;
               defaultSignature.parameters = parameters;
               defaultSignature.returnType = info.methodReturns.at(method.name);
+              // Default methods are generic over the trait's Self parameter:
+              // every concrete call site instantiates them per receiver so
+              // inner method calls (`self.show()`) resolve concretely. The
+              // generic body itself is a placeholder (never lowered).
+              defaultSignature.genericParameters.push_back(info.selfParameter);
+              defaultSignature.genericParameterNames.push_back("Self");
+              placeholderFunctions_.insert(trait.methodIds.at(index).value);
+              defaultMethodTraits_.emplace(trait.methodIds.at(index).value, trait.name);
               FunctionType displaySignature;
               for (const auto parameter : parameters) displaySignature.parameters.push_back(interner_.display(parameter));
               displaySignature.returnType = interner_.display(defaultSignature.returnType);
@@ -848,6 +856,18 @@ namespace NG::typecheck
             }
           }
           if (owning == nullptr)
+          {
+            // Inside a trait default method, Self's methods come from the
+            // declaring trait itself (no explicit bound).
+            const auto owner = defaultMethodTraits_.find(currentFunctionId_.value);
+            if (owner != defaultMethodTraits_.end())
+            {
+              const auto traitIt = traits_.find(owner->second);
+              if (traitIt != traits_.end() && traitIt->second.methodParameters.contains(expression.text))
+                owning = &traitIt->second;
+            }
+          }
+          if (owning == nullptr)
             throw TypeError(std::format("no trait bound provides method `{}` for type parameter `{}`", expression.text,
                                         parameterName), expression.span);
           deferredMethodFunctions_.insert(currentFunctionId_.value);
@@ -910,6 +930,16 @@ namespace NG::typecheck
           throw TypeError(std::format("no method `{}` for value of type {}", expression.text, interner_.display(dispatchType)),
                           expression.span);
         const auto &signature = signatures_.at(selected->value);
+        hir::DefId target = *selected;
+        if (isGeneric(signature))
+        {
+          // Trait default methods are generic over Self: instantiate per
+          // concrete receiver so inner method calls resolve concretely.
+          Substitution substitution;
+          for (const auto parameter : signature.genericParameters)
+            substitution.types.emplace(parameter.value, dispatchType);
+          target = instantiateFunction(*selected, substitution, 0, expression.span);
+        }
         const size_t supplied = expression.operands.size() - firstArgument;
         if (supplied != signature.parameters.size() - 1)
           throw TypeError(std::format("method argument count mismatch: expected {}, got {}", signature.parameters.size() - 1,
@@ -940,9 +970,11 @@ namespace NG::typecheck
         for (size_t index = 0; index < supplied; ++index)
           static_cast<void>(inferExpected(*expression.operands[firstArgument + index], signature.parameters[index + 1], locals,
                                           std::format("method argument {}", index + 1)));
-        record(expression, signature.returnType);
-        callTargets_.insert_or_assign(&expression, *selected);
-        return signature.returnType;
+        const TypeId returnType = target.value == selected->value ? signature.returnType
+                                                                     : signatures_.at(target.value).returnType;
+        record(expression, returnType);
+        callTargets_.insert_or_assign(&expression, target);
+        return returnType;
       }
 
       /// Instantiates a generic function with a fully concrete substitution:
@@ -977,7 +1009,7 @@ namespace NG::typecheck
         const auto &source = module_->functions.at(original.value);
         const auto &signature = signatures_.at(original.value);
         if (!isGeneric(signature)) return original;
-        std::string key = source.name;
+        std::string key = std::format("{}#{}", source.name, original.value);
         std::vector<TypeId> concreteTypes;
         bool concrete = true;
         for (size_t index = 0; index < signature.genericParameters.size(); ++index)
@@ -2144,12 +2176,24 @@ namespace NG::typecheck
           std::vector<hir::DefId> table;
           for (const auto &methodName : trait.methodOrder)
           {
+            hir::DefId methodId;
             if (const auto found = impl.methods.find(methodName); found != impl.methods.end())
-              table.push_back(found->second);
+              methodId = found->second;
             else if (const auto fallback = trait.methodDefaults.find(methodName); fallback != trait.methodDefaults.end())
-              table.push_back(fallback->second);
+              methodId = fallback->second;
             else
               return false;
+            const auto &methodSignature = signatures_.at(methodId.value);
+            if (isGeneric(methodSignature))
+            {
+              // Default methods are generic over the trait's Self parameter:
+              // instantiate per concrete view type.
+              Substitution substitution;
+              for (const auto parameter : methodSignature.genericParameters)
+                substitution.types.emplace(parameter.value, concreteType);
+              methodId = instantiateFunction(methodId, substitution, 0, syntax::SourceSpan{});
+            }
+            table.push_back(methodId);
           }
           traitViewTables_[traitName].emplace(concreteType.value, std::move(table));
           return true;
@@ -3410,6 +3454,9 @@ namespace NG::typecheck
       /// Loan sites released by non-lexical last-use analysis; survives
       /// nested-block borrow-state restores so releases are not undone.
       std::unordered_set<const hir::Expression *> releasedLoans_;
+      /// Trait default method id -> owning trait name (so a default body can
+      /// call the trait's own methods through `Self` without a bound).
+      std::unordered_map<uint32_t, std::string> defaultMethodTraits_;
       /// Cached last-use statement index per local, keyed by block.
       std::unordered_map<const hir::Block *, std::unordered_map<uint32_t, size_t>> lastUseCache_;
       bool inConstGenericFunction_{};

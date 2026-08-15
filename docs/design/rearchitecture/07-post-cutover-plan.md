@@ -156,10 +156,17 @@ vtables and dynamic calls (`example/traits.ng`, `derive.ng`,
    instantiation and coherence across instances.
 2. Self-typed view methods: methods whose `self` type appears in the
    signature (e.g. `clone() -> Self`), callable through `ref<Trait>`.
-3. Default methods through views: dispatch to the trait default when a
-   concrete impl does not override.
-4. Trait bounds in const predicates/functions (`where T: Trait` inside
+3. Trait bounds in const predicates/functions (`where T: Trait` inside
    `const fun`) — see A6.
+
+**Delivered (2026-08):** default methods through views and static receivers —
+trait defaults are now generic over the trait's `Self` parameter and
+instantiated per concrete receiver (static calls and per-concrete view-table
+entries), default bodies may call the trait's own methods through `self`,
+declaration-before-default method orderings no longer crash
+(`trait.methodIds` is position-parallel), and instance keys include the
+source function id (`example/trait_defaults.ng`, `test/trait_stage1_test.cpp`
+defaults cases).
 
 **Blocks:** R4 instance graph (shared with A3).
 **Legacy evidence:** examples `25`–`40`, `46`, `55`, `59`; matrix rows 12–13.

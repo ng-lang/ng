@@ -262,3 +262,45 @@ TEST_CASE("vNext traits example file runs end to end through ngi", "[vNext][Trai
   REQUIRE(errors.empty());
   REQUIRE(output.find("with value 66") != std::string::npos);
 }
+
+TEST_CASE("vNext trait default methods call trait methods through self", "[vNext][Trait][Defaults]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(run("struct Counter { label: string } "
+              "trait Show { fun show(self: Self ref) -> string; "
+              "fun bracketed(self: Self ref) -> string { return \"[\" + self.show() + \"]\"; } } "
+              "impl Show for Counter { fun show(self: Self ref) -> string { return (*self).label; } } "
+              "fun main() -> i64 { let counter = Counter { label: \"eight\" }; "
+              "if (counter.bracketed() == \"[eight]\") { return 1; } return 0; }",
+              output, errors) == 0);
+  REQUIRE(errors.empty());
+  REQUIRE(output.find("with value 1") != std::string::npos);
+
+  // Declaration-only method before a default method (methodIds ordering).
+  REQUIRE(run("struct Number { value: i64 } "
+              "trait Describe { fun text(self: Self ref) -> string; "
+              "fun wrapped(self: Self ref) -> string { return \"<\" + self.text() + \">\"; } } "
+              "impl Describe for Number { fun text(self: Self ref) -> string { return \"n\"; } } "
+              "fun main() -> i64 { let number = Number { value: 1 }; "
+              "if (number.wrapped() == \"<n>\") { return 2; } return 0; }",
+              output, errors) == 0);
+  REQUIRE(errors.empty());
+  REQUIRE(output.find("with value 2") != std::string::npos);
+}
+
+TEST_CASE("vNext empty impls use trait defaults on static and view receivers", "[vNext][Trait][Defaults]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(run("struct Number { value: i64 } "
+              "trait Display { fun text(self: Self ref) -> string { return \"?\"; } } "
+              "impl Display for Number { } "
+              "fun render(item: ref<Display>) -> string { return item.text(); } "
+              "fun main() -> i64 { let number = Number { value: 9 }; let text = render(number); "
+              "let other = Number { value: 10 }; "
+              "if (other.text() == \"?\" && text == \"?\") { return 3; } return 0; }",
+              output, errors) == 0);
+  REQUIRE(errors.empty());
+  REQUIRE(output.find("with value 3") != std::string::npos);
+}

@@ -1,0 +1,41 @@
+// vNext trait default methods (legacy 31/35 adapted): a default method can
+// call the trait's own methods through `self`, works on static receivers, and
+// dispatches through `ref<Trait>` views against per-concrete instantiated
+// default implementations.
+
+import prelude;
+
+struct Counter {
+    label: string,
+}
+
+trait Show {
+    fun show(self: Self ref) -> string;
+
+    fun bracketed(self: Self ref) -> string {
+        return "[" + self.show() + "]";
+    }
+}
+
+impl Show for Counter {
+    fun show(self: Self ref) -> string {
+        return (*self).label;
+    }
+}
+
+// A default through a dynamic view (legacy 35 spirit).
+fun render(item: ref<Show>) -> string {
+    return item.bracketed();
+}
+
+fun main() -> unit {
+    let counter = Counter { label: "eight" };
+    assert(counter.bracketed() == "[eight]");
+
+    let view: ref<Show> = counter;
+    assert(view.bracketed() == "[eight]");
+
+    let other = Counter { label: "nine" };
+    let text = render(other);
+    assert(text == "[nine]");
+}

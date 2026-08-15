@@ -631,6 +631,12 @@ second user-visible ownership domain.
   span-carrying boundary error (`no trait bound provides method ...`).
 - Stage 2 (dynamic, requires D-015 reference checking): `ref<Trait>` coercion
   and immutable dispatch descriptors.
+  **Implemented 2026-08:** `ref<Trait>` views with per-concrete dispatch
+  tables, and trait default methods that call the trait's own methods through
+  `self` — defaults are generic over the trait's `Self` parameter and are
+  instantiated per concrete receiver for both static calls and view-table
+  entries (`example/trait_defaults.ng`); `trait.methodIds` is
+  position-parallel so declaration-before-default orderings work.
 - Stage 3: coherence/orphan policy confirmation (legacy #35's "any impl,
   conflict requires explicit `use impl`" versus a stricter rule), auto/derive
   traits. Associated types remain a non-goal per legacy #35.
