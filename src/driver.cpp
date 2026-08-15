@@ -673,6 +673,12 @@ namespace NG
                                  capturedErrors << "module error: " << error.what() << '\n';
                                  status = 1;
                                }
+                               catch (const syntax::ParseError &error)
+                               {
+                                 capturedErrors << "syntax error at bytes [" << error.span().begin << ", "
+                                                << error.span().end << "): " << error.what() << '\n';
+                                 status = 1;
+                               }
                                std::string combined = captured.str();
                                const auto diagnostics = capturedErrors.str();
                                if (!diagnostics.empty())

@@ -222,6 +222,30 @@ TEST_CASE("vNext const-capable natives report compile-time bounds errors", "[vNe
   REQUIRE_THAT(errors, ContainsSubstring("const charAt index out of bounds"));
 }
 
+TEST_CASE("vNext const string natives fold inside const if", "[vNext][ConstFun][NativeHosts]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(run("import prelude; fun main() { const if (contains(\"abc\", \"b\") && startsWith(\"abc\", \"ab\") && "
+              "endsWith(\"abc\", \"bc\") && toUpper(\"ab\") == \"AB\" && toLower(\"AB\") == \"ab\" && "
+              "trim(\" x \") == \"x\" && replace(\"a-b-c\", \"-\", \"+\") == \"a+b+c\" && "
+              "substring(\"abcdef\", 2, 4) == \"cd\" && charAt(\"abc\", 1) == \"b\") { print(\"folded\"); } }",
+              output, errors) == 0);
+  REQUIRE(errors.empty());
+  REQUIRE(output.find("folded\n") != std::string::npos);
+}
+
+TEST_CASE("vNext const string natives report compile-time bounds and pattern errors", "[vNext][ConstFun][NativeHosts]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(run("import prelude; fun main() { const if (substring(\"abc\", 0, 9) == \"x\") { } }", output, errors) == 1);
+  REQUIRE_THAT(errors, ContainsSubstring("const substring bounds out of range: [0..9) of length 3"));
+
+  REQUIRE(run("import prelude; fun main() { const if (regexMatch(\"x\", \"[\") == true) { } }", output, errors) == 1);
+  REQUIRE_THAT(errors, ContainsSubstring("const regexMatch: invalid pattern"));
+}
+
 TEST_CASE("vNext impure natives stay rejected in const contexts", "[vNext][ConstFun][NativeHosts]")
 {
   std::string output;

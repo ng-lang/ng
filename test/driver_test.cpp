@@ -165,3 +165,47 @@ TEST_CASE("vNext ngi driver rejects malformed --fuel values", "[vNext][Driver][F
   REQUIRE(run({"--source", "fun main() { let x = 1; x }", "--fuel", "many"}, output, errors) == 1);
   REQUIRE_THAT(errors, ContainsSubstring("invalid --fuel value `many`"));
 }
+
+TEST_CASE("vNext ngi driver prints usage with no arguments and for --help", "[vNext][Driver]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(run({}, output, errors) == 1);
+  REQUIRE_THAT(output, ContainsSubstring("Usage: ngi --expr <expression>"));
+  REQUIRE(errors.empty());
+
+  REQUIRE(run({"--help"}, output, errors) == 0);
+  REQUIRE_THAT(output, ContainsSubstring("Usage: ngi"));
+  REQUIRE(errors.empty());
+}
+
+TEST_CASE("vNext ngi driver rejects unsupported main parameter types", "[vNext][Driver]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(run({"--source", "fun main(value: f64) { }", "--", "1.5"}, output, errors) == 1);
+  REQUIRE(output.empty());
+  REQUIRE(errors == "main parameter `value` must currently be i64 or string\n");
+}
+
+TEST_CASE("vNext ngi driver reports main argument count mismatches", "[vNext][Driver]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(run({"--source", "fun main(value: i64) -> i64 { return value; }"}, output, errors) == 1);
+  REQUIRE(output.empty());
+  REQUIRE(errors == "main argument count mismatch: expected 1, got 0\n");
+
+  REQUIRE(run({"--source", "fun main() { }", "--", "1"}, output, errors) == 1);
+  REQUIRE(output.empty());
+  REQUIRE(errors == "main argument count mismatch: expected 0, got 1\n");
+}
+
+TEST_CASE("vNext ngi driver reports f64 main return values", "[vNext][Driver]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(run({"--source", "fun main() -> f64 { return 1.5; }"}, output, errors) == 0);
+  REQUIRE_THAT(output, ContainsSubstring("with value 1.5"));
+  REQUIRE(errors.empty());
+}
