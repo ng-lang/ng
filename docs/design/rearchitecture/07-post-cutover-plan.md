@@ -209,12 +209,21 @@ concrete `Box` (`example/std_seq.ng`, `std_list.ng`, `heap_box.ng`,
 
 1. `span<T>` views over array storage, with bounds-checked slicing
    (`fixed_arrays.ng` maps legacy vector→array; span is the remaining 52 item).
-2. Growing collections: `pushBack`/`append`/spread for `List<T>` and
-   arrays — depends on the B1 heap domain for allocation beyond the current
-   fixed-size native handles.
-3. List builders: `List<T>` collection literals lowering to push loops.
+2. In-place growing collections (`pushBack` mutating the receiver) and
+   array growth — depends on the B1 heap domain for allocation beyond the
+   current fixed-size native handles.
+3. `List<T>` collection literals (`[1, 2, 3]` as `List<i64>`) lowering to
+   push loops — syntax sugar over the now-existing builders.
 4. Move `reverse` from a driver-native into `lib/std` once it can be
    expressed in NG (or keep as a declared native in the ABI layer).
+
+**Delivered (2026-08):** immutable `List<T>` builders — `listFrom`
+(`listof(1,2,3)` -> `listFrom([1,2,3])`), `pushFront`, `append`
+(`pushBack` as a rebuild), and `reverseList` in `lib/std/list.ng`
+(`example/list_builders.ng`); supporting fixes: generic let annotations
+resolve through generic bindings, nested instance checks preserve outer
+generic bindings, generic native instances keep their registered names, and
+`seq.len` is now `len<T>(array<T>)`.
 
 **Delivered (2026-08):** `regexMatch` (string intrinsic with invalid-pattern
 diagnostics in `lib/std/string.ng`), range/slice value spreads into array

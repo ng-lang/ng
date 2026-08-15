@@ -93,6 +93,30 @@ TEST_CASE("vNext std.list traverses recursive sequences", "[vNext][Stdlib][Runti
               "7");
 }
 
+TEST_CASE("vNext std.list builders rebuild sequences immutably", "[vNext][Stdlib][Runtime]")
+{
+  expectValue("import list; fun main() -> i64 { "
+              "let made = listFrom([1, 2, 3]); "
+              "let grown = append(ref made, 7); "
+              "let front = pushFront(ref made, 5); "
+              "let reversed = reverseList(ref made); "
+              "let mut total = 0; "
+              "if (length(ref grown) == 4 && get(ref grown, 3) == 7) { total := total + 1; } "
+              "if (get(ref front, 0) == 5 && get(ref front, 1) == 1) { total := total + 2; } "
+              "if (get(ref reversed, 0) == 3 && get(ref reversed, 2) == 1) { total := total + 4; } "
+              "if (length(ref made) == 3) { total := total + 8; } "
+              "return total; }",
+              "15");
+}
+
+TEST_CASE("vNext generic let annotations and native instances compose", "[vNext][Stdlib][Runtime]")
+{
+  expectValue("import seq; fun annotate<T>(value: T) -> T { let copy: T = value; return copy; } "
+              "fun main() -> i64 { let xs = [1, 2, 3]; "
+              "if (len(xs) == 3 && annotate(4) == 4) { return 1; } return 0; }",
+              "1");
+}
+
 TEST_CASE("vNext std.memory releases Box cells through Drop", "[vNext][Stdlib][Runtime]")
 {
   expectValue("import memory; "
@@ -116,6 +140,7 @@ TEST_CASE("vNext redesigned stdlib examples run end to end through ngi", "[vNext
 {
   for (const auto &[filename, value] : std::vector<std::pair<std::string, std::string>>{
            {"example/std_list.ng", "with value 15"},
+           {"example/list_builders.ng", "main returned"},
            {"example/heap_box.ng", "with value 12"},
            {"example/std_seq.ng", "with value 7"}})
   {

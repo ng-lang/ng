@@ -2,8 +2,7 @@
 // arrays. The legacy Sequence trait abstraction is unnecessary: arrays already
 // carry len, indexing, comprehensions, folds, and slices in the language.
 
-export native fun len(values: array<i64>) -> i64;
-export native fun len(values: array<string>) -> i64;
+export native fun len<T>(values: array<T>) -> i64;
 export native fun sum(values: array<i64>) -> i64;
 export native fun arrayContains(values: array<i64>, value: i64) -> bool;
 export native fun reverse(values: array<i64>) -> array<i64>;

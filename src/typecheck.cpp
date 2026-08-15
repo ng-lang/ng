@@ -1072,7 +1072,9 @@ namespace NG::typecheck
         hir::Function clone = hir::cloneFunction(source, nextInstanceLocal_);
         const hir::DefId instanceId{static_cast<uint32_t>(module_->functions.size() + instances_.size())};
         clone.id = instanceId;
-        clone.name = std::format("{}#{}", source.name, instances_.size());
+        // Native instances keep the registered name (the VM dispatches by
+        // name); ordinary instances get a per-instance suffix.
+        clone.name = source.nativeFunction ? source.name : std::format("{}#{}", source.name, instances_.size());
         FunctionTypeIds instanceSignature;
         instanceSignature.parameters.reserve(signature.parameters.size());
         for (size_t index = 0; index < signature.parameters.size(); ++index)
@@ -1114,6 +1116,11 @@ namespace NG::typecheck
         currentFunctionId_ = function.id;
         const const_eval::ConstBindings previousBindings = std::move(activeConstBindings_);
         activeConstBindings_ = constBindings;
+        // Nested checks (instantiated defaults, generic calls) rebuild these
+        // function-scoped states; save them so the outer body keeps its
+        // generic bindings after inner checks return.
+        const auto previousGenericBindings = std::move(genericBindings_);
+        const bool previousConstGeneric = inConstGenericFunction_;
         LocalTypes locals;
         mutableBindings_.clear();
         moveState_ = MoveState{};
@@ -1144,7 +1151,8 @@ namespace NG::typecheck
         checkBlock(function.body, locals, {}, signature.returnType);
         inConstGenericFunction_ = false;
         recordFallthroughDrops(function, locals);
-        genericBindings_.clear();
+        genericBindings_ = std::move(previousGenericBindings);
+        inConstGenericFunction_ = previousConstGeneric;
         activeConstBindings_ = previousBindings;
       }
 
@@ -1286,7 +1294,9 @@ namespace NG::typecheck
         {
         case hir::StatementKind::Let:
         {
-          const TypeId bindingType = statement.bindingType != nullptr ? interner_.resolve(*statement.bindingType) : TypeId{};
+          const TypeId bindingType = statement.bindingType != nullptr
+                                          ? interner_.resolveInScope(*statement.bindingType, genericBindings_)
+                                          : TypeId{};
           if (bindingType.value != 0 && interner_.descriptor(bindingType).kind == TypeKind::Trait)
             throw TypeError(std::format("trait `{}` is not a value type; use `ref<{}>`", interner_.display(bindingType),
                                         interner_.display(bindingType)), statement.span);
