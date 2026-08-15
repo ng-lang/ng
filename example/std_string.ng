@@ -1,0 +1,23 @@
+// vNext std.string + spreads (legacy 56 adapted): trim/split/join/contains/
+// regexMatch, range spreads into array literals, slicing, and reverse.
+// Note: vNext ranges are half-open `[a, b)`, so `(1..5)` splices 1,2,3,4.
+
+import prelude;
+import seq;
+
+fun main() -> unit {
+    let cleaned = trim("  alpha,beta,gamma  ");
+    let parts = split(cleaned, ",");
+    assert(join(parts, "|") == "alpha|beta|gamma");
+    assert(contains(cleaned, "beta"));
+    assert(regexMatch(cleaned, "alpha.*gamma"));
+
+    let nums = [...(1..5)];
+    assert(nums[0] == 1);
+    assert(nums[3] == 4);
+    let window = [...nums[1..3]];
+    let reversed = reverse(window);
+    assert(reversed[0] == 3);
+    assert(reversed[1] == 2);
+    assert(regexMatch(currentExecutablePath(), ".+"));
+}

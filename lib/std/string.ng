@@ -12,3 +12,4 @@ export native fun toLower(text: string) -> string;
 export native fun length(text: string) -> i64;
 export native fun charAt(text: string, index: i64) -> string;
 export native fun substring(text: string, start: i64, end: i64) -> string;
+export native fun regexMatch(text: string, pattern: string) -> bool;

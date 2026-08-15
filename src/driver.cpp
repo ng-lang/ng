@@ -16,6 +16,7 @@
 #include <fstream>
 #include <iostream>
 #include <ostream>
+#include <regex>
 #include <sstream>
 #include <string>
 
@@ -418,6 +419,17 @@ namespace NG
       for (const auto &slot : *heapSlots)
         if (slot.has_value()) ++count;
       return Value::integer(count);
+    });
+    natives.registerNative("regexMatch", [&expectStrings](const std::vector<Value> &arguments, const std::vector<typecheck::TypeId> &) {
+      const auto strings = expectStrings(arguments, 2);
+      try
+      {
+        return Value::integer(std::regex_search(strings[0], std::regex(strings[1])));
+      }
+      catch (const std::regex_error &)
+      {
+        throw bytecode::BytecodeError(std::format("regexMatch: invalid pattern `{}`", strings[1]));
+      }
     });
     natives.registerNative("toLower", [&expectStrings](const std::vector<Value> &arguments, const std::vector<typecheck::TypeId> &) {
       const auto strings = expectStrings(arguments, 1);

@@ -106,3 +106,34 @@ TEST_CASE("vNext stdlib basics example runs end to end through ngi", "[vNext][St
   REQUIRE(output.find("Hello, World!\napple | banana | cherry\ntrue\nbaz bar baz\n") != std::string::npos);
   REQUIRE(output.find("HELLO\nworld\ntrue\n") != std::string::npos);
 }
+
+TEST_CASE("vNext std.string regexMatch matches and rejects", "[vNext][Stdlib][Runtime]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(run({"--source",
+               "import prelude; fun main() { "
+               "assert(regexMatch(\"alpha,beta,gamma\", \"alpha.*gamma\")); "
+               "assert(regexMatch(\"1-2-3\", \"[0-9]-[0-9]-[0-9]\")); "
+               "assert(!regexMatch(\"abc\", \"z+\")); }"},
+              output, errors) == 0);
+  REQUIRE(errors.empty());
+}
+
+TEST_CASE("vNext std.string regexMatch reports invalid patterns", "[vNext][Stdlib][Runtime]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(run({"--source", "import prelude; fun main() { assert(regexMatch(\"x\", \"[[\")); }"}, output, errors) == 1);
+  REQUIRE_THAT(errors, ContainsSubstring("regexMatch: invalid pattern"));
+}
+
+TEST_CASE("vNext std_string example runs end to end through ngi", "[vNext][Stdlib][Examples]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(runExample("example/std_string.ng", output, errors) == 0);
+  INFO("errors: " << errors);
+  REQUIRE(errors.empty());
+  REQUIRE(output.find("main returned") != std::string::npos);
+}

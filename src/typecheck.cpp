@@ -2391,12 +2391,12 @@ namespace NG::typecheck
         {
           if (expression.operands.empty()) throw TypeError("cannot infer the type of an empty array literal", expression.span);
           size_t mapSpreads = 0;
+          size_t valueSpreads = 0;
           TypeId element{};
           for (const auto &candidate : expression.operands)
           {
             if (candidate->kind == hir::ExpressionKind::Prefix && candidate->text == "...")
             {
-              ++mapSpreads;
               bool filterMode = false;
               const hir::Expression *inner = candidate->operands[0].get();
               if (inner->kind == hir::ExpressionKind::Prefix && inner->text == "?")
@@ -2404,10 +2404,33 @@ namespace NG::typecheck
                 filterMode = true;
                 inner = inner->operands[0].get();
               }
-              if (inner->kind != hir::ExpressionKind::Call || inner->operands.empty() ||
-                  !inner->operands[0]->resolvedName.has_value() ||
-                  inner->operands[0]->resolvedName->kind != hir::ResolvedNameKind::Function)
-                throw TypeError("map spread requires a direct function call", candidate->span);
+              const bool mapSpread = inner->kind == hir::ExpressionKind::Call && !inner->operands.empty() &&
+                                     inner->operands[0]->resolvedName.has_value() &&
+                                     inner->operands[0]->resolvedName->kind == hir::ResolvedNameKind::Function;
+              if (!mapSpread)
+              {
+                // Value spread: `[...array]` / `[...(1..5)]` splices the source's
+                // elements into the literal.
+                ++valueSpreads;
+                if (filterMode)
+                  throw TypeError("the filter marker `?` requires a map spread", candidate->span);
+                const TypeId source = infer(*inner, locals);
+                const auto &sourceDescriptor = interner_.descriptor(source);
+                const bool arraySource = sourceDescriptor.kind == TypeKind::DynamicArray ||
+                                         sourceDescriptor.kind == TypeKind::FixedArray ||
+                                         sourceDescriptor.kind == TypeKind::DependentArray;
+                const bool rangeSource = sourceDescriptor.kind == TypeKind::Range;
+                if (!arraySource && !rangeSource)
+                  throw TypeError(std::format("cannot spread value of type {}", interner_.display(source)),
+                                  candidate->span);
+                if (rangeSource && sourceDescriptor.element != builtin::I64)
+                  throw TypeError("spreading ranges currently requires i64 elements", candidate->span);
+                const TypeId sourceElement = sourceDescriptor.element;
+                if (element.value == 0) element = sourceElement;
+                else requireType(element, sourceElement, candidate->span, "array spread");
+                continue;
+              }
+              ++mapSpreads;
               if (inner->operands.size() != 2)
                 throw TypeError("map spread function must take exactly one argument", candidate->span);
               const TypeId source = infer(*inner->operands[1], locals);
@@ -2448,8 +2471,8 @@ namespace NG::typecheck
             if (element.value == 0) element = candidateType;
             requireType(element, candidateType, candidate->span, "array element");
           }
-          if (mapSpreads > 1)
-            throw TypeError("array literals support at most one map spread", expression.span);
+          if (mapSpreads + valueSpreads > 1)
+            throw TypeError("array literals support at most one spread", expression.span);
           type = interner_.internDynamicArray(element);
           break;
         }

@@ -430,10 +430,12 @@ namespace NG::flowir
           filterMode = true;
           callNode = callNode->operands[0].get();
         }
-        const auto &call = *callNode;
-        const ValueId source = lowerExpression(*call.operands[1]);
+        const bool isMap = callNode->kind == hir::ExpressionKind::Call && types_ != nullptr &&
+                           types_->callTargets.contains(callNode);
+        const hir::Expression &sourceExpr = isMap ? *callNode->operands[1] : *callNode;
+        const ValueId source = lowerExpression(sourceExpr);
         std::optional<hir::DefId> target;
-        if (types_ != nullptr && types_->callTargets.contains(&call)) target = types_->callTargets.at(&call);
+        if (isMap) target = types_->callTargets.at(callNode);
 
         const ValueId zero{nextValue_++};
         if (types_ != nullptr) function_.valueTypes.emplace(zero.value, typecheck::builtin::I64);
@@ -496,7 +498,7 @@ namespace NG::flowir
         current_ = body;
         const ValueId element{nextValue_++};
         const bool rangeSource = types_ != nullptr &&
-                                 types_->typeDescriptors.at(types_->typeIdOf(*call.operands[1]).value).kind ==
+                                 types_->typeDescriptors.at(types_->typeIdOf(sourceExpr).value).kind ==
                                      typecheck::TypeKind::Range;
         if (rangeSource)
         {
@@ -516,7 +518,7 @@ namespace NG::flowir
         {
           if (types_ != nullptr)
           {
-            const auto sourceType = types_->typeDescriptors.at(types_->typeIdOf(*call.operands[1]).value);
+            const auto sourceType = types_->typeDescriptors.at(types_->typeIdOf(sourceExpr).value);
             function_.valueTypes.emplace(element.value, sourceType.element);
           }
           block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
@@ -524,20 +526,25 @@ namespace NG::flowir
                                                      .expressionKind = hir::ExpressionKind::Index,
                                                      .operands = {source, indexRead}});
         }
-        const ValueId mapped{nextValue_++};
-        if (types_ != nullptr) function_.valueTypes.emplace(mapped.value, types_->typeIdOf(call));
-        block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
-                                                   .result = mapped,
-                                                   .expressionKind = hir::ExpressionKind::Call,
-                                                   .callTarget = target,
-                                                   .operands = {element}});
+        ValueId appendedSource = element;
+        if (isMap)
+        {
+          const ValueId mapped{nextValue_++};
+          if (types_ != nullptr) function_.valueTypes.emplace(mapped.value, types_->typeIdOf(*callNode));
+          block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
+                                                     .result = mapped,
+                                                     .expressionKind = hir::ExpressionKind::Call,
+                                                     .callTarget = target,
+                                                     .operands = {element}});
+          appendedSource = mapped;
+        }
         if (filterMode)
         {
           const BlockId appendPart = appendBlock();
           const BlockId skipPart = appendBlock();
           block().terminator = Terminator{.kind = TerminatorKind::Branch,
                                           .targets = {appendPart, skipPart},
-                                          .arguments = {mapped}};
+                                          .arguments = {appendedSource}};
 
           current_ = appendPart;
           const ValueId appended{nextValue_++};
@@ -592,7 +599,7 @@ namespace NG::flowir
         if (types_ != nullptr) function_.valueTypes.emplace(appended.value, types_->typeIdOf(expression));
         block().instructions.push_back(Instruction{.kind = InstructionKind::AppendArray,
                                                    .result = appended,
-                                                   .operands = {empty, mapped}});
+                                                   .operands = {empty, appendedSource}});
         const ValueId nextIndex{nextValue_++};
         if (types_ != nullptr) function_.valueTypes.emplace(nextIndex.value, typecheck::builtin::I64);
         block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
