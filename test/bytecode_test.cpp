@@ -1,9 +1,9 @@
 // AI-generated code; reviewed for this repository's vNext rewrite.
-#include "test.hpp"
 #include "bytecode.hpp"
 #include "flowir.hpp"
 #include "hir.hpp"
 #include "syntax/module_parser.hpp"
+#include "test.hpp"
 #include "typecheck.hpp"
 #include "vm.hpp"
 
@@ -33,9 +33,8 @@ TEST_CASE("vNext bytecode compiler and decoder share loop backedge schema", "[vN
   REQUIRE_NOTHROW(bytecode::Verifier{}.verify(function));
 
   const auto instructions = bytecode::Decoder{}.decode(function);
-  const auto backedge = std::find_if(instructions.begin(), instructions.end(), [](const auto &instruction) {
-    return instruction.opcode == bytecode::Opcode::LoopBackedge;
-  });
+  const auto backedge = std::find_if(instructions.begin(), instructions.end(), [](const auto &instruction)
+                                     { return instruction.opcode == bytecode::Opcode::LoopBackedge; });
   REQUIRE(backedge != instructions.end());
   REQUIRE(backedge->operands[0] == 1);
   REQUIRE(backedge->operands[1] == 2);
@@ -44,46 +43,48 @@ TEST_CASE("vNext bytecode compiler and decoder share loop backedge schema", "[vN
 
 TEST_CASE("vNext bytecode encodes nominal struct member operations", "[vNext][Bytecode]")
 {
-  const auto syntaxUnit = syntax::parseSourceUnit(
-      "struct Point { x: i64, label: string } fun update() -> i64 { let mut point = Point { x: 1, label: \"p\" }; point.x := 2; return point.x; }");
+  const auto syntaxUnit =
+      syntax::parseSourceUnit("struct Point { x: i64, label: string } fun update() -> i64 { let mut point = Point { x: "
+                              "1, label: \"p\" }; point.x := 2; return point.x; }");
   const auto hirModule = hir::Resolver{}.resolve(syntaxUnit);
   const auto typed = typecheck::TypeChecker{}.check(hirModule);
   const auto function = bytecode::Compiler{}.compile(flowir::Lowerer{}.lower(hirModule.functions.front(), typed));
   const auto instructions = bytecode::Decoder{}.decode(function);
-  REQUIRE(std::ranges::count_if(instructions, [](const auto &instruction) {
-            return instruction.opcode == bytecode::Opcode::AssignPlace;
-          }) == 1);
-  REQUIRE(std::ranges::count_if(instructions, [](const auto &instruction) {
-            return instruction.opcode == bytecode::Opcode::Evaluate &&
-                   instruction.operands[1] == static_cast<uint32_t>(hir::ExpressionKind::StructLiteral);
-          }) == 1);
+  REQUIRE(std::ranges::count_if(instructions, [](const auto &instruction)
+                                { return instruction.opcode == bytecode::Opcode::AssignPlace; }) == 1);
+  REQUIRE(std::ranges::count_if(instructions,
+                                [](const auto &instruction)
+                                {
+                                  return instruction.opcode == bytecode::Opcode::Evaluate &&
+                                         instruction.operands[1] ==
+                                             static_cast<uint32_t>(hir::ExpressionKind::StructLiteral);
+                                }) == 1);
   REQUIRE_NOTHROW(bytecode::Verifier{}.verify(function));
 }
 
 TEST_CASE("vNext bytecode encodes tuple extraction", "[vNext][Bytecode]")
 {
-  const auto syntaxUnit = syntax::parseSourceUnit("fun unpack() -> i64 { let (first, second) = (1, true); return first; }");
+  const auto syntaxUnit =
+      syntax::parseSourceUnit("fun unpack() -> i64 { let (first, second) = (1, true); return first; }");
   const auto hirModule = hir::Resolver{}.resolve(syntaxUnit);
   const auto typed = typecheck::TypeChecker{}.check(hirModule);
   const auto function = bytecode::Compiler{}.compile(flowir::Lowerer{}.lower(hirModule.functions.front(), typed));
   const auto instructions = bytecode::Decoder{}.decode(function);
-  REQUIRE(std::ranges::count_if(instructions, [](const auto &instruction) {
-            return instruction.opcode == bytecode::Opcode::ExtractTuple;
-          }) == 2);
+  REQUIRE(std::ranges::count_if(instructions, [](const auto &instruction)
+                                { return instruction.opcode == bytecode::Opcode::ExtractTuple; }) == 2);
   REQUIRE_NOTHROW(bytecode::Verifier{}.verify(function));
 }
 
 TEST_CASE("vNext bytecode encodes and verifies array index places", "[vNext][Bytecode]")
 {
-  const auto syntaxUnit = syntax::parseSourceUnit(
-      "fun update() -> i64 { let mut values = [1, 2]; values[1] := 7; return values[1]; }");
+  const auto syntaxUnit =
+      syntax::parseSourceUnit("fun update() -> i64 { let mut values = [1, 2]; values[1] := 7; return values[1]; }");
   const auto hirModule = hir::Resolver{}.resolve(syntaxUnit);
   const auto typed = typecheck::TypeChecker{}.check(hirModule);
   const auto function = bytecode::Compiler{}.compile(flowir::Lowerer{}.lower(hirModule.functions.front(), typed));
   const auto instructions = bytecode::Decoder{}.decode(function);
-  REQUIRE(std::ranges::count_if(instructions, [](const auto &instruction) {
-            return instruction.opcode == bytecode::Opcode::AssignPlace;
-          }) == 1);
+  REQUIRE(std::ranges::count_if(instructions, [](const auto &instruction)
+                                { return instruction.opcode == bytecode::Opcode::AssignPlace; }) == 1);
   REQUIRE_NOTHROW(bytecode::Verifier{}.verify(function));
 }
 
@@ -99,19 +100,20 @@ TEST_CASE("vNext bytecode represents tail recursion without a call target", "[vN
 
 TEST_CASE("vNext bytecode module compiler preserves function identities and direct calls", "[vNext][Bytecode]")
 {
-  const auto syntaxUnit = syntax::parseSourceUnit("fun helper(value: i64) -> i64 { return value; } fun main() -> i64 { return helper(42); }");
+  const auto syntaxUnit = syntax::parseSourceUnit(
+      "fun helper(value: i64) -> i64 { return value; } fun main() -> i64 { return helper(42); }");
   const auto hirModule = hir::Resolver{}.resolve(syntaxUnit);
   static_cast<void>(typecheck::TypeChecker{}.check(hirModule));
   std::vector<flowir::Function> flows;
-  for (const auto &function : hirModule.functions) flows.push_back(flowir::Lowerer{}.lower(function));
+  for (const auto &function : hirModule.functions)
+    flows.push_back(flowir::Lowerer{}.lower(function));
   const auto module = bytecode::ModuleCompiler{}.compile(flows);
   REQUIRE(module.functions.size() == 2);
   REQUIRE(module.functions[0].source.value == 0);
   REQUIRE(module.functions[1].source.value == 1);
   const auto instructions = bytecode::Decoder{}.decode(module.functions[1]);
-  const auto call = std::find_if(instructions.begin(), instructions.end(), [](const auto &instruction) {
-    return instruction.opcode == bytecode::Opcode::Call;
-  });
+  const auto call = std::find_if(instructions.begin(), instructions.end(),
+                                 [](const auto &instruction) { return instruction.opcode == bytecode::Opcode::Call; });
   REQUIRE(call != instructions.end());
   REQUIRE(call->operands[0] == 1);
   REQUIRE(call->operands[1] == 0);
@@ -125,7 +127,8 @@ TEST_CASE("vNext bytecode artifacts round-trip verified modules", "[vNext][Bytec
   const auto hirModule = hir::Resolver{}.resolve(syntaxUnit);
   const auto typed = typecheck::TypeChecker{}.check(hirModule);
   std::vector<flowir::Function> flows;
-  for (const auto &function : hirModule.functions) flows.push_back(flowir::Lowerer{}.lower(function, typed));
+  for (const auto &function : hirModule.functions)
+    flows.push_back(flowir::Lowerer{}.lower(function, typed));
   const auto module = bytecode::ModuleCompiler{}.compile(flows);
   const auto artifact = bytecode::ArtifactCodec{}.serialize(module);
   const auto restored = bytecode::ArtifactCodec{}.deserialize(artifact);
@@ -146,17 +149,17 @@ TEST_CASE("vNext bytecode artifacts preserve generic enum instances", "[vNext][B
   const auto function = bytecode::Compiler{}.compile(flowir::Lowerer{}.lower(hirModule.functions.front(), typed));
   const auto restored = bytecode::ArtifactCodec{}.deserialize(
       bytecode::ArtifactCodec{}.serialize(bytecode::Module{.functions = {function}}));
-  const auto result = std::ranges::find_if(restored.functions.front().typeDescriptors, [](const auto &descriptor) {
-    return descriptor.kind == typecheck::TypeKind::Enum && descriptor.typeArguments.size() == 2;
-  });
+  const auto result = std::ranges::find_if(
+      restored.functions.front().typeDescriptors, [](const auto &descriptor)
+      { return descriptor.kind == typecheck::TypeKind::Enum && descriptor.typeArguments.size() == 2; });
   REQUIRE(result != restored.functions.front().typeDescriptors.end());
   REQUIRE(result->typeArguments == std::vector<typecheck::TypeId>{typecheck::builtin::I64, typecheck::builtin::String});
 }
 
 TEST_CASE("vNext bytecode artifacts preserve enum variant layouts", "[vNext][Bytecode]")
 {
-  const auto syntaxUnit = syntax::parseSourceUnit(
-      "enum Result { Ok(i64), Empty } fun result() -> Result { return Result.Ok(7); }");
+  const auto syntaxUnit =
+      syntax::parseSourceUnit("enum Result { Ok(i64), Empty } fun result() -> Result { return Result.Ok(7); }");
   const auto hirModule = hir::Resolver{}.resolve(syntaxUnit);
   const auto typed = typecheck::TypeChecker{}.check(hirModule);
   const auto function = bytecode::Compiler{}.compile(flowir::Lowerer{}.lower(hirModule.functions.front(), typed));
@@ -179,11 +182,9 @@ TEST_CASE("vNext bytecode artifacts preserve nominal struct layouts", "[vNext][B
   const auto artifact = bytecode::ArtifactCodec{}.serialize(bytecode::Module{.functions = {function}});
   const auto restored = bytecode::ArtifactCodec{}.deserialize(artifact);
   REQUIRE(restored.functions.front().typeDescriptors == function.typeDescriptors);
-  const auto &structure = *std::find_if(restored.functions.front().typeDescriptors.begin(),
-                                        restored.functions.front().typeDescriptors.end(),
-                                        [](const typecheck::TypeDescriptor &descriptor) {
-                                          return descriptor.kind == typecheck::TypeKind::Struct;
-                                        });
+  const auto &structure = *std::find_if(
+      restored.functions.front().typeDescriptors.begin(), restored.functions.front().typeDescriptors.end(),
+      [](const typecheck::TypeDescriptor &descriptor) { return descriptor.kind == typecheck::TypeKind::Struct; });
   REQUIRE(structure.kind == typecheck::TypeKind::Struct);
   REQUIRE(structure.fieldNames == std::vector<std::string>{"x", "label"});
   REQUIRE(vm::VM{}.run(restored.functions.front()).returnValue->asStruct()[0] == 7);
@@ -191,8 +192,8 @@ TEST_CASE("vNext bytecode artifacts preserve nominal struct layouts", "[vNext][B
 
 TEST_CASE("vNext bytecode artifacts preserve tuple layouts", "[vNext][Bytecode]")
 {
-  const auto syntaxUnit = syntax::parseSourceUnit(
-      "fun pair() -> tuple<i64, bool, string> { return (1, true, \"value\"); }");
+  const auto syntaxUnit =
+      syntax::parseSourceUnit("fun pair() -> tuple<i64, bool, string> { return (1, true, \"value\"); }");
   const auto hirModule = hir::Resolver{}.resolve(syntaxUnit);
   const auto typed = typecheck::TypeChecker{}.check(hirModule);
   const auto function = bytecode::Compiler{}.compile(flowir::Lowerer{}.lower(hirModule.functions.front(), typed));
@@ -213,7 +214,8 @@ TEST_CASE("vNext bytecode artifacts preserve fixed-array type descriptors", "[vN
   const auto artifact = bytecode::ArtifactCodec{}.serialize(bytecode::Module{.functions = {function}});
   const auto restored = bytecode::ArtifactCodec{}.deserialize(artifact);
   REQUIRE(restored.functions.front().typeDescriptors == function.typeDescriptors);
-  REQUIRE(restored.functions.front().typeDescriptors.at(function.valueTypes.at(3).value).kind == typecheck::TypeKind::FixedArray);
+  REQUIRE(restored.functions.front().typeDescriptors.at(function.valueTypes.at(3).value).kind ==
+          typecheck::TypeKind::FixedArray);
   REQUIRE(vm::VM{}.run(restored.functions.front()).returnValue->asArray().size() == 3);
 }
 
@@ -239,7 +241,8 @@ TEST_CASE("vNext bytecode artifacts reject malformed framing", "[vNext][Bytecode
 
 TEST_CASE("vNext bytecode verifier enforces typed register and local contracts", "[vNext][Bytecode]")
 {
-  const auto syntaxUnit = syntax::parseSourceUnit("fun entry(flag: bool) -> i64 { let value = 1; if flag { return value; } return 0; }");
+  const auto syntaxUnit =
+      syntax::parseSourceUnit("fun entry(flag: bool) -> i64 { let value = 1; if flag { return value; } return 0; }");
   const auto hirModule = hir::Resolver{}.resolve(syntaxUnit);
   const auto typed = typecheck::TypeChecker{}.check(hirModule);
   auto function = bytecode::Compiler{}.compile(flowir::Lowerer{}.lower(hirModule.functions.front(), typed));
@@ -250,8 +253,7 @@ TEST_CASE("vNext bytecode verifier enforces typed register and local contracts",
 
   function = bytecode::Compiler{}.compile(flowir::Lowerer{}.lower(hirModule.functions.front(), typed));
   function.valueTypes.at(0) = typecheck::builtin::Bool;
-  REQUIRE_THROWS_WITH(bytecode::Verifier{}.verify(function),
-                      "bytecode integer literal result is not an integer type");
+  REQUIRE_THROWS_WITH(bytecode::Verifier{}.verify(function), "bytecode integer literal result is not an integer type");
 }
 
 TEST_CASE("vNext bytecode verifier rejects malformed branch contracts", "[vNext][Bytecode]")
@@ -262,8 +264,75 @@ TEST_CASE("vNext bytecode verifier rejects malformed branch contracts", "[vNext]
                                .blockOffsets = {0}};
   REQUIRE_THROWS_WITH(bytecode::Verifier{}.verify(malformed), "bytecode branch target is out of range");
 
-  bytecode::Function truncated{.code = {static_cast<uint8_t>(bytecode::Opcode::Return), 1, 0},
-                               .blockParameterCounts = {0},
-                               .blockOffsets = {0}};
+  bytecode::Function truncated{
+    .code = {static_cast<uint8_t>(bytecode::Opcode::Return), 1, 0}, .blockParameterCounts = {0}, .blockOffsets = {0}};
   REQUIRE_THROWS_WITH(bytecode::Decoder{}.decode(truncated), "truncated u32 operand");
+}
+
+TEST_CASE("vNext bytecode artifacts round-trip dispatch tables", "[vNext][Bytecode]")
+{
+  const auto syntaxUnit = syntax::parseSourceUnit("fun helper(value: i64) -> i64 { return value + 1; }");
+  const auto hirModule = hir::Resolver{}.resolve(syntaxUnit);
+  const auto typed = typecheck::TypeChecker{}.check(hirModule);
+  const auto flow = flowir::Lowerer{}.lower(hirModule.functions.front(), typed);
+  const uint64_t key = (static_cast<uint64_t>(3) << 32) | 7;
+  const auto module = bytecode::ModuleCompiler{}.compile({flow}, {{key, {1u, 2u, 3u}}});
+  const auto restored = bytecode::ArtifactCodec{}.deserialize(bytecode::ArtifactCodec{}.serialize(module));
+  REQUIRE(restored.vtables.size() == 1);
+  REQUIRE(restored.vtables.at(key) == std::vector<uint32_t>{1, 2, 3});
+}
+
+TEST_CASE("vNext bytecode artifacts reject duplicate type metadata ids", "[vNext][Bytecode]")
+{
+  const auto syntaxUnit = syntax::parseSourceUnit("fun helper(value: i64) -> i64 { return value + 1; }");
+  const auto hirModule = hir::Resolver{}.resolve(syntaxUnit);
+  const auto typed = typecheck::TypeChecker{}.check(hirModule);
+  const auto function = bytecode::Compiler{}.compile(flowir::Lowerer{}.lower(hirModule.functions.front(), typed));
+  auto artifact = bytecode::ArtifactCodec{}.serialize(bytecode::Module{.functions = {function}});
+
+  // Walk the framing to the first function's valueTypes map and duplicate
+  // its first id so the decoder's duplicate check fires.
+  const auto readU32 = [](const std::vector<uint8_t> &input, size_t &offset) -> uint32_t
+  {
+    REQUIRE(input.size() - offset >= 4);
+    uint32_t value{};
+    for (size_t index = 0; index < 4; ++index)
+      value |= static_cast<uint32_t>(input[offset++]) << (index * 8);
+    return value;
+  };
+  const auto skipStringVector = [&readU32](const std::vector<uint8_t> &input, size_t &offset)
+  {
+    const uint32_t count = readU32(input, offset);
+    for (uint32_t index = 0; index < count; ++index)
+    {
+      const uint32_t size = readU32(input, offset);
+      offset += size;
+    }
+  };
+  const auto skipU32Vector = [&readU32](const std::vector<uint8_t> &input, size_t &offset)
+  {
+    const uint32_t count = readU32(input, offset);
+    offset += static_cast<size_t>(count) * 4;
+  };
+  size_t offset = 4 + 4 + 4;                    // magic, version, function count
+  static_cast<void>(readU32(artifact, offset)); // source
+  static_cast<void>(readU32(artifact, offset)); // native flag
+  offset += readU32(artifact, offset);          // name
+  offset += readU32(artifact, offset);          // code
+  skipStringVector(artifact, offset);
+  skipU32Vector(artifact, offset); // parameter locals
+  skipU32Vector(artifact, offset); // block parameter counts
+  const uint32_t blockLocalCount = readU32(artifact, offset);
+  for (uint32_t index = 0; index < blockLocalCount; ++index)
+    skipU32Vector(artifact, offset);
+  skipU32Vector(artifact, offset); // block offsets
+  const uint32_t mapEntries = readU32(artifact, offset);
+  REQUIRE(mapEntries >= 2);
+  const size_t firstId = offset;
+  static_cast<void>(readU32(artifact, offset));
+  const uint32_t secondId = readU32(artifact, offset);
+  for (size_t index = 0; index < 4; ++index)
+    artifact[firstId + index] = static_cast<uint8_t>(secondId >> (index * 8));
+
+  REQUIRE_THROWS_WITH(bytecode::ArtifactCodec{}.deserialize(artifact), "duplicate bytecode artifact type metadata");
 }
