@@ -62,6 +62,14 @@ set(NG_SRC
 add_library(ng ${NG_SRC})
 target_include_directories(ng PUBLIC include)
 
+# Instrument the pipeline sources so llvm-cov measures src/ and include/
+# (the coverage gate ignores vendored/ and test/).
+if (APPLE)
+  target_compile_options(ng PRIVATE -fprofile-instr-generate -fcoverage-mapping -fcoverage-mcdc)
+elseif (DEFINED ENV{RUNNING_ON_GITHUB} AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  target_compile_options(ng PRIVATE -fprofile-instr-generate -fcoverage-mapping)
+endif()
+
 # region ngi
 
 # `ngi` is the NG frontend over the promoted vNext pipeline.
@@ -86,6 +94,11 @@ target_include_directories(ng_imgui PUBLIC include)
 
 add_executable(ngi_imgui src/imgui_main.cpp)
 target_link_libraries(ngi_imgui PRIVATE ng_imgui)
+if (APPLE)
+target_link_options(ngi_imgui PRIVATE -fprofile-instr-generate -fcoverage-mapping -coverage)
+elseif (DEFINED ENV{RUNNING_ON_GITHUB} AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+target_link_options(ngi_imgui PRIVATE -fprofile-instr-generate -fcoverage-mapping)
+endif()
 # endregion ngi_imgui
 
 
