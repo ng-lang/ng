@@ -285,7 +285,14 @@ gated; do not start them before their blocking phase.
 ## 5. Category C — unstarted roadmap rows
 
 - **R9 remainder** (in progress): declared ABI descriptors, safe C boundary,
-  opaque wrapper lifecycle policies, bindgen (see B3).
+  opaque wrapper lifecycle policies, bindgen (see B3). Recorded std-module
+  decision (see 08-qbe-native-backend.md §5): `std.imgui` remains a standard
+  module (`lib/std/imgui.ng` + `registerImguiNatives`), not a separate
+  frontend — the transitional `ngi_imgui` executable is removed when the
+  default `ngi` registers the module (startup registration first; the
+  import-triggered variant rides R7's native-module loader). Foreign C++
+  state crosses into NG only as opaque types (`type X = native;` today,
+  declared handle descriptors in R9), never as inspected values.
 - **R10** (not started): concurrency-native runtime and language layer.
   Structured concurrency with ownership-aware transfer; task payloads are
   move-only; refs do not cross task boundaries; process globals are not an
