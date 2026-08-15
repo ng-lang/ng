@@ -2293,8 +2293,37 @@ namespace NG::native
         switch (terminator.kind)
         {
         case TerminatorKind::Return:
-          if (terminator.arguments.empty()) line(function_.name == "main" ? "ret 0" : "ret");
-          else line(std::format("ret {}", operandTemp(terminator.arguments[0])));
+          if (terminator.arguments.empty())
+          {
+            line(function_.name == "main" ? "ret 0" : "ret");
+          }
+          else if (function_.name == "main")
+          {
+            // String/float mains have no meaningful exit code: print the
+            // value (matching the VM driver's "with value ...") and exit 0.
+            const auto value = operandTemp(terminator.arguments[0]);
+            const auto type = function_.valueTypes.at(terminator.arguments[0].value);
+            if (type == typecheck::builtin::String)
+            {
+              const auto unused = fresh();
+              line(std::format("{} =l call $ngshim_print_str(l {})", unused, value));
+              line("ret 0");
+            }
+            else if (typecheck::isFloatBuiltin(type))
+            {
+              const auto unused = fresh();
+              line(std::format("{} =l call $ngshim_print_f64(d {})", unused, value));
+              line("ret 0");
+            }
+            else
+            {
+              line(std::format("ret {}", value));
+            }
+          }
+          else
+          {
+            line(std::format("ret {}", operandTemp(terminator.arguments[0])));
+          }
           return;
         case TerminatorKind::Jump:
         case TerminatorKind::LoopBackedge:

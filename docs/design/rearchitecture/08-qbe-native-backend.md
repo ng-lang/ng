@@ -327,8 +327,14 @@ Final generated results:
   non-SSA fixup handles rebinding and cross-block uses. Measured:
   fib(26) native executable ≈ 4 ms user time vs ≈ 0.8 s for the VM
   interpreter (≈ 200x); the `--native` wall time is dominated by the
-  qbe+cc toolchain. Remaining M4: typed unboxing for aggregate hot paths
-  (layout pass), inlining of the checked helpers, benchmarks (R11).
+  qbe+cc toolchain. Delivered alongside: string/float `main` results are
+  printed and exit 0 (no meaningful exit code), and a hidden
+  `[.benchmark]` suite (fib / loop / string concat / list walk) times the
+  VM against the compiled executable directly — fib(22) ≈ 30x, loop
+  200000 ≈ 17x (the native column includes ~0.3 ms fork/exec startup per
+  run, so startup-dominated micro-programs show no gain). Remaining M4:
+  typed unboxing for aggregate hot paths (layout pass), inlining of the
+  checked helpers.
 - **M5 (first slice delivered):** AOT shims for the standard natives —
   `libngrt` (`src/native/ngrt_shims.c`, pure C99, layouts matching the
   Tier 0 representations) is linked into every `--native` executable, and
