@@ -104,6 +104,15 @@ namespace NG::flowir
             }))
           return lowerMapLiteral(expression);
 
+        if (expression.kind == hir::ExpressionKind::ArrayLiteral && types_ != nullptr)
+        {
+          // List collection literals type as the expected recursive-list
+          // enum; lower them as a Nil seed plus right-to-left Cons folds.
+          const typecheck::TypeId resultType = types_->typeIdOf(expression);
+          if (types_->typeDescriptors.at(resultType.value).kind == typecheck::TypeKind::Enum)
+            return lowerListLiteral(expression, resultType);
+        }
+
         if (expression.kind == hir::ExpressionKind::Call && types_ != nullptr &&
             !expression.operands.empty() && expression.operands[0]->resolvedName.has_value() &&
             expression.operands[0]->resolvedName->kind == hir::ResolvedNameKind::Function &&
@@ -407,6 +416,90 @@ namespace NG::flowir
         block().instructions.push_back(Instruction{.kind = InstructionKind::TupleSplice,
                                                    .result = result,
                                                    .operands = std::move(operands)});
+        return result;
+      }
+
+      /// Lowers a list collection literal (`let xs: List<i64> = [1, 2, 3];`)
+      /// into a Nil seed plus right-to-left Cons folds so the first element
+      /// ends up at the head.
+      [[nodiscard]] auto lowerListLiteral(const hir::Expression &expression, typecheck::TypeId listType) -> ValueId
+      {
+        const auto &descriptor = types_->typeDescriptors.at(listType.value);
+        uint32_t consVariant{};
+        uint32_t nilVariant{};
+        typecheck::TypeId element{};
+        bool foundCons = false;
+        bool foundNil = false;
+        for (uint32_t variant = 0; variant < descriptor.elements.size(); ++variant)
+        {
+          if (!descriptor.variantHasPayload[variant])
+          {
+            nilVariant = variant;
+            foundNil = true;
+            continue;
+          }
+          const auto &payload = types_->typeDescriptors.at(descriptor.elements[variant].value);
+          if (payload.kind == typecheck::TypeKind::Tuple && payload.elements.size() == 2)
+          {
+            consVariant = variant;
+            element = payload.elements[0];
+            foundCons = true;
+          }
+        }
+        if (!foundCons || !foundNil) throw VerificationError("list literal target is not a recursive list enum");
+        const hir::LocalId accLocal{nextSyntheticLocal_++};
+        function_.localTypes.emplace(accLocal.value, listType);
+        const ValueId nil{nextValue_++};
+        function_.valueTypes.emplace(nil.value, listType);
+        block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
+                                                   .result = nil,
+                                                   .expressionKind = hir::ExpressionKind::EnumLiteral,
+                                                   .payload = static_cast<int64_t>(listType.value) |
+                                                              (static_cast<int64_t>(nilVariant) << 32)});
+        const ValueId seed{nextValue_++};
+        function_.valueTypes.emplace(seed.value, listType);
+        block().instructions.push_back(Instruction{.kind = InstructionKind::BindLocal,
+                                                   .result = seed,
+                                                   .local = accLocal,
+                                                   .source = nil,
+                                                   .expressionKind = hir::ExpressionKind::ResolvedName});
+        for (auto it = expression.operands.rbegin(); it != expression.operands.rend(); ++it)
+        {
+          const ValueId elementValue = lowerExpression(**it);
+          const ValueId refAcc{nextValue_++};
+          function_.valueTypes.emplace(refAcc.value, types_->typeDescriptors.at(descriptor.elements[consVariant].value).elements[1]);
+          block().instructions.push_back(Instruction{.kind = InstructionKind::MakeRef,
+                                                     .result = refAcc,
+                                                     .placeRootLocal = accLocal,
+                                                     .placeMutable = false,
+                                                     .placeSteps = {}});
+          const ValueId packed{nextValue_++};
+          function_.valueTypes.emplace(packed.value, descriptor.elements[consVariant]);
+          block().instructions.push_back(Instruction{.kind = InstructionKind::TupleSplice,
+                                                     .result = packed,
+                                                     .operands = {elementValue, refAcc}});
+          const ValueId cons{nextValue_++};
+          function_.valueTypes.emplace(cons.value, listType);
+          block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
+                                                     .result = cons,
+                                                     .expressionKind = hir::ExpressionKind::EnumLiteral,
+                                                     .payload = static_cast<int64_t>(listType.value) |
+                                                                (static_cast<int64_t>(consVariant) << 32),
+                                                     .operands = {packed}});
+          const ValueId bound{nextValue_++};
+          function_.valueTypes.emplace(bound.value, listType);
+          block().instructions.push_back(Instruction{.kind = InstructionKind::BindLocal,
+                                                     .result = bound,
+                                                     .local = accLocal,
+                                                     .source = cons,
+                                                     .expressionKind = hir::ExpressionKind::ResolvedName});
+        }
+        const ValueId result{nextValue_++};
+        function_.valueTypes.emplace(result.value, listType);
+        block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
+                                                   .result = result,
+                                                   .expressionKind = hir::ExpressionKind::ResolvedName,
+                                                   .payload = accLocal.value});
         return result;
       }
 

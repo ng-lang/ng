@@ -61,6 +61,14 @@ The standard library ships this exact `List<T>` with traversal helpers and
 immutable builders (`listFrom`, `pushFront`, `append`, `reverseList`) — see
 [Standard Library](/guide/standard-library).
 
+Array literals build lists directly when the expected type is the list
+enum:
+
+```ng
+let xs: List<i64> = [1, 2, 3];
+let empty: List<i64> = [];
+```
+
 ## Tuples
 
 ```ng

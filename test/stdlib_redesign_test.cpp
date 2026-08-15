@@ -141,6 +141,7 @@ TEST_CASE("vNext redesigned stdlib examples run end to end through ngi", "[vNext
   for (const auto &[filename, value] : std::vector<std::pair<std::string, std::string>>{
            {"example/std_list.ng", "with value 15"},
            {"example/list_builders.ng", "main returned"},
+           {"example/list_literals.ng", "main returned"},
            {"example/heap_box.ng", "with value 12"},
            {"example/std_seq.ng", "with value 7"}})
   {
@@ -151,4 +152,23 @@ TEST_CASE("vNext redesigned stdlib examples run end to end through ngi", "[vNext
     REQUIRE(errors.empty());
     REQUIRE(output.find(value) != std::string::npos);
   }
+}
+
+TEST_CASE("vNext list collection literals build recursive lists in order", "[vNext][Stdlib][Runtime]")
+{
+  expectValue("import list; fun main() -> i64 { "
+              "let xs: List<i64> = [1, 2, 3]; "
+              "let empty: List<i64> = []; "
+              "let words: List<string> = [\"a\", \"b\"]; "
+              "let mut total = 0; "
+              "if (length(ref xs) == 3 && get(ref xs, 0) == 1 && get(ref xs, 2) == 3) { total := total + 1; } "
+              "if (length(ref empty) == 0) { total := total + 2; } "
+              "if (get(ref words, 1) == \"b\") { total := total + 4; } "
+              "return total; }",
+              "7");
+
+  std::string output;
+  std::string errors;
+  REQUIRE(run("import list; fun main() { let xs: List<i64> = [\"a\"]; }", output, errors) == 1);
+  REQUIRE_THAT(errors, ContainsSubstring("list element"));
 }

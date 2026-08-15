@@ -1,0 +1,26 @@
+// vNext list collection literals: an array literal with an expected
+// recursive-list type (`List<T>`) builds the sequence directly —
+// `listof(1, 2, 3)` becomes `let xs: List<i64> = [1, 2, 3];`.
+
+import prelude;
+import list;
+
+fun main() -> unit {
+    let xs: List<i64> = [1, 2, 3];
+    assert(length(ref xs) == 3);
+    assert(get(ref xs, 0) == 1);
+    assert(get(ref xs, 1) == 2);
+    assert(get(ref xs, 2) == 3);
+
+    let empty: List<i64> = [];
+    assert(length(ref empty) == 0);
+
+    let words: List<string> = ["a", "b"];
+    assert(get(ref words, 0) == "a");
+    assert(get(ref words, 1) == "b");
+
+    // Builders still compose with literals.
+    let grown = append(ref xs, 4);
+    assert(length(ref grown) == 4);
+    assert(get(ref grown, 3) == 4);
+}

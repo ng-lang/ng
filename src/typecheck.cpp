@@ -2590,6 +2590,43 @@ namespace NG::typecheck
           record(expression, expected);
           return expected;
         }
+        if (expression.kind == hir::ExpressionKind::ArrayLiteral && descriptor.kind == TypeKind::Enum)
+        {
+          // List collection literals (`let xs: List<i64> = [1, 2, 3];`):
+          // the expected enum must have the recursive-list shape — one
+          // payloadless variant (Nil) and one variant with a
+          // (element, ref<Self>) tuple payload (Cons).
+          std::optional<uint32_t> consVariant;
+          std::optional<uint32_t> nilVariant;
+          TypeId element{};
+          for (uint32_t variant = 0; variant < descriptor.elements.size(); ++variant)
+          {
+            if (!descriptor.variantHasPayload[variant])
+            {
+              if (!nilVariant.has_value()) nilVariant = variant;
+              continue;
+            }
+            const auto &payloadDescriptor = interner_.descriptor(descriptor.elements[variant]);
+            if (payloadDescriptor.kind == TypeKind::Tuple && payloadDescriptor.elements.size() == 2 &&
+                interner_.descriptor(payloadDescriptor.elements[1]).kind == TypeKind::Reference &&
+                interner_.descriptor(payloadDescriptor.elements[1]).element == expected)
+            {
+              consVariant = variant;
+              element = payloadDescriptor.elements[0];
+            }
+          }
+          if (consVariant.has_value() && nilVariant.has_value())
+          {
+            for (const auto &candidate : expression.operands)
+            {
+              if (candidate->kind == hir::ExpressionKind::Prefix && candidate->text == "...")
+                throw TypeError("list collection literals do not support spreads", candidate->span);
+              static_cast<void>(inferExpected(*candidate, element, locals, "list element"));
+            }
+            record(expression, expected);
+            return expected;
+          }
+        }
         if (expression.kind == hir::ExpressionKind::Prefix &&
             (expression.text == "-" || expression.text == "+") && isIntegerBuiltin(expected) &&
             expression.operands[0]->kind == hir::ExpressionKind::IntegerLiteral)

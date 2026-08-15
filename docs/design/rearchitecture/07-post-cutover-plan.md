@@ -242,8 +242,10 @@ sources the loop accumulator and the VM AppendArray deep-copies, fixing a
 latent aliasing bug that value spreads and filtered map comprehensions had
 been accidentally relying on (`example/array_append.ng`,
 `test/range_slice_test.cpp` append cases).
-3. `List<T>` collection literals (`[1, 2, 3]` as `List<i64>`) lowering to
-   push loops — syntax sugar over the now-existing builders.
+3. ~~`List<T>` collection literals~~ — delivered 2026-08: `let xs: List<i64> =
+   [1, 2, 3];` builds the sequence directly (Nil seed + right-to-left Cons
+   folds, order-preserving, spread-free, element-typed;
+   `example/list_literals.ng`).
 4. Move `reverse` from a driver-native into `lib/std` once it can be
    expressed in NG (or keep as a declared native in the ABI layer).
 
