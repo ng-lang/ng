@@ -105,6 +105,7 @@ namespace NG::syntax
     }
 
     std::vector<std::string> destructuredNames;
+    std::optional<std::string> restName;
     Token name{.kind = TokenKind::Identifier, .text = {}, .span = current().span};
     if (current().kind == TokenKind::LeftParen)
     {
@@ -112,13 +113,24 @@ namespace NG::syntax
       if (current().kind == TokenKind::RightParen) throw ParseError("tuple binding cannot be empty", current().span);
       while (true)
       {
+        if (current().kind == TokenKind::Ellipsis)
+        {
+          // Rest pattern: `let (first, ...rest) = tuple;` binds the remaining
+          // elements as a tuple; it must be the last pattern element.
+          static_cast<void>(consume());
+          if (current().kind != TokenKind::Identifier)
+            throw ParseError("expected a rest binding name after `...`", current().span);
+          restName = consume().text;
+          expect(TokenKind::RightParen, "expected `)` after tuple rest binding");
+          break;
+        }
         if (current().kind != TokenKind::Identifier) throw ParseError("expected a binding name in tuple pattern", current().span);
         destructuredNames.push_back(consume().text);
         if (current().kind != TokenKind::Comma) break;
         static_cast<void>(consume());
       }
-      expect(TokenKind::RightParen, "expected `)` after tuple binding");
-      name.text = destructuredNames.front();
+      if (!restName.has_value()) expect(TokenKind::RightParen, "expected `)` after tuple binding");
+      name.text = destructuredNames.empty() ? restName.value_or("") : destructuredNames.front();
     }
     else
     {
@@ -139,7 +151,7 @@ namespace NG::syntax
     expect(TokenKind::Semicolon, "expected `;` after let initializer");
     return std::make_unique<LetStatement>(name.text, isMutable, std::move(annotation), std::move(initializer),
                                           SourceSpan{letToken.span.begin, semicolon.span.end},
-                                          std::move(destructuredNames));
+                                          std::move(destructuredNames), std::move(restName));
   }
 
   auto BlockParser::parseAssignStatement() -> StatementPtr

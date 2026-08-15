@@ -66,6 +66,16 @@ TEST_CASE("vNext block parser preserves tuple binding patterns", "[vNext][Syntax
   REQUIRE(let->initializer->kind == syntax::ExpressionKind::TupleLiteral);
 }
 
+TEST_CASE("vNext block parser preserves tuple rest patterns", "[vNext][Syntax][Block]")
+{
+  const auto block = syntax::parseBlock("{ let (first, ...rest) = (1, true, \"x\"); }");
+  const auto *let = dynamic_cast<const syntax::LetStatement *>(block.statements.front().get());
+  REQUIRE(let != nullptr);
+  REQUIRE(let->destructuredNames == std::vector<std::string>{"first"});
+  REQUIRE(let->restName.has_value());
+  REQUIRE(let->restName.value() == "rest");
+}
+
 TEST_CASE("vNext block parser preserves index assignment targets", "[vNext][Syntax][Block]")
 {
   const auto block = syntax::parseBlock("{ items[1] := 42; }");

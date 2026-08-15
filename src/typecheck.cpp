@@ -1432,19 +1432,39 @@ namespace NG::typecheck
                                   : infer(*statement.expression, locals);
           if (interner_.descriptor(type).kind != TypeKind::TraitReference)
             trackConsumption(*statement.expression, locals);
-          if (!statement.destructuredLocals.empty())
+          if (!statement.destructuredLocals.empty() || statement.restLocal.has_value())
           {
             const auto &tuple = interner_.descriptor(type);
             if (tuple.kind != TypeKind::Tuple)
               throw TypeError(std::format("cannot destructure value of type {}", interner_.display(type)), statement.expression->span);
-            if (tuple.elements.size() != statement.destructuredLocals.size())
+            if (statement.restLocal.has_value())
+            {
+              if (tuple.elements.size() < statement.destructuredLocals.size())
+                throw TypeError(std::format("tuple destructuring length mismatch: pattern binds {}, tuple has {}",
+                                            statement.destructuredLocals.size(), tuple.elements.size()),
+                                statement.span);
+            }
+            else if (tuple.elements.size() != statement.destructuredLocals.size())
+            {
               throw TypeError(std::format("tuple destructuring length mismatch: expected {}, got {}", tuple.elements.size(),
                                           statement.destructuredLocals.size()), statement.span);
+            }
             for (size_t index = 0; index < statement.destructuredLocals.size(); ++index)
             {
               locals.emplace(statement.destructuredLocals[index].value, tuple.elements[index]);
               recordLocal(statement.destructuredLocals[index], tuple.elements[index]);
               if (statement.mutableBinding) mutableBindings_.insert(statement.destructuredLocals[index].value);
+            }
+            if (statement.restLocal.has_value())
+            {
+              std::vector<TypeId> restElements;
+              restElements.reserve(tuple.elements.size() - statement.destructuredLocals.size());
+              for (size_t index = statement.destructuredLocals.size(); index < tuple.elements.size(); ++index)
+                restElements.push_back(tuple.elements[index]);
+              const TypeId restType = interner_.internTuple(std::move(restElements));
+              locals.emplace(statement.restLocal->value, restType);
+              recordLocal(*statement.restLocal, restType);
+              if (statement.mutableBinding) mutableBindings_.insert(statement.restLocal->value);
             }
           }
           else

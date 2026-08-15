@@ -1002,6 +1002,7 @@ namespace NG::flowir
           {
             if (statement.local.has_value()) observe(*statement.local);
             for (const auto local : statement.destructuredLocals) observe(local);
+            if (statement.restLocal.has_value()) observe(*statement.restLocal);
             for (const auto local : statement.loopBindings) observe(local);
             if (statement.expression != nullptr) visitExpression(visitExpression, *statement.expression);
             for (const auto &argument : statement.arguments) visitExpression(visitExpression, *argument);
@@ -1083,6 +1084,45 @@ namespace NG::flowir
                                                          .result = binding,
                                                          .local = statement.destructuredLocals[index],
                                                          .source = extracted,
+                                                         .expressionKind = hir::ExpressionKind::ResolvedName});
+            }
+            if (statement.restLocal.has_value())
+            {
+              // `let (first, ...rest) = tuple;`: extract the remaining
+              // elements and splice them into the rest tuple.
+              std::vector<ValueId> restElements;
+              if (types_ != nullptr)
+              {
+                const auto tuple = types_->typeIdOf(*statement.expression);
+                const auto &descriptor = types_->typeDescriptors.at(tuple.value);
+                for (size_t index = statement.destructuredLocals.size(); index < descriptor.elements.size(); ++index)
+                {
+                  const ValueId extracted{nextValue_++};
+                  function_.valueTypes.emplace(extracted.value, descriptor.elements[index]);
+                  block().instructions.push_back(Instruction{.kind = InstructionKind::ExtractTuple,
+                                                             .result = extracted,
+                                                             .source = initializer,
+                                                             .payload = static_cast<int64_t>(index),
+                                                             .expressionKind = hir::ExpressionKind::Index,
+                                                             .operands = {initializer}});
+                  restElements.push_back(extracted);
+                }
+              }
+              const ValueId restValue{nextValue_++};
+              if (types_ != nullptr)
+              {
+                function_.valueTypes.emplace(restValue.value, types_->localTypeIds.at(statement.restLocal->value));
+                function_.localTypes.emplace(statement.restLocal->value, types_->localTypeIds.at(statement.restLocal->value));
+              }
+              block().instructions.push_back(Instruction{.kind = InstructionKind::TupleSplice,
+                                                         .result = restValue,
+                                                         .operands = std::move(restElements)});
+              const ValueId restBinding{nextValue_++};
+              if (types_ != nullptr) function_.valueTypes.emplace(restBinding.value, function_.valueTypes.at(restValue.value));
+              block().instructions.push_back(Instruction{.kind = InstructionKind::BindLocal,
+                                                         .result = restBinding,
+                                                         .local = statement.restLocal,
+                                                         .source = restValue,
                                                          .expressionKind = hir::ExpressionKind::ResolvedName});
             }
           }

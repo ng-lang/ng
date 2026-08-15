@@ -134,10 +134,13 @@ recursive payloads through `ref<Node<T>>` (`example/enum_match.ng`,
 
 1. Tuple patterns in `case` (`(a, b)`) — deferred until union tags make
    heterogeneous scrutinees meaningful.
-2. Rest patterns in destructuring (`(first, ...rest)`) and tuple spread/rest
-   bindings — legacy `50`, `54` remainder.
-3. Pattern bindings as move-into-bindings with the A1 partial-move rules
+2. Pattern bindings as move-into-bindings with the A1 partial-move rules
    (field-aware, per-branch merge).
+
+**Delivered (2026-08):** tuple rest patterns — `let (first, ...rest) = tuple;`
+binds the remaining elements as a heterogeneous tuple (indexable,
+re-destructurable, possibly empty) with prefix-length diagnostics
+(`example/tuple_rest_patterns.ng`, `test/tuple_rest_pattern_test.cpp`).
 
 **Delivered (2026-08):** scalar literal-or switch patterns — `case 1 | 2`,
 `case "a"`, `case true`, `case -1` over integer/bool/string scrutinees with

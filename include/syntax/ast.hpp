@@ -311,11 +311,15 @@ namespace NG::syntax
     std::shared_ptr<TypeSyntax> annotation;
     ExpressionPtr initializer;
     std::vector<std::string> destructuredNames;
+    /// `let (first, ...rest) = tuple;`: the rest binding (a tuple of the
+    /// remaining elements).
+    std::optional<std::string> restName;
 
     LetStatement(std::string bindingName, bool mutableBinding, std::shared_ptr<TypeSyntax> typeAnnotation, ExpressionPtr value, SourceSpan sourceSpan,
-                 std::vector<std::string> names = {})
+                 std::vector<std::string> names = {}, std::optional<std::string> restBinding = std::nullopt)
       : Statement(StatementKind::Let, sourceSpan), name(std::move(bindingName)), isMutable(mutableBinding),
-        annotation(std::move(typeAnnotation)), initializer(std::move(value)), destructuredNames(std::move(names))
+        annotation(std::move(typeAnnotation)), initializer(std::move(value)), destructuredNames(std::move(names)),
+        restName(std::move(restBinding))
     {
     }
   };

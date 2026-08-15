@@ -444,7 +444,7 @@ namespace NG::hir
       if (let->annotation != nullptr) resolved.bindingType = std::make_shared<Type>(lowerType(*let->annotation));
       resolved.expression = resolveExpression(*let->initializer);
       resolved.mutableBinding = let->isMutable;
-      if (!let->destructuredNames.empty())
+      if (!let->destructuredNames.empty() || let->restName.has_value())
       {
         for (size_t index = 0; index < let->destructuredNames.size(); ++index)
         {
@@ -452,6 +452,11 @@ namespace NG::hir
           resolved.destructuredLocals.push_back(local);
           resolved.destructuredIndices.push_back(index);
           localMutability_[local.value] = let->isMutable;
+        }
+        if (let->restName.has_value())
+        {
+          resolved.restLocal = declareLocal(*let->restName, let->span);
+          localMutability_[resolved.restLocal->value] = let->isMutable;
         }
       }
       else
@@ -986,6 +991,7 @@ namespace
       if (statement.bindingType != nullptr) copy.bindingType = std::make_shared<hir::Type>(cloneType(*statement.bindingType));
       for (const auto local : statement.destructuredLocals) copy.destructuredLocals.push_back(remapLocal(context, local));
       copy.destructuredIndices = statement.destructuredIndices;
+      if (statement.restLocal.has_value()) copy.restLocal = remapLocal(context, *statement.restLocal);
       copy.mutableBinding = statement.mutableBinding;
       if (statement.loop.has_value()) copy.loop = remapLoop(context, *statement.loop);
       if (statement.nextTarget.has_value())

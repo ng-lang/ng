@@ -171,6 +171,9 @@ namespace NG::hir
     std::shared_ptr<Type> bindingType;
     std::vector<LocalId> destructuredLocals;
     std::vector<size_t> destructuredIndices;
+    /// `let (first, ...rest) = tuple;`: the rest binding (a tuple of the
+    /// remaining elements).
+    std::optional<LocalId> restLocal;
     bool mutableBinding{};
     std::optional<LoopId> loop;
     std::optional<NextTarget> nextTarget;
