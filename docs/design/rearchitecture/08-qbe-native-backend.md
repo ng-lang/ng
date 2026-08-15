@@ -321,8 +321,14 @@ Final generated results:
   Delivered alongside: ref-rooted place paths (`(*self).field := ...`),
   halt traps (`$ngrt_panic`) for VM-rejected unresolved trait-slot calls in
   dead generic originals, and type-constructor fallbacks.
-- **M4:** Tier 1 typed unboxing for monomorphized hot paths; layout pass;
-  benchmarks (R11).
+- **M4 (first slice delivered):** SSA locals — `let`-bound locals that are
+  never borrowed, assigned, or a block parameter (plus unassigned function
+  parameters) live directly as QBE temps instead of stack slots; QBE's
+  non-SSA fixup handles rebinding and cross-block uses. Measured:
+  fib(26) native executable ≈ 4 ms user time vs ≈ 0.8 s for the VM
+  interpreter (≈ 200x); the `--native` wall time is dominated by the
+  qbe+cc toolchain. Remaining M4: typed unboxing for aggregate hot paths
+  (layout pass), inlining of the checked helpers, benchmarks (R11).
 - **M5 (first slice delivered):** AOT shims for the standard natives —
   `libngrt` (`src/native/ngrt_shims.c`, pure C99, layouts matching the
   Tier 0 representations) is linked into every `--native` executable, and

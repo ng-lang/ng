@@ -679,6 +679,14 @@ namespace NG::native
       /// payloads) stay valid after the frame returns — the VM's locals are
       /// shared cells for the same reason.
       std::unordered_set<uint32_t> cellLocals_;
+      /// Tier 1 slice: BindLocal-only locals (and unassigned parameters)
+      /// live as QBE temps; QBE's non-SSA fixup handles rebinding and
+      /// cross-block uses.
+      std::unordered_set<uint32_t> ssaCandidates_;
+      std::unordered_set<uint32_t> ssaExcluded_;
+      std::unordered_set<uint32_t> ssaLocals_;
+      /// Current temp for an SSA local (updated on every BindLocal).
+      std::unordered_map<uint32_t, std::string> currentTemps_;
       std::unordered_map<uint32_t, std::string> localSlots_;
       std::unordered_map<uint32_t, QType> localQTypes_;
       std::unordered_map<uint32_t, std::string> valueTemps_;
@@ -857,6 +865,16 @@ namespace NG::native
 
       [[nodiscard]] auto isCellLocal(uint32_t local) -> bool { return cellLocals_.contains(local); }
 
+      /// The QBE type of a local; SSA locals skip slot creation, so the type
+      /// falls back to the declared local type.
+      [[nodiscard]] auto localQType(uint32_t local) -> QType
+      {
+        if (const auto found = localQTypes_.find(local); found != localQTypes_.end()) return found->second;
+        if (const auto typed = function_.localTypes.find(local); typed != function_.localTypes.end())
+          return qtypeOf(typed->second);
+        return QType::Long;
+      }
+
       /// Loads a local's value; cell locals use the slot -> cell indirection
       /// (two loads).
       [[nodiscard]] auto loadLocal(uint32_t local) -> std::string
@@ -890,17 +908,39 @@ namespace NG::native
 
       void collectLocals()
       {
-        // First pass: locals rooted by MakeRef/MakeTraitView need heap cells.
+        // Pass 1a: locals rooted by MakeRef/MakeTraitView need heap cells.
         for (const auto &block : function_.blocks)
           for (const auto &instruction : block.instructions)
             if ((instruction.kind == InstructionKind::MakeRef || instruction.kind == InstructionKind::MakeTraitView) &&
                 instruction.placeRootLocal)
               cellLocals_.insert(instruction.placeRootLocal->value);
+        // Pass 1b: SSA locals — never borrowed, never assigned, never a
+        // block parameter — live as QBE temps (no slot traffic; QBE's
+        // non-SSA fixup handles rebinding and cross-block uses). Parameters
+        // qualify unless the function rebinds them through TailRecur.
+        for (const auto &block : function_.blocks)
+        {
+          for (const auto &instruction : block.instructions)
+          {
+            if (instruction.local) ssaCandidates_.insert(instruction.local->value);
+            if (instruction.kind == InstructionKind::AssignPlace && instruction.placeRootLocal)
+              ssaExcluded_.insert(instruction.placeRootLocal->value);
+          }
+        }
+        for (const auto local : function_.parameterLocals)
+        {
+          ssaCandidates_.insert(local.value);
+          if (hasTailRecur_) ssaExcluded_.insert(local.value);
+        }
+        for (const auto local : ssaCandidates_)
+          if (!ssaExcluded_.contains(local) && !cellLocals_.contains(local)) ssaLocals_.insert(local);
         paramTemps_.reserve(function_.parameterLocals.size());
         for (size_t index = 0; index < function_.parameterLocals.size(); ++index)
         {
-          ensureSlot(function_.parameterLocals[index].value);
+          const auto local = function_.parameterLocals[index].value;
           paramTemps_.push_back(std::format("%p{}", index));
+          if (ssaLocals_.contains(local)) currentTemps_.emplace(local, paramTemps_.back());
+          else ensureSlot(local);
         }
         for (const auto &block : function_.blocks)
           for (const auto local : block.parameterLocals) ensureSlot(local.value);
@@ -908,10 +948,13 @@ namespace NG::native
         {
           for (const auto &instruction : block.instructions)
           {
-            if (instruction.local) ensureSlot(instruction.local->value);
+            if (instruction.local && !ssaLocals_.contains(instruction.local->value)) ensureSlot(instruction.local->value);
             if (instruction.kind == InstructionKind::Evaluate &&
                 instruction.expressionKind == ExpressionKind::ResolvedName)
-              ensureSlot(static_cast<uint32_t>(instruction.payload));
+            {
+              const auto local = static_cast<uint32_t>(instruction.payload);
+              if (!ssaLocals_.contains(local)) ensureSlot(local);
+            }
             if (instruction.kind == InstructionKind::AssignPlace && instruction.placeRootLocal)
               ensureSlot(instruction.placeRootLocal->value);
           }
@@ -962,7 +1005,7 @@ namespace NG::native
         for (size_t index = 0; index < paramTemps_.size(); ++index)
         {
           if (index != 0) out_ << ", ";
-          out_ << suffix(localQTypes_.at(function_.parameterLocals[index].value)) << ' ' << paramTemps_[index];
+          out_ << suffix(localQType(function_.parameterLocals[index].value)) << ' ' << paramTemps_[index];
         }
         out_ << ") {\n";
         // One-shot entry logic: frame slots and parameter stores live under
@@ -987,6 +1030,7 @@ namespace NG::native
         for (size_t param = 0; param < paramTemps_.size(); ++param)
         {
           const auto local = function_.parameterLocals[param].value;
+          if (ssaLocals_.contains(local)) continue; // parameter temps are used directly
           if (isCellLocal(local))
           {
             const auto cell = fresh();
@@ -1178,7 +1222,7 @@ namespace NG::native
           const auto source = operandTemp(*instruction.source);
           const auto sourceType = function_.valueTypes.at(instruction.source->value);
           const auto localType = function_.localTypes.at(instruction.local->value);
-          const auto type = localQTypes_.at(instruction.local->value);
+          const auto type = localQType(instruction.local->value);
           std::string boundValue = source;
           // Copy-first semantics: aggregates are deep-copied on bind so
           // later in-place mutation cannot alias the source.
@@ -1192,6 +1236,13 @@ namespace NG::native
           else
           {
             bindResult(instruction, type, std::format("copy {}", boundValue));
+          }
+          if (ssaLocals_.contains(instruction.local->value))
+          {
+            // SSA locals are pure temps: record the current temp (QBE's
+            // non-SSA fixup handles later rebinding) and skip slot traffic.
+            currentTemps_[instruction.local->value] = valueTemps_.at(instruction.result.value);
+            return;
           }
           if (isCellLocal(instruction.local->value))
             bindFreshCell(instruction.local->value, valueTemps_.at(instruction.result.value));
@@ -1550,8 +1601,17 @@ namespace NG::native
         case ExpressionKind::ResolvedName:
         {
           const uint32_t local = static_cast<uint32_t>(payload);
-          const auto type = localQTypes_.at(local);
-          if (isCellLocal(local)) bindResult(instruction, type, std::format("copy {}", castFromSlot(loadLocal(local), type)));
+          const auto type = localQType(local);
+          if (ssaLocals_.contains(local))
+          {
+            const auto found = currentTemps_.find(local);
+            if (found == currentTemps_.end())
+              throw LoweringError(std::format("native lowering (M4): SSA local {} is read before it is bound in `{}`",
+                                              local, function_.name));
+            bindResult(instruction, type, std::format("copy {}", found->second));
+          }
+          else if (isCellLocal(local))
+            bindResult(instruction, type, std::format("copy {}", castFromSlot(loadLocal(local), type)));
           else bindResult(instruction, type, std::format("load{} {}", suffix(type), localSlots_.at(local)));
           if (const auto found = function_.localTypes.find(local); found != function_.localTypes.end() &&
                                                                isUnionType(found->second))
@@ -2277,7 +2337,18 @@ namespace NG::native
     for (const auto &function : functions)
     {
       if (function.nativeFunction) continue;
-      result += FunctionLowerer{function, names, ngrt}.run();
+      try
+      {
+        result += FunctionLowerer{function, names, ngrt}.run();
+      }
+      catch (const LoweringError &)
+      {
+        throw;
+      }
+      catch (const std::exception &error)
+      {
+        throw LoweringError(std::format("native lowering: in `{}`: {}", function.name, error.what()));
+      }
       result += '\n';
     }
     // Emit each used ngrt helper (with its dependencies) exactly once, after
