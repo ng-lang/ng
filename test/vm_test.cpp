@@ -1,9 +1,9 @@
 // AI-generated code; reviewed for this repository's vNext rewrite.
-#include "test.hpp"
 #include "bytecode.hpp"
 #include "flowir.hpp"
 #include "hir.hpp"
 #include "syntax/module_parser.hpp"
+#include "test.hpp"
 #include "typecheck.hpp"
 #include "vm.hpp"
 
@@ -38,11 +38,13 @@ TEST_CASE("vNext VM executes verified return control flow", "[vNext][VM]")
 
 TEST_CASE("vNext VM executes direct calls through module frames", "[vNext][VM]")
 {
-  const auto syntaxUnit = syntax::parseSourceUnit("fun helper(value: i64) -> i64 { return value + 1; } fun main() -> i64 { return helper(41); }");
+  const auto syntaxUnit = syntax::parseSourceUnit(
+      "fun helper(value: i64) -> i64 { return value + 1; } fun main() -> i64 { return helper(41); }");
   const auto hirModule = hir::Resolver{}.resolve(syntaxUnit);
   static_cast<void>(typecheck::TypeChecker{}.check(hirModule));
   std::vector<flowir::Function> flows;
-  for (const auto &function : hirModule.functions) flows.push_back(flowir::Lowerer{}.lower(function));
+  for (const auto &function : hirModule.functions)
+    flows.push_back(flowir::Lowerer{}.lower(function));
   const auto module = bytecode::ModuleCompiler{}.compile(flows);
   const auto result = vm::VM{}.run(module, hir::DefId{1});
   REQUIRE(result.reason == vm::HaltReason::Return);
@@ -79,39 +81,39 @@ TEST_CASE("vNext VM materializes dynamic and fixed homogeneous arrays", "[vNext]
 
 TEST_CASE("vNext VM executes selected concrete function specialization", "[vNext][VM]")
 {
-  const auto syntaxUnit = syntax::parseSourceUnit(
-      "fun choose<T>(value: T) -> i64 { return 1; } "
-      "fun choose(value: i64) -> i64 { return 2; } "
-      "fun main() -> i64 { return choose(42); }");
+  const auto syntaxUnit = syntax::parseSourceUnit("fun choose<T>(value: T) -> i64 { return 1; } "
+                                                  "fun choose(value: i64) -> i64 { return 2; } "
+                                                  "fun main() -> i64 { return choose(42); }");
   const auto hirModule = hir::Resolver{}.resolve(syntaxUnit);
   const auto typed = typecheck::TypeChecker{}.check(hirModule);
   REQUIRE(typed.callTargets.size() == 1);
   REQUIRE(typed.callTargets.begin()->second.value == 1);
   std::vector<flowir::Function> flows;
-  for (const auto &function : hirModule.functions) flows.push_back(flowir::Lowerer{}.lower(function, typed));
+  for (const auto &function : hirModule.functions)
+    flows.push_back(flowir::Lowerer{}.lower(function, typed));
   const auto module = bytecode::ModuleCompiler{}.compile(flows);
   REQUIRE(vm::VM{}.run(module, hir::DefId{2}).returnValue == 2);
 }
 
 TEST_CASE("vNext VM executes instantiated generic function calls", "[vNext][VM]")
 {
-  const auto syntaxUnit = syntax::parseSourceUnit(
-      "fun identity<T>(value: T) -> T { return value; } "
-      "fun main() -> i64 { return identity(42); }");
+  const auto syntaxUnit = syntax::parseSourceUnit("fun identity<T>(value: T) -> T { return value; } "
+                                                  "fun main() -> i64 { return identity(42); }");
   const auto hirModule = hir::Resolver{}.resolve(syntaxUnit);
   const auto typed = typecheck::TypeChecker{}.check(hirModule);
   std::vector<flowir::Function> flows;
-  for (const auto &function : hirModule.functions) flows.push_back(flowir::Lowerer{}.lower(function, typed));
-  for (const auto &instance : typed.instances) flows.push_back(flowir::Lowerer{}.lower(instance, typed));
+  for (const auto &function : hirModule.functions)
+    flows.push_back(flowir::Lowerer{}.lower(function, typed));
+  for (const auto &instance : typed.instances)
+    flows.push_back(flowir::Lowerer{}.lower(instance, typed));
   const auto module = bytecode::ModuleCompiler{}.compile(flows);
   REQUIRE(vm::VM{}.run(module, hir::DefId{1}).returnValue == 42);
 }
 
 TEST_CASE("vNext VM materializes generic enum instances", "[vNext][VM]")
 {
-  const auto result = vm::VM{}.run(compile(
-      "enum Result<T, E> { Ok(value: T), Err(error: E) } "
-      "fun main() -> Result<i64, string> { return Result.Ok(7); }"));
+  const auto result = vm::VM{}.run(compile("enum Result<T, E> { Ok(value: T), Err(error: E) } "
+                                           "fun main() -> Result<i64, string> { return Result.Ok(7); }"));
   REQUIRE(result.returnValue->isEnum());
   REQUIRE(result.returnValue->asEnumVariant() == 0);
   REQUIRE(result.returnValue->asEnumPayload()[0] == 7);
@@ -119,14 +121,14 @@ TEST_CASE("vNext VM materializes generic enum instances", "[vNext][VM]")
 
 TEST_CASE("vNext VM materializes nominal enum variants", "[vNext][VM]")
 {
-  const auto payload = vm::VM{}.run(compile(
-      "enum Result { Ok(i64), Error(string), Empty } fun main() -> Result { return Result.Ok(7); }"));
+  const auto payload = vm::VM{}.run(
+      compile("enum Result { Ok(i64), Error(string), Empty } fun main() -> Result { return Result.Ok(7); }"));
   REQUIRE(payload.returnValue->isEnum());
   REQUIRE(payload.returnValue->asEnumVariant() == 0);
   REQUIRE(payload.returnValue->asEnumPayload()[0] == 7);
 
-  const auto empty = vm::VM{}.run(compile(
-      "enum Result { Ok(i64), Error(string), Empty } fun main() -> Result { return Result.Empty; }"));
+  const auto empty = vm::VM{}.run(
+      compile("enum Result { Ok(i64), Error(string), Empty } fun main() -> Result { return Result.Empty; }"));
   REQUIRE(empty.returnValue->isEnum());
   REQUIRE(empty.returnValue->asEnumVariant() == 2);
   REQUIRE(empty.returnValue->asEnumPayload().empty());
@@ -134,24 +136,22 @@ TEST_CASE("vNext VM materializes nominal enum variants", "[vNext][VM]")
 
 TEST_CASE("vNext VM materializes and mutates nominal struct fields", "[vNext][VM]")
 {
-  const auto function = compile(
-      "struct Point { x: i64, label: string } fun main() -> i64 { "
-      "let mut point = Point { x: 7, label: \"p\" }; point.x := 9; return point.x; }");
+  const auto function = compile("struct Point { x: i64, label: string } fun main() -> i64 { "
+                                "let mut point = Point { x: 7, label: \"p\" }; point.x := 9; return point.x; }");
   REQUIRE(vm::VM{}.run(function).returnValue == 9);
 }
 
 TEST_CASE("vNext VM extracts tuple bindings and preserves mutability", "[vNext][VM]")
 {
-  const auto function = compile(
-      "fun main() -> bool { let mut (number, flag) = (1, false); flag := true; return flag; }");
+  const auto function =
+      compile("fun main() -> bool { let mut (number, flag) = (1, false); flag := true; return flag; }");
   REQUIRE(vm::VM{}.run(function).returnValue == 1);
 }
 
 TEST_CASE("vNext VM materializes heterogeneous tuples and executes projections", "[vNext][VM]")
 {
-  const auto function = compile(
-      "fun main() -> string { let mut value = (1, false, \"tuple\"); value.1 := true; "
-      "if value[1] { return value.2; } return \"invalid\"; }");
+  const auto function = compile("fun main() -> string { let mut value = (1, false, \"tuple\"); value.1 := true; "
+                                "if value[1] { return value.2; } return \"invalid\"; }");
   const auto result = vm::VM{}.run(function);
   REQUIRE(result.returnValue->isString());
   REQUIRE(result.returnValue->asString() == "tuple");
@@ -159,13 +159,13 @@ TEST_CASE("vNext VM materializes heterogeneous tuples and executes projections",
 
 TEST_CASE("vNext VM transports tuples through typed module call frames", "[vNext][VM]")
 {
-  const auto syntaxUnit = syntax::parseSourceUnit(
-      "fun pair() -> tuple<i64, string> { return (7, \"called\"); } "
-      "fun main() -> string { return pair().1; }");
+  const auto syntaxUnit = syntax::parseSourceUnit("fun pair() -> tuple<i64, string> { return (7, \"called\"); } "
+                                                  "fun main() -> string { return pair().1; }");
   const auto hirModule = hir::Resolver{}.resolve(syntaxUnit);
   const auto typed = typecheck::TypeChecker{}.check(hirModule);
   std::vector<flowir::Function> flows;
-  for (const auto &function : hirModule.functions) flows.push_back(flowir::Lowerer{}.lower(function, typed));
+  for (const auto &function : hirModule.functions)
+    flows.push_back(flowir::Lowerer{}.lower(function, typed));
   const auto module = bytecode::ModuleCompiler{}.compile(flows);
   REQUIRE(vm::VM{}.run(module, hir::DefId{1}).returnValue->asString() == "called");
 }
@@ -182,16 +182,14 @@ TEST_CASE("vNext VM returns structural tuple values", "[vNext][VM]")
 
 TEST_CASE("vNext VM reads and mutates checked array index places", "[vNext][VM]")
 {
-  const auto dynamic = compile(
-      "fun main() -> i64 { let mut items = [10, 20, 30]; items[1] := 42; return items[1]; }");
+  const auto dynamic = compile("fun main() -> i64 { let mut items = [10, 20, 30]; items[1] := 42; return items[1]; }");
   REQUIRE(vm::VM{}.run(dynamic).returnValue == 42);
 
-  const auto second = compile(
-      "fun main() -> i64 { let mut items = [10, 20, 30]; items[0] := 7; return items[0]; }");
+  const auto second = compile("fun main() -> i64 { let mut items = [10, 20, 30]; items[0] := 7; return items[0]; }");
   REQUIRE(vm::VM{}.run(second).returnValue == 7);
 
-  const auto nested = compile(
-      "fun main() -> i64 { let mut rows = [[1, 2], [3, 4]]; rows[1][0] := 9; return rows[1][0]; }");
+  const auto nested =
+      compile("fun main() -> i64 { let mut rows = [[1, 2], [3, 4]]; rows[1][0] := 9; return rows[1][0]; }");
   REQUIRE(vm::VM{}.run(nested).returnValue == 9);
 }
 
@@ -211,7 +209,8 @@ TEST_CASE("vNext VM passes string values through direct module calls", "[vNext][
   const auto hirModule = hir::Resolver{}.resolve(syntaxUnit);
   const auto typed = typecheck::TypeChecker{}.check(hirModule);
   std::vector<flowir::Function> flows;
-  for (const auto &function : hirModule.functions) flows.push_back(flowir::Lowerer{}.lower(function, typed));
+  for (const auto &function : hirModule.functions)
+    flows.push_back(flowir::Lowerer{}.lower(function, typed));
   const auto module = bytecode::ModuleCompiler{}.compile(flows);
   REQUIRE(vm::VM{}.run(module, hir::DefId{1}).returnValue == NG::Value::string("hello world"));
 }
@@ -258,8 +257,8 @@ TEST_CASE("vNext VM short-circuits logical operations", "[vNext][VM]")
 
 TEST_CASE("vNext VM executes else-if control-flow chains", "[vNext][VM]")
 {
-  const auto function = compile(
-      "fun main(first: bool, second: bool) -> i64 { if first { return 1; } else if second { return 2; } else { return 3; } }");
+  const auto function = compile("fun main(first: bool, second: bool) -> i64 { if first { return 1; } else if second { "
+                                "return 2; } else { return 3; } }");
   REQUIRE(vm::VM{}.run(function, std::vector<int64_t>{0, 1}).returnValue == 2);
   REQUIRE(vm::VM{}.run(function, std::vector<int64_t>{0, 0}).returnValue == 3);
 }
@@ -273,7 +272,8 @@ TEST_CASE("vNext VM executes i64 bitwise and shift operations", "[vNext][VM]")
 TEST_CASE("vNext VM rejects zero divisors and invalid shift counts", "[vNext][VM]")
 {
   REQUIRE_THROWS_WITH(vm::VM{}.run(compile("fun main() -> i64 { return 1 / 0; }")), "integer division by zero");
-  REQUIRE_THROWS_WITH(vm::VM{}.run(compile("fun main() -> i64 { return 1 << -1; }")), "integer shift count is out of range");
+  REQUIRE_THROWS_WITH(vm::VM{}.run(compile("fun main() -> i64 { return 1 << -1; }")),
+                      "integer shift count is out of range");
 }
 
 TEST_CASE("vNext VM executes binary arithmetic and comparison-driven branches", "[vNext][VM]")
@@ -287,12 +287,13 @@ TEST_CASE("vNext VM executes binary arithmetic and comparison-driven branches", 
 
 TEST_CASE("vNext VM executes terminating stateful tail recursion without host recursion", "[vNext][VM]")
 {
-  const auto syntaxUnit = syntax::parseSourceUnit(
-      "fun count(value: i64) -> i64 { if value == 0 { return 0; } next (value - 1); } fun main() -> i64 { return count(3); }");
+  const auto syntaxUnit = syntax::parseSourceUnit("fun count(value: i64) -> i64 { if value == 0 { return 0; } next "
+                                                  "(value - 1); } fun main() -> i64 { return count(3); }");
   const auto hirModule = hir::Resolver{}.resolve(syntaxUnit);
   static_cast<void>(typecheck::TypeChecker{}.check(hirModule));
   std::vector<flowir::Function> flows;
-  for (const auto &function : hirModule.functions) flows.push_back(flowir::Lowerer{}.lower(function));
+  for (const auto &function : hirModule.functions)
+    flows.push_back(flowir::Lowerer{}.lower(function));
   const auto module = bytecode::ModuleCompiler{}.compile(flows);
   const auto result = vm::VM{}.run(module, hir::DefId{1});
   REQUIRE(result.reason == vm::HaltReason::Return);
@@ -326,4 +327,30 @@ TEST_CASE("vNext VM dispatches loop backedges without host recursion", "[vNext][
   REQUIRE(result.reason == vm::HaltReason::FuelExhausted);
   REQUIRE(result.executedInstructions == 1000);
   REQUIRE(result.tailRecursions == 0);
+}
+
+TEST_CASE("vNext VM executes reference place steps in the single-function runner", "[vNext][VM]")
+{
+  REQUIRE(vm::VM{}.run(compile("fun f() -> i64 { let x = 5; let r = ref x; return *r; }")).returnValue == 5);
+  REQUIRE(vm::VM{}.run(compile("fun f() -> i64 { let xs = [1, 2]; let r = ref xs[1]; return *r; }")).returnValue == 2);
+  REQUIRE(
+      vm::VM{}.run(compile("fun f() -> i64 { let mut x = 1; let r = ref mut x; *r := 9; return x; }")).returnValue ==
+      9);
+}
+
+TEST_CASE("vNext VM executes slice operations in the single-function runner", "[vNext][VM]")
+{
+  REQUIRE(vm::VM{}
+              .run(compile("fun f() -> i64 { let xs = [1, 2, 3, 4]; let s = xs[1..3]; return s[0] + s[1]; }"))
+              .returnValue == 5);
+}
+
+TEST_CASE("vNext VM executes array append and enum variant access in the single-function runner", "[vNext][VM]")
+{
+  REQUIRE(vm::VM{}.run(compile("fun f() -> i64 { let xs = [1, 2]; let ys = xs << 3; return ys[2]; }")).returnValue ==
+          3);
+  REQUIRE(vm::VM{}
+              .run(compile("enum E { A, B(i64) } fun f() -> i64 { let e = E.B(7); switch (e) { case B(v) { return v; } "
+                           "otherwise { return 0; } } }"))
+              .returnValue == 7);
 }
