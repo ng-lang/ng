@@ -124,7 +124,12 @@ namespace NG::flowir
         if (expression.kind == hir::ExpressionKind::ArrayLiteral &&
             std::any_of(expression.operands.begin(), expression.operands.end(), [](const auto &operand)
                         { return operand->kind == hir::ExpressionKind::Prefix && operand->text == "..."; }))
+        {
+          // Map literals need typed metadata for their loop contracts.
+          if (types_ == nullptr)
+            throw VerificationError("array map literals require type metadata");
           return lowerMapLiteral(expression);
+        }
 
         if (expression.kind == hir::ExpressionKind::ArrayLiteral && types_ != nullptr)
         {
@@ -148,8 +153,7 @@ namespace NG::flowir
           const ValueId receiver = lowerExpression(*expression.operands[0]);
           const ValueId range = lowerExpression(*expression.operands[1]);
           const ValueId result{nextValue_++};
-          if (types_ != nullptr)
-            function_.valueTypes.emplace(result.value, types_->typeIdOf(expression));
+          function_.valueTypes.emplace(result.value, types_->typeIdOf(expression));
           block().instructions.push_back(
               Instruction{.kind = InstructionKind::Slice, .result = result, .operands = {receiver, range}});
           return result;
@@ -172,8 +176,7 @@ namespace NG::flowir
             if (step.kind == PlaceStep::Kind::Index)
               indexValues.push_back(step.indexValue);
           const ValueId result{nextValue_++};
-          if (types_ != nullptr)
-            function_.valueTypes.emplace(result.value, types_->typeIdOf(expression));
+          function_.valueTypes.emplace(result.value, types_->typeIdOf(expression));
           block().instructions.push_back(Instruction{.kind = InstructionKind::MakeTraitView,
                                                      .result = result,
                                                      .placeRootLocal = place.rootLocal,
@@ -225,10 +228,11 @@ namespace NG::flowir
         }
         std::vector<ValueId> operands;
         operands.reserve(expression.operands.size() - (directCall ? 1 : 0));
-        const auto spreadPositions = directCall && types_ != nullptr ? types_->callSpreadPositions.find(&expression)
-                                                                     : types_->callSpreadPositions.end();
-        if (directCall && types_ != nullptr && spreadPositions != types_->callSpreadPositions.end())
+        const bool hasSpreadPositions =
+            directCall && types_ != nullptr && types_->callSpreadPositions.contains(&expression);
+        if (hasSpreadPositions)
         {
+          const auto spreadPositions = types_->callSpreadPositions.find(&expression);
           // Tuple spreads flatten statically: each element extracts from the
           // spread tuple into its own call argument.
           size_t spreadIndex = 0;
@@ -630,8 +634,7 @@ namespace NG::flowir
           filterMode = true;
           callNode = callNode->operands[0].get();
         }
-        const bool isMap =
-            callNode->kind == hir::ExpressionKind::Call && types_ != nullptr && types_->callTargets.contains(callNode);
+        const bool isMap = callNode->kind == hir::ExpressionKind::Call && types_->callTargets.contains(callNode);
         const hir::Expression &sourceExpr = isMap ? *callNode->operands[1] : *callNode;
         const ValueId source = lowerExpression(sourceExpr);
         std::optional<hir::DefId> target;
@@ -639,32 +642,27 @@ namespace NG::flowir
           target = types_->callTargets.at(callNode);
 
         const ValueId zero{nextValue_++};
-        if (types_ != nullptr)
-          function_.valueTypes.emplace(zero.value, typecheck::builtin::I64);
+        function_.valueTypes.emplace(zero.value, typecheck::builtin::I64);
         block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
                                                    .result = zero,
                                                    .expressionKind = hir::ExpressionKind::IntegerLiteral,
                                                    .payload = 0});
         const ValueId one{nextValue_++};
-        if (types_ != nullptr)
-          function_.valueTypes.emplace(one.value, typecheck::builtin::I64);
+        function_.valueTypes.emplace(one.value, typecheck::builtin::I64);
         block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
                                                    .result = one,
                                                    .expressionKind = hir::ExpressionKind::IntegerLiteral,
                                                    .payload = 1});
         const ValueId empty{nextValue_++};
-        if (types_ != nullptr)
-          function_.valueTypes.emplace(empty.value, types_->typeIdOf(expression));
+        function_.valueTypes.emplace(empty.value, types_->typeIdOf(expression));
         block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
                                                    .result = empty,
                                                    .expressionKind = hir::ExpressionKind::ArrayLiteral,
                                                    .operands = std::move(leading)});
         const bool listSource =
-            types_ != nullptr &&
             types_->typeDescriptors.at(types_->typeIdOf(sourceExpr).value).kind == typecheck::TypeKind::Enum;
         const ValueId length{nextValue_++};
-        if (types_ != nullptr)
-          function_.valueTypes.emplace(length.value, typecheck::builtin::I64);
+        function_.valueTypes.emplace(length.value, typecheck::builtin::I64);
         block().instructions.push_back(
             Instruction{.kind = listSource ? InstructionKind::EnumListLength : InstructionKind::ArrayLength,
                         .result = length,
@@ -672,11 +670,8 @@ namespace NG::flowir
 
         const hir::LocalId indexLocal{nextSyntheticLocal_++};
         const hir::LocalId resultLocal{nextSyntheticLocal_++};
-        if (types_ != nullptr)
-        {
-          function_.localTypes.emplace(indexLocal.value, typecheck::builtin::I64);
-          function_.localTypes.emplace(resultLocal.value, types_->typeIdOf(expression));
-        }
+        function_.localTypes.emplace(indexLocal.value, typecheck::builtin::I64);
+        function_.localTypes.emplace(resultLocal.value, types_->typeIdOf(expression));
         const BlockId header = appendBlock();
         const BlockId body = appendBlock();
         const BlockId exit = appendBlock();
@@ -686,15 +681,13 @@ namespace NG::flowir
 
         current_ = header;
         const ValueId indexRead{nextValue_++};
-        if (types_ != nullptr)
-          function_.valueTypes.emplace(indexRead.value, typecheck::builtin::I64);
+        function_.valueTypes.emplace(indexRead.value, typecheck::builtin::I64);
         block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
                                                    .result = indexRead,
                                                    .expressionKind = hir::ExpressionKind::ResolvedName,
                                                    .payload = indexLocal.value});
         const ValueId condition{nextValue_++};
-        if (types_ != nullptr)
-          function_.valueTypes.emplace(condition.value, typecheck::builtin::Bool);
+        function_.valueTypes.emplace(condition.value, typecheck::builtin::Bool);
         block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
                                                    .result = condition,
                                                    .expressionKind = hir::ExpressionKind::Binary,
@@ -708,25 +701,21 @@ namespace NG::flowir
         // The accumulator flows through the loop header; append to it rather
         // than to the seed so each iteration extends the growing array.
         const ValueId accumulatorRead{nextValue_++};
-        if (types_ != nullptr)
-          function_.valueTypes.emplace(accumulatorRead.value, types_->typeIdOf(expression));
+        function_.valueTypes.emplace(accumulatorRead.value, types_->typeIdOf(expression));
         block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
                                                    .result = accumulatorRead,
                                                    .expressionKind = hir::ExpressionKind::ResolvedName,
                                                    .payload = resultLocal.value});
         const ValueId element{nextValue_++};
         const bool rangeSource =
-            types_ != nullptr &&
             types_->typeDescriptors.at(types_->typeIdOf(sourceExpr).value).kind == typecheck::TypeKind::Range;
         if (rangeSource)
         {
           const ValueId start{nextValue_++};
-          if (types_ != nullptr)
-            function_.valueTypes.emplace(start.value, typecheck::builtin::I64);
+          function_.valueTypes.emplace(start.value, typecheck::builtin::I64);
           block().instructions.push_back(
               Instruction{.kind = InstructionKind::RangeStart, .result = start, .source = source});
-          if (types_ != nullptr)
-            function_.valueTypes.emplace(element.value, typecheck::builtin::I64);
+          function_.valueTypes.emplace(element.value, typecheck::builtin::I64);
           block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
                                                      .result = element,
                                                      .expressionKind = hir::ExpressionKind::Binary,
@@ -736,28 +725,21 @@ namespace NG::flowir
         }
         else if (listSource)
         {
-          if (types_ != nullptr)
+          const auto &sourceDescriptor = types_->typeDescriptors.at(types_->typeIdOf(sourceExpr).value);
+          for (const auto payload : sourceDescriptor.elements)
           {
-            const auto &sourceDescriptor = types_->typeDescriptors.at(types_->typeIdOf(sourceExpr).value);
-            for (const auto payload : sourceDescriptor.elements)
-            {
-              const auto &payloadDescriptor = types_->typeDescriptors.at(payload.value);
-              if (payloadDescriptor.kind == typecheck::TypeKind::Tuple && payloadDescriptor.elements.size() == 2 &&
-                  types_->typeDescriptors.at(payloadDescriptor.elements[1].value).kind ==
-                      typecheck::TypeKind::Reference)
-                function_.valueTypes.emplace(element.value, payloadDescriptor.elements[0]);
-            }
+            const auto &payloadDescriptor = types_->typeDescriptors.at(payload.value);
+            if (payloadDescriptor.kind == typecheck::TypeKind::Tuple && payloadDescriptor.elements.size() == 2 &&
+                types_->typeDescriptors.at(payloadDescriptor.elements[1].value).kind == typecheck::TypeKind::Reference)
+              function_.valueTypes.emplace(element.value, payloadDescriptor.elements[0]);
           }
           block().instructions.push_back(
               Instruction{.kind = InstructionKind::EnumListGet, .result = element, .operands = {source, indexRead}});
         }
         else
         {
-          if (types_ != nullptr)
-          {
-            const auto sourceType = types_->typeDescriptors.at(types_->typeIdOf(sourceExpr).value);
-            function_.valueTypes.emplace(element.value, sourceType.element);
-          }
+          const auto sourceType = types_->typeDescriptors.at(types_->typeIdOf(sourceExpr).value);
+          function_.valueTypes.emplace(element.value, sourceType.element);
           block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
                                                      .result = element,
                                                      .expressionKind = hir::ExpressionKind::Index,
@@ -767,8 +749,7 @@ namespace NG::flowir
         if (isMap)
         {
           const ValueId mapped{nextValue_++};
-          if (types_ != nullptr)
-            function_.valueTypes.emplace(mapped.value, types_->typeIdOf(*callNode));
+          function_.valueTypes.emplace(mapped.value, types_->typeIdOf(*callNode));
           block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
                                                      .result = mapped,
                                                      .expressionKind = hir::ExpressionKind::Call,
@@ -785,13 +766,11 @@ namespace NG::flowir
 
           current_ = appendPart;
           const ValueId appended{nextValue_++};
-          if (types_ != nullptr)
-            function_.valueTypes.emplace(appended.value, types_->typeIdOf(expression));
+          function_.valueTypes.emplace(appended.value, types_->typeIdOf(expression));
           block().instructions.push_back(Instruction{
             .kind = InstructionKind::AppendArray, .result = appended, .operands = {accumulatorRead, element}});
           const ValueId nextIndex{nextValue_++};
-          if (types_ != nullptr)
-            function_.valueTypes.emplace(nextIndex.value, typecheck::builtin::I64);
+          function_.valueTypes.emplace(nextIndex.value, typecheck::builtin::I64);
           block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
                                                      .result = nextIndex,
                                                      .expressionKind = hir::ExpressionKind::Binary,
@@ -803,8 +782,7 @@ namespace NG::flowir
 
           current_ = skipPart;
           const ValueId skipNext{nextValue_++};
-          if (types_ != nullptr)
-            function_.valueTypes.emplace(skipNext.value, typecheck::builtin::I64);
+          function_.valueTypes.emplace(skipNext.value, typecheck::builtin::I64);
           block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
                                                      .result = skipNext,
                                                      .expressionKind = hir::ExpressionKind::Binary,
@@ -815,8 +793,7 @@ namespace NG::flowir
             .kind = TerminatorKind::LoopBackedge, .targets = {header}, .arguments = {skipNext, accumulatorRead}};
           current_ = exit;
           ValueId accumulator{nextValue_++};
-          if (types_ != nullptr)
-            function_.valueTypes.emplace(accumulator.value, types_->typeIdOf(expression));
+          function_.valueTypes.emplace(accumulator.value, types_->typeIdOf(expression));
           block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
                                                      .result = accumulator,
                                                      .expressionKind = hir::ExpressionKind::ResolvedName,
@@ -825,8 +802,7 @@ namespace NG::flowir
           {
             const ValueId elementValue = lowerExpression(*trailingElement);
             const ValueId appended{nextValue_++};
-            if (types_ != nullptr)
-              function_.valueTypes.emplace(appended.value, types_->typeIdOf(expression));
+            function_.valueTypes.emplace(appended.value, types_->typeIdOf(expression));
             block().instructions.push_back(Instruction{
               .kind = InstructionKind::AppendArray, .result = appended, .operands = {accumulator, elementValue}});
             accumulator = appended;
@@ -834,13 +810,11 @@ namespace NG::flowir
           return accumulator;
         }
         const ValueId appended{nextValue_++};
-        if (types_ != nullptr)
-          function_.valueTypes.emplace(appended.value, types_->typeIdOf(expression));
+        function_.valueTypes.emplace(appended.value, types_->typeIdOf(expression));
         block().instructions.push_back(Instruction{
           .kind = InstructionKind::AppendArray, .result = appended, .operands = {accumulatorRead, appendedSource}});
         const ValueId nextIndex{nextValue_++};
-        if (types_ != nullptr)
-          function_.valueTypes.emplace(nextIndex.value, typecheck::builtin::I64);
+        function_.valueTypes.emplace(nextIndex.value, typecheck::builtin::I64);
         block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
                                                    .result = nextIndex,
                                                    .expressionKind = hir::ExpressionKind::Binary,
@@ -852,8 +826,7 @@ namespace NG::flowir
 
         current_ = exit;
         ValueId accumulator{nextValue_++};
-        if (types_ != nullptr)
-          function_.valueTypes.emplace(accumulator.value, types_->typeIdOf(expression));
+        function_.valueTypes.emplace(accumulator.value, types_->typeIdOf(expression));
         block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
                                                    .result = accumulator,
                                                    .expressionKind = hir::ExpressionKind::ResolvedName,
@@ -862,8 +835,7 @@ namespace NG::flowir
         {
           const ValueId elementValue = lowerExpression(*trailingElement);
           const ValueId appended{nextValue_++};
-          if (types_ != nullptr)
-            function_.valueTypes.emplace(appended.value, types_->typeIdOf(expression));
+          function_.valueTypes.emplace(appended.value, types_->typeIdOf(expression));
           block().instructions.push_back(Instruction{
             .kind = InstructionKind::AppendArray, .result = appended, .operands = {accumulator, elementValue}});
           accumulator = appended;
@@ -890,38 +862,31 @@ namespace NG::flowir
           target = types_->callTargets.at(&expression);
 
         const ValueId zero{nextValue_++};
-        if (types_ != nullptr)
-          function_.valueTypes.emplace(zero.value, typecheck::builtin::I64);
+        function_.valueTypes.emplace(zero.value, typecheck::builtin::I64);
         block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
                                                    .result = zero,
                                                    .expressionKind = hir::ExpressionKind::IntegerLiteral,
                                                    .payload = 0});
         const ValueId one{nextValue_++};
-        if (types_ != nullptr)
-          function_.valueTypes.emplace(one.value, typecheck::builtin::I64);
+        function_.valueTypes.emplace(one.value, typecheck::builtin::I64);
         block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
                                                    .result = one,
                                                    .expressionKind = hir::ExpressionKind::IntegerLiteral,
                                                    .payload = 1});
         const ValueId length{nextValue_++};
-        if (types_ != nullptr)
-          function_.valueTypes.emplace(length.value, typecheck::builtin::I64);
+        function_.valueTypes.emplace(length.value, typecheck::builtin::I64);
         block().instructions.push_back(
             Instruction{.kind = InstructionKind::ArrayLength, .result = length, .source = sourceValue});
 
         const hir::LocalId indexLocal{nextSyntheticLocal_++};
         const hir::LocalId accumulatorLocal{nextSyntheticLocal_++};
-        if (types_ != nullptr)
-        {
-          function_.localTypes.emplace(indexLocal.value, typecheck::builtin::I64);
-          function_.localTypes.emplace(accumulatorLocal.value, types_->typeIdOf(expression));
-        }
+        function_.localTypes.emplace(indexLocal.value, typecheck::builtin::I64);
+        function_.localTypes.emplace(accumulatorLocal.value, types_->typeIdOf(expression));
         // A spread in the first position is a right fold (`f(xs..., acc)`),
         // which iterates the source backwards; otherwise it is a left fold.
         const bool rightFold = spreadPosition == 0;
         const ValueId initialIndex{nextValue_++};
-        if (types_ != nullptr)
-          function_.valueTypes.emplace(initialIndex.value, typecheck::builtin::I64);
+        function_.valueTypes.emplace(initialIndex.value, typecheck::builtin::I64);
         if (rightFold)
         {
           block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
@@ -948,15 +913,13 @@ namespace NG::flowir
 
         current_ = header;
         const ValueId indexRead{nextValue_++};
-        if (types_ != nullptr)
-          function_.valueTypes.emplace(indexRead.value, typecheck::builtin::I64);
+        function_.valueTypes.emplace(indexRead.value, typecheck::builtin::I64);
         block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
                                                    .result = indexRead,
                                                    .expressionKind = hir::ExpressionKind::ResolvedName,
                                                    .payload = indexLocal.value});
         const ValueId condition{nextValue_++};
-        if (types_ != nullptr)
-          function_.valueTypes.emplace(condition.value, typecheck::builtin::Bool);
+        function_.valueTypes.emplace(condition.value, typecheck::builtin::Bool);
         block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
                                                    .result = condition,
                                                    .expressionKind = hir::ExpressionKind::Binary,
@@ -974,12 +937,10 @@ namespace NG::flowir
         if (rangeSource)
         {
           const ValueId start{nextValue_++};
-          if (types_ != nullptr)
-            function_.valueTypes.emplace(start.value, typecheck::builtin::I64);
+          function_.valueTypes.emplace(start.value, typecheck::builtin::I64);
           block().instructions.push_back(
               Instruction{.kind = InstructionKind::RangeStart, .result = start, .source = sourceValue});
-          if (types_ != nullptr)
-            function_.valueTypes.emplace(element.value, typecheck::builtin::I64);
+          function_.valueTypes.emplace(element.value, typecheck::builtin::I64);
           block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
                                                      .result = element,
                                                      .expressionKind = hir::ExpressionKind::Binary,
@@ -989,19 +950,15 @@ namespace NG::flowir
         }
         else
         {
-          if (types_ != nullptr)
-          {
-            const auto sourceType = types_->typeDescriptors.at(types_->typeIdOf(source).value);
-            function_.valueTypes.emplace(element.value, sourceType.element);
-          }
+          const auto sourceType = types_->typeDescriptors.at(types_->typeIdOf(source).value);
+          function_.valueTypes.emplace(element.value, sourceType.element);
           block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
                                                      .result = element,
                                                      .expressionKind = hir::ExpressionKind::Index,
                                                      .operands = {sourceValue, indexRead}});
         }
         const ValueId accumulatorRead{nextValue_++};
-        if (types_ != nullptr)
-          function_.valueTypes.emplace(accumulatorRead.value, types_->typeIdOf(expression));
+        function_.valueTypes.emplace(accumulatorRead.value, types_->typeIdOf(expression));
         block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
                                                    .result = accumulatorRead,
                                                    .expressionKind = hir::ExpressionKind::ResolvedName,
@@ -1010,16 +967,14 @@ namespace NG::flowir
         argumentValues[spreadPosition] = element;
         argumentValues[accumulatorPosition] = accumulatorRead;
         const ValueId nextAccumulator{nextValue_++};
-        if (types_ != nullptr)
-          function_.valueTypes.emplace(nextAccumulator.value, types_->typeIdOf(expression));
+        function_.valueTypes.emplace(nextAccumulator.value, types_->typeIdOf(expression));
         block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
                                                    .result = nextAccumulator,
                                                    .expressionKind = hir::ExpressionKind::Call,
                                                    .callTarget = target,
                                                    .operands = std::move(argumentValues)});
         const ValueId nextIndex{nextValue_++};
-        if (types_ != nullptr)
-          function_.valueTypes.emplace(nextIndex.value, typecheck::builtin::I64);
+        function_.valueTypes.emplace(nextIndex.value, typecheck::builtin::I64);
         block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
                                                    .result = nextIndex,
                                                    .expressionKind = hir::ExpressionKind::Binary,
@@ -1031,8 +986,7 @@ namespace NG::flowir
 
         current_ = exit;
         const ValueId result{nextValue_++};
-        if (types_ != nullptr)
-          function_.valueTypes.emplace(result.value, types_->typeIdOf(expression));
+        function_.valueTypes.emplace(result.value, types_->typeIdOf(expression));
         block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
                                                    .result = result,
                                                    .expressionKind = hir::ExpressionKind::ResolvedName,

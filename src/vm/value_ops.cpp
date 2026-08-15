@@ -279,7 +279,7 @@ namespace NG::vm::detail
     const uint64_t payload = static_cast<uint64_t>(instruction.operands[2]) | (static_cast<uint64_t>(instruction.operands[3]) << 32);
     if (kind == hir::ExpressionKind::IntegerLiteral || kind == hir::ExpressionKind::BooleanLiteral)
     {
-      values[result] = static_cast<int64_t>(payload);
+      values[result] = Value::integer(static_cast<int64_t>(payload));
       return;
     }
     if (kind == hir::ExpressionKind::FloatLiteral)
@@ -351,11 +351,11 @@ namespace NG::vm::detail
       case 2:
         if (operand == std::numeric_limits<int64_t>::min()) throw bytecode::BytecodeError("integer negation overflow");
         checkResultWidth(-operand, result, valueTypes);
-        values[result] = -operand;
+        values[result] = Value::integer(-operand);
         return;
       case 3:
         checkResultWidth(operand, result, valueTypes);
-        values[result] = operand;
+        values[result] = Value::integer(operand);
         return;
       default: throw bytecode::BytecodeError("unsupported prefix operation");
       }
@@ -433,29 +433,29 @@ namespace NG::vm::detail
     switch (payload)
     {
     case 1:
-      values[result] = checkedAdd(left, right);
+      values[result] = Value::integer(checkedAdd(left, right));
       checkResultWidth(values[result].asInteger(), result, valueTypes);
       return;
     case 2:
-      values[result] = checkedSubtract(left, right);
+      values[result] = Value::integer(checkedSubtract(left, right));
       checkResultWidth(values[result].asInteger(), result, valueTypes);
       return;
     case 3:
-      values[result] = checkedMultiply(left, right);
+      values[result] = Value::integer(checkedMultiply(left, right));
       checkResultWidth(values[result].asInteger(), result, valueTypes);
       return;
     case 4:
       if (right == 0) throw bytecode::BytecodeError("integer division by zero");
       if (left == std::numeric_limits<int64_t>::min() && right == -1)
         throw bytecode::BytecodeError("integer division overflow");
-      values[result] = left / right;
+      values[result] = Value::integer(left / right);
       checkResultWidth(values[result].asInteger(), result, valueTypes);
       return;
     case 5:
       if (right == 0) throw bytecode::BytecodeError("integer remainder by zero");
       if (left == std::numeric_limits<int64_t>::min() && right == -1)
         throw bytecode::BytecodeError("integer remainder overflow");
-      values[result] = left % right;
+      values[result] = Value::integer(left % right);
       checkResultWidth(values[result].asInteger(), result, valueTypes);
       return;
     case 6: values[result] = Value::integer(left == right ? 1 : 0); return;
@@ -466,16 +466,16 @@ namespace NG::vm::detail
     case 11: values[result] = Value::integer(left >= right ? 1 : 0); return;
     case 12: values[result] = Value::integer(left != 0 && right != 0 ? 1 : 0); return;
     case 13: values[result] = Value::integer(left != 0 || right != 0 ? 1 : 0); return;
-    case 14: values[result] = left & right; return;
-    case 15: values[result] = left | right; return;
-    case 16: values[result] = left ^ right; return;
+    case 14: values[result] = Value::integer(left & right); return;
+    case 15: values[result] = Value::integer(left | right); return;
+    case 16: values[result] = Value::integer(left ^ right); return;
     case 17:
       if (right < 0 || right >= 64) throw bytecode::BytecodeError("integer shift count is out of range");
-      values[result] = static_cast<int64_t>(static_cast<uint64_t>(left) << right);
+      values[result] = Value::integer(static_cast<int64_t>(static_cast<uint64_t>(left) << right));
       return;
     case 18:
       if (right < 0 || right >= 64) throw bytecode::BytecodeError("integer shift count is out of range");
-      values[result] = static_cast<int64_t>(static_cast<uint64_t>(left) >> right);
+      values[result] = Value::integer(static_cast<int64_t>(static_cast<uint64_t>(left) >> right));
       return;
     default: throw bytecode::BytecodeError("unsupported binary operation");
     }

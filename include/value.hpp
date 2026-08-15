@@ -80,10 +80,10 @@ namespace NG
 
   public:
     Value() : storage_(int64_t{}) {}
-    Value(int64_t integer) : storage_(integer) {}
-    Value(double floating) : storage_(floating) {}
-    Value(std::string string) : storage_(std::move(string)) {}
-    Value(std::vector<Value> elements) : storage_(ArrayStorage{std::make_shared<std::vector<Value>>(std::move(elements))}) {}
+    explicit Value(int64_t integer) : storage_(integer) {}
+    explicit Value(double floating) : storage_(floating) {}
+    explicit Value(std::string string) : storage_(std::move(string)) {}
+    explicit Value(std::vector<Value> elements) : storage_(ArrayStorage{std::make_shared<std::vector<Value>>(std::move(elements))}) {}
 
     [[nodiscard]] static auto integer(int64_t value) -> Value { return Value{value}; }
     [[nodiscard]] static auto float_(double value) -> Value { return Value{value}; }
