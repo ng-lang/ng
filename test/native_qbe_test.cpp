@@ -101,7 +101,8 @@ TEST_CASE("vNext native lowering rejects unsupported M1 constructs with a clear 
   std::ostringstream output;
   std::ostringstream errors;
   const int status = NG::runDriver(
-      {"--emit=ssa", "--source", "enum Shape { Circle(radius: i64) } fun main() -> i64 { let s = Shape.Circle(7); 7 }"},
+      {"--emit=ssa", "--source",
+       "struct Counter { value: i64 } trait Show { fun show(self: Self ref) -> i64; } impl Show for Counter { fun show(self: Self ref) -> i64 { return (*self).value; } } fun main() -> i64 { let c = Counter { value: 5 }; let view: ref<Show> = c; 7 }"},
       output, errors);
   REQUIRE(status == 1);
   REQUIRE_THAT(errors.str(), ContainsSubstring("native lowering (M"));
@@ -284,5 +285,58 @@ TEST_CASE("vNext native lowering round-trips field references through qbe and th
                                  "}",
                                  "field_refs");
   CHECK(exitCode == 32);
+}
+
+TEST_CASE("vNext native lowering round-trips enums and switches through qbe and the system toolchain",
+          "[vNext][Native][Qbe]")
+{
+  const int exitCode = runNative("enum Shape { Circle(radius: i64), Square(side: i64), Empty }\n"
+                                 "fun main() -> i64 {\n"
+                                 "    let shape: Shape = Shape.Circle(7);\n"
+                                 "    let mut total = 0;\n"
+                                 "    switch (shape) {\n"
+                                 "        case Circle(radius) { total := radius; }\n"
+                                 "        case Square(side) { total := side; }\n"
+                                 "        case Empty { total := 5; }\n"
+                                 "    }\n"
+                                 "    return total;\n"
+                                 "}",
+                                 "enums");
+  CHECK(exitCode == 7);
+}
+
+TEST_CASE("vNext native lowering round-trips multi-field enum variants through qbe and the system toolchain",
+          "[vNext][Native][Qbe]")
+{
+  const int exitCode = runNative("enum Pair { Both(a: i64, b: i64), None }\n"
+                                 "fun main() -> i64 {\n"
+                                 "    let p: Pair = Pair.Both(3, 4);\n"
+                                 "    switch (p) {\n"
+                                 "        case Both(a, b) { return a + b; }\n"
+                                 "        case None { return 0; }\n"
+                                 "    }\n"
+                                 "}",
+                                 "enum_multi_field");
+  CHECK(exitCode == 7);
+}
+
+TEST_CASE("vNext native lowering round-trips recursive enum switches through qbe and the system toolchain",
+          "[vNext][Native][Qbe]")
+{
+  const int exitCode = runNative("enum List<T> { Nil, Cons(head: T, tail: ref<List<T>>) }\n"
+                                 "fun length<T>(list: ref<List<T>>) -> i64 {\n"
+                                 "    switch (*list) {\n"
+                                 "        case Nil { return 0; }\n"
+                                 "        case Cons(value, rest) { return 1 + length(rest); }\n"
+                                 "    }\n"
+                                 "}\n"
+                                 "fun main() -> i64 {\n"
+                                 "    let tail: List<i64> = List.Nil;\n"
+                                 "    let mid: List<i64> = List.Cons(2, ref tail);\n"
+                                 "    let head: List<i64> = List.Cons(1, ref mid);\n"
+                                 "    return length(ref head);\n"
+                                 "}",
+                                 "recursive_enum_switch");
+  CHECK(exitCode == 2);
 }
 #endif

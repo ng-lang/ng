@@ -232,8 +232,7 @@ namespace NG::native
          // Walks to the address of the referenced place; a plain local
          // reference addresses the slot itself (stores must not target the
          // loaded value).
-         "function l $ngrt_ref_addr(l %ref) {\n"
-         "@start\n"
+         "function l $ngrt_ref_addr(l %ref) {\n"         "@start\n"
          "\t%root =l loadl %ref\n"
          "\t%cntp =l add %ref, 8\n"
          "\t%cnt =l loadl %cntp\n"
@@ -267,6 +266,81 @@ namespace NG::native
          "\tjmp @loop\n"
          "@end\n"
          "\tret %cur\n"
+         "}\n"},
+        {"copy_elements",
+         // Copies `count` 8-byte elements from src's payload into dst
+         // (tuple-splice building block).
+         "function l $ngrt_copy_elements(l %dst, l %src, l %count) {\n"
+         "@start\n"
+         "\t%i =l copy 0\n"
+         "@loop\n"
+         "\t%done =w csgel %i, %count\n"
+         "\tjnz %done, @end, @copy\n"
+         "@copy\n"
+         "\t%v =l call $ngrt_arr_get(l %src, l %i)\n"
+         "\t%off =l mul %i, 8\n"
+         "\t%addr =l add %dst, %off\n"
+         "\tstorel %v, %addr\n"
+         "\t%i =l add %i, 1\n"
+         "\tjmp @loop\n"
+         "@end\n"
+         "\tret %dst\n"
+         "}\n"},
+        {"enum_list_len",
+         // Recursive List<T> length: Nil has a null payload word; a Cons cell
+         // is { tag, tuple { head, ref tail } } where the ref's root slot
+         // holds the next node.
+         "function l $ngrt_enum_list_len(l %node) {\n"
+         "@start\n"
+         "\t%count =l copy 0\n"
+         "@loop\n"
+         "\t%null =w ceql %node, 0\n"
+         "\tjnz %null, @end, @walk\n"
+         "@walk\n"
+         "\t%po =l add %node, 8\n"
+         "\t%payload =l loadl %po\n"
+         "\t%pnul =w ceql %payload, 0\n"
+         "\tjnz %pnul, @end, @next\n"
+         "@next\n"
+         "\t%refp =l add %payload, 24\n"
+         "\t%ref =l loadl %refp\n"
+         "\t%root =l loadl %ref\n"
+         "\t%node =l loadl %root\n"
+         "\t%count =l add %count, 1\n"
+         "\tjmp @loop\n"
+         "@end\n"
+         "\tret %count\n"
+         "}\n"},
+        {"enum_list_get",
+         // Recursive List<T> indexed head access; halts on out-of-range walks.
+         "function l $ngrt_enum_list_get(l %node, l %index) {\n"
+         "@start\n"
+         "@loop\n"
+         "\t%zero =w cslel %index, 0\n"
+         "\tjnz %zero, @head, @advance\n"
+         "@advance\n"
+         "\t%po =l add %node, 8\n"
+         "\t%payload =l loadl %po\n"
+         "\t%pnul =w ceql %payload, 0\n"
+         "\tjnz %pnul, @halt, @ok\n"
+         "@ok\n"
+         "\t%refp =l add %payload, 24\n"
+         "\t%ref =l loadl %refp\n"
+         "\t%root =l loadl %ref\n"
+         "\t%node =l loadl %root\n"
+         "\t%index =l sub %index, 1\n"
+         "\tjmp @loop\n"
+         "@head\n"
+         "\t%po2 =l add %node, 8\n"
+         "\t%payload2 =l loadl %po2\n"
+         "\t%pnul2 =w ceql %payload2, 0\n"
+         "\tjnz %pnul2, @halt, @read\n"
+         "@read\n"
+         "\t%headp =l add %payload2, 16\n"
+         "\t%head =l loadl %headp\n"
+         "\tret %head\n"
+         "@halt\n"
+         "\thlt\n"
          "}\n"},
       };
       return helpers;
@@ -335,6 +409,7 @@ namespace NG::native
         case TypeKind::Range:
         case TypeKind::Reference:
         case TypeKind::Struct:
+        case TypeKind::Enum:
           return QType::Long;
         case TypeKind::TypeParameter:
           // Monomorphized instance bodies can carry the generic type
@@ -642,6 +717,43 @@ namespace NG::native
                            localSlots_.at(instruction.local->value)));
           return;
         }
+        case InstructionKind::EnumVariantIndex:
+          bindResult(instruction, QType::Long, std::format("loadl {}", operandTemp(*instruction.source)));
+          return;
+        case InstructionKind::ExtractEnumPayload:
+        {
+          const auto pointer = operandTemp(*instruction.source);
+          const auto address = fresh();
+          line(std::format("{} =l add {}, 8", address, pointer));
+          const auto loaded = fresh();
+          line(std::format("{} =l loadl {}", loaded, address));
+          const auto resultType = qtypeOf(function_.valueTypes.at(instruction.result.value));
+          if (resultType == QType::None)
+            return; // Payloadless variant: unit, no temp is consumed.
+          bindResult(instruction, resultType, std::format("copy {}", castFromSlot(loaded, resultType)));
+          return;
+        }
+        case InstructionKind::EnumListLength:
+        {
+          useHelper("enum_list_len");
+          bindResult(instruction, QType::Long,
+                     std::format("call $ngrt_enum_list_len(l {})", operandTemp(*instruction.source)));
+          return;
+        }
+        case InstructionKind::EnumListGet:
+        {
+          useHelper("enum_list_get");
+          const auto source = operandTemp(instruction.operands[0]);
+          const auto index = operandTemp(instruction.operands[1]);
+          const auto loaded = fresh();
+          line(std::format("{} =l call $ngrt_enum_list_get(l {}, l {})", loaded, source, index));
+          const auto resultType = qtypeOf(function_.valueTypes.at(instruction.result.value));
+          bindResult(instruction, resultType, std::format("copy {}", castFromSlot(loaded, resultType)));
+          return;
+        }
+        case InstructionKind::TupleSplice:
+          lowerTupleSplice(instruction);
+          return;
         case InstructionKind::MakeRef:
         {
           // A reference value is { l root-slot, l count, { l kind, l payload }[] }
@@ -770,6 +882,29 @@ namespace NG::native
         case ExpressionKind::TupleLiteral:
           lowerAggregateLiteral(instruction);
           return;
+        case ExpressionKind::EnumLiteral:
+        {
+          // Enum object: { l tag, l payload-word } — multi-field variants
+          // carry a tuple pointer in the payload word.
+          const auto variant = static_cast<uint32_t>(static_cast<uint64_t>(payload) >> 32);
+          const auto pointer = fresh();
+          line(std::format("{} =l call $malloc(l 16)", pointer));
+          line(std::format("storel {}, {}", variant, pointer));
+          const auto wordAddress = fresh();
+          line(std::format("{} =l add {}, 8", wordAddress, pointer));
+          if (instruction.operands.empty())
+          {
+            line(std::format("storel 0, {}", wordAddress));
+          }
+          else
+          {
+            const auto elementType = qtypeOf(function_.valueTypes.at(instruction.operands[0].value));
+            line(std::format("storel {}, {}",
+                             castForSlot(operandTemp(instruction.operands[0]), elementType), wordAddress));
+          }
+          bindResult(instruction, QType::Long, std::format("copy {}", pointer));
+          return;
+        }
         case ExpressionKind::StructLiteral:
           lowerStructLiteral(instruction);
           return;
@@ -858,6 +993,74 @@ namespace NG::native
           const auto address = fresh();
           line(std::format("{} =l add {}, {}", address, pointer, index * 8));
           line(std::format("storel {}, {}", element, address));
+        }
+        bindResult(instruction, QType::Long, std::format("copy {}", pointer));
+      }
+
+      /// Tuple splice: flattens tuple operands into one tuple object. Tuple
+      /// vs plain is decided statically from the operand type descriptors,
+      /// and the runtime element count drives the allocation.
+      void lowerTupleSplice(const Instruction &instruction)
+      {
+        useHelper("copy_elements");
+        size_t plainCount = 0;
+        for (const auto operand : instruction.operands)
+        {
+          const auto type = function_.valueTypes.at(operand.value);
+          if (type.value >= function_.typeDescriptors.size() ||
+              function_.typeDescriptors[type.value].kind != TypeKind::Tuple)
+            ++plainCount;
+        }
+        const auto total = fresh();
+        line(std::format("{} =l copy {}", total, plainCount));
+        for (const auto operand : instruction.operands)
+        {
+          const auto type = function_.valueTypes.at(operand.value);
+          if (type.value < function_.typeDescriptors.size() &&
+              function_.typeDescriptors[type.value].kind == TypeKind::Tuple)
+          {
+            const auto length = fresh();
+            line(std::format("{} =l loadl {}", length, operandTemp(operand)));
+            line(std::format("{} =l add {}, {}", total, total, length));
+          }
+        }
+        const auto bytes = fresh();
+        line(std::format("{} =l mul {}, 8", bytes, total));
+        const auto allocation = fresh();
+        line(std::format("{} =l add {}, 16", allocation, bytes));
+        const auto pointer = fresh();
+        line(std::format("{} =l call $malloc(l {})", pointer, allocation));
+        line(std::format("storel {}, {}", total, pointer));
+        const auto capAddress = fresh();
+        line(std::format("{} =l add {}, 8", capAddress, pointer));
+        line(std::format("storel {}, {}", total, capAddress));
+        auto destination = fresh();
+        line(std::format("{} =l add {}, 16", destination, pointer));
+        for (const auto operand : instruction.operands)
+        {
+          const auto type = function_.valueTypes.at(operand.value);
+          if (type.value < function_.typeDescriptors.size() &&
+              function_.typeDescriptors[type.value].kind == TypeKind::Tuple)
+          {
+            const auto length = fresh();
+            line(std::format("{} =l loadl {}", length, operandTemp(operand)));
+            const auto unused = fresh();
+            line(std::format("{} =l call $ngrt_copy_elements(l {}, l {}, l {})", unused, destination,
+                             operandTemp(operand), length));
+            const auto lengthBytes = fresh();
+            line(std::format("{} =l mul {}, 8", lengthBytes, length));
+            const auto next = fresh();
+            line(std::format("{} =l add {}, {}", next, destination, lengthBytes));
+            destination = next;
+          }
+          else
+          {
+            const auto elementType = qtypeOf(type);
+            line(std::format("storel {}, {}", castForSlot(operandTemp(operand), elementType), destination));
+            const auto next = fresh();
+            line(std::format("{} =l add {}, 8", next, destination));
+            destination = next;
+          }
         }
         bindResult(instruction, QType::Long, std::format("copy {}", pointer));
       }
@@ -1113,7 +1316,8 @@ namespace NG::native
     // Emit each used ngrt helper (with its dependencies) exactly once, after
     // all functions.
     const std::unordered_map<std::string, std::vector<std::string>> helperDependencies = {
-      {"arr_get", {"arr_addr"}}, {"ref_load", {"arr_get", "arr_addr"}}, {"ref_addr", {"arr_addr"}}};
+      {"arr_get", {"arr_addr"}},          {"ref_load", {"arr_get", "arr_addr"}},
+      {"ref_addr", {"arr_addr"}},         {"copy_elements", {"arr_get", "arr_addr"}}};
     std::set<std::string> helpersToEmit;
     std::function<void(const std::string &)> addHelper = [&](const std::string &name) {
       if (!helpersToEmit.insert(name).second) return;

@@ -282,8 +282,15 @@ Final generated results:
   stays `T` until `TypeInterner::specialize` substitutes it); the lowering
   falls back to `l` for type parameters — QBE rejects float-context misuse
   loudly, and the proper fix is substitution-aware typing in the
-  typechecker. Remaining: enums, trait dispatch, native shims, `ngrt` as a
-  linked archive.
+  typechecker. Also delivered: enums as `{ tag, payload-word }` objects —
+  construction (single- and multi-field; the latter through tuple splicing,
+  now supported with a static type-directed splice), tag loads, payload
+  extraction, and variant switches (which lower to tag compares +
+  extraction). Recursive `List<T>` style enums work end to end including
+  `ref` payloads and switch-recursive walks; the `$ngrt_enum_list_len`/
+  `$ngrt_enum_list_get` helpers are implemented for the VM-parity
+  `EnumList*` instructions but currently unreachable from the typechecker.
+  Remaining: trait dispatch, native shims, `ngrt` as a linked archive.
 - **M3:** aggregates (strings/arrays/structs/enums), direct and trait-view
   calls, drop lowering; a stdlib subset runs natively; executables link
   `libngrt`.
