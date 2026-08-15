@@ -193,14 +193,18 @@ concrete `Box` (`example/std_seq.ng`, `std_list.ng`, `heap_box.ng`,
 2. Growing collections: `pushBack`/`append`/spread for `List<T>` and
    arrays — depends on the B1 heap domain for allocation beyond the current
    fixed-size native handles.
-3. `regexMatch` string intrinsic (legacy 56).
-4. Range-spread-into-array literals `[...(1..5)]` (legacy 56).
-5. List builders: `List<T>` collection literals lowering to push loops.
-6. Move `reverse` from a driver-native into `lib/std` once it can be
+3. List builders: `List<T>` collection literals lowering to push loops.
+4. Move `reverse` from a driver-native into `lib/std` once it can be
    expressed in NG (or keep as a declared native in the ABI layer).
 
+**Delivered (2026-08):** `regexMatch` (string intrinsic with invalid-pattern
+diagnostics in `lib/std/string.ng`), range/slice value spreads into array
+literals (`[...(1..5)]`, `[...nums[1..3]]`, mixed `[0, ...xs, 9]`, at most
+one spread per literal; `test/array_spread_test.cpp`), and
+`example/std_string.ng` completing the legacy 56 surface end to end.
+
 **Blocks:** B1 for growth allocation; R7 for span ABI.
-**Legacy evidence:** examples `52`, `56`, `59`; matrix rows 2/10 remainder.
+**Legacy evidence:** examples `52`, `59`; matrix rows 2/10 remainder.
 
 ## 4. Category B — explicitly deferred by the design docs
 
