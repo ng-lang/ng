@@ -19,20 +19,25 @@ debug-info infrastructure that this backend tier does not need yet. Revisit
 LLVM only if a later performance tier demands `-O2`-class optimization; the
 backend boundary chosen here (FlowIR, §3) keeps that option open.
 
-### Terminology: host vs runtime
+### Terminology: the runtime owns the std modules
 
-- **Host:** the C++ program that embeds NG — `ngi`, `ngi_imgui`, future
-  embedders — together with the C++ code implementing `native fun` handlers
-  and owning host resources (output streams, GUI state, heaps).
-- **Runtime (`ngrt`):** the language-side runtime library linked into
-  generated executables (strings, arrays, deep copy, drop, vtable globals).
+- **Runtime:** one owned build — `libng` plus its standard module libraries:
+  `lib/std/*.ng` interfaces together with their C++ implementations.
+  Generated executables link the language-side part (`ngrt`).
+- **Native module:** the C++ implementation behind a std module interface —
+  e.g. `lib/std/imgui.ng` backed by `registerImguiNatives`. A std module is
+  part of the runtime, not a separate frontend: the transitional `ngi_imgui`
+  executable folds into the default `ngi` registration.
+- **Embedding API:** the (future) C++ surface for third-party hosts; an
+  implementation detail of native modules, not a runtime category of its
+  own.
 
 Native calls take one of two paths **by construction**: AOT code calls
 natives through declared C ABI shims at link time (no boxing, §5); the VM
-path and the host embedding API exchange values through the boxed
-`Value`/`ValueView` boundary ([doc 02 §7.1](02-runtime-module-ffi.md)).
-`NG::Value` therefore survives only as that exchange representation — the
-naive per-call by-name lookup is what gets deleted.
+path exchanges values through the boxed `Value`/`ValueView` boundary
+([doc 02 §7.1](02-runtime-module-ffi.md)) because VM frames are boxed by
+design. `NG::Value` therefore survives only for the VM path — the naive
+per-call by-name lookup is what gets deleted.
 
 ## 2. Evidence: QBE vs LLVM
 
@@ -179,6 +184,16 @@ host-embedding exchange representation** (doc 02 §7.1), never on the AOT hot
 path, where native calls resolve to link-time C ABI shims; the VM itself; and
 the bytecode artifact format. `ngrt`'s boxed tier (Tier 0, §4) is a lowering
 strategy, not a host interface.
+
+**Std modules and opaque handles (decided):** `std.imgui` is a standard
+library, not a separate frontend: `lib/std/imgui.ng` is the NG surface and
+its C++ implementation is a native module built and registered as part of
+the ng runtime (the transitional `ngi_imgui` executable is folded away).
+Foreign C++ state (imgui contexts, device handles) appears in NG only as
+abstract/opaque types — `type X = native;` today, declared handle
+descriptors in R9 ([doc 02 §5.3/§8](02-runtime-module-ffi.md)): NG code can
+pass them around and hand them to native APIs, but never inspects them. In
+AOT code an opaque handle is a `uintptr_t` token passed through untouched.
 
 ## 6. Workflow and final generated results
 
