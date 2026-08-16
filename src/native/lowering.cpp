@@ -896,6 +896,9 @@ namespace NG::native
       /// f64 a `d`, and everything else an 8-byte `l` word.
       [[nodiscard]] auto memberSuffix(TypeId type) -> std::string
       {
+        if (type == typecheck::builtin::I8 || type == typecheck::builtin::U8) return "b";
+        if (type == typecheck::builtin::I16 || type == typecheck::builtin::U16) return "h";
+        if (type == typecheck::builtin::I32 || type == typecheck::builtin::U32) return "w";
         if (type == typecheck::builtin::F32) return "s";
         if (type == typecheck::builtin::F64) return "d";
         return "l";
@@ -903,7 +906,10 @@ namespace NG::native
 
       [[nodiscard]] auto memberLayout(TypeId type) -> std::pair<size_t, size_t>
       {
-        if (type == typecheck::builtin::F32) return {4, 4};
+        if (type == typecheck::builtin::I8 || type == typecheck::builtin::U8) return {1, 1};
+        if (type == typecheck::builtin::I16 || type == typecheck::builtin::U16) return {2, 2};
+        if (type == typecheck::builtin::I32 || type == typecheck::builtin::U32 || type == typecheck::builtin::F32)
+          return {4, 4};
         return {8, 8};
       }
 
@@ -950,6 +956,18 @@ namespace NG::native
         {
           line(std::format("stored {}, {}", value, address));
         }
+        else if (fieldType == typecheck::builtin::I8 || fieldType == typecheck::builtin::U8)
+        {
+          line(std::format("storeb {}, {}", value, address));
+        }
+        else if (fieldType == typecheck::builtin::I16 || fieldType == typecheck::builtin::U16)
+        {
+          line(std::format("storeh {}, {}", value, address));
+        }
+        else if (fieldType == typecheck::builtin::I32 || fieldType == typecheck::builtin::U32)
+        {
+          line(std::format("storew {}, {}", value, address));
+        }
         else
         {
           line(std::format("storel {}, {}", castForSlot(value, qtypeOf(fieldType)), address));
@@ -969,7 +987,14 @@ namespace NG::native
           return extended;
         }
         const auto loaded = fresh();
-        line(std::format("{} =l loadl {}", loaded, address));
+        const char *loadOp = "loadl";
+        if (fieldType == typecheck::builtin::I8) loadOp = "loadsb";
+        else if (fieldType == typecheck::builtin::U8) loadOp = "loadub";
+        else if (fieldType == typecheck::builtin::I16) loadOp = "loadsh";
+        else if (fieldType == typecheck::builtin::U16) loadOp = "loaduh";
+        else if (fieldType == typecheck::builtin::I32) loadOp = "loadsw";
+        else if (fieldType == typecheck::builtin::U32) loadOp = "loaduw";
+        line(std::format("{} =l {} {}", loaded, loadOp, address));
         if (typecheck::isFloatBuiltin(fieldType))
         {
           const auto casted = fresh();
@@ -2665,9 +2690,15 @@ namespace NG::native
             for (size_t member = 0; member < function.typeDescriptors[typeId].elements.size(); ++member)
             {
               const auto memberType = function.typeDescriptors[typeId].elements[member];
-              result += std::format("{}{}", member == 0 ? " " : ", ",
-                                    memberType == typecheck::builtin::F32 ? "s"
-                                    : memberType == typecheck::builtin::F64 ? "d" : "l");
+              const auto suffixFor = [](TypeId type) -> const char * {
+                if (type == typecheck::builtin::I8 || type == typecheck::builtin::U8) return "b";
+                if (type == typecheck::builtin::I16 || type == typecheck::builtin::U16) return "h";
+                if (type == typecheck::builtin::I32 || type == typecheck::builtin::U32) return "w";
+                if (type == typecheck::builtin::F32) return "s";
+                if (type == typecheck::builtin::F64) return "d";
+                return "l";
+              };
+              result += std::format("{}{}", member == 0 ? " " : ", ", suffixFor(memberType));
             }
             break;
           }

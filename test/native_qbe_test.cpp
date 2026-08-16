@@ -209,6 +209,32 @@ TEST_CASE("vNext native lowering round-trips string arrays through qbe and the s
   CHECK(exitCode == 1);
 }
 
+TEST_CASE("vNext native lowering round-trips sub-word struct fields through qbe", "[vNext][Native][Qbe]")
+{
+  const int exitCode = runNative("struct Narrow { a: i8, b: i16, c: u8 }\n"
+                                 "fun main() -> i64 {\n"
+                                 "    let s = Narrow { a: -5, b: 300, c: 200 };\n"
+                                 "    if (s.a == -5 && s.b == 300 && s.c == 200) { return 1; }\n"
+                                 "    return 0;\n"
+                                 "}",
+                                 "subword_structs");
+  CHECK(exitCode == 1);
+}
+
+TEST_CASE("vNext native lowering round-trips sub-word field mutation through qbe", "[vNext][Native][Qbe]")
+{
+  const int exitCode = runNative("struct Narrow { a: i8, b: i16, c: u8 }\n"
+                                 "fun main() -> i64 {\n"
+                                 "    let mut s = Narrow { a: 1, b: 2, c: 3 };\n"
+                                 "    s.a := -7;\n"
+                                 "    s.c := 250;\n"
+                                 "    if (s.a == -7 && s.c == 250) { return 2; }\n"
+                                 "    return 0;\n"
+                                 "}",
+                                 "subword_mutation");
+  CHECK(exitCode == 2);
+}
+
 TEST_CASE("vNext native lowering round-trips aligned mixed struct layouts through qbe", "[vNext][Native][Qbe]")
 {
   const int exitCode = runNative("struct Mix { a: f32, b: f64, c: i64 }\n"

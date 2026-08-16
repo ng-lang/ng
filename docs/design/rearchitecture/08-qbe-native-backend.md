@@ -353,8 +353,11 @@ Final generated results:
   type declarations (`type :ngs_N = { s, d, l }`), typed field stores/loads
   (`truncd`/`exts` round trips), aligned copies and clones, and byte-offset
   place paths through refs; aggregate calls classify SSE members through
-  QBE's ABI. Remaining M4: sub-word integer member layout (b/h/w with
-  sign extension).
+  QBE's ABI. **M4 complete:** sub-word integer member layout — i8/u8
+  fields occupy QBE `b` (1 byte, 1-aligned), i16/u16 `h` (2 bytes,
+  2-aligned), i32/u32 `w` (4 bytes, 4-aligned), with sign/zero-extending
+  typed loads (`loadsb/loadub/loadsh/loaduh/loadsw/loaduw`) and truncated
+  typed stores (`storeb/storeh/storew`); no M4 items remain.
 - **M5 (first slice delivered):** AOT shims for the standard natives —
   `libngrt` (`src/native/ngrt_shims.c`, pure C99, layouts matching the
   Tier 0 representations) is linked into every `--native` executable, and
