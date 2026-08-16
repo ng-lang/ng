@@ -209,6 +209,19 @@ TEST_CASE("vNext native lowering round-trips string arrays through qbe and the s
   CHECK(exitCode == 1);
 }
 
+TEST_CASE("vNext native lowering round-trips aligned mixed struct layouts through qbe", "[vNext][Native][Qbe]")
+{
+  const int exitCode = runNative("struct Mix { a: f32, b: f64, c: i64 }\n"
+                                 "fun pass(m: Mix) -> i64 { return m.c; }\n"
+                                 "fun main() -> i64 {\n"
+                                 "    let m = Mix { a: 1.5, b: 2.25, c: 4 };\n"
+                                 "    if (m.a == 1.5 && m.b == 2.25) { return pass(m); }\n"
+                                 "    return 0;\n"
+                                 "}",
+                                 "aligned_structs");
+  CHECK(exitCode == 4);
+}
+
 TEST_CASE("vNext native lowering round-trips structs through qbe and the system toolchain", "[vNext][Native][Qbe]")
 {
   const int exitCode = runNative("struct Point { x: i64, y: i64 }\n"

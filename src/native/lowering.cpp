@@ -505,12 +505,15 @@ namespace NG::native
           "\t%payload =l loadl %payloadp\n"
           "\tjnz %isIndex, @index, @memberlike\n"
           "@memberlike\n"
-          "\t%moff =l mul %payload, 8\n"
           "\t%isHeader =w ceql %kind, 2\n"
           "\tjnz %isHeader, @header, @plain\n"
           "@header\n"
+          "\t%moff =l mul %payload, 8\n"
           "\t%moff =l add %moff, 16\n"
+          "\tjmp @apply\n"
           "@plain\n"
+          "\t%moff =l copy %payload\n"
+          "@apply\n"
           "\t%addr =l add %cur, %moff\n"
           "\t%cur =l loadl %addr\n"
           "\tjmp @next\n"
@@ -550,12 +553,15 @@ namespace NG::native
           "\t%payload =l loadl %payloadp\n"
           "\tjnz %isIndex, @index, @memberlike\n"
           "@memberlike\n"
-          "\t%moff =l mul %payload, 8\n"
           "\t%isHeader =w ceql %kind, 2\n"
           "\tjnz %isHeader, @header, @plain\n"
           "@header\n"
+          "\t%moff =l mul %payload, 8\n"
           "\t%moff =l add %moff, 16\n"
+          "\tjmp @apply\n"
           "@plain\n"
+          "\t%moff =l copy %payload\n"
+          "@apply\n"
           "\t%cur =l add %cur, %moff\n"
           "\tjmp @next\n"
           "@index\n"
@@ -871,10 +877,7 @@ namespace NG::native
         localQTypes_.emplace(local, type);
         size_t words = 1;
         if (type == QType::Aggregate)
-        {
-          const auto &descriptor = function_.typeDescriptors[function_.localTypes.at(local).value];
-          words = descriptor.kind == TypeKind::Enum ? 2 : descriptor.fieldNames.size();
-        }
+          words = (aggregateSize(function_.localTypes.at(local)) + 7) / 8;
         slotOrder_.push_back(SlotSpec{.local = local, .heapCell = cellLocals_.contains(local), .words = words});
       }
 
@@ -889,31 +892,125 @@ namespace NG::native
 
       /// Byte size of an aggregate's Tier 1 storage (all members are 8-byte
       /// words in this slice; enums are { tag, payload-word }).
-      [[nodiscard]] auto aggregateSize(TypeId type) -> size_t
+      /// Real member layout: f32 occupies a QBE `s` (4 bytes, 4-aligned),
+      /// f64 a `d`, and everything else an 8-byte `l` word.
+      [[nodiscard]] auto memberSuffix(TypeId type) -> std::string
       {
-        return function_.typeDescriptors[type.value].kind == TypeKind::Enum
-                   ? 16
-                   : function_.typeDescriptors[type.value].fieldNames.size() * 8;
+        if (type == typecheck::builtin::F32) return "s";
+        if (type == typecheck::builtin::F64) return "d";
+        return "l";
       }
 
-      /// Field-wise aggregate copy: structs copy every field word; enums copy
-      /// their two words (tag + payload — payload words are never mutated in
-      /// place, so sharing a tuple payload is unobservable). (QBE's `blit` is
-      /// not usable here: its optimizer does not model blit's memory
-      /// definitions, folding the copied data to an uninitialized sentinel.)
+      [[nodiscard]] auto memberLayout(TypeId type) -> std::pair<size_t, size_t>
+      {
+        if (type == typecheck::builtin::F32) return {4, 4};
+        return {8, 8};
+      }
+
+      /// Aligned byte offset of a struct field.
+      [[nodiscard]] auto fieldOffset(TypeId structType, size_t field) -> size_t
+      {
+        const auto &descriptor = function_.typeDescriptors[structType.value];
+        size_t offset = 0;
+        for (size_t index = 0; index < field; ++index)
+        {
+          const auto [memberSize, memberAlign] = memberLayout(descriptor.elements[index]);
+          offset = (offset + memberAlign - 1) / memberAlign * memberAlign + memberSize;
+        }
+        const auto [memberSize, memberAlign] = memberLayout(descriptor.elements[field]);
+        return (offset + memberAlign - 1) / memberAlign * memberAlign;
+      }
+
+      [[nodiscard]] auto aggregateSize(TypeId type) -> size_t
+      {
+        const auto &descriptor = function_.typeDescriptors[type.value];
+        if (descriptor.kind == TypeKind::Enum) return 16;
+        size_t size = 0;
+        size_t align = 1;
+        for (const auto field : descriptor.elements)
+        {
+          const auto [memberSize, memberAlign] = memberLayout(field);
+          size = (size + memberAlign - 1) / memberAlign * memberAlign + memberSize;
+          align = std::max(align, memberAlign);
+        }
+        return (size + align - 1) / align * align;
+      }
+
+      /// Stores a field value (a QBE temp in the value's QBE type) into an
+      /// aggregate at the given address; f32 values truncate to `s`.
+      void storeField(const std::string &address, const std::string &value, TypeId fieldType)
+      {
+        if (fieldType == typecheck::builtin::F32)
+        {
+          const auto single = fresh();
+          line(std::format("{} =s truncd {}", single, value));
+          line(std::format("stores {}, {}", single, address));
+        }
+        else if (typecheck::isFloatBuiltin(fieldType))
+        {
+          line(std::format("stored {}, {}", value, address));
+        }
+        else
+        {
+          line(std::format("storel {}, {}", castForSlot(value, qtypeOf(fieldType)), address));
+        }
+      }
+
+      /// Loads a field value from an aggregate address, returning a QBE temp
+      /// in the value's QBE type (f32 loads extend back to `d`).
+      [[nodiscard]] auto loadField(const std::string &address, TypeId fieldType) -> std::string
+      {
+        if (fieldType == typecheck::builtin::F32)
+        {
+          const auto single = fresh();
+          line(std::format("{} =s loads {}", single, address));
+          const auto extended = fresh();
+          line(std::format("{} =d exts {}", extended, single));
+          return extended;
+        }
+        const auto loaded = fresh();
+        line(std::format("{} =l loadl {}", loaded, address));
+        if (typecheck::isFloatBuiltin(fieldType))
+        {
+          const auto casted = fresh();
+          line(std::format("{} =d cast {}", casted, loaded));
+          return casted;
+        }
+        return loaded;
+      }
+
+      /// Field-wise aggregate copy with the real layout: structs copy every
+      /// field at its aligned offset; enums copy their two words (tag +
+      /// payload — payload words are never mutated in place, so sharing a
+      /// tuple payload is unobservable). (QBE's `blit` is not usable here:
+      /// its optimizer does not model blit's memory definitions, folding the
+      /// copied data to an uninitialized sentinel.)
       void emitAggregateCopy(const std::string &destination, const std::string &source, TypeId type)
       {
         const auto &descriptor = function_.typeDescriptors[type.value];
-        const size_t words = descriptor.kind == TypeKind::Enum ? 2 : descriptor.fieldNames.size();
-        for (size_t index = 0; index < words; ++index)
+        if (descriptor.kind == TypeKind::Enum)
         {
+          for (size_t index = 0; index < 2; ++index)
+          {
+            const auto sourceAddress = fresh();
+            line(std::format("{} =l add {}, {}", sourceAddress, source, index * 8));
+            const auto value = fresh();
+            line(std::format("{} =l loadl {}", value, sourceAddress));
+            const auto target = fresh();
+            line(std::format("{} =l add {}, {}", target, destination, index * 8));
+            line(std::format("storel {}, {}", value, target));
+          }
+          return;
+        }
+        for (size_t index = 0; index < descriptor.fieldNames.size(); ++index)
+        {
+          const auto offset = fieldOffset(type, index);
           const auto sourceAddress = fresh();
-          line(std::format("{} =l add {}, {}", sourceAddress, source, index * 8));
-          const auto value = fresh();
-          line(std::format("{} =l loadl {}", value, sourceAddress));
+          line(std::format("{} =l add {}, {}", sourceAddress, source, offset));
+          const auto value = loadField(sourceAddress, descriptor.elements[index]);
           const auto target = fresh();
-          line(std::format("{} =l add {}, {}", target, destination, index * 8));
-          line(std::format("storel {}, {}", value, target));
+          line(std::format("{} =l add {}, {}", target, destination, offset));
+          storeField(target, value, descriptor.elements[index]);
         }
       }
 
@@ -1514,7 +1611,7 @@ namespace NG::native
               }
               else
               {
-                line(std::format("{} =l add {}, {}", next, address, std::format("{}", 8 * std::stoll(step.payload))));
+                line(std::format("{} =l add {}, {}", next, address, step.payload));
               }
               address = next;
             }
@@ -1597,7 +1694,7 @@ namespace NG::native
             }
             else
             {
-              line(std::format("{} =l add {}, {}", next, address, std::format("{}", 8 * std::stoll(step.payload))));
+              line(std::format("{} =l add {}, {}", next, address, step.payload));
             }
             address = next;
           }
@@ -1700,12 +1797,12 @@ namespace NG::native
         {
           const auto receiver = operandTemp(instruction.operands[0]);
           const auto field = static_cast<size_t>(payload);
+          const auto receiverType = function_.valueTypes.at(instruction.operands[0].value);
           const auto address = fresh();
-          line(std::format("{} =l add {}, {}", address, receiver, field * 8));
-          const auto loaded = fresh();
-          line(std::format("{} =l loadl {}", loaded, address));
-          const auto resultType = qtypeOf(function_.valueTypes.at(instruction.result.value));
-          bindResult(instruction, resultType, std::format("copy {}", castFromSlot(loaded, resultType)));
+          line(std::format("{} =l add {}, {}", address, receiver, fieldOffset(receiverType, field)));
+          const auto fieldType = function_.typeDescriptors[receiverType.value].elements[field];
+          const auto loaded = loadField(address, fieldType);
+          bindResult(instruction, qtypeOf(fieldType), std::format("copy {}", loaded));
           return;
         }
         case ExpressionKind::Index:
@@ -1811,14 +1908,12 @@ namespace NG::native
         if (count != instruction.operands.size())
           throw LoweringError(std::format("native lowering (M2): struct literal arity mismatch in `{}`", function_.name));
         const auto pointer = fresh();
-        line(std::format("{} =l alloc8 {}", pointer, count));
+        line(std::format("{} =l alloc8 {}", pointer, (aggregateSize(typeId) + 7) / 8));
         for (size_t index = 0; index < count; ++index)
         {
-          const auto elementType = qtypeOf(descriptor.elements[index]);
-          const auto element = castForSlot(operandTemp(instruction.operands[index]), elementType);
           const auto address = fresh();
-          line(std::format("{} =l add {}, {}", address, pointer, index * 8));
-          line(std::format("storel {}, {}", element, address));
+          line(std::format("{} =l add {}, {}", address, pointer, fieldOffset(typeId, index)));
+          storeField(address, operandTemp(instruction.operands[index]), descriptor.elements[index]);
         }
         bindResult(instruction, QType::Aggregate, std::format("copy {}", pointer));
       }
@@ -2041,7 +2136,9 @@ namespace NG::native
             const auto &descriptor = function_.typeDescriptors[current.value];
             const bool elementLike = descriptor.kind == TypeKind::DynamicArray ||
                                      descriptor.kind == TypeKind::FixedArray || descriptor.kind == TypeKind::Tuple;
-            result.push_back(NormalizedStep{.kind = elementLike ? 2 : 0, .payload = std::format("{}", step.field)});
+            const int64_t payload = elementLike ? static_cast<int64_t>(step.field)
+                                                : static_cast<int64_t>(fieldOffset(current, step.field));
+            result.push_back(NormalizedStep{.kind = elementLike ? 2 : 0, .payload = std::format("{}", payload)});
             current = elementLike ? (descriptor.kind == TypeKind::Tuple ? descriptor.elements[step.field]
                                                                         : descriptor.element)
                                   : descriptor.elements[step.field];
@@ -2556,7 +2653,25 @@ namespace NG::native
           }
         }
       result += std::format("type :ng{}_{} = {{", isEnum ? 'e' : 's', typeId);
-      for (size_t member = 0; member < count; ++member) result += member == 0 ? " l" : ", l";
+      if (isEnum)
+      {
+        result += " l, l";
+      }
+      else
+      {
+        for (const auto &function : functions)
+          if (typeId < function.typeDescriptors.size() && function.typeDescriptors[typeId].kind == TypeKind::Struct)
+          {
+            for (size_t member = 0; member < function.typeDescriptors[typeId].elements.size(); ++member)
+            {
+              const auto memberType = function.typeDescriptors[typeId].elements[member];
+              result += std::format("{}{}", member == 0 ? " " : ", ",
+                                    memberType == typecheck::builtin::F32 ? "s"
+                                    : memberType == typecheck::builtin::F64 ? "d" : "l");
+            }
+            break;
+          }
+      }
       result += " }\n";
     }
     for (const auto &function : functions)

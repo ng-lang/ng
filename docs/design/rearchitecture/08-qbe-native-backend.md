@@ -348,8 +348,13 @@ Final generated results:
   areas interact poorly with recursive aggregate traffic — observed
   empirically). Cell/ref assignments clone aggregates onto the heap so
   loop-rebuilt stack literals cannot alias into cells.
-  Remaining M4: sub-word/float member layout (f32 as `s`), real
-  alignment-aware offsets.
+  Completed: **alignment-aware member layout** — f32 fields occupy QBE `s`
+  (4 bytes, 4-aligned) and f64 `d`, with real aligned field offsets in the
+  type declarations (`type :ngs_N = { s, d, l }`), typed field stores/loads
+  (`truncd`/`exts` round trips), aligned copies and clones, and byte-offset
+  place paths through refs; aggregate calls classify SSE members through
+  QBE's ABI. Remaining M4: sub-word integer member layout (b/h/w with
+  sign extension).
 - **M5 (first slice delivered):** AOT shims for the standard natives —
   `libngrt` (`src/native/ngrt_shims.c`, pure C99, layouts matching the
   Tier 0 representations) is linked into every `--native` executable, and
