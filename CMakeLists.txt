@@ -57,6 +57,7 @@ set(NG_SRC
         src/const_interp.cpp
         src/module_loader.cpp
         src/native/lowering.cpp
+        src/string_ops.cpp
         src/vm.cpp
         src/vm/value_ops.cpp
         src/syntax/block_parser.cpp

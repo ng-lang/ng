@@ -7,6 +7,7 @@
 #include "native.hpp"
 #include "native/lowering.hpp"
 #include "syntax/module_parser.hpp"
+#include "string_ops.hpp"
 #include "syntax/parser.hpp"
 #include "typecheck.hpp"
 #include "vm.hpp"
@@ -228,73 +229,34 @@ namespace NG
                   std::format("const native `{}` expects an integer argument {}", name, index + 1), span);
             return interner.value(arguments[index]).integerValue;
           };
-          if (name == "length")
-            return interner.internInteger(static_cast<int64_t>(requireString(0).size()));
-          if (name == "contains")
-            return interner.internBool(requireString(0).find(requireString(1)) != std::string::npos);
-          if (name == "startsWith")
-            return interner.internBool(requireString(0).starts_with(requireString(1)));
-          if (name == "endsWith")
-            return interner.internBool(requireString(0).ends_with(requireString(1)));
-          if (name == "toUpper" || name == "toLower")
+          // Shared pure-string operations (A6 unification): one
+          // implementation serves const evaluation and the runtime registry.
+          try
           {
-            std::string result = requireString(0);
-            for (auto &character : result)
-              character = static_cast<char>(name == "toUpper" ? std::toupper(static_cast<unsigned char>(character))
-                                                              : std::tolower(static_cast<unsigned char>(character)));
-            return interner.internString(std::move(result));
+            if (name == "length") return interner.internInteger(string_ops::length(requireString(0)));
+            if (name == "contains") return interner.internBool(string_ops::contains(requireString(0), requireString(1)));
+            if (name == "startsWith") return interner.internBool(string_ops::startsWith(requireString(0), requireString(1)));
+            if (name == "endsWith") return interner.internBool(string_ops::endsWith(requireString(0), requireString(1)));
+            if (name == "toUpper" || name == "toLower")
+              return interner.internString(name == "toUpper" ? string_ops::toUpper(requireString(0))
+                                                             : string_ops::toLower(requireString(0)));
+            if (name == "trim") return interner.internString(string_ops::trim(requireString(0)));
+            if (name == "replace")
+              return interner.internString(string_ops::replace(requireString(0), requireString(1), requireString(2)));
+            if (name == "substring")
+              return interner.internString(string_ops::substring(requireString(0), requireInteger(1), requireInteger(2)));
+            if (name == "charAt")
+              return interner.internString(string_ops::charAt(requireString(0), requireInteger(1)));
+            if (name == "regexMatch")
+              return interner.internBool(string_ops::regexMatch(requireString(0), requireString(1)));
           }
-          if (name == "trim")
+          catch (const std::out_of_range &error)
           {
-            const auto &text = requireString(0);
-            const auto first = text.find_first_not_of(" \t\n\r");
-            const auto last = text.find_last_not_of(" \t\n\r");
-            return interner.internString(first == std::string::npos ? "" : text.substr(first, last - first + 1));
+            throw const_eval::ConstEvalError(std::format("const {}", error.what()), span);
           }
-          if (name == "replace")
+          catch (const std::runtime_error &error)
           {
-            std::string result = requireString(0);
-            const auto &needle = requireString(1);
-            const auto &replacement = requireString(2);
-            size_t position = 0;
-            while ((position = result.find(needle, position)) != std::string::npos)
-            {
-              result.replace(position, needle.size(), replacement);
-              position += replacement.size();
-            }
-            return interner.internString(std::move(result));
-          }
-          if (name == "substring")
-          {
-            const auto &text = requireString(0);
-            const int64_t start = requireInteger(1);
-            const int64_t end = requireInteger(2);
-            if (start < 0 || end < start || static_cast<size_t>(end) > text.size())
-              throw const_eval::ConstEvalError(
-                  std::format("const substring bounds out of range: [{}..{}) of length {}", start, end, text.size()),
-                  span);
-            return interner.internString(text.substr(static_cast<size_t>(start), static_cast<size_t>(end - start)));
-          }
-          if (name == "charAt")
-          {
-            const auto &text = requireString(0);
-            const int64_t index = requireInteger(1);
-            if (index < 0 || static_cast<size_t>(index) >= text.size())
-              throw const_eval::ConstEvalError(
-                  std::format("const charAt index out of bounds: index {}, length {}", index, text.size()), span);
-            return interner.internString(std::string(1, text[static_cast<size_t>(index)]));
-          }
-          if (name == "regexMatch")
-          {
-            try
-            {
-              return interner.internBool(std::regex_search(requireString(0), std::regex(requireString(1))));
-            }
-            catch (const std::regex_error &)
-            {
-              throw const_eval::ConstEvalError(std::format("const regexMatch: invalid pattern `{}`", requireString(1)),
-                                               span);
-            }
+            throw const_eval::ConstEvalError(std::format("const {}", error.what()), span);
           }
           throw const_eval::ConstEvalError(std::format("native `{}` is not const-capable", name), span);
         };
@@ -375,6 +337,9 @@ namespace NG
           // R9 first slice: attach the declared signatures of every
           // `native fun` declaration to the registry (arity validation and
           // type guidance for the VM; shim selection for the native tier).
+          const std::unordered_set<std::string> constCapable = {
+              "length", "contains", "startsWith", "endsWith", "toUpper", "toLower",
+              "trim",    "replace",  "substring",  "charAt",  "regexMatch"};
           for (const auto &function : resolved.functions)
           {
             if (!function.nativeFunction) continue;
@@ -382,7 +347,8 @@ namespace NG
             if (found == typed.functionTypeIds.end()) continue;
             natives.declare(function.name,
                             vm::NativeRegistry::DeclaredSignature{.parameters = found->second.parameters,
-                                                                  .result = found->second.returnType});
+                                                                  .result = found->second.returnType,
+                                                                  .pure = constCapable.contains(function.name)});
           }
           const auto result = vm::VM{}.run(artifact, main->id, values, fuel, &natives);
           output << "compiled " << verifiedFunctions << " vNext function(s); main "
@@ -523,11 +489,7 @@ namespace NG
           [&expectStrings](const std::vector<Value> &arguments, const std::vector<typecheck::TypeId> &)
           {
             const auto strings = expectStrings(arguments, 1);
-            const auto first = strings.front().find_first_not_of(" \t\n\r");
-            const auto last = strings.front().find_last_not_of(" \t\n\r");
-            if (first == std::string::npos)
-              return Value::string("");
-            return Value::string(strings.front().substr(first, last - first + 1));
+            return Value::string(string_ops::trim(strings.front()));
           });
       natives.registerNative(
           "split",
@@ -535,18 +497,7 @@ namespace NG
           {
             const auto strings = expectStrings(arguments, 2);
             std::vector<Value> parts;
-            size_t start = 0;
-            while (start <= strings[0].size())
-            {
-              const auto found = strings[0].find(strings[1], start);
-              if (found == std::string::npos)
-              {
-                parts.push_back(Value::string(strings[0].substr(start)));
-                break;
-              }
-              parts.push_back(Value::string(strings[0].substr(start, found - start)));
-              start = found + strings[1].size();
-            }
+            for (auto &part : string_ops::split(strings[0], strings[1])) parts.emplace_back(std::move(part));
             return Value::array(std::move(parts));
           });
       natives.registerNative("join",
@@ -554,81 +505,70 @@ namespace NG
                              {
                                if (arguments.size() != 2 || !arguments[0].isArray() || !arguments[1].isString())
                                  throw bytecode::BytecodeError("join expects an array of strings and a separator");
-                               std::string joined;
-                               const auto &items = arguments[0].asArray();
-                               for (size_t index = 0; index < items.size(); ++index)
+                               std::vector<std::string> items;
+                               for (const auto &item : arguments[0].asArray())
                                {
-                                 if (!items[index].isString())
+                                 if (!item.isString())
                                    throw bytecode::BytecodeError("join expects an array of strings");
-                                 if (index != 0)
-                                   joined += arguments[1].asString();
-                                 joined += items[index].asString();
+                                 items.push_back(item.asString());
                                }
-                               return Value::string(std::move(joined));
+                               return Value::string(string_ops::join(items, arguments[1].asString()));
                              });
       natives.registerNative(
           "contains",
           [&expectStrings](const std::vector<Value> &arguments, const std::vector<typecheck::TypeId> &)
           {
             const auto strings = expectStrings(arguments, 2);
-            return Value::integer(strings[0].find(strings[1]) != std::string::npos);
+            return Value::integer(string_ops::contains(strings[0], strings[1]));
           });
       natives.registerNative(
           "replace",
           [&expectStrings](const std::vector<Value> &arguments, const std::vector<typecheck::TypeId> &)
           {
             const auto strings = expectStrings(arguments, 3);
-            std::string result = strings[0];
-            size_t position = 0;
-            while ((position = result.find(strings[1], position)) != std::string::npos)
-            {
-              result.replace(position, strings[1].size(), strings[2]);
-              position += strings[2].size();
-            }
-            return Value::string(std::move(result));
+            return Value::string(string_ops::replace(strings[0], strings[1], strings[2]));
           });
       natives.registerNative(
           "startsWith",
           [&expectStrings](const std::vector<Value> &arguments, const std::vector<typecheck::TypeId> &)
           {
             const auto strings = expectStrings(arguments, 2);
-            return Value::integer(strings[0].starts_with(strings[1]));
+            return Value::integer(string_ops::startsWith(strings[0], strings[1]));
           });
       natives.registerNative(
           "endsWith",
           [&expectStrings](const std::vector<Value> &arguments, const std::vector<typecheck::TypeId> &)
           {
             const auto strings = expectStrings(arguments, 2);
-            return Value::integer(strings[0].ends_with(strings[1]));
+            return Value::integer(string_ops::endsWith(strings[0], strings[1]));
           });
       natives.registerNative(
           "toUpper",
           [&expectStrings](const std::vector<Value> &arguments, const std::vector<typecheck::TypeId> &)
           {
             const auto strings = expectStrings(arguments, 1);
-            std::string result = strings[0];
-            for (auto &character : result)
-              character = static_cast<char>(std::toupper(static_cast<unsigned char>(character)));
-            return Value::string(std::move(result));
+            return Value::string(string_ops::toUpper(strings[0]));
           });
       natives.registerNative(
           "length",
           [&expectStrings](const std::vector<Value> &arguments, const std::vector<typecheck::TypeId> &)
           {
             const auto strings = expectStrings(arguments, 1);
-            return Value::integer(static_cast<int64_t>(strings.front().size()));
+            return Value::integer(string_ops::length(strings.front()));
           });
       natives.registerNative("charAt",
                              [](const std::vector<Value> &arguments, const std::vector<typecheck::TypeId> &)
                              {
                                if (arguments.size() != 2 || !arguments[0].isString() || !arguments[1].isInteger())
                                  throw bytecode::BytecodeError("charAt expects a string and an index");
-                               const auto &text = arguments[0].asString();
-                               const int64_t index = arguments[1].asInteger();
-                               if (index < 0 || static_cast<size_t>(index) >= text.size())
-                                 throw bytecode::BytecodeError(std::format(
-                                     "charAt index out of bounds: index {}, length {}", index, text.size()));
-                               return Value::string(std::string(1, text[static_cast<size_t>(index)]));
+                               try
+                               {
+                                 return Value::string(string_ops::charAt(arguments[0].asString(), arguments[1].asInteger()));
+                               }
+                               catch (const std::out_of_range &error)
+                               {
+                                 throw bytecode::BytecodeError(error.what());
+                               }
                              });
       natives.registerNative(
           "substring",
@@ -637,13 +577,15 @@ namespace NG
             if (arguments.size() != 3 || !arguments[0].isString() || !arguments[1].isInteger() ||
                 !arguments[2].isInteger())
               throw bytecode::BytecodeError("substring expects a string and two indexes");
-            const auto &text = arguments[0].asString();
-            const int64_t start = arguments[1].asInteger();
-            const int64_t end = arguments[2].asInteger();
-            if (start < 0 || end < start || static_cast<size_t>(end) > text.size())
-              throw bytecode::BytecodeError(
-                  std::format("substring bounds out of range: [{}..{}) of length {}", start, end, text.size()));
-            return Value::string(text.substr(static_cast<size_t>(start), static_cast<size_t>(end - start)));
+            try
+            {
+              return Value::string(
+                  string_ops::substring(arguments[0].asString(), arguments[1].asInteger(), arguments[2].asInteger()));
+            }
+            catch (const std::out_of_range &error)
+            {
+              throw bytecode::BytecodeError(error.what());
+            }
           });
       natives.registerNative("len",
                              [](const std::vector<Value> &arguments, const std::vector<typecheck::TypeId> &)
@@ -760,9 +702,9 @@ namespace NG
             const auto strings = expectStrings(arguments, 2);
             try
             {
-              return Value::integer(std::regex_search(strings[0], std::regex(strings[1])));
+              return Value::integer(string_ops::regexMatch(strings[0], strings[1]));
             }
-            catch (const std::regex_error &)
+            catch (const std::runtime_error &)
             {
               throw bytecode::BytecodeError(std::format("regexMatch: invalid pattern `{}`", strings[1]));
             }
@@ -772,10 +714,7 @@ namespace NG
           [&expectStrings](const std::vector<Value> &arguments, const std::vector<typecheck::TypeId> &)
           {
             const auto strings = expectStrings(arguments, 1);
-            std::string result = strings[0];
-            for (auto &character : result)
-              character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
-            return Value::string(std::move(result));
+            return Value::string(string_ops::toLower(strings[0]));
           });
       natives.registerNative("assert",
                              [](const std::vector<Value> &arguments, const std::vector<typecheck::TypeId> &)

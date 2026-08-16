@@ -371,8 +371,13 @@ Final generated results:
   (`NativeRegistry::declare`), validated for arity at VM call time, passed
   as authoritative type guidance to handlers, and used by the native tier
   for declaration-driven shim selection (`print(u8)` selects the unsigned
-  shim). Remaining M5: capability/ownership descriptors on signatures,
-  and `extern "C"`/`repr(C)` (B3, gated on R4/R6/R7).- **Later:** cross-target linking, debug info (R11), Windows when QBE's
+  shim). Second slice: the pure string natives share one implementation
+  (`include/string_ops.hpp`, `src/string_ops.cpp`) across the const host
+  and the runtime registry — the A6 drift risk is closed at the operation
+  level, bounds violations carry canonical messages (const adapters prefix
+  `const `), and the declared signatures carry a `pure` capability flag
+  for the const-capable set. Remaining M5: ownership descriptors on
+  signatures, and `extern "C"`/`repr(C)` (B3, gated on R4/R6/R7).- **Later:** cross-target linking, debug info (R11), Windows when QBE's
   `amd64_win` matures.
 
 ## 9. Build integration (implemented)

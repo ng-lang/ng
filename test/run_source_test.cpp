@@ -64,6 +64,27 @@ fun broken() -> unit {
   REQUIRE_THAT(errors, ContainsSubstring("type error"));
 }
 
+TEST_CASE("vNext string natives agree between const evaluation and the VM runtime", "[vNext][Const][Runtime]")
+{
+  // Both paths marshal into the shared string_ops implementations (A6):
+  // the const evaluator folds sanitized("  ng  ") at compile time and the
+  // VM evaluates the same call at run time — the results must agree.
+  const std::string source = R"(
+import prelude;
+const fun sanitized(s: string) -> string => trim(toUpper(s));
+fun main() -> i64 {
+    const if (sanitized("  ng  ") == "NG") { } else { return 0; }
+    if (sanitized("  ng  ") == "NG") { return 1; }
+    return 0;
+}
+)";
+  std::ostringstream output;
+  std::ostringstream errors;
+  REQUIRE(NG::runDriver({"--source", source}, output, errors) == 0);
+  REQUIRE(errors.str().empty());
+  REQUIRE_THAT(output.str(), ContainsSubstring("with value 1"));
+}
+
 TEST_CASE("runDriverWithNatives injects an extra native callable from NG source", "[vNext][Driver][NativeRegistration]")
 {
   static std::string lastMessage;
