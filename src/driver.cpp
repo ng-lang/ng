@@ -372,6 +372,18 @@ namespace NG
           registerCoreNatives(natives, output, errors);
           if (extraNatives != nullptr && *extraNatives != nullptr)
             (*extraNatives)(natives);
+          // R9 first slice: attach the declared signatures of every
+          // `native fun` declaration to the registry (arity validation and
+          // type guidance for the VM; shim selection for the native tier).
+          for (const auto &function : resolved.functions)
+          {
+            if (!function.nativeFunction) continue;
+            const auto found = typed.functionTypeIds.find(function.id.value);
+            if (found == typed.functionTypeIds.end()) continue;
+            natives.declare(function.name,
+                            vm::NativeRegistry::DeclaredSignature{.parameters = found->second.parameters,
+                                                                  .result = found->second.returnType});
+          }
           const auto result = vm::VM{}.run(artifact, main->id, values, fuel, &natives);
           output << "compiled " << verifiedFunctions << " vNext function(s); main "
                  << (result.reason == vm::HaltReason::Return ? "returned" : "exhausted fuel") << " after "

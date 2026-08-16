@@ -534,6 +534,19 @@ TEST_CASE("vNext native tier rejects out-of-range shift counts like the VM", "[v
   REQUIRE_THAT(errors.str(), ContainsSubstring("killed by a signal"));
 }
 
+TEST_CASE("vNext native tier selects unsigned shims from declared signatures", "[vNext][Native][Qbe]")
+{
+  std::ostringstream output;
+  std::ostringstream errors;
+  const int status = NG::runDriver(
+      {"--native", "--source", "export native fun print(value: u8) -> unit; fun main() -> i64 { print(200); return 0; }"},
+      output, errors);
+  INFO(errors.str());
+  REQUIRE(status == 0);
+  REQUIRE_THAT(output.str(), ContainsSubstring("200"));
+  REQUIRE_THAT(output.str(), ContainsSubstring("native main exited with code 0"));
+}
+
 TEST_CASE("vNext native mode prints string and float mains and exits 0", "[vNext][Native][Qbe]")
 {
   std::ostringstream output;

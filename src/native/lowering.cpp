@@ -87,6 +87,9 @@ namespace NG::native
       /// DefIds of `native fun` placeholders: calling one from native code is
       /// rejected until the declared-descriptor shims land (M5).
       std::unordered_set<uint32_t> nativeDefIds;
+      /// R9 first slice: DefId -> declared parameter types of `native fun`
+      /// declarations (arity validation and shim selection).
+      std::unordered_map<uint32_t, std::vector<TypeId>> nativeSignatures;
     };
 
     /// Builds a QBE symbol for a named function. `main` keeps its C-runtime
@@ -2082,10 +2085,24 @@ namespace NG::native
       void lowerNativeCall(const Instruction &instruction)
       {
         const auto name = names_.at(instruction.callTarget->value);
+        // R9 declared signature: validate arity at lowering time.
+        if (const auto found = ngrt_.nativeSignatures.find(instruction.callTarget->value);
+            found != ngrt_.nativeSignatures.end() && found->second.size() != instruction.operands.size())
+          throw LoweringError(std::format("native `{}` expects {} argument(s), got {} in `{}`", name,
+                                          found->second.size(), instruction.operands.size(), function_.name));
         const auto arg = [&](size_t index) -> std::string { return operandTemp(instruction.operands[index]); };
         const auto argType = [&](size_t index) -> TypeId
         {
           return function_.valueTypes.at(instruction.operands[index].value);
+        };
+        // The declared parameter type is authoritative for shim selection
+        // (e.g. print's unsigned/boolean variants).
+        const auto declaredType = [&](size_t index) -> TypeId
+        {
+          if (const auto found = ngrt_.nativeSignatures.find(instruction.callTarget->value);
+              found != ngrt_.nativeSignatures.end() && index < found->second.size())
+            return found->second[index];
+          return argType(index);
         };
         // Emits a call to a C shim; long-returning shims always receive a
         // temp (QBE requires one), unit results get a throwaway temp.
@@ -2105,7 +2122,7 @@ namespace NG::native
         };
         if (name == "print")
         {
-          const auto type = argType(0);
+          const auto type = declaredType(0);
           if (type == typecheck::builtin::String) emitShim("$ngshim_print_str", true, "l " + arg(0));
           else if (type == typecheck::builtin::Bool) emitShim("$ngshim_print_bool", true, "l " + arg(0));
           else if (typecheck::isUnsignedIntegerBuiltin(type)) emitShim("$ngshim_print_u64", true, "l " + arg(0));
@@ -2502,7 +2519,17 @@ namespace NG::native
     for (const auto &function : functions) names.emplace(function.source.value, function.name);
     NgrtContext ngrt;
     for (const auto &function : functions)
-      if (function.nativeFunction) ngrt.nativeDefIds.insert(function.source.value);
+    {
+      if (function.nativeFunction)
+      {
+        ngrt.nativeDefIds.insert(function.source.value);
+        std::vector<TypeId> declared;
+        for (const auto local : function.parameterLocals)
+          if (const auto found = function.localTypes.find(local.value); found != function.localTypes.end())
+            declared.push_back(found->second);
+        ngrt.nativeSignatures.emplace(function.source.value, std::move(declared));
+      }
+    }
     // Tier 1 aggregate type declarations: every struct type used by any
     // function gets a QBE aggregate type (all members are 8-byte words in
     // this slice). Ascending type id order satisfies define-before-use.

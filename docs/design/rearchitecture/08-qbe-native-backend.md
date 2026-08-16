@@ -365,9 +365,14 @@ Final generated results:
   (wrapping at production sites, equality/ordering comparisons; ordering
   compares raw payload words — a documented Tier 0 deviation from the VM's
   value-nature checks). regexMatch uses POSIX ERE, a documented deviation
-  from the VM's std::regex. Remaining M5: the declared-descriptor registry
-  (R9) superseding the name-keyed table, and `extern "C"`/`repr(C)` (B3).
-- **Later:** cross-target linking, debug info (R11), Windows when QBE's
+  from the VM's std::regex. R9 first slice delivered: every `native fun`
+  declaration's signature (parameter types + result) is derived from the
+  checker's `FunctionTypeIds`, attached to the registry
+  (`NativeRegistry::declare`), validated for arity at VM call time, passed
+  as authoritative type guidance to handlers, and used by the native tier
+  for declaration-driven shim selection (`print(u8)` selects the unsigned
+  shim). Remaining M5: capability/ownership descriptors on signatures,
+  and `extern "C"`/`repr(C)` (B3, gated on R4/R6/R7).- **Later:** cross-target linking, debug info (R11), Windows when QBE's
   `amd64_win` matures.
 
 ## 9. Build integration (implemented)

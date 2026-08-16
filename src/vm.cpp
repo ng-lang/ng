@@ -411,19 +411,32 @@ namespace NG::vm
         const auto &targetFunction = module.functions.at(target);
         if (targetFunction.nativeFunction)
         {
-          const auto *native = natives != nullptr ? natives->lookup(targetFunction.name) : nullptr;
-          if (native == nullptr)
+          const auto *entry = natives != nullptr ? natives->lookup(targetFunction.name) : nullptr;
+          if (entry == nullptr || !entry->function)
             throw bytecode::BytecodeError(std::format("native function `{}` is not registered", targetFunction.name));
           const uint32_t destination = instruction.operands[0];
           std::vector<typecheck::TypeId> parameterTypes;
-          parameterTypes.reserve(targetFunction.parameterLocals.size());
-          for (const auto local : targetFunction.parameterLocals)
+          if (!entry->signature.parameters.empty())
           {
-            const auto found = targetFunction.localTypes.find(local);
-            if (found != targetFunction.localTypes.end()) parameterTypes.push_back(found->second);
+            // R9 declared signature: validate arity and pass the declared
+            // parameter types (the authoritative typing guidance).
+            if (callArguments.size() != entry->signature.parameters.size())
+              throw bytecode::BytecodeError(std::format("native `{}` expects {} argument(s), got {}",
+                                                        targetFunction.name, entry->signature.parameters.size(),
+                                                        callArguments.size()));
+            parameterTypes = entry->signature.parameters;
+          }
+          else
+          {
+            parameterTypes.reserve(targetFunction.parameterLocals.size());
+            for (const auto local : targetFunction.parameterLocals)
+            {
+              const auto found = targetFunction.localTypes.find(local);
+              if (found != targetFunction.localTypes.end()) parameterTypes.push_back(found->second);
+            }
           }
           if (frame.values.size() <= destination) frame.values.resize(destination + 1);
-          frame.values[destination] = (*native)(callArguments, parameterTypes).deepCopy();
+          frame.values[destination] = entry->function(callArguments, parameterTypes).deepCopy();
           continue;
         }
         frames.push_back(makeFrame(target, callArguments, instruction.operands[0]));

@@ -21,18 +21,49 @@ namespace NG::vm
     /// (for overload-sensitive builtins such as `print`).
     using NativeFunction = std::function<Value(const std::vector<Value> &, const std::vector<typecheck::TypeId> &)>;
 
+    /// Declared signature of a `native fun` (R9 first slice): the parameter
+    /// and result types from the NG declaration plus a pure/const-capable
+    /// flag (D-012). An empty parameter vector means "undeclared" (legacy
+    /// registrations; no arity validation and no type guidance).
+    struct DeclaredSignature
+    {
+      std::vector<typecheck::TypeId> parameters;
+      typecheck::TypeId result{typecheck::builtin::Unit};
+      bool pure{};
+    };
+
+    struct Entry
+    {
+      NativeFunction function;
+      DeclaredSignature signature;
+    };
+
     void registerNative(std::string name, NativeFunction function)
     {
-      natives_.insert_or_assign(std::move(name), std::move(function));
+      natives_.insert_or_assign(std::move(name), Entry{std::move(function), {}});
     }
 
-    [[nodiscard]] auto lookup(const std::string &name) const -> const NativeFunction *
+    void registerNative(std::string name, NativeFunction function, DeclaredSignature signature)
+    {
+      natives_.insert_or_assign(std::move(name), Entry{std::move(function), std::move(signature)});
+    }
+
+    /// Attaches the declared signature derived from the NG declaration to an
+    /// existing entry, or creates an unregistered entry so call sites fail
+    /// with a precise diagnostic.
+    void declare(std::string name, DeclaredSignature signature)
+    {
+      auto [found, inserted] = natives_.try_emplace(std::move(name), Entry{nullptr, std::move(signature)});
+      if (!inserted) found->second.signature = std::move(signature);
+    }
+
+    [[nodiscard]] auto lookup(const std::string &name) const -> const Entry *
     {
       const auto found = natives_.find(name);
       return found != natives_.end() ? &found->second : nullptr;
     }
 
   private:
-    std::unordered_map<std::string, NativeFunction> natives_;
+    std::unordered_map<std::string, Entry> natives_;
   };
 } // namespace NG::vm
