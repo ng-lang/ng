@@ -332,13 +332,17 @@ Final generated results:
   `[.benchmark]` suite (fib / loop / string concat / list walk) times the
   VM against the compiled executable directly — fib(22) ≈ 30x, loop
   200000 ≈ 17x (the native column includes ~0.3 ms fork/exec startup per
-  run, so startup-dominated micro-programs show no gain). Remaining M4:
-  typed unboxing for aggregate hot paths (layout pass). Note on checked
-  helpers: they stay as calls — QBE cannot inline across calls, and an
-  inline overflow trap must fire even when the result is dead (the VM
-  throws on dead code too), so any trap-retention mechanism (indirect
-  call, load QBE assumes non-trapping) costs a call anyway; the
-  helper-call form is therefore retained.
+  run, so startup-dominated micro-programs show no gain). Delivered next:
+  **structs by value** — every struct type gets a QBE aggregate type
+  (`type :ngs_<id> = { l, ... }`, all members 8-byte words in this slice);
+  literals and unborrowed locals live in stack slots (`alloc8`), calls and
+  returns use the aggregate ABI (small structs pass in registers via QBE's
+  classification), and copy-first semantics are field-wise copies — QBE's
+  `blit` is unusable (its optimizer folds blitted data to an uninitialized
+  sentinel, observed empirically). Borrowed structs stay heap-resident
+  (cell locals hold object pointers), so escaping refs remain valid.
+  Remaining M4: enums by value, sub-word/float member layout (f32 as `s`),
+  real alignment-aware offsets.
 - **M5 (first slice delivered):** AOT shims for the standard natives —
   `libngrt` (`src/native/ngrt_shims.c`, pure C99, layouts matching the
   Tier 0 representations) is linked into every `--native` executable, and

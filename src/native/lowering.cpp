@@ -30,12 +30,14 @@ namespace NG::native
 
     // Tier 0 scalar mapping: every NG integer (incl. bool — stored as i64
     // 0/1) is a QBE `l`, and every float (f32/f64; Value stores doubles) is a
-    // QBE `d`. `None` marks unit-typed results, which produce no temp.
+    // QBE `d`. Structs map to QBE aggregate types (values are pointers into
+    // the aggregate's memory). `None` marks unit-typed results.
     enum class QType
     {
       Long,
       Double,
       None,
+      Aggregate,
     };
 
     [[nodiscard]] auto suffix(QType type) -> const char *
@@ -45,6 +47,7 @@ namespace NG::native
       case QType::Long: return "l";
       case QType::Double: return "d";
       case QType::None: return "";
+      case QType::Aggregate: return "l"; // call sites pass pointers at IL level
       }
       return "";
     }
@@ -672,6 +675,7 @@ namespace NG::native
       {
         uint32_t local;
         bool heapCell;
+        size_t words;
       };
       std::vector<SlotSpec> slotOrder_;
       /// Locals that are ever borrowed (`ref` roots, incl. trait views): their
@@ -697,6 +701,7 @@ namespace NG::native
       std::unordered_map<uint32_t, TypeId> unionBoxedValues_;
       std::vector<std::string> paramTemps_;
       std::optional<QType> returnType_;
+      std::optional<TypeId> returnTypeId_;
 
       [[nodiscard]] auto fresh() -> std::string { return std::format("%t{}", tempCounter_++); }
 
@@ -724,12 +729,13 @@ namespace NG::native
         case TypeKind::Tuple:
         case TypeKind::Range:
         case TypeKind::Reference:
-        case TypeKind::Struct:
         case TypeKind::Enum:
         case TypeKind::TraitReference:
         case TypeKind::Opaque:
         case TypeKind::Union:
           return QType::Long;
+        case TypeKind::Struct:
+          return QType::Aggregate;
         case TypeKind::TypeParameter:
         case TypeKind::TypeConstructor:
         case TypeKind::TypeApplication:
@@ -860,10 +866,54 @@ namespace NG::native
           type = qtypeOf(found->second);
         localSlots_.emplace(local, fresh());
         localQTypes_.emplace(local, type);
-        slotOrder_.push_back(SlotSpec{.local = local, .heapCell = cellLocals_.contains(local)});
+        size_t words = 1;
+        if (type == QType::Aggregate)
+        {
+          const auto &descriptor = function_.typeDescriptors[function_.localTypes.at(local).value];
+          words = descriptor.fieldNames.size();
+        }
+        slotOrder_.push_back(SlotSpec{.local = local, .heapCell = cellLocals_.contains(local), .words = words});
       }
 
       [[nodiscard]] auto isCellLocal(uint32_t local) -> bool { return cellLocals_.contains(local); }
+
+      /// QBE aggregate type name for a struct: `:ngs_<typeId>`.
+      [[nodiscard]] auto aggregateName(TypeId type) -> std::string { return std::format(":ngs_{}", type.value); }
+
+      /// Byte size of a struct's Tier 1 storage (all members are 8-byte
+      /// words in this slice).
+      [[nodiscard]] auto structSize(TypeId type) -> size_t
+      {
+        return function_.typeDescriptors[type.value].fieldNames.size() * 8;
+      }
+
+      /// Field-wise struct copy. (QBE's `blit` is not usable here: its
+      /// optimizer does not model blit's memory definitions, folding the
+      /// copied data to an uninitialized sentinel.)
+      void emitStructCopy(const std::string &destination, const std::string &source, TypeId type)
+      {
+        const auto &descriptor = function_.typeDescriptors[type.value];
+        for (size_t index = 0; index < descriptor.fieldNames.size(); ++index)
+        {
+          const auto sourceAddress = fresh();
+          line(std::format("{} =l add {}, {}", sourceAddress, source, index * 8));
+          const auto value = fresh();
+          line(std::format("{} =l loadl {}", value, sourceAddress));
+          const auto target = fresh();
+          line(std::format("{} =l add {}, {}", target, destination, index * 8));
+          line(std::format("storel {}, {}", value, target));
+        }
+      }
+
+      /// The QBE type spelling for a value type in signature/call positions:
+      /// aggregates name their QBE type (passed by pointer at IL level and
+      /// classified by the backend ABI).
+      [[nodiscard]] auto qbeSuffixFor(TypeId type) -> std::string
+      {
+        const auto qtype = qtypeOf(type);
+        if (qtype == QType::Aggregate) return aggregateName(type);
+        return suffix(qtype);
+      }
 
       /// The QBE type of a local; SSA locals skip slot creation, so the type
       /// falls back to the declared local type.
@@ -933,7 +983,10 @@ namespace NG::native
           if (hasTailRecur_) ssaExcluded_.insert(local.value);
         }
         for (const auto local : ssaCandidates_)
-          if (!ssaExcluded_.contains(local) && !cellLocals_.contains(local)) ssaLocals_.insert(local);
+          if (!ssaExcluded_.contains(local) && !cellLocals_.contains(local) &&
+              !(function_.localTypes.contains(local) &&
+                qtypeOf(function_.localTypes.at(local)) == QType::Aggregate))
+            ssaLocals_.insert(local);
         paramTemps_.reserve(function_.parameterLocals.size());
         for (size_t index = 0; index < function_.parameterLocals.size(); ++index)
         {
@@ -989,7 +1042,10 @@ namespace NG::native
         {
           const auto &terminator = *block.terminator;
           if (terminator.kind == TerminatorKind::Return && !terminator.arguments.empty())
-            return qtypeOf(function_.valueTypes.at(terminator.arguments[0].value));
+          {
+            returnTypeId_ = function_.valueTypes.at(terminator.arguments[0].value);
+            return qtypeOf(*returnTypeId_);
+          }
         }
         return std::nullopt;
       }
@@ -998,14 +1054,19 @@ namespace NG::native
       {
         returnType_ = findReturnType();
         // `main` is the C entry point: a unit return becomes an i64 exit code.
-        if (function_.name == "main" && (!returnType_ || *returnType_ == QType::None)) returnType_ = QType::Long;
+        if (function_.name == "main" && (!returnType_ || *returnType_ == QType::None))
+        {
+          returnType_ = QType::Long;
+          returnTypeId_ = typecheck::builtin::I64;
+        }
         out_ << (function_.name == "main" ? "export function" : "function");
-        if (returnType_ && *returnType_ != QType::None) out_ << ' ' << suffix(*returnType_);
+        if (returnType_ && *returnType_ != QType::None)
+          out_ << ' ' << (*returnType_ == QType::Aggregate ? aggregateName(*returnTypeId_) : suffix(*returnType_));
         out_ << ' ' << symbolFor(function_.source) << '(';
         for (size_t index = 0; index < paramTemps_.size(); ++index)
         {
           if (index != 0) out_ << ", ";
-          out_ << suffix(localQType(function_.parameterLocals[index].value)) << ' ' << paramTemps_[index];
+          out_ << qbeSuffixFor(function_.localTypes.at(function_.parameterLocals[index].value)) << ' ' << paramTemps_[index];
         }
         out_ << ") {\n";
         // One-shot entry logic: frame slots and parameter stores live under
@@ -1024,18 +1085,24 @@ namespace NG::native
           }
           else
           {
-            line(std::format("{} =l alloc8 8", localSlots_.at(slot.local)));
+            line(std::format("{} =l alloc8 {}", localSlots_.at(slot.local), slot.words));
           }
         }
         for (size_t param = 0; param < paramTemps_.size(); ++param)
         {
           const auto local = function_.parameterLocals[param].value;
           if (ssaLocals_.contains(local)) continue; // parameter temps are used directly
+          const auto localTypeId = function_.localTypes.at(local);
           if (isCellLocal(local))
           {
             const auto cell = fresh();
             line(std::format("{} =l loadl {}", cell, localSlots_.at(local)));
             line(std::format("storel {}, {}", paramTemps_[param], cell));
+          }
+          else if (qtypeOf(localTypeId) == QType::Aggregate)
+          {
+            // Copy-first semantics: aggregates are copied into the frame.
+            emitStructCopy(localSlots_.at(local), paramTemps_[param], localTypeId);
           }
           else
           {
@@ -1226,7 +1293,19 @@ namespace NG::native
           std::string boundValue = source;
           // Copy-first semantics: aggregates are deep-copied on bind so
           // later in-place mutation cannot alias the source.
-          if (needsClone(sourceType)) boundValue = emitClone(source, sourceType);
+          if (needsClone(sourceType))
+          {
+            const bool aggregateSlot = qtypeOf(sourceType) == QType::Aggregate && !isCellLocal(instruction.local->value) &&
+                                       !ssaLocals_.contains(instruction.local->value);
+            if (aggregateSlot)
+            {
+              // Copy the value straight into the local's stack slot.
+              emitStructCopy(localSlots_.at(instruction.local->value), source, sourceType);
+              bindResult(instruction, QType::Aggregate, std::format("copy {}", localSlots_.at(instruction.local->value)));
+              return;
+            }
+            boundValue = emitClone(source, sourceType);
+          }
           if (isUnionType(localType) && !isUnionType(sourceType))
           {
             // Values flowing into a union slot are wrapped in a tagged box.
@@ -1348,13 +1427,14 @@ namespace NG::native
           std::string arguments = std::format("l {}", receiver);
           for (size_t index = 1; index < instruction.operands.size(); ++index)
           {
-            const auto type = qtypeOf(function_.valueTypes.at(instruction.operands[index].value));
-            arguments += std::format(", {} {}", suffix(type), operandTemp(instruction.operands[index]));
+            const auto typeId = function_.valueTypes.at(instruction.operands[index].value);
+            arguments += std::format(", {} {}", qbeSuffixFor(typeId), operandTemp(instruction.operands[index]));
           }
-          const auto resultType = qtypeOf(function_.valueTypes.at(instruction.result.value));
+          const auto resultTypeId = function_.valueTypes.at(instruction.result.value);
+          const auto resultType = qtypeOf(resultTypeId);
           if (resultType == QType::None) line(std::format("call {}({})", function, arguments));
           else
-            line(std::format("{} ={} call {}({})", valueTemps_.at(instruction.result.value), suffix(resultType),
+            line(std::format("{} ={} call {}({})", valueTemps_.at(instruction.result.value), qbeSuffixFor(resultTypeId),
                              function, arguments));
           return;
         }
@@ -1447,6 +1527,12 @@ namespace NG::native
               line(std::format("{} =l loadl {}", cell, rootSlot));
               line(std::format("storel {}, {}", storedValue, cell));
             }
+            else if (qtypeOf(localType) == QType::Aggregate)
+            {
+              // Copy-first semantics: the assigned aggregate is copied into
+              // the local's stack slot.
+              emitStructCopy(rootSlot, storedValue, localType);
+            }
             else
             {
               line(std::format("store{} {}, {}", suffix(valueType), storedValue, rootSlot));
@@ -1455,6 +1541,8 @@ namespace NG::native
           }
           std::string current;
           if (isCellLocal(rootLocal)) current = loadLocal(rootLocal);
+          else if (qtypeOf(function_.localTypes.at(rootLocal)) == QType::Aggregate)
+            current = rootSlot; // the slot IS the aggregate object
           else
           {
             current = fresh();
@@ -1612,6 +1700,8 @@ namespace NG::native
           }
           else if (isCellLocal(local))
             bindResult(instruction, type, std::format("copy {}", castFromSlot(loadLocal(local), type)));
+          else if (type == QType::Aggregate)
+            bindResult(instruction, type, std::format("copy {}", localSlots_.at(local)));
           else bindResult(instruction, type, std::format("load{} {}", suffix(type), localSlots_.at(local)));
           if (const auto found = function_.localTypes.find(local); found != function_.localTypes.end() &&
                                                                isUnionType(found->second))
@@ -1660,24 +1750,26 @@ namespace NG::native
         std::string arguments;
         for (size_t index = 0; index < instruction.operands.size(); ++index)
         {
-          const auto type = qtypeOf(function_.valueTypes.at(instruction.operands[index].value));
+          const auto typeId = function_.valueTypes.at(instruction.operands[index].value);
+          const auto type = qtypeOf(typeId);
           if (type == QType::None)
             throw LoweringError(std::format("native lowering (M2): unit call argument in `{}`", function_.name));
           if (index != 0) arguments += ", ";
-          arguments += std::format("{} {}", suffix(type), operandTemp(instruction.operands[index]));
+          arguments += std::format("{} {}", qbeSuffixFor(typeId), operandTemp(instruction.operands[index]));
         }
-        const auto resultType = qtypeOf(function_.valueTypes.at(instruction.result.value));
+        const auto resultId = function_.valueTypes.at(instruction.result.value);
+        const auto resultType = qtypeOf(resultId);
         const auto symbol = symbolFor(*instruction.callTarget);
         if (resultType == QType::None) line(std::format("call {}({})", symbol, arguments));
         else
-          line(std::format("{} ={} call {}({})", valueTemps_.at(instruction.result.value), suffix(resultType), symbol,
-                           arguments));
-        if (isUnionType(resultTypeId(instruction)))
-          unionBoxedValues_.emplace(instruction.result.value, resultTypeId(instruction));
+          line(std::format("{} ={} call {}({})", valueTemps_.at(instruction.result.value), qbeSuffixFor(resultId),
+                           symbol, arguments));
+        if (isUnionType(resultId))
+          unionBoxedValues_.emplace(instruction.result.value, resultId);
       }
 
-      /// Struct literal: a malloc'd object of 8-byte fields (Tier 0 layout:
-      /// offset = 8 * field ordinal; no header — the field count is static).
+      /// Struct literal: a stack slot (alloc8) with 8-byte word fields
+      /// (Tier 1 layout: offset = 8 * field ordinal).
       void lowerStructLiteral(const Instruction &instruction)
       {
         const auto typeId = function_.valueTypes.at(instruction.result.value);
@@ -1686,7 +1778,7 @@ namespace NG::native
         if (count != instruction.operands.size())
           throw LoweringError(std::format("native lowering (M2): struct literal arity mismatch in `{}`", function_.name));
         const auto pointer = fresh();
-        line(std::format("{} =l call $malloc(l {})", pointer, count * 8));
+        line(std::format("{} =l alloc8 {}", pointer, count));
         for (size_t index = 0; index < count; ++index)
         {
           const auto elementType = qtypeOf(descriptor.elements[index]);
@@ -1695,7 +1787,7 @@ namespace NG::native
           line(std::format("{} =l add {}, {}", address, pointer, index * 8));
           line(std::format("storel {}, {}", element, address));
         }
-        bindResult(instruction, QType::Long, std::format("copy {}", pointer));
+        bindResult(instruction, QType::Aggregate, std::format("copy {}", pointer));
       }
 
       /// Tuple splice: flattens tuple operands into one tuple object. Tuple
@@ -1835,7 +1927,10 @@ namespace NG::native
                                                                    : descriptor.elements.size();
           const size_t header = descriptor.kind == TypeKind::Struct ? 0 : 16;
           const auto clone = fresh();
-          line(std::format("{} =l call $malloc(l {})", clone, count * 8 + header));
+          // Struct clones live on the heap: they are values that can be
+          // borrowed and escape their frame (cell locals store the pointer).
+          if (descriptor.kind == TypeKind::Struct) line(std::format("{} =l call $malloc(l {})", clone, count * 8));
+          else line(std::format("{} =l call $malloc(l {})", clone, count * 8 + header));
           if (descriptor.kind == TypeKind::Tuple)
           {
             line(std::format("storel {}, {}", count, clone));
@@ -2362,7 +2457,27 @@ namespace NG::native
     NgrtContext ngrt;
     for (const auto &function : functions)
       if (function.nativeFunction) ngrt.nativeDefIds.insert(function.source.value);
+    // Tier 1 aggregate type declarations: every struct type used by any
+    // function gets a QBE aggregate type (all members are 8-byte words in
+    // this slice). Ascending type id order satisfies define-before-use.
+    std::set<uint32_t> structTypeIds;
+    for (const auto &function : functions)
+      for (size_t index = 0; index < function.typeDescriptors.size(); ++index)
+        if (function.typeDescriptors[index].kind == TypeKind::Struct) structTypeIds.insert(static_cast<uint32_t>(index));
     std::string result;
+    for (const auto typeId : structTypeIds)
+    {
+      size_t count = 0;
+      for (const auto &function : functions)
+        if (typeId < function.typeDescriptors.size() && function.typeDescriptors[typeId].kind == TypeKind::Struct)
+        {
+          count = function.typeDescriptors[typeId].fieldNames.size();
+          break;
+        }
+      result += std::format("type :ngs_{} = {{", typeId);
+      for (size_t member = 0; member < count; ++member) result += member == 0 ? " l" : ", l";
+      result += " }\n";
+    }
     for (const auto &function : functions)
     {
       if (function.nativeFunction) continue;
