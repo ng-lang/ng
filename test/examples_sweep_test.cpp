@@ -47,6 +47,10 @@ TEST_CASE("vNext example corpus runs end to end through ngi", "[vNext][Examples]
     // The IDE drives the imgui binding; it is exercised headless through
     // stub natives in the imgui suite instead.
     if (filename == "ng_ide.ng") continue;
+    // The extern "C" example calls real C symbols; the VM tier rejects
+    // extern calls with a tier diagnostic, so it is exercised natively by
+    // the native suite (B3 first slice).
+    if (filename == "ffi_extern.ng") continue;
     std::string output;
     std::string errors;
     const int status = runExample("example/" + filename, output, errors);

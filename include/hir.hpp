@@ -271,6 +271,9 @@ namespace NG::hir
     /// `native fun` (D-004): implemented by the embedding at runtime; the
     /// declaration has no NG body.
     bool nativeFunction{};
+    /// `extern "C"` (D-004): a declared C-ABI function with no NG body; the
+    /// native tier calls the C symbol directly. Mutual with `nativeFunction`.
+    bool externC{};
     /// Where-clause constraint (D-014): predicate applications, `T is Type`,
     /// trait bounds, and boolean combinations; evaluated per concrete instance.
     ExpressionPtr whereClause;
@@ -293,6 +296,9 @@ namespace NG::hir
     std::vector<std::string> genericParameters;
     /// `derive(Copy + Clone)` synthesized impl targets.
     std::vector<std::string> derivedTraits;
+    /// `repr(C)` (D-004): layout is deliberately shared with C; field types
+    /// must be ABI-safe and the record may cross `extern "C"` boundaries.
+    bool reprC{};
     std::vector<StructField> fields;
   };
 

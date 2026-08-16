@@ -47,6 +47,8 @@ namespace NG::syntax
     KeywordAuto,
     KeywordDerive,
     KeywordFalse,
+    KeywordExtern,
+    KeywordRepr,
     LeftParen,
     RightParen,
     LeftSquare,

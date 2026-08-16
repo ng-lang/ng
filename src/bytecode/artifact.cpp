@@ -190,6 +190,7 @@ namespace NG::bytecode
     {
       appendU32(output, function.source.value);
       appendU32(output, function.nativeFunction ? 1u : 0u);
+      appendU32(output, function.externC ? 1u : 0u);
       appendU32(output, narrowSize(function.name.size()));
       output.insert(output.end(), function.name.begin(), function.name.end());
       appendU32(output, narrowSize(function.code.size()));
@@ -209,6 +210,7 @@ namespace NG::bytecode
     {
       Function function{.source = hir::DefId{readU32(input, offset)}};
       function.nativeFunction = readU32(input, offset) != 0;
+      function.externC = readU32(input, offset) != 0;
       const uint32_t nameSize = readU32(input, offset);
       if (nameSize > input.size() - offset) throw BytecodeError("truncated bytecode artifact");
       function.name.assign(input.begin() + static_cast<std::ptrdiff_t>(offset),

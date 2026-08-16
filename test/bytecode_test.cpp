@@ -317,6 +317,7 @@ TEST_CASE("vNext bytecode artifacts reject duplicate type metadata ids", "[vNext
   size_t offset = 4 + 4 + 4;                    // magic, version, function count
   static_cast<void>(readU32(artifact, offset)); // source
   static_cast<void>(readU32(artifact, offset)); // native flag
+  static_cast<void>(readU32(artifact, offset)); // extern C flag
   offset += readU32(artifact, offset);          // name
   offset += readU32(artifact, offset);          // code
   skipStringVector(artifact, offset);

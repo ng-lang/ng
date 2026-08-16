@@ -409,6 +409,9 @@ namespace NG::vm
           callArguments.push_back(frame.values.at(instruction.operands[3 + index]).deepCopy());
         const uint32_t target = instruction.operands[1];
         const auto &targetFunction = module.functions.at(target);
+        if (targetFunction.externC)
+          throw bytecode::BytecodeError(std::format("extern \"C\" function `{}` is only callable under `--native`",
+                                                    targetFunction.name));
         if (targetFunction.nativeFunction)
         {
           const auto *entry = natives != nullptr ? natives->lookup(targetFunction.name) : nullptr;

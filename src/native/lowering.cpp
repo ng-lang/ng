@@ -90,6 +90,14 @@ namespace NG::native
       /// R9 first slice: DefId -> declared parameter types of `native fun`
       /// declarations (arity validation and shim selection).
       std::unordered_map<uint32_t, std::vector<TypeId>> nativeSignatures;
+      /// B3 first slice: DefIds of `extern "C"` declarations. Call sites emit
+      /// direct QBE calls to the C symbol instead of an NG function symbol.
+      std::unordered_set<uint32_t> externDefIds;
+      /// B3 first slice: DefId -> declared parameter types and result of
+      /// `extern "C"` declarations (authoritative for the C ABI; NG call
+      /// sites widen sub-word values to i64).
+      std::unordered_map<uint32_t, std::vector<TypeId>> externParameterTypes;
+      std::unordered_map<uint32_t, TypeId> externResultTypes;
     };
 
     /// Builds a QBE symbol for a named function. `main` keeps its C-runtime
@@ -1049,6 +1057,25 @@ namespace NG::native
         return suffix(qtype);
       }
 
+      /// The QBE type spelling for an `extern "C"` scalar boundary, derived
+      /// from the DECLARED C signature type (NG carries every integer in an
+      /// `l` temp, so the value-type mapping cannot be reused): sub-word
+      /// integers keep their sign/zero-extension class (sb/ub/sh/uh),
+      /// i32/u32/bool are C `int` (`w`), f32 is `s`, f64 `d`, and i64/u64
+      /// are `l`.
+      [[nodiscard]] auto externSuffixFor(TypeId type) -> std::string
+      {
+        if (type == typecheck::builtin::I8) return "sb";
+        if (type == typecheck::builtin::U8) return "ub";
+        if (type == typecheck::builtin::I16) return "sh";
+        if (type == typecheck::builtin::U16) return "uh";
+        if (type == typecheck::builtin::I32 || type == typecheck::builtin::U32 || type == typecheck::builtin::Bool)
+          return "w";
+        if (type == typecheck::builtin::F32) return "s";
+        if (type == typecheck::builtin::F64) return "d";
+        return "l";
+      }
+
       /// The QBE type of a local; SSA locals skip slot creation, so the type
       /// falls back to the declared local type.
       [[nodiscard]] auto localQType(uint32_t local) -> QType
@@ -1897,6 +1924,11 @@ namespace NG::native
       /// deferred to the descriptor/shim work of M5.
       void lowerCall(const Instruction &instruction)
       {
+        if (ngrt_.externDefIds.contains(instruction.callTarget->value))
+        {
+          lowerExternCall(instruction);
+          return;
+        }
         if (ngrt_.nativeDefIds.contains(instruction.callTarget->value))
         {
           lowerNativeCall(instruction);
@@ -1921,6 +1953,118 @@ namespace NG::native
                            resultType == QType::Aggregate ? "l" : qbeSuffixFor(resultId), symbol, arguments));
         if (isUnionType(resultId))
           unionBoxedValues_.emplace(instruction.result.value, resultId);
+      }
+
+      /// B3 first slice: `extern "C"` call site — a direct QBE call to the C
+      /// symbol. Argument and result types come from the DECLARED C signature
+      /// (NG call sites widen sub-word values to i64, which would corrupt the
+      /// ABI): sub-word integers keep sb/ub/sh/uh and are width-checked so C
+      /// never sees silently truncated values, f32 values truncate to `s`,
+      /// and repr(C) aggregates are passed by pointer at IL level and
+      /// classified by the backend. The declared result is then widened into
+      /// the NG call-site temp, and aggregate results are copied from QBE's
+      /// return area onto the heap (NG aggregate values are heap pointers).
+      void lowerExternCall(const Instruction &instruction)
+      {
+        const auto defId = instruction.callTarget->value;
+        const auto symbol = std::format("${}", names_.at(defId));
+        const auto declared = [&](size_t index) -> TypeId
+        {
+          if (const auto found = ngrt_.externParameterTypes.find(defId);
+              found != ngrt_.externParameterTypes.end() && index < found->second.size())
+            return found->second[index];
+          return function_.valueTypes.at(instruction.operands[index].value);
+        };
+        /// The ngrt width-check helper for a narrow declared C integer type
+        /// (D-008 parity: C must never see a silently truncated NG value).
+        const auto widthCheck = [](TypeId type) -> const char * {
+          switch (type.value)
+          {
+          case typecheck::builtin::I8.value: return "check_w_i8";
+          case typecheck::builtin::I16.value: return "check_w_i16";
+          case typecheck::builtin::I32.value: return "check_w_i32";
+          case typecheck::builtin::U8.value: return "check_w_u8";
+          case typecheck::builtin::U16.value: return "check_w_u16";
+          case typecheck::builtin::U32.value: return "check_w_u32";
+          default: return nullptr;
+          }
+        };
+        std::string arguments;
+        for (size_t index = 0; index < instruction.operands.size(); ++index)
+        {
+          const auto typeId = declared(index);
+          std::string value = operandTemp(instruction.operands[index]);
+          if (const char *check = widthCheck(typeId); check != nullptr)
+          {
+            useHelper(check);
+            const auto checked = fresh();
+            line(std::format("{} =l call $ngrt_{}(l {})", checked, check, value));
+            value = checked;
+          }
+          else if (typeId == typecheck::builtin::F32)
+          {
+            const auto single = fresh();
+            line(std::format("{} =s truncd {}", single, value));
+            value = single;
+          }
+          if (index != 0) arguments += ", ";
+          if (qtypeOf(typeId) == QType::Aggregate)
+            arguments += std::format("{} {}", aggregateName(typeId), value);
+          else
+            arguments += std::format("{} {}", externSuffixFor(typeId), value);
+        }
+        const auto siteResult = function_.valueTypes.at(instruction.result.value);
+        const auto declaredResult = [&]() -> TypeId
+        {
+          if (const auto found = ngrt_.externResultTypes.find(defId); found != ngrt_.externResultTypes.end())
+            return found->second;
+          return siteResult;
+        }();
+        const auto siteType = qtypeOf(siteResult);
+        if (siteType == QType::None)
+        {
+          line(std::format("call {}({})", symbol, arguments));
+          return;
+        }
+        const auto declaredType = qtypeOf(declaredResult);
+        if (siteType == QType::Aggregate || declaredType == QType::Aggregate)
+        {
+          if (siteType != QType::Aggregate || declaredType != QType::Aggregate)
+            throw LoweringError(std::format("native lowering (B3): aggregate/{} extern result mismatch in `{}`",
+                                            siteType == QType::Aggregate ? "scalar" : "aggregate", function_.name));
+          const auto returnArea = fresh();
+          line(std::format("{} ={} call {}({})", returnArea, aggregateName(declaredResult), symbol, arguments));
+          bindResult(instruction, QType::Aggregate, std::format("copy {}", returnArea));
+          return;
+        }
+        const auto declaredSuffix = externSuffixFor(declaredResult);
+        const auto siteSuffix = qbeSuffixFor(siteResult);
+        if (declaredSuffix == siteSuffix)
+        {
+          line(std::format("{} ={} call {}({})", valueTemps_.at(instruction.result.value), declaredSuffix, symbol,
+                           arguments));
+          return;
+        }
+        // Widening conversion: the C signature returns a 32-bit (or single-
+        // precision) value and the NG call site expects the widened i64/f64
+        // (the checker widens sub-word results at call sites); extend per the
+        // declared signedness.
+        const auto raw = fresh();
+        line(std::format("{} ={} call {}({})", raw, declaredSuffix, symbol, arguments));
+        if (siteSuffix == "l" && declaredSuffix == "w")
+        {
+          const auto widen = typecheck::isUnsignedIntegerBuiltin(declaredResult) ? "extuw" : "extsw";
+          bindResult(instruction, QType::Long, std::format("{} {}", widen, raw));
+          return;
+        }
+        if (siteSuffix == "d" && declaredSuffix == "s")
+        {
+          bindResult(instruction, QType::Double, std::format("exts {}", raw));
+          return;
+        }
+        throw LoweringError(std::format("native lowering (B3): unsupported extern result conversion from {} to {} "
+                                        "in `{}`",
+                                        declaredSuffix, siteSuffix, function_.name));
       }
 
       /// Struct literal: a stack slot (alloc8) with 8-byte word fields
@@ -2651,6 +2795,19 @@ namespace NG::native
             declared.push_back(found->second);
         ngrt.nativeSignatures.emplace(function.source.value, std::move(declared));
       }
+      else if (function.externC)
+      {
+        // B3 first slice: extern declarations have no NG body; call sites
+        // emit direct QBE calls to the C symbol with the declared C types.
+        ngrt.externDefIds.insert(function.source.value);
+        std::vector<TypeId> declared;
+        for (const auto local : function.parameterLocals)
+          if (const auto found = function.localTypes.find(local.value); found != function.localTypes.end())
+            declared.push_back(found->second);
+        ngrt.externParameterTypes.emplace(function.source.value, std::move(declared));
+        if (function.declaredResultType.has_value())
+          ngrt.externResultTypes.emplace(function.source.value, *function.declaredResultType);
+      }
     }
     // Tier 1 aggregate type declarations: every struct type used by any
     // function gets a QBE aggregate type (all members are 8-byte words in
@@ -2707,7 +2864,7 @@ namespace NG::native
     }
     for (const auto &function : functions)
     {
-      if (function.nativeFunction) continue;
+      if (function.nativeFunction || function.externC) continue;
       try
       {
         result += FunctionLowerer{function, names, ngrt}.run();

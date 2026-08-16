@@ -96,6 +96,71 @@ TEST_CASE("vNext native lowering emits string data items and ngrt helpers", "[vN
   REQUIRE_THAT(il, ContainsSubstring("$malloc"));
 }
 
+TEST_CASE("vNext native lowering emits direct C calls for extern declarations", "[vNext][Native][Qbe][ExternC]")
+{
+  const auto il = emitSsa("extern \"C\" {\n"
+                          "    fun llabs(value: i64) -> i64;\n"
+                          "    fun abs(value: i32) -> i32;\n"
+                          "    fun fabs(value: f64) -> f64;\n"
+                          "}\n"
+                          "fun main() -> i64 {\n"
+                          "    if (llabs(-42) != 42) { return 1; }\n"
+                          "    if (abs(-7) != 7) { return 2; }\n"
+                          "    if (fabs(-2.5) != 2.5) { return 3; }\n"
+                          "    return 0;\n"
+                          "}");
+  REQUIRE_THAT(il, ContainsSubstring("=l call $llabs(l "));
+  REQUIRE_THAT(il, ContainsSubstring("=w call $abs(w "));
+  REQUIRE_THAT(il, ContainsSubstring("=d call $fabs(d "));
+}
+
+TEST_CASE("vNext native lowering passes repr(C) structs by value through extern calls", "[vNext][Native][Qbe][ExternC]")
+{
+  const auto il = emitSsa("repr(C)\n"
+                          "struct Point { x: i32, y: i32 }\n"
+                          "extern \"C\" fun ngrt_fixture_point_sum(p: Point) -> i64;\n"
+                          "fun main() -> i64 { let p = Point { x: 3, y: 4 }; return ngrt_fixture_point_sum(p); }");
+  REQUIRE_THAT(il, ContainsSubstring("call $ngrt_fixture_point_sum(:ngs_"));
+  REQUIRE_THAT(il, ContainsSubstring("type :ngs_"));
+}
+
+TEST_CASE("vNext extern C declarations reject non-ABI-safe signatures", "[vNext][Typecheck][ExternC]")
+{
+  std::ostringstream output;
+  std::ostringstream errors;
+  REQUIRE(NG::runDriver({"--source", "extern \"C\" { fun strlen(s: string) -> i64; }"}, output, errors) == 1);
+  REQUIRE_THAT(errors.str(), ContainsSubstring("not ABI-safe"));
+  REQUIRE(NG::runDriver({"--source", "extern \"C\" fun peek() -> i8;"}, output, errors) == 1);
+  REQUIRE_THAT(errors.str(), ContainsSubstring("sub-word results are deferred"));
+  REQUIRE(NG::runDriver({"--source", "extern \"C\" fun identity<T>(value: T) -> T;"}, output, errors) == 1);
+  REQUIRE_THAT(errors.str(), ContainsSubstring("cannot be generic"));
+  REQUIRE(NG::runDriver({"--source", "extern \"C\" fun body(x: i64) -> i64 { return x; }"}, output, errors) == 1);
+  REQUIRE_THAT(errors.str(), ContainsSubstring("expected `;` after extern function signature"));
+}
+
+TEST_CASE("vNext repr(C) structs reject non-ABI-safe fields and generics", "[vNext][Typecheck][ExternC]")
+{
+  std::ostringstream output;
+  std::ostringstream errors;
+  REQUIRE(NG::runDriver({"--source", "repr(C) struct Box<T> { value: T }"}, output, errors) == 1);
+  REQUIRE_THAT(errors.str(), ContainsSubstring("cannot be generic"));
+  REQUIRE(NG::runDriver({"--source", "repr(C) struct Flag { on: bool }"}, output, errors) == 1);
+  REQUIRE_THAT(errors.str(), ContainsSubstring("bool field"));
+  REQUIRE(NG::runDriver({"--source", "repr(C) struct Text { text: string }"}, output, errors) == 1);
+  REQUIRE_THAT(errors.str(), ContainsSubstring("not ABI-safe"));
+  REQUIRE(NG::runDriver({"--source", "struct Inner { v: i64 } repr(C) struct Outer { inner: Inner }"}, output, errors) == 1);
+  REQUIRE_THAT(errors.str(), ContainsSubstring("nested struct field"));
+}
+
+TEST_CASE("vNext extern C calls are rejected with a tier diagnostic in the VM", "[vNext][VM][ExternC]")
+{
+  std::ostringstream output;
+  std::ostringstream errors;
+  REQUIRE(NG::runDriver({"--source", "extern \"C\" fun llabs(value: i64) -> i64; fun main() -> i64 => llabs(-42);"},
+                        output, errors) == 1);
+  REQUIRE_THAT(errors.str(), ContainsSubstring("only callable under `--native`"));
+}
+
 #if defined(NG_QBE_PATH) && !defined(_WIN32)
 TEST_CASE("vNext native lowering round-trips a loop through qbe and the system toolchain", "[vNext][Native][Qbe]")
 {
@@ -595,6 +660,67 @@ TEST_CASE("vNext native mode prints string and float mains and exits 0", "[vNext
   REQUIRE_THAT(output.str(), ContainsSubstring("native main exited with code 0"));
   REQUIRE(NG::runDriver({"--native", "--source", "fun main() -> f64 { return 3.5; }"}, output, errors) == 0);
   REQUIRE_THAT(output.str(), ContainsSubstring("3.5"));
+  REQUIRE_THAT(output.str(), ContainsSubstring("native main exited with code 0"));
+}
+
+TEST_CASE("vNext native extern C calls libc scalars directly", "[vNext][Native][Qbe][ExternC]")
+{
+  const int exitCode = runNative("extern \"C\" {\n"
+                                 "    fun llabs(value: i64) -> i64;\n"
+                                 "    fun abs(value: i32) -> i32;\n"
+                                 "    fun fabs(value: f64) -> f64;\n"
+                                 "    fun sqrt(value: f64) -> f64;\n"
+                                 "    fun pow(value: f64, exponent: f64) -> f64;\n"
+                                 "}\n"
+                                 "fun main() -> i64 {\n"
+                                 "    if (llabs(-42) != 42) { return 1; }\n"
+                                 "    if (abs(-7) != 7) { return 2; }\n"
+                                 "    if (fabs(-2.5) != 2.5) { return 3; }\n"
+                                 "    if (sqrt(4.0) != 2.0) { return 4; }\n"
+                                 "    if (pow(2.0, 3.0) != 8.0) { return 5; }\n"
+                                 "    return 0;\n"
+                                 "}",
+                                 "extern_c_libc");
+  CHECK(exitCode == 0);
+}
+
+TEST_CASE("vNext native extern C passes repr(C) structs by value through libngrt", "[vNext][Native][Qbe][ExternC]")
+{
+  std::ostringstream output;
+  std::ostringstream errors;
+  const int status = NG::runDriver(
+      {"--native", "--source",
+       "repr(C)\n"
+       "struct Point { x: i32, y: i32 }\n"
+       "repr(C)\n"
+       "struct Mixed { a: i8, b: i16, c: i32 }\n"
+       "extern \"C\" fun ngrt_fixture_point_sum(p: Point) -> i64;\n"
+       "extern \"C\" fun ngrt_fixture_mixed_sum(m: Mixed) -> i64;\n"
+       "extern \"C\" fun ngrt_fixture_point_swap(p: Point) -> Point;\n"
+       "fun main() -> i64 {\n"
+       "    let p = Point { x: 3, y: 4 };\n"
+       "    if (ngrt_fixture_point_sum(p) != 7) { return 1; }\n"
+       "    let m = Mixed { a: 1, b: 2, c: 3 };\n"
+       "    if (ngrt_fixture_mixed_sum(m) != 6) { return 2; }\n"
+       "    let s = ngrt_fixture_point_swap(p);\n"
+       "    if (s.x != 4 || s.y != 3) { return 3; }\n"
+       "    return 0;\n"
+       "}"},
+      output, errors);
+  INFO(errors.str());
+  REQUIRE(status == 0);
+  REQUIRE_THAT(output.str(), ContainsSubstring("native main exited with code 0"));
+}
+
+TEST_CASE("vNext extern C example file runs end to end under --native", "[vNext][Native][Qbe][ExternC]")
+{
+  const std::string path =
+      std::filesystem::is_directory("example") ? "example/ffi_extern.ng" : "../example/ffi_extern.ng";
+  std::ostringstream output;
+  std::ostringstream errors;
+  const int status = NG::runDriver({"--native", path}, output, errors);
+  INFO(errors.str());
+  REQUIRE(status == 0);
   REQUIRE_THAT(output.str(), ContainsSubstring("native main exited with code 0"));
 }
 #endif

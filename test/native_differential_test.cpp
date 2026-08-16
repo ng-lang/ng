@@ -70,6 +70,9 @@ TEST_CASE("vNext example corpus matches the VM under the native tier", "[vNext][
     // The IDE drives the imgui binding (exercised headless in the imgui
     // suite); its native shims arrive with the R9 std-module work.
     if (path.ends_with("ng_ide.ng")) continue;
+    // Extern "C" calls have no VM oracle (the VM tier rejects them), so the
+    // example is exercised by dedicated native tests (B3 first slice).
+    if (path.ends_with("ffi_extern.ng")) continue;
     std::string vmOutput;
     std::string vmErrors;
     const int vmStatus = runDriverCaptured({path}, vmOutput, vmErrors);

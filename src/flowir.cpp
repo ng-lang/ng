@@ -40,9 +40,16 @@ namespace NG::flowir
 
       [[nodiscard]] auto lower(const hir::Function &source) -> Function
       {
-        function_ = Function{.source = source.id, .name = source.name, .nativeFunction = source.nativeFunction};
+        function_ = Function{.source = source.id,
+                             .name = source.name,
+                             .nativeFunction = source.nativeFunction,
+                             .externC = source.externC};
         if (types_ != nullptr)
+        {
           function_.typeDescriptors = types_->typeDescriptors;
+          if (const auto found = types_->functionTypeIds.find(source.id.value); found != types_->functionTypeIds.end())
+            function_.declaredResultType = found->second.returnType;
+        }
         reserveSyntheticLocalIds(source);
         for (const auto &parameter : source.parameters)
         {

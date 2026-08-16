@@ -82,7 +82,8 @@ namespace NG::bytecode
 
   auto Compiler::compile(const flowir::Function &flow) const -> Function
   {
-    Function result{.source = flow.source, .name = flow.name, .nativeFunction = flow.nativeFunction};
+    Function result{.source = flow.source, .name = flow.name, .nativeFunction = flow.nativeFunction,
+                    .externC = flow.externC};
     result.valueTypes = flow.valueTypes;
     result.localTypes = flow.localTypes;
     result.typeDescriptors = flow.typeDescriptors;

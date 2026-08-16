@@ -385,8 +385,56 @@ Final generated results:
   level, bounds violations carry canonical messages (const adapters prefix
   `const `), and the declared signatures carry a `pure` capability flag
   for the const-capable set. Remaining M5: ownership descriptors on
-  signatures, and `extern "C"`/`repr(C)` (B3, gated on R4/R6/R7).- **Later:** cross-target linking, debug info (R11), Windows when QBE's
+  signatures.
+- **B3 (first slice delivered):** `extern "C"` declarations and `repr(C)`
+  structs cross the C ABI natively — see the B3 section below.
+- **Later:** cross-target linking, debug info (R11), Windows when QBE's
   `amd64_win` matures.
+
+## 8b. B3 — `extern "C"` and `repr(C)` (first slice delivered)
+
+The declared C ABI (B3 in the post-cutover plan) is delivered as a first
+usable slice: declarations parse, typecheck with ABI-safety gates, and the
+native tier calls C symbols directly — QBE's flagship C ABI machinery does
+the per-target classification. `example/ffi_extern.ng` runs under
+`--native` against real libc (`llabs`/`abs`/`fabs`/`sqrt`/`pow`) and
+`libngrt` fixtures (`ngrt_fixture_point_sum/mixed_sum/point_swap` — struct
+by value, sub-word padding, and aggregate returns against compiled C
+definitions). The VM tier rejects extern calls with a tier diagnostic
+(`extern "C" function ... is only callable under --native`), so the
+example is exercised by the native suite rather than the VM sweep.
+
+- **Syntax:** `extern "C" { fun ...; }` blocks and single
+  `extern "C" fun ...;` declarations (no NG body); `repr(C)` before
+  `struct`. Only the `"C"` convention parses; `export extern "C"` is
+  rejected until the export slice.
+- **ABI-safe set (checker-enforced):** fixed-width integers, `f32`/`f64`,
+  `bool`, and `repr(C)` structs by value. Strings, arrays, tuples,
+  unions, enums, refs, pointers, and generics are rejected with spans.
+  Sub-word extern *results* are deferred (extension convention undecided);
+  sub-word *arguments* keep their sb/ub/sh/uh class and are width-checked
+  (`$ngrt_check_w_i8`...`u32`) so C never sees silently truncated values.
+  `repr(C)` fields must be fixed-width integers or floats — `bool` fields
+  (C `_Bool` layout) and nested struct fields are deferred.
+- **Lowering:** extern call sites emit direct `call $symbol` using the
+  DECLARED C signature types (NG widens sub-word values to i64 at call
+  sites, so value types cannot drive the ABI); 32-bit/`f32` declared
+  results widen (`extsw`/`extuw`/`exts`) into the NG call-site temp.
+  repr(C) records reuse the M4 alignment-aware aggregate types (`{ w, w }`,
+  `{ b, h, w }` — offsets 0/2/4 match C padding) and are passed by pointer
+  at IL level; QBE classifies them per the platform C ABI, and aggregate
+  results are `copy`-cloned from QBE's return area onto the NG heap.
+- **Semantics:** passing to an extern function never consumes the source
+  value (the C callee copies at the ABI boundary and cannot own NG
+  memory); NG-to-NG calls keep the existing affine move rules.
+- **Deferred (later B3 slices):** `cstr`/raw pointers, `owning`/
+  `borrowed`/`shared` annotations, opaque handles at the boundary, C
+  varargs, callbacks/trampolines, `export extern "C"` (exporting NG
+  functions with C ABI), sub-word/bool results, nested and `bool` repr(C)
+  fields, and the VM tier (dlsym-based dispatch or equivalent).
+- **Artifact format:** bytecode functions carry an `externC` flag next to
+  `nativeFunction` (serialized identically); the VM checks it at call
+  time.
 
 ## 9. Build integration (implemented)
 

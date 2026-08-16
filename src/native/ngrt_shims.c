@@ -427,3 +427,40 @@ void ngshim_write_file(const char *path, const char *content)
   fwrite(shim_str_bytes(content), 1, (size_t)shim_str_len(content), file);
   fclose(file);
 }
+
+/* B3 first slice: C-ABI fixtures for `extern "C"` / `repr(C)` end-to-end
+   tests. The struct layouts intentionally match NG `repr(C)` records —
+   QBE's backend classifies the aggregate by value from the IL type, so
+   these fixtures prove the whole boundary (layout, padding, register/
+   memory classification) against a compiled C definition. */
+
+struct ngrt_fixture_point
+{
+  int32_t x;
+  int32_t y;
+};
+
+struct ngrt_fixture_mixed
+{
+  int8_t a;
+  int16_t b;
+  int32_t c;
+};
+
+int64_t ngrt_fixture_point_sum(struct ngrt_fixture_point point)
+{
+  return (int64_t)point.x + (int64_t)point.y;
+}
+
+int64_t ngrt_fixture_mixed_sum(struct ngrt_fixture_mixed mixed)
+{
+  return (int64_t)mixed.a + (int64_t)mixed.b + (int64_t)mixed.c;
+}
+
+struct ngrt_fixture_point ngrt_fixture_point_swap(struct ngrt_fixture_point point)
+{
+  struct ngrt_fixture_point swapped;
+  swapped.x = point.y;
+  swapped.y = point.x;
+  return swapped;
+}

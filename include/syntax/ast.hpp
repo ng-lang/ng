@@ -696,13 +696,17 @@ namespace NG::syntax
     std::vector<std::string> genericParameters;
     /// `derive(Copy + Clone)` synthesized impl targets.
     std::vector<std::string> derivedTraits;
+    /// `repr(C)` (D-004): the record layout is deliberately shared with C and
+    /// part of the public ABI contract; field types must be ABI-safe.
+    const bool reprC;
     std::vector<StructFieldDeclaration> fields;
 
     StructDeclaration(std::string structName, std::vector<std::string> parameters,
                       std::vector<std::string> derived, std::vector<StructFieldDeclaration> structFields,
-                      SourceSpan sourceSpan)
+                      SourceSpan sourceSpan, bool isReprC = false)
       : ModuleItem(ModuleItemKind::Struct, sourceSpan), name(std::move(structName)),
-        genericParameters(std::move(parameters)), derivedTraits(std::move(derived)), fields(std::move(structFields))
+        genericParameters(std::move(parameters)), derivedTraits(std::move(derived)), reprC(isReprC),
+        fields(std::move(structFields))
     {
     }
   };
@@ -853,16 +857,21 @@ namespace NG::syntax
     Block body;
     const bool constFunction;
     const bool nativeFunction;
+    /// `extern "C"` (D-004): a declared C-ABI function with no NG body; the
+    /// native tier calls the C symbol directly. Mutual with `nativeFunction`.
+    const bool externC;
     ExpressionPtr whereClause;
     const bool exported;
 
     FunctionDeclaration(std::string functionName, std::vector<GenericParameter> genericParameterList,
                         std::vector<FunctionParameter> functionParameters,
                         TypeSyntaxPtr functionReturnType, Block functionBody, SourceSpan sourceSpan, bool isConstFunction = false,
-                        ExpressionPtr whereCondition = nullptr, bool isExported = false, bool isNativeFunction = false)
+                        ExpressionPtr whereCondition = nullptr, bool isExported = false, bool isNativeFunction = false,
+                        bool isExternC = false)
       : ModuleItem(ModuleItemKind::Function, sourceSpan), name(std::move(functionName)),
         genericParameters(std::move(genericParameterList)), parameters(std::move(functionParameters)), returnType(std::move(functionReturnType)), body(std::move(functionBody)),
-        constFunction(isConstFunction), nativeFunction(isNativeFunction), whereClause(std::move(whereCondition)), exported(isExported)
+        constFunction(isConstFunction), nativeFunction(isNativeFunction), externC(isExternC),
+        whereClause(std::move(whereCondition)), exported(isExported)
     {
     }
   };

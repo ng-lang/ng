@@ -66,6 +66,9 @@ namespace NG::bytecode
     hir::DefId source;
     std::string name;
     bool nativeFunction{};
+    /// `extern "C"` declaration (B3): calls are rejected in the VM tier with
+    /// a tier diagnostic; the native tier emits direct C calls.
+    bool externC{};
     std::vector<uint8_t> code;
     std::vector<std::string> stringConstants;
     std::vector<uint32_t> parameterLocals;
