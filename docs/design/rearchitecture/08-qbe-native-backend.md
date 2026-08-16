@@ -341,8 +341,15 @@ Final generated results:
   `blit` is unusable (its optimizer folds blitted data to an uninitialized
   sentinel, observed empirically). Borrowed structs stay heap-resident
   (cell locals hold object pointers), so escaping refs remain valid.
-  Remaining M4: enums by value, sub-word/float member layout (f32 as `s`),
-  real alignment-aware offsets.
+  Delivered next: **enums by value** — `type :nge_<id> = { l, l }`
+  (tag + payload word), stack literals, aggregate-typed parameters
+  (register passing), and heap-cloned aggregate returns (`l` signatures:
+  callee stack slots must not outlive frames, and QBE's aggregate return
+  areas interact poorly with recursive aggregate traffic — observed
+  empirically). Cell/ref assignments clone aggregates onto the heap so
+  loop-rebuilt stack literals cannot alias into cells.
+  Remaining M4: sub-word/float member layout (f32 as `s`), real
+  alignment-aware offsets.
 - **M5 (first slice delivered):** AOT shims for the standard natives —
   `libngrt` (`src/native/ngrt_shims.c`, pure C99, layouts matching the
   Tier 0 representations) is linked into every `--native` executable, and
