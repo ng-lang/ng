@@ -4141,7 +4141,8 @@ namespace NG::typecheck
                                                ? signature.parameters[index]
                                                : interner_.descriptor(signature.parameters.back()).element;
               const auto &parameterDescriptor = interner_.descriptor(parameterType);
-              if (parameterDescriptor.kind != TypeKind::Reference && parameterDescriptor.kind != TypeKind::RawPointer)
+              if (parameterDescriptor.kind != TypeKind::Reference && parameterDescriptor.kind != TypeKind::RawPointer &&
+                  !externTarget)
                 trackConsumption(*spreadInfo.argumentExpressions[index], locals);
             }
           }

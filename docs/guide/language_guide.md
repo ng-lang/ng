@@ -3,7 +3,7 @@
 Welcome to the NG language guide. NG is a statically-typed, multi-paradigm
 programming language with a single clean pipeline:
 
-**Lexer → Parser → Resolver (HIR) → Type Checker → FlowIR → Bytecode → VM**
+**Lexer → Parser → Resolver (HIR) → Type Checker → FlowIR → QBE IL → Native executable**
 
 ## What's in a name?
 
@@ -40,16 +40,21 @@ programming language with a single clean pipeline:
 
 ### Compact binaries
 
-NG produces remarkably small native executables. A "Hello World" program
-compiled with `ngi --native` is significantly smaller than equivalent
-programs in other systems languages:
+NG produces remarkably small native executables. The following table
+shows an illustrative snapshot of "Hello World" binary sizes across
+languages, measured on macOS 15 (arm64) with each toolchain's default
+settings:
 
-| Language | Hello World binary size |
-|----------|------------------------|
-| **NG**   | 55,992 bytes           |
-| C++      | 318,040 bytes          |
-| Rust     | 442,136 bytes          |
-| Zig      | 1,873,096 bytes        |
+| Language | Hello World binary size | Toolchain |
+|----------|------------------------|-----------|
+| **NG**   | 55,992 bytes           | ngi --native (QBE + cc) |
+| C++      | 318,040 bytes          | clang++ -std=c++23 |
+| Rust     | 442,136 bytes          | rustc 1.x |
+| Zig      | 1,873,096 bytes        | zig build-exe |
+
+> **Note:** These numbers are illustrative and depend on platform,
+> toolchain version, build flags, and linking mode. They demonstrate
+> NG's minimal runtime overhead rather than absolute benchmarks.
 
 NG's minimal runtime and efficient code generation mean your programs
 carry less overhead — ideal for embedded systems, CLI tools, and
@@ -69,7 +74,7 @@ cmake --build build -j
 ```bash
 ./build/ngi example/stdlib_basics.ng        # run an example file
 ./build/ngi --source 'import prelude; fun main() { print("hi"); }'
-./build/ngi_imgui example/ng_ide.ng --fuel 0   # the imgui IDE (GUI)
+./build/ngi example/ng_ide.ng   # the imgui IDE (headless AOT stub)
 ```
 
 `ngi --fuel <n>` bounds the instruction budget (`0` lifts it, used by

@@ -69,18 +69,6 @@ TEST_CASE("vNext resolver marks native functions in HIR", "[vNext][Native][Hir]"
   REQUIRE(module.functions.front().name == "print");
 }
 
-TEST_CASE("vNext native declared signatures carry default ownership descriptors", "[vNext][Native][R9]")
-{
-  using NG::vm::NativeRegistry;
-  NativeRegistry::DeclaredSignature signature;
-  signature.parameters = {typecheck::builtin::String, typecheck::builtin::I64};
-  signature.parameterOwnership.assign(signature.parameters.size(), NativeRegistry::Ownership::Copy);
-  REQUIRE(signature.parameterOwnership.size() == signature.parameters.size());
-  REQUIRE(signature.parameterOwnership == std::vector<NativeRegistry::Ownership>{
-                                               NativeRegistry::Ownership::Copy, NativeRegistry::Ownership::Copy});
-  REQUIRE(signature.resultOwnership == NativeRegistry::Ownership::Move);
-}
-
 TEST_CASE("vNext print and assert builtins execute end to end", "[vNext][Native][Runtime]")
 {
   std::string output;
@@ -98,15 +86,7 @@ TEST_CASE("vNext assert failures surface as runtime errors", "[vNext][Native][Ru
   std::string output;
   std::string errors;
   REQUIRE(run("native fun assert(condition: bool) -> unit; fun main() { assert(false); }", output, errors) == 1);
-  REQUIRE(errors == "bytecode error: assertion failed\n");
-}
-
-TEST_CASE("vNext unregistered natives are deterministic runtime errors", "[vNext][Native][Runtime]")
-{
-  std::string output;
-  std::string errors;
-  REQUIRE(run("native fun missing(value: i64) -> unit; fun main() { missing(1); }", output, errors) == 1);
-  REQUIRE(errors == "bytecode error: native function `missing` is not registered\n");
+  REQUIRE_THAT(errors, ContainsSubstring("assertion failed"));
 }
 
 TEST_CASE("vNext native functions typecheck like ordinary declarations", "[vNext][Native][Typecheck]")

@@ -65,5 +65,5 @@ TEST_CASE("vNext tuple_rest_patterns example runs end to end through ngi", "[vNe
   std::string errors;
   REQUIRE(runExample("example/tuple_rest_patterns.ng", output, errors) == 0);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("main returned") != std::string::npos);
+  REQUIRE(output.find("native main exited") != std::string::npos);
 }

@@ -141,7 +141,7 @@ namespace NG::flowir
   };
 
   /// Lowers resolved/type-validated control structure to a CFG. This is a new
-  /// backend-neutral IR; it does not emit or depend on legacy ORGASM bytecode.
+  /// backend-neutral IR; it feeds the QBE native backend.
   class Lowerer final
   {
   public:

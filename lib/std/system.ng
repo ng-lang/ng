@@ -1,0 +1,6 @@
+// vNext std.system: process/system command bindings supplied by libngrt.
+// These are the low-level primitives; higher-level helpers (like the IDE's
+// "run source with ngi") are implemented in NG on top of them.
+
+export native fun system(command: string) -> i64;
+export native fun systemOutput(command: string) -> string;

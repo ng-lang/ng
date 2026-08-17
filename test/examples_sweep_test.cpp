@@ -9,13 +9,17 @@
 
 namespace
 {
-  [[nodiscard]] auto runExample(std::string_view filename, std::string &output, std::string &errors) -> int
+  [[nodiscard]] auto runExample(std::string_view filename, std::string &output, std::string &errors,
+                                bool nativeMode = false) -> int
   {
     std::string path{filename};
     if (!std::filesystem::is_directory(std::filesystem::current_path() / "example")) path = std::string{"../"} + path;
     std::ostringstream outputStream;
     std::ostringstream errorStream;
-    const int status = NG::runDriver({path}, outputStream, errorStream);
+    std::vector<std::string_view> args;
+    if (nativeMode) args.push_back("--native");
+    args.push_back(path);
+    const int status = NG::runDriver(args, outputStream, errorStream);
     output = std::move(outputStream).str();
     errors = std::move(errorStream).str();
     return status;
@@ -44,21 +48,22 @@ TEST_CASE("vNext example corpus runs end to end through ngi", "[vNext][Examples]
   size_t runCount = 0;
   for (const auto &filename : files)
   {
-    // The IDE drives the imgui binding; it is exercised headless through
-    // stub natives in the imgui suite instead.
+    // The IDE opens a real SDL/ImGui window; it is not headless-testable.
     if (filename == "ng_ide.ng") continue;
-    // The extern "C" example calls real C symbols; the VM tier rejects
-    // extern calls with a tier diagnostic, so it is exercised natively by
-    // the native suite (B3 first slice).
-    if (filename == "ffi_extern.ng") continue;
+    // `modules/hello.ng` is an import-only module with no main entry point.
+    if (filename == "modules/hello.ng") continue;
+    // The extern "C" example calls real C symbols and is exercised through
+    // the normal AOT path.
+    const bool isNativeOnly = (filename == "ffi_extern.ng");
     std::string output;
     std::string errors;
-    const int status = runExample("example/" + filename, output, errors);
+    const int status = runExample("example/" + filename, output, errors, isNativeOnly);
     INFO("example: " << filename);
     INFO("errors: " << errors);
     REQUIRE(status == 0);
     REQUIRE(errors.empty());
-    REQUIRE(output.find("compiled") != std::string::npos);
+    if (!isNativeOnly)
+      REQUIRE(output.find("compiled") != std::string::npos);
     ++runCount;
   }
   REQUIRE(runCount >= 40);

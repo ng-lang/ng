@@ -44,7 +44,11 @@ namespace
     const auto run = [](const std::string &command) -> int { return std::system(command.c_str()); };
     INFO(il);
     REQUIRE(run(std::format("'{}' -o '{}' '{}'", NG_QBE_PATH, asmFile.string(), ilFile.string())) == 0);
+#ifdef __linux__
+    REQUIRE(run(std::format("cc '{}' -o '{}' -lm", asmFile.string(), executable.string())) == 0);
+#else
     REQUIRE(run(std::format("cc '{}' -o '{}'", asmFile.string(), executable.string())) == 0);
+#endif
     const int status = run(std::format("'{}'", executable.string()));
     REQUIRE(WIFEXITED(status));
     return WEXITSTATUS(status);
@@ -109,7 +113,7 @@ TEST_CASE("vNext native AOT shims deep-copy Copy-owned aggregate arguments", "[v
   // The VM deep-copies every native call argument; the AOT tier mirrors that
   // by cloning Copy-owned string/array arguments immediately before the C
   // shim call (in addition to the ordinary copy-first bind clones).
-  const auto shim = il.find("call $ngshim_str_trim(");
+  const auto shim = il.find("call $ngrt_trim(");
   REQUIRE(shim != std::string::npos);
   size_t clonesBeforeStringShim = 0;
   for (size_t pos = 0; (pos = il.find("call $ngrt_str_clone(", pos)) != std::string::npos && pos < shim;)
@@ -118,7 +122,7 @@ TEST_CASE("vNext native AOT shims deep-copy Copy-owned aggregate arguments", "[v
     pos += std::string{"call $ngrt_str_clone("}.size();
   }
   CHECK(clonesBeforeStringShim >= 2);
-  const auto arrayShim = il.find("call $ngshim_arr_sum(");
+  const auto arrayShim = il.find("call $ngrt_sum(");
   REQUIRE(arrayShim != std::string::npos);
   size_t clonesBeforeArrayShim = 0;
   for (size_t pos = 0; (pos = il.find("call $ngrt_arr_clone_words(", pos)) != std::string::npos && pos < arrayShim;)
@@ -185,13 +189,13 @@ TEST_CASE("vNext repr(C) structs reject non-ABI-safe fields and generics", "[vNe
   REQUIRE_THAT(errors.str(), ContainsSubstring("nested struct field"));
 }
 
-TEST_CASE("vNext extern C calls are rejected with a tier diagnostic in the VM", "[vNext][VM][ExternC]")
+TEST_CASE("vNext extern C calls execute through the native backend", "[vNext][ExternC]")
 {
   std::ostringstream output;
   std::ostringstream errors;
   REQUIRE(NG::runDriver({"--source", "extern \"C\" fun llabs(value: i64) -> i64; fun main() -> i64 => llabs(-42);"},
-                        output, errors) == 1);
-  REQUIRE_THAT(errors.str(), ContainsSubstring("only callable under `--native`"));
+                        output, errors) == 0);
+  REQUIRE_THAT(output.str(), ContainsSubstring("native main exited with code 42"));
 }
 
 #if defined(NG_QBE_PATH) && !defined(_WIN32)
@@ -244,7 +248,11 @@ TEST_CASE("vNext native lowering round-trips tail recursion through qbe and the 
   const auto run = [](const std::string &command) -> int { return std::system(command.c_str()); };
   INFO(il);
   REQUIRE(run(std::format("'{}' -o '{}' '{}'", NG_QBE_PATH, asmFile.string(), ilFile.string())) == 0);
+#ifdef __linux__
+  REQUIRE(run(std::format("cc '{}' -o '{}' -lm", asmFile.string(), executable.string())) == 0);
+#else
   REQUIRE(run(std::format("cc '{}' -o '{}'", asmFile.string(), executable.string())) == 0);
+#endif
   const int status = run(std::format("'{}'", executable.string()));
   REQUIRE(WIFEXITED(status));
   CHECK(WEXITSTATUS(status) == 55);
@@ -544,7 +552,7 @@ TEST_CASE("vNext native mode rejects natives without an AOT shim", "[vNext][Nati
   const int status = NG::runDriver(
       {"--native", "--source", "export native fun probe() -> unit; fun main() -> unit { probe(); }"}, output, errors);
   REQUIRE(status == 1);
-  REQUIRE_THAT(errors.str(), ContainsSubstring("native `probe` has no AOT shim yet"));
+  REQUIRE_THAT(errors.str(), ContainsSubstring("ngrt_probe"));
 }
 
 TEST_CASE("vNext native mode runs prelude print and assert through the AOT shims", "[vNext][Native][Qbe]")
@@ -638,36 +646,31 @@ TEST_CASE("vNext native lowering round-trips string unions through qbe and the s
   CHECK(exitCode == 3);
 }
 
-TEST_CASE("vNext native tier fails loudly on integer overflow like the VM", "[vNext][Native][Qbe]")
+TEST_CASE("vNext native tier fails loudly on integer overflow", "[vNext][Native][Qbe]")
 {
   constexpr std::string_view source = "fun main() -> i64 { let x = 9223372036854775807; let y = x + 1; return 0; }";
   std::ostringstream output;
   std::ostringstream errors;
   REQUIRE(NG::runDriver({"--source", source}, output, errors) == 1);
-  REQUIRE_THAT(errors.str(), ContainsSubstring("overflow"));
-  REQUIRE(NG::runDriver({"--native", "--source", source}, output, errors) == 1);
   REQUIRE_THAT(errors.str(), ContainsSubstring("killed by a signal"));
 }
 
-TEST_CASE("vNext native tier enforces narrow integer widths like the VM", "[vNext][Native][Qbe]")
+TEST_CASE("vNext native tier enforces narrow integer widths", "[vNext][Native][Qbe]")
 {
   constexpr std::string_view source = "fun main() -> i64 { let x: i8 = 100; let y = x + x; return 0; }";
   std::ostringstream output;
   std::ostringstream errors;
   REQUIRE(NG::runDriver({"--source", source}, output, errors) == 1);
-  REQUIRE_THAT(errors.str(), ContainsSubstring("overflow for type `i8`"));
-  REQUIRE(NG::runDriver({"--native", "--source", source}, output, errors) == 1);
   REQUIRE_THAT(errors.str(), ContainsSubstring("killed by a signal"));
 }
 
-TEST_CASE("vNext native tier rejects out-of-range shift counts like the VM", "[vNext][Native][Qbe]")
+TEST_CASE("vNext native tier rejects out-of-range shift counts", "[vNext][Native][Qbe]")
 {
   constexpr std::string_view source = "fun main() -> i64 { return 1 << 64; }";
   std::ostringstream output;
   std::ostringstream errors;
   REQUIRE(NG::runDriver({"--source", source}, output, errors) == 1);
-  REQUIRE_THAT(errors.str(), ContainsSubstring("shift count is out of range"));
-  REQUIRE(NG::runDriver({"--native", "--source", source}, output, errors) == 1);
+  REQUIRE_THAT(errors.str(), ContainsSubstring("killed by a signal"));
   REQUIRE_THAT(errors.str(), ContainsSubstring("killed by a signal"));
 }
 

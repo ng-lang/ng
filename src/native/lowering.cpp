@@ -90,9 +90,12 @@ namespace NG::native
       /// R9 first slice: DefId -> declared parameter types of `native fun`
       /// declarations (arity validation and shim selection).
       std::unordered_map<uint32_t, std::vector<TypeId>> nativeSignatures;
+      /// R9 first slice: DefId -> declared result type of `native fun`
+      /// declarations (QBE result classification for libngrt calls).
+      std::unordered_map<uint32_t, TypeId> nativeResultTypes;
       /// M5: DefId -> per-parameter ownership descriptors for native shim
       /// lowering (absent entries default to `Copy`).
-      std::unordered_map<uint32_t, std::vector<vm::NativeRegistry::Ownership>> nativeOwnerships;
+      std::unordered_map<uint32_t, std::vector<Ownership>> nativeOwnerships;
       /// B3 first slice: DefIds of `extern "C"` declarations. Call sites emit
       /// direct QBE calls to the C symbol instead of an NG function symbol.
       std::unordered_set<uint32_t> externDefIds;
@@ -2346,16 +2349,16 @@ namespace NG::native
         bindResult(instruction, QType::Long, std::format("copy {}", pointer));
       }
 
-      /// AOT shims for the standard natives: emitted per call site from the
-      /// native's name and the call site's static signature. The C
-      /// implementations live in src/native/ngrt_shims.c (linked as
-      /// `libngrt.a`); the declared-descriptor registry (M5) will supersede
-      /// this name-keyed table.
+      /// AOT calls to libngrt. The C implementation lives in libngrt and is
+      /// named `ngrt_<native fun name>`; print is the only overload-sensitive
+      /// native and picks a type-suffixed symbol from the declared parameter
+      /// type. This removes the old name-keyed shim table.
       void lowerNativeCall(const Instruction &instruction)
       {
-        const auto name = names_.at(instruction.callTarget->value);
+        const auto defId = instruction.callTarget->value;
+        const auto name = names_.at(defId);
         // R9 declared signature: validate arity at lowering time.
-        if (const auto found = ngrt_.nativeSignatures.find(instruction.callTarget->value);
+        if (const auto found = ngrt_.nativeSignatures.find(defId);
             found != ngrt_.nativeSignatures.end() && found->second.size() != instruction.operands.size())
           throw LoweringError(std::format("native `{}` expects {} argument(s), got {} in `{}`", name,
                                           found->second.size(), instruction.operands.size(), function_.name));
@@ -2363,103 +2366,74 @@ namespace NG::native
         {
           return function_.valueTypes.at(instruction.operands[index].value);
         };
-        // M5 ownership descriptors: by default a native parameter is `Copy`
-        // (copy-first D-015), so aggregate arguments are deep-copied before
-        // the C shim sees them — mirroring the VM's per-call deepCopy and
-        // ensuring a native cannot observe or mutate the caller's value.
-        const auto arg = [&](size_t index) -> std::string
-        {
-          const auto value = operandTemp(instruction.operands[index]);
-          auto ownership = vm::NativeRegistry::Ownership::Copy;
-          if (const auto found = ngrt_.nativeOwnerships.find(instruction.callTarget->value);
-              found != ngrt_.nativeOwnerships.end() && index < found->second.size())
-            ownership = found->second[index];
-          const auto type = argType(index);
-          if (ownership == vm::NativeRegistry::Ownership::Copy && needsClone(type)) return emitClone(value, type);
-          return value;
-        };
         // The declared parameter type is authoritative for shim selection
         // (e.g. print's unsigned/boolean variants).
         const auto declaredType = [&](size_t index) -> TypeId
         {
-          if (const auto found = ngrt_.nativeSignatures.find(instruction.callTarget->value);
+          if (const auto found = ngrt_.nativeSignatures.find(defId);
               found != ngrt_.nativeSignatures.end() && index < found->second.size())
             return found->second[index];
           return argType(index);
         };
-        // Emits a call to a C shim; long-returning shims always receive a
-        // temp (QBE requires one), unit results get a throwaway temp.
-        const auto emitShim = [&](std::string_view symbol, bool returnsLong, std::string_view arguments)
+        // M5 ownership descriptors: by default a native parameter is `Copy`
+        // (copy-first D-015), so aggregate arguments are deep-copied before
+        // the C callee sees them.
+        const auto arg = [&](size_t index) -> std::string
         {
-          if (returnsLong)
-          {
-            const auto target = qtypeOf(function_.valueTypes.at(instruction.result.value)) == QType::None
-                                    ? fresh()
-                                    : valueTemps_.at(instruction.result.value);
-            line(std::format("{} =l call {}({})", target, symbol, arguments));
-          }
-          else
-          {
-            line(std::format("call {}({})", symbol, arguments));
-          }
+          const auto value = operandTemp(instruction.operands[index]);
+          auto ownership = Ownership::Copy;
+          if (const auto found = ngrt_.nativeOwnerships.find(defId);
+              found != ngrt_.nativeOwnerships.end() && index < found->second.size())
+            ownership = found->second[index];
+          const auto type = argType(index);
+          if (ownership == Ownership::Copy && needsClone(type)) return emitClone(value, type);
+          return value;
         };
+        const auto argSuffix = [&](TypeId type) -> const char *
+        {
+          if (typecheck::isFloatBuiltin(type)) return "d";
+          return "l";
+        };
+        std::string symbol;
         if (name == "print")
         {
           const auto type = declaredType(0);
-          if (type == typecheck::builtin::String) emitShim("$ngshim_print_str", true, "l " + arg(0));
-          else if (type == typecheck::builtin::Bool) emitShim("$ngshim_print_bool", true, "l " + arg(0));
-          else if (typecheck::isUnsignedIntegerBuiltin(type)) emitShim("$ngshim_print_u64", true, "l " + arg(0));
-          else if (isFloat(type)) emitShim("$ngshim_print_f64", true, "d " + arg(0));
-          else emitShim("$ngshim_print_i64", true, "l " + arg(0));
-          return;
+          if (type == typecheck::builtin::String) symbol = "$ngrt_print_str";
+          else if (type == typecheck::builtin::Bool) symbol = "$ngrt_print_bool";
+          else if (typecheck::isUnsignedIntegerBuiltin(type)) symbol = "$ngrt_print_u64";
+          else if (isFloat(type)) symbol = "$ngrt_print_f64";
+          else symbol = "$ngrt_print_i64";
         }
-        if (name == "assert")
+        else
         {
-          emitShim("$ngshim_assert", false, "l " + arg(0));
-          return;
+          symbol = "$ngrt_" + name;
         }
-        if (name == "length")
+
+        std::string arguments;
+        for (size_t index = 0; index < instruction.operands.size(); ++index)
         {
-          emitShim("$ngshim_str_len", true, "l " + arg(0));
-          return;
+          if (index != 0) arguments += ", ";
+          arguments += std::format("{} {}", argSuffix(declaredType(index)), arg(index));
         }
-        if (name == "len")
+
+        const auto siteResult = function_.valueTypes.at(instruction.result.value);
+        const auto declaredResult = [&]() -> TypeId
         {
-          // Array length is a direct header load.
-          bindResult(instruction, QType::Long, std::format("loadl {}", arg(0)));
+          if (const auto found = ngrt_.nativeResultTypes.find(defId); found != ngrt_.nativeResultTypes.end())
+            return found->second;
+          return siteResult;
+        }();
+        const auto resultQType = qtypeOf(declaredResult);
+        if (resultQType == QType::Double)
+        {
+          const auto target = qtypeOf(siteResult) == QType::None ? fresh() : valueTemps_.at(instruction.result.value);
+          line(std::format("{} =d call {}({})", target, symbol, arguments));
           return;
         }
-        if (name == "charAt") return emitShim("$ngshim_str_char_at", true, std::format("l {}, l {}", arg(0), arg(1)));
-        if (name == "substring")
-          return emitShim("$ngshim_str_substring", true, std::format("l {}, l {}, l {}", arg(0), arg(1), arg(2)));
-        if (name == "trim") return emitShim("$ngshim_str_trim", true, "l " + arg(0));
-        if (name == "toUpper") return emitShim("$ngshim_str_to_upper", true, "l " + arg(0));
-        if (name == "toLower") return emitShim("$ngshim_str_to_lower", true, "l " + arg(0));
-        if (name == "contains") return emitShim("$ngshim_str_contains", true, std::format("l {}, l {}", arg(0), arg(1)));
-        if (name == "startsWith")
-          return emitShim("$ngshim_str_starts_with", true, std::format("l {}, l {}", arg(0), arg(1)));
-        if (name == "endsWith") return emitShim("$ngshim_str_ends_with", true, std::format("l {}, l {}", arg(0), arg(1)));
-        if (name == "replace")
-          return emitShim("$ngshim_str_replace", true, std::format("l {}, l {}, l {}", arg(0), arg(1), arg(2)));
-        if (name == "split") return emitShim("$ngshim_str_split", true, std::format("l {}, l {}", arg(0), arg(1)));
-        if (name == "join") return emitShim("$ngshim_str_join", true, std::format("l {}, l {}", arg(0), arg(1)));
-        if (name == "regexMatch")
-          return emitShim("$ngshim_regex_match", true, std::format("l {}, l {}", arg(0), arg(1)));
-        if (name == "sum") return emitShim("$ngshim_arr_sum", true, "l " + arg(0));
-        if (name == "arrayContains")
-          return emitShim("$ngshim_arr_contains", true, std::format("l {}, l {}", arg(0), arg(1)));
-        if (name == "reverse") return emitShim("$ngshim_arr_reverse", true, "l " + arg(0));
-        if (name == "allocate") return emitShim("$ngshim_allocate", true, "l " + arg(0));
-        if (name == "load") return emitShim("$ngshim_load", true, "l " + arg(0));
-        if (name == "store") return emitShim("$ngshim_store", false, std::format("l {}, l {}", arg(0), arg(1)));
-        if (name == "release") return emitShim("$ngshim_release", false, "l " + arg(0));
-        if (name == "outstanding") return emitShim("$ngshim_outstanding", true, "");
-        if (name == "currentExecutablePath") return emitShim("$ngshim_current_executable_path", true, "");
-        if (name == "readLine") return emitShim("$ngshim_read_line", true, "");
-        if (name == "readFile") return emitShim("$ngshim_read_file", true, "l " + arg(0));
-        if (name == "writeFile")
-          return emitShim("$ngshim_write_file", false, std::format("l {}, l {}", arg(0), arg(1)));
-        throw LoweringError(std::format("native `{}` has no AOT shim yet", name));
+        // All other libngrt functions return an i64-sized word (integer,
+        // bool, pointer, or unit-as-ignored-word).
+        const auto target = qtypeOf(siteResult) == QType::None ? fresh() : valueTemps_.at(instruction.result.value);
+        line(std::format("{} =l call {}({})", target, symbol, arguments));
       }
 
       /// Union equality/inequality against a member value: the tag must match
@@ -2747,13 +2721,13 @@ namespace NG::native
             if (type == typecheck::builtin::String)
             {
               const auto unused = fresh();
-              line(std::format("{} =l call $ngshim_print_str(l {})", unused, value));
+              line(std::format("{} =l call $ngrt_print_str(l {})", unused, value));
               line("ret 0");
             }
             else if (typecheck::isFloatBuiltin(type))
             {
               const auto unused = fresh();
-              line(std::format("{} =l call $ngshim_print_f64(d {})", unused, value));
+              line(std::format("{} =l call $ngrt_print_f64(d {})", unused, value));
               line("ret 0");
             }
             else
@@ -2813,6 +2787,8 @@ namespace NG::native
           if (const auto found = function.localTypes.find(local.value); found != function.localTypes.end())
             declared.push_back(found->second);
         ngrt.nativeSignatures.emplace(function.source.value, std::move(declared));
+          if (function.declaredResultType.has_value())
+            ngrt.nativeResultTypes.emplace(function.source.value, *function.declaredResultType);
       }
       else if (function.externC)
       {

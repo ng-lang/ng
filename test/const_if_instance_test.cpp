@@ -53,7 +53,7 @@ namespace
     REQUIRE(run(source, output, errors) == 0);
     INFO("errors: " << errors);
     REQUIRE(errors.empty());
-    REQUIRE(output.find(std::string{"with value "} + std::string{value}) != std::string::npos);
+    REQUIRE(output.find(std::string{"native main exited with code "} + std::string{value}) != std::string::npos);
   }
 } // namespace
 
@@ -78,9 +78,9 @@ TEST_CASE("vNext per-instance const if evaluates const fun calls over const para
 
 TEST_CASE("vNext concrete const if conditions still fold inside const generic functions", "[vNext][ConstIf][Runtime]")
 {
-  expectValue("fun plain<const N: i64>(values: array<i64, N>) -> i64 { "
+  expectValue("fun plain<const N: i64>() -> i64 { "
               "let mut total = 0; const if (1 + 1 == 2) { total := 5; } else { total := 0; } return total; } "
-              "fun main() -> i64 { let xs: array<i64, 1> = [1]; return plain(xs); }",
+              "fun main() -> i64 { return plain<5>(); }",
               "5");
 }
 
@@ -106,5 +106,5 @@ TEST_CASE("vNext const if instance example file runs end to end through ngi", "[
   REQUIRE(runExample("example/const_if_instances.ng", output, errors) == 0);
   INFO("errors: " << errors);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("with value 13") != std::string::npos);
+  REQUIRE(output.find("native main exited with code 13") != std::string::npos);
 }

@@ -1110,7 +1110,7 @@ namespace NG::flowir
           if (expression.operands[1]->kind == hir::ExpressionKind::IntegerLiteral)
           {
             // Constant projections (tuples and literal array indexes) become member
-            // steps so bytecode metadata can verify the leaf type statically.
+            // steps so the backend can verify the leaf type statically.
             place.steps.push_back(
                 PlaceStep{.kind = PlaceStep::Kind::Member, .field = std::stoll(expression.operands[1]->text)});
           }

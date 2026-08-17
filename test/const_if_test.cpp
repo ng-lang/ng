@@ -129,10 +129,10 @@ TEST_CASE("vNext ngi driver lowers only the selected const if branch", "[vNext][
   std::string output;
   std::string errors;
   REQUIRE(run({"--source", "fun main() -> i64 { const if (1 < 2) { return 1; } else { return 2; } }"}, output, errors) == 0);
-  REQUIRE(output == "compiled 1 vNext function(s); main returned after 2 instruction(s) with value 1\n");
+  REQUIRE(output == "compiled 1 vNext function(s)\nnative main exited with code 1\n");
   REQUIRE(errors.empty());
 
   REQUIRE(run({"--source", "fun main() -> i64 { const if (2 < 1) { return 1; } else { return 2; } }"}, output, errors) == 0);
-  REQUIRE(output == "compiled 1 vNext function(s); main returned after 2 instruction(s) with value 2\n");
+  REQUIRE(output == "compiled 1 vNext function(s)\nnative main exited with code 2\n");
   REQUIRE(errors.empty());
 }

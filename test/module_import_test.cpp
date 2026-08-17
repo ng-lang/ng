@@ -90,14 +90,10 @@ TEST_CASE("vNext module loader merges transitive import graphs", "[vNext][Module
   REQUIRE(unit.items.size() == 3);
   std::string output;
   std::string errors;
-  REQUIRE(run({(fixture.directory / "a.ng").string()}, output, errors) == 0);
-  REQUIRE(errors.empty());
-  REQUIRE(output.find("compiled 3 vNext function(s)") != std::string::npos);
-
   fixture.write("main.ng", "import a; fun main() -> i64 { return fromA(); }");
   REQUIRE(run({(fixture.directory / "main.ng").string()}, output, errors) == 0);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("with value 42") != std::string::npos);
+  REQUIRE(output.find("native main exited with code 42") != std::string::npos);
 }
 
 TEST_CASE("vNext module loader reports missing modules deterministically", "[vNext][Modules][Loader]")
@@ -120,7 +116,7 @@ TEST_CASE("vNext module loader tolerates import cycles", "[vNext][Modules][Loade
   std::string errors;
   REQUIRE(run({(fixture.directory / "main.ng").string()}, output, errors) == 0);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("with value 42") != std::string::npos);
+  REQUIRE(output.find("native main exited with code 42") != std::string::npos);
 }
 
 TEST_CASE("vNext imported modules may declare structs and traits", "[vNext][Modules][Loader]")
@@ -135,7 +131,7 @@ TEST_CASE("vNext imported modules may declare structs and traits", "[vNext][Modu
   std::string errors;
   REQUIRE(run({(fixture.directory / "main.ng").string()}, output, errors) == 0);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("with value 7") != std::string::npos);
+  REQUIRE(output.find("native main exited with code 7") != std::string::npos);
 }
 
 TEST_CASE("vNext module privacy hides non-exported functions from importers", "[vNext][Modules][Privacy]")
@@ -178,7 +174,7 @@ TEST_CASE("vNext wildcard imports re-export imported module surfaces transitivel
   std::string errors;
   REQUIRE(run({(fixture.directory / "main.ng").string()}, output, errors) == 0);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("with value 84") != std::string::npos);
+  REQUIRE(output.find("native main exited with code 84") != std::string::npos);
 
   fixture.write("main.ng", "import middle; fun main() -> i64 { return leafHidden(); }");
   REQUIRE(run({(fixture.directory / "main.ng").string()}, output, errors) == 1);
@@ -192,5 +188,5 @@ TEST_CASE("vNext module import example runs end to end through ngi", "[vNext][Mo
   REQUIRE(runExample("example/modules/imports_main.ng", output, errors) == 0);
   INFO("errors: " << errors);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("with value 42") != std::string::npos);
+  REQUIRE(output.find("native main exited with code 42") != std::string::npos);
 }

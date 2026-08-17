@@ -36,7 +36,7 @@ fun helper() -> i64 {   // module-private
 
 | Module | Surface |
 |---|---|
-| `prelude` | `print`/`assert`, `not`, `runNgi`, and re-exports of io/string |
+| `prelude` | `print`/`assert`, `not`, and re-exports of io/string |
 | `io` | `readLine`, `readFile`, `writeFile`, `currentExecutablePath` |
 | `string` | `length`, `charAt`, `substring`, `trim`, `split`, `join`, `contains`, `replace`, `startsWith`, `endsWith`, `toUpper`, `toLower`, `regexMatch` |
 | `seq` | `len`, `sum`, `arrayContains`, `reverse` |

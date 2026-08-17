@@ -182,7 +182,7 @@ namespace NG::typecheck
     if (const auto found = structTypes_.find(id.value); found != structTypes_.end()) return found->second;
     // The base descriptor is a declaration marker; generic instantiations
     // intern their own descriptors with concrete field types. A zero length
-    // keeps the marker valid for bytecode verification.
+    // keeps the marker valid for backend verification.
     const TypeId result = append(TypeDescriptor{.kind = TypeKind::Struct,
                                                  .name = std::move(name),
                                                  .element = TypeId{},

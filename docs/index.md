@@ -26,10 +26,10 @@ features:
     details: Generics, traits, tagged unions, and ownership model — express your domain with confidence and safety.
   - icon: ⚡
     title: One Clean Pipeline
-    details: Lexer → Parser → Resolver → Type Checker → FlowIR → Bytecode → VM — one implementation, no duplicated semantics.
+    details: Lexer → Parser → Resolver → Type Checker → FlowIR → QBE IL → native executable — one implementation, no duplicated semantics.
   - icon: 🚀
     title: Native Code Generation
-    details: Compile to native executables with the `--output` flag. Produces compact binaries with minimal runtime overhead.
+    details: Compile to native executables with `--output <path>`. Produces compact binaries with minimal runtime overhead.
   - icon: 🔧
     title: Compile-Time Programming
     details: Const if, const functions, and type specialization — compute at compile time, not at runtime.

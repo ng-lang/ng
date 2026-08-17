@@ -1,7 +1,7 @@
 # Getting Started with NG
 
 NG compiles and runs through a single tool, `ngi`, which drives the full
-pipeline (parse → resolve → typecheck → FlowIR → bytecode → VM) for a file
+pipeline (parse → resolve → typecheck → FlowIR → QBE IL → native executable) for a file
 or an inline source unit.
 
 ## Requirements
@@ -20,7 +20,6 @@ cmake --build build -j
 This produces:
 
 - `build/ngi` — the NG frontend (headless).
-- `build/ngi_imgui` — the same frontend plus the imgui binding.
 - `build/ng_test` — the full Catch2 test suite (run `ctest --test-dir build`).
 
 ## Run your first program
@@ -92,7 +91,7 @@ GUI/interactive programs run a frame loop; lift the per-run instruction
 budget with `--fuel 0`:
 
 ```bash
-./build/ngi_imgui example/ng_ide.ng --fuel 0
+./build/ngi example/ng_ide.ng
 ```
 
 ## Tests and examples

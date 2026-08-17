@@ -1,14 +1,16 @@
 // NG IDE: a minimal editor-and-runner built on the std.imgui binding.
 //
 // Run with:
-//   ./build/ngi_imgui example/ng_ide.ng --fuel 0
+//   ./build/ngi example/ng_ide.ng
 //
-// The editor text runs through the real NG pipeline (parse -> resolve ->
-// typecheck -> FlowIR -> bytecode -> VM) via the `runNgi` native from
-// std.prelude, and the captured output is shown in the output panel.
+// The editor is an AOT smoke test: the imgui natives are headless libngrt
+// stubs, and Run compiles the editor source on top of std.system by locating
+// `ngi` in PATH or the current directory.
 
 import prelude;
 import imgui;
+import system;
+import io;
 
 fun main() -> unit {
     let mut source = "fun main() -> i64 {\n    return 42;\n}\n";
@@ -25,10 +27,17 @@ fun main() -> unit {
         imguiSetNextWindowSize(1100.0, 720.0);
         imguiBegin("NG IDE");
 
-        imguiTextWrapped("NG IDE: the editor below runs through the NG compiler and VM. Press Run to execute the source.");
+        imguiTextWrapped("NG IDE: AOT-native imgui stubs. Press Run to compile via ngi.");
 
         if (imguiButton("Run")) {
-            output := runNgi(source);
+            let sourcePath = "/tmp/ng_ide_source.ng";
+            writeFile(sourcePath, source);
+            let probe = trim(systemOutput("if test -x ./ngi; then echo ./ngi; elif command -v ngi >/dev/null 2>&1; then echo ngi; fi"));
+            if (length(probe) == 0) {
+                output := "error: cannot find ngi executable in PATH or current directory";
+            } else {
+                output := systemOutput(probe + " " + sourcePath);
+            }
         }
         if (imguiButton("Reset")) {
             source := "fun main() -> i64 {\n    return 42;\n}\n";

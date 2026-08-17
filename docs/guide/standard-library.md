@@ -11,7 +11,7 @@ import prelude;
 ```
 
 `print` (i64/string/bool/f64/f32 overloads), `assert`, `not`, and
-`runNgi(source) -> string` — which compiles and runs a source string
+`system(command) -> i64` and `systemOutput(command) -> string` — process/system command bindings
 inside the running program and returns its captured output (plus
 diagnostics with a trailing `[exit N]` on failure). The prelude
 re-exports the io and string surfaces.
@@ -80,7 +80,7 @@ deferred.
 
 ## `imgui`
 
-The Dear ImGui binding (registered by `ngi_imgui`) — see
+The Dear ImGui binding (`lib/std/imgui.ng`, lowered to `$ngrt_imgui*`) — see
 [ImGui Integration](/guide/imgui-integration).
 
 ## Umbrella

@@ -17,10 +17,6 @@ export native fun print(value: u32) -> unit;
 export native fun print(value: u64) -> unit;
 export native fun assert(condition: bool) -> unit;
 
-// Compiles and runs an NG source unit inside the running program, returning
-// its captured output (and diagnostics with a trailing `[exit N]` on failure).
-export native fun runNgi(source: string) -> string;
-
 export fun not(value: bool) -> bool {
     return !value;
 }
