@@ -756,4 +756,24 @@ TEST_CASE("vNext extern C example file runs end to end under --native", "[vNext]
   REQUIRE(status == 0);
   REQUIRE_THAT(output.str(), ContainsSubstring("native main exited with code 0"));
 }
+
+TEST_CASE("vNext native --output writes an executable without running it", "[vNext][Native][Qbe]")
+{
+  const auto outputPath = std::filesystem::temp_directory_path() / "ng_native_output_test";
+  std::error_code ignored;
+  std::filesystem::remove(outputPath, ignored);
+  std::ostringstream output;
+  std::ostringstream errors;
+  const int status = NG::runDriver({"--native", "--output", outputPath.string(), "--source",
+                                    "fun main() -> i64 { return 42; }"},
+                                   output, errors);
+  INFO(errors.str());
+  REQUIRE(status == 0);
+  REQUIRE_THAT(output.str(), ContainsSubstring("native executable written to"));
+  REQUIRE(std::filesystem::exists(outputPath));
+  const int runStatus = std::system(std::format("'{}'", outputPath.string()).c_str());
+  REQUIRE(WIFEXITED(runStatus));
+  CHECK(WEXITSTATUS(runStatus) == 42);
+  std::filesystem::remove(outputPath, ignored);
+}
 #endif

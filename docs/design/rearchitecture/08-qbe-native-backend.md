@@ -202,6 +202,7 @@ Driver UX (proposed; VM remains the default):
 ```bash
 ngi example/hello.ng                # default: VM (unchanged)
 ngi --native example/hello.ng       # AOT: emit exe, assemble+link via cc
+ngi --native --output hello file.ng # AOT: write `hello` executable, do not run
 ngi --native --emit=ssa file.ng     # dump QBE IL (.ssa) only
 ngi --native --emit=asm file.ng     # stop after qbe (.s)
 ngi --native --emit=obj file.ng     # stop after cc -c (.o)
@@ -216,7 +217,8 @@ Stages:
    definition, §9) → GNU/Apple assembly.
 4. **`cc` subprocess:** assemble + link the runtime archive (`libngrt`) and
    the host runtime for natives → executable (Mach-O / ELF).
-5. **Run** if requested; artifact caching arrives with R7.
+5. **Run** by default, or write the executable to `--output <path>` when
+   requested; artifact caching arrives with R7.
 
 Final generated results:
 

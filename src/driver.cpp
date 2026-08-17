@@ -41,7 +41,8 @@ namespace NG
              << "\n"
              << "`--fuel 0` lifts the instruction budget (used by interactive programs such as the imgui IDE).\n"
              << "`--emit=ssa` lowers the module to QBE IL text instead of running it.\n"
-             << "`--native` compiles to a native executable (qbe + cc) and runs it.\n";
+             << "`--native` compiles to a native executable (qbe + cc) and runs it.\n"
+             << "`--native --output <path>` compiles to `<path>` without running it.\n";
     }
 
     [[nodiscard]] auto parseExpressionAndReport(std::string_view source, std::ostream &output, std::ostream &errors)
@@ -145,12 +146,13 @@ namespace NG
 
 #if defined(NG_QBE_PATH) && !defined(_WIN32)
     /// Emits QBE IL, assembles it with the vendored qbe, links it with the
-    /// system cc, runs the executable, and forwards its output. Native
-    /// executables need no host runtime yet: the ngrt helpers call libc
-    /// directly (native shims arrive in M5).
+    /// system cc, and either runs the executable (default) or writes it to
+    /// `outputPath` when provided. Native executables link `libngrt` (the
+    /// AOT shim library) and call libc for the low-level runtime helpers.
     [[nodiscard]] auto compileNativeAndRun(const std::vector<flowir::Function> &flows,
                                            const std::unordered_map<uint64_t, std::vector<uint32_t>> &vtables,
-                                           const native::NativeOwnerships &nativeOwnerships, std::ostream &output,
+                                           const native::NativeOwnerships &nativeOwnerships,
+                                           const std::optional<std::string> &outputPath, std::ostream &output,
                                            std::ostream &errors) -> int
     {
       const auto il = native::lowerModule(flows, vtables, nativeOwnerships);
@@ -160,7 +162,7 @@ namespace NG
       std::filesystem::create_directories(directory, ignored);
       const auto ilFile = directory / "module.ssa";
       const auto asmFile = directory / "module.s";
-      const auto executable = directory / "ng_out";
+      const auto executable = outputPath.has_value() ? std::filesystem::path{*outputPath} : directory / "ng_out";
       {
         std::ofstream stream(ilFile);
         stream << il;
@@ -177,6 +179,11 @@ namespace NG
         errors << "native: cc failed:\n" << link.output;
         return 1;
       }
+      if (outputPath.has_value())
+      {
+        output << "native executable written to " << executable.string() << '\n';
+        return 0;
+      }
       const auto run = runCommand({executable.string()});
       if (!WIFEXITED(run.status))
       {
@@ -191,6 +198,7 @@ namespace NG
     [[nodiscard]] auto compileNativeAndRun(const std::vector<flowir::Function> &,
                                            const std::unordered_map<uint64_t, std::vector<uint32_t>> &,
                                            const native::NativeOwnerships &,
+                                           const std::optional<std::string> &,
                                            std::ostream &, std::ostream &errors) -> int
     {
       errors << "native: the native tier requires the vendored QBE tool and a POSIX host\n";
@@ -203,7 +211,8 @@ namespace NG
                                                   std::ostream &output, std::ostream &errors,
                                                   const NativeRegistration *extraNatives = nullptr,
                                                   size_t fuel = 1'000'000, bool emitSsa = false,
-                                                  bool nativeMode = false) -> int
+                                                  bool nativeMode = false,
+                                                  const std::optional<std::string> &nativeOutput = std::nullopt) -> int
     {
       try
       {
@@ -325,7 +334,7 @@ namespace NG
           output << native::lowerModule(flows, vtables, nativeOwnerships);
           return 0;
         }
-        if (nativeMode) return compileNativeAndRun(flows, vtables, nativeOwnerships, output, errors);
+        if (nativeMode) return compileNativeAndRun(flows, vtables, nativeOwnerships, nativeOutput, output, errors);
         const auto artifact = bytecode::ModuleCompiler{}.compile(flows, vtables);
         for (const auto &function : artifact.functions)
           bytecode::Verifier{}.verify(function);
@@ -782,13 +791,14 @@ namespace NG
     [[nodiscard]] auto parseSourceAndReport(std::string_view source,
                                             const std::vector<std::string_view> &runtimeArguments, std::ostream &output,
                                             std::ostream &errors, const NativeRegistration *extraNatives = nullptr,
-                                            size_t fuel = 1'000'000, bool emitSsa = false, bool nativeMode = false) -> int
+                                            size_t fuel = 1'000'000, bool emitSsa = false, bool nativeMode = false,
+                                            const std::optional<std::string> &nativeOutput = std::nullopt) -> int
     {
       try
       {
         const auto unit = modules::ModuleLoader{}.loadSource(source, std::filesystem::current_path());
         return compileSourceUnitAndReport(unit, runtimeArguments, output, errors, extraNatives, fuel, emitSsa,
-                                          nativeMode);
+                                          nativeMode, nativeOutput);
       }
       catch (const modules::LoadError &error)
       {
@@ -810,12 +820,34 @@ namespace NG
     size_t fuel = 1'000'000;
     bool emitSsa = false;
     bool nativeMode = false;
+    std::optional<std::string> nativeOutput;
     std::vector<std::string_view> cleaned;
     cleaned.reserve(arguments.size());
     for (size_t index = 0; index < arguments.size(); ++index)
     {
       if (arguments[index] != "--")
       {
+        if (arguments[index] == "--output" || arguments[index] == "-o")
+        {
+          if (index + 1 >= arguments.size())
+          {
+            errors << "--output requires a path\n";
+            return 1;
+          }
+          nativeOutput = std::string{arguments[++index]};
+          continue;
+        }
+        if (arguments[index].starts_with("--output="))
+        {
+          auto value = std::string{arguments[index].substr(std::string_view{"--output="}.size())};
+          if (value.empty())
+          {
+            errors << "--output requires a path\n";
+            return 1;
+          }
+          nativeOutput = std::move(value);
+          continue;
+        }
         if (arguments[index] == "--fuel" && index + 1 < arguments.size())
         {
           uint64_t parsed = 0;
@@ -860,6 +892,11 @@ namespace NG
       }
       cleaned.push_back(arguments[index]);
     }
+    if (nativeOutput.has_value() && !nativeMode)
+    {
+      errors << "--output requires --native\n";
+      return 1;
+    }
     if (cleaned.empty() || cleaned[0] == "--help" || cleaned[0] == "-h")
     {
       printUsage(output);
@@ -894,7 +931,7 @@ namespace NG
         runtimeArguments.assign(cleaned.begin() + 3, cleaned.end());
       }
       return parseSourceAndReport(cleaned[1], runtimeArguments, output, errors, extraNatives, fuel, emitSsa,
-                                  nativeMode);
+                                  nativeMode, nativeOutput);
     }
 
     if (cleaned[0].starts_with('-') || cleaned.size() != 1)
@@ -908,7 +945,8 @@ namespace NG
     try
     {
       const auto unit = modules::ModuleLoader{}.loadFile(std::filesystem::path{std::string{cleaned[0]}});
-      return compileSourceUnitAndReport(unit, {}, output, errors, extraNatives, fuel, emitSsa, nativeMode);
+      return compileSourceUnitAndReport(unit, {}, output, errors, extraNatives, fuel, emitSsa, nativeMode,
+                                        nativeOutput);
     }
     catch (const modules::LoadError &error)
     {

@@ -158,6 +158,15 @@ TEST_CASE("vNext ngi driver exhausts a small fuel budget", "[vNext][Driver][Fuel
   REQUIRE(errors.empty());
 }
 
+TEST_CASE("vNext ngi driver rejects --output without --native", "[vNext][Driver][Native]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(run({"--source", "fun main() { }", "--output", "out"}, output, errors) == 1);
+  REQUIRE(output.empty());
+  REQUIRE(errors == "--output requires --native\n");
+}
+
 TEST_CASE("vNext ngi driver rejects malformed --fuel values", "[vNext][Driver][Fuel]")
 {
   std::string output;

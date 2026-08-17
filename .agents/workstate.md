@@ -2,17 +2,19 @@
 
 ## Current focus
 
-Continuing the QBE native backend (`docs/design/rearchitecture/08-qbe-native-backend.md`): M5 ownership descriptors on native signatures.
+Continuing the QBE native backend (`docs/design/rearchitecture/08-qbe-native-backend.md`): native binary output (`--output`) and M5 ownership descriptors.
 
 ## Status
 
 - vNext migration goal: **complete** (marked in goal tools; see `goal-2b0550d8-4094-4168-9cd3-06658ac747e5`).
-- Full suite green: 559/559 ctest, including the native differential sweep and the new ownership-descriptor tests.
-- M5 (AOT native shims + declared native signatures) is now complete: `DeclaredSignature` carries per-parameter `Ownership` (`Copy`/`Borrow`/`Move`) and result ownership; AOT lowering deep-copies `Copy` aggregate arguments before shim calls.
+- Full suite green: 561/561 ctest, including the native differential sweep, ownership-descriptor tests, and native `--output` tests.
+- M5 (AOT native shims + declared native signatures) is complete: `DeclaredSignature` carries per-parameter `Ownership` (`Copy`/`Borrow`/`Move`) and result ownership; AOT lowering deep-copies `Copy` aggregate arguments before shim calls.
+- `ngi --native --output <path>` now writes a native executable without running it.
 
 ## Recent completed changes
 
-- `docs/design/rearchitecture/08-qbe-native-backend.md` — M5 status updated to delivered.
+- `src/driver.cpp`, `test/driver_test.cpp`, `test/native_qbe_test.cpp` — added `--output` / `-o` native executable output.
+- `docs/design/rearchitecture/08-qbe-native-backend.md` — documented `--output`, M5 delivered.
 - `include/native.hpp`, `include/native/lowering.hpp`, `src/driver.cpp`, `src/native/lowering.cpp` — ownership descriptors added and wired into AOT shim argument lowering.
 - `test/native_function_test.cpp`, `test/native_qbe_test.cpp` — ownership descriptor and deep-copy regression coverage.
 
