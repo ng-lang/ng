@@ -358,7 +358,7 @@ Final generated results:
   2-aligned), i32/u32 `w` (4 bytes, 4-aligned), with sign/zero-extending
   typed loads (`loadsb/loadub/loadsh/loaduh/loadsw/loaduw`) and truncated
   typed stores (`storeb/storeh/storew`); no M4 items remain.
-- **M5 (first slice delivered):** AOT shims for the standard natives —
+- **M5 (delivered):** AOT shims for the standard natives —
   `libngrt` (`src/native/ngrt_shims.c`, pure C99, layouts matching the
   Tier 0 representations) is linked into every `--native` executable, and
   the lowering emits per-call-site shim calls keyed by native name plus
@@ -384,8 +384,12 @@ Final generated results:
   and the runtime registry — the A6 drift risk is closed at the operation
   level, bounds violations carry canonical messages (const adapters prefix
   `const `), and the declared signatures carry a `pure` capability flag
-  for the const-capable set. Remaining M5: ownership descriptors on
-  signatures.
+  for the const-capable set. **M5 complete with ownership descriptors on
+  signatures:** `DeclaredSignature` now carries per-parameter `Ownership`
+  (`Copy`/`Borrow`/`Move`) plus result ownership; `native fun` parameters
+  default to `Copy` (copy-first D-015) and results to `Move`. The native
+  tier uses those descriptors to deep-copy aggregate arguments before AOT
+  shim calls, matching the VM's per-call `deepCopy` semantics.
 - **B3 (first slice delivered):** `extern "C"` declarations and `repr(C)`
   structs cross the C ABI natively — see the B3 section below.
 - **Later:** cross-target linking, debug info (R11), Windows when QBE's

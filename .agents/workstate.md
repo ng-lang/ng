@@ -2,28 +2,29 @@
 
 ## Current focus
 
-Documentation sync only. The user asked to pause new tasks; align docs and record state via the worklog/align skills.
+Continuing the QBE native backend (`docs/design/rearchitecture/08-qbe-native-backend.md`): M5 ownership descriptors on native signatures.
 
 ## Status
 
 - vNext migration goal: **complete** (marked in goal tools; see `goal-2b0550d8-4094-4168-9cd3-06658ac747e5`).
-- Full suite green: 1757 assertions / 437 test cases, ctest 100%; 45 examples run e2e (`test/examples_sweep_test.cpp`).
-- Docs phase complete: guide rewritten, ref guides updated, legacy design/review docs archived (`docs/design/archive/`, untracked + gitignored), VitePress design content removed.
+- Full suite green: 559/559 ctest, including the native differential sweep and the new ownership-descriptor tests.
+- M5 (AOT native shims + declared native signatures) is now complete: `DeclaredSignature` carries per-parameter `Ownership` (`Copy`/`Borrow`/`Move`) and result ownership; AOT lowering deep-copies `Copy` aggregate arguments before shim calls.
 
 ## Recent completed changes
 
-- `fe8089f` list spreads into array literals (legacy 59 `[...items]`; EnumListLength/EnumListGet opcodes)
-- `0c2032d` list collection literals (`let xs: List<i64> = [1,2,3];`)
-- `8deca5a`/`7b977c9`/`422bc56` docs: guide/ref rewrites, archive + vitepress + gitignore
+- `docs/design/rearchitecture/08-qbe-native-backend.md` — M5 status updated to delivered.
+- `include/native.hpp`, `include/native/lowering.hpp`, `src/driver.cpp`, `src/native/lowering.cpp` — ownership descriptors added and wired into AOT shim argument lowering.
+- `test/native_function_test.cpp`, `test/native_qbe_test.cpp` — ownership descriptor and deep-copy regression coverage.
 
 ## Next steps (user-gated)
 
-- Review rewritten `docs/guide` and the deferred-item plan.
-- Candidate continuations per `07-post-cutover-plan.md`: R6/R9 prerequisites (heap domain, C ABI) or a repo-wide clang-format pass.
+- Continue 08/QBE backend open items (e.g. panic policy, artifact caching, remaining B3 slices).
+- Per `07-post-cutover-plan.md`: R6/R9 prerequisites (heap domain, C ABI) or a repo-wide clang-format pass.
 - Align: CHANGELOG + root README still describe the legacy pipeline (flagged for update).
 
 ## References
 
+- `docs/design/rearchitecture/08-qbe-native-backend.md` — QBE native backend status and milestones
 - `docs/design/rearchitecture/07-post-cutover-plan.md` — remaining work ladder
 - `docs/design/rearchitecture/05-legacy-example-migration-matrix.md` — coverage matrix
 - `AGENTS.md` — pipeline/build/test conventions

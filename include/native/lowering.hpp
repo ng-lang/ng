@@ -2,6 +2,7 @@
 #pragma once
 
 #include "flowir.hpp"
+#include "native.hpp"
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -13,6 +14,10 @@ namespace NG::native
   {
     using std::runtime_error::runtime_error;
   };
+
+  /// DefId -> per-parameter ownership descriptors for `native fun` AOT shims.
+  /// An absent entry means every parameter is `Copy` (the current default).
+  using NativeOwnerships = std::unordered_map<uint32_t, std::vector<vm::NativeRegistry::Ownership>>;
 
   /// DefId -> display-name table used to build callable QBE symbols for the
   /// whole module (the callee's name is not visible from a call site alone).
@@ -33,7 +38,10 @@ namespace NG::native
 
   /// Lowers a module of FlowIR functions (native placeholders are skipped).
   /// `vtables` emits per-(trait, concrete) dispatch tables and the runtime
-  /// key -> vtable lookup for `ref<Trait>` dynamic calls.
+  /// key -> vtable lookup for `ref<Trait>` dynamic calls. `nativeOwnerships`
+  /// carries per-parameter ownership for native shim lowering; absent
+  /// entries default to `Copy`.
   [[nodiscard]] auto lowerModule(const std::vector<flowir::Function> &functions,
-                                 const VtableMap &vtables = {}) -> std::string;
+                                 const VtableMap &vtables = {},
+                                 const NativeOwnerships &nativeOwnerships = {}) -> std::string;
 } // namespace NG::native

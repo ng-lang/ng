@@ -96,6 +96,39 @@ TEST_CASE("vNext native lowering emits string data items and ngrt helpers", "[vN
   REQUIRE_THAT(il, ContainsSubstring("$malloc"));
 }
 
+TEST_CASE("vNext native AOT shims deep-copy Copy-owned aggregate arguments", "[vNext][Native][Qbe]")
+{
+  const auto il = emitSsa("export native fun trim(s: string) -> string;\n"
+                          "export native fun sum(xs: array<i64>) -> i64;\n"
+                          "fun main() -> i64 {\n"
+                          "    let s = \"  hi  \";\n"
+                          "    let t = trim(s);\n"
+                          "    let xs = [1, 2, 3];\n"
+                          "    return sum(xs);\n"
+                          "}");
+  // The VM deep-copies every native call argument; the AOT tier mirrors that
+  // by cloning Copy-owned string/array arguments immediately before the C
+  // shim call (in addition to the ordinary copy-first bind clones).
+  const auto shim = il.find("call $ngshim_str_trim(");
+  REQUIRE(shim != std::string::npos);
+  size_t clonesBeforeStringShim = 0;
+  for (size_t pos = 0; (pos = il.find("call $ngrt_str_clone(", pos)) != std::string::npos && pos < shim;)
+  {
+    ++clonesBeforeStringShim;
+    pos += std::string{"call $ngrt_str_clone("}.size();
+  }
+  CHECK(clonesBeforeStringShim >= 2);
+  const auto arrayShim = il.find("call $ngshim_arr_sum(");
+  REQUIRE(arrayShim != std::string::npos);
+  size_t clonesBeforeArrayShim = 0;
+  for (size_t pos = 0; (pos = il.find("call $ngrt_arr_clone_words(", pos)) != std::string::npos && pos < arrayShim;)
+  {
+    ++clonesBeforeArrayShim;
+    pos += std::string{"call $ngrt_arr_clone_words("}.size();
+  }
+  CHECK(clonesBeforeArrayShim >= 2);
+}
+
 TEST_CASE("vNext native lowering emits direct C calls for extern declarations", "[vNext][Native][Qbe][ExternC]")
 {
   const auto il = emitSsa("extern \"C\" {\n"

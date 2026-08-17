@@ -90,6 +90,9 @@ namespace NG::native
       /// R9 first slice: DefId -> declared parameter types of `native fun`
       /// declarations (arity validation and shim selection).
       std::unordered_map<uint32_t, std::vector<TypeId>> nativeSignatures;
+      /// M5: DefId -> per-parameter ownership descriptors for native shim
+      /// lowering (absent entries default to `Copy`).
+      std::unordered_map<uint32_t, std::vector<vm::NativeRegistry::Ownership>> nativeOwnerships;
       /// B3 first slice: DefIds of `extern "C"` declarations. Call sites emit
       /// direct QBE calls to the C symbol instead of an NG function symbol.
       std::unordered_set<uint32_t> externDefIds;
@@ -2356,10 +2359,24 @@ namespace NG::native
             found != ngrt_.nativeSignatures.end() && found->second.size() != instruction.operands.size())
           throw LoweringError(std::format("native `{}` expects {} argument(s), got {} in `{}`", name,
                                           found->second.size(), instruction.operands.size(), function_.name));
-        const auto arg = [&](size_t index) -> std::string { return operandTemp(instruction.operands[index]); };
         const auto argType = [&](size_t index) -> TypeId
         {
           return function_.valueTypes.at(instruction.operands[index].value);
+        };
+        // M5 ownership descriptors: by default a native parameter is `Copy`
+        // (copy-first D-015), so aggregate arguments are deep-copied before
+        // the C shim sees them — mirroring the VM's per-call deepCopy and
+        // ensuring a native cannot observe or mutate the caller's value.
+        const auto arg = [&](size_t index) -> std::string
+        {
+          const auto value = operandTemp(instruction.operands[index]);
+          auto ownership = vm::NativeRegistry::Ownership::Copy;
+          if (const auto found = ngrt_.nativeOwnerships.find(instruction.callTarget->value);
+              found != ngrt_.nativeOwnerships.end() && index < found->second.size())
+            ownership = found->second[index];
+          const auto type = argType(index);
+          if (ownership == vm::NativeRegistry::Ownership::Copy && needsClone(type)) return emitClone(value, type);
+          return value;
         };
         // The declared parameter type is authoritative for shim selection
         // (e.g. print's unsigned/boolean variants).
@@ -2779,11 +2796,13 @@ namespace NG::native
     return FunctionLowerer{function, names, ngrt}.run();
   }
 
-  auto lowerModule(const std::vector<Function> &functions, const VtableMap &vtables) -> std::string
+  auto lowerModule(const std::vector<Function> &functions, const VtableMap &vtables,
+                  const NativeOwnerships &nativeOwnerships) -> std::string
   {
     FunctionNames names;
     for (const auto &function : functions) names.emplace(function.source.value, function.name);
     NgrtContext ngrt;
+    ngrt.nativeOwnerships = nativeOwnerships;
     for (const auto &function : functions)
     {
       if (function.nativeFunction)

@@ -21,15 +21,37 @@ namespace NG::vm
     /// (for overload-sensitive builtins such as `print`).
     using NativeFunction = std::function<Value(const std::vector<Value> &, const std::vector<typecheck::TypeId> &)>;
 
+    /// How a native boundary treats a value (D-004 ownership annotations;
+    /// `native fun` currently defaults every parameter to `Copy` and the
+    /// result to `Move` until explicit annotation syntax lands).
+    enum class Ownership
+    {
+      /// The callee receives an independent value; the caller retains its own
+      /// copy (copy-first D-015).
+      Copy,
+      /// The callee may use the value for the call duration but does not own
+      /// or consume it.
+      Borrow,
+      /// The callee takes ownership of the value; the caller must not use it
+      /// afterwards.
+      Move,
+    };
+
     /// Declared signature of a `native fun` (R9 first slice): the parameter
     /// and result types from the NG declaration plus a pure/const-capable
-    /// flag (D-012). An empty parameter vector means "undeclared" (legacy
-    /// registrations; no arity validation and no type guidance).
+    /// flag (D-012) and ownership descriptors for AOT copy/move lowering.
+    /// An empty parameter vector means "undeclared" (legacy registrations;
+    /// no arity validation and no type guidance).
     struct DeclaredSignature
     {
       std::vector<typecheck::TypeId> parameters;
       typecheck::TypeId result{typecheck::builtin::Unit};
       bool pure{};
+      /// Per-parameter ownership. Empty means "not declared"; when non-empty
+      /// it has the same size as `parameters`.
+      std::vector<Ownership> parameterOwnership;
+      /// Ownership of the returned value.
+      Ownership resultOwnership{Ownership::Move};
     };
 
     struct Entry

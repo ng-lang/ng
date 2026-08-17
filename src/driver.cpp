@@ -150,9 +150,10 @@ namespace NG
     /// directly (native shims arrive in M5).
     [[nodiscard]] auto compileNativeAndRun(const std::vector<flowir::Function> &flows,
                                            const std::unordered_map<uint64_t, std::vector<uint32_t>> &vtables,
-                                           std::ostream &output, std::ostream &errors) -> int
+                                           const native::NativeOwnerships &nativeOwnerships, std::ostream &output,
+                                           std::ostream &errors) -> int
     {
-      const auto il = native::lowerModule(flows, vtables);
+      const auto il = native::lowerModule(flows, vtables, nativeOwnerships);
       std::error_code ignored;
       // Per-process directory: parallel compilations must not share files.
       const auto directory = std::filesystem::temp_directory_path() / std::format("ng_native_{}", getpid());
@@ -189,6 +190,7 @@ namespace NG
 #else
     [[nodiscard]] auto compileNativeAndRun(const std::vector<flowir::Function> &,
                                            const std::unordered_map<uint64_t, std::vector<uint32_t>> &,
+                                           const native::NativeOwnerships &,
                                            std::ostream &, std::ostream &errors) -> int
     {
       errors << "native: the native tier requires the vendored QBE tool and a POSIX host\n";
@@ -304,14 +306,26 @@ namespace NG
             vtables.emplace((static_cast<uint64_t>(traitId) << 32) | concrete, std::move(ids));
           }
         }
+        // M5 ownership descriptors: `native fun` parameters currently default
+        // to Copy (copy-first D-015), so AOT shim lowering deep-copies
+        // aggregate arguments before the C callee sees them.
+        native::NativeOwnerships nativeOwnerships;
+        for (const auto &function : resolved.functions)
+        {
+          if (!function.nativeFunction) continue;
+          const auto found = typed.functionTypeIds.find(function.id.value);
+          if (found == typed.functionTypeIds.end()) continue;
+          nativeOwnerships[function.id.value].assign(found->second.parameters.size(),
+                                                     vm::NativeRegistry::Ownership::Copy);
+        }
         if (emitSsa)
         {
           // M1 native milestone: lower the module to QBE IL text instead of
           // compiling bytecode and running the VM.
-          output << native::lowerModule(flows, vtables);
+          output << native::lowerModule(flows, vtables, nativeOwnerships);
           return 0;
         }
-        if (nativeMode) return compileNativeAndRun(flows, vtables, output, errors);
+        if (nativeMode) return compileNativeAndRun(flows, vtables, nativeOwnerships, output, errors);
         const auto artifact = bytecode::ModuleCompiler{}.compile(flows, vtables);
         for (const auto &function : artifact.functions)
           bytecode::Verifier{}.verify(function);
@@ -345,10 +359,12 @@ namespace NG
             if (!function.nativeFunction) continue;
             const auto found = typed.functionTypeIds.find(function.id.value);
             if (found == typed.functionTypeIds.end()) continue;
-            natives.declare(function.name,
-                            vm::NativeRegistry::DeclaredSignature{.parameters = found->second.parameters,
-                                                                  .result = found->second.returnType,
-                                                                  .pure = constCapable.contains(function.name)});
+            vm::NativeRegistry::DeclaredSignature declared{.parameters = found->second.parameters,
+                                                           .result = found->second.returnType,
+                                                           .pure = constCapable.contains(function.name)};
+            declared.parameterOwnership.assign(declared.parameters.size(), vm::NativeRegistry::Ownership::Copy);
+            declared.resultOwnership = vm::NativeRegistry::Ownership::Move;
+            natives.declare(function.name, std::move(declared));
           }
           const auto result = vm::VM{}.run(artifact, main->id, values, fuel, &natives);
           output << "compiled " << verifiedFunctions << " vNext function(s); main "

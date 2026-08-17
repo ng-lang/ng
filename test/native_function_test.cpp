@@ -69,6 +69,18 @@ TEST_CASE("vNext resolver marks native functions in HIR", "[vNext][Native][Hir]"
   REQUIRE(module.functions.front().name == "print");
 }
 
+TEST_CASE("vNext native declared signatures carry default ownership descriptors", "[vNext][Native][R9]")
+{
+  using NG::vm::NativeRegistry;
+  NativeRegistry::DeclaredSignature signature;
+  signature.parameters = {typecheck::builtin::String, typecheck::builtin::I64};
+  signature.parameterOwnership.assign(signature.parameters.size(), NativeRegistry::Ownership::Copy);
+  REQUIRE(signature.parameterOwnership.size() == signature.parameters.size());
+  REQUIRE(signature.parameterOwnership == std::vector<NativeRegistry::Ownership>{
+                                               NativeRegistry::Ownership::Copy, NativeRegistry::Ownership::Copy});
+  REQUIRE(signature.resultOwnership == NativeRegistry::Ownership::Move);
+}
+
 TEST_CASE("vNext print and assert builtins execute end to end", "[vNext][Native][Runtime]")
 {
   std::string output;
