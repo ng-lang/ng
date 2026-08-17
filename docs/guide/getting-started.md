@@ -6,7 +6,7 @@ or an inline source unit.
 
 ## Requirements
 
-- macOS or Linux with a C++23 compiler (the build pins `clang`/`clang++`
+- macOS or Linux with a modern C++ compiler (the build pins `clang`/`clang++`
   with libc++ on macOS; Homebrew LLVM provides `clang-tidy`/`clang-format`).
 - CMake ≥ 3.25 and Ninja.
 
@@ -71,6 +71,20 @@ parses a single expression:
 ./build/ngi --source 'import prelude; fun main() { print(1 + 2); }'
 ./build/ngi --expr '2 * 3 + 4'
 ```
+
+## Native compilation
+
+NG can compile programs to native executables using the `--native` flag.
+The `--output` flag specifies the output file path:
+
+```bash
+./build/ngi --native --output hello hello.ng   # compile to native executable
+./build/ngi --native hello.ng                  # compile and run immediately
+```
+
+Native executables are self-contained and don't require the NG runtime at
+execution time. See [Language Guide: Why NG?](/guide/language_guide#why-ng)
+for binary size comparisons with other languages.
 
 ## Interactive programs
 

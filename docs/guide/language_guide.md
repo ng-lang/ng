@@ -1,10 +1,17 @@
 # NG Language Guide
 
 Welcome to the NG language guide. NG is a statically-typed, multi-paradigm
-programming language implemented in modern C++23, with a single clean
-pipeline:
+programming language with a single clean pipeline:
 
 **Lexer → Parser → Resolver (HIR) → Type Checker → FlowIR → Bytecode → VM**
+
+## What's in a name?
+
+**ng** is a unique sound in Chinese linguistics:
+
+- **Velar nasal coda** — the ending `/ŋ/` that completes syllables like "zhōng" (中) and "běijīng" (京) in Mandarin
+- **Initial consonant** — `/ŋ/` appears as a syllable onset in several Chinese dialects (Cantonese, Hakka, Wu, etc.)
+- **New Generation** — a language designed for the next generation of software development
 
 ## What is NG?
 
@@ -28,6 +35,25 @@ pipeline:
   interface.
 - **ImGui binding** — a Dear ImGui binding over SDL3 and a minimal IDE
   written in NG itself.
+
+## Why NG?
+
+### Compact binaries
+
+NG produces remarkably small native executables. A "Hello World" program
+compiled with `ngi --native` is significantly smaller than equivalent
+programs in other systems languages:
+
+| Language | Hello World binary size |
+|----------|------------------------|
+| **NG**   | 55,992 bytes           |
+| C++      | 318,040 bytes          |
+| Rust     | 442,136 bytes          |
+| Zig      | 1,873,096 bytes        |
+
+NG's minimal runtime and efficient code generation mean your programs
+carry less overhead — ideal for embedded systems, CLI tools, and
+deployments where binary size matters.
 
 ## Quick Start
 

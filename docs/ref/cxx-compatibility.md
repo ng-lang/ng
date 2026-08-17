@@ -1,6 +1,6 @@
 # C++ Compatibility
 
-The NG implementation targets **C++23**.
+The NG implementation uses a modern C++ toolchain.
 
 ## Toolchain
 
@@ -8,7 +8,7 @@ The NG implementation targets **C++23**.
   (`-stdlib=libc++`), and emits an explicit `-isysroot` so tooling
   resolves the SDK headers.
 - **CI** (`RUNNING_ON_GITHUB=1`): the platform compiler with the same
-  C++23 baseline.
+  baseline.
 
 ## Tooling
 

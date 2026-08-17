@@ -1,11 +1,11 @@
-# A NostalGic (NG) Programming Language
+# NG Programming Language
 
 [![build](https://github.com/ng-lang/ng/actions/workflows/build.yml/badge.svg)](https://github.com/ng-lang/ng/actions/workflows/build.yml)
 [![Codacy Badge](https://app.codacy.com/project/badge/Grade/e72d75eb4dbf4a0e9617cbced2f4ec1e)](https://app.codacy.com/gh/ng-lang/ng/dashboard?utm_source=gh&utm_medium=referral&utm_content=&utm_campaign=Badge_grade)
 [![Codacy Badge](https://app.codacy.com/project/badge/Coverage/e72d75eb4dbf4a0e9617cbced2f4ec1e)](https://app.codacy.com/gh/ng-lang/ng/dashboard?utm_source=gh&utm_medium=referral&utm_content=&utm_campaign=Badge_coverage)
 [![codecov](https://codecov.io/github/ng-lang/ng/graph/badge.svg?token=T5RV6EWVSG)](https://codecov.io/github/ng-lang/ng)
 
-NG is a statically-typed, multi-paradigm programming language implemented in modern C++23, with a single clean pipeline:
+NG is a statically-typed, multi-paradigm programming language with a single clean pipeline:
 
 **Lexer → Parser → Resolver (HIR) → Type Checker → FlowIR → Bytecode → VM**
 
@@ -23,7 +23,7 @@ NG is a statically-typed, multi-paradigm programming language implemented in mod
 
 ### Prerequisites
 
-- A C++23 compiler (macOS pins `clang`/`clang++` with libc++; Homebrew LLVM supplies `clang-tidy`/`clang-format`)
+- A modern C++ compiler (macOS pins `clang`/`clang++` with libc++; Homebrew LLVM supplies `clang-tidy`/`clang-format`)
 - CMake 3.25+ and Ninja
 
 ### Build and run
@@ -33,6 +33,7 @@ cmake -S . -B build -GNinja
 cmake --build build -j
 ./build/ngi example/hello_world.ng                 # run an example
 ./build/ngi --source 'import prelude; fun main() { print("hi"); }'
+./build/ngi --native --output hello example/hello.ng  # compile to native executable
 ./build/ngi_imgui example/ng_ide.ng --fuel 0       # the imgui IDE (GUI)
 ```
 

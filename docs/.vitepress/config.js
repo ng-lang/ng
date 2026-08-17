@@ -4,7 +4,7 @@ import { defineConfig } from 'vitepress'
 export default defineConfig({
   title: 'NG Language',
   titleTemplate: ':title — NG Programming Language',
-  description: 'A nostalgic, statically-typed, multi-paradigm programming language',
+  description: 'A statically-typed, multi-paradigm programming language',
 
   appearance: 'dark',
 
@@ -22,8 +22,14 @@ export default defineConfig({
     ['link', { rel: 'icon', href: '/logo.svg' }],
     ['meta', { property: 'og:type', content: 'website' }],
     ['meta', { property: 'og:title', content: 'NG Programming Language' }],
-    ['meta', { property: 'og:description', content: 'A nostalgic, statically-typed, multi-paradigm programming language' }],
+    ['meta', { property: 'og:description', content: 'A statically-typed, multi-paradigm programming language' }],
   ],
+
+  markdown: {
+    languageAlias: {
+      'ng': 'rust'
+    }
+  },
 
   themeConfig: {
     // https://vitepress.dev/reference/default-theme-config
