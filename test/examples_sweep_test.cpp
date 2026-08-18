@@ -64,7 +64,9 @@ TEST_CASE("vNext example corpus runs end to end through ngi", "[vNext][Examples]
     INFO("errors: " << errors);
     REQUIRE(status == 0);
     REQUIRE(errors.empty());
-    if (!isNativeOnly)
+    if (isNativeOnly)
+      REQUIRE(output.find("native main exited with code 0\n") != std::string::npos);
+    else
       REQUIRE(output.find("compiled") != std::string::npos);
     ++runCount;
   }

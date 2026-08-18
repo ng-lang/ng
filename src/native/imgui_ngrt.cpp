@@ -34,7 +34,9 @@ namespace
     bool done = false;
     bool sdlInitialized = false;
     bool windowClaimed = false;
-    bool imguiInitialized = false;
+    bool contextCreated = false;
+    bool sdl3BackendInitialized = false;
+    bool sdlgpu3BackendInitialized = false;
 
     ~ImGuiModuleState() { shutdown(); }
 
@@ -42,13 +44,22 @@ namespace
     {
       if (gpuDevice != nullptr)
         SDL_WaitForGPUIdle(gpuDevice);
-      if (imguiInitialized)
+      // Tear down only the backends that actually initialized, in reverse
+      // initialization order, before destroying the ImGui context.
+      if (sdlgpu3BackendInitialized)
+      {
+        ImGui_ImplSDLGPU3_Shutdown();
+        sdlgpu3BackendInitialized = false;
+      }
+      if (sdl3BackendInitialized)
       {
         ImGui_ImplSDL3_Shutdown();
-        ImGui_ImplSDLGPU3_Shutdown();
-        if (ImGui::GetCurrentContext() != nullptr)
-          ImGui::DestroyContext();
-        imguiInitialized = false;
+        sdl3BackendInitialized = false;
+      }
+      if (contextCreated)
+      {
+        ImGui::DestroyContext();
+        contextCreated = false;
       }
       if (windowClaimed && gpuDevice != nullptr && window != nullptr)
         SDL_ReleaseWindowFromGPUDevice(gpuDevice, window);
@@ -174,7 +185,7 @@ extern "C" int64_t ngrt_imguiInit(void)
 
   IMGUI_CHECKVERSION();
   ImGui::CreateContext();
-  state->imguiInitialized = true;
+  state->contextCreated = true;
 
   ImGuiIO &io = ImGui::GetIO();
   io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
@@ -189,6 +200,7 @@ extern "C" int64_t ngrt_imguiInit(void)
     state->shutdown();
     return 1;
   }
+  state->sdl3BackendInitialized = true;
   ImGui_ImplSDLGPU3_InitInfo initInfo = {};
   initInfo.Device = state->gpuDevice;
   initInfo.ColorTargetFormat = SDL_GetGPUSwapchainTextureFormat(state->gpuDevice, state->window);
@@ -199,6 +211,7 @@ extern "C" int64_t ngrt_imguiInit(void)
     state->shutdown();
     return 1;
   }
+  state->sdlgpu3BackendInitialized = true;
 
   addFont(io, runtimeFontPath("misc/fonts/SourceSans/SourceSans3-Regular.otf"));
   addFont(io, runtimeFontPath("misc/fonts/SourceCodePro/SourceCodePro-Regular.otf"));

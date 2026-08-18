@@ -18,6 +18,7 @@
 #include "ngrt.h"
 
 #include <ctype.h>
+#include <inttypes.h>
 #include <limits.h>
 #include <regex.h>
 #include <stdint.h>
@@ -124,13 +125,13 @@ static char *ngrt_c_string(const char *value)
 
 int64_t ngrt_print_i64(int64_t value)
 {
-  printf("%ld\n", (long)value);
+  printf("%" PRId64 "\n", value);
   return 0;
 }
 
 int64_t ngrt_print_u64(uint64_t value)
 {
-  printf("%lu\n", (unsigned long)value);
+  printf("%" PRIu64 "\n", value);
   return 0;
 }
 
@@ -142,7 +143,10 @@ int64_t ngrt_print_f64(double value)
 
 int64_t ngrt_print_str(const char *value)
 {
-  printf("%.*s\n", (int)ngrt_str_len(value), ngrt_str_bytes(value));
+  /* fwrite the full length: an int cast would truncate huge strings, and
+   * %.*s would stop at embedded NULs. */
+  fwrite(ngrt_str_bytes(value), 1, (size_t)ngrt_str_len(value), stdout);
+  fputc('\n', stdout);
   return 0;
 }
 
@@ -721,8 +725,14 @@ int64_t ngrt_writeFile(const char *path, const char *content)
     ngrt_fail("cannot write file");
     return -1;
   }
-  fwrite(ngrt_str_bytes(content), 1, (size_t)ngrt_str_len(content), file);
-  fclose(file);
+  size_t expected = (size_t)ngrt_str_len(content);
+  size_t written = fwrite(ngrt_str_bytes(content), 1, expected, file);
+  int closeStatus = fclose(file);
+  if (written != expected || closeStatus != 0)
+  {
+    ngrt_fail("cannot write file");
+    return -1;
+  }
   return 0;
 }
 

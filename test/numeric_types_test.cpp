@@ -54,7 +54,7 @@ namespace
     REQUIRE(run(source, output, errors) == 0);
     INFO("errors: " << errors);
     REQUIRE(errors.empty());
-    REQUIRE(output.find(std::string{"native main exited with code "} + std::string{value}) != std::string::npos);
+    REQUIRE(output.find(std::string{"native main exited with code "} + std::string{value} + "\n") != std::string::npos);
   }
 } // namespace
 
@@ -67,9 +67,11 @@ TEST_CASE("vNext integer types resolve and run same-type arithmetic", "[vNext][N
 
 TEST_CASE("vNext integer literals adopt contextual types in aggregates and calls", "[vNext][Numerics][Runtime]")
 {
+  // Compare the full-width value inside the program: returning pair.x (300)
+  // directly would only preserve its low byte in the process exit status.
   expectValue("struct Point { x: i16, y: u32, } "
-              "fun main() -> i16 { let pair = Point { x: 300, y: 4000 }; return pair.x; }",
-              "44");
+              "fun main() -> i64 { let pair = Point { x: 300, y: 4000 }; if (pair.x == 300) { return 1; } return 0; }",
+              "1");
 }
 
 TEST_CASE("vNext typed range literals slice arrays", "[vNext][Numerics][Runtime]")
@@ -256,10 +258,13 @@ TEST_CASE("vNext out-of-range literals report clean type diagnostics", "[vNext][
 
 TEST_CASE("vNext numeric example file runs end to end through ngi", "[vNext][Numerics][Examples]")
 {
+  // The example compares its full-width computed value (1312) in-program and
+  // returns a sentinel, so the assertion checks the real result rather than
+  // the low byte a direct return would expose as the exit code.
   std::string output;
   std::string errors;
   REQUIRE(runExample("example/numeric_types.ng", output, errors) == 0);
   INFO("errors: " << errors);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("native main exited with code 32") != std::string::npos);
+  REQUIRE(output.find("native main exited with code 1\n") != std::string::npos);
 }

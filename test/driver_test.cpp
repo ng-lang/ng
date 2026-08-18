@@ -159,3 +159,20 @@ TEST_CASE("vNext ngi driver reports f64 main return values", "[vNext][Driver]")
   REQUIRE_THAT(output, ContainsSubstring("1.5"));
   REQUIRE(errors.empty());
 }
+
+TEST_CASE("vNext ngi driver compiles and links an imgui program without running it", "[vNext][Driver][Imgui]")
+{
+  // Compiling with --output exercises the whole native link path for an
+  // imgui program: libngrt_imgui.a plus the SDL3/Dear ImGui archives resolved
+  // through NG_LIBRARY_PATH / the build-tree defaults, without opening a
+  // window.
+  const auto outputPath = std::filesystem::temp_directory_path() / "ng_imgui_compile_test";
+  std::string output;
+  std::string errors;
+  REQUIRE(run({"--source", "import imgui; fun main() -> unit { imguiInit(); imguiCleanup(); }", "--output",
+               outputPath.string()},
+              output, errors) == 0);
+  REQUIRE(output.find("native executable written to") != std::string::npos);
+  REQUIRE(errors.empty());
+  std::filesystem::remove(outputPath);
+}

@@ -22,8 +22,13 @@ only the command's exit status.
 returns the captured output; on failure it appends a trailing `[exit N]`
 marker carrying the nonzero exit status.
 
-Because both bindings go through the shell, callers must quote or validate
-any untrusted interpolated input.
+Because both bindings execute through `/bin/sh -c`, callers must not
+interpolate untrusted values (user input, file contents, environment data)
+into command strings. There is no shell-escaping API and no argument-vector
+variant in the stdlib, so the only safe way to pass untrusted data is to
+validate it against a strict allowlist (for example, matching an exact
+constant or a narrow pattern such as a fixed set of literals) before
+interpolating it.
 
 ## `io`
 
