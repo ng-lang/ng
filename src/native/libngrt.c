@@ -2,26 +2,35 @@
 //
 // libngrt: the single C implementation of the standard native functions.
 // The QBE native tier links this archive into every generated executable;
-// the VM and const evaluator call the same functions through the thin C++
-// wrappers in src/ngrt.cpp.
+// the frontend calls the same functions through the thin C++ wrappers in
+// src/ngrt.cpp (const evaluation and the driver's native hosts).
 //
 // Value layouts match the Tier 0 representations emitted by
 // src/native/lowering.cpp:
 //   string: { int64_t len, char bytes[] }
 //   array:  { int64_t len, int64_t cap, int64_t-or-pointer elements[] }
 // Doubles stored in arrays are bit patterns in int64_t slots.
+//
+// Every ABI-facing size, length, and value is int64_t so the surface is
+// independent of the platform's `long` width.
 #define _POSIX_C_SOURCE 200809L
 
 #include "ngrt.h"
 
 #include <ctype.h>
+#include <limits.h>
 #include <regex.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <unistd.h>
+
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#endif
 
 /* ------------------------------------------------------------------------- */
 /* Error handling                                                            */
@@ -60,7 +69,7 @@ static void ngrt_fail(const char *message)
   ngrt_error_handler(message);
 }
 
-void *ngrt_alloc(long size)
+void *ngrt_alloc(int64_t size)
 {
   void *result = malloc((size_t)size);
   if (result == NULL)
@@ -68,12 +77,12 @@ void *ngrt_alloc(long size)
   return result;
 }
 
-char *ngrt_new_string(const char *bytes, long length)
+char *ngrt_new_string(const char *bytes, int64_t length)
 {
   char *result = (char *)malloc((size_t)length + 8);
   if (result == NULL)
     abort();
-  *(long *)result = length;
+  *(int64_t *)result = length;
   if (length > 0)
     memcpy(result + 8, bytes, (size_t)length);
   return result;
@@ -88,9 +97,9 @@ void ngrt_free(void *pointer)
 /* ABI helpers                                                               */
 /* ------------------------------------------------------------------------- */
 
-static long ngrt_str_len(const char *s)
+static int64_t ngrt_str_len(const char *s)
 {
-  return *(const long *)s;
+  return *(const int64_t *)s;
 }
 
 static const char *ngrt_str_bytes(const char *s)
@@ -100,7 +109,7 @@ static const char *ngrt_str_bytes(const char *s)
 
 static char *ngrt_c_string(const char *value)
 {
-  long length = ngrt_str_len(value);
+  int64_t length = ngrt_str_len(value);
   char *result = (char *)malloc((size_t)length + 1);
   if (result == NULL)
     abort();
@@ -113,37 +122,37 @@ static char *ngrt_c_string(const char *value)
 /* Prelude                                                                   */
 /* ------------------------------------------------------------------------- */
 
-long ngrt_print_i64(long value)
+int64_t ngrt_print_i64(int64_t value)
 {
-  printf("%ld\n", value);
+  printf("%ld\n", (long)value);
   return 0;
 }
 
-long ngrt_print_u64(uint64_t value)
+int64_t ngrt_print_u64(uint64_t value)
 {
   printf("%lu\n", (unsigned long)value);
   return 0;
 }
 
-long ngrt_print_f64(double value)
+int64_t ngrt_print_f64(double value)
 {
   printf("%g\n", value);
   return 0;
 }
 
-long ngrt_print_str(const char *value)
+int64_t ngrt_print_str(const char *value)
 {
   printf("%.*s\n", (int)ngrt_str_len(value), ngrt_str_bytes(value));
   return 0;
 }
 
-long ngrt_print_bool(long value)
+int64_t ngrt_print_bool(int64_t value)
 {
   printf("%s\n", value ? "true" : "false");
   return 0;
 }
 
-long ngrt_assert(long condition)
+int64_t ngrt_assert(int64_t condition)
 {
   if (!condition)
   {
@@ -157,17 +166,17 @@ long ngrt_assert(long condition)
 /* std.string                                                                */
 /* ------------------------------------------------------------------------- */
 
-long ngrt_length(const char *text)
+int64_t ngrt_length(const char *text)
 {
   return ngrt_str_len(text);
 }
 
 char *ngrt_trim(const char *text)
 {
-  long length = ngrt_str_len(text);
+  int64_t length = ngrt_str_len(text);
   const char *bytes = ngrt_str_bytes(text);
-  long begin = 0;
-  long end = length;
+  int64_t begin = 0;
+  int64_t end = length;
   while (begin < end && isspace((unsigned char)bytes[begin]))
     ++begin;
   while (end > begin && isspace((unsigned char)bytes[end - 1]))
@@ -177,13 +186,13 @@ char *ngrt_trim(const char *text)
 
 static char *ngrt_str_case(const char *value, int upper)
 {
-  long length = ngrt_str_len(value);
+  int64_t length = ngrt_str_len(value);
   const char *bytes = ngrt_str_bytes(value);
   char *result = (char *)malloc((size_t)length + 8);
   if (result == NULL)
     abort();
-  *(long *)result = length;
-  for (long index = 0; index < length; ++index)
+  *(int64_t *)result = length;
+  for (int64_t index = 0; index < length; ++index)
   {
     unsigned char byte = (unsigned char)bytes[index];
     result[8 + index] = (char)(upper ? toupper(byte) : tolower(byte));
@@ -201,61 +210,61 @@ char *ngrt_toLower(const char *text)
   return ngrt_str_case(text, 0);
 }
 
-char *ngrt_charAt(const char *text, long index)
+char *ngrt_charAt(const char *text, int64_t index)
 {
-  long length = ngrt_str_len(text);
+  int64_t length = ngrt_str_len(text);
   if (index < 0 || index >= length)
   {
     char message[128];
-    snprintf(message, sizeof message, "charAt index out of bounds: index %ld, length %ld", index, length);
+    snprintf(message, sizeof message, "charAt index out of bounds: index %ld, length %ld", (long)index, (long)length);
     ngrt_fail(message);
     return NULL;
   }
   return ngrt_new_string(ngrt_str_bytes(text) + index, 1);
 }
 
-char *ngrt_substring(const char *text, long start, long end)
+char *ngrt_substring(const char *text, int64_t start, int64_t end)
 {
-  long length = ngrt_str_len(text);
+  int64_t length = ngrt_str_len(text);
   if (start < 0 || end < start || end > length)
   {
     char message[160];
-    snprintf(message, sizeof message, "substring bounds out of range: [%ld..%ld) of length %ld", start, end,
-             length);
+    snprintf(message, sizeof message, "substring bounds out of range: [%ld..%ld) of length %ld", (long)start, (long)end,
+             (long)length);
     ngrt_fail(message);
     return NULL;
   }
   return ngrt_new_string(ngrt_str_bytes(text) + start, end - start);
 }
 
-long ngrt_contains(const char *text, const char *needle)
+int64_t ngrt_contains(const char *text, const char *needle)
 {
-  long textLength = ngrt_str_len(text);
-  long needleLength = ngrt_str_len(needle);
+  int64_t textLength = ngrt_str_len(text);
+  int64_t needleLength = ngrt_str_len(needle);
   const char *textBytes = ngrt_str_bytes(text);
   const char *needleBytes = ngrt_str_bytes(needle);
   if (needleLength == 0)
     return 1;
   if (needleLength > textLength)
     return 0;
-  for (long index = 0; index + needleLength <= textLength; ++index)
+  for (int64_t index = 0; index + needleLength <= textLength; ++index)
     if (memcmp(textBytes + index, needleBytes, (size_t)needleLength) == 0)
       return 1;
   return 0;
 }
 
-long ngrt_startsWith(const char *text, const char *prefix)
+int64_t ngrt_startsWith(const char *text, const char *prefix)
 {
-  long prefixLength = ngrt_str_len(prefix);
-  long textLength = ngrt_str_len(text);
+  int64_t prefixLength = ngrt_str_len(prefix);
+  int64_t textLength = ngrt_str_len(text);
   return prefixLength <= textLength &&
          memcmp(ngrt_str_bytes(text), ngrt_str_bytes(prefix), (size_t)prefixLength) == 0;
 }
 
-long ngrt_endsWith(const char *text, const char *suffix)
+int64_t ngrt_endsWith(const char *text, const char *suffix)
 {
-  long suffixLength = ngrt_str_len(suffix);
-  long textLength = ngrt_str_len(text);
+  int64_t suffixLength = ngrt_str_len(suffix);
+  int64_t textLength = ngrt_str_len(text);
   return suffixLength <= textLength &&
          memcmp(ngrt_str_bytes(text) + textLength - suffixLength, ngrt_str_bytes(suffix),
                 (size_t)suffixLength) == 0;
@@ -263,16 +272,16 @@ long ngrt_endsWith(const char *text, const char *suffix)
 
 char *ngrt_replace(const char *text, const char *needle, const char *replacement)
 {
-  long textLength = ngrt_str_len(text);
-  long needleLength = ngrt_str_len(needle);
-  long replacementLength = ngrt_str_len(replacement);
+  int64_t textLength = ngrt_str_len(text);
+  int64_t needleLength = ngrt_str_len(needle);
+  int64_t replacementLength = ngrt_str_len(replacement);
   const char *textBytes = ngrt_str_bytes(text);
   const char *needleBytes = ngrt_str_bytes(needle);
   const char *replacementBytes = ngrt_str_bytes(replacement);
   if (needleLength == 0)
     return ngrt_new_string(textBytes, textLength);
-  long occurrences = 0;
-  for (long index = 0; index + needleLength <= textLength;)
+  int64_t occurrences = 0;
+  for (int64_t index = 0; index + needleLength <= textLength;)
   {
     if (memcmp(textBytes + index, needleBytes, (size_t)needleLength) == 0)
     {
@@ -282,13 +291,13 @@ char *ngrt_replace(const char *text, const char *needle, const char *replacement
     else
       ++index;
   }
-  long resultLength = textLength + occurrences * (replacementLength - needleLength);
+  int64_t resultLength = textLength + occurrences * (replacementLength - needleLength);
   char *result = (char *)malloc((size_t)resultLength + 8);
   if (result == NULL)
     abort();
-  *(long *)result = resultLength;
-  long write = 0;
-  long index = 0;
+  *(int64_t *)result = resultLength;
+  int64_t write = 0;
+  int64_t index = 0;
   while (index < textLength)
   {
     if (index + needleLength <= textLength &&
@@ -306,57 +315,57 @@ char *ngrt_replace(const char *text, const char *needle, const char *replacement
 
 void *ngrt_split(const char *text, const char *delimiter)
 {
-  long textLength = ngrt_str_len(text);
-  long delimiterLength = ngrt_str_len(delimiter);
+  int64_t textLength = ngrt_str_len(text);
+  int64_t delimiterLength = ngrt_str_len(delimiter);
   const char *textBytes = ngrt_str_bytes(text);
   const char *delimiterBytes = ngrt_str_bytes(delimiter);
   if (delimiterLength == 0)
   {
     /* Split on an empty delimiter returns the whole text as one part. */
-    long *result = (long *)malloc(sizeof(long) * 3);
+    int64_t *result = (int64_t *)malloc(sizeof(int64_t) * 3);
     if (result == NULL)
       abort();
     result[0] = 1;
     result[1] = 1;
-    result[2] = (long)(uintptr_t)ngrt_new_string(textBytes, textLength);
+    result[2] = (int64_t)(uintptr_t)ngrt_new_string(textBytes, textLength);
     return result;
   }
-  long parts = 1;
-  for (long index = 0; index + delimiterLength <= textLength; ++index)
+  int64_t parts = 1;
+  for (int64_t index = 0; index + delimiterLength <= textLength; ++index)
     if (memcmp(textBytes + index, delimiterBytes, (size_t)delimiterLength) == 0)
     {
       ++parts;
       index += delimiterLength - 1;
     }
-  long *result = (long *)malloc(sizeof(long) * (size_t)(parts + 2));
+  int64_t *result = (int64_t *)malloc(sizeof(int64_t) * (size_t)(parts + 2));
   if (result == NULL)
     abort();
   result[0] = parts;
   result[1] = parts;
-  long start = 0;
-  long written = 0;
-  for (long index = 0; index + delimiterLength <= textLength && written < parts;)
+  int64_t start = 0;
+  int64_t written = 0;
+  for (int64_t index = 0; index + delimiterLength <= textLength && written < parts;)
   {
     if (memcmp(textBytes + index, delimiterBytes, (size_t)delimiterLength) == 0)
     {
-      result[2 + written++] = (long)(uintptr_t)ngrt_new_string(textBytes + start, index - start);
+      result[2 + written++] = (int64_t)(uintptr_t)ngrt_new_string(textBytes + start, index - start);
       index += delimiterLength;
       start = index;
     }
     else
       ++index;
   }
-  result[2 + written] = (long)(uintptr_t)ngrt_new_string(textBytes + start, textLength - start);
+  result[2 + written] = (int64_t)(uintptr_t)ngrt_new_string(textBytes + start, textLength - start);
   return result;
 }
 
 char *ngrt_join(const void *items, const char *separator)
 {
-  const long *header = items;
-  long count = header[0];
-  long separatorLength = ngrt_str_len(separator);
-  long total = 0;
-  for (long index = 0; index < count; ++index)
+  const int64_t *header = items;
+  int64_t count = header[0];
+  int64_t separatorLength = ngrt_str_len(separator);
+  int64_t total = 0;
+  for (int64_t index = 0; index < count; ++index)
   {
     total += ngrt_str_len((const char *)(uintptr_t)header[2 + index]);
     if (index + 1 < count)
@@ -365,12 +374,12 @@ char *ngrt_join(const void *items, const char *separator)
   char *result = (char *)malloc((size_t)total + 8);
   if (result == NULL)
     abort();
-  *(long *)result = total;
-  long written = 0;
-  for (long index = 0; index < count; ++index)
+  *(int64_t *)result = total;
+  int64_t written = 0;
+  for (int64_t index = 0; index < count; ++index)
   {
     const char *item = (const char *)(uintptr_t)header[2 + index];
-    long itemLength = ngrt_str_len(item);
+    int64_t itemLength = ngrt_str_len(item);
     memcpy(result + 8 + written, ngrt_str_bytes(item), (size_t)itemLength);
     written += itemLength;
     if (index + 1 < count)
@@ -382,7 +391,7 @@ char *ngrt_join(const void *items, const char *separator)
   return result;
 }
 
-long ngrt_regexMatch(const char *text, const char *pattern)
+int64_t ngrt_regexMatch(const char *text, const char *pattern)
 {
   char *cPattern = ngrt_c_string(pattern);
   regex_t compiled;
@@ -404,24 +413,24 @@ long ngrt_regexMatch(const char *text, const char *pattern)
 /* std.seq                                                                   */
 /* ------------------------------------------------------------------------- */
 
-long ngrt_len(const void *array)
+int64_t ngrt_len(const void *array)
 {
-  return ((const long *)array)[0];
+  return ((const int64_t *)array)[0];
 }
 
-long ngrt_sum(const void *array)
+int64_t ngrt_sum(const void *array)
 {
-  const long *header = array;
-  long total = 0;
-  for (long index = 0; index < header[0]; ++index)
+  const int64_t *header = array;
+  int64_t total = 0;
+  for (int64_t index = 0; index < header[0]; ++index)
     total += header[2 + index];
   return total;
 }
 
-long ngrt_arrayContains(const void *array, long value)
+int64_t ngrt_arrayContains(const void *array, int64_t value)
 {
-  const long *header = array;
-  for (long index = 0; index < header[0]; ++index)
+  const int64_t *header = array;
+  for (int64_t index = 0; index < header[0]; ++index)
     if (header[2 + index] == value)
       return 1;
   return 0;
@@ -429,14 +438,14 @@ long ngrt_arrayContains(const void *array, long value)
 
 void *ngrt_reverse(const void *array)
 {
-  const long *header = array;
-  long length = header[0];
-  long *result = (long *)malloc(sizeof(long) * (size_t)(length + 2));
+  const int64_t *header = array;
+  int64_t length = header[0];
+  int64_t *result = (int64_t *)malloc(sizeof(int64_t) * (size_t)(length + 2));
   if (result == NULL)
     abort();
   result[0] = length;
   result[1] = length;
-  for (long index = 0; index < length; ++index)
+  for (int64_t index = 0; index < length; ++index)
     result[2 + index] = header[2 + length - 1 - index];
   return result;
 }
@@ -445,77 +454,140 @@ void *ngrt_reverse(const void *array)
 /* std.memory                                                                */
 /* ------------------------------------------------------------------------- */
 
-static long *ngrt_live_cells = NULL;
-static long ngrt_live_count = 0;
-static long ngrt_live_capacity = 0;
+/* Open-addressing hash set of live handles (malloc'd cell addresses, which
+ * are never zero), so handle validation is constant-time. Capacity is a
+ * power of two; 0 marks an empty slot. */
+static int64_t *ngrt_live_table = NULL;
+static int64_t ngrt_live_capacity = 0;
+static int64_t ngrt_live_count = 0;
 
-static int ngrt_handle_valid(long handle)
+static uint64_t ngrt_hash_handle(int64_t handle)
 {
-  if (handle == 0)
+  uint64_t value = (uint64_t)handle;
+  value ^= value >> 33;
+  value *= 0xff51afd7ed558ccdULL;
+  value ^= value >> 33;
+  value *= 0xc4ceb9fe1a85ec53ULL;
+  value ^= value >> 33;
+  return value;
+}
+
+static int ngrt_handle_valid(int64_t handle)
+{
+  if (handle == 0 || ngrt_live_capacity == 0)
     return 0;
-  for (long index = 0; index < ngrt_live_count; ++index)
-    if (ngrt_live_cells[index] == handle)
+  int64_t mask = ngrt_live_capacity - 1;
+  int64_t slot = (int64_t)(ngrt_hash_handle(handle) & (uint64_t)mask);
+  for (int64_t probe = 0; probe < ngrt_live_capacity; ++probe)
+  {
+    if (ngrt_live_table[slot] == 0)
+      return 0;
+    if (ngrt_live_table[slot] == handle)
       return 1;
+    slot = (slot + 1) & mask;
+  }
   return 0;
 }
 
-static void ngrt_live_add(long handle)
+static void ngrt_live_add(int64_t handle)
 {
-  if (ngrt_live_count == ngrt_live_capacity)
+  if (ngrt_live_capacity == 0 || (ngrt_live_count + 1) * 10 >= ngrt_live_capacity * 7)
   {
-    long newCapacity = ngrt_live_capacity == 0 ? 16 : ngrt_live_capacity * 2;
-    long *grown = (long *)realloc(ngrt_live_cells, sizeof(long) * (size_t)newCapacity);
+    int64_t newCapacity = ngrt_live_capacity == 0 ? 16 : ngrt_live_capacity * 2;
+    int64_t *grown = (int64_t *)calloc((size_t)newCapacity, sizeof(int64_t));
     if (grown == NULL)
       abort();
-    ngrt_live_cells = grown;
+    int64_t newMask = newCapacity - 1;
+    for (int64_t index = 0; index < ngrt_live_capacity; ++index)
+    {
+      int64_t value = ngrt_live_table[index];
+      if (value == 0)
+        continue;
+      int64_t slot = (int64_t)(ngrt_hash_handle(value) & (uint64_t)newMask);
+      while (grown[slot] != 0)
+        slot = (slot + 1) & newMask;
+      grown[slot] = value;
+    }
+    free(ngrt_live_table);
+    ngrt_live_table = grown;
     ngrt_live_capacity = newCapacity;
   }
-  ngrt_live_cells[ngrt_live_count++] = handle;
+  int64_t mask = ngrt_live_capacity - 1;
+  int64_t slot = (int64_t)(ngrt_hash_handle(handle) & (uint64_t)mask);
+  while (ngrt_live_table[slot] != 0)
+    slot = (slot + 1) & mask;
+  ngrt_live_table[slot] = handle;
+  ++ngrt_live_count;
 }
 
-static void ngrt_live_remove(long handle)
+static void ngrt_live_remove(int64_t handle)
 {
-  for (long index = 0; index < ngrt_live_count; ++index)
-    if (ngrt_live_cells[index] == handle)
+  if (ngrt_live_capacity == 0)
+    return;
+  int64_t mask = ngrt_live_capacity - 1;
+  int64_t slot = (int64_t)(ngrt_hash_handle(handle) & (uint64_t)mask);
+  for (int64_t probe = 0; probe < ngrt_live_capacity; ++probe)
+  {
+    if (ngrt_live_table[slot] == 0)
+      return;
+    if (ngrt_live_table[slot] == handle)
     {
-      ngrt_live_cells[index] = ngrt_live_cells[ngrt_live_count - 1];
+      ngrt_live_table[slot] = 0;
       --ngrt_live_count;
+      /* Back-shift the following probe-chain elements so lookups stay
+       * correct after the hole is opened. */
+      int64_t hole = slot;
+      int64_t next = (slot + 1) & mask;
+      while (ngrt_live_table[next] != 0)
+      {
+        int64_t home = (int64_t)(ngrt_hash_handle(ngrt_live_table[next]) & (uint64_t)mask);
+        int canShift = next > hole ? (home <= hole || home > next) : (home <= hole && home > next);
+        if (canShift)
+        {
+          ngrt_live_table[hole] = ngrt_live_table[next];
+          ngrt_live_table[next] = 0;
+          hole = next;
+        }
+        next = (next + 1) & mask;
+      }
       return;
     }
+    slot = (slot + 1) & mask;
+  }
 }
 
-long ngrt_allocate(long value)
+int64_t ngrt_allocate(int64_t value)
 {
-  long *cell = (long *)malloc(sizeof(long));
+  int64_t *cell = (int64_t *)malloc(sizeof(int64_t));
   if (cell == NULL)
     abort();
   *cell = value;
-  ngrt_live_add((long)(uintptr_t)cell);
-  return (long)(uintptr_t)cell;
+  ngrt_live_add((int64_t)(uintptr_t)cell);
+  return (int64_t)(uintptr_t)cell;
 }
 
-long ngrt_load(long handle)
+int64_t ngrt_load(int64_t handle)
 {
   if (!ngrt_handle_valid(handle))
   {
     ngrt_fail("invalid heap handle");
     return 0;
   }
-  return *(long *)(uintptr_t)handle;
+  return *(int64_t *)(uintptr_t)handle;
 }
 
-long ngrt_store(long handle, long value)
+int64_t ngrt_store(int64_t handle, int64_t value)
 {
   if (!ngrt_handle_valid(handle))
   {
     ngrt_fail("invalid heap handle");
     return -1;
   }
-  *(long *)(uintptr_t)handle = value;
+  *(int64_t *)(uintptr_t)handle = value;
   return 0;
 }
 
-long ngrt_release(long handle)
+int64_t ngrt_release(int64_t handle)
 {
   if (!ngrt_handle_valid(handle))
   {
@@ -527,7 +599,7 @@ long ngrt_release(long handle)
   return 0;
 }
 
-long ngrt_outstanding(void)
+int64_t ngrt_outstanding(void)
 {
   return ngrt_live_count;
 }
@@ -539,9 +611,39 @@ long ngrt_outstanding(void)
 char *ngrt_currentExecutablePath(void)
 {
   static char buffer[4096];
-  if (getcwd(buffer, sizeof buffer) == NULL)
-    buffer[0] = 0;
-  return ngrt_new_string(buffer, (long)strlen(buffer));
+  size_t length = 0;
+#ifdef __linux__
+  ssize_t read = readlink("/proc/self/exe", buffer, sizeof buffer - 1);
+  if (read > 0)
+  {
+    buffer[read] = 0;
+    length = (size_t)read;
+  }
+#elif defined(__APPLE__)
+  uint32_t size = (uint32_t)sizeof buffer;
+  if (_NSGetExecutablePath(buffer, &size) == 0)
+  {
+    char resolved[PATH_MAX];
+    if (realpath(buffer, resolved) != NULL)
+    {
+      length = strlen(resolved);
+      memcpy(buffer, resolved, length + 1);
+    }
+    else
+    {
+      length = strlen(buffer);
+    }
+  }
+#endif
+  if (length == 0)
+  {
+    /* No platform query available (or it failed): fall back to the process
+     * working directory, preserving the previous behavior. */
+    if (getcwd(buffer, sizeof buffer) == NULL)
+      buffer[0] = 0;
+    length = strlen(buffer);
+  }
+  return ngrt_new_string(buffer, (int64_t)length);
 }
 
 char *ngrt_readLine(void)
@@ -556,7 +658,7 @@ char *ngrt_readLine(void)
   }
   if (length > 0 && line[length - 1] == '\n')
     --length;
-  char *result = ngrt_new_string(line, (long)length);
+  char *result = ngrt_new_string(line, (int64_t)length);
   free(line);
   return result;
 }
@@ -604,12 +706,12 @@ char *ngrt_readFile(const char *path)
     return NULL;
   }
   fclose(file);
-  char *result = ngrt_new_string(buffer, size);
+  char *result = ngrt_new_string(buffer, (int64_t)size);
   free(buffer);
   return result;
 }
 
-long ngrt_writeFile(const char *path, const char *content)
+int64_t ngrt_writeFile(const char *path, const char *content)
 {
   char *cPath = ngrt_c_string(path);
   FILE *file = fopen(cPath, "wb");
@@ -629,11 +731,13 @@ long ngrt_writeFile(const char *path, const char *content)
 /* std.io: system command bindings                                            */
 /* ------------------------------------------------------------------------- */
 
-long ngrt_system(const char *command)
+int64_t ngrt_system(const char *command)
 {
   char *cCommand = ngrt_c_string(command);
   int status = system(cCommand);
   free(cCommand);
+  if (status == -1)
+    return 1; /* wait-status error: report the existing failure result */
   if (WIFEXITED(status))
     return WEXITSTATUS(status);
   return 1;
@@ -670,6 +774,13 @@ char *ngrt_systemOutput(const char *command)
       break;
   }
   int status = pclose(pipe);
+  if (status == -1)
+  {
+    /* wait-status error: report the existing failure result. */
+    free(buffer);
+    ngrt_fail("cannot execute command");
+    return NULL;
+  }
   if (status != 0)
   {
     int code = WIFEXITED(status) ? WEXITSTATUS(status) : 1;
@@ -679,13 +790,13 @@ char *ngrt_systemOutput(const char *command)
     char *result = (char *)malloc(length + suffixLength + 8);
     if (result == NULL)
       abort();
-    *(long *)result = (long)(length + suffixLength);
+    *(int64_t *)result = (int64_t)(length + suffixLength);
     memcpy(result + 8, buffer, length);
     memcpy(result + 8 + length, suffix, suffixLength);
     free(buffer);
     return result;
   }
-  char *result = ngrt_new_string(buffer, (long)length);
+  char *result = ngrt_new_string(buffer, (int64_t)length);
   free(buffer);
   return result;
 }

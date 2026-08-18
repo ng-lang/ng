@@ -44,22 +44,14 @@ Run it:
 Output:
 
 ```text
+compiled 32 vNext function(s)
 hello, NG
-compiled 26 vNext function(s); main returned after 10 instruction(s) with value 42
+native main exited with code 42
 ```
 
-`main` may return nothing (`unit`), `i64`, `f64`, or `string`; command-line
-arguments are passed to typed `main` parameters:
-
-```ng
-fun main(name: string) -> unit {
-    print("hello, " + name);
-}
-```
-
-```bash
-./build/ngi hello.ng Ada
-```
+`main` may return nothing (`unit`), `i64`, `f64`, or `string`; string and
+float returns are printed to stdout, and an integer return becomes the
+process exit code reported by the driver.
 
 ## Inline source
 
@@ -87,8 +79,8 @@ for binary size comparisons with other languages.
 
 ## Interactive programs
 
-GUI/interactive programs run a frame loop; lift the per-run instruction
-budget with `--fuel 0`:
+GUI/interactive programs run a frame loop (see
+[ImGui Integration](/guide/imgui-integration)):
 
 ```bash
 ./build/ngi example/ng_ide.ng

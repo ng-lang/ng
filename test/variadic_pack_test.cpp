@@ -53,7 +53,7 @@ namespace
     REQUIRE(run(source, output, errors) == 0);
     INFO("errors: " << errors);
     REQUIRE(errors.empty());
-    REQUIRE(output.find(std::string{"native main exited with code "} + std::string{value}) != std::string::npos);
+    REQUIRE(output.find(std::string{"native main exited with code "} + std::string{value} + "\n") != std::string::npos);
   }
 } // namespace
 
@@ -151,5 +151,5 @@ TEST_CASE("vNext variadic packs example file runs end to end through ngi", "[vNe
   REQUIRE(runExample("example/variadic_packs.ng", output, errors) == 0);
   INFO("errors: " << errors);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("native main exited with code 63") != std::string::npos);
+  REQUIRE(output.find("native main exited with code 63\n") != std::string::npos);
 }

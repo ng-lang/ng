@@ -53,7 +53,7 @@ namespace
     REQUIRE(run(source, output, errors) == 0);
     INFO("errors: " << errors);
     REQUIRE(errors.empty());
-    REQUIRE(output.find(std::string{"native main exited with code "} + std::string{value}) != std::string::npos);
+    REQUIRE(output.find(std::string{"native main exited with code "} + std::string{value} + "\n") != std::string::npos);
   }
 } // namespace
 
@@ -136,5 +136,5 @@ TEST_CASE("vNext trait object example file runs end to end through ngi", "[vNext
   REQUIRE(runExample("example/trait_objects.ng", output, errors) == 0);
   INFO("errors: " << errors);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("native main exited with code 31") != std::string::npos);
+  REQUIRE(output.find("native main exited with code 31\n") != std::string::npos);
 }

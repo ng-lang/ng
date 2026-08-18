@@ -53,7 +53,7 @@ namespace
     REQUIRE(run(source, output, errors) == 0);
     INFO("errors: " << errors);
     REQUIRE(errors.empty());
-    REQUIRE(output.find(std::string{"native main exited with code "} + std::string{value}) != std::string::npos);
+    REQUIRE(output.find(std::string{"native main exited with code "} + std::string{value} + "\n") != std::string::npos);
   }
 } // namespace
 
@@ -142,5 +142,5 @@ TEST_CASE("vNext higher-kinded example file runs end to end through ngi", "[vNex
   REQUIRE(runExample("example/hkt.ng", output, errors) == 0);
   INFO("errors: " << errors);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("native main exited with code 5") != std::string::npos);
+  REQUIRE(output.find("native main exited with code 5\n") != std::string::npos);
 }

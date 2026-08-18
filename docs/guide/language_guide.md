@@ -74,11 +74,8 @@ cmake --build build -j
 ```bash
 ./build/ngi example/stdlib_basics.ng        # run an example file
 ./build/ngi --source 'import prelude; fun main() { print("hi"); }'
-./build/ngi example/ng_ide.ng   # the imgui IDE (headless AOT stub)
+./build/ngi example/ng_ide.ng   # the imgui IDE (SDL3 GPU backend)
 ```
-
-`ngi --fuel <n>` bounds the instruction budget (`0` lifts it, used by
-interactive programs).
 
 ### First program
 

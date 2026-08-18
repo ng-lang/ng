@@ -46,12 +46,14 @@ TEST_CASE("vNext example corpus runs end to end through ngi", "[vNext][Examples]
   std::sort(files.begin(), files.end());
 
   size_t runCount = 0;
-  for (const auto &filename : files)
+  for (auto filename : files)
   {
     // The IDE opens a real SDL/ImGui window; it is not headless-testable.
     if (filename == "ng_ide.ng") continue;
-    // `modules/hello.ng` is an import-only module with no main entry point.
-    if (filename == "modules/hello.ng") continue;
+    // `modules/hello.ng` is an import-only module with no main entry point;
+    // cover it end to end through its importer (and the dedicated
+    // entry-point fixture below).
+    if (filename == "modules/hello.ng") filename = "modules/imports_main.ng";
     // The extern "C" example calls real C symbols and is exercised through
     // the normal AOT path.
     const bool isNativeOnly = (filename == "ffi_extern.ng");
@@ -67,4 +69,16 @@ TEST_CASE("vNext example corpus runs end to end through ngi", "[vNext][Examples]
     ++runCount;
   }
   REQUIRE(runCount >= 40);
+}
+
+TEST_CASE("vNext modules/hello.ng runs end to end through an importing entry point", "[vNext][Examples][Modules]")
+{
+  // `modules/hello.ng` is an import-only library module (no main); exercise
+  // its exported surface end to end by importing it from a main entry point.
+  std::string output;
+  std::string errors;
+  REQUIRE(runExample("example/modules/imports_main.ng", output, errors) == 0);
+  INFO("errors: " << errors);
+  REQUIRE(errors.empty());
+  REQUIRE(output.find("native main exited with code 42\n") != std::string::npos);
 }

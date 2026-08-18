@@ -37,7 +37,7 @@ TEST_CASE("vNext ngi driver runs the complete replacement compile-verify-execute
   REQUIRE(errors.empty());
 }
 
-TEST_CASE("vNext ngi driver passes typed i64 arguments to main", "[vNext][Driver]")
+TEST_CASE("vNext ngi driver runs a parameterless typed i64 main", "[vNext][Driver]")
 {
   std::string output;
   std::string errors;

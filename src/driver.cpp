@@ -14,6 +14,7 @@
 #include "typecheck.hpp"
 
 #include <algorithm>
+#include <cerrno>
 #include <charconv>
 #include <cstdio>
 #include <cstdlib>
@@ -140,7 +141,19 @@ namespace NG
       while ((count = read(pipeDescriptors[0], buffer, sizeof buffer)) > 0) result.output.append(buffer, count);
       close(pipeDescriptors[0]);
       int status = 0;
-      waitpid(child, &status, 0);
+      pid_t waited = 0;
+      // waitpid can be interrupted by a signal; retry on EINTR and treat any
+      // other error as a failure before trusting `status`.
+      do
+      {
+        waited = waitpid(child, &status, 0);
+      } while (waited == -1 && errno == EINTR);
+      if (waited == -1)
+      {
+        result.status = -1;
+        result.output = "waitpid failed";
+        return result;
+      }
       result.status = status;
       return result;
     }
@@ -157,10 +170,21 @@ namespace NG
                                            std::ostream &output, std::ostream &errors) -> int
     {
       const auto il = native::lowerModule(flows, vtables, nativeOwnerships);
-      std::error_code ignored;
-      // Per-process directory: parallel compilations must not share files.
-      const auto directory = std::filesystem::temp_directory_path() / std::format("ng_native_{}", getpid());
-      std::filesystem::create_directories(directory, ignored);
+      // Unique, exclusively owned per-compilation directory (mkdtemp); the
+      // guard removes it on every exit path, including failures.
+      std::string directoryTemplate = (std::filesystem::temp_directory_path() / "ng_native_XXXXXX").string();
+      char *created = mkdtemp(directoryTemplate.data());
+      if (created == nullptr)
+      {
+        errors << "native: cannot create a temporary build directory\n";
+        return 1;
+      }
+      const auto directory = std::filesystem::path{created};
+      struct TempDirectoryGuard
+      {
+        std::filesystem::path path;
+        ~TempDirectoryGuard() { std::error_code ignored; std::filesystem::remove_all(path, ignored); }
+      } guard{directory};
       const auto ilFile = directory / "module.ssa";
       const auto asmFile = directory / "module.s";
       const auto executable = outputPath.has_value() ? std::filesystem::path{*outputPath} : directory / "ng_out";
@@ -197,7 +221,30 @@ namespace NG
           std::istringstream stream(NG_NGRT_IMGUI_EXTRA);
           std::string item;
           while (stream >> item)
-            linkArgs.push_back(item);
+          {
+            // Archive entries are resolved at runtime from NG_LIBRARY_PATH /
+            // LIBRARY_PATH, falling back to the build-tree paths embedded by
+            // CMake; everything else is passed to the linker verbatim.
+            if (item.ends_with(".a"))
+            {
+              const char *fallback = nullptr;
+#ifdef NG_IMGUI_PATH
+              if (item == "libimgui.a") fallback = NG_IMGUI_PATH;
+#endif
+#ifdef NG_SDL_PATH
+              if (item == "libSDL3.a") fallback = NG_SDL_PATH;
+#endif
+              const auto resolved = findNgrtLibrary(item, fallback != nullptr ? fallback : "");
+              if (!resolved.has_value())
+              {
+                errors << "native: cannot find " << item << " (set NG_LIBRARY_PATH or LIBRARY_PATH)\n";
+                return 1;
+              }
+              linkArgs.push_back(*resolved);
+            }
+            else
+              linkArgs.push_back(item);
+          }
         }
 #endif
       }

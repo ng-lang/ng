@@ -10,11 +10,20 @@ recursive-enum `List`, and a GC-free memory module.
 import prelude;
 ```
 
-`print` (i64/string/bool/f64/f32 overloads), `assert`, `not`, and
-`system(command) -> i64` and `systemOutput(command) -> string` — process/system command bindings
-inside the running program and returns its captured output (plus
-diagnostics with a trailing `[exit N]` on failure). The prelude
+`print` (i64/string/bool/f64/f32 overloads), `assert`, and `not`. The prelude
 re-exports the io and string surfaces.
+
+## `system`
+
+`system(command) -> i64` executes the command through `/bin/sh -c` and returns
+only the command's exit status.
+
+`systemOutput(command) -> string` executes the command the same way but
+returns the captured output; on failure it appends a trailing `[exit N]`
+marker carrying the nonzero exit status.
+
+Because both bindings go through the shell, callers must quote or validate
+any untrusted interpolated input.
 
 ## `io`
 

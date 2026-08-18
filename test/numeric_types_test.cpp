@@ -173,7 +173,11 @@ TEST_CASE("vNext unary plus on literals and constant logical operands fold corre
 
 TEST_CASE("vNext i64::min is expressible as a literal", "[vNext][Numerics][Literals]")
 {
-  expectValue("fun main() -> i64 { return -9223372036854775808; }", "0");
+  // Compare the literal against its expected full-width value inside the NG
+  // program: returning the literal directly would only preserve its low byte
+  // in the process exit status.
+  expectValue("fun main() -> i64 { if (-9223372036854775808 == -9223372036854775807 - 1) { return 1; } return 0; }",
+              "1");
   expectValue(
       "fun main() -> i64 { let x = -9223372036854775808; if (x == -9223372036854775807 - 1) { return 1; } return 0; }",
       "1");
@@ -184,7 +188,9 @@ TEST_CASE("vNext i64::min is expressible as a literal", "[vNext][Numerics][Liter
 
 TEST_CASE("vNext u64 literals reach the full unsigned range", "[vNext][Numerics][Literals]")
 {
-  expectValue("fun main() -> u64 { return 18446744073709551615u64; }", "255");
+  expectValue("fun main() -> i64 { if (18446744073709551615u64 == 18446744073709551614u64 + 1u64) { return 1; } "
+              "return 0; }",
+              "1");
   expectValue("fun main() -> i64 { let x: u64 = 18446744073709551615u64; "
               "if (x == 18446744073709551614u64 + 1u64) { return 1; } return 0; }",
               "1");

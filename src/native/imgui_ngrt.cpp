@@ -5,6 +5,7 @@
 // these are plain libngrt-style functions linked directly into generated
 // executables.
 #include "ngrt.h"
+#include "ngrt.hpp"
 
 #include <SDL3/SDL.h>
 #include <imgui.h>
@@ -14,6 +15,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <format>
 #include <memory>
@@ -22,6 +24,8 @@
 
 namespace
 {
+  using NG::ngrt::fromNgString;
+
   struct ImGuiModuleState
   {
     SDL_Window *window = nullptr;
@@ -84,18 +88,12 @@ namespace
     return state;
   }
 
-  auto fromNg(const char *text) -> std::string
-  {
-    const auto length = *reinterpret_cast<const long *>(text);
-    return std::string{text + 8, static_cast<size_t>(length)};
-  }
-
   auto toNg(const std::string &text) -> char *
   {
-    return ngrt_new_string(text.data(), static_cast<long>(text.size()));
+    return ngrt_new_string(text.data(), static_cast<int64_t>(text.size()));
   }
 
-  auto addFontOrThrow(ImGuiIO &io, const std::filesystem::path &fontPath) -> bool
+  auto addFont(ImGuiIO &io, const std::filesystem::path &fontPath) -> bool
   {
     if (io.Fonts->AddFontFromFileTTF(fontPath.string().c_str(), 0.0F, nullptr, nullptr) == nullptr)
     {
@@ -108,15 +106,19 @@ namespace
   auto runtimeFontPath(const std::filesystem::path &relativePath) -> std::filesystem::path
   {
     namespace fs = std::filesystem;
-    auto sourcePath = fs::path(__FILE__);
-    if (sourcePath.is_relative())
-      sourcePath = fs::current_path() / sourcePath;
-    sourcePath = sourcePath.lexically_normal();
-    const std::vector<fs::path> candidates{
+    // Fonts are located relative to the working directory, the parent
+    // directory (repo root when run from build/), an NG_IMGUI_PREFIX
+    // environment variable, or a CMake-provided install prefix. No
+    // build-machine source paths are embedded in the executable.
+    std::vector<fs::path> candidates{
         fs::current_path() / relativePath,
         fs::current_path().parent_path() / relativePath,
-        sourcePath.parent_path().parent_path().parent_path() / relativePath,
     };
+    if (const char *prefix = std::getenv("NG_IMGUI_PREFIX"); prefix != nullptr && *prefix != 0)
+      candidates.emplace_back(fs::path{prefix} / relativePath);
+#ifdef NG_NGRT_IMGUI_PREFIX
+    candidates.emplace_back(fs::path{NG_NGRT_IMGUI_PREFIX} / relativePath);
+#endif
     for (const auto &candidate : candidates)
       if (fs::exists(candidate))
         return candidate;
@@ -124,7 +126,7 @@ namespace
   }
 } // namespace
 
-extern "C" long ngrt_imguiInit(void)
+extern "C" int64_t ngrt_imguiInit(void)
 {
   if (activeState())
   {
@@ -198,14 +200,14 @@ extern "C" long ngrt_imguiInit(void)
     return 1;
   }
 
-  addFontOrThrow(io, runtimeFontPath("misc/fonts/SourceSans/SourceSans3-Regular.otf"));
-  addFontOrThrow(io, runtimeFontPath("misc/fonts/SourceCodePro/SourceCodePro-Regular.otf"));
+  addFont(io, runtimeFontPath("misc/fonts/SourceSans/SourceSans3-Regular.otf"));
+  addFont(io, runtimeFontPath("misc/fonts/SourceCodePro/SourceCodePro-Regular.otf"));
 
   activeState() = state;
   return 0;
 }
 
-extern "C" long ngrt_imguiCleanup(void)
+extern "C" int64_t ngrt_imguiCleanup(void)
 {
   if (auto state = activeState())
   {
@@ -215,7 +217,7 @@ extern "C" long ngrt_imguiCleanup(void)
   return 0;
 }
 
-extern "C" long ngrt_imguiEventLoop(void)
+extern "C" int64_t ngrt_imguiEventLoop(void)
 {
   auto state = requireState();
   if (!state)
@@ -232,7 +234,7 @@ extern "C" long ngrt_imguiEventLoop(void)
   return 0;
 }
 
-extern "C" long ngrt_imguiNewFrame(void)
+extern "C" int64_t ngrt_imguiNewFrame(void)
 {
   auto state = requireState();
   if (!state)
@@ -243,7 +245,7 @@ extern "C" long ngrt_imguiNewFrame(void)
   return 0;
 }
 
-extern "C" long ngrt_imguiRender(void)
+extern "C" int64_t ngrt_imguiRender(void)
 {
   auto state = requireState();
   if (!state)
@@ -278,22 +280,22 @@ extern "C" long ngrt_imguiRender(void)
   return 0;
 }
 
-extern "C" long ngrt_imguiAborted(void)
+extern "C" int64_t ngrt_imguiAborted(void)
 {
   auto state = requireState();
   return state && state->done ? 1 : 0;
 }
 
-extern "C" long ngrt_imguiBegin(const char *title)
+extern "C" int64_t ngrt_imguiBegin(const char *title)
 {
   auto state = requireState();
   if (!state)
     return 0;
-  const auto text = fromNg(title);
+  const auto text = fromNgString(title);
   return ImGui::Begin(text.c_str()) ? 1 : 0;
 }
 
-extern "C" long ngrt_imguiEnd(void)
+extern "C" int64_t ngrt_imguiEnd(void)
 {
   auto state = requireState();
   if (!state)
@@ -302,7 +304,7 @@ extern "C" long ngrt_imguiEnd(void)
   return 0;
 }
 
-extern "C" long ngrt_imguiSetNextWindowSize(double width, double height)
+extern "C" int64_t ngrt_imguiSetNextWindowSize(double width, double height)
 {
   auto state = requireState();
   if (!state)
@@ -311,19 +313,19 @@ extern "C" long ngrt_imguiSetNextWindowSize(double width, double height)
   return 0;
 }
 
-extern "C" long ngrt_imguiBeginChild(const char *id, double width, double height)
+extern "C" int64_t ngrt_imguiBeginChild(const char *id, double width, double height)
 {
   auto state = requireState();
   if (!state)
     return 0;
-  const auto text = fromNg(id);
+  const auto text = fromNgString(id);
   return ImGui::BeginChild(text.c_str(), ImVec2(static_cast<float>(width), static_cast<float>(height)),
                            ImGuiChildFlags_Border)
              ? 1
              : 0;
 }
 
-extern "C" long ngrt_imguiEndChild(void)
+extern "C" int64_t ngrt_imguiEndChild(void)
 {
   auto state = requireState();
   if (!state)
@@ -332,27 +334,27 @@ extern "C" long ngrt_imguiEndChild(void)
   return 0;
 }
 
-extern "C" long ngrt_imguiText(const char *text)
+extern "C" int64_t ngrt_imguiText(const char *text)
 {
   auto state = requireState();
   if (!state)
     return 1;
-  const auto value = fromNg(text);
+  const auto value = fromNgString(text);
   ImGui::TextUnformatted(value.c_str());
   return 0;
 }
 
-extern "C" long ngrt_imguiTextWrapped(const char *text)
+extern "C" int64_t ngrt_imguiTextWrapped(const char *text)
 {
   auto state = requireState();
   if (!state)
     return 1;
-  const auto value = fromNg(text);
+  const auto value = fromNgString(text);
   ImGui::TextWrapped("%s", value.c_str());
   return 0;
 }
 
-extern "C" long ngrt_imguiSeparator(void)
+extern "C" int64_t ngrt_imguiSeparator(void)
 {
   auto state = requireState();
   if (!state)
@@ -361,21 +363,21 @@ extern "C" long ngrt_imguiSeparator(void)
   return 0;
 }
 
-extern "C" long ngrt_imguiButton(const char *label)
+extern "C" int64_t ngrt_imguiButton(const char *label)
 {
   auto state = requireState();
   if (!state)
     return 0;
-  const auto text = fromNg(label);
+  const auto text = fromNgString(label);
   return ImGui::Button(text.c_str()) ? 1 : 0;
 }
 
-extern "C" long ngrt_imguiCheckbox(const char *label, long checked)
+extern "C" int64_t ngrt_imguiCheckbox(const char *label, int64_t checked)
 {
   auto state = requireState();
   if (!state)
     return 0;
-  const auto text = fromNg(label);
+  const auto text = fromNgString(label);
   bool value = checked != 0;
   ImGui::Checkbox(text.c_str(), &value);
   return value ? 1 : 0;
@@ -386,8 +388,8 @@ extern "C" char *ngrt_imguiInputTextMultiline(const char *label, const char *val
   auto state = requireState();
   if (!state)
     return toNg("");
-  const auto labelText = fromNg(label);
-  const auto valueText = fromNg(value);
+  const auto labelText = fromNgString(label);
+  const auto valueText = fromNgString(value);
   const size_t bufferSize = std::max<size_t>(64 * 1024, valueText.size() + 4096);
   std::string buffer(bufferSize, '\0');
   valueText.copy(buffer.data(), std::min(valueText.size(), buffer.size() - 1));
@@ -397,7 +399,7 @@ extern "C" char *ngrt_imguiInputTextMultiline(const char *label, const char *val
   return toNg(buffer.substr(0, end));
 }
 
-extern "C" long ngrt_imguiStyleColorsDark(void)
+extern "C" int64_t ngrt_imguiStyleColorsDark(void)
 {
   auto state = requireState();
   if (!state)
@@ -406,7 +408,7 @@ extern "C" long ngrt_imguiStyleColorsDark(void)
   return 0;
 }
 
-extern "C" long ngrt_imguiStyleColorsLight(void)
+extern "C" int64_t ngrt_imguiStyleColorsLight(void)
 {
   auto state = requireState();
   if (!state)

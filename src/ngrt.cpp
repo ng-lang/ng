@@ -33,12 +33,6 @@ namespace NG::ngrt
       return fallback;
     }
 
-    [[nodiscard]] auto fromNgString(const char *text) -> std::string
-    {
-      const auto length = *reinterpret_cast<const long *>(text);
-      return std::string{text + 8, static_cast<size_t>(length)};
-    }
-
     [[nodiscard]] auto takeNgString(char *text) -> std::string
     {
       if (text == nullptr)
@@ -136,6 +130,7 @@ namespace NG::ngrt
   auto charAt(std::string_view text, int64_t index) -> std::string
   {
     const NgString value{text};
+    ngrt_clear_error();
     char *result = ngrt_charAt(value, static_cast<long>(index));
     if (result == nullptr)
       throw std::out_of_range(failOr("charAt index out of bounds"));
@@ -145,6 +140,7 @@ namespace NG::ngrt
   auto substring(std::string_view text, int64_t start, int64_t end) -> std::string
   {
     const NgString value{text};
+    ngrt_clear_error();
     char *result = ngrt_substring(value, static_cast<long>(start), static_cast<long>(end));
     if (result == nullptr)
       throw std::out_of_range(failOr("substring bounds out of range"));
@@ -200,6 +196,7 @@ namespace NG::ngrt
   {
     const NgString value{text};
     const NgString expression{pattern};
+    ngrt_clear_error();
     const long result = ngrt_regexMatch(value, expression);
     if (result < 0)
       throw std::runtime_error(failOr("regexMatch: invalid pattern"));
@@ -211,6 +208,7 @@ namespace NG::ngrt
   auto readFile(std::string_view path) -> std::string
   {
     const NgString pathNg{path};
+    ngrt_clear_error();
     char *result = ngrt_readFile(pathNg);
     if (result == nullptr)
       throw std::runtime_error(failOr("cannot read file"));
@@ -221,6 +219,7 @@ namespace NG::ngrt
   {
     const NgString pathNg{path};
     const NgString contentNg{content};
+    ngrt_clear_error();
     if (ngrt_writeFile(pathNg, contentNg) != 0)
       throw std::runtime_error(failOr("cannot write file"));
   }
@@ -229,12 +228,7 @@ namespace NG::ngrt
 
   auto arrayLength(const std::vector<Value> &values) -> int64_t
   {
-    auto *header = static_cast<long *>(ngrt_alloc(sizeof(long) * 2));
-    header[0] = static_cast<long>(values.size());
-    header[1] = header[0];
-    const long result = ngrt_len(header);
-    ngrt_free(header);
-    return result;
+    return static_cast<int64_t>(values.size());
   }
 
   auto arraySum(const std::vector<Value> &values) -> int64_t
@@ -280,6 +274,7 @@ namespace NG::ngrt
       elements.push_back(value.asInteger());
     }
     long *header = makeI64Array(elements);
+    ngrt_clear_error();
     void *result = ngrt_reverse(header);
     ngrt_free(header);
     if (result == nullptr)
@@ -301,6 +296,7 @@ namespace NG::ngrt
 
   auto load(uint64_t handle) -> int64_t
   {
+    ngrt_clear_error();
     const long result = ngrt_load(static_cast<long>(handle));
     if (const char *message = ngrt_last_error(); message != nullptr)
       throw std::runtime_error(message);
@@ -309,6 +305,7 @@ namespace NG::ngrt
 
   auto store(uint64_t handle, int64_t value) -> void
   {
+    ngrt_clear_error();
     static_cast<void>(ngrt_store(static_cast<long>(handle), value));
     if (const char *message = ngrt_last_error(); message != nullptr)
       throw std::runtime_error(message);
@@ -316,6 +313,7 @@ namespace NG::ngrt
 
   auto release(uint64_t handle) -> void
   {
+    ngrt_clear_error();
     static_cast<void>(ngrt_release(static_cast<long>(handle)));
     if (const char *message = ngrt_last_error(); message != nullptr)
       throw std::runtime_error(message);

@@ -94,7 +94,12 @@ else()
   set(NG_NGRT_IMGUI_SDL_LIBS "-ldl -lpthread")
 endif()
 target_compile_definitions(ng PUBLIC "NG_NGRT_IMGUI_PATH=\"$<TARGET_FILE:ngrt_imgui>\"")
-target_compile_definitions(ng PUBLIC "NG_NGRT_IMGUI_EXTRA=\"$<TARGET_FILE:imgui> $<TARGET_FILE:SDL3::SDL3-static> ${NG_NGRT_IMGUI_SDL_LIBS}\"")
+# imgui/SDL3 archives are resolved at runtime by the driver (NG_LIBRARY_PATH /
+# LIBRARY_PATH), with these build-tree paths as defaults; the value stays a
+# space-separated argument list (whitespace-containing paths unsupported).
+target_compile_definitions(ng PUBLIC "NG_IMGUI_PATH=\"$<TARGET_FILE:imgui>\"")
+target_compile_definitions(ng PUBLIC "NG_SDL_PATH=\"$<TARGET_FILE:SDL3::SDL3-static>\"")
+target_compile_definitions(ng PUBLIC "NG_NGRT_IMGUI_EXTRA=\"libimgui.a libSDL3.a ${NG_NGRT_IMGUI_SDL_LIBS}\"")
 add_dependencies(ng ngrt_imgui)
 
 

@@ -27,13 +27,16 @@ macros).
 
 ## Embedding boundary
 
-Host code integrates through `include/` (`driver.hpp`, `native.hpp`,
-`value.hpp`, `bytecode.hpp`, ...):
+Host code integrates through `include/` (`driver.hpp`, `ngrt.hpp`,
+`value.hpp`, `native/lowering.hpp`, ...):
 
-- `NG::runDriver(arguments, output, errors)` drives the whole pipeline.
-- `NG::runDriverWithNatives(..., NG::registerImguiNatives)` adds extra
-  native registrations (the `ngi_imgui` frontend does this).
-- `vm::NativeRegistry` registers hosts by name; hosts receive
-  deep-copied `Value`s plus static parameter types and return `Value`s.
-- The driver registers the const-capable host set for compile-time
-  evaluation of pure natives.
+- `NG::runDriver(arguments, output, errors)` drives the whole pipeline:
+  load → resolve → typecheck → FlowIR → QBE IL → native executable (or
+  `--emit=ssa` for the IL text).
+- `libngrt` (`include/ngrt.h`) is the single C implementation of the
+  standard native surface; it is linked into every generated executable and
+  called by the frontend through the thin wrappers in `ngrt.hpp` for
+  compile-time evaluation of const-capable natives.
+- `native fun`s lower to `ngrt_*` symbols (and `$ngrt_imgui*` for the SDL3
+  GPU / Dear ImGui binding), so hosts are added by implementing those C
+  symbols rather than registering per-name callbacks.

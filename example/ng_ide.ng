@@ -3,9 +3,9 @@
 // Run with:
 //   ./build/ngi example/ng_ide.ng
 //
-// The editor is an AOT smoke test: the imgui natives are headless libngrt
-// stubs, and Run compiles the editor source on top of std.system by locating
-// `ngi` in PATH or the current directory.
+// The editor runs on the SDL3 GPU / Dear ImGui backend, and Run compiles the
+// editor source through the real pipeline by invoking the ngi frontend
+// (./build/ngi, ./ngi, or ngi on PATH) on a unique temporary source file.
 
 import prelude;
 import imgui;
@@ -27,16 +27,28 @@ fun main() -> unit {
         imguiSetNextWindowSize(1100.0, 720.0);
         imguiBegin("NG IDE");
 
-        imguiTextWrapped("NG IDE: AOT-native imgui stubs. Press Run to compile via ngi.");
+        imguiTextWrapped("NG IDE: SDL3 GPU imgui backend. Press Run to compile via the running ngi.");
 
         if (imguiButton("Run")) {
-            let sourcePath = "/tmp/ng_ide_source.ng";
-            writeFile(sourcePath, source);
-            let probe = trim(systemOutput("if test -x ./ngi; then echo ./ngi; elif command -v ngi >/dev/null 2>&1; then echo ngi; fi"));
-            if (length(probe) == 0) {
-                output := "error: cannot find ngi executable in PATH or current directory";
+            let sourcePath = trim(systemOutput("mktemp /tmp/ng_ide_source_XXXXXX"));
+            if (length(sourcePath) == 0) {
+                output := "error: mktemp failed: cannot create a temporary source file";
             } else {
-                output := systemOutput(probe + " " + sourcePath);
+                writeFile(sourcePath, source);
+                // The running process is the compiled IDE executable, not the
+                // frontend, so probe the documented ./build/ngi launch path
+                // first, then ./ngi, then ngi on PATH.
+                let probe = trim(systemOutput("if test -x ./build/ngi; then echo ./build/ngi; elif test -x ./ngi; then echo ./ngi; elif command -v ngi >/dev/null 2>&1; then echo ngi; fi"));
+                if (length(probe) == 0) {
+                    output := "error: cannot find ngi executable (./build/ngi, ./ngi, or PATH)";
+                } else {
+                    // Quote both paths for /bin/sh -c (single quotes with the
+                    // embedded-quote escape) so spaces in the executable path
+                    // do not get shell-parsed.
+                    let command = "'" + replace(probe, "'", "'\\''") + "' '" + replace(sourcePath, "'", "'\\''") + "'";
+                    output := systemOutput(command);
+                }
+                system("rm -f '" + replace(sourcePath, "'", "'\\''") + "'");
             }
         }
         if (imguiButton("Reset")) {

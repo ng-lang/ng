@@ -1255,7 +1255,9 @@ namespace NG::native
           }
           else
           {
-            line(std::format("{} =l alloc8 {}", localSlots_.at(slot.local), slot.words));
+            // QBE `alloc8` sizes are byte counts (the trailing number is the
+            // alignment), so a slot of `words` 8-byte words needs `words * 8`.
+            line(std::format("{} =l alloc8 {}", localSlots_.at(slot.local), slot.words * 8));
           }
         }
         for (size_t param = 0; param < paramTemps_.size(); ++param)
@@ -1831,7 +1833,7 @@ namespace NG::native
           // carry a tuple pointer in the payload word.
           const auto variant = static_cast<uint32_t>(static_cast<uint64_t>(payload) >> 32);
           const auto pointer = fresh();
-          line(std::format("{} =l alloc8 2", pointer));
+          line(std::format("{} =l alloc8 16", pointer));
           line(std::format("storel {}, {}", variant, pointer));
           const auto wordAddress = fresh();
           line(std::format("{} =l add {}, 8", wordAddress, pointer));
@@ -2083,7 +2085,7 @@ namespace NG::native
         if (count != instruction.operands.size())
           throw LoweringError(std::format("native lowering (M2): struct literal arity mismatch in `{}`", function_.name));
         const auto pointer = fresh();
-        line(std::format("{} =l alloc8 {}", pointer, (aggregateSize(typeId) + 7) / 8));
+        line(std::format("{} =l alloc8 {}", pointer, aggregateSize(typeId)));
         for (size_t index = 0; index < count; ++index)
         {
           const auto address = fresh();

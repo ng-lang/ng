@@ -1,9 +1,10 @@
 # ImGui Integration
 
 NG binds [Dear ImGui](https://github.com/ocornut/imgui) over the SDL3 GPU
-backend. The binding is a set of `native fun`s registered by the
-`ngi` frontend (`lib/std/imgui.ng`); the current libngrt stubs run headlessly, and a full C++ backend can replace the symbols
-an unregistered native.
+backend. The binding is a set of `native fun`s in `lib/std/imgui.ng`, lowered
+to `$ngrt_imgui*` symbols that are implemented by the C++ backend
+(`src/native/imgui_ngrt.cpp`, SDL3 GPU + Dear ImGui) and linked into
+executables that import the binding.
 
 ## The frame loop
 
@@ -39,8 +40,7 @@ Run with:
 ./build/ngi example/hello_gui.ng
 ```
 
-`--fuel 0` lifts the instruction budget — interactive loops run until the
-window closes.
+The frame loop runs until the window closes (`imguiAborted`).
 
 ## Binding surface
 
@@ -66,6 +66,3 @@ panel:
 ```bash
 ./build/ngi example/ng_ide.ng
 ```
-
-The IDE is also exercised headless in the test suite through stub imgui
-natives (`test/imgui_binding_test.cpp`).

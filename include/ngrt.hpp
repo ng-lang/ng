@@ -14,6 +14,15 @@
 
 namespace NG::ngrt
 {
+  /// Converts a length-prefixed libngrt string ({ int64_t len, char bytes[] })
+  /// to std::string. Shared by the frontend wrappers (ngrt.cpp) and the imgui
+  /// backend (imgui_ngrt.cpp).
+  [[nodiscard]] inline auto fromNgString(const char *text) -> std::string
+  {
+    const auto length = *reinterpret_cast<const int64_t *>(text);
+    return std::string{text + 8, static_cast<size_t>(length)};
+  }
+
   // std.string
   [[nodiscard]] auto length(std::string_view text) -> int64_t;
   [[nodiscard]] auto trim(std::string_view text) -> std::string;
