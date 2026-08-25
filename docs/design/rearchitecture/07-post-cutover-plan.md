@@ -277,7 +277,7 @@ one spread per literal; `test/array_spread_test.cpp`), and
 |---|---|---|---|
 | B1. Heap domain: generic `Box<T>`, `Gc<T>`, `Arc<T>`, arena callbacks, `new` | D-015 rule 7 (D-002 rules 7–9, 14) | R6 `RuntimeSession` | No GC. The current concrete `Box` with `impl Drop` remains the only heap form until R6. |
 | B2. `isize`/`usize` | D-008 | R9 `TargetAbiDescriptor` | Target-width ABI types; layout comes from the ABI descriptor, never host serialization. |
-| B3. Declared C ABI: `extern "C"`, `repr(C)`, ABI descriptors, opaque lifecycle policies, bindgen | R9 | R4, R6, R7 | `native fun` intrinsics and opaque declarations already ship; declared host signatures, ownership contracts, and bindgen do not. |
+| B3. Declared C ABI: `extern "C"`, `repr(C)`, ABI descriptors, opaque lifecycle policies, bindgen | R9 | R4, R6, R7 | First slice delivered (native tier only): `extern "C"` declarations and `repr(C)` structs parse, typecheck with ABI-safety gates, and lower to direct QBE C calls (`example/ffi_extern.ng` vs libc + libngrt fixtures; see 08-qbe-native-backend.md §8b). Remaining: ownership contracts, `cstr`/pointers, varargs, callbacks, `export extern "C"`, VM-tier extern dispatch, bindgen. |
 
 These are accepted language decisions whose implementation is intentionally
 gated; do not start them before their blocking phase.
@@ -285,7 +285,14 @@ gated; do not start them before their blocking phase.
 ## 5. Category C — unstarted roadmap rows
 
 - **R9 remainder** (in progress): declared ABI descriptors, safe C boundary,
-  opaque wrapper lifecycle policies, bindgen (see B3).
+  opaque wrapper lifecycle policies, bindgen (see B3). Recorded std-module
+  decision (see 08-qbe-native-backend.md §5): `std.imgui` remains a standard
+  module (`lib/std/imgui.ng` + `registerImguiNatives`), not a separate
+  frontend — the transitional `ngi_imgui` executable is removed when the
+  default `ngi` registers the module (startup registration first; the
+  import-triggered variant rides R7's native-module loader). Foreign C++
+  state crosses into NG only as opaque types (`type X = native;` today,
+  declared handle descriptors in R9), never as inspected values.
 - **R10** (not started): concurrency-native runtime and language layer.
   Structured concurrency with ownership-aware transfer; task payloads are
   move-only; refs do not cross task boundaries; process globals are not an

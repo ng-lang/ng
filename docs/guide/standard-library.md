@@ -10,11 +10,25 @@ recursive-enum `List`, and a GC-free memory module.
 import prelude;
 ```
 
-`print` (i64/string/bool/f64/f32 overloads), `assert`, `not`, and
-`runNgi(source) -> string` — which compiles and runs a source string
-inside the running program and returns its captured output (plus
-diagnostics with a trailing `[exit N]` on failure). The prelude
+`print` (i64/string/bool/f64/f32 overloads), `assert`, and `not`. The prelude
 re-exports the io and string surfaces.
+
+## `system`
+
+`system(command) -> i64` executes the command through `/bin/sh -c` and returns
+only the command's exit status.
+
+`systemOutput(command) -> string` executes the command the same way but
+returns the captured output; on failure it appends a trailing `[exit N]`
+marker carrying the nonzero exit status.
+
+Because both bindings execute through `/bin/sh -c`, callers must not
+interpolate untrusted values (user input, file contents, environment data)
+into command strings. There is no shell-escaping API and no argument-vector
+variant in the stdlib, so the only safe way to pass untrusted data is to
+validate it against a strict allowlist (for example, matching an exact
+constant or a narrow pattern such as a fixed set of literals) before
+interpolating it.
 
 ## `io`
 
@@ -80,7 +94,7 @@ deferred.
 
 ## `imgui`
 
-The Dear ImGui binding (registered by `ngi_imgui`) — see
+The Dear ImGui binding (`lib/std/imgui.ng`, lowered to `$ngrt_imgui*`) — see
 [ImGui Integration](/guide/imgui-integration).
 
 ## Umbrella

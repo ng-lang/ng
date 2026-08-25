@@ -2,6 +2,7 @@
 #include "hir.hpp"
 #include "syntax/const_expr.hpp"
 
+#include <algorithm>
 #include <array>
 #include <charconv>
 #include <format>
@@ -341,7 +342,8 @@ namespace NG::hir
   auto Resolver::resolveStruct(const syntax::StructDeclaration &structure, StructId id) -> Struct
   {
     Struct resolved{.id = id, .name = structure.name, .span = structure.span,
-                    .genericParameters = structure.genericParameters, .derivedTraits = structure.derivedTraits};
+                    .genericParameters = structure.genericParameters, .derivedTraits = structure.derivedTraits,
+                    .reprC = structure.reprC};
     std::unordered_set<std::string> names;
     for (const auto &field : structure.fields)
     {
@@ -364,7 +366,7 @@ namespace NG::hir
     constParameters_.clear();
     Function resolved{.id = id, .name = function.name, .span = function.span, .originModule = function.originModule,
                       .constFunction = function.constFunction, .exported = function.exported,
-                      .nativeFunction = function.nativeFunction};
+                      .nativeFunction = function.nativeFunction, .externC = function.externC};
     const uint32_t previousOrigin = currentOrigin_;
     currentOrigin_ = function.originModule;
     for (const auto &parameter : function.genericParameters)
@@ -1035,6 +1037,7 @@ namespace
                     .constFunction = source.constFunction,
                     .exported = source.exported,
                     .nativeFunction = source.nativeFunction,
+                    .externC = source.externC,
                     .traitBounds = source.traitBounds};
     for (const auto &parameter : source.constParameters)
       cloned.constParameters.push_back(ConstParameter{.name = parameter.name,

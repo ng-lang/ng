@@ -2,28 +2,29 @@
 
 ## Current focus
 
-Documentation sync only. The user asked to pause new tasks; align docs and record state via the worklog/align skills.
+Post-cutover maintenance of the vNext pipeline: keeping the native (QBE) backend link path portable across macOS and Linux toolchains.
 
 ## Status
 
-- vNext migration goal: **complete** (marked in goal tools; see `goal-2b0550d8-4094-4168-9cd3-06658ac747e5`).
-- Full suite green: 1757 assertions / 437 test cases, ctest 100%; 45 examples run e2e (`test/examples_sweep_test.cpp`).
-- Docs phase complete: guide rewritten, ref guides updated, legacy design/review docs archived (`docs/design/archive/`, untracked + gitignored), VitePress design content removed.
+- Full suite green on both platforms: 455 test cases / 1940 assertions, verified locally (macOS arm64) and in a Docker replica of the GitHub ubuntu-24.04 + clang-20 runner.
+- Linux CI failure in "compiles and links an imgui program without running it" is fixed: `libngrt.a` now links last so GNU ld's one-pass archive resolution sees `libngrt_imgui.a`'s callbacks.
+- Driver imgui-link test now surfaces driver status/output/errors via Catch2 `INFO` on failure.
 
 ## Recent completed changes
 
-- `fe8089f` list spreads into array literals (legacy 59 `[...items]`; EnumListLength/EnumListGet opcodes)
-- `0c2032d` list collection literals (`let xs: List<i64> = [1,2,3];`)
-- `8deca5a`/`7b977c9`/`422bc56` docs: guide/ref rewrites, archive + vitepress + gitignore
+- `src/driver.cpp` — native link order fix (`libngrt.a` after dependent archives) plus missing `<format>` include.
+- `src/hir.cpp` — missing `<algorithm>` include (latent portability bug under libstdc++).
+- `test/driver_test.cpp` — failure diagnostics for the imgui compile/link case.
 
 ## Next steps (user-gated)
 
-- Review rewritten `docs/guide` and the deferred-item plan.
-- Candidate continuations per `07-post-cutover-plan.md`: R6/R9 prerequisites (heap domain, C ABI) or a repo-wide clang-format pass.
-- Align: CHANGELOG + root README still describe the legacy pipeline (flagged for update).
+- Consider a Linux pre-push check (container or second CI job/arch) to catch linker/platform-sensitive changes before push.
+- Extend the `INFO(...)` diagnostics pattern to other driver tests that capture but never print `errors`.
+- Continue 08/QBE backend open items (panic policy, artifact caching, remaining B3 slices); R6/R9 prerequisites per `07-post-cutover-plan.md`.
 
 ## References
 
+- `.agents/worklog/2026-08-25.md` — CI fix entry and postmortem
+- `docs/design/rearchitecture/08-qbe-native-backend.md` — QBE native backend status
 - `docs/design/rearchitecture/07-post-cutover-plan.md` — remaining work ladder
-- `docs/design/rearchitecture/05-legacy-example-migration-matrix.md` — coverage matrix
 - `AGENTS.md` — pipeline/build/test conventions

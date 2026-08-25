@@ -73,11 +73,11 @@ TEST_CASE("vNext const fun bodies execute at runtime like ordinary functions", "
               "fun main() -> i64 { let input = 5; return fact(input); }",
               output, errors) == 0);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("with value 120") != std::string::npos);
+  REQUIRE(output.find("native main exited with code 120") != std::string::npos);
 
   REQUIRE(run("fun double(x: i64) -> i64 => x * 2; fun main() -> i64 { return double(21); }", output, errors) == 0);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("with value 42") != std::string::npos);
+  REQUIRE(output.find("native main exited with code 42") != std::string::npos);
 }
 
 TEST_CASE("vNext const fun folds recursive calls inside const if conditions", "[vNext][ConstFun][ConstEval]")
@@ -88,13 +88,13 @@ TEST_CASE("vNext const fun folds recursive calls inside const if conditions", "[
               "fun main() -> i64 { const if (fact(4) == 24) { return 1; } return 0; }",
               output, errors) == 0);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("with value 1") != std::string::npos);
+  REQUIRE(output.find("native main exited with code 1\n") != std::string::npos);
 
   REQUIRE(run("const fun fact(value: i64) -> i64 { if (value == 0) { return 1; } return value * fact(value - 1); } "
               "fun main() -> i64 { const if (fact(4) == 25) { return 1; } return 0; }",
               output, errors) == 0);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("with value 0") != std::string::npos);
+  REQUIRE(output.find("native main exited with code 0") != std::string::npos);
 }
 
 TEST_CASE("vNext const fun interpreter executes loops and tail recursion", "[vNext][ConstFun][ConstEval]")
@@ -106,13 +106,13 @@ TEST_CASE("vNext const fun interpreter executes loops and tail recursion", "[vNe
               "fun main() -> i64 { const if (sum_to(100) == 5050) { return 1; } return 0; }",
               output, errors) == 0);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("with value 1") != std::string::npos);
+  REQUIRE(output.find("native main exited with code 1\n") != std::string::npos);
 
   REQUIRE(run("const fun countdown(n: i64) -> i64 { if (n == 0) { return 0; } next (n - 1); } "
               "fun main() -> i64 { const if (countdown(1000) == 0) { return 1; } return 0; }",
               output, errors) == 0);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("with value 1") != std::string::npos);
+  REQUIRE(output.find("native main exited with code 1\n") != std::string::npos);
 }
 
 TEST_CASE("vNext const fun bodies may use const predicates and const if", "[vNext][ConstFun][ConstEval]")
@@ -124,7 +124,7 @@ TEST_CASE("vNext const fun bodies may use const predicates and const if", "[vNex
               "fun main() -> i64 { return classify(); }",
               output, errors) == 0);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("with value 1") != std::string::npos);
+  REQUIRE(output.find("native main exited with code 1\n") != std::string::npos);
 }
 
 TEST_CASE("vNext const evaluation rejects non-const functions, runtime locals, and generic const fun",
@@ -178,7 +178,7 @@ TEST_CASE("vNext const fun example file runs end to end through ngi", "[vNext][C
   REQUIRE(runExample("example/const_fun.ng", output, errors) == 0);
   INFO("errors: " << errors);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("with value 32") != std::string::npos);
+  REQUIRE(output.find("native main exited with code 32") != std::string::npos);
 }
 
 TEST_CASE("vNext const-capable natives fold inside const fun and const if", "[vNext][ConstFun][NativeHosts]")
@@ -473,11 +473,11 @@ TEST_CASE("vNext const fun bodies fold const if and i64::min literals at compile
               "fun main() -> i64 { const if (classify() == 1) { return 1; } return 0; }",
               output, errors) == 0);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("with value 1") != std::string::npos);
+  REQUIRE(output.find("native main exited with code 1\n") != std::string::npos);
 
   REQUIRE(run("const fun minv() -> i64 { return -9223372036854775808; } "
               "fun main() -> i64 { const if (minv() == -9223372036854775808) { return 1; } return 0; }",
               output, errors) == 0);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("with value 1") != std::string::npos);
+  REQUIRE(output.find("native main exited with code 1\n") != std::string::npos);
 }

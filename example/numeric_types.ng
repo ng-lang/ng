@@ -20,5 +20,9 @@ fun main() -> i32 {
     let sum = add(1, 2);
     let r: range<i32> = 0..3;
     let sliced = xs[r];
-    return small + big + sum + sliced[1] + pair.x;
+    let total = small + big + sum + sliced[1] + pair.x;
+    // Compare the full-width result (1312) in-program: returning it directly
+    // would only preserve its low byte as the process exit code.
+    if (total == 1312) { return 1; }
+    return 0;
 }

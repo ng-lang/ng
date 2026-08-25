@@ -81,7 +81,7 @@ TEST_CASE("vNext where clauses accept and reject calls by predicate satisfaction
               "fun main() -> i64 { let box = Box { value: 1 }; return describe(box); }",
               output, errors) == 0);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("with value 1") != std::string::npos);
+  REQUIRE(output.find("native main exited with code 1\n") != std::string::npos);
 
   try
   {
@@ -105,13 +105,13 @@ TEST_CASE("vNext where clauses support negation and direct type patterns", "[vNe
               "fun main() -> i64 { let plain = 7; return describe_other(plain); }",
               output, errors) == 0);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("with value 2") != std::string::npos);
+  REQUIRE(output.find("native main exited with code 2\n") != std::string::npos);
 
   REQUIRE(run("fun exact<T>(value: T) -> i64 where T is i64 { return 16; } "
               "fun main() -> i64 { let plain = 7; return exact(plain); }",
               output, errors) == 0);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("with value 16") != std::string::npos);
+  REQUIRE(output.find("native main exited with code 16\n") != std::string::npos);
 
   try
   {
@@ -134,7 +134,7 @@ TEST_CASE("vNext where clauses call const fun over const parameters", "[vNext][W
               "fun main() -> i64 { return require_large<42>(); }",
               output, errors) == 0);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("with value 8") != std::string::npos);
+  REQUIRE(output.find("native main exited with code 8\n") != std::string::npos);
 
   try
   {
@@ -160,7 +160,7 @@ TEST_CASE("vNext where clauses are checked per instance and at module level", "[
                 "fun wrap<T>(x: T) -> i64 { return exact(x); } fun main() -> i64 { return wrap(1); }",
                 output, errors) == 0);
     REQUIRE(errors.empty());
-    REQUIRE(output.find("with value 1") != std::string::npos);
+    REQUIRE(output.find("native main exited with code 1\n") != std::string::npos);
   }
 
   {
@@ -192,7 +192,7 @@ TEST_CASE("vNext where clauses example file runs end to end through ngi", "[vNex
   REQUIRE(runExample("example/where_clauses.ng", output, errors) == 0);
   INFO("errors: " << errors);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("with value 31") != std::string::npos);
+  REQUIRE(output.find("native main exited with code 31\n") != std::string::npos);
 }
 
 TEST_CASE("vNext where clauses combine predicates with logical operators", "[vNext][Where][Typecheck]")

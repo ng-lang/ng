@@ -136,6 +136,7 @@ namespace NG::syntax
                              : text == "else" ? TokenKind::KeywordElse
                              : text == "enum" ? TokenKind::KeywordEnum
                              : text == "export" ? TokenKind::KeywordExport
+                             : text == "extern" ? TokenKind::KeywordExtern
                              : text == "for" ? TokenKind::KeywordFor
                              : text == "fun" ? TokenKind::KeywordFun
                              : text == "if" ? TokenKind::KeywordIf
@@ -150,6 +151,7 @@ namespace NG::syntax
                              : text == "next" ? TokenKind::KeywordNext
                              : text == "otherwise" ? TokenKind::KeywordOtherwise
                              : text == "ref" ? TokenKind::KeywordRef
+                             : text == "repr" ? TokenKind::KeywordRepr
                              : text == "return" ? TokenKind::KeywordReturn
                              : text == "struct" ? TokenKind::KeywordStruct
                              : text == "switch" ? TokenKind::KeywordSwitch

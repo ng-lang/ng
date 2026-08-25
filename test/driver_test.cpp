@@ -33,16 +33,16 @@ TEST_CASE("vNext ngi driver runs the complete replacement compile-verify-execute
   std::string output;
   std::string errors;
   REQUIRE(run({"--source", "fun main() { let value = 1; value }"}, output, errors) == 0);
-  REQUIRE(output == "compiled 1 vNext function(s); main returned after 4 instruction(s)\n");
+  REQUIRE(output == "compiled 1 vNext function(s)\nnative main exited with code 0\n");
   REQUIRE(errors.empty());
 }
 
-TEST_CASE("vNext ngi driver passes typed i64 arguments to main", "[vNext][Driver]")
+TEST_CASE("vNext ngi driver runs a parameterless typed i64 main", "[vNext][Driver]")
 {
   std::string output;
   std::string errors;
-  REQUIRE(run({"--source", "fun main(value: i64) -> i64 { return value + 1; }", "--", "41"}, output, errors) == 0);
-  REQUIRE(output == "compiled 1 vNext function(s); main returned after 4 instruction(s) with value 42\n");
+  REQUIRE(run({"--source", "fun main() -> i64 { return 6 * 7; }"}, output, errors) == 0);
+  REQUIRE(output == "compiled 1 vNext function(s)\nnative main exited with code 42\n");
   REQUIRE(errors.empty());
 }
 
@@ -50,19 +50,9 @@ TEST_CASE("vNext ngi driver passes string arguments and reports string returns",
 {
   std::string output;
   std::string errors;
-  REQUIRE(run({"--source", "fun main(name: string) -> string { return \"hello, \" + name; }", "--", "Ada"}, output,
-              errors) == 0);
-  REQUIRE(output == "compiled 1 vNext function(s); main returned after 4 instruction(s) with value hello, Ada\n");
+  REQUIRE(run({"--source", "fun main() -> string { return \"hello, Ada\"; }"}, output, errors) == 0);
+  REQUIRE(output == "compiled 1 vNext function(s)\nhello, Ada\nnative main exited with code 0\n");
   REQUIRE(errors.empty());
-}
-
-TEST_CASE("vNext ngi driver rejects malformed runtime arguments", "[vNext][Driver]")
-{
-  std::string output;
-  std::string errors;
-  REQUIRE(run({"--source", "fun main(value: i64) -> i64 { return value; }", "--", "nope"}, output, errors) == 1);
-  REQUIRE(output.empty());
-  REQUIRE(errors == "invalid i64 argument `nope`\n");
 }
 
 TEST_CASE("vNext ngi driver executes direct calls through the module VM", "[vNext][Driver]")
@@ -72,7 +62,7 @@ TEST_CASE("vNext ngi driver executes direct calls through the module VM", "[vNex
   REQUIRE(
       run({"--source", "fun helper(value: i64) -> i64 { return value + 1; } fun main() -> i64 { return helper(41); }"},
           output, errors) == 0);
-  REQUIRE(output == "compiled 2 vNext function(s); main returned after 7 instruction(s) with value 42\n");
+  REQUIRE(output == "compiled 2 vNext function(s)\nnative main exited with code 42\n");
   REQUIRE(errors.empty());
 }
 
@@ -81,7 +71,7 @@ TEST_CASE("vNext ngi driver exposes a concrete main return value", "[vNext][Driv
   std::string output;
   std::string errors;
   REQUIRE(run({"--source", "fun main() -> i64 { return 6 * 7; }"}, output, errors) == 0);
-  REQUIRE(output == "compiled 1 vNext function(s); main returned after 4 instruction(s) with value 42\n");
+  REQUIRE(output == "compiled 1 vNext function(s)\nnative main exited with code 42\n");
   REQUIRE(errors.empty());
 }
 
@@ -144,26 +134,8 @@ TEST_CASE("vNext ngi driver lifts the fuel budget with --fuel 0", "[vNext][Drive
   REQUIRE(
       run({"--source", "fun main() -> unit { loop (i = 0) { if (i == 9) { return; } next (i + 1); } }", "--fuel", "0"},
           output, errors) == 0);
-  REQUIRE_THAT(output, ContainsSubstring("main returned"));
+  REQUIRE_THAT(output, ContainsSubstring("native main exited"));
   REQUIRE(errors.empty());
-}
-
-TEST_CASE("vNext ngi driver exhausts a small fuel budget", "[vNext][Driver][Fuel]")
-{
-  std::string output;
-  std::string errors;
-  REQUIRE(run({"--source", "fun main() -> unit { loop (i = 0) { next (i + 1); } }", "--fuel", "3"}, output, errors) ==
-          0);
-  REQUIRE_THAT(output, ContainsSubstring("exhausted fuel"));
-  REQUIRE(errors.empty());
-}
-
-TEST_CASE("vNext ngi driver rejects malformed --fuel values", "[vNext][Driver][Fuel]")
-{
-  std::string output;
-  std::string errors;
-  REQUIRE(run({"--source", "fun main() { let x = 1; x }", "--fuel", "many"}, output, errors) == 1);
-  REQUIRE_THAT(errors, ContainsSubstring("invalid --fuel value `many`"));
 }
 
 TEST_CASE("vNext ngi driver prints usage with no arguments and for --help", "[vNext][Driver]")
@@ -179,33 +151,32 @@ TEST_CASE("vNext ngi driver prints usage with no arguments and for --help", "[vN
   REQUIRE(errors.empty());
 }
 
-TEST_CASE("vNext ngi driver rejects unsupported main parameter types", "[vNext][Driver]")
-{
-  std::string output;
-  std::string errors;
-  REQUIRE(run({"--source", "fun main(value: f64) { }", "--", "1.5"}, output, errors) == 1);
-  REQUIRE(output.empty());
-  REQUIRE(errors == "main parameter `value` must currently be i64 or string\n");
-}
-
-TEST_CASE("vNext ngi driver reports main argument count mismatches", "[vNext][Driver]")
-{
-  std::string output;
-  std::string errors;
-  REQUIRE(run({"--source", "fun main(value: i64) -> i64 { return value; }"}, output, errors) == 1);
-  REQUIRE(output.empty());
-  REQUIRE(errors == "main argument count mismatch: expected 1, got 0\n");
-
-  REQUIRE(run({"--source", "fun main() { }", "--", "1"}, output, errors) == 1);
-  REQUIRE(output.empty());
-  REQUIRE(errors == "main argument count mismatch: expected 0, got 1\n");
-}
-
 TEST_CASE("vNext ngi driver reports f64 main return values", "[vNext][Driver]")
 {
   std::string output;
   std::string errors;
   REQUIRE(run({"--source", "fun main() -> f64 { return 1.5; }"}, output, errors) == 0);
-  REQUIRE_THAT(output, ContainsSubstring("with value 1.5"));
+  REQUIRE_THAT(output, ContainsSubstring("1.5"));
   REQUIRE(errors.empty());
+}
+
+TEST_CASE("vNext ngi driver compiles and links an imgui program without running it", "[vNext][Driver][Imgui]")
+{
+  // Compiling with --output exercises the whole native link path for an
+  // imgui program: libngrt_imgui.a plus the SDL3/Dear ImGui archives resolved
+  // through NG_LIBRARY_PATH / the build-tree defaults, without opening a
+  // window.
+  const auto outputPath = std::filesystem::temp_directory_path() / "ng_imgui_compile_test";
+  std::string output;
+  std::string errors;
+  const int status =
+      run({"--source", "import imgui; fun main() -> unit { imguiInit(); imguiCleanup(); }", "--output",
+           outputPath.string()},
+          output, errors);
+  // Surfaced by Catch2 only when an assertion below fails.
+  INFO("driver status: " << status << "\ndriver output:\n" << output << "\ndriver errors:\n" << errors);
+  REQUIRE(status == 0);
+  REQUIRE(output.find("native executable written to") != std::string::npos);
+  REQUIRE(errors.empty());
+  std::filesystem::remove(outputPath);
 }

@@ -126,6 +126,12 @@ namespace NG::flowir
     hir::DefId source;
     std::string name;
     bool nativeFunction{};
+    /// `extern "C"` declaration (B3): no NG body; the native tier calls the C
+    /// symbol directly and the VM rejects calls with a tier diagnostic.
+    bool externC{};
+    /// Declared result type from the checker (B3): extern calls emit with the
+    /// declared C signature type and widen to the call-site value type.
+    std::optional<typecheck::TypeId> declaredResultType{};
     BlockId entry;
     std::vector<hir::LocalId> parameterLocals;
     std::vector<Block> blocks;
@@ -135,7 +141,7 @@ namespace NG::flowir
   };
 
   /// Lowers resolved/type-validated control structure to a CFG. This is a new
-  /// backend-neutral IR; it does not emit or depend on legacy ORGASM bytecode.
+  /// backend-neutral IR; it feeds the QBE native backend.
   class Lowerer final
   {
   public:

@@ -47,8 +47,6 @@ include(cmake/qbe.cmake)
 
 set(NG_SRC
         src/driver.cpp
-        src/bytecode.cpp
-        src/bytecode/artifact.cpp
         src/flowir.cpp
         src/hir.cpp
         src/typecheck.cpp
@@ -56,8 +54,8 @@ set(NG_SRC
         src/const_eval.cpp
         src/const_interp.cpp
         src/module_loader.cpp
-        src/vm.cpp
-        src/vm/value_ops.cpp
+        src/native/lowering.cpp
+        src/ngrt.cpp
         src/syntax/block_parser.cpp
         src/syntax/const_expr.cpp
         src/syntax/module_parser.cpp
@@ -68,12 +66,43 @@ set(NG_SRC
 add_library(ng ${NG_SRC})
 target_include_directories(ng PUBLIC include)
 
+# libngrt: the single C implementation of the standard native functions.
+# The native backend links this archive into every generated executable; the
+# frontend also links it for the thin C++ wrappers used by const evaluation.
+add_library(ngrt STATIC src/native/libngrt.c)
+set_target_properties(ngrt PROPERTIES C_STANDARD 99 C_STANDARD_REQUIRED ON)
+target_include_directories(ngrt PUBLIC include)
+target_compile_options(ngrt PRIVATE -Wall -Wextra -Wpedantic)
+target_link_libraries(ng PUBLIC ngrt)
+target_compile_definitions(ng PUBLIC "NG_NGRT_PATH=\"$<TARGET_FILE:ngrt>\"")
+add_dependencies(ng ngrt)
+
 if(NG_QBE_AVAILABLE)
   # The native backend shells out to the sibling `qbe` binary; expose its
   # absolute path as a compile definition and order the build after it.
   target_compile_definitions(ng PUBLIC "NG_QBE_PATH=\"$<TARGET_FILE:qbe>\"")
   add_dependencies(ng qbe)
 endif()
+# imgui AOT backend: C-ABI `ngrt_imgui*` symbols linked into generated
+# executables when a program imports lib/std/imgui.ng.
+add_library(ngrt_imgui STATIC src/native/imgui_ngrt.cpp)
+target_link_libraries(ngrt_imgui PUBLIC imgui ngrt)
+target_include_directories(ngrt_imgui PUBLIC include)
+if(APPLE)
+  set(NG_NGRT_IMGUI_SDL_LIBS "-framework CoreMedia -framework CoreVideo -framework Cocoa -weak_framework UniformTypeIdentifiers -framework IOKit -framework ForceFeedback -framework Carbon -framework CoreAudio -framework AudioToolbox -framework AVFoundation -framework Foundation -framework GameController -framework Metal -framework QuartzCore -weak_framework CoreHaptics")
+else()
+  set(NG_NGRT_IMGUI_SDL_LIBS "-ldl -lpthread")
+endif()
+target_compile_definitions(ng PUBLIC "NG_NGRT_IMGUI_PATH=\"$<TARGET_FILE:ngrt_imgui>\"")
+# imgui/SDL3 archives are resolved at runtime by the driver (NG_LIBRARY_PATH /
+# LIBRARY_PATH), with these build-tree paths as defaults; the value stays a
+# space-separated argument list (whitespace-containing paths unsupported).
+target_compile_definitions(ng PUBLIC "NG_IMGUI_PATH=\"$<TARGET_FILE:imgui>\"")
+target_compile_definitions(ng PUBLIC "NG_SDL_PATH=\"$<TARGET_FILE:SDL3::SDL3-static>\"")
+target_compile_definitions(ng PUBLIC "NG_NGRT_IMGUI_EXTRA=\"libimgui.a libSDL3.a ${NG_NGRT_IMGUI_SDL_LIBS}\"")
+add_dependencies(ng ngrt_imgui)
+
+
 
 # Instrument the pipeline sources so llvm-cov measures src/ and include/
 # (the coverage gate ignores vendored/ and test/).
@@ -97,22 +126,6 @@ endif()
 # endregion ngi
 
 
-# region ngi_imgui
-
-# `ngi_imgui` is the same frontend plus the imgui native binding
-# (`lib/std/imgui.ng`), powering the NG IDE example.
-add_library(ng_imgui STATIC src/imgui_natives.cpp)
-target_link_libraries(ng_imgui PUBLIC ng imgui)
-target_include_directories(ng_imgui PUBLIC include)
-
-add_executable(ngi_imgui src/imgui_main.cpp)
-target_link_libraries(ngi_imgui PRIVATE ng_imgui)
-if (APPLE)
-target_link_options(ngi_imgui PRIVATE -fprofile-instr-generate -fcoverage-mapping -coverage)
-elseif (DEFINED ENV{RUNNING_ON_GITHUB} AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-target_link_options(ngi_imgui PRIVATE -fprofile-instr-generate -fcoverage-mapping)
-endif()
-# endregion ngi_imgui
 
 
 # region ng_test

@@ -1,12 +1,12 @@
 # Getting Started with NG
 
 NG compiles and runs through a single tool, `ngi`, which drives the full
-pipeline (parse → resolve → typecheck → FlowIR → bytecode → VM) for a file
+pipeline (parse → resolve → typecheck → FlowIR → QBE IL → native executable) for a file
 or an inline source unit.
 
 ## Requirements
 
-- macOS or Linux with a C++23 compiler (the build pins `clang`/`clang++`
+- macOS or Linux with a modern C++ compiler (the build pins `clang`/`clang++`
   with libc++ on macOS; Homebrew LLVM provides `clang-tidy`/`clang-format`).
 - CMake ≥ 3.25 and Ninja.
 
@@ -20,7 +20,6 @@ cmake --build build -j
 This produces:
 
 - `build/ngi` — the NG frontend (headless).
-- `build/ngi_imgui` — the same frontend plus the imgui binding.
 - `build/ng_test` — the full Catch2 test suite (run `ctest --test-dir build`).
 
 ## Run your first program
@@ -45,22 +44,14 @@ Run it:
 Output:
 
 ```text
+compiled 32 vNext function(s)
 hello, NG
-compiled 26 vNext function(s); main returned after 10 instruction(s) with value 42
+native main exited with code 42
 ```
 
-`main` may return nothing (`unit`), `i64`, `f64`, or `string`; command-line
-arguments are passed to typed `main` parameters:
-
-```ng
-fun main(name: string) -> unit {
-    print("hello, " + name);
-}
-```
-
-```bash
-./build/ngi hello.ng Ada
-```
+`main` may return nothing (`unit`), `i64`, `f64`, or `string`; string and
+float returns are printed to stdout, and an integer return becomes the
+process exit code reported by the driver.
 
 ## Inline source
 
@@ -72,13 +63,27 @@ parses a single expression:
 ./build/ngi --expr '2 * 3 + 4'
 ```
 
-## Interactive programs
+## Native compilation
 
-GUI/interactive programs run a frame loop; lift the per-run instruction
-budget with `--fuel 0`:
+NG can compile programs to native executables using the `--native` flag.
+The `--output` flag specifies the output file path:
 
 ```bash
-./build/ngi_imgui example/ng_ide.ng --fuel 0
+./build/ngi --native --output hello hello.ng   # compile to native executable
+./build/ngi --native hello.ng                  # compile and run immediately
+```
+
+Native executables are self-contained and don't require the NG runtime at
+execution time. See [Language Guide: Why NG?](/guide/language_guide#why-ng)
+for binary size comparisons with other languages.
+
+## Interactive programs
+
+GUI/interactive programs run a frame loop (see
+[ImGui Integration](/guide/imgui-integration)):
+
+```bash
+./build/ngi example/ng_ide.ng
 ```
 
 ## Tests and examples

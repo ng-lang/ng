@@ -73,7 +73,7 @@ standard library's string/io/seq/memory/imgui functions are natives):
 export native fun length(text: string) -> i64;
 ```
 
-The runtime registry dispatches by name; `runNgi` (from the prelude) even
+The native backend resolves `$ngrt_<name>` symbols; `std.system` even
 compiles and runs a source string from inside a running program.
 
 ## `const fun`

@@ -292,6 +292,15 @@ unsafe extern "C" {
 - ngi registers `print` (i64/string/bool) and `assert`; failed asserts and
   unregistered natives are deterministic runtime errors. `extern "C"`,
   opaque handles, effects annotations, and the declared C ABI remain.
+- **2026-08-16 (B3 first slice):** `extern "C" { fun ...; }` blocks,
+  single `extern "C" fun ...;` declarations, and `repr(C)` structs parse,
+  resolve, and typecheck with ABI-safety gates (fixed-width integers,
+  `f32`/`f64`, `bool`, and `repr(C)` records by value). The QBE native
+  tier emits direct C calls with the declared signature types
+  (`example/ffi_extern.ng` calls libc and `libngrt` fixtures, including
+  struct-by-value roundtrips); the VM tier rejects extern calls with a
+  tier diagnostic. Deferred: `cstr`/raw pointers, ownership annotations,
+  opaque handles, varargs, callbacks, and `export extern "C"`.
 
 ### Opaque type rule
 

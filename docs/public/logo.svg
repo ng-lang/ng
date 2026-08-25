@@ -1,10 +1,30 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
   <defs>
     <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#42b883"/>
-      <stop offset="100%" stop-color="#35495e"/>
+      <stop offset="0%" stop-color="#ff6b6b"/>
+      <stop offset="100%" stop-color="#feca57"/>
     </linearGradient>
   </defs>
-  <circle cx="100" cy="100" r="90" fill="url(#g)" opacity="0.9"/>
-  <text x="100" y="130" font-family="monospace" font-size="80" font-weight="bold" fill="white" text-anchor="middle">NG</text>
+
+  <!-- Outer frame with rounded corners -->
+  <rect x="10" y="10" width="180" height="180" rx="20" ry="20"
+        fill="none" stroke="url(#g)" stroke-width="4"/>
+
+  <!-- Inner background -->
+  <rect x="15" y="15" width="170" height="170" rx="16" ry="16"
+        fill="url(#g)" opacity="0.95"/>
+
+  <!-- Decorative dots -->
+  <circle cx="30" cy="30" r="4" fill="#ffffff" opacity="0.6"/>
+  <circle cx="170" cy="30" r="4" fill="#ffffff" opacity="0.6"/>
+  <circle cx="30" cy="170" r="4" fill="#ffffff" opacity="0.6"/>
+  <circle cx="170" cy="170" r="4" fill="#ffffff" opacity="0.6"/>
+
+  <!-- NG text using monospace font -->
+  <text x="100" y="128" font-family="ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, 'DejaVu Sans Mono', monospace"
+        font-size="72" font-weight="700" fill="#ffffff" text-anchor="middle"
+        letter-spacing="4">NG</text>
+
+  <!-- Accent underline -->
+  <rect x="45" y="140" width="110" height="4" rx="2" fill="#ffffff" opacity="0.8"/>
 </svg>

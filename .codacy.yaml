@@ -11,5 +11,5 @@ engines:
 
 exclude_paths:
   - "test/*"
-  - "vendored/*"
+  - "vendored/**"
   - "build/*"

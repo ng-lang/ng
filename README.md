@@ -1,13 +1,13 @@
-# A NostalGic (NG) Programming Language
+# NG Programming Language
 
 [![build](https://github.com/ng-lang/ng/actions/workflows/build.yml/badge.svg)](https://github.com/ng-lang/ng/actions/workflows/build.yml)
 [![Codacy Badge](https://app.codacy.com/project/badge/Grade/e72d75eb4dbf4a0e9617cbced2f4ec1e)](https://app.codacy.com/gh/ng-lang/ng/dashboard?utm_source=gh&utm_medium=referral&utm_content=&utm_campaign=Badge_grade)
 [![Codacy Badge](https://app.codacy.com/project/badge/Coverage/e72d75eb4dbf4a0e9617cbced2f4ec1e)](https://app.codacy.com/gh/ng-lang/ng/dashboard?utm_source=gh&utm_medium=referral&utm_content=&utm_campaign=Badge_coverage)
 [![codecov](https://codecov.io/github/ng-lang/ng/graph/badge.svg?token=T5RV6EWVSG)](https://codecov.io/github/ng-lang/ng)
 
-NG is a statically-typed, multi-paradigm programming language implemented in modern C++23, with a single clean pipeline:
+NG is a statically-typed, multi-paradigm programming language with a single clean pipeline:
 
-**Lexer → Parser → Resolver (HIR) → Type Checker → FlowIR → Bytecode → VM**
+**Lexer → Parser → Resolver (HIR) → Type Checker → FlowIR → QBE IL → Native executable**
 
 ## Features
 
@@ -23,7 +23,7 @@ NG is a statically-typed, multi-paradigm programming language implemented in mod
 
 ### Prerequisites
 
-- A C++23 compiler (macOS pins `clang`/`clang++` with libc++; Homebrew LLVM supplies `clang-tidy`/`clang-format`)
+- A modern C++ compiler (macOS pins `clang`/`clang++` with libc++; Homebrew LLVM supplies `clang-tidy`/`clang-format`)
 - CMake 3.25+ and Ninja
 
 ### Build and run
@@ -31,9 +31,10 @@ NG is a statically-typed, multi-paradigm programming language implemented in mod
 ```bash
 cmake -S . -B build -GNinja
 cmake --build build -j
-./build/ngi example/hello_world.ng                 # run an example
+./build/ngi example/stdlib_basics.ng               # run an example
 ./build/ngi --source 'import prelude; fun main() { print("hi"); }'
-./build/ngi_imgui example/ng_ide.ng --fuel 0       # the imgui IDE (GUI)
+./build/ngi --output hello example/stdlib_basics.ng  # compile to native executable
+./build/ngi --source 'import imgui; fun main() -> i64 { imguiInit(); if (imguiAborted()) { imguiCleanup(); return 1; } imguiCleanup(); return 0; }'  # headless imgui AOT stub
 ```
 
 Run the tests:
@@ -58,8 +59,8 @@ ctest --test-dir build -j  # or through CTest
 - Ownership: moves, partial moves, Drop, scoped refs, NLL borrow release
 - Traits: static dispatch, default methods (through views too), generic impls, auto traits, derive, `ref<Trait>` views
 - Compile-time: `const if`, const declarations, `const fun`, const-capable natives
-- Modules and imports; redesigned stdlib (string/seq/list/memory/imgui); bytecode VM with verified artifacts
-- Self-hosting `runNgi` and the NG IDE on the imgui binding
+- Modules and imports; redesigned stdlib (string/seq/list/memory/imgui); native-only AOT execution through QBE + libngrt
+- AOT imgui stubs in libngrt; the NG IDE example compiles/runs headlessly (full ImGui backend pending)
 
 ### Deferred (see the post-cutover plan for gating)
 

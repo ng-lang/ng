@@ -36,8 +36,9 @@ fun helper() -> i64 {   // module-private
 
 | Module | Surface |
 |---|---|
-| `prelude` | `print`/`assert`, `not`, `runNgi`, and re-exports of io/string |
+| `prelude` | `print`/`assert`, `not`, and re-exports of io/string |
 | `io` | `readLine`, `readFile`, `writeFile`, `currentExecutablePath` |
+| `system` | `system(command)`, `systemOutput(command)` — process/system command bindings (`import system;`) |
 | `string` | `length`, `charAt`, `substring`, `trim`, `split`, `join`, `contains`, `replace`, `startsWith`, `endsWith`, `toUpper`, `toLower`, `regexMatch` |
 | `seq` | `len`, `sum`, `arrayContains`, `reverse` |
 | `list` | recursive-enum `List<T>` with `length`/`get`/`contains` and builders `listFrom`/`pushFront`/`append`/`reverseList` |

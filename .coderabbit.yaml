@@ -9,3 +9,6 @@ reviews:
     drafts: false
   path_filters:
     - "!test/feature_test.cpp"
+    - "!build/**"
+    - "!vendored/**"
+    - "!node_modules/**"

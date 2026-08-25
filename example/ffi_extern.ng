@@ -1,0 +1,51 @@
+// B3 first slice: `extern "C"` declarations and `repr(C)` structs crossing
+// the C ABI. The native tier emits direct QBE calls to the C symbols (libc
+// links through cc; the fixture functions live in libngrt); the VM tier
+// rejects extern calls with a tier diagnostic, so this example runs with
+// `ngi --native example/ffi_extern.ng` and is exercised by the native
+// suite instead of the VM sweep.
+
+extern "C" {
+    fun llabs(value: i64) -> i64;
+    fun abs(value: i32) -> i32;
+    fun fabs(value: f64) -> f64;
+    fun sqrt(value: f64) -> f64;
+}
+
+// A record deliberately shared with C: layout is part of the public ABI
+// contract (D-004), field types must be ABI-safe, and QBE's backend
+// classifies it per the platform C ABI. Passing a repr(C) record to an
+// extern function copies at the ABI boundary, so it stays usable across
+// several boundary calls.
+repr(C)
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+// Sub-word integers exercise the b/h/w member layout plus C padding.
+repr(C)
+struct Mixed {
+    a: i8,
+    b: i16,
+    c: i32,
+}
+
+extern "C" fun ngrt_fixture_point_sum(p: Point) -> i64;
+extern "C" fun ngrt_fixture_mixed_sum(m: Mixed) -> i64;
+extern "C" fun ngrt_fixture_point_swap(p: Point) -> Point;
+
+fun main() -> i64 {
+    if (llabs(-42) != 42) { return 1; }
+    if (abs(-7) != 7) { return 2; }
+    if (fabs(-2.5) != 2.5) { return 3; }
+    if (sqrt(4.0) != 2.0) { return 4; }
+    let point = Point { x: 3, y: 4 };
+    if (ngrt_fixture_point_sum(point) != 7) { return 5; }
+    let mixed = Mixed { a: 1, b: 2, c: 3 };
+    if (ngrt_fixture_mixed_sum(mixed) != 6) { return 6; }
+    let swapped = ngrt_fixture_point_swap(point);
+    if (swapped.x != 4) { return 7; }
+    if (swapped.y != 3) { return 8; }
+    return 0;
+}

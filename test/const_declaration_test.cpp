@@ -58,7 +58,7 @@ namespace
     REQUIRE(run(source, output, errors) == 0);
     INFO("errors: " << errors);
     REQUIRE(errors.empty());
-    REQUIRE(output.find(expected ? "with value 1" : "with value 0") != std::string::npos);
+    REQUIRE(output.find(expected ? "native main exited with code 1" : "native main exited with code 0") != std::string::npos);
   }
 } // namespace
 
@@ -230,7 +230,7 @@ TEST_CASE("vNext const predicates example file runs end to end through ngi", "[v
   REQUIRE(runExample("example/const_predicates.ng", output, errors) == 0);
   INFO("errors: " << errors);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("with value 86") != std::string::npos);
+  REQUIRE(output.find("native main exited with code 86") != std::string::npos);
 }
 
 TEST_CASE("vNext const declaration bodies evaluate logical operators", "[vNext][ConstDecl][ConstExpr]")

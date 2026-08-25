@@ -24,6 +24,9 @@ namespace NG::typecheck
       {
         module_ = &module;
         constNativeHost_ = host;
+        reprCStructIds_.clear();
+        for (const auto &structure : module.structs)
+          if (structure.reprC) reprCStructIds_.insert(structure.id.value);
         {
           std::unordered_map<std::string, syntax::SourceSpan> typeNames;
           const auto declareName = [&](const std::string &name, syntax::SourceSpan span)
@@ -51,6 +54,7 @@ namespace NG::typecheck
           interner_.registerStructTemplate(structure);
         for (const auto &structure : module.structs)
         {
+          if (structure.reprC) validateReprCStruct(structure);
           if (!structure.genericParameters.empty())
             continue;
           std::vector<std::string> fields;
@@ -192,6 +196,7 @@ namespace NG::typecheck
                                         interner_.display(signature.returnType)),
                             function.span);
           displaySignature.returnType = interner_.display(signature.returnType);
+          if (function.externC) validateExternSignature(function, signature);
           signatures_.emplace(function.id.value, signature);
           functionTypeIds_.emplace(function.id.value, signature);
           functionTypes_.emplace(function.id.value, std::move(displaySignature));
@@ -1444,6 +1449,71 @@ namespace NG::typecheck
         }
         checkFunction(instances_.back(), instanceConstBindings);
         return instanceId;
+      }
+
+      /// B3 first slice: the ABI-safe value set for `extern "C"` boundaries —
+      /// fixed-width integers/floats, bool, and repr(C) structs by value.
+      /// Returns an empty string when the type may cross the C boundary.
+      [[nodiscard]] auto abiSafetyIssue(TypeId type) const -> std::string
+      {
+        if (isIntegerBuiltin(type) || type == builtin::F32 || type == builtin::F64 || type == builtin::Bool)
+          return {};
+        const auto &descriptor = interner_.descriptor(type);
+        if (descriptor.kind == TypeKind::Struct && descriptor.nominalId.has_value() &&
+            reprCStructIds_.contains(*descriptor.nominalId))
+          return {};
+        return std::format("`{}` is not ABI-safe; extern \"C\" signatures accept fixed-width integers, "
+                           "floats, bool, and repr(C) structs",
+                           interner_.display(type));
+      }
+
+      /// Validates an `extern "C"` signature (B3 first slice): every parameter
+      /// and the result must be ABI-safe; sub-word results are deferred until
+      /// the extension convention at C call boundaries is decided.
+      void validateExternSignature(const hir::Function &function, const FunctionTypeIds &signature)
+      {
+        for (size_t index = 0; index < function.parameters.size(); ++index)
+          if (const auto issue = abiSafetyIssue(signature.parameters[index]); !issue.empty())
+            throw TypeError(std::format("extern \"C\" function `{}`: parameter `{}`: {}", function.name,
+                                        function.parameters[index].name, issue),
+                            function.parameters[index].span);
+        if (signature.returnType != builtin::Unit)
+        {
+          if (const auto issue = abiSafetyIssue(signature.returnType); !issue.empty())
+            throw TypeError(std::format("extern \"C\" function `{}`: {}", function.name, issue), function.span);
+          if (signature.returnType == builtin::I8 || signature.returnType == builtin::U8 ||
+              signature.returnType == builtin::I16 || signature.returnType == builtin::U16)
+            throw TypeError(std::format("extern \"C\" function `{}`: sub-word results are deferred to a later B3 slice",
+                                        function.name),
+                            function.span);
+        }
+      }
+
+      /// Validates a `repr(C)` struct declaration (B3 first slice): no
+      /// generics, and every field must be a fixed-width integer or float.
+      /// Nested repr(C) fields and bool fields (C `_Bool` layout) are deferred.
+      void validateReprCStruct(const hir::Struct &structure)
+      {
+        if (!structure.genericParameters.empty())
+          throw TypeError(std::format("repr(C) struct `{}` cannot be generic", structure.name), structure.span);
+        for (const auto &field : structure.fields)
+        {
+          const TypeId type = interner_.resolve(field.type);
+          if (isIntegerBuiltin(type) || type == builtin::F32 || type == builtin::F64) continue;
+          if (type == builtin::Bool)
+            throw TypeError(std::format("bool field `{}` in repr(C) struct `{}` is deferred (C `_Bool` layout "
+                                        "differs from NG bool)",
+                                        field.name, structure.name),
+                            field.span);
+          if (interner_.descriptor(type).kind == TypeKind::Struct)
+            throw TypeError(std::format("nested struct field `{}` in repr(C) struct `{}` is deferred to a later B3 slice",
+                                        field.name, structure.name),
+                            field.span);
+          throw TypeError(std::format("field `{}` of repr(C) struct `{}` is not ABI-safe (`{}`); repr(C) fields "
+                                      "must be fixed-width integers or floats",
+                                      field.name, structure.name, interner_.display(type)),
+                          field.span);
+        }
       }
 
       void checkFunction(const hir::Function &function, const const_eval::ConstBindings &constBindings = {})
@@ -3236,13 +3306,20 @@ namespace NG::typecheck
               throw TypeError(std::format("call to `{}` does not satisfy its where clause",
                                           module_->functions.at(selected.value).name),
                               expression.span);
+            // Extern "C" callees copy their arguments at the ABI boundary
+            // (the C function cannot own NG memory), so passing a value never
+            // consumes the source place — repr(C) records stay usable across
+            // several boundary calls without derive(Copy) ceremony.
+            const bool externTarget = selected.value < module_->functions.size() &&
+                                      module_->functions.at(selected.value).externC;
             for (size_t index = 0; index < supplied; ++index)
             {
               const TypeId parameterType = index < fixedParameters
                                                ? signature.parameters[index]
                                                : interner_.descriptor(signature.parameters.back()).element;
               const auto &parameterDescriptor = interner_.descriptor(parameterType);
-              if (parameterDescriptor.kind != TypeKind::Reference && parameterDescriptor.kind != TypeKind::RawPointer)
+              if (parameterDescriptor.kind != TypeKind::Reference && parameterDescriptor.kind != TypeKind::RawPointer &&
+                  !externTarget)
                 trackConsumption(*expression.operands[index + 1], locals);
             }
             if (variadic)
@@ -4039,6 +4116,8 @@ namespace NG::typecheck
             throw TypeError(std::format("call to `{}` does not satisfy its where clause",
                                         module_->functions.at(selected.value).name),
                             expression.span);
+          const bool externTarget = selected.value < module_->functions.size() &&
+                                    module_->functions.at(selected.value).externC;
           if (!hasSpread)
           {
             for (size_t index = 0; index < supplied; ++index)
@@ -4047,7 +4126,8 @@ namespace NG::typecheck
                                                ? signature.parameters[index]
                                                : interner_.descriptor(signature.parameters.back()).element;
               const auto &parameterDescriptor = interner_.descriptor(parameterType);
-              if (parameterDescriptor.kind != TypeKind::Reference && parameterDescriptor.kind != TypeKind::RawPointer)
+              if (parameterDescriptor.kind != TypeKind::Reference && parameterDescriptor.kind != TypeKind::RawPointer &&
+                  !externTarget)
                 trackConsumption(*expression.operands[index + 1], locals);
             }
           }
@@ -4061,7 +4141,8 @@ namespace NG::typecheck
                                                ? signature.parameters[index]
                                                : interner_.descriptor(signature.parameters.back()).element;
               const auto &parameterDescriptor = interner_.descriptor(parameterType);
-              if (parameterDescriptor.kind != TypeKind::Reference && parameterDescriptor.kind != TypeKind::RawPointer)
+              if (parameterDescriptor.kind != TypeKind::Reference && parameterDescriptor.kind != TypeKind::RawPointer &&
+                  !externTarget)
                 trackConsumption(*spreadInfo.argumentExpressions[index], locals);
             }
           }
@@ -4380,6 +4461,9 @@ namespace NG::typecheck
       }
 
       TypeInterner interner_;
+      /// StructIds of `repr(C)` records (B3 first slice); their types may
+      /// cross `extern "C"` boundaries by value.
+      std::unordered_set<uint32_t> reprCStructIds_;
       std::unordered_map<uint32_t, FunctionTypeIds> signatures_;
       std::unordered_map<const hir::Expression *, std::string> expressionTypes_;
       std::unordered_map<const hir::Expression *, TypeId> expressionTypeIds_;

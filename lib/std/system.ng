@@ -1,0 +1,8 @@
+// vNext std.system: process/system command bindings supplied by libngrt.
+// Both functions execute the command through /bin/sh -c, so callers must
+// quote or validate any untrusted interpolated input. `system` returns only
+// the exit status; `systemOutput` returns the captured output and appends
+// "[exit N]" when the command fails.
+
+export native fun system(command: string) -> i64;
+export native fun systemOutput(command: string) -> string;

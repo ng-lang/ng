@@ -53,7 +53,7 @@ namespace
     REQUIRE(run(source, output, errors) == 0);
     INFO("errors: " << errors);
     REQUIRE(errors.empty());
-    REQUIRE(output.find(std::string{"with value "} + std::string{value}) != std::string::npos);
+    REQUIRE(output.find(std::string{"native main exited with code "} + std::string{value} + "\n") != std::string::npos);
   }
 } // namespace
 
@@ -139,12 +139,12 @@ TEST_CASE("vNext std.string bounds errors surface as runtime errors", "[vNext][S
 TEST_CASE("vNext redesigned stdlib examples run end to end through ngi", "[vNext][Stdlib][Examples]")
 {
   for (const auto &[filename, value] : std::vector<std::pair<std::string, std::string>>{
-           {"example/std_list.ng", "with value 15"},
-           {"example/list_builders.ng", "main returned"},
-           {"example/list_literals.ng", "main returned"},
-           {"example/list_spread.ng", "main returned"},
-           {"example/heap_box.ng", "with value 12"},
-           {"example/std_seq.ng", "with value 7"}})
+           {"example/std_list.ng", "native main exited with code 15\n"},
+           {"example/list_builders.ng", "native main exited"},
+           {"example/list_literals.ng", "native main exited"},
+           {"example/list_spread.ng", "native main exited"},
+           {"example/heap_box.ng", "native main exited with code 12\n"},
+           {"example/std_seq.ng", "native main exited with code 7\n"}})
   {
     std::string output;
     std::string errors;

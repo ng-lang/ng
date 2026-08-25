@@ -92,7 +92,7 @@ TEST_CASE("vNext static dispatch calls impl methods on concrete receivers", "[vN
                   "fun main() -> i64 { let counter = Counter { value: 7 }; return counter.show(); }",
               output, errors) == 0);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("with value 7") != std::string::npos);
+  REQUIRE(output.find("native main exited with code 7") != std::string::npos);
 }
 
 TEST_CASE("vNext mutating methods borrow receivers mutably", "[vNext][Trait][Typecheck]")
@@ -105,7 +105,7 @@ TEST_CASE("vNext mutating methods borrow receivers mutably", "[vNext][Trait][Typ
               "fun main() -> i64 { let mut counter = Counter { value: 1 }; counter.inc(); counter.inc(); return counter.value; }",
               output, errors) == 0);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("with value 3") != std::string::npos);
+  REQUIRE(output.find("native main exited with code 3") != std::string::npos);
 
   try
   {
@@ -134,7 +134,7 @@ TEST_CASE("vNext impls satisfy supertrait methods and default methods", "[vNext]
               "if (one.less(ref two)) { total := total + 1; } if (one.same(ref one)) { total := total + 2; } return total; }",
               output, errors) == 0);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("with value 3") != std::string::npos);
+  REQUIRE(output.find("native main exited with code 3") != std::string::npos);
 
   REQUIRE(run("struct Person { name: string } "
               "trait Display { fun text(self: Self ref) -> string { return \"unknown\"; } } "
@@ -143,7 +143,7 @@ TEST_CASE("vNext impls satisfy supertrait methods and default methods", "[vNext]
               "if (text == \"unknown\") { return 1; } return 0; }",
               output, errors) == 0);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("with value 1") != std::string::npos);
+  REQUIRE(output.find("native main exited with code 1") != std::string::npos);
 }
 
 TEST_CASE("vNext trait bounds in where clauses require impl evidence", "[vNext][Trait][Typecheck]")
@@ -155,7 +155,7 @@ TEST_CASE("vNext trait bounds in where clauses require impl evidence", "[vNext][
                   "fun main() -> i64 { let counter = Counter { value: 1 }; let read = ref counter; return describe(read); }",
               output, errors) == 0);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("with value 32") != std::string::npos);
+  REQUIRE(output.find("native main exited with code 32") != std::string::npos);
 
   try
   {
@@ -241,7 +241,7 @@ TEST_CASE("vNext method calls through bounded type parameters monomorphize per i
               "fun main() -> i64 { let counter = Counter { value: 7 }; let read = ref counter; return render(read); }",
               output, errors) == 0);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("with value 7") != std::string::npos);
+  REQUIRE(output.find("native main exited with code 7") != std::string::npos);
 
   REQUIRE(run("struct Box { value: i64 } "
               "trait Show { fun show(self: Self ref) -> i64; } "
@@ -250,7 +250,7 @@ TEST_CASE("vNext method calls through bounded type parameters monomorphize per i
               "fun main() -> i64 { let box = Box { value: 6 }; let read = ref box; return render(read); }",
               output, errors) == 0);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("with value 7") != std::string::npos);
+  REQUIRE(output.find("native main exited with code 7") != std::string::npos);
 }
 
 TEST_CASE("vNext traits example file runs end to end through ngi", "[vNext][Trait][Examples]")
@@ -260,7 +260,7 @@ TEST_CASE("vNext traits example file runs end to end through ngi", "[vNext][Trai
   REQUIRE(runExample("example/traits.ng", output, errors) == 0);
   INFO("errors: " << errors);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("with value 66") != std::string::npos);
+  REQUIRE(output.find("native main exited with code 66") != std::string::npos);
 }
 
 TEST_CASE("vNext trait default methods call trait methods through self", "[vNext][Trait][Defaults]")
@@ -275,7 +275,7 @@ TEST_CASE("vNext trait default methods call trait methods through self", "[vNext
               "if (counter.bracketed() == \"[eight]\") { return 1; } return 0; }",
               output, errors) == 0);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("with value 1") != std::string::npos);
+  REQUIRE(output.find("native main exited with code 1") != std::string::npos);
 
   // Declaration-only method before a default method (methodIds ordering).
   REQUIRE(run("struct Number { value: i64 } "
@@ -286,7 +286,7 @@ TEST_CASE("vNext trait default methods call trait methods through self", "[vNext
               "if (number.wrapped() == \"<n>\") { return 2; } return 0; }",
               output, errors) == 0);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("with value 2") != std::string::npos);
+  REQUIRE(output.find("native main exited with code 2") != std::string::npos);
 }
 
 TEST_CASE("vNext empty impls use trait defaults on static and view receivers", "[vNext][Trait][Defaults]")
@@ -302,7 +302,7 @@ TEST_CASE("vNext empty impls use trait defaults on static and view receivers", "
               "if (other.text() == \"?\" && text == \"?\") { return 3; } return 0; }",
               output, errors) == 0);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("with value 3") != std::string::npos);
+  REQUIRE(output.find("native main exited with code 3") != std::string::npos);
 }
 
 TEST_CASE("vNext generic impls instantiate per concrete receiver", "[vNext][Trait][GenericImpls]")
@@ -316,7 +316,7 @@ TEST_CASE("vNext generic impls instantiate per concrete receiver", "[vNext][Trai
               "if (xs.show() == \"list\") { return 1; } return 0; }",
               output, errors) == 0);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("with value 1") != std::string::npos);
+  REQUIRE(output.find("native main exited with code 1") != std::string::npos);
 
   REQUIRE(run("import prelude; "
               "trait Show { fun show(self: Self ref) -> string; } "
@@ -325,7 +325,7 @@ TEST_CASE("vNext generic impls instantiate per concrete receiver", "[vNext][Trai
               "if (xs.show() == \"array\") { return 2; } return 0; }",
               output, errors) == 0);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("with value 2") != std::string::npos);
+  REQUIRE(output.find("native main exited with code 2") != std::string::npos);
 }
 
 TEST_CASE("vNext generic impls satisfy trait bounds and views, concrete wins", "[vNext][Trait][GenericImpls]")
@@ -343,7 +343,7 @@ TEST_CASE("vNext generic impls satisfy trait bounds and views, concrete wins", "
               "{ return 1; } return 0; }",
               output, errors) == 0);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("with value 1") != std::string::npos);
+  REQUIRE(output.find("native main exited with code 1") != std::string::npos);
 }
 
 TEST_CASE("vNext generic impls diagnose duplicates and missing methods", "[vNext][Trait][GenericImpls][Errors]")
@@ -376,5 +376,5 @@ TEST_CASE("vNext generic_impls example runs end to end through ngi", "[vNext][Tr
   std::ostringstream errorStream;
   REQUIRE(NG::runDriver({path}, outputStream, errorStream) == 0);
   REQUIRE(errorStream.str().empty());
-  REQUIRE(outputStream.str().find("main returned") != std::string::npos);
+  REQUIRE(outputStream.str().find("native main exited") != std::string::npos);
 }

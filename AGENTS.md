@@ -54,6 +54,8 @@ ctest --test-dir build -j
 
 ```bash
 ./build/ngi example/<example>.ng
+./build/ngi --native example/<example>.ng   # AOT: QBE -> cc -> native executable
+./build/ngi --emit=ssa example/<example>.ng # dump the QBE IL
 ./build/ngi_imgui example/ng_ide.ng --fuel 0   # GUI binding; --fuel 0 lifts the instruction budget
 ```
 **Format and lint C++ code** (tools come from Homebrew LLVM at `/opt/homebrew/opt/llvm`):
