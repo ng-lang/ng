@@ -169,9 +169,13 @@ TEST_CASE("vNext ngi driver compiles and links an imgui program without running 
   const auto outputPath = std::filesystem::temp_directory_path() / "ng_imgui_compile_test";
   std::string output;
   std::string errors;
-  REQUIRE(run({"--source", "import imgui; fun main() -> unit { imguiInit(); imguiCleanup(); }", "--output",
-               outputPath.string()},
-              output, errors) == 0);
+  const int status =
+      run({"--source", "import imgui; fun main() -> unit { imguiInit(); imguiCleanup(); }", "--output",
+           outputPath.string()},
+          output, errors);
+  // Surfaced by Catch2 only when an assertion below fails.
+  INFO("driver status: " << status << "\ndriver output:\n" << output << "\ndriver errors:\n" << errors);
+  REQUIRE(status == 0);
   REQUIRE(output.find("native executable written to") != std::string::npos);
   REQUIRE(errors.empty());
   std::filesystem::remove(outputPath);

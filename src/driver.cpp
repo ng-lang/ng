@@ -19,6 +19,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <iostream>
 #include <ostream>
@@ -198,13 +199,12 @@ namespace NG
         errors << "native: qbe failed:\n" << assemble.output;
         return 1;
       }
-      const auto ngrt = findNgrtLibrary("libngrt.a", NG_NGRT_PATH);
-      if (!ngrt.has_value())
-      {
-        errors << "native: cannot find libngrt.a (set NG_LIBRARY_PATH or LIBRARY_PATH)\n";
-        return 1;
-      }
-      std::vector<std::string> linkArgs = {"c++", asmFile.string(), *ngrt};
+      // Archive order matters for one-pass linkers (GNU ld): each archive
+      // must precede the archives that depend on it. libngrt.a is the base
+      // runtime (libngrt_imgui.a calls back into it), so it goes last; a
+      // program whose generated code never references it directly would
+      // otherwise leave its members unloaded and break imgui links.
+      std::vector<std::string> linkArgs = {"c++", asmFile.string()};
       if (needsImgui)
       {
 #ifdef NG_NGRT_IMGUI_PATH
@@ -248,6 +248,13 @@ namespace NG
         }
 #endif
       }
+      const auto ngrt = findNgrtLibrary("libngrt.a", NG_NGRT_PATH);
+      if (!ngrt.has_value())
+      {
+        errors << "native: cannot find libngrt.a (set NG_LIBRARY_PATH or LIBRARY_PATH)\n";
+        return 1;
+      }
+      linkArgs.push_back(*ngrt);
       linkArgs.push_back("-o");
       linkArgs.push_back(executable.string());
 #ifdef __linux__

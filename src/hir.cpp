@@ -2,6 +2,7 @@
 #include "hir.hpp"
 #include "syntax/const_expr.hpp"
 
+#include <algorithm>
 #include <array>
 #include <charconv>
 #include <format>

@@ -2,31 +2,29 @@
 
 ## Current focus
 
-Continuing the QBE native backend (`docs/design/rearchitecture/08-qbe-native-backend.md`): native binary output (`--output`) and M5 ownership descriptors.
+Post-cutover maintenance of the vNext pipeline: keeping the native (QBE) backend link path portable across macOS and Linux toolchains.
 
 ## Status
 
-- vNext migration goal: **complete** (marked in goal tools; see `goal-2b0550d8-4094-4168-9cd3-06658ac747e5`).
-- Full suite green: 561/561 ctest, including the native differential sweep, ownership-descriptor tests, and native `--output` tests.
-- M5 (AOT native shims + declared native signatures) is complete: `DeclaredSignature` carries per-parameter `Ownership` (`Copy`/`Borrow`/`Move`) and result ownership; AOT lowering deep-copies `Copy` aggregate arguments before shim calls.
-- `ngi --native --output <path>` now writes a native executable without running it.
+- Full suite green on both platforms: 455 test cases / 1940 assertions, verified locally (macOS arm64) and in a Docker replica of the GitHub ubuntu-24.04 + clang-20 runner.
+- Linux CI failure in "compiles and links an imgui program without running it" is fixed: `libngrt.a` now links last so GNU ld's one-pass archive resolution sees `libngrt_imgui.a`'s callbacks.
+- Driver imgui-link test now surfaces driver status/output/errors via Catch2 `INFO` on failure.
 
 ## Recent completed changes
 
-- `src/driver.cpp`, `test/driver_test.cpp`, `test/native_qbe_test.cpp` — added `--output` / `-o` native executable output.
-- `docs/design/rearchitecture/08-qbe-native-backend.md` — documented `--output`, M5 delivered.
-- `include/native.hpp`, `include/native/lowering.hpp`, `src/driver.cpp`, `src/native/lowering.cpp` — ownership descriptors added and wired into AOT shim argument lowering.
-- `test/native_function_test.cpp`, `test/native_qbe_test.cpp` — ownership descriptor and deep-copy regression coverage.
+- `src/driver.cpp` — native link order fix (`libngrt.a` after dependent archives) plus missing `<format>` include.
+- `src/hir.cpp` — missing `<algorithm>` include (latent portability bug under libstdc++).
+- `test/driver_test.cpp` — failure diagnostics for the imgui compile/link case.
 
 ## Next steps (user-gated)
 
-- Continue 08/QBE backend open items (e.g. panic policy, artifact caching, remaining B3 slices).
-- Per `07-post-cutover-plan.md`: R6/R9 prerequisites (heap domain, C ABI) or a repo-wide clang-format pass.
-- Align: CHANGELOG + root README still describe the legacy pipeline (flagged for update).
+- Consider a Linux pre-push check (container or second CI job/arch) to catch linker/platform-sensitive changes before push.
+- Extend the `INFO(...)` diagnostics pattern to other driver tests that capture but never print `errors`.
+- Continue 08/QBE backend open items (panic policy, artifact caching, remaining B3 slices); R6/R9 prerequisites per `07-post-cutover-plan.md`.
 
 ## References
 
-- `docs/design/rearchitecture/08-qbe-native-backend.md` — QBE native backend status and milestones
+- `.agents/worklog/2026-08-25.md` — CI fix entry and postmortem
+- `docs/design/rearchitecture/08-qbe-native-backend.md` — QBE native backend status
 - `docs/design/rearchitecture/07-post-cutover-plan.md` — remaining work ladder
-- `docs/design/rearchitecture/05-legacy-example-migration-matrix.md` — coverage matrix
 - `AGENTS.md` — pipeline/build/test conventions
