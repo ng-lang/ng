@@ -440,6 +440,32 @@ This supersedes any assumption that arbitrary C++ exceptions are the public lang
   checked against their static width at runtime (per-width overflow
   diagnostics); `isize`/`usize` remain follow-ups.
 
+### Revision — DEC-A comparison policy (2026-08-25 decided; landed with INC-6)
+
+The earlier rule "equality and ordering compare across numeric widths,
+including mixed integer/float pairs" is **replaced** by a uniform ban on
+implicit mixed comparison (converged with the maintainer 2026-08-25;
+research F1②, Rust/Kotlin precedent):
+
+- **Banned (compile errors, deterministic diagnostics with spans):**
+  - signed-vs-unsigned variable comparisons (`i64 == u64`),
+  - integer-vs-float variable comparisons (`i64 < f64`),
+  - suffixed-literal pairs that pin incompatible kinds
+    (`2.5f64 > 2i8`).
+- **Retained:**
+  - same-sign cross-width integer comparisons (`i16 == i64`, `u32 <= u64`);
+    narrow values are exact inside the i64 slot,
+  - f32-vs-f64 comparisons; both widen losslessly into the double slot,
+  - literal contextual adoption in comparisons: unsuffixed literals adopt
+    the other operand's type, so `f == 1` compares as f64 and `u == 5`
+    compares as u64.
+- **Explicit conversions:** `toFloat(value: i64|u64) -> f64` and
+  `toSigned(value: u64) -> i64` (bit-preserving) ship as prelude natives so
+  every previously-expressible mixed comparison remains expressible with
+  explicit intent. Rationale: zero silent-error paths; mixed-sign and
+  int/float ordering rules differ enough that implicit resolution would
+  embed surprising semantics.
+
 ---
 
 ## D-009 — Module items, declarations, and block statements

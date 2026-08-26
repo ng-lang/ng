@@ -1916,6 +1916,13 @@ namespace NG::native
             bindUnionBox(instruction, resultTypeId(instruction),
                          unionMemberFor(resultTypeId(instruction), typecheck::builtin::I64), temp, QType::Long);
           }
+          else if (typecheck::isFloatBuiltin(resultTypeId(instruction)))
+          {
+            // DEC-A: an unsuffixed integer literal adopted a float context
+            // (`f == 1`); emit the value as the double it now is.
+            bindResult(instruction, QType::Double,
+                       std::format("copy {}", doubleConstant(static_cast<double>(payload))));
+          }
           else
           {
             bindResult(instruction, QType::Long, std::format("copy {}", payload));
@@ -2561,6 +2568,12 @@ namespace NG::native
             symbol = "$ngrt_print_f64";
           else
             symbol = "$ngrt_print_i64";
+        }
+        else if (name == "toFloat")
+        {
+          // INC-6: the C side cannot overload, so the declared argument type
+          // picks the sign class of the conversion.
+          symbol = typecheck::isUnsignedIntegerBuiltin(declaredType(0)) ? "$ngrt_toFloat_u64" : "$ngrt_toFloat_i64";
         }
         else
         {

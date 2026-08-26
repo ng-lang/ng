@@ -17,6 +17,13 @@ export native fun print(value: u32) -> unit;
 export native fun print(value: u64) -> unit;
 export native fun assert(condition: bool) -> unit;
 
+// Explicit numeric conversions (INC-6 / DEC-A): implicit mixed comparisons
+// are compile errors; convert between sign classes and integer/float kinds
+// explicitly.
+export native fun toFloat(value: i64) -> f64;
+export native fun toFloat(value: u64) -> f64;
+export native fun toSigned(value: u64) -> i64;
+
 export fun not(value: bool) -> bool {
     return !value;
 }

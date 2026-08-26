@@ -3028,6 +3028,14 @@ namespace NG::typecheck
           record(expression, expected);
           return expected;
         }
+        if (expression.kind == hir::ExpressionKind::IntegerLiteral && isFloatBuiltin(expected) &&
+            expression.numericSuffix.empty())
+        {
+          // DEC-A: an unsuffixed integer literal adopts a float context so
+          // `f == 1` compares in f64; suffixed integers stay pinned.
+          record(expression, expected);
+          return expected;
+        }
         if (expression.kind == hir::ExpressionKind::ArrayLiteral && descriptor.kind == TypeKind::Enum)
         {
           // List collection literals (`let xs: List<i64> = [1, 2, 3];`):
@@ -3838,22 +3846,26 @@ namespace NG::typecheck
           const bool equality = expression.text == "==" || expression.text == "!=";
           const bool ordering =
               expression.text == "<" || expression.text == "<=" || expression.text == ">" || expression.text == ">=";
-          // Contextual numeric literals adopt the other operand's type for
-          // arithmetic; equality and ordering compare across numeric widths,
-          // so literals keep their own types there.
-          if (!equality && !ordering)
+          // Contextual numeric literals adopt the other operand's type.
+          // Arithmetic keeps the original rule (integers adopt integers,
+          // floats adopt floats); equality/ordering additionally allow an
+          // unsuffixed integer literal to adopt a float context (DEC-A's
+          // `f == 1`), so variable-vs-variable mixes stay the only banned
+          // forms there.
           {
-            if (expression.operands[1]->kind == hir::ExpressionKind::IntegerLiteral && isIntegerBuiltin(left) &&
-                right != left)
+            if (expression.operands[1]->kind == hir::ExpressionKind::IntegerLiteral &&
+                expression.operands[1]->numericSuffix.empty() &&
+                (isIntegerBuiltin(left) || ((equality || ordering) && isFloatBuiltin(left))) && right != left)
               right = inferExpected(*expression.operands[1], left, locals, "integer literal");
-            if (expression.operands[0]->kind == hir::ExpressionKind::IntegerLiteral && isIntegerBuiltin(right) &&
-                left != right)
+            if (expression.operands[0]->kind == hir::ExpressionKind::IntegerLiteral &&
+                expression.operands[0]->numericSuffix.empty() &&
+                (isIntegerBuiltin(right) || ((equality || ordering) && isFloatBuiltin(right))) && left != right)
               left = inferExpected(*expression.operands[0], right, locals, "integer literal");
-            if (expression.operands[1]->kind == hir::ExpressionKind::FloatLiteral && isFloatBuiltin(left) &&
-                right != left)
+            if (expression.operands[1]->kind == hir::ExpressionKind::FloatLiteral &&
+                expression.operands[1]->numericSuffix.empty() && isFloatBuiltin(left) && right != left)
               right = inferExpected(*expression.operands[1], left, locals, "float literal");
-            if (expression.operands[0]->kind == hir::ExpressionKind::FloatLiteral && isFloatBuiltin(right) &&
-                left != right)
+            if (expression.operands[0]->kind == hir::ExpressionKind::FloatLiteral &&
+                expression.operands[0]->numericSuffix.empty() && isFloatBuiltin(right) && left != right)
               left = inferExpected(*expression.operands[0], right, locals, "float literal");
           }
           if (expression.text == "..")
@@ -3906,8 +3918,27 @@ namespace NG::typecheck
             }
           }
           const bool numericPair = isNumericBuiltin(left) && isNumericBuiltin(right);
-          // Equality and ordering compare across numeric widths; everything
-          // else requires identical operand types.
+          // DEC-A: implicit mixed comparison is a compile error between
+          // different integer sign classes and between integers and floats.
+          // Same-sign cross-width integers stay allowed (narrow values are
+          // exact inside the i64 slot); f32-vs-f64 stays allowed because
+          // every float promotes to a double slot without loss.
+          if ((equality || ordering) && numericPair && left != right)
+          {
+            const bool bothIntegers = isIntegerBuiltin(left) && isIntegerBuiltin(right);
+            const bool mixedKind = isFloatBuiltin(left) != isFloatBuiltin(right);
+            const bool mixedSign = bothIntegers && isSignedIntegerBuiltin(left) != isSignedIntegerBuiltin(right);
+            if (mixedSign)
+              throw TypeError(std::format("implicit mixed-sign comparison between {} and {}; convert explicitly "
+                                          "with toFloat or toSigned",
+                                          interner_.display(left), interner_.display(right)),
+                              expression.span);
+            if (mixedKind)
+              throw TypeError(std::format("implicit mixed numeric-kind comparison between {} and {}; convert "
+                                          "explicitly with toFloat or toSigned",
+                                          interner_.display(left), interner_.display(right)),
+                              expression.span);
+          }
           if (!((equality || ordering) && numericPair))
             requireType(left, right, expression.span, "binary operands");
           if (equality)

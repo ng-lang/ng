@@ -1,0 +1,3 @@
+kind: type
+pattern: implicit mixed numeric-kind comparison between i64 and f64
+span: [74, 79)

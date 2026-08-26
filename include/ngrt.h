@@ -44,6 +44,11 @@ int64_t ngrt_print_str(const char *value);
 int64_t ngrt_print_bool(int64_t value);
 int64_t ngrt_assert(int64_t condition);
 
+// Explicit numeric conversions (INC-6 / DEC-A).
+double ngrt_toFloat_i64(int64_t value);
+double ngrt_toFloat_u64(uint64_t value);
+int64_t ngrt_toSigned(uint64_t value);
+
 // std.string.
 int64_t ngrt_length(const char *text);
 char *ngrt_trim(const char *text);

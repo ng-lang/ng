@@ -1,0 +1,5 @@
+fun main() -> bool {
+    let n: i64 = 3;
+    let x: f64 = 2.5;
+    return n < x;
+}

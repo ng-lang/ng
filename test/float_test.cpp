@@ -1,8 +1,8 @@
 // AI-generated code; reviewed for this repository's vNext rewrite.
-#include "test.hpp"
 #include "driver.hpp"
 #include "hir.hpp"
 #include "syntax/module_parser.hpp"
+#include "test.hpp"
 #include "typecheck.hpp"
 
 #include <filesystem>
@@ -37,7 +37,8 @@ namespace
   [[nodiscard]] auto runExample(std::string_view filename, std::string &output, std::string &errors) -> int
   {
     std::string path{filename};
-    if (!std::filesystem::is_directory(std::filesystem::current_path() / "example")) path = std::string{"../"} + path;
+    if (!std::filesystem::is_directory(std::filesystem::current_path() / "example"))
+      path = std::string{"../"} + path;
     std::ostringstream outputStream;
     std::ostringstream errorStream;
     const int status = NG::runDriver({path}, outputStream, errorStream);
@@ -72,15 +73,36 @@ TEST_CASE("vNext float literals adopt contextual types with suffixes", "[vNext][
               "7");
 }
 
-TEST_CASE("vNext numeric equality and ordering compare across widths", "[vNext][Floats][Runtime]")
+TEST_CASE("vNext equality keeps exact cross-width forms under DEC-A", "[vNext][Floats][Runtime]")
 {
+  // DEC-A retains f32/f64 comparison (both widen losslessly into the double
+  // slot) and same-sign cross-width integers; banned mixes moved below.
   expectValue("fun main() -> i64 { let mut total = 0; "
               "if (1.5f32 == 1.5f64) { total := total + 1; } "
-              "if (1i16 == 1u32) { total := total + 2; } "
-              "if (1 < 1.5) { total := total + 4; } "
-              "if (2.5f64 > 2i8) { total := total + 8; } "
+              "if (1i16 == 1i64) { total := total + 2; } "
               "return total; }",
-              "15");
+              "3");
+}
+
+TEST_CASE("vNext implicit mixed comparisons are compile errors per DEC-A", "[vNext][Floats][Errors]")
+{
+  auto expectMixedError = [](std::string_view expressionText)
+  {
+    try
+    {
+      const auto source = std::string{"fun main() -> bool { let a: i64 = 1; let b: u64 = 2; return "} +
+                          std::string{expressionText} + "; }";
+      static_cast<void>(typecheck::TypeChecker{}.check(resolve(source)));
+      FAIL("expected an implicit mixed-comparison error");
+    }
+    catch (const typecheck::TypeError &error)
+    {
+      REQUIRE_THAT(std::string{error.what()}, ContainsSubstring("comparison"));
+    }
+  };
+  expectMixedError("a == b");       // signed vs unsigned variables
+  expectMixedError("b != a");       // unsigned vs signed variables
+  expectMixedError("2.5f64 > 2i8"); // suffixed float vs suffixed integer
 }
 
 TEST_CASE("vNext float validation rejects bad suffixes and conflicts", "[vNext][Floats][Errors]")

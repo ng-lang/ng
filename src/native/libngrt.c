@@ -156,6 +156,24 @@ int64_t ngrt_print_bool(int64_t value)
   return 0;
 }
 
+/* INC-6 (DEC-A): explicit numeric conversions. toFloat widens either integer
+ * sign class into a double; toSigned reinterprets a u64 bit pattern as i64
+ * so full-range unsigned values can be compared against signed constants. */
+double ngrt_toFloat_i64(int64_t value)
+{
+  return (double)value;
+}
+
+double ngrt_toFloat_u64(uint64_t value)
+{
+  return (double)value;
+}
+
+int64_t ngrt_toSigned(uint64_t value)
+{
+  return (int64_t)value;
+}
+
 int64_t ngrt_assert(int64_t condition)
 {
   if (!condition)

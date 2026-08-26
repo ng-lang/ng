@@ -126,7 +126,7 @@
 ### DEC-A · 混宽比较策略 — **已决策：统一禁止隐式**（见 §0b）
 - 剩余工作（随 INC-6 同 commit）：D-008 修订文本 + 反例语料转正为负契约。
 
-### INC-6 · F1② 混比禁令与显式转换落地
+### INC-6 · F1② 混比禁令与显式转换落地 ✅ 2026-08-26
 - **依赖**: DEC-A（已定）。
 - **动作**: checker 对 i64↔u64 / int↔float 变量间隐式比较报编译错误；
   新增 `toFloat` / `toSigned` 显式转换 natives；排查并迁移受影响用法
@@ -136,6 +136,14 @@
 - **测试**: 负契约（两类混比的错误码 + span）；PBT：任意生成比较表达式
   要么类型合法且语义精确、要么有确定诊断，无第三态。
 - **E2E**: numeric-mixed.ng 示例展示显式转换路径。
+- **执行记录**: checker 在比较上下文启用字面量采纳（含整数字面量→float
+  上下文、带后缀守卫），随后按符号类/数值种类报确定性诊断；f32↔f64 与
+  同符号跨宽保留（槽内精确）。toFloat(i64|u64)/toSigned(u64) 经 prelude
+  声明 + libngrt 实现 + lowering 符号分派落地。迁移 float_test 的跨宽
+  断言为合法子集 + 负断言；负契约 mixed-sign/mixed-kind 各一条（span 精确）。
+  PBT 无第三态性质 120 试例；E2E example/numeric-mixed.ng。发现并修复
+  连带缺陷：lowering 对已采纳为 float 的整数字面量仍发射 long 常量
+  （cgtd 类型错误），现按记录类型发射 double。
 
 ## Phase 2 — stdlib 与工效
 
@@ -375,4 +383,5 @@ INC-15 → INC-16 → INC-17（M2b；唯一交汇点——闭包语法面取自 
 | INC-3 差分 runner 层 3 | ✅ 2026-08-26（N=500 零分歧 + 注入自检；`test/differential_test.cpp`） |
 | INC-4 无符号排序比较 | ✅ 2026-08-26（u64::MAX>5 翻转为真；PBT+契约+IL 断言全绿） |
 | INC-5 u64 算术宽度检查 | ✅ 2026-08-26（checked_u* 助手族；wrap 即 trap；trap 契约入语料） |
-| INC-6 … INC-36 | ⬜ 未开始（逐个推进，每个完成后更新本表） |
+| INC-6 混比禁令+显式转换 | ✅ 2026-08-26（DEC-A 落地含 D-008 修订；toFloat/toSigned；负契约×2 + PBT + E2E） |
+| INC-7 … INC-36 | ⬜ 未开始（逐个推进，每个完成后更新本表） |
