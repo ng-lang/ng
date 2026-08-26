@@ -75,7 +75,8 @@ Executing the [implementation increment plan](./docs/design/rearchitecture/09-in
 top-down; status and verification baselines live there ([10-baselines.md](./docs/design/rearchitecture/10-baselines.md)).
 
 - ✅ INC-0 — ASan/UBSan build variant + deterministic leak baseline
-- ⬜ INC-1 … INC-36 — pending
+- ✅ INC-1 — lightweight seeded PBT harness (`test/pbt.hpp`)
+- ⬜ INC-2 … INC-36 — pending
 
 ## Community
 

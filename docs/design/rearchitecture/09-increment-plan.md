@@ -57,13 +57,19 @@
   [10-baselines.md](10-baselines.md)。首跑即修复 typecheck.cpp 一处真实
   heap-use-after-free（lastUseCache_ 嵌套 clear 悬垂引用）。
 
-### INC-1 · 自研轻量 PBT harness 〔新增基建〕
+### INC-1 · 自研轻量 PBT harness 〔新增基建〕 ✅ 2026-08-26
 - **产出**: `test/pbt.hpp`——seeded PRNG（seed 可注入/打印）、数值域生成器
   （各宽度含 INT_MIN/u64::MAX 等边界权重）、字符串/数组生成器、NG 源片段
   生成器骨架、property 宏（失败时打印 seed 与最小复现输入）。
 - **验证**: harness 自测属性 ≥5 条（如生成整数经 i64 往返恒等）随套件运行。
 - **限制声明**: 无 shrink（失败时输出 seed 供人工最小化）；文档写明。
 - **价值**: 后续所有 INC 的 PBT 前提。
+- **执行记录**: xoshiro256** PRNG + `PBT_SEED` 注入/回放（每次运行打印
+  effective seed）；signed/unsigned 各宽度边界加权生成器、asciiString、
+  vectorOf、`forAll`+`PBT_CHECK`。自测 6 条性质全确定性（固定 seed，无
+  flake）。无 shrink 限制已在 `test/pbt.hpp` 头注释声明；NG 源片段生成器
+  骨架随首个消费者（INC-3 随机程序生成器）落地。自测首跑即抓到并修复
+  生成器自身一处边界分支不可达缺陷。
 
 ### INC-2 · 契约语料 runner（层 1+2）〔新增基建〕
 - **产出**: `test/conformance/<case>.ng` + `<case>.expected`（stdout/exit）+
@@ -340,4 +346,5 @@ INC-15 → INC-16 → INC-17（M2b；唯一交汇点——闭包语法面取自 
 |---|---|
 | 五项语义决策（DEC-A..E） | ✅ 2026-08-25 敲定（§0b）；正式文档修订随实现 commit |
 | INC-0 ASAN/泄漏基线 | ✅ 2026-08-26（asan 变体全绿；基线见 10-baselines.md） |
-| INC-1 … INC-36 | ⬜ 未开始（逐个推进，每个完成后更新本表） |
+| INC-1 PBT harness | ✅ 2026-08-26（`test/pbt.hpp` + 6 条自测性质；无 shrink 已声明） |
+| INC-2 … INC-36 | ⬜ 未开始（逐个推进，每个完成后更新本表） |
