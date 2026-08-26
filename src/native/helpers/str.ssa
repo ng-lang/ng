@@ -1,0 +1,48 @@
+# Runtime helper extracted from src/native/lowering.cpp (ARCH-1);
+# assembled once at build time into libngrt_helpers.a.
+
+export function l $ngrt_str_concat(l %a, l %b) {
+@start
+	%la =l loadl %a
+	%lb =l loadl %b
+	%n =l add %la, %lb
+	%size =l add %n, 8
+	%p =l call $malloc(l %size)
+	storel %n, %p
+	%pa =l add %p, 8
+	%sa =l add %a, 8
+	%m =l call $memcpy(l %pa, l %sa, l %la)
+	%pd =l add %pa, %la
+	%sb =l add %b, 8
+	%m2 =l call $memcpy(l %pd, l %sb, l %lb)
+	ret %p
+}
+
+export function l $ngrt_str_clone(l %s) {
+@start
+	%len =l loadl %s
+	%total =l add %len, 8
+	%p =l call $malloc(l %total)
+	storel %len, %p
+	%dst =l add %p, 8
+	%src =l add %s, 8
+	%m =l call $memcpy(l %dst, l %src, l %len)
+	ret %p
+}
+
+export function w $ngrt_str_eq(l %a, l %b) {
+@start
+	%la =l loadl %a
+	%lb =l loadl %b
+	%eq =w ceql %la, %lb
+	jnz %eq, @cmp, @no
+@cmp
+	%pa =l add %a, 8
+	%pb =l add %b, 8
+	%c =w call $memcmp(l %pa, l %pb, l %la)
+	%z =w ceqw %c, 0
+	ret %z
+@no
+	ret 0
+}
+

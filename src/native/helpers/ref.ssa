@@ -1,0 +1,89 @@
+# Runtime helper extracted from src/native/lowering.cpp (ARCH-1);
+# assembled once at build time into libngrt_helpers.a.
+
+export function l $ngrt_ref_addr(l %ref) {
+@start
+	%root =l loadl %ref
+	%cntp =l add %ref, 8
+	%cnt =l loadl %cntp
+	%none =w ceql %cnt, 0
+	%cur =l loadl %root
+	jnz %none, @end0, @pre
+@end0
+	ret %root
+@pre
+	%sp =l add %ref, 16
+	%i =l copy 0
+@loop
+	%done =w csgel %i, %cnt
+	jnz %done, @end, @step
+@step
+	%off =l mul %i, 16
+	%kindp =l add %sp, %off
+	%kind =l loadl %kindp
+	%isIndex =w ceql %kind, 1
+	%payloadp =l add %kindp, 8
+	%payload =l loadl %payloadp
+	jnz %isIndex, @index, @memberlike
+@memberlike
+	%isHeader =w ceql %kind, 2
+	jnz %isHeader, @header, @plain
+@header
+	%moff =l mul %payload, 8
+	%moff =l add %moff, 16
+	jmp @apply
+@plain
+	%moff =l copy %payload
+@apply
+	%cur =l add %cur, %moff
+	jmp @next
+@index
+	%cur =l call $ngrt_arr_addr(l %cur, l %payload)
+@next
+	%i =l add %i, 1
+	jmp @loop
+@end
+	ret %cur
+}
+
+export function l $ngrt_ref_load(l %ref) {
+@start
+	%root =l loadl %ref
+	%cntp =l add %ref, 8
+	%cnt =l loadl %cntp
+	%cur =l loadl %root
+	%sp =l add %ref, 16
+	%i =l copy 0
+@loop
+	%done =w csgel %i, %cnt
+	jnz %done, @end, @step
+@step
+	%off =l mul %i, 16
+	%kindp =l add %sp, %off
+	%kind =l loadl %kindp
+	%isIndex =w ceql %kind, 1
+	%payloadp =l add %kindp, 8
+	%payload =l loadl %payloadp
+	jnz %isIndex, @index, @memberlike
+@memberlike
+	%isHeader =w ceql %kind, 2
+	jnz %isHeader, @header, @plain
+@header
+	%moff =l mul %payload, 8
+	%moff =l add %moff, 16
+	jmp @apply
+@plain
+	%moff =l copy %payload
+@apply
+	%addr =l add %cur, %moff
+	%cur =l loadl %addr
+	jmp @next
+@index
+	%cur =l call $ngrt_arr_get(l %cur, l %payload)
+@next
+	%i =l add %i, 1
+	jmp @loop
+@end
+	ret %cur
+}
+

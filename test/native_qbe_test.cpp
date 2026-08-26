@@ -44,10 +44,16 @@ namespace
     const auto run = [](const std::string &command) -> int { return std::system(command.c_str()); };
     INFO(il);
     REQUIRE(run(std::format("'{}' -o '{}' '{}'", NG_QBE_PATH, asmFile.string(), ilFile.string())) == 0);
-#ifdef __linux__
-    REQUIRE(run(std::format("cc '{}' -o '{}' -lm", asmFile.string(), executable.string())) == 0);
+#ifdef NG_NGRT_HELPERS_PATH
+    // ARCH-1: runtime helpers live in a separate build-time archive.
+    const auto helpersArchive = std::format("'{}'", NG_NGRT_HELPERS_PATH);
 #else
-    REQUIRE(run(std::format("cc '{}' -o '{}'", asmFile.string(), executable.string())) == 0);
+    const auto helpersArchive = std::string{""};
+#endif
+#ifdef __linux__
+    REQUIRE(run(std::format("cc '{}' {} -o '{}' -lm", asmFile.string(), helpersArchive, executable.string())) == 0);
+#else
+    REQUIRE(run(std::format("cc '{}' {} -o '{}'", asmFile.string(), helpersArchive, executable.string())) == 0);
 #endif
     const int status = run(std::format("'{}'", executable.string()));
     REQUIRE(WIFEXITED(status));
@@ -60,7 +66,9 @@ TEST_CASE("vNext native lowering emits QBE IL for scalar arithmetic", "[vNext][N
 {
   const auto il = emitSsa("fun main() -> i64 => 6 * 7;");
   REQUIRE_THAT(il, ContainsSubstring("export function l $main"));
-  REQUIRE_THAT(il, ContainsSubstring("=l mul "));
+  // Integer arithmetic goes through the checked helpers (ARCH-1: their
+  // bodies live in libngrt_helpers.a; call sites appear here).
+  REQUIRE_THAT(il, ContainsSubstring("call $ngrt_checked_mul"));
   REQUIRE_THAT(il, ContainsSubstring("ret %"));
 }
 
@@ -91,13 +99,15 @@ TEST_CASE("vNext native lowering emits direct calls with collision-free symbols"
   REQUIRE_THAT(il, ContainsSubstring("call $fib_"));
 }
 
-TEST_CASE("vNext native lowering emits string data items and ngrt helpers", "[vNext][Native][Qbe]")
+TEST_CASE("vNext native lowering emits string data items and ngrt helper calls", "[vNext][Native][Qbe]")
 {
-  const auto il = emitSsa("fun main() -> i64 { let a = \"hi\"; let b = a + \"!\"; if (b == \"hi!\") { return 1; } return 0; }");
+  const auto il =
+      emitSsa("fun main() -> i64 { let a = \"hi\"; let b = a + \"!\"; if (b == \"hi!\") { return 1; } return 0; }");
   REQUIRE_THAT(il, ContainsSubstring("data $ngstr_"));
-  REQUIRE_THAT(il, ContainsSubstring("$ngrt_str_concat"));
-  REQUIRE_THAT(il, ContainsSubstring("$ngrt_str_eq"));
-  REQUIRE_THAT(il, ContainsSubstring("$malloc"));
+  // ARCH-1: helpers are calls into libngrt_helpers.a; their bodies no longer
+  // appear in the module IL.
+  REQUIRE_THAT(il, ContainsSubstring("call $ngrt_str_concat"));
+  REQUIRE_THAT(il, ContainsSubstring("call $ngrt_str_eq"));
 }
 
 TEST_CASE("vNext native AOT shims deep-copy Copy-owned aggregate arguments", "[vNext][Native][Qbe]")
@@ -185,7 +195,8 @@ TEST_CASE("vNext repr(C) structs reject non-ABI-safe fields and generics", "[vNe
   REQUIRE_THAT(errors.str(), ContainsSubstring("bool field"));
   REQUIRE(NG::runDriver({"--source", "repr(C) struct Text { text: string }"}, output, errors) == 1);
   REQUIRE_THAT(errors.str(), ContainsSubstring("not ABI-safe"));
-  REQUIRE(NG::runDriver({"--source", "struct Inner { v: i64 } repr(C) struct Outer { inner: Inner }"}, output, errors) == 1);
+  REQUIRE(NG::runDriver({"--source", "struct Inner { v: i64 } repr(C) struct Outer { inner: Inner }"}, output,
+                        errors) == 1);
   REQUIRE_THAT(errors.str(), ContainsSubstring("nested struct field"));
 }
 
@@ -213,8 +224,7 @@ TEST_CASE("vNext native lowering round-trips a loop through qbe and the system t
   CHECK(exitCode == 15); // 0+1+2+3+4+5
 }
 
-TEST_CASE("vNext native lowering round-trips recursion through qbe and the system toolchain",
-          "[vNext][Native][Qbe]")
+TEST_CASE("vNext native lowering round-trips recursion through qbe and the system toolchain", "[vNext][Native][Qbe]")
 {
   const int exitCode = runNative("fun fib(n: i64) -> i64 {\n"
                                  "    if (n <= 1) { return n; }\n"
@@ -227,7 +237,8 @@ TEST_CASE("vNext native lowering round-trips recursion through qbe and the syste
 
 TEST_CASE("vNext native lowering round-trips tail recursion through qbe and the system toolchain",
           "[vNext][Native][Qbe]")
-{  const auto il = emitSsa("fun sumTo(n: i64, acc: i64) -> i64 {\n"
+{
+  const auto il = emitSsa("fun sumTo(n: i64, acc: i64) -> i64 {\n"
                           "    if (n == 0) { return acc; }\n"
                           "    next (n - 1, acc + n);\n"
                           "}\n"
@@ -248,10 +259,16 @@ TEST_CASE("vNext native lowering round-trips tail recursion through qbe and the 
   const auto run = [](const std::string &command) -> int { return std::system(command.c_str()); };
   INFO(il);
   REQUIRE(run(std::format("'{}' -o '{}' '{}'", NG_QBE_PATH, asmFile.string(), ilFile.string())) == 0);
-#ifdef __linux__
-  REQUIRE(run(std::format("cc '{}' -o '{}' -lm", asmFile.string(), executable.string())) == 0);
+#ifdef NG_NGRT_HELPERS_PATH
+  // ARCH-1: runtime helpers live in a separate build-time archive.
+  const auto helpersArchive = std::format("'{}'", NG_NGRT_HELPERS_PATH);
 #else
-  REQUIRE(run(std::format("cc '{}' -o '{}'", asmFile.string(), executable.string())) == 0);
+  const auto helpersArchive = std::string{""};
+#endif
+#ifdef __linux__
+  REQUIRE(run(std::format("cc '{}' {} -o '{}' -lm", asmFile.string(), helpersArchive, executable.string())) == 0);
+#else
+  REQUIRE(run(std::format("cc '{}' {} -o '{}'", asmFile.string(), helpersArchive, executable.string())) == 0);
 #endif
   const int status = run(std::format("'{}'", executable.string()));
   REQUIRE(WIFEXITED(status));
@@ -291,8 +308,7 @@ TEST_CASE("vNext native lowering round-trips tuples through qbe and the system t
   CHECK(exitCode == 40);
 }
 
-TEST_CASE("vNext native lowering round-trips range slices through qbe and the system toolchain",
-          "[vNext][Native][Qbe]")
+TEST_CASE("vNext native lowering round-trips range slices through qbe and the system toolchain", "[vNext][Native][Qbe]")
 {
   const int exitCode = runNative("fun main() -> i64 {\n"
                                  "    let xs = [10, 20, 30, 40];\n"
@@ -525,11 +541,11 @@ TEST_CASE("vNext native mode compiles, links, and runs a program end to end", "[
 {
   std::ostringstream output;
   std::ostringstream errors;
-  const int status = NG::runDriver(
-      {"--native", "--source",
-       "fun fib(n: i64) -> i64 { if (n <= 1) { return n; } return fib(n - 1) + fib(n - 2); } "
-       "fun main() -> i64 => fib(10);"},
-      output, errors);
+  const int status =
+      NG::runDriver({"--native", "--source",
+                     "fun fib(n: i64) -> i64 { if (n <= 1) { return n; } return fib(n - 1) + fib(n - 2); } "
+                     "fun main() -> i64 => fib(10);"},
+                    output, errors);
   INFO(errors.str());
   REQUIRE(status == 0);
   REQUIRE_THAT(output.str(), ContainsSubstring("native main exited with code 55"));
@@ -559,17 +575,16 @@ TEST_CASE("vNext native mode runs prelude print and assert through the AOT shims
 {
   std::ostringstream output;
   std::ostringstream errors;
-  const int status = NG::runDriver(
-      {"--native", "--source",
-       "import prelude;\n"
-       "fun main() -> i64 {\n"
-       "    print(\"hello native\");\n"
-       "    print(42);\n"
-       "    print(true);\n"
-       "    assert(true);\n"
-       "    return 0;\n"
-       "}"},
-      output, errors);
+  const int status = NG::runDriver({"--native", "--source",
+                                    "import prelude;\n"
+                                    "fun main() -> i64 {\n"
+                                    "    print(\"hello native\");\n"
+                                    "    print(42);\n"
+                                    "    print(true);\n"
+                                    "    assert(true);\n"
+                                    "    return 0;\n"
+                                    "}"},
+                                   output, errors);
   INFO(errors.str());
   REQUIRE(status == 0);
   REQUIRE_THAT(output.str(), ContainsSubstring("hello native\n42\ntrue\n"));
@@ -580,18 +595,17 @@ TEST_CASE("vNext native mode runs string and seq natives through the AOT shims",
 {
   std::ostringstream output;
   std::ostringstream errors;
-  const int status = NG::runDriver(
-      {"--native", "--source",
-       "export native fun trim(s: string) -> string;\n"
-       "export native fun sum(xs: array<i64>) -> i64;\n"
-       "export native fun len(xs: array<i64>) -> i64;\n"
-       "fun main() -> i64 {\n"
-       "    let xs = [1, 2, 3];\n"
-       "    let t = trim(\"  hi  \");\n"
-       "    if (t == \"hi\") { return len(xs) + sum(xs); }\n"
-       "    return 0;\n"
-       "}"},
-      output, errors);
+  const int status = NG::runDriver({"--native", "--source",
+                                    "export native fun trim(s: string) -> string;\n"
+                                    "export native fun sum(xs: array<i64>) -> i64;\n"
+                                    "export native fun len(xs: array<i64>) -> i64;\n"
+                                    "fun main() -> i64 {\n"
+                                    "    let xs = [1, 2, 3];\n"
+                                    "    let t = trim(\"  hi  \");\n"
+                                    "    if (t == \"hi\") { return len(xs) + sum(xs); }\n"
+                                    "    return 0;\n"
+                                    "}"},
+                                   output, errors);
   INFO(errors.str());
   REQUIRE(status == 0);
   REQUIRE_THAT(output.str(), ContainsSubstring("native main exited with code 9"));
@@ -601,36 +615,35 @@ TEST_CASE("vNext native mode runs opaque-handle memory natives through the AOT s
 {
   std::ostringstream output;
   std::ostringstream errors;
-  const int status = NG::runDriver(
-      {"--native", "--source",
-       "type Handle = native;\n"
-       "export native fun allocate(value: i64) -> Handle;\n"
-       "export native fun load(handle: Handle) -> i64;\n"
-       "export native fun store(handle: Handle, value: i64) -> unit;\n"
-       "export native fun release(handle: Handle) -> unit;\n"
-       "export native fun outstanding() -> i64;\n"
-       "fun main() -> i64 {\n"
-       "    let h = allocate(7);\n"
-       "    store(h, 42);\n"
-       "    let v = load(h);\n"
-       "    release(h);\n"
-       "    return v + outstanding();\n"
-       "}"},
-      output, errors);
+  const int status = NG::runDriver({"--native", "--source",
+                                    "type Handle = native;\n"
+                                    "export native fun allocate(value: i64) -> Handle;\n"
+                                    "export native fun load(handle: Handle) -> i64;\n"
+                                    "export native fun store(handle: Handle, value: i64) -> unit;\n"
+                                    "export native fun release(handle: Handle) -> unit;\n"
+                                    "export native fun outstanding() -> i64;\n"
+                                    "fun main() -> i64 {\n"
+                                    "    let h = allocate(7);\n"
+                                    "    store(h, 42);\n"
+                                    "    let v = load(h);\n"
+                                    "    release(h);\n"
+                                    "    return v + outstanding();\n"
+                                    "}"},
+                                   output, errors);
   INFO(errors.str());
   REQUIRE(status == 0);
   REQUIRE_THAT(output.str(), ContainsSubstring("native main exited with code 42"));
 }
 
-TEST_CASE("vNext native lowering round-trips unions through qbe and the system toolchain",
-          "[vNext][Native][Qbe]")
+TEST_CASE("vNext native lowering round-trips unions through qbe and the system toolchain", "[vNext][Native][Qbe]")
 {
-  const int exitCode = runNative("fun read(value: bool | i64 | f64) -> i64 { if (value == 42) { return 7; } return 0; }\n"
-                                 "fun main() -> i64 {\n"
-                                 "    let w: bool | i64 | f64 = 42;\n"
-                                 "    return read(w);\n"
-                                 "}",
-                                 "unions");
+  const int exitCode =
+      runNative("fun read(value: bool | i64 | f64) -> i64 { if (value == 42) { return 7; } return 0; }\n"
+                "fun main() -> i64 {\n"
+                "    let w: bool | i64 | f64 = 42;\n"
+                "    return read(w);\n"
+                "}",
+                "unions");
   CHECK(exitCode == 7);
 }
 
@@ -678,9 +691,10 @@ TEST_CASE("vNext native tier selects unsigned shims from declared signatures", "
 {
   std::ostringstream output;
   std::ostringstream errors;
-  const int status = NG::runDriver(
-      {"--native", "--source", "export native fun print(value: u8) -> unit; fun main() -> i64 { print(200); return 0; }"},
-      output, errors);
+  const int status =
+      NG::runDriver({"--native", "--source",
+                     "export native fun print(value: u8) -> unit; fun main() -> i64 { print(200); return 0; }"},
+                    output, errors);
   INFO(errors.str());
   REQUIRE(status == 0);
   REQUIRE_THAT(output.str(), ContainsSubstring("200"));
@@ -691,7 +705,8 @@ TEST_CASE("vNext native mode prints string and float mains and exits 0", "[vNext
 {
   std::ostringstream output;
   std::ostringstream errors;
-  REQUIRE(NG::runDriver({"--native", "--source", "fun main() -> string { return \"hello native\"; }"}, output, errors) == 0);
+  REQUIRE(NG::runDriver({"--native", "--source", "fun main() -> string { return \"hello native\"; }"}, output,
+                        errors) == 0);
   REQUIRE_THAT(output.str(), ContainsSubstring("hello native"));
   REQUIRE_THAT(output.str(), ContainsSubstring("native main exited with code 0"));
   REQUIRE(NG::runDriver({"--native", "--source", "fun main() -> f64 { return 3.5; }"}, output, errors) == 0);
@@ -724,25 +739,24 @@ TEST_CASE("vNext native extern C passes repr(C) structs by value through libngrt
 {
   std::ostringstream output;
   std::ostringstream errors;
-  const int status = NG::runDriver(
-      {"--native", "--source",
-       "repr(C)\n"
-       "struct Point { x: i32, y: i32 }\n"
-       "repr(C)\n"
-       "struct Mixed { a: i8, b: i16, c: i32 }\n"
-       "extern \"C\" fun ngrt_fixture_point_sum(p: Point) -> i64;\n"
-       "extern \"C\" fun ngrt_fixture_mixed_sum(m: Mixed) -> i64;\n"
-       "extern \"C\" fun ngrt_fixture_point_swap(p: Point) -> Point;\n"
-       "fun main() -> i64 {\n"
-       "    let p = Point { x: 3, y: 4 };\n"
-       "    if (ngrt_fixture_point_sum(p) != 7) { return 1; }\n"
-       "    let m = Mixed { a: 1, b: 2, c: 3 };\n"
-       "    if (ngrt_fixture_mixed_sum(m) != 6) { return 2; }\n"
-       "    let s = ngrt_fixture_point_swap(p);\n"
-       "    if (s.x != 4 || s.y != 3) { return 3; }\n"
-       "    return 0;\n"
-       "}"},
-      output, errors);
+  const int status = NG::runDriver({"--native", "--source",
+                                    "repr(C)\n"
+                                    "struct Point { x: i32, y: i32 }\n"
+                                    "repr(C)\n"
+                                    "struct Mixed { a: i8, b: i16, c: i32 }\n"
+                                    "extern \"C\" fun ngrt_fixture_point_sum(p: Point) -> i64;\n"
+                                    "extern \"C\" fun ngrt_fixture_mixed_sum(m: Mixed) -> i64;\n"
+                                    "extern \"C\" fun ngrt_fixture_point_swap(p: Point) -> Point;\n"
+                                    "fun main() -> i64 {\n"
+                                    "    let p = Point { x: 3, y: 4 };\n"
+                                    "    if (ngrt_fixture_point_sum(p) != 7) { return 1; }\n"
+                                    "    let m = Mixed { a: 1, b: 2, c: 3 };\n"
+                                    "    if (ngrt_fixture_mixed_sum(m) != 6) { return 2; }\n"
+                                    "    let s = ngrt_fixture_point_swap(p);\n"
+                                    "    if (s.x != 4 || s.y != 3) { return 3; }\n"
+                                    "    return 0;\n"
+                                    "}"},
+                                   output, errors);
   INFO(errors.str());
   REQUIRE(status == 0);
   REQUIRE_THAT(output.str(), ContainsSubstring("native main exited with code 0"));
@@ -767,9 +781,8 @@ TEST_CASE("vNext native --output writes an executable without running it", "[vNe
   std::filesystem::remove(outputPath, ignored);
   std::ostringstream output;
   std::ostringstream errors;
-  const int status = NG::runDriver({"--native", "--output", outputPath.string(), "--source",
-                                    "fun main() -> i64 { return 42; }"},
-                                   output, errors);
+  const int status = NG::runDriver(
+      {"--native", "--output", outputPath.string(), "--source", "fun main() -> i64 { return 42; }"}, output, errors);
   INFO(errors.str());
   REQUIRE(status == 0);
   REQUIRE_THAT(output.str(), ContainsSubstring("native executable written to"));

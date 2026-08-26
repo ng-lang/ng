@@ -1,0 +1,55 @@
+# Runtime helper extracted from src/native/lowering.cpp (ARCH-1);
+# assembled once at build time into libngrt_helpers.a.
+
+export function l $ngrt_enum_list_len(l %node) {
+@start
+	%count =l copy 0
+@loop
+	%null =w ceql %node, 0
+	jnz %null, @end, @walk
+@walk
+	%po =l add %node, 8
+	%payload =l loadl %po
+	%pnul =w ceql %payload, 0
+	jnz %pnul, @end, @next
+@next
+	%refp =l add %payload, 24
+	%ref =l loadl %refp
+	%root =l loadl %ref
+	%node =l loadl %root
+	%count =l add %count, 1
+	jmp @loop
+@end
+	ret %count
+}
+
+export function l $ngrt_enum_list_get(l %node, l %index) {
+@start
+@loop
+	%zero =w cslel %index, 0
+	jnz %zero, @head, @advance
+@advance
+	%po =l add %node, 8
+	%payload =l loadl %po
+	%pnul =w ceql %payload, 0
+	jnz %pnul, @halt, @ok
+@ok
+	%refp =l add %payload, 24
+	%ref =l loadl %refp
+	%root =l loadl %ref
+	%node =l loadl %root
+	%index =l sub %index, 1
+	jmp @loop
+@head
+	%po2 =l add %node, 8
+	%payload2 =l loadl %po2
+	%pnul2 =w ceql %payload2, 0
+	jnz %pnul2, @halt, @read
+@read
+	%headp =l add %payload2, 16
+	%head =l loadl %headp
+	ret %head
+@halt
+	hlt
+}
+

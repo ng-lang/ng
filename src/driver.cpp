@@ -254,6 +254,13 @@ namespace NG
         errors << "native: cannot find libngrt.a (set NG_LIBRARY_PATH or LIBRARY_PATH)\n";
         return 1;
       }
+#ifdef NG_NGRT_HELPERS_PATH
+      // ARCH-1: runtime helpers (checked arithmetic, array/string/ref
+      // primitives) are assembled once at build time; the linker pulls the
+      // members this module actually calls.
+      if (const auto helpers = findNgrtLibrary("libngrt_helpers.a", NG_NGRT_HELPERS_PATH); helpers.has_value())
+        linkArgs.push_back(*helpers);
+#endif
       linkArgs.push_back(*ngrt);
       linkArgs.push_back("-o");
       linkArgs.push_back(executable.string());

@@ -93,6 +93,34 @@ target_compile_options(ngrt PRIVATE -Wall -Wextra -Wpedantic)
 # into generated executables assembled by the plain system cc, which would
 # miss the sanitizer runtime (undefined ___asan_* symbols at link time).
 # Memory-error guarding covers the compiler pipeline inside ngi/ng_test.
+
+# ARCH-1 runtime helper archive: the QBE IL text under src/native/helpers is
+# assembled ONCE at build time (qbe -> cc -> ar) instead of being hardcoded
+# as C++ strings in lowering.cpp. Generated executables link the archive;
+# the linker pulls only the members they reference, which replaces the old
+# per-compilation helper emission bookkeeping.
+set(NG_HELPER_SSA
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/native/helpers/checked.ssa
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/native/helpers/arr.ssa
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/native/helpers/str.ssa
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/native/helpers/ref.ssa
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/native/helpers/enum.ssa)
+set(NG_HELPERS_ARCHIVE ${CMAKE_BINARY_DIR}/libngrt_helpers.a)
+if(NG_QBE_AVAILABLE)
+  add_custom_command(
+          OUTPUT ${NG_HELPERS_ARCHIVE}
+          COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/ng_helpers_obj
+          COMMAND $<TARGET_FILE:qbe> -o ${CMAKE_CURRENT_BINARY_DIR}/ng_helpers_obj/helpers.s ${NG_HELPER_SSA}
+          COMMAND cc -c -o ${CMAKE_CURRENT_BINARY_DIR}/ng_helpers_obj/helpers.o
+                   ${CMAKE_CURRENT_BINARY_DIR}/ng_helpers_obj/helpers.s
+          COMMAND ar rcs ${NG_HELPERS_ARCHIVE} ${CMAKE_CURRENT_BINARY_DIR}/ng_helpers_obj/helpers.o
+          DEPENDS qbe ${NG_HELPER_SSA}
+          COMMENT "Assembling libngrt_helpers.a from QBE IL"
+          VERBATIM)
+  add_custom_target(ngrt_helpers ALL DEPENDS ${NG_HELPERS_ARCHIVE})
+  target_compile_definitions(ng PUBLIC "NG_NGRT_HELPERS_PATH=\"${NG_HELPERS_ARCHIVE}\"")
+  add_dependencies(ng ngrt_helpers)
+endif()
 target_link_libraries(ng PUBLIC ngrt)
 target_compile_definitions(ng PUBLIC "NG_NGRT_PATH=\"$<TARGET_FILE:ngrt>\"")
 add_dependencies(ng ngrt)

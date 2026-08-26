@@ -87,11 +87,9 @@ namespace NG::native
       return escaped;
     }
 
-    /// Per-module ngrt bookkeeping: runtime helper functions are emitted once
-    /// per module, on first use, as QBE IL text appended after all functions.
+    /// Per-module native/extern bookkeeping for shim selection and ABI data.
     struct NgrtContext
     {
-      std::set<std::string> usedHelpers;
       bool needsTraitDispatch{};
       /// DefIds of `native fun` placeholders: calling one from native code is
       /// rejected until the declared-descriptor shims land (M5).
@@ -130,593 +128,15 @@ namespace NG::native
       return std::format("${}_{}", cleaned, defId);
     }
 
-    // Tier 0 runtime helpers. Aggregate values are 8-byte pointers into
-    // malloc'd objects (or QBE data items for string literals):
+    // Value representations (Tier 0): aggregate values are 8-byte pointers
+    // into malloc'd objects (or QBE data items for string literals):
     //   string: { l len, b data[len], b 0 }
     //   array/tuple: { l len, l cap, l-or-d elements[cap] }
     //   range: { l start, l end }
     // All aggregate slots hold `l`; double elements are bit-cast at the
-    // boundary. Helpers call libc (malloc/memcpy/memcmp) through QBE's C ABI.
-    [[nodiscard]] auto ngrtHelpers() -> const std::unordered_map<std::string, std::string> &
-    {
-      static const std::unordered_map<std::string, std::string> helpers = {
-        {"panic",
-         // Halting trap for paths the VM rejects (e.g. unresolved trait-slot
-         // calls in dead generic originals).
-         "function l $ngrt_panic() {\n"
-         "@start\n"
-         "\thlt\n"
-         "}\n"},
-        {"checked_add", "function l $ngrt_checked_add(l %a, l %b) {\n"
-                        "@start\n"
-                        "\t%r =l add %a, %b\n"
-                        "\t%ap =w csgtl %a, 0\n"
-                        "\t%bp =w csgtl %b, 0\n"
-                        "\t%rn =w cslel %r, 0\n"
-                        "\t%an =w csltl %a, 0\n"
-                        "\t%bn =w csltl %b, 0\n"
-                        "\t%rz =w csgel %r, 0\n"
-                        "\t%o1 =w and %ap, %bp\n"
-                        "\t%o1 =w and %o1, %rn\n"
-                        "\t%o2 =w and %an, %bn\n"
-                        "\t%o2 =w and %o2, %rz\n"
-                        "\t%ov =w or %o1, %o2\n"
-                        "\tjnz %ov, @halt, @ok\n"
-                        "@halt\n"
-                        "\thlt\n"
-                        "@ok\n"
-                        "\tret %r\n"
-                        "}\n"},
-        {"checked_uadd",
-         // INC-5 (F1③): unsigned addition wraps silently in the slot; the
-         // wrap is detectable as result < left operand (unsigned).
-         "function l $ngrt_checked_uadd(l %a, l %b) {\n"
-         "@start\n"
-         "\t%r =l add %a, %b\n"
-         "\t%ov =w cultl %r, %a\n"
-         "\tjnz %ov, @halt, @ok\n"
-         "@halt\n"
-         "\thlt\n"
-         "@ok\n"
-         "\tret %r\n"
-         "}\n"},
-        {"checked_sub", "function l $ngrt_checked_sub(l %a, l %b) {\n"
-                        "@start\n"
-                        "\t%r =l sub %a, %b\n"
-                        "\t%ap =w csgel %a, 0\n"
-                        "\t%bn =w csltl %b, 0\n"
-                        "\t%rn =w csltl %r, 0\n"
-                        "\t%an =w csltl %a, 0\n"
-                        "\t%bp =w csgtl %b, 0\n"
-                        "\t%rz =w csgel %r, 0\n"
-                        "\t%o1 =w and %ap, %bn\n"
-                        "\t%o1 =w and %o1, %rn\n"
-                        "\t%o2 =w and %an, %bp\n"
-                        "\t%o2 =w and %o2, %rz\n"
-                        "\t%ov =w or %o1, %o2\n"
-                        "\tjnz %ov, @halt, @ok\n"
-                        "@halt\n"
-                        "\thlt\n"
-                        "@ok\n"
-                        "\tret %r\n"
-                        "}\n"},
-        {"checked_usub",
-         // INC-5 (F1③): unsigned subtraction traps iff left < right.
-         "function l $ngrt_checked_usub(l %a, l %b) {\n"
-         "@start\n"
-         "\t%ov =w cultl %a, %b\n"
-         "\tjnz %ov, @halt, @ok\n"
-         "@halt\n"
-         "\thlt\n"
-         "@ok\n"
-         "\t%r =l sub %a, %b\n"
-         "\tret %r\n"
-         "}\n"},
-        {"checked_mul", "function l $ngrt_checked_mul(l %a, l %b) {\n"
-                        "@start\n"
-                        "\t%r =l mul %a, %b\n"
-                        "\t%bz =w ceql %b, 0\n"
-                        "\t%bm1 =w ceql %b, -1\n"
-                        "\t%amin =w ceql %a, -9223372036854775808\n"
-                        "\t%edge =w and %bm1, %amin\n"
-                        "\t%skip =w or %bz, %edge\n"
-                        "\t%neg =w ceqw %skip, 0\n"
-                        "\tjnz %neg, @check, @ok\n"
-                        "@check\n"
-                        "\t%q =l div %r, %b\n"
-                        "\t%same =w ceql %q, %a\n"
-                        "\tjnz %same, @ok, @halt\n"
-                        "@halt\n"
-                        "\thlt\n"
-                        "@ok\n"
-                        "\tret %r\n"
-                        "}\n"},
-        {"checked_umul",
-         // INC-5 (F1③): unsigned multiply verified by dividing back with
-         // the unsigned quotient; b == 0 always succeeds.
-         "function l $ngrt_checked_umul(l %a, l %b) {\n"
-         "@start\n"
-         "\t%r =l mul %a, %b\n"
-         "\t%bz =w ceql %b, 0\n"
-         "\tjnz %bz, @ok, @check\n"
-         "@check\n"
-         "\t%q =l udiv %r, %b\n"
-         "\t%same =w ceql %q, %a\n"
-         "\tjnz %same, @ok, @halt\n"
-         "@halt\n"
-         "\thlt\n"
-         "@ok\n"
-         "\tret %r\n"
-         "}\n"},
-        {"checked_udiv",
-         // INC-5 (F1③): unsigned division only traps on a zero divisor;
-         // the signed MIN / -1 edge does not exist without signs.
-         "function l $ngrt_checked_udiv(l %a, l %b) {\n"
-         "@start\n"
-         "\t%bz =w ceql %b, 0\n"
-         "\tjnz %bz, @halt, @ok\n"
-         "@halt\n"
-         "\thlt\n"
-         "@ok\n"
-         "\t%r =l udiv %a, %b\n"
-         "\tret %r\n"
-         "}\n"},
-        {"checked_urem", "function l $ngrt_checked_urem(l %a, l %b) {\n"
-                         "@start\n"
-                         "\t%bz =w ceql %b, 0\n"
-                         "\tjnz %bz, @halt, @ok\n"
-                         "@halt\n"
-                         "\thlt\n"
-                         "@ok\n"
-                         "\t%r =l urem %a, %b\n"
-                         "\tret %r\n"
-                         "}\n"},
-        {"checked_div", "function l $ngrt_checked_div(l %a, l %b) {\n"
-                        "@start\n"
-                        "\t%bz =w ceql %b, 0\n"
-                        "\t%bm1 =w ceql %b, -1\n"
-                        "\t%amin =w ceql %a, -9223372036854775808\n"
-                        "\t%edge =w and %bm1, %amin\n"
-                        "\t%bad =w or %bz, %edge\n"
-                        "\tjnz %bad, @halt, @ok\n"
-                        "@halt\n"
-                        "\thlt\n"
-                        "@ok\n"
-                        "\t%r =l div %a, %b\n"
-                        "\tret %r\n"
-                        "}\n"},
-        {"checked_rem", "function l $ngrt_checked_rem(l %a, l %b) {\n"
-                        "@start\n"
-                        "\t%bz =w ceql %b, 0\n"
-                        "\t%bm1 =w ceql %b, -1\n"
-                        "\t%amin =w ceql %a, -9223372036854775808\n"
-                        "\t%edge =w and %bm1, %amin\n"
-                        "\t%bad =w or %bz, %edge\n"
-                        "\tjnz %bad, @halt, @ok\n"
-                        "@halt\n"
-                        "\thlt\n"
-                        "@ok\n"
-                        "\t%r =l rem %a, %b\n"
-                        "\tret %r\n"
-                        "}\n"},
-        {"checked_neg", "function l $ngrt_checked_neg(l %a) {\n"
-                        "@start\n"
-                        "\t%amin =w ceql %a, -9223372036854775808\n"
-                        "\tjnz %amin, @halt, @ok\n"
-                        "@halt\n"
-                        "\thlt\n"
-                        "@ok\n"
-                        "\t%r =l neg %a\n"
-                        "\tret %r\n"
-                        "}\n"},
-        {"checked_shl", "function l $ngrt_checked_shl(l %a, l %b) {\n"
-                        "@start\n"
-                        "\t%neg =w csltl %b, 0\n"
-                        "\t%high =w csgel %b, 64\n"
-                        "\t%bad =w or %neg, %high\n"
-                        "\tjnz %bad, @halt, @ok\n"
-                        "@halt\n"
-                        "\thlt\n"
-                        "@ok\n"
-                        "\t%r =l shl %a, %b\n"
-                        "\tret %r\n"
-                        "}\n"},
-        {"checked_shr", "function l $ngrt_checked_shr(l %a, l %b) {\n"
-                        "@start\n"
-                        "\t%neg =w csltl %b, 0\n"
-                        "\t%high =w csgel %b, 64\n"
-                        "\t%bad =w or %neg, %high\n"
-                        "\tjnz %bad, @halt, @ok\n"
-                        "@halt\n"
-                        "\thlt\n"
-                        "@ok\n"
-                        "\t%r =l shr %a, %b\n"
-                        "\tret %r\n"
-                        "}\n"},
-        {"check_w_i8", "function l $ngrt_check_w_i8(l %v) {\n"
-                       "@start\n"
-                       "\t%lo =w csltl %v, -128\n"
-                       "\t%hi =w csgtl %v, 127\n"
-                       "\t%bad =w or %lo, %hi\n"
-                       "\tjnz %bad, @halt, @ok\n"
-                       "@halt\n"
-                       "\thlt\n"
-                       "@ok\n"
-                       "\tret %v\n"
-                       "}\n"},
-        {"check_w_i16", "function l $ngrt_check_w_i16(l %v) {\n"
-                        "@start\n"
-                        "\t%lo =w csltl %v, -32768\n"
-                        "\t%hi =w csgtl %v, 32767\n"
-                        "\t%bad =w or %lo, %hi\n"
-                        "\tjnz %bad, @halt, @ok\n"
-                        "@halt\n"
-                        "\thlt\n"
-                        "@ok\n"
-                        "\tret %v\n"
-                        "}\n"},
-        {"check_w_i32", "function l $ngrt_check_w_i32(l %v) {\n"
-                        "@start\n"
-                        "\t%lo =w csltl %v, -2147483648\n"
-                        "\t%hi =w csgtl %v, 2147483647\n"
-                        "\t%bad =w or %lo, %hi\n"
-                        "\tjnz %bad, @halt, @ok\n"
-                        "@halt\n"
-                        "\thlt\n"
-                        "@ok\n"
-                        "\tret %v\n"
-                        "}\n"},
-        {"check_w_u8", "function l $ngrt_check_w_u8(l %v) {\n"
-                       "@start\n"
-                       "\t%lo =w csltl %v, 0\n"
-                       "\t%hi =w csgtl %v, 255\n"
-                       "\t%bad =w or %lo, %hi\n"
-                       "\tjnz %bad, @halt, @ok\n"
-                       "@halt\n"
-                       "\thlt\n"
-                       "@ok\n"
-                       "\tret %v\n"
-                       "}\n"},
-        {"check_w_u16", "function l $ngrt_check_w_u16(l %v) {\n"
-                        "@start\n"
-                        "\t%lo =w csltl %v, 0\n"
-                        "\t%hi =w csgtl %v, 65535\n"
-                        "\t%bad =w or %lo, %hi\n"
-                        "\tjnz %bad, @halt, @ok\n"
-                        "@halt\n"
-                        "\thlt\n"
-                        "@ok\n"
-                        "\tret %v\n"
-                        "}\n"},
-        {"check_w_u32", "function l $ngrt_check_w_u32(l %v) {\n"
-                        "@start\n"
-                        "\t%lo =w csltl %v, 0\n"
-                        "\t%hi =w csgtl %v, 4294967295\n"
-                        "\t%bad =w or %lo, %hi\n"
-                        "\tjnz %bad, @halt, @ok\n"
-                        "@halt\n"
-                        "\thlt\n"
-                        "@ok\n"
-                        "\tret %v\n"
-                        "}\n"},
-        {"str_clone", "function l $ngrt_str_clone(l %s) {\n"
-                      "@start\n"
-                      "\t%len =l loadl %s\n"
-                      "\t%total =l add %len, 8\n"
-                      "\t%p =l call $malloc(l %total)\n"
-                      "\tstorel %len, %p\n"
-                      "\t%dst =l add %p, 8\n"
-                      "\t%src =l add %s, 8\n"
-                      "\t%m =l call $memcpy(l %dst, l %src, l %len)\n"
-                      "\tret %p\n"
-                      "}\n"},
-        {"arr_clone_words", "function l $ngrt_arr_clone_words(l %src) {\n"
-                            "@start\n"
-                            "\t%len =l loadl %src\n"
-                            "\t%size =l mul %len, 8\n"
-                            "\t%total =l add %size, 16\n"
-                            "\t%p =l call $malloc(l %total)\n"
-                            "\tstorel %len, %p\n"
-                            "\t%cap =l add %p, 8\n"
-                            "\tstorel %len, %cap\n"
-                            "\t%dst =l add %p, 16\n"
-                            "\t%srcp =l add %src, 16\n"
-                            "\t%m =l call $memcpy(l %dst, l %srcp, l %size)\n"
-                            "\tret %p\n"
-                            "}\n"},
-        {"arr_clone_strings", "function l $ngrt_arr_clone_strings(l %src) {\n"
-                              "@start\n"
-                              "\t%len =l loadl %src\n"
-                              "\t%size =l mul %len, 8\n"
-                              "\t%total =l add %size, 16\n"
-                              "\t%p =l call $malloc(l %total)\n"
-                              "\tstorel %len, %p\n"
-                              "\t%cap =l add %p, 8\n"
-                              "\tstorel %len, %cap\n"
-                              "\t%i =l copy 0\n"
-                              "@loop\n"
-                              "\t%done =w csgel %i, %len\n"
-                              "\tjnz %done, @end, @copy\n"
-                              "@copy\n"
-                              "\t%v =l call $ngrt_arr_get(l %src, l %i)\n"
-                              "\t%c =l call $ngrt_str_clone(l %v)\n"
-                              "\t%off =l mul %i, 8\n"
-                              "\t%base =l add %p, 16\n"
-                              "\t%addr =l add %base, %off\n"
-                              "\tstorel %c, %addr\n"
-                              "\t%i =l add %i, 1\n"
-                              "\tjmp @loop\n"
-                              "@end\n"
-                              "\tret %p\n"
-                              "}\n"},
-        {"str_concat", "function l $ngrt_str_concat(l %a, l %b) {\n"
-                       "@start\n"
-                       "\t%la =l loadl %a\n"
-                       "\t%lb =l loadl %b\n"
-                       "\t%n =l add %la, %lb\n"
-                       "\t%size =l add %n, 8\n"
-                       "\t%p =l call $malloc(l %size)\n"
-                       "\tstorel %n, %p\n"
-                       "\t%pa =l add %p, 8\n"
-                       "\t%sa =l add %a, 8\n"
-                       "\t%m =l call $memcpy(l %pa, l %sa, l %la)\n"
-                       "\t%pd =l add %pa, %la\n"
-                       "\t%sb =l add %b, 8\n"
-                       "\t%m2 =l call $memcpy(l %pd, l %sb, l %lb)\n"
-                       "\tret %p\n"
-                       "}\n"},
-        {"str_eq", "function w $ngrt_str_eq(l %a, l %b) {\n"
-                   "@start\n"
-                   "\t%la =l loadl %a\n"
-                   "\t%lb =l loadl %b\n"
-                   "\t%eq =w ceql %la, %lb\n"
-                   "\tjnz %eq, @cmp, @no\n"
-                   "@cmp\n"
-                   "\t%pa =l add %a, 8\n"
-                   "\t%pb =l add %b, 8\n"
-                   "\t%c =w call $memcmp(l %pa, l %pb, l %la)\n"
-                   "\t%z =w ceqw %c, 0\n"
-                   "\tret %z\n"
-                   "@no\n"
-                   "\tret 0\n"
-                   "}\n"},
-        {"arr_addr", "function l $ngrt_arr_addr(l %a, l %i) {\n"
-                     "@start\n"
-                     "\t%len =l loadl %a\n"
-                     "\t%neg =w csltl %i, 0\n"
-                     "\t%high =w csgel %i, %len\n"
-                     "\t%bad =w or %neg, %high\n"
-                     "\tjnz %bad, @halt, @ok\n"
-                     "@halt\n"
-                     "\thlt\n"
-                     "@ok\n"
-                     "\t%off =l mul %i, 8\n"
-                     "\t%base =l add %a, 16\n"
-                     "\t%addr =l add %base, %off\n"
-                     "\tret %addr\n"
-                     "}\n"},
-        {"arr_get", "function l $ngrt_arr_get(l %a, l %i) {\n"
-                    "@start\n"
-                    "\t%addr =l call $ngrt_arr_addr(l %a, l %i)\n"
-                    "\t%v =l loadl %addr\n"
-                    "\tret %v\n"
-                    "}\n"},
-        {"arr_append", "function l $ngrt_arr_append(l %a, l %e) {\n"
-                       "@start\n"
-                       "\t%len =l loadl %a\n"
-                       "\t%n =l add %len, 1\n"
-                       "\t%total =l mul %n, 8\n"
-                       "\t%total =l add %total, 16\n"
-                       "\t%p =l call $malloc(l %total)\n"
-                       "\tstorel %n, %p\n"
-                       "\t%cap =l add %p, 8\n"
-                       "\tstorel %n, %cap\n"
-                       "\t%dst =l add %p, 16\n"
-                       "\t%src =l add %a, 16\n"
-                       "\t%oldsize =l mul %len, 8\n"
-                       "\t%m =l call $memcpy(l %dst, l %src, l %oldsize)\n"
-                       "\t%last =l add %dst, %oldsize\n"
-                       "\tstorel %e, %last\n"
-                       "\tret %p\n"
-                       "}\n"},
-        {"arr_slice", "function l $ngrt_arr_slice(l %a, l %s, l %e) {\n"
-                      "@start\n"
-                      "\t%len =l loadl %a\n"
-                      "\t%sneg =w csltl %s, 0\n"
-                      "\t%shigh =w csgel %s, %e\n"
-                      "\t%ehigh =w csgtl %e, %len\n"
-                      "\t%bad =w or %sneg, %shigh\n"
-                      "\t%bad =w or %bad, %ehigh\n"
-                      "\tjnz %bad, @halt, @ok\n"
-                      "@halt\n"
-                      "\thlt\n"
-                      "@ok\n"
-                      "\t%n =l sub %e, %s\n"
-                      "\t%size =l mul %n, 8\n"
-                      "\t%total =l add %size, 16\n"
-                      "\t%p =l call $malloc(l %total)\n"
-                      "\tstorel %n, %p\n"
-                      "\t%cap =l add %p, 8\n"
-                      "\tstorel %n, %cap\n"
-                      "\t%dst =l add %p, 16\n"
-                      "\t%off =l mul %s, 8\n"
-                      "\t%src =l add %a, 16\n"
-                      "\t%src =l add %src, %off\n"
-                      "\t%m =l call $memcpy(l %dst, l %src, l %size)\n"
-                      "\tret %p\n"
-                      "}\n"},
-        {"ref_load",
-         // A reference value is { l root-cell, l count, { l kind, l payload }[] }.
-         // Steps: 0 = struct field (offset 8p), 1 = runtime index
-         // (bounds-checked element), 2 = constant index into an array/tuple
-         // (offset 16 + 8p). Loading walks from the root cell's current
-         // value, mirroring the VM's (cell + path) view semantics.
-         "function l $ngrt_ref_load(l %ref) {\n"
-         "@start\n"
-         "\t%root =l loadl %ref\n"
-         "\t%cntp =l add %ref, 8\n"
-         "\t%cnt =l loadl %cntp\n"
-         "\t%cur =l loadl %root\n"
-         "\t%sp =l add %ref, 16\n"
-         "\t%i =l copy 0\n"
-         "@loop\n"
-         "\t%done =w csgel %i, %cnt\n"
-         "\tjnz %done, @end, @step\n"
-         "@step\n"
-         "\t%off =l mul %i, 16\n"
-         "\t%kindp =l add %sp, %off\n"
-         "\t%kind =l loadl %kindp\n"
-         "\t%isIndex =w ceql %kind, 1\n"
-         "\t%payloadp =l add %kindp, 8\n"
-         "\t%payload =l loadl %payloadp\n"
-         "\tjnz %isIndex, @index, @memberlike\n"
-         "@memberlike\n"
-         "\t%isHeader =w ceql %kind, 2\n"
-         "\tjnz %isHeader, @header, @plain\n"
-         "@header\n"
-         "\t%moff =l mul %payload, 8\n"
-         "\t%moff =l add %moff, 16\n"
-         "\tjmp @apply\n"
-         "@plain\n"
-         "\t%moff =l copy %payload\n"
-         "@apply\n"
-         "\t%addr =l add %cur, %moff\n"
-         "\t%cur =l loadl %addr\n"
-         "\tjmp @next\n"
-         "@index\n"
-         "\t%cur =l call $ngrt_arr_get(l %cur, l %payload)\n"
-         "@next\n"
-         "\t%i =l add %i, 1\n"
-         "\tjmp @loop\n"
-         "@end\n"
-         "\tret %cur\n"
-         "}\n"},
-        {"ref_addr",
-         // Walks to the address of the referenced place (same step kinds as
-         // ref_load); a plain local reference addresses the cell itself.
-         "function l $ngrt_ref_addr(l %ref) {\n"
-         "@start\n"
-         "\t%root =l loadl %ref\n"
-         "\t%cntp =l add %ref, 8\n"
-         "\t%cnt =l loadl %cntp\n"
-         "\t%none =w ceql %cnt, 0\n"
-         "\t%cur =l loadl %root\n"
-         "\tjnz %none, @end0, @pre\n"
-         "@end0\n"
-         "\tret %root\n"
-         "@pre\n"
-         "\t%sp =l add %ref, 16\n"
-         "\t%i =l copy 0\n"
-         "@loop\n"
-         "\t%done =w csgel %i, %cnt\n"
-         "\tjnz %done, @end, @step\n"
-         "@step\n"
-         "\t%off =l mul %i, 16\n"
-         "\t%kindp =l add %sp, %off\n"
-         "\t%kind =l loadl %kindp\n"
-         "\t%isIndex =w ceql %kind, 1\n"
-         "\t%payloadp =l add %kindp, 8\n"
-         "\t%payload =l loadl %payloadp\n"
-         "\tjnz %isIndex, @index, @memberlike\n"
-         "@memberlike\n"
-         "\t%isHeader =w ceql %kind, 2\n"
-         "\tjnz %isHeader, @header, @plain\n"
-         "@header\n"
-         "\t%moff =l mul %payload, 8\n"
-         "\t%moff =l add %moff, 16\n"
-         "\tjmp @apply\n"
-         "@plain\n"
-         "\t%moff =l copy %payload\n"
-         "@apply\n"
-         "\t%cur =l add %cur, %moff\n"
-         "\tjmp @next\n"
-         "@index\n"
-         "\t%cur =l call $ngrt_arr_addr(l %cur, l %payload)\n"
-         "@next\n"
-         "\t%i =l add %i, 1\n"
-         "\tjmp @loop\n"
-         "@end\n"
-         "\tret %cur\n"
-         "}\n"},
-        {"copy_elements",
-         // Copies `count` 8-byte elements from src's payload into dst
-         // (tuple-splice building block).
-         "function l $ngrt_copy_elements(l %dst, l %src, l %count) {\n"
-         "@start\n"
-         "\t%i =l copy 0\n"
-         "@loop\n"
-         "\t%done =w csgel %i, %count\n"
-         "\tjnz %done, @end, @copy\n"
-         "@copy\n"
-         "\t%v =l call $ngrt_arr_get(l %src, l %i)\n"
-         "\t%off =l mul %i, 8\n"
-         "\t%addr =l add %dst, %off\n"
-         "\tstorel %v, %addr\n"
-         "\t%i =l add %i, 1\n"
-         "\tjmp @loop\n"
-         "@end\n"
-         "\tret %dst\n"
-         "}\n"},
-        {"enum_list_len",
-         // Recursive List<T> length: Nil has a null payload word; a Cons cell
-         // is { tag, tuple { head, ref tail } } where the ref's root slot
-         // holds the next node.
-         "function l $ngrt_enum_list_len(l %node) {\n"
-         "@start\n"
-         "\t%count =l copy 0\n"
-         "@loop\n"
-         "\t%null =w ceql %node, 0\n"
-         "\tjnz %null, @end, @walk\n"
-         "@walk\n"
-         "\t%po =l add %node, 8\n"
-         "\t%payload =l loadl %po\n"
-         "\t%pnul =w ceql %payload, 0\n"
-         "\tjnz %pnul, @end, @next\n"
-         "@next\n"
-         "\t%refp =l add %payload, 24\n"
-         "\t%ref =l loadl %refp\n"
-         "\t%root =l loadl %ref\n"
-         "\t%node =l loadl %root\n"
-         "\t%count =l add %count, 1\n"
-         "\tjmp @loop\n"
-         "@end\n"
-         "\tret %count\n"
-         "}\n"},
-        {"enum_list_get",
-         // Recursive List<T> indexed head access; halts on out-of-range walks.
-         "function l $ngrt_enum_list_get(l %node, l %index) {\n"
-         "@start\n"
-         "@loop\n"
-         "\t%zero =w cslel %index, 0\n"
-         "\tjnz %zero, @head, @advance\n"
-         "@advance\n"
-         "\t%po =l add %node, 8\n"
-         "\t%payload =l loadl %po\n"
-         "\t%pnul =w ceql %payload, 0\n"
-         "\tjnz %pnul, @halt, @ok\n"
-         "@ok\n"
-         "\t%refp =l add %payload, 24\n"
-         "\t%ref =l loadl %refp\n"
-         "\t%root =l loadl %ref\n"
-         "\t%node =l loadl %root\n"
-         "\t%index =l sub %index, 1\n"
-         "\tjmp @loop\n"
-         "@head\n"
-         "\t%po2 =l add %node, 8\n"
-         "\t%payload2 =l loadl %po2\n"
-         "\t%pnul2 =w ceql %payload2, 0\n"
-         "\tjnz %pnul2, @halt, @read\n"
-         "@read\n"
-         "\t%headp =l add %payload2, 16\n"
-         "\t%head =l loadl %headp\n"
-         "\tret %head\n"
-         "@halt\n"
-         "\thlt\n"
-         "}\n"},
-      };
-      return helpers;
-    }
-
+    // boundary. Runtime helpers live in src/native/helpers/*.ssa and are
+    // assembled into libngrt_helpers.a at build time (ARCH-1); they call
+    // libc (malloc/memcpy/memcmp) through QBE's C ABI.
     class FunctionLowerer final
     {
     public:
@@ -780,7 +200,6 @@ namespace NG::native
 
       [[nodiscard]] auto fresh() -> std::string { return std::format("%t{}", tempCounter_++); }
 
-      void useHelper(std::string_view name) { ngrt_.usedHelpers.emplace(name); }
 
       /// Tier 0 QBE mapping: integers/bools are `l`, floats are `d`, unit is
       /// `None`, and every aggregate value (string/array/tuple/range) is an
@@ -1473,7 +892,6 @@ namespace NG::native
       /// requires one (D-008).
       void emitCheckedOp(const Instruction &instruction, std::string_view helper, std::string_view arguments)
       {
-        useHelper(helper);
         line(std::format("{} =l call $ngrt_{}({})", valueTemps_.at(instruction.result.value), helper, arguments));
         applyWidthCheck(instruction);
       }
@@ -1506,7 +924,6 @@ namespace NG::native
         default:
           return;
         }
-        useHelper(name);
         const auto temp = valueTemps_.at(instruction.result.value);
         line(std::format("{} =l call $ngrt_{}(l {})", temp, name, temp));
       }
@@ -1521,7 +938,6 @@ namespace NG::native
         case InstructionKind::ExtractTuple:
         {
           // Tuple representation == array representation.
-          useHelper("arr_get");
           const auto source = operandTemp(*instruction.source);
           const auto loaded = fresh();
           line(std::format("{} =l call $ngrt_arr_get(l {}, l {})", loaded, source, instruction.payload));
@@ -1531,7 +947,6 @@ namespace NG::native
         }
         case InstructionKind::AppendArray:
         {
-          useHelper("arr_append");
           const auto array = operandTemp(instruction.operands[0]);
           const auto elementType = qtypeOf(function_.valueTypes.at(instruction.operands[1].value));
           const auto element = castForSlot(operandTemp(instruction.operands[1]), elementType);
@@ -1564,7 +979,6 @@ namespace NG::native
           return;
         case InstructionKind::Slice:
         {
-          useHelper("arr_slice");
           const auto array = operandTemp(instruction.operands[0]);
           const auto range = operandTemp(instruction.operands[1]);
           const auto start = fresh();
@@ -1643,14 +1057,12 @@ namespace NG::native
         }
         case InstructionKind::EnumListLength:
         {
-          useHelper("enum_list_len");
           bindResult(instruction, QType::Long,
                      std::format("call $ngrt_enum_list_len(l {})", operandTemp(*instruction.source)));
           return;
         }
         case InstructionKind::EnumListGet:
         {
-          useHelper("enum_list_get");
           const auto source = operandTemp(instruction.operands[0]);
           const auto index = operandTemp(instruction.operands[1]);
           const auto loaded = fresh();
@@ -1736,7 +1148,6 @@ namespace NG::native
         }
         case InstructionKind::LoadRef:
         {
-          useHelper("ref_load");
           const auto reference = operandTemp(instruction.operands[0]);
           const auto loaded = fresh();
           line(std::format("{} =l call $ngrt_ref_load(l {})", loaded, reference));
@@ -1759,7 +1170,6 @@ namespace NG::native
             const auto reference = operandTemp(*instruction.placeRootRef);
             if (instruction.placeSteps.empty())
             {
-              useHelper("ref_addr");
               const auto address = fresh();
               line(std::format("{} =l call $ngrt_ref_addr(l {})", address, reference));
               if (valueType == QType::Aggregate)
@@ -1776,7 +1186,6 @@ namespace NG::native
             // Ref-rooted place with a path (`(*self).field := ...`): the
             // ref's prefix steps walk to the containing aggregate value,
             // then the static path steps walk to the target address.
-            useHelper("ref_load");
             const auto current = fresh();
             line(std::format("{} =l call $ngrt_ref_load(l {})", current, reference));
             std::string address = current;
@@ -1787,7 +1196,6 @@ namespace NG::native
               const auto next = fresh();
               if (step.kind == 1)
               {
-                useHelper("arr_addr");
                 line(std::format("{} =l call $ngrt_arr_addr(l {}, l {})", next, address, step.payload));
               }
               else if (step.kind == 2)
@@ -1871,7 +1279,6 @@ namespace NG::native
             const auto next = fresh();
             if (step.kind == 1)
             {
-              useHelper("arr_addr");
               line(std::format("{} =l call $ngrt_arr_addr(l {}, l {})", next, address, step.payload));
             }
             else if (step.kind == 2)
@@ -2003,7 +1410,6 @@ namespace NG::native
         }
         case ExpressionKind::Index:
         {
-          useHelper("arr_get");
           const auto receiver = operandTemp(instruction.operands[0]);
           const auto index = operandTemp(instruction.operands[1]);
           const auto loaded = fresh();
@@ -2057,7 +1463,6 @@ namespace NG::native
           // ExpressionKind::Call), so this code is dead for every reachable
           // program. Emit a defined-but-halting trap.
           bindResult(instruction, qtypeOf(function_.valueTypes.at(instruction.result.value)), "copy 0");
-          useHelper("panic");
           {
             const auto unused = fresh();
             line(std::format("{} =l call $ngrt_panic()", unused));
@@ -2156,7 +1561,6 @@ namespace NG::native
           std::string value = operandTemp(instruction.operands[index]);
           if (const char *check = widthCheck(typeId); check != nullptr)
           {
-            useHelper(check);
             const auto checked = fresh();
             line(std::format("{} =l call $ngrt_{}(l {})", checked, check, value));
             value = checked;
@@ -2254,7 +1658,6 @@ namespace NG::native
       /// and the runtime element count drives the allocation.
       void lowerTupleSplice(const Instruction &instruction)
       {
-        useHelper("copy_elements");
         size_t plainCount = 0;
         for (const auto operand : instruction.operands)
         {
@@ -2377,7 +1780,6 @@ namespace NG::native
         {
           if (type != typecheck::builtin::String)
             return source;
-          useHelper("str_clone");
           const auto clone = fresh();
           line(std::format("{} =l call $ngrt_str_clone(l {})", clone, source));
           return clone;
@@ -2428,7 +1830,6 @@ namespace NG::native
           const auto elementKind = function_.typeDescriptors[descriptor.element.value].kind;
           if (elementKind == TypeKind::Builtin && descriptor.element == typecheck::builtin::String)
           {
-            useHelper("arr_clone_strings");
             const auto clone = fresh();
             line(std::format("{} =l call $ngrt_arr_clone_strings(l {})", clone, source));
             return clone;
@@ -2438,7 +1839,6 @@ namespace NG::native
             throw LoweringError(std::format("native lowering (M2): deep copy of nested aggregate arrays is not "
                                             "supported yet in `{}`",
                                             function_.name));
-          useHelper("arr_clone_words");
           const auto clone = fresh();
           line(std::format("{} =l call $ngrt_arr_clone_words(l {})", clone, source));
           return clone;
@@ -2647,7 +2047,6 @@ namespace NG::native
         const auto valueOk = fresh();
         if (memberType == typecheck::builtin::String)
         {
-          useHelper("str_eq");
           line(std::format("{} =w call $ngrt_str_eq(l {}, l {})", valueOk, payloadValue, memberTemp));
         }
         else if (typecheck::isFloatBuiltin(memberType))
@@ -2752,13 +2151,11 @@ namespace NG::native
         {
           if (payload == 1)
           {
-            useHelper("str_concat");
             bindResult(instruction, QType::Long, std::format("call $ngrt_str_concat(l {}, l {})", left, right));
             return;
           }
           if (payload == 6 || payload == 7)
           {
-            useHelper("str_eq");
             const auto compared = fresh();
             line(std::format("{} =w call $ngrt_str_eq(l {}, l {})", compared, left, right));
             const auto extended = fresh();
@@ -3119,27 +2516,6 @@ namespace NG::native
       }
       result += '\n';
     }
-    // Emit each used ngrt helper (with its dependencies) exactly once, after
-    // all functions.
-    const std::unordered_map<std::string, std::vector<std::string>> helperDependencies = {
-      {"arr_get", {"arr_addr"}},
-      {"ref_load", {"arr_get", "arr_addr"}},
-      {"ref_addr", {"arr_addr"}},
-      {"copy_elements", {"arr_get", "arr_addr"}},
-      {"arr_clone_strings", {"arr_get", "arr_addr", "str_clone"}}};
-    std::set<std::string> helpersToEmit;
-    std::function<void(const std::string &)> addHelper = [&](const std::string &name)
-    {
-      if (!helpersToEmit.insert(name).second)
-        return;
-      if (const auto found = helperDependencies.find(name); found != helperDependencies.end())
-        for (const auto &dependency : found->second)
-          addHelper(dependency);
-    };
-    for (const auto &name : ngrt.usedHelpers)
-      addHelper(name);
-    for (const auto &name : helpersToEmit)
-      result += ngrtHelpers().at(name) + '\n';
     // Trait dispatch: per-(trait, concrete) vtable data plus a linear
     // key -> vtable lookup (keys are sorted for deterministic output).
     if (ngrt.needsTraitDispatch)
