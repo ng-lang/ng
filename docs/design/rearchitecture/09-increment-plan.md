@@ -384,4 +384,18 @@ INC-15 → INC-16 → INC-17（M2b；唯一交汇点——闭包语法面取自 
 | INC-4 无符号排序比较 | ✅ 2026-08-26（u64::MAX>5 翻转为真；PBT+契约+IL 断言全绿） |
 | INC-5 u64 算术宽度检查 | ✅ 2026-08-26（checked_u* 助手族；wrap 即 trap；trap 契约入语料） |
 | INC-6 混比禁令+显式转换 | ✅ 2026-08-26（DEC-A 落地含 D-008 修订；toFloat/toSigned；负契约×2 + PBT + E2E） |
+| ARCH-1 helper 外置 | ✅ 2026-08-26（34 个 ngrt helper 从 lowering.cpp 的 590 行字符串迁至 `src/native/helpers/*.ssa`，构建期 qbe→cc→ar 装配 `libngrt_helpers.a`，链接期按引用拉取；useHelper 机制删除） |
+| ARCH-2 lowering 拆分 | ✅ 2026-08-26（FunctionLowerer 迁入内部头 + 按 cohesion 分 4 TU：scaffold/expr/aggregate/call；**47 个示例 --emit=ssa 逐字节 diff 一致**，双变体全绿） |
 | INC-7 … INC-36 | ⬜ 未开始（逐个推进，每个完成后更新本表） |
+
+### 架构修复插队记录（2026-08-26，维护者指令）
+
+INC-6 完成后暂停增量推进，优先处理 lowering.cpp 架构问题（原 3176 行，
+其中 ~590 行 QBE IL 字符串硬编码在 `ngrtHelpers()`）。两步落地：
+
+1. **ARCH-1（b1f59db）**: helper 外置为独立 `.ssa` 文件 + 构建期装配
+   archive。运行时代码归位 libngrt 一侧；`--emit=ssa` 只含用户模块。
+2. **ARCH-2（0f85ed8）**: lowering 拆分为 5 个编译单元。验证采用
+   重构前后全示例 IL **逐字节比对**——零行为变化的强证据。
+
+后续 INC 在新结构上进行（lowering 相关改动落点见各 TU 职责注释）。

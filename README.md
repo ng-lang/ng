@@ -81,6 +81,8 @@ top-down; status and verification baselines live there ([10-baselines.md](./docs
 - ✅ INC-4 — unsigned ordering comparisons (F1①); `u64::MAX > 5` now true
 - ✅ INC-5 — unsigned checked arithmetic (F1③); u64 wrap attempts now trap
 - ✅ INC-6 — DEC-A landed: implicit mixed comparisons rejected; `toFloat`/`toSigned`
+- ✅ ARCH — lowering.cpp split: runtime helpers assembled from `.ssa` files into
+  `libngrt_helpers.a`; `FunctionLowerer` distributed across cohesive TUs
 - ⬜ INC-7 … INC-36 — pending
 
 ## Community
