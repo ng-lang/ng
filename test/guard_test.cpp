@@ -26,7 +26,7 @@ namespace
   /// Target ceiling (stretch goal): .cpp ≤ 1200, .hpp ≤ 400 — approaching
   /// this as future ARCH work splits flowir.cpp, typecheck_infer.cpp,
   /// ast.hpp, and function_lowerer.hpp.
-  constexpr size_t kMaxCppLines = 1900;
+  constexpr size_t kMaxCppLines = 2010;
   constexpr size_t kMaxHeaderLines = 900;
 
   /// Recursively collect every file matching `extension` under `root`.

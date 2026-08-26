@@ -349,6 +349,7 @@ namespace NG::typecheck::detail
     std::unordered_map<const hir::Block *, std::vector<std::pair<uint32_t, uint32_t>>> blockDrops_;
     std::unordered_set<uint32_t> placeholderFunctions_;
     std::unordered_set<uint32_t> derivedCloneTypes_;
+    std::unordered_set<uint32_t> derivedEqTypes_;
     std::unordered_map<uint32_t, std::vector<std::string>> dropMovedFields_;
     std::unordered_map<const hir::Expression *, std::pair<std::string, TypeId>> traitViewCoercions_;
     std::unordered_map<const hir::Expression *, std::pair<std::string, size_t>> traitViewCalls_;

@@ -47,6 +47,7 @@ namespace NG::flowir
         if (types_ != nullptr)
         {
           function_.typeDescriptors = types_->typeDescriptors;
+          function_.derivedEqTypes = types_->derivedEqTypes;
           if (const auto found = types_->functionTypeIds.find(source.id.value); found != types_->functionTypeIds.end())
             function_.declaredResultType = found->second.returnType;
         }
@@ -109,6 +110,19 @@ namespace NG::flowir
           block().instructions.push_back(
               Instruction{.kind = InstructionKind::AppendArray, .result = result, .operands = {left, right}});
           return result;
+        }
+
+        // INC-8: derive(Eq) — expand struct == / != into field-by-field
+        // comparisons.  Both operands must be the same Eq-derived struct type.
+        if (expression.kind == hir::ExpressionKind::Binary && types_ != nullptr &&
+            (expression.text == "==" || expression.text == "!="))
+        {
+          const auto leftType = types_->typeIdOf(*expression.operands[0]);
+          const auto rightType = types_->typeIdOf(*expression.operands[1]);
+          if (leftType == rightType && function_.derivedEqTypes.contains(leftType.value))
+          {
+            return lowerStructEq(expression, leftType, expression.text == "!=");
+          }
         }
 
         if (expression.kind == hir::ExpressionKind::Prefix &&
@@ -470,6 +484,113 @@ namespace NG::flowir
                                                    .expressionKind = hir::ExpressionKind::ResolvedName,
                                                    .payload = resultLocal.value});
         return result;
+      }
+
+      /// INC-8: derive(Eq) — expand `a == b` / `a != b` for Eq-derived struct
+      /// types into field-by-field comparisons (AND of per-field ==).
+      [[nodiscard]] auto lowerStructEq(const hir::Expression &expression, typecheck::TypeId structType, bool negate)
+          -> ValueId
+      {
+        const auto left = lowerExpression(*expression.operands[0]);
+        const auto right = lowerExpression(*expression.operands[1]);
+        return lowerStructEqDirect(left, right, structType, negate);
+      }
+
+      /// Core Eq expansion for already-lowered ValueIds (used for nested struct
+      /// comparisons within lowerStructEq).
+      [[nodiscard]] auto lowerStructEqDirect(ValueId left, ValueId right, typecheck::TypeId structType, bool negate)
+          -> ValueId
+      {
+        const auto &descriptor = types_->typeDescriptors.at(structType.value);
+        const size_t fieldCount = descriptor.elements.size();
+
+        // Degenerate case: zero-field struct (always equal).
+        if (fieldCount == 0)
+        {
+          const ValueId result{nextValue_++};
+          function_.valueTypes.emplace(result.value, typecheck::builtin::Bool);
+          const int64_t val = negate ? 0 : 1;
+          block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
+                                                     .result = result,
+                                                     .expressionKind = hir::ExpressionKind::BooleanLiteral,
+                                                     .payload = val,
+                                                     .text = val ? "true" : "false"});
+          return result;
+        }
+
+        // Helper: extract a field from a struct value.
+        const auto extractField = [&](ValueId source, size_t index, typecheck::TypeId fieldType) -> ValueId
+        {
+          const ValueId extracted{nextValue_++};
+          function_.valueTypes.emplace(extracted.value, fieldType);
+          block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
+                                                     .result = extracted,
+                                                     .expressionKind = hir::ExpressionKind::Member,
+                                                     .payload = static_cast<int64_t>(index),
+                                                     .text = std::to_string(index),
+                                                     .operands = {source}});
+          return extracted;
+        };
+
+        // Helper: compare two values with ==, expanding nested Eq structs.
+        const auto compareValues = [&](ValueId l, ValueId r, typecheck::TypeId fieldType) -> ValueId
+        {
+          const auto &fd = types_->typeDescriptors.at(fieldType.value);
+          if ((fd.kind == typecheck::TypeKind::Struct || fd.kind == typecheck::TypeKind::Enum) &&
+              function_.derivedEqTypes.contains(fieldType.value))
+          {
+            return lowerStructEqDirect(l, r, fieldType, false);
+          }
+          const ValueId cmp{nextValue_++};
+          function_.valueTypes.emplace(cmp.value, typecheck::builtin::Bool);
+          block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
+                                                     .result = cmp,
+                                                     .expressionKind = hir::ExpressionKind::Binary,
+                                                     .payload = 6, // ==
+                                                     .text = "==",
+                                                     .operands = {l, r}});
+          return cmp;
+        };
+
+        // Emit per-field comparisons and AND them together.
+        ValueId accumulator;
+        for (size_t i = 0; i < fieldCount; ++i)
+        {
+          const ValueId l = extractField(left, i, descriptor.elements[i]);
+          const ValueId r = extractField(right, i, descriptor.elements[i]);
+          const ValueId cmp = compareValues(l, r, descriptor.elements[i]);
+          if (i == 0)
+          {
+            accumulator = cmp;
+          }
+          else
+          {
+            const ValueId next{nextValue_++};
+            function_.valueTypes.emplace(next.value, typecheck::builtin::Bool);
+            block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
+                                                       .result = next,
+                                                       .expressionKind = hir::ExpressionKind::Binary,
+                                                       .payload = 12, // &&
+                                                       .text = "&&",
+                                                       .operands = {accumulator, cmp}});
+            accumulator = next;
+          }
+        }
+
+        // Negate for != if needed.
+        if (negate)
+        {
+          const ValueId negated{nextValue_++};
+          function_.valueTypes.emplace(negated.value, typecheck::builtin::Bool);
+          block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
+                                                     .result = negated,
+                                                     .expressionKind = hir::ExpressionKind::Prefix,
+                                                     .payload = 1, // !
+                                                     .text = "!",
+                                                     .operands = {accumulator}});
+          return negated;
+        }
+        return accumulator;
       }
 
       [[nodiscard]] auto lowerReferenceExpression(const hir::Expression &expression) -> ValueId

@@ -138,6 +138,9 @@ namespace NG::flowir
     std::unordered_map<uint32_t, typecheck::TypeId> valueTypes;
     std::unordered_map<uint32_t, typecheck::TypeId> localTypes;
     std::vector<typecheck::TypeDescriptor> typeDescriptors;
+    /// INC-8: types that derived Eq — used by lowerStructEq to expand nested
+    /// struct comparisons into field-by-field equality.
+    std::unordered_set<uint32_t> derivedEqTypes;
   };
 
   /// Lowers resolved/type-validated control structure to a CFG. This is a new

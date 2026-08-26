@@ -100,7 +100,7 @@ TEST_CASE("vNext derive validation reports malformed derives", "[vNext][Derive][
   }
   catch (const typecheck::TypeError &error)
   {
-    REQUIRE(std::string{error.what()} == "derive currently supports Copy and Clone only: Send");
+    REQUIRE(std::string{error.what()} == "derive currently supports Copy, Clone, and Eq only: Send");
   }
 
   try
@@ -143,5 +143,65 @@ TEST_CASE("vNext derive example file runs end to end through ngi", "[vNext][Deri
   REQUIRE(runExample("example/derive.ng", output, errors) == 0);
   INFO("errors: " << errors);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("native main exited with code 63\n") != std::string::npos);
+  REQUIRE(output.find("native main exited with code 127\n") != std::string::npos);
+}
+
+TEST_CASE("vNext derive(Eq) synthesizes field-level struct equality", "[vNext][Derive][Eq][Runtime]")
+{
+  expectValue("struct Point: derive(Eq) { x: i64, y: i64, } "
+              "fun main() -> i64 { "
+              "let p1 = Point { x: 1, y: 2 }; "
+              "let p2 = Point { x: 1, y: 2 }; "
+              "let p3 = Point { x: 1, y: 3 }; "
+              "let mut total = 0; "
+              "if (p1 == p2) { total := total + 1; } "
+              "if (p1 != p3) { total := total + 2; } "
+              "if (!(p1 == p3)) { total := total + 4; } "
+              "return total; }",
+              "7");
+}
+
+TEST_CASE("vNext derive(Eq) works for nested structs", "[vNext][Derive][Eq][Runtime]")
+{
+  expectValue("struct Inner: derive(Eq) { a: i64, b: i64, } "
+              "struct Outer: derive(Eq) { x: i64, inner: Inner, } "
+              "fun main() -> i64 { "
+              "let o1 = Outer { x: 1, inner: Inner { a: 10, b: 20 } }; "
+              "let o2 = Outer { x: 1, inner: Inner { a: 10, b: 20 } }; "
+              "let o3 = Outer { x: 1, inner: Inner { a: 10, b: 99 } }; "
+              "let mut total = 0; "
+              "if (o1 == o2) { total := total + 1; } "
+              "if (o1 != o3) { total := total + 2; } "
+              "return total; }",
+              "3");
+}
+
+TEST_CASE("vNext derive(Eq) error: non-Eq field type", "[vNext][Derive][Eq][Errors]")
+{
+  try
+  {
+    check("struct Inner { a: i64, } "
+          "struct Outer: derive(Eq) { inner: Inner, } "
+          "fun main() -> i64 { return 0; }");
+    FAIL("expected a derive(Eq) field error");
+  }
+  catch (const typecheck::TypeError &error)
+  {
+    REQUIRE(std::string{error.what()} ==
+            "derive(Eq) on `Outer`: field `inner` type `Inner` does not derive Eq");
+  }
+}
+
+TEST_CASE("vNext derive(Eq) error: float field not Eq-comparable", "[vNext][Derive][Eq][Errors]")
+{
+  try
+  {
+    check("struct Bad: derive(Eq) { x: f64, } fun main() -> i64 { return 0; }");
+    FAIL("expected a derive(Eq) float field error");
+  }
+  catch (const typecheck::TypeError &error)
+  {
+    REQUIRE(std::string{error.what()} ==
+            "derive(Eq) on `Bad`: field `x` type `f64` is not Eq-comparable");
+  }
 }

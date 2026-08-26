@@ -88,8 +88,9 @@ auto Checker::check(const hir::Module &module, const const_eval::ConstNativeHost
       if (!seen.insert(traitName).second)
         throw TypeError(std::format("duplicate derive for trait `{}` on type `{}`", traitName, structure.name),
                         structure.span);
-      if (traitName != "Copy" && traitName != "Clone")
-        throw TypeError(std::format("derive currently supports Copy and Clone only: {}", traitName), structure.span);
+      if (traitName != "Copy" && traitName != "Clone" && traitName != "Eq")
+        throw TypeError(std::format("derive currently supports Copy, Clone, and Eq only: {}", traitName),
+                        structure.span);
       for (const auto &impl : impls_)
         if (impl.target == target && impl.traitName == traitName)
           throw TypeError(std::format("derive conflicts with explicit impl for trait `{}` on type `{}`",
@@ -98,6 +99,33 @@ auto Checker::check(const hir::Module &module, const const_eval::ConstNativeHost
       impls_.push_back(ImplInfo{.traitName = traitName, .target = target, .methods = {}});
       if (traitName == "Clone")
         derivedCloneTypes_.insert(target.value);
+      if (traitName == "Eq")
+      {
+        // Validate: every field must be Eq-comparable (primitives, Eq structs, or
+        // tuples/Eq structs recursively).
+        const auto &descriptor = interner_.descriptor(target);
+        for (size_t i = 0; i < descriptor.elements.size(); ++i)
+        {
+          const auto &fieldType = descriptor.elements[i];
+          const auto &fd = interner_.descriptor(fieldType);
+          if (fd.kind == TypeKind::Struct || fd.kind == TypeKind::Enum)
+          {
+            if (!derivedEqTypes_.contains(fieldType.value))
+              throw TypeError(
+                  std::format("derive(Eq) on `{}`: field `{}` type `{}` does not derive Eq", structure.name,
+                              descriptor.fieldNames[i], interner_.display(fieldType)),
+                  structure.span);
+          }
+          else if (!isIntegerBuiltin(fieldType) && fieldType != builtin::Bool && fieldType != builtin::String)
+          {
+            throw TypeError(
+                std::format("derive(Eq) on `{}`: field `{}` type `{}` is not Eq-comparable", structure.name,
+                            descriptor.fieldNames[i], interner_.display(fieldType)),
+                structure.span);
+          }
+        }
+        derivedEqTypes_.insert(target.value);
+      }
     }
   }
   for (const auto &function : module.functions)
@@ -231,6 +259,7 @@ auto Checker::check(const hir::Module &module, const const_eval::ConstNativeHost
                                                                   std::make_move_iterator(instances_.end())},
                           .deferredMethodFunctions = std::move(deferredMethodFunctions_),
                           .derivedCloneCalls = std::move(derivedCloneCalls_),
+                          .derivedEqTypes = std::move(derivedEqTypes_),
                           .traitViewCoercions = std::move(traitViewCoercions_),
                           .traitViewCalls = std::move(traitViewCalls_),
                           .traitViewTables = std::move(traitViewTables_),

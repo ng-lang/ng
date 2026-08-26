@@ -290,6 +290,9 @@ namespace NG::typecheck
     /// Derived `clone()` calls: expression -> receiver type; lowered to a
     /// shared borrow followed by a deep-copying load.
     std::unordered_map<const hir::Expression *, TypeId> derivedCloneCalls;
+    /// Types that derived `Eq`: type id set; field-level == is synthesized
+    /// by the FlowIR builder for binary comparisons on these types.
+    std::unordered_set<uint32_t> derivedEqTypes;
     /// Trait-view coercions (`ref<Trait>`): expression -> (trait, concrete type).
     std::unordered_map<const hir::Expression *, std::pair<std::string, TypeId>> traitViewCoercions;
     /// Dynamic method calls through trait views: expression -> (trait, method index).
