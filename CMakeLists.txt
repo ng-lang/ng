@@ -58,6 +58,14 @@ include(cmake/qbe.cmake)
 set(NG_SRC
         src/driver.cpp
         src/flowir.cpp
+        src/native/lowering_aggregate.cpp
+        src/native/lowering_call.cpp
+        src/native/lowering_expr.cpp
+        src/native/lowering_scaffold.cpp
+        src/native/lowering_aggregate.cpp
+        src/native/lowering_call.cpp
+        src/native/lowering_expr.cpp
+        src/native/lowering_scaffold.cpp
         src/hir.cpp
         src/typecheck.cpp
         src/type_interner.cpp
