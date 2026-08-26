@@ -69,6 +69,11 @@ set(NG_SRC
         src/native/lowering_scaffold.cpp
         src/hir.cpp
         src/typecheck.cpp
+        src/typecheck_register.cpp
+        src/typecheck_infer.cpp
+        src/typecheck_check.cpp
+        src/typecheck_const.cpp
+        src/typecheck_unify.cpp
         src/type_interner.cpp
         src/const_eval.cpp
         src/const_interp.cpp
@@ -190,6 +195,7 @@ endif()
 file(GLOB NG_TEST_SRC CONFIGURE_DEPENDS test/*.cpp)
 add_executable(ng_test ${NG_TEST_SRC})
 target_link_libraries(ng_test PRIVATE ng Catch2::Catch2WithMain)
+target_compile_definitions(ng_test PRIVATE NG_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 
 if (APPLE)
 target_compile_options(ng_test PRIVATE -fprofile-instr-generate -fcoverage-mapping -fcoverage-mcdc)

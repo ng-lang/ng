@@ -1,0 +1,790 @@
+// AI-generated code; reviewed for this repository's vNext rewrite.
+// ARCH-4: typecheck_check.cpp — function/block/statement checking, borrows, moves.
+#include "typecheck_internal.hpp"
+
+namespace NG::typecheck::detail
+{
+
+void Checker::checkFunction(const hir::Function &function, const const_eval::ConstBindings &constBindings)
+{
+  const hir::DefId previousFunction = currentFunctionId_;
+  currentFunctionId_ = function.id;
+  const const_eval::ConstBindings previousBindings = std::move(activeConstBindings_);
+  activeConstBindings_ = constBindings;
+  const auto previousGenericBindings = std::move(genericBindings_);
+  const bool previousConstGeneric = inConstGenericFunction_;
+  LocalTypes locals;
+  mutableBindings_.clear();
+  moveState_ = MoveState{};
+  borrowState_ = BorrowState{};
+  releasedLoans_.clear();
+  lastUseCache_.clear();
+  const auto &signature = signatures_.at(function.id.value);
+  if (!signature.packParameters.empty())
+    placeholderFunctions_.insert(function.id.value);
+  genericBindings_.clear();
+  for (size_t index = 0; index < function.genericParameters.size(); ++index)
+    genericBindings_.emplace(function.genericParameters[index], signature.genericParameters[index]);
+  for (size_t index = 0; index < function.constructorParameters.size(); ++index)
+    genericBindings_.emplace(function.constructorParameters[index], signature.constructorParameters[index]);
+  for (size_t index = 0; index < function.variadicConstructorParameters.size(); ++index)
+    genericBindings_.emplace(function.variadicConstructorParameters[index],
+                             signature.constructorParameters[function.constructorParameters.size() + index]);
+  for (size_t index = 0; index < function.parameters.size(); ++index)
+  {
+    locals.emplace(function.parameters[index].local.value, signature.parameters[index]);
+    recordLocal(function.parameters[index].local, signature.parameters[index]);
+  }
+  inConstGenericFunction_ = !signature.constParameters.empty();
+  if (function.whereClause != nullptr && !isGeneric(signature))
+  {
+    if (!evaluateWhereCondition(*function.whereClause, Substitution{}, signature))
+      throw TypeError(std::format("function `{}` does not satisfy its where clause", function.name),
+                      function.span);
+  }
+  checkBlock(function.body, locals, {}, signature.returnType);
+  inConstGenericFunction_ = false;
+  recordFallthroughDrops(function, locals);
+  genericBindings_ = std::move(previousGenericBindings);
+  inConstGenericFunction_ = previousConstGeneric;
+  activeConstBindings_ = previousBindings;
+  currentFunctionId_ = previousFunction;
+}
+
+void Checker::recordFallthroughDrops(const hir::Function &function, const LocalTypes &locals)
+{
+  for (const auto &[local, type] : locals)
+  {
+    if (!dropTypes_.contains(type.value) || moveState_.isWholeMoved(local))
+      continue;
+    fallthroughDrops_[function.id.value].push_back(dropEdge(local, type, function.span));
+  }
+}
+
+auto Checker::lastUseByBlock(const hir::Block &block) -> const std::unordered_map<uint32_t, size_t> &
+{
+  if (const auto found = lastUseCache_.find(&block); found != lastUseCache_.end())
+    return found->second;
+  constexpr size_t neverReleased = std::numeric_limits<size_t>::max();
+  std::unordered_map<uint32_t, size_t> lastUse;
+  const auto visitExpression = [&](const auto &self, const hir::Expression &expression, size_t index) -> void
+  {
+    if (expression.resolvedName.has_value() && expression.resolvedName->kind == hir::ResolvedNameKind::Local)
+      lastUse[expression.resolvedName->id] = std::max(lastUse[expression.resolvedName->id], index);
+    for (const auto &operand : expression.operands)
+      self(self, *operand, index);
+  };
+  std::function<void(const hir::Block &, size_t)> visitBlock;
+  std::function<void(const hir::Statement &, size_t)> visitStatement;
+  visitBlock = [&](const hir::Block &nested, size_t index)
+  {
+    for (const auto &statement : nested.statements)
+      visitStatement(statement, index);
+    if (nested.tailExpression)
+      visitExpression(visitExpression, *nested.tailExpression, neverReleased);
+  };
+  visitStatement = [&](const hir::Statement &statement, size_t index)
+  {
+    if (statement.expression)
+      visitExpression(visitExpression, *statement.expression, index);
+    if (statement.assignmentTarget)
+      visitExpression(visitExpression, *statement.assignmentTarget, index);
+    for (const auto &argument : statement.arguments)
+      visitExpression(visitExpression, *argument, index);
+    if (statement.consequence)
+      visitBlock(*statement.consequence, index);
+    if (statement.alternative)
+      visitBlock(*statement.alternative, index);
+    if (statement.body)
+      visitBlock(*statement.body, index);
+    for (const auto &switchCase : statement.switchCases)
+      if (switchCase.body)
+        visitBlock(*switchCase.body, index);
+  };
+  for (size_t index = 0; index < block.statements.size(); ++index)
+    visitStatement(block.statements[index], index);
+  if (block.tailExpression)
+    visitExpression(visitExpression, *block.tailExpression, neverReleased);
+  return lastUseCache_.emplace(&block, std::move(lastUse)).first->second;
+}
+
+void Checker::releaseLoansUsedUpTo(size_t statementIndex, const std::unordered_map<uint32_t, size_t> &lastUse,
+                                    size_t loansBeforeStatement)
+{
+  bool changed = false;
+  for (size_t loanIndex = 0; loanIndex < borrowState_.loans.size(); ++loanIndex)
+  {
+    const auto &loan = borrowState_.loans[loanIndex];
+    bool release = false;
+    if (loan.tiedLocal == 0)
+      release = loanIndex >= loansBeforeStatement;
+    else
+    {
+      const auto found = lastUse.find(loan.tiedLocal);
+      release = found != lastUse.end() && found->second == statementIndex;
+    }
+    if (!release)
+      continue;
+    releasedLoans_.insert(loan.site);
+    borrowState_.loans.erase(borrowState_.loans.begin() + static_cast<ptrdiff_t>(loanIndex));
+    --loanIndex;
+    changed = true;
+  }
+  if (changed)
+    borrowState_.rebuildCounts();
+}
+
+void Checker::pruneReleasedLoans()
+{
+  bool changed = false;
+  for (size_t index = 0; index < borrowState_.loans.size(); ++index)
+  {
+    if (!releasedLoans_.contains(borrowState_.loans[index].site))
+      continue;
+    borrowState_.loans.erase(borrowState_.loans.begin() + static_cast<ptrdiff_t>(index));
+    --index;
+    changed = true;
+  }
+  if (changed)
+    borrowState_.rebuildCounts();
+}
+
+void Checker::checkBlock(const hir::Block &block, LocalTypes locals, LoopTypes loops, TypeId returnType,
+                          bool nestedScope)
+{
+  std::unordered_set<uint32_t> incomingLocals;
+  for (const auto &[local, type] : locals)
+    incomingLocals.insert(local);
+  const MutableBindings saved = mutableBindings_;
+  const BorrowState borrowsSaved = borrowState_;
+  const std::unordered_map<uint32_t, size_t> lastUse = lastUseByBlock(block);
+  for (size_t index = 0; index < block.statements.size(); ++index)
+  {
+    const size_t loansBefore = borrowState_.loans.size();
+    checkStatement(block.statements[index], locals, loops, returnType);
+    releaseLoansUsedUpTo(index, lastUse, loansBefore);
+  }
+  if (block.tailExpression != nullptr)
+    static_cast<void>(infer(*block.tailExpression, locals));
+  if (nestedScope)
+  {
+    std::vector<std::pair<uint32_t, uint32_t>> drops;
+    for (const auto &[local, type] : locals)
+    {
+      if (incomingLocals.contains(local))
+        continue;
+      if (!dropTypes_.contains(type.value) || moveState_.isWholeMoved(local))
+        continue;
+      drops.push_back(dropEdge(local, type, block.span));
+    }
+    if (!drops.empty())
+      blockDrops_.emplace(&block, std::move(drops));
+    bool changed = false;
+    for (size_t index = 0; index < borrowState_.loans.size(); ++index)
+    {
+      const auto &loan = borrowState_.loans[index];
+      if (loan.tiedLocal == 0 || incomingLocals.contains(loan.tiedLocal))
+        continue;
+      releasedLoans_.insert(loan.site);
+      borrowState_.loans.erase(borrowState_.loans.begin() + static_cast<ptrdiff_t>(index));
+      --index;
+      changed = true;
+    }
+    if (changed)
+      borrowState_.rebuildCounts();
+  }
+  mutableBindings_ = std::move(saved);
+  borrowState_ = std::move(borrowsSaved);
+  pruneReleasedLoans();
+}
+
+void Checker::checkStatement(const hir::Statement &statement, LocalTypes &locals, LoopTypes &loops, TypeId returnType)
+{
+  switch (statement.kind)
+  {
+  case hir::StatementKind::Let:
+  {
+    const TypeId bindingType = statement.bindingType != nullptr
+                                    ? interner_.resolveInScope(*statement.bindingType, genericBindings_)
+                                    : TypeId{};
+    if (bindingType.value != 0 && interner_.descriptor(bindingType).kind == TypeKind::Trait)
+      throw TypeError(std::format("trait `{}` is not a value type; use `ref<{}>`", interner_.display(bindingType),
+                                  interner_.display(bindingType)),
+                      statement.span);
+    const TypeId type = statement.bindingType != nullptr
+                            ? inferExpected(*statement.expression, bindingType, locals, "let initializer")
+                            : infer(*statement.expression, locals);
+    if (interner_.descriptor(type).kind != TypeKind::TraitReference)
+      trackConsumption(*statement.expression, locals);
+    if (!statement.destructuredLocals.empty() || statement.restLocal.has_value())
+    {
+      const auto &tuple = interner_.descriptor(type);
+      if (tuple.kind != TypeKind::Tuple)
+        throw TypeError(std::format("cannot destructure value of type {}", interner_.display(type)),
+                        statement.expression->span);
+      if (statement.restLocal.has_value())
+      {
+        if (tuple.elements.size() < statement.destructuredLocals.size())
+          throw TypeError(std::format("tuple destructuring length mismatch: pattern binds {}, tuple has {}",
+                                      statement.destructuredLocals.size(), tuple.elements.size()),
+                          statement.span);
+      }
+      else if (tuple.elements.size() != statement.destructuredLocals.size())
+      {
+        throw TypeError(std::format("tuple destructuring length mismatch: expected {}, got {}",
+                                    tuple.elements.size(), statement.destructuredLocals.size()),
+                        statement.span);
+      }
+      for (size_t index = 0; index < statement.destructuredLocals.size(); ++index)
+      {
+        locals.emplace(statement.destructuredLocals[index].value, tuple.elements[index]);
+        recordLocal(statement.destructuredLocals[index], tuple.elements[index]);
+        if (statement.mutableBinding)
+          mutableBindings_.insert(statement.destructuredLocals[index].value);
+      }
+      if (statement.restLocal.has_value())
+      {
+        std::vector<TypeId> restElements;
+        restElements.reserve(tuple.elements.size() - statement.destructuredLocals.size());
+        for (size_t index = statement.destructuredLocals.size(); index < tuple.elements.size(); ++index)
+          restElements.push_back(tuple.elements[index]);
+        const TypeId restType = interner_.internTuple(std::move(restElements));
+        locals.emplace(statement.restLocal->value, restType);
+        recordLocal(*statement.restLocal, restType);
+        if (statement.mutableBinding)
+          mutableBindings_.insert(statement.restLocal->value);
+      }
+    }
+    else
+    {
+      locals.emplace(statement.local->value, type);
+      recordLocal(*statement.local, type);
+      if (statement.mutableBinding)
+        mutableBindings_.insert(statement.local->value);
+    }
+    if (statement.local.has_value() && statement.expression->kind == hir::ExpressionKind::Prefix &&
+        (statement.expression->text == "ref" || statement.expression->text == "ref mut"))
+    {
+      for (auto &loan : borrowState_.loans)
+      {
+        if (loan.site == statement.expression.get() && loan.tiedLocal == 0)
+        {
+          loan.tiedLocal = statement.local->value;
+          break;
+        }
+      }
+    }
+    return;
+  }
+  case hir::StatementKind::Assign:
+    if (statement.assignmentTarget != nullptr)
+    {
+      const MoveState beforeAssignment = moveState_;
+      const auto reviveTarget = [&]()
+      {
+        if (const auto root = rootLocalOf(*statement.assignmentTarget); root.has_value())
+        {
+          if (statement.assignmentTarget->kind == hir::ExpressionKind::Member)
+          {
+            const auto &descriptor = interner_.descriptor(locals.at(root->value));
+            const auto found = std::find(descriptor.fieldNames.begin(), descriptor.fieldNames.end(),
+                                         statement.assignmentTarget->text);
+            if (found != descriptor.fieldNames.end())
+              moveState_.reinitializeField(
+                  root->value, static_cast<uint32_t>(std::distance(descriptor.fieldNames.begin(), found)));
+          }
+          else
+          {
+            moveState_.reinitialize(root->value);
+          }
+        }
+      };
+      reviveTarget();
+      requireMutableDeref(*statement.assignmentTarget, locals);
+      const TypeId target = infer(*statement.assignmentTarget, locals);
+      moveState_ = beforeAssignment;
+      static_cast<void>(inferExpected(*statement.expression, target, locals, "assignment value"));
+      trackConsumption(*statement.expression, locals);
+      reviveTarget();
+    }
+    else
+    {
+      static_cast<void>(
+          inferExpected(*statement.expression, locals.at(statement.local->value), locals, "assignment value"));
+      trackConsumption(*statement.expression, locals);
+      moveState_.reinitialize(statement.local->value);
+    }
+    return;
+  case hir::StatementKind::Return:
+    if (statement.expression != nullptr)
+    {
+      const TypeId returned = inferExpected(*statement.expression, returnType, locals, "return value");
+      if (interner_.descriptor(returned).kind == TypeKind::Reference)
+        throw TypeError("references cannot be returned from a function", statement.expression->span);
+    }
+    else
+      requireType(returnType, builtin::Unit, statement.span, "return value");
+    for (const auto &[local, type] : locals)
+    {
+      if (!dropTypes_.contains(type.value) || moveState_.isWholeMoved(local))
+        continue;
+      returnDrops_[&statement].push_back(dropEdge(local, type, statement.span));
+    }
+    return;
+  case hir::StatementKind::If:
+  {
+    requireType(builtin::Bool, infer(*statement.expression, locals), statement.expression->span, "if condition");
+    const MoveState before = moveState_;
+    const BorrowState borrowsBefore = borrowState_;
+    checkBlock(*statement.consequence, locals, loops, returnType, true);
+    const MoveState afterConsequence = moveState_;
+    const BorrowState borrowsAfterConsequence = borrowState_;
+    moveState_ = before;
+    borrowState_ = borrowsBefore;
+    if (statement.alternative != nullptr)
+      checkBlock(*statement.alternative, locals, loops, returnType, true);
+    moveState_ = afterConsequence.mergedWith(moveState_);
+    borrowState_ = borrowsAfterConsequence.mergedWith(borrowState_);
+    return;
+  }
+  case hir::StatementKind::ConstIf:
+  {
+    bool selected{};
+    if (inConstGenericFunction_)
+    {
+      try
+      {
+        const_eval::ConstEvaluator evaluator{interner_.constInterner()};
+        selected = evaluator.evaluateBool(
+            *statement.expression,
+            [this](const hir::Expression &node)
+            {
+              if (node.kind == hir::ExpressionKind::ResolvedName && node.resolvedName.has_value() &&
+                  node.resolvedName->kind == hir::ResolvedNameKind::ConstParameter)
+              {
+                const auto found = activeConstBindings_.find(node.text);
+                if (found == activeConstBindings_.end())
+                  throw const_eval::ConstEvalError(
+                      std::format("const if condition references abstract const parameter `{}`", node.text),
+                      node.span);
+                return found->second;
+              }
+              if (node.kind == hir::ExpressionKind::GenericApplication)
+                return evaluateConstApplication(node);
+              if (node.kind == hir::ExpressionKind::Call)
+                return evaluateConstCall(node, genericBindings_, activeConstBindings_);
+              throw const_eval::ConstEvalError("const if condition is not a compile-time constant expression",
+                                               node.span);
+            });
+      }
+      catch (const const_eval::ConstEvalError &error)
+      {
+        if (activeConstBindings_.empty())
+        {
+          placeholderFunctions_.insert(currentFunctionId_.value);
+          return;
+        }
+        throw TypeError(error.what(), error.span);
+      }
+    }
+    else
+    {
+      requireType(builtin::Bool, infer(*statement.expression, locals), statement.expression->span,
+                  "const if condition");
+      try
+      {
+        const_eval::ConstEvaluator evaluator{interner_.constInterner()};
+        selected = evaluator.evaluateBool(*statement.expression,
+                                          [this](const hir::Expression &node)
+                                          {
+                                            if (node.kind == hir::ExpressionKind::GenericApplication)
+                                              return evaluateConstApplication(node);
+                                            if (node.kind == hir::ExpressionKind::Call)
+                                              return evaluateConstCall(node, genericBindings_, {});
+                                            throw const_eval::ConstEvalError(
+                                                "const if condition is not a compile-time constant expression",
+                                                node.span);
+                                          });
+      }
+      catch (const const_eval::ConstEvalError &error)
+      {
+        if (isGeneric(signatures_.at(currentFunctionId_.value)))
+        {
+          placeholderFunctions_.insert(currentFunctionId_.value);
+          return;
+        }
+        throw TypeError(error.what(), error.span);
+      }
+    }
+    constIfSelections_.emplace(&statement, selected);
+    if (selected)
+      checkBlock(*statement.consequence, locals, loops, returnType, true);
+    else if (statement.alternative != nullptr)
+      checkBlock(*statement.alternative, locals, loops, returnType, true);
+    return;
+  }
+  case hir::StatementKind::Loop:
+  {
+    std::vector<TypeId> types;
+    for (const auto &initializer : statement.arguments)
+      types.push_back(infer(*initializer, locals));
+    LocalTypes loopLocals = locals;
+    for (size_t index = 0; index < statement.loopBindings.size(); ++index)
+    {
+      loopLocals.emplace(statement.loopBindings[index].value, types[index]);
+      recordLocal(statement.loopBindings[index], types[index]);
+      mutableBindings_.insert(statement.loopBindings[index].value);
+    }
+    LoopTypes loopTypes = loops;
+    loopTypes.emplace(statement.loop->value, types);
+    const MoveState before = moveState_;
+    const BorrowState borrowsBefore = borrowState_;
+    checkBlock(*statement.body, std::move(loopLocals), std::move(loopTypes), returnType, true);
+    moveState_ = before.mergedWith(moveState_);
+    borrowState_ = borrowsBefore.mergedWith(borrowState_);
+    return;
+  }
+  case hir::StatementKind::Next:
+    checkNext(statement, locals, loops);
+    return;
+  case hir::StatementKind::Switch:
+    checkSwitch(statement, locals, loops, returnType);
+    return;
+  case hir::StatementKind::Expression:
+    static_cast<void>(infer(*statement.expression, locals));
+    return;
+  }
+}
+
+void Checker::checkNext(const hir::Statement &statement, const LocalTypes &locals, const LoopTypes &loops)
+{
+  const std::vector<TypeId> *expected = statement.nextTarget->kind == hir::NextTargetKind::Loop
+                                            ? &loops.at(statement.nextTarget->id)
+                                            : &signatures_.at(statement.nextTarget->id).parameters;
+  if (statement.arguments.size() != expected->size())
+    throw TypeError(std::format("next argument count mismatch: expected {}, got {}", expected->size(),
+                                statement.arguments.size()),
+                    statement.span);
+  for (size_t index = 0; index < expected->size(); ++index)
+    static_cast<void>(inferExpected(*statement.arguments[index], (*expected)[index], locals,
+                                    std::format("next argument {}", index + 1)));
+}
+
+void Checker::checkLiteralSwitch(const hir::Statement &statement, TypeId scrutinee, const LocalTypes &locals,
+                                  const LoopTypes &loops, TypeId returnType)
+{
+  if (!isIntegerBuiltin(scrutinee) && scrutinee != builtin::Bool && scrutinee != builtin::String)
+    throw TypeError(std::format("literal switch patterns require an integer, bool, or string value, got {}",
+                                interner_.display(scrutinee)),
+                    statement.expression->span);
+  std::unordered_set<std::string> seen;
+  const MoveState beforeSwitch = moveState_;
+  const BorrowState borrowsBeforeSwitch = borrowState_;
+  MoveState merged;
+  BorrowState borrowsMerged;
+  bool anyBranch = false;
+  const auto checkBranch = [&](const hir::Block &branch, const LocalTypes &branchLocals)
+  {
+    const MoveState beforeBranch = moveState_;
+    const BorrowState borrowsBeforeBranch = borrowState_;
+    checkBlock(branch, branchLocals, loops, returnType, true);
+    merged = merged.mergedWith(moveState_);
+    borrowsMerged = borrowsMerged.mergedWith(borrowState_);
+    moveState_ = beforeBranch;
+    borrowState_ = borrowsBeforeBranch;
+    anyBranch = true;
+  };
+  for (const auto &switchCase : statement.switchCases)
+  {
+    if (switchCase.literalTexts.empty())
+      throw TypeError("cannot mix literal and variant patterns in one switch", switchCase.span);
+    for (const auto &text : switchCase.literalTexts)
+    {
+      if (!seen.insert(text).second)
+        throw TypeError(std::format("duplicate literal `{}` in switch", text), switchCase.span);
+      if (isIntegerBuiltin(scrutinee))
+      {
+        if (text.empty() || (text[0] != '-' && !std::isdigit(static_cast<unsigned char>(text[0]))))
+          throw TypeError(
+              std::format("literal `{}` does not match switch type {}", text, interner_.display(scrutinee)),
+              switchCase.span);
+        if (isUnsignedIntegerBuiltin(scrutinee))
+        {
+          const uint64_t magnitude = parseIntegerLiteralMagnitude(text, scrutinee, switchCase.span);
+          checkIntegerLiteralMagnitude(magnitude, text, scrutinee, switchCase.span);
+        }
+        else
+        {
+          int64_t value{};
+          const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);
+          if (error != std::errc{} || end != text.data() + text.size())
+            throw TypeError(std::format("integer literal `{}` is out of range for type {}", text,
+                                        interner_.display(scrutinee)),
+                            switchCase.span);
+          checkIntegerLiteral(value, text, scrutinee, switchCase.span);
+        }
+      }
+      else if (scrutinee == builtin::Bool)
+      {
+        if (text != "true" && text != "false")
+          throw TypeError(std::format("literal `{}` does not match switch type bool", text), switchCase.span);
+      }
+    }
+    checkBranch(*switchCase.body, locals);
+  }
+  if (statement.alternative != nullptr)
+    checkBranch(*statement.alternative, locals);
+  if (anyBranch)
+  {
+    moveState_ = beforeSwitch.mergedWith(merged);
+    borrowState_ = borrowsBeforeSwitch.mergedWith(borrowsMerged);
+  }
+}
+
+void Checker::checkSwitch(const hir::Statement &statement, const LocalTypes &locals, const LoopTypes &loops,
+                           TypeId returnType)
+{
+  const TypeId scrutinee = infer(*statement.expression, locals);
+  if (!statement.switchCases.empty() && !statement.switchCases.front().literalTexts.empty())
+  {
+    checkLiteralSwitch(statement, scrutinee, locals, loops, returnType);
+    return;
+  }
+  const auto &descriptor = interner_.descriptor(scrutinee);
+  if (descriptor.kind != TypeKind::Enum)
+    throw TypeError(std::format("switch value must be an enum type, got {}", interner_.display(scrutinee)),
+                    statement.expression->span);
+  std::vector<bool> covered(descriptor.fieldNames.size());
+  const MoveState beforeSwitch = moveState_;
+  const BorrowState borrowsBeforeSwitch = borrowState_;
+  MoveState merged;
+  BorrowState borrowsMerged;
+  bool anyBranch = false;
+  const auto checkBranch = [&](const hir::Block &branch, const LocalTypes &branchLocals)
+  {
+    const MoveState beforeBranch = moveState_;
+    const BorrowState borrowsBeforeBranch = borrowState_;
+    checkBlock(branch, branchLocals, loops, returnType, true);
+    merged = merged.mergedWith(moveState_);
+    borrowsMerged = borrowsMerged.mergedWith(borrowState_);
+    moveState_ = beforeBranch;
+    borrowState_ = borrowsBeforeBranch;
+    anyBranch = true;
+  };
+  for (const auto &switchCase : statement.switchCases)
+  {
+    if (!switchCase.literalTexts.empty())
+      throw TypeError("cannot mix literal and variant patterns in one switch", switchCase.span);
+    const auto found =
+        std::find(descriptor.fieldNames.begin(), descriptor.fieldNames.end(), switchCase.variantName);
+    if (found == descriptor.fieldNames.end())
+      throw TypeError(std::format("unknown variant `{}` for enum `{}`", switchCase.variantName, descriptor.name),
+                      switchCase.span);
+    const size_t variant = static_cast<size_t>(std::distance(descriptor.fieldNames.begin(), found));
+    if (covered[variant])
+      throw TypeError(std::format("duplicate variant `{}` in switch", switchCase.variantName), switchCase.span);
+    covered[variant] = true;
+    if (!switchCase.binding.has_value())
+    {
+      checkBranch(*switchCase.body, locals);
+      continue;
+    }
+    if (!descriptor.variantHasPayload[variant])
+      throw TypeError(std::format("variant `{}` has no payload to bind", switchCase.variantName),
+                      switchCase.span);
+    LocalTypes caseLocals = locals;
+    const TypeId payloadType = descriptor.elements[variant];
+    if (!switchCase.bindings.empty())
+    {
+      const auto &payloadDescriptor = interner_.descriptor(payloadType);
+      if (payloadDescriptor.kind != TypeKind::Tuple ||
+          payloadDescriptor.elements.size() != switchCase.bindings.size() + 1)
+        throw TypeError(
+            std::format("variant `{}` payload bindings do not match its tuple payload", switchCase.variantName),
+            switchCase.span);
+      caseLocals.emplace(switchCase.binding->value, payloadDescriptor.elements.front());
+      recordLocal(*switchCase.binding, payloadDescriptor.elements.front());
+      for (size_t index = 0; index < switchCase.bindings.size(); ++index)
+      {
+        caseLocals.emplace(switchCase.bindings[index].value, payloadDescriptor.elements[index + 1]);
+        recordLocal(switchCase.bindings[index], payloadDescriptor.elements[index + 1]);
+      }
+    }
+    else
+    {
+      caseLocals.emplace(switchCase.binding->value, payloadType);
+      recordLocal(*switchCase.binding, payloadType);
+    }
+    checkBranch(*switchCase.body, caseLocals);
+  }
+  if (statement.alternative != nullptr)
+    checkBranch(*statement.alternative, locals);
+  if (anyBranch)
+  {
+    moveState_ = beforeSwitch.mergedWith(merged);
+    borrowState_ = borrowsBeforeSwitch.mergedWith(borrowsMerged);
+  }
+  if (statement.alternative == nullptr)
+  {
+    if (const auto missing = std::find(covered.begin(), covered.end(), false); missing != covered.end())
+    {
+      const size_t variant = static_cast<size_t>(std::distance(covered.begin(), missing));
+      throw TypeError(
+          std::format("switch is not exhaustive: missing variant `{}`", descriptor.fieldNames[variant]),
+          statement.span);
+    }
+  }
+}
+
+auto Checker::isPlace(const hir::Expression &expression) -> bool
+{
+  switch (expression.kind)
+  {
+  case hir::ExpressionKind::ResolvedName:
+    return expression.resolvedName.has_value() && expression.resolvedName->kind == hir::ResolvedNameKind::Local;
+  case hir::ExpressionKind::Index:
+  case hir::ExpressionKind::Member:
+    return isPlace(*expression.operands[0]);
+  case hir::ExpressionKind::Grouped:
+    return isPlace(*expression.operands[0]);
+  default:
+    return false;
+  }
+}
+
+void Checker::requireMutableRoot(const hir::Expression &expression, syntax::SourceSpan span) const
+{
+  const hir::Expression *root = &expression;
+  while (true)
+  {
+    if (root->kind == hir::ExpressionKind::Index || root->kind == hir::ExpressionKind::Member ||
+        root->kind == hir::ExpressionKind::Grouped)
+      root = root->operands[0].get();
+    else
+      break;
+  }
+  if (root->kind != hir::ExpressionKind::ResolvedName || root->resolvedName->kind != hir::ResolvedNameKind::Local)
+    return;
+  if (!mutableBindings_.contains(root->resolvedName->id))
+    throw TypeError("cannot create a mutable reference to an immutable binding", span);
+}
+
+void Checker::requireMutableDeref(const hir::Expression &expression, const LocalTypes &locals)
+{
+  switch (expression.kind)
+  {
+  case hir::ExpressionKind::Index:
+  case hir::ExpressionKind::Member:
+  case hir::ExpressionKind::Grouped:
+    requireMutableDeref(*expression.operands[0], locals);
+    return;
+  case hir::ExpressionKind::Prefix:
+    if (expression.text == "*")
+    {
+      const TypeId operand = infer(*expression.operands[0], locals);
+      const auto &descriptor = interner_.descriptor(operand);
+      if (descriptor.kind != TypeKind::Reference)
+        throw TypeError(std::format("cannot assign through value of type {}", interner_.display(operand)),
+                        expression.span);
+      if (!descriptor.referenceMutable)
+        throw TypeError("cannot assign through an immutable reference", expression.span);
+    }
+    return;
+  default:
+    return;
+  }
+}
+
+auto Checker::isAffine(TypeId type) const -> bool
+{
+  const auto &descriptor = interner_.descriptor(type);
+  if (descriptor.kind == TypeKind::Struct || descriptor.kind == TypeKind::Enum)
+    return true;
+  if (descriptor.kind == TypeKind::Tuple)
+    return std::any_of(descriptor.elements.begin(), descriptor.elements.end(),
+                       [this](TypeId element) { return isAffine(element); });
+  return false;
+}
+
+auto Checker::rootLocalOf(const hir::Expression &expression) const -> std::optional<hir::LocalId>
+{
+  const hir::Expression *root = &expression;
+  while (true)
+  {
+    if (root->kind == hir::ExpressionKind::Index || root->kind == hir::ExpressionKind::Member ||
+        root->kind == hir::ExpressionKind::Grouped)
+      root = root->operands[0].get();
+    else
+      break;
+  }
+  if (root->kind == hir::ExpressionKind::ResolvedName && root->resolvedName.has_value() &&
+      root->resolvedName->kind == hir::ResolvedNameKind::Local)
+    return hir::LocalId{root->resolvedName->id};
+  return std::nullopt;
+}
+
+void Checker::trackConsumption(const hir::Expression &expression, const LocalTypes &locals)
+{
+  if (expression.kind == hir::ExpressionKind::Prefix && expression.text == "clone")
+    return;
+  if (expression.kind == hir::ExpressionKind::Prefix && expression.text == "move")
+  {
+    const auto root = rootLocalOf(*expression.operands[0]);
+    if (!root.has_value())
+      return;
+    const auto &operand = *expression.operands[0];
+    if (operand.kind == hir::ExpressionKind::Member)
+    {
+      const auto &descriptor = interner_.descriptor(locals.at(root->value));
+      if ((descriptor.kind == TypeKind::Struct || descriptor.kind == TypeKind::Enum) &&
+          !descriptor.fieldNames.empty())
+      {
+        const auto found = std::find(descriptor.fieldNames.begin(), descriptor.fieldNames.end(), operand.text);
+        if (found != descriptor.fieldNames.end())
+        {
+          moveState_.markField(root->value,
+                                static_cast<uint32_t>(std::distance(descriptor.fieldNames.begin(), found)));
+          return;
+        }
+      }
+    }
+    moveState_.markWhole(root->value);
+    return;
+  }
+  if (expression.kind == hir::ExpressionKind::Grouped)
+  {
+    trackConsumption(*expression.operands[0], locals);
+    return;
+  }
+  if (expression.kind == hir::ExpressionKind::Member)
+  {
+    const auto root = rootLocalOf(expression);
+    if (!root.has_value())
+      return;
+    const auto fieldType = locals.at(root->value);
+    if (!isAffine(fieldType))
+      return;
+    const auto &descriptor = interner_.descriptor(fieldType);
+    const auto found = std::find(descriptor.fieldNames.begin(), descriptor.fieldNames.end(), expression.text);
+    if (found == descriptor.fieldNames.end())
+      return;
+    const uint32_t field = static_cast<uint32_t>(std::distance(descriptor.fieldNames.begin(), found));
+    if (moveState_.hasMovedField(root->value))
+      throw TypeError(std::format("use of partially moved value `{}`", expression.operands[0]->text),
+                      expression.span);
+    moveState_.markField(root->value, field);
+    return;
+  }
+  if (expression.kind == hir::ExpressionKind::ResolvedName &&
+      expression.resolvedName->kind == hir::ResolvedNameKind::Local)
+  {
+    const uint32_t local = expression.resolvedName->id;
+    if (!isAffine(locals.at(local)))
+      return;
+    if (moveState_.hasMovedField(local))
+      throw TypeError(std::format("use of partially moved value `{}`", expression.text), expression.span);
+    moveState_.markWhole(local);
+  }
+}
+
+} // namespace NG::typecheck::detail
