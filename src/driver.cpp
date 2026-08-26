@@ -7,6 +7,7 @@
 #include "flowir.hpp"
 #include "hir.hpp"
 #include "module_loader.hpp"
+#include "native/const_hosts.hpp"
 #include "native/lowering.hpp"
 #include "ngrt.hpp"
 #include "syntax/module_parser.hpp"
@@ -131,7 +132,8 @@ namespace NG
         close(pipeDescriptors[1]);
         std::vector<char *> pointers;
         pointers.reserve(argv.size() + 1);
-        for (const auto &argument : argv) pointers.push_back(const_cast<char *>(argument.c_str()));
+        for (const auto &argument : argv)
+          pointers.push_back(const_cast<char *>(argument.c_str()));
         pointers.push_back(nullptr);
         execvp(pointers[0], pointers.data());
         _exit(127);
@@ -139,7 +141,8 @@ namespace NG
       close(pipeDescriptors[1]);
       char buffer[256];
       ssize_t count = 0;
-      while ((count = read(pipeDescriptors[0], buffer, sizeof buffer)) > 0) result.output.append(buffer, count);
+      while ((count = read(pipeDescriptors[0], buffer, sizeof buffer)) > 0)
+        result.output.append(buffer, count);
       close(pipeDescriptors[0]);
       int status = 0;
       pid_t waited = 0;
@@ -184,7 +187,11 @@ namespace NG
       struct TempDirectoryGuard
       {
         std::filesystem::path path;
-        ~TempDirectoryGuard() { std::error_code ignored; std::filesystem::remove_all(path, ignored); }
+        ~TempDirectoryGuard()
+        {
+          std::error_code ignored;
+          std::filesystem::remove_all(path, ignored);
+        }
       } guard{directory};
       const auto ilFile = directory / "module.ssa";
       const auto asmFile = directory / "module.s";
@@ -229,10 +236,12 @@ namespace NG
             {
               const char *fallback = nullptr;
 #ifdef NG_IMGUI_PATH
-              if (item == "libimgui.a") fallback = NG_IMGUI_PATH;
+              if (item == "libimgui.a")
+                fallback = NG_IMGUI_PATH;
 #endif
 #ifdef NG_SDL_PATH
-              if (item == "libSDL3.a") fallback = NG_SDL_PATH;
+              if (item == "libSDL3.a")
+                fallback = NG_SDL_PATH;
 #endif
               const auto resolved = findNgrtLibrary(item, fallback != nullptr ? fallback : "");
               if (!resolved.has_value())
@@ -291,8 +300,7 @@ namespace NG
 #else
     [[nodiscard]] auto compileNativeAndRun(const std::vector<flowir::Function> &,
                                            const std::unordered_map<uint64_t, std::vector<uint32_t>> &,
-                                           const native::NativeOwnerships &,
-                                           const std::optional<std::string> &, bool,
+                                           const native::NativeOwnerships &, const std::optional<std::string> &, bool,
                                            std::ostream &, std::ostream &errors) -> int
     {
       errors << "native: the native tier requires the vendored QBE tool and a POSIX host\n";
@@ -300,67 +308,16 @@ namespace NG
     }
 #endif
 
-    [[nodiscard]] auto compileSourceUnitAndReport(const syntax::SourceUnit &unit,
-                                                  std::ostream &output, std::ostream &errors,
-                                                  bool emitSsa = false,
+    [[nodiscard]] auto compileSourceUnitAndReport(const syntax::SourceUnit &unit, std::ostream &output,
+                                                  std::ostream &errors, bool emitSsa = false,
                                                   const std::optional<std::string> &nativeOutput = std::nullopt) -> int
     {
       try
       {
         const auto resolved = hir::Resolver{}.resolve(unit);
-        // Pure hosts callable from const contexts (D-012 `= native`
-        // capability): string utilities over canonical const values. These
-        // all go through libngrt via the thin C++ wrappers.
-        const const_eval::ConstNativeHost constHost =
-            [](const std::string &name, const std::vector<const_eval::ConstValueId> &arguments,
-               const_eval::ConstInterner &interner, syntax::SourceSpan span) -> const_eval::ConstValueId
-        {
-          const auto requireString = [&](size_t index) -> const std::string &
-          {
-            if (index >= arguments.size() ||
-                interner.value(arguments[index]).kind != const_eval::ConstValueKind::String)
-              throw const_eval::ConstEvalError(
-                  std::format("const native `{}` expects a string argument {}", name, index + 1), span);
-            return interner.value(arguments[index]).stringValue;
-          };
-          const auto requireInteger = [&](size_t index) -> int64_t
-          {
-            if (index >= arguments.size() ||
-                interner.value(arguments[index]).kind != const_eval::ConstValueKind::Integer)
-              throw const_eval::ConstEvalError(
-                  std::format("const native `{}` expects an integer argument {}", name, index + 1), span);
-            return interner.value(arguments[index]).integerValue;
-          };
-          try
-          {
-            if (name == "length") return interner.internInteger(ngrt::length(requireString(0)));
-            if (name == "contains") return interner.internBool(ngrt::contains(requireString(0), requireString(1)));
-            if (name == "startsWith") return interner.internBool(ngrt::startsWith(requireString(0), requireString(1)));
-            if (name == "endsWith") return interner.internBool(ngrt::endsWith(requireString(0), requireString(1)));
-            if (name == "toUpper" || name == "toLower")
-              return interner.internString(name == "toUpper" ? ngrt::toUpper(requireString(0))
-                                                             : ngrt::toLower(requireString(0)));
-            if (name == "trim") return interner.internString(ngrt::trim(requireString(0)));
-            if (name == "replace")
-              return interner.internString(ngrt::replace(requireString(0), requireString(1), requireString(2)));
-            if (name == "substring")
-              return interner.internString(ngrt::substring(requireString(0), requireInteger(1), requireInteger(2)));
-            if (name == "charAt")
-              return interner.internString(ngrt::charAt(requireString(0), requireInteger(1)));
-            if (name == "regexMatch")
-              return interner.internBool(ngrt::regexMatch(requireString(0), requireString(1)));
-          }
-          catch (const std::out_of_range &error)
-          {
-            throw const_eval::ConstEvalError(std::format("const {}", error.what()), span);
-          }
-          catch (const std::runtime_error &error)
-          {
-            throw const_eval::ConstEvalError(std::format("const {}", error.what()), span);
-          }
-          throw const_eval::ConstEvalError(std::format("native `{}` is not const-capable", name), span);
-        };
-        const auto typed = typecheck::TypeChecker{}.check(resolved, constHost);
+        // ARCH-3: const-capable natives live in a table-driven registry
+        // (src/native/const_hosts.cpp); the driver only supplies it.
+        const auto typed = typecheck::TypeChecker{}.check(resolved, native::makeConstNativeHost());
 
         std::vector<flowir::Function> flows;
         flows.reserve(resolved.functions.size() + typed.instances.size());
@@ -410,11 +367,12 @@ namespace NG
         native::NativeOwnerships nativeOwnerships;
         for (const auto &function : resolved.functions)
         {
-          if (!function.nativeFunction) continue;
+          if (!function.nativeFunction)
+            continue;
           const auto found = typed.functionTypeIds.find(function.id.value);
-          if (found == typed.functionTypeIds.end()) continue;
-          nativeOwnerships[function.id.value].assign(found->second.parameters.size(),
-                                                     native::Ownership::Copy);
+          if (found == typed.functionTypeIds.end())
+            continue;
+          nativeOwnerships[function.id.value].assign(found->second.parameters.size(), native::Ownership::Copy);
         }
         bool needsImgui = false;
         for (const auto &function : resolved.functions)

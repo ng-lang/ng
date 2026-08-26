@@ -57,6 +57,7 @@ include(cmake/qbe.cmake)
 
 set(NG_SRC
         src/driver.cpp
+        src/native/const_hosts.cpp
         src/flowir.cpp
         src/native/lowering_aggregate.cpp
         src/native/lowering_call.cpp
