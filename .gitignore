@@ -72,3 +72,5 @@ docs/design/archive/
 # VitePress build artifacts
 docs/.vitepress/cache/
 docs/.vitepress/dist/
+
+.reasonix

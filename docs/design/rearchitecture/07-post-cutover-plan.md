@@ -1,5 +1,17 @@
 # Post-Cutover Plan — vNext Completion Work
 
+> ⚠️ **Alignment note (2026-08-25):**
+> ① **执行排序已由 [`09-increment-plan.md`](09-increment-plan.md) 接管并细化**
+> （含研究发现合并、PBT/契约测试基建、五项已定语义决策）。下文 Category A/B/C
+> 条目与本计划的映射：A1→INC-15..17（+INC-34）、A2→INC-30/31、A3→INC-32、
+> A4→INC-33/34、A5→INC-35、A6→INC-36、A7→INC-24、B1→DEC-C+INC-18/19（连带
+> INC-20/21/22/23/25）、B2→INC-28、B3→INC-29；R10/R11 在两份文档中均为占位。
+> 两文档冲突时以 09 为准。
+> ② **§1 的流水线与 runNgi 描述是 cutover 时点的历史记录，现已过期**：
+> bytecode/VM 层随后被移除，唯一执行路径为 FlowIR → QBE IL → 原生可执行
+> （见 [AGENTS.md](../../../AGENTS.md)）；`runNgi` 已随 de95fa1 移除，
+> `ng_ide` 现经子进程编译。正文保留原貌以存证，不作就地改写。
+>
 > **Status:** planning document. The legacy cutover is complete; the work items
 > below are planned and designed, but **not implemented**.
 >
