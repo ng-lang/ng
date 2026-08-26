@@ -45,8 +45,7 @@ namespace NG::ngrt
     struct NgString
     {
       char *pointer{};
-      explicit NgString(std::string_view text)
-          : pointer{ngrt_new_string(text.data(), static_cast<long>(text.size()))}
+      explicit NgString(std::string_view text) : pointer{ngrt_new_string(text.data(), static_cast<long>(text.size()))}
       {
       }
       NgString(const NgString &) = delete;
@@ -107,6 +106,38 @@ namespace NG::ngrt
   {
     const NgString value{text};
     return ngrt_length(value);
+  }
+
+  auto toStringSigned(int64_t value) -> std::string
+  {
+    return takeNgString(ngrt_toString_i64(value));
+  }
+
+  auto toStringUnsigned(uint64_t value) -> std::string
+  {
+    return takeNgString(ngrt_toString_u64(value));
+  }
+
+  auto toStringFloat(double value) -> std::string
+  {
+    return takeNgString(ngrt_toString_f64(value));
+  }
+
+  auto toStringBool(bool value) -> std::string
+  {
+    return takeNgString(ngrt_toString_bool(value ? 1 : 0));
+  }
+
+  auto canParseInt(std::string_view text) -> bool
+  {
+    const NgString value{text};
+    return ngrt_canParseInt(value) != 0;
+  }
+
+  auto parseRawInt(std::string_view text) -> int64_t
+  {
+    const NgString value{text};
+    return ngrt_parseRawInt(value);
   }
 
   auto trim(std::string_view text) -> std::string
@@ -203,7 +234,10 @@ namespace NG::ngrt
     return result != 0;
   }
 
-  auto readLine() -> std::string { return takeNgString(ngrt_readLine()); }
+  auto readLine() -> std::string
+  {
+    return takeNgString(ngrt_readLine());
+  }
 
   auto readFile(std::string_view path) -> std::string
   {
@@ -224,7 +258,10 @@ namespace NG::ngrt
       throw std::runtime_error(failOr("cannot write file"));
   }
 
-  auto currentExecutablePath() -> std::string { return takeNgString(ngrt_currentExecutablePath()); }
+  auto currentExecutablePath() -> std::string
+  {
+    return takeNgString(ngrt_currentExecutablePath());
+  }
 
   auto arrayLength(const std::vector<Value> &values) -> int64_t
   {
@@ -319,5 +356,8 @@ namespace NG::ngrt
       throw std::runtime_error(message);
   }
 
-  auto outstanding() -> int64_t { return ngrt_outstanding(); }
+  auto outstanding() -> int64_t
+  {
+    return ngrt_outstanding();
+  }
 } // namespace NG::ngrt

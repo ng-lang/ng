@@ -25,6 +25,13 @@ namespace NG::ngrt
 
   // std.string
   [[nodiscard]] auto length(std::string_view text) -> int64_t;
+  // INC-7: string conversions and integer parsing.
+  [[nodiscard]] auto toStringSigned(int64_t value) -> std::string;
+  [[nodiscard]] auto toStringUnsigned(uint64_t value) -> std::string;
+  [[nodiscard]] auto toStringFloat(double value) -> std::string;
+  [[nodiscard]] auto toStringBool(bool value) -> std::string;
+  [[nodiscard]] auto canParseInt(std::string_view text) -> bool;
+  [[nodiscard]] auto parseRawInt(std::string_view text) -> int64_t;
   [[nodiscard]] auto trim(std::string_view text) -> std::string;
   [[nodiscard]] auto toUpper(std::string_view text) -> std::string;
   [[nodiscard]] auto toLower(std::string_view text) -> std::string;

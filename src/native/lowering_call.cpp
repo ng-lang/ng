@@ -230,16 +230,30 @@ namespace NG::native::detail
       else
         symbol = "$ngrt_print_i64";
     }
-    else if (name == "toFloat")
-    {
-      // INC-6: the C side cannot overload, so the declared argument type
-      // picks the sign class of the conversion.
-      symbol = typecheck::isUnsignedIntegerBuiltin(declaredType(0)) ? "$ngrt_toFloat_u64" : "$ngrt_toFloat_i64";
-    }
-    else
-    {
-      symbol = "$ngrt_" + name;
-    }
+        else if (name == "toFloat")
+        {
+          // INC-6: the C side cannot overload, so the declared argument type
+          // picks the sign class of the conversion.
+          symbol = typecheck::isUnsignedIntegerBuiltin(declaredType(0)) ? "$ngrt_toFloat_u64" : "$ngrt_toFloat_i64";
+        }
+        else if (name == "toString")
+        {
+          // INC-7: same dispatch pattern as print — narrow signed widths are
+          // exact in the i64 slot, any float prints through the f64 path.
+          const auto type = declaredType(0);
+          if (typecheck::isFloatBuiltin(type))
+            symbol = "$ngrt_toString_f64";
+          else if (type == typecheck::builtin::Bool)
+            symbol = "$ngrt_toString_bool";
+          else if (typecheck::isUnsignedIntegerBuiltin(type))
+            symbol = "$ngrt_toString_u64";
+          else
+            symbol = "$ngrt_toString_i64";
+        }
+        else
+        {
+          symbol = "$ngrt_" + name;
+        }
 
     std::string arguments;
     for (size_t index = 0; index < instruction.operands.size(); ++index)

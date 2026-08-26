@@ -49,6 +49,14 @@ double ngrt_toFloat_i64(int64_t value);
 double ngrt_toFloat_u64(uint64_t value);
 int64_t ngrt_toSigned(uint64_t value);
 
+// String conversions and integer parsing (INC-7).
+char *ngrt_toString_i64(int64_t value);
+char *ngrt_toString_u64(uint64_t value);
+char *ngrt_toString_f64(double value);
+char *ngrt_toString_bool(int64_t value);
+int64_t ngrt_canParseInt(const char *text);
+int64_t ngrt_parseRawInt(const char *text);
+
 // std.string.
 int64_t ngrt_length(const char *text);
 char *ngrt_trim(const char *text);

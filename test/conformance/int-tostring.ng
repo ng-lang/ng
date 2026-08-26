@@ -1,0 +1,11 @@
+// Contract: toString formatting goldens (INC-7). Formatters mirror print.
+import prelude;
+
+fun main() -> unit {
+    print(toString(0));
+    print(toString(42));
+    print(toString(-42));
+    print(toString(true));
+    print(toString(false));
+    print(toString(2.5));
+}

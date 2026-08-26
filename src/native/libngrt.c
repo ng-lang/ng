@@ -72,7 +72,7 @@ static void ngrt_fail(const char *message)
 
 void *ngrt_alloc(int64_t size)
 {
-  void *result = malloc((size_t)size);
+  void *result = malloc((size_t) size);
   if (result == NULL)
     abort();
   return result;
@@ -80,12 +80,12 @@ void *ngrt_alloc(int64_t size)
 
 char *ngrt_new_string(const char *bytes, int64_t length)
 {
-  char *result = (char *)malloc((size_t)length + 8);
+  char *result = (char *) malloc((size_t) length + 8);
   if (result == NULL)
     abort();
-  *(int64_t *)result = length;
+  *(int64_t *) result = length;
   if (length > 0)
-    memcpy(result + 8, bytes, (size_t)length);
+    memcpy(result + 8, bytes, (size_t) length);
   return result;
 }
 
@@ -100,7 +100,7 @@ void ngrt_free(void *pointer)
 
 static int64_t ngrt_str_len(const char *s)
 {
-  return *(const int64_t *)s;
+  return *(const int64_t *) s;
 }
 
 static const char *ngrt_str_bytes(const char *s)
@@ -111,10 +111,10 @@ static const char *ngrt_str_bytes(const char *s)
 static char *ngrt_c_string(const char *value)
 {
   int64_t length = ngrt_str_len(value);
-  char *result = (char *)malloc((size_t)length + 1);
+  char *result = (char *) malloc((size_t) length + 1);
   if (result == NULL)
     abort();
-  memcpy(result, ngrt_str_bytes(value), (size_t)length);
+  memcpy(result, ngrt_str_bytes(value), (size_t) length);
   result[length] = 0;
   return result;
 }
@@ -145,7 +145,7 @@ int64_t ngrt_print_str(const char *value)
 {
   /* fwrite the full length: an int cast would truncate huge strings, and
    * %.*s would stop at embedded NULs. */
-  fwrite(ngrt_str_bytes(value), 1, (size_t)ngrt_str_len(value), stdout);
+  fwrite(ngrt_str_bytes(value), 1, (size_t) ngrt_str_len(value), stdout);
   fputc('\n', stdout);
   return 0;
 }
@@ -156,22 +156,99 @@ int64_t ngrt_print_bool(int64_t value)
   return 0;
 }
 
+/* INC-7: string conversions and integer parsing. toString mirrors the print
+ * formatters exactly (%g for floats, true/false for bools) so round-trips
+ * through the two families stay consistent. parse accepts an optional sign
+ * followed by decimal digits only — no whitespace, no separators — and the
+ * full i64 range including INT64_MIN. */
+char *ngrt_toString_i64(int64_t value)
+{
+  char buffer[32];
+  snprintf(buffer, sizeof buffer, "%" PRId64, value);
+  return ngrt_new_string(buffer, (int64_t) strlen(buffer));
+}
+
+char *ngrt_toString_u64(uint64_t value)
+{
+  char buffer[32];
+  snprintf(buffer, sizeof buffer, "%" PRIu64, value);
+  return ngrt_new_string(buffer, (int64_t) strlen(buffer));
+}
+
+char *ngrt_toString_f64(double value)
+{
+  char buffer[64];
+  snprintf(buffer, sizeof buffer, "%g", value);
+  return ngrt_new_string(buffer, (int64_t) strlen(buffer));
+}
+
+char *ngrt_toString_bool(int64_t value)
+{
+  return ngrt_new_string(value ? "true" : "false", value ? 4 : 5);
+}
+
+static int ngrt_parseI64Strict(const char *bytes, int64_t length, int64_t *out)
+{
+  int64_t index = 0;
+  int negative = 0;
+  if (length > 0 && (bytes[0] == '+' || bytes[0] == '-'))
+  {
+    negative = (bytes[0] == '-');
+    index = 1;
+  }
+  if (index == length)
+    return 0;
+  const uint64_t limit = negative ? 9223372036854775808ULL : 9223372036854775807ULL;
+  uint64_t accumulated = 0;
+  for (; index < length; index++)
+  {
+    if (bytes[index] < '0' || bytes[index] > '9')
+      return 0;
+    const uint64_t digit = (uint64_t) (bytes[index] - '0');
+    if (accumulated > (limit - digit) / 10)
+      return 0;
+    accumulated = accumulated * 10 + digit;
+  }
+  if (negative && accumulated == 9223372036854775808ULL)
+    *out = -9223372036854775807LL - 1;
+  else
+    *out = negative ? -(int64_t) accumulated : (int64_t) accumulated;
+  return 1;
+}
+
+int64_t ngrt_canParseInt(const char *text)
+{
+  int64_t ignored;
+  return ngrt_parseI64Strict(ngrt_str_bytes(text), ngrt_str_len(text), &ignored);
+}
+
+int64_t ngrt_parseRawInt(const char *text)
+{
+  int64_t value = 0;
+  if (!ngrt_parseI64Strict(ngrt_str_bytes(text), ngrt_str_len(text), &value))
+  {
+    ngrt_fail("parseRawInt: input is not a valid i64 literal");
+    return 0;
+  }
+  return value;
+}
+
 /* INC-6 (DEC-A): explicit numeric conversions. toFloat widens either integer
  * sign class into a double; toSigned reinterprets a u64 bit pattern as i64
  * so full-range unsigned values can be compared against signed constants. */
 double ngrt_toFloat_i64(int64_t value)
 {
-  return (double)value;
+  return (double) value;
 }
 
 double ngrt_toFloat_u64(uint64_t value)
 {
-  return (double)value;
+  return (double) value;
 }
 
 int64_t ngrt_toSigned(uint64_t value)
 {
-  return (int64_t)value;
+  return (int64_t) value;
 }
 
 int64_t ngrt_assert(int64_t condition)
@@ -199,9 +276,9 @@ char *ngrt_trim(const char *text)
   const char *bytes = ngrt_str_bytes(text);
   int64_t begin = 0;
   int64_t end = length;
-  while (begin < end && isspace((unsigned char)bytes[begin]))
+  while (begin < end && isspace((unsigned char) bytes[begin]))
     ++begin;
-  while (end > begin && isspace((unsigned char)bytes[end - 1]))
+  while (end > begin && isspace((unsigned char) bytes[end - 1]))
     --end;
   return ngrt_new_string(bytes + begin, end - begin);
 }
@@ -210,14 +287,14 @@ static char *ngrt_str_case(const char *value, int upper)
 {
   int64_t length = ngrt_str_len(value);
   const char *bytes = ngrt_str_bytes(value);
-  char *result = (char *)malloc((size_t)length + 8);
+  char *result = (char *) malloc((size_t) length + 8);
   if (result == NULL)
     abort();
-  *(int64_t *)result = length;
+  *(int64_t *) result = length;
   for (int64_t index = 0; index < length; ++index)
   {
-    unsigned char byte = (unsigned char)bytes[index];
-    result[8 + index] = (char)(upper ? toupper(byte) : tolower(byte));
+    unsigned char byte = (unsigned char) bytes[index];
+    result[8 + index] = (char) (upper ? toupper(byte) : tolower(byte));
   }
   return result;
 }
@@ -238,7 +315,7 @@ char *ngrt_charAt(const char *text, int64_t index)
   if (index < 0 || index >= length)
   {
     char message[128];
-    snprintf(message, sizeof message, "charAt index out of bounds: index %ld, length %ld", (long)index, (long)length);
+    snprintf(message, sizeof message, "charAt index out of bounds: index %ld, length %ld", (long) index, (long) length);
     ngrt_fail(message);
     return NULL;
   }
@@ -251,8 +328,8 @@ char *ngrt_substring(const char *text, int64_t start, int64_t end)
   if (start < 0 || end < start || end > length)
   {
     char message[160];
-    snprintf(message, sizeof message, "substring bounds out of range: [%ld..%ld) of length %ld", (long)start, (long)end,
-             (long)length);
+    snprintf(message, sizeof message, "substring bounds out of range: [%ld..%ld) of length %ld", (long) start,
+             (long) end, (long) length);
     ngrt_fail(message);
     return NULL;
   }
@@ -270,7 +347,7 @@ int64_t ngrt_contains(const char *text, const char *needle)
   if (needleLength > textLength)
     return 0;
   for (int64_t index = 0; index + needleLength <= textLength; ++index)
-    if (memcmp(textBytes + index, needleBytes, (size_t)needleLength) == 0)
+    if (memcmp(textBytes + index, needleBytes, (size_t) needleLength) == 0)
       return 1;
   return 0;
 }
@@ -279,8 +356,7 @@ int64_t ngrt_startsWith(const char *text, const char *prefix)
 {
   int64_t prefixLength = ngrt_str_len(prefix);
   int64_t textLength = ngrt_str_len(text);
-  return prefixLength <= textLength &&
-         memcmp(ngrt_str_bytes(text), ngrt_str_bytes(prefix), (size_t)prefixLength) == 0;
+  return prefixLength <= textLength && memcmp(ngrt_str_bytes(text), ngrt_str_bytes(prefix), (size_t) prefixLength) == 0;
 }
 
 int64_t ngrt_endsWith(const char *text, const char *suffix)
@@ -288,8 +364,7 @@ int64_t ngrt_endsWith(const char *text, const char *suffix)
   int64_t suffixLength = ngrt_str_len(suffix);
   int64_t textLength = ngrt_str_len(text);
   return suffixLength <= textLength &&
-         memcmp(ngrt_str_bytes(text) + textLength - suffixLength, ngrt_str_bytes(suffix),
-                (size_t)suffixLength) == 0;
+         memcmp(ngrt_str_bytes(text) + textLength - suffixLength, ngrt_str_bytes(suffix), (size_t) suffixLength) == 0;
 }
 
 char *ngrt_replace(const char *text, const char *needle, const char *replacement)
@@ -305,7 +380,7 @@ char *ngrt_replace(const char *text, const char *needle, const char *replacement
   int64_t occurrences = 0;
   for (int64_t index = 0; index + needleLength <= textLength;)
   {
-    if (memcmp(textBytes + index, needleBytes, (size_t)needleLength) == 0)
+    if (memcmp(textBytes + index, needleBytes, (size_t) needleLength) == 0)
     {
       ++occurrences;
       index += needleLength;
@@ -314,18 +389,17 @@ char *ngrt_replace(const char *text, const char *needle, const char *replacement
       ++index;
   }
   int64_t resultLength = textLength + occurrences * (replacementLength - needleLength);
-  char *result = (char *)malloc((size_t)resultLength + 8);
+  char *result = (char *) malloc((size_t) resultLength + 8);
   if (result == NULL)
     abort();
-  *(int64_t *)result = resultLength;
+  *(int64_t *) result = resultLength;
   int64_t write = 0;
   int64_t index = 0;
   while (index < textLength)
   {
-    if (index + needleLength <= textLength &&
-        memcmp(textBytes + index, needleBytes, (size_t)needleLength) == 0)
+    if (index + needleLength <= textLength && memcmp(textBytes + index, needleBytes, (size_t) needleLength) == 0)
     {
-      memcpy(result + 8 + write, replacementBytes, (size_t)replacementLength);
+      memcpy(result + 8 + write, replacementBytes, (size_t) replacementLength);
       write += replacementLength;
       index += needleLength;
     }
@@ -344,22 +418,22 @@ void *ngrt_split(const char *text, const char *delimiter)
   if (delimiterLength == 0)
   {
     /* Split on an empty delimiter returns the whole text as one part. */
-    int64_t *result = (int64_t *)malloc(sizeof(int64_t) * 3);
+    int64_t *result = (int64_t *) malloc(sizeof(int64_t) * 3);
     if (result == NULL)
       abort();
     result[0] = 1;
     result[1] = 1;
-    result[2] = (int64_t)(uintptr_t)ngrt_new_string(textBytes, textLength);
+    result[2] = (int64_t) (uintptr_t) ngrt_new_string(textBytes, textLength);
     return result;
   }
   int64_t parts = 1;
   for (int64_t index = 0; index + delimiterLength <= textLength; ++index)
-    if (memcmp(textBytes + index, delimiterBytes, (size_t)delimiterLength) == 0)
+    if (memcmp(textBytes + index, delimiterBytes, (size_t) delimiterLength) == 0)
     {
       ++parts;
       index += delimiterLength - 1;
     }
-  int64_t *result = (int64_t *)malloc(sizeof(int64_t) * (size_t)(parts + 2));
+  int64_t *result = (int64_t *) malloc(sizeof(int64_t) * (size_t) (parts + 2));
   if (result == NULL)
     abort();
   result[0] = parts;
@@ -368,16 +442,16 @@ void *ngrt_split(const char *text, const char *delimiter)
   int64_t written = 0;
   for (int64_t index = 0; index + delimiterLength <= textLength && written < parts;)
   {
-    if (memcmp(textBytes + index, delimiterBytes, (size_t)delimiterLength) == 0)
+    if (memcmp(textBytes + index, delimiterBytes, (size_t) delimiterLength) == 0)
     {
-      result[2 + written++] = (int64_t)(uintptr_t)ngrt_new_string(textBytes + start, index - start);
+      result[2 + written++] = (int64_t) (uintptr_t) ngrt_new_string(textBytes + start, index - start);
       index += delimiterLength;
       start = index;
     }
     else
       ++index;
   }
-  result[2 + written] = (int64_t)(uintptr_t)ngrt_new_string(textBytes + start, textLength - start);
+  result[2 + written] = (int64_t) (uintptr_t) ngrt_new_string(textBytes + start, textLength - start);
   return result;
 }
 
@@ -389,24 +463,24 @@ char *ngrt_join(const void *items, const char *separator)
   int64_t total = 0;
   for (int64_t index = 0; index < count; ++index)
   {
-    total += ngrt_str_len((const char *)(uintptr_t)header[2 + index]);
+    total += ngrt_str_len((const char *) (uintptr_t) header[2 + index]);
     if (index + 1 < count)
       total += separatorLength;
   }
-  char *result = (char *)malloc((size_t)total + 8);
+  char *result = (char *) malloc((size_t) total + 8);
   if (result == NULL)
     abort();
-  *(int64_t *)result = total;
+  *(int64_t *) result = total;
   int64_t written = 0;
   for (int64_t index = 0; index < count; ++index)
   {
-    const char *item = (const char *)(uintptr_t)header[2 + index];
+    const char *item = (const char *) (uintptr_t) header[2 + index];
     int64_t itemLength = ngrt_str_len(item);
-    memcpy(result + 8 + written, ngrt_str_bytes(item), (size_t)itemLength);
+    memcpy(result + 8 + written, ngrt_str_bytes(item), (size_t) itemLength);
     written += itemLength;
     if (index + 1 < count)
     {
-      memcpy(result + 8 + written, ngrt_str_bytes(separator), (size_t)separatorLength);
+      memcpy(result + 8 + written, ngrt_str_bytes(separator), (size_t) separatorLength);
       written += separatorLength;
     }
   }
@@ -437,7 +511,7 @@ int64_t ngrt_regexMatch(const char *text, const char *pattern)
 
 int64_t ngrt_len(const void *array)
 {
-  return ((const int64_t *)array)[0];
+  return ((const int64_t *) array)[0];
 }
 
 int64_t ngrt_sum(const void *array)
@@ -462,7 +536,7 @@ void *ngrt_reverse(const void *array)
 {
   const int64_t *header = array;
   int64_t length = header[0];
-  int64_t *result = (int64_t *)malloc(sizeof(int64_t) * (size_t)(length + 2));
+  int64_t *result = (int64_t *) malloc(sizeof(int64_t) * (size_t) (length + 2));
   if (result == NULL)
     abort();
   result[0] = length;
@@ -485,7 +559,7 @@ static int64_t ngrt_live_count = 0;
 
 static uint64_t ngrt_hash_handle(int64_t handle)
 {
-  uint64_t value = (uint64_t)handle;
+  uint64_t value = (uint64_t) handle;
   value ^= value >> 33;
   value *= 0xff51afd7ed558ccdULL;
   value ^= value >> 33;
@@ -499,7 +573,7 @@ static int ngrt_handle_valid(int64_t handle)
   if (handle == 0 || ngrt_live_capacity == 0)
     return 0;
   int64_t mask = ngrt_live_capacity - 1;
-  int64_t slot = (int64_t)(ngrt_hash_handle(handle) & (uint64_t)mask);
+  int64_t slot = (int64_t) (ngrt_hash_handle(handle) & (uint64_t) mask);
   for (int64_t probe = 0; probe < ngrt_live_capacity; ++probe)
   {
     if (ngrt_live_table[slot] == 0)
@@ -516,7 +590,7 @@ static void ngrt_live_add(int64_t handle)
   if (ngrt_live_capacity == 0 || (ngrt_live_count + 1) * 10 >= ngrt_live_capacity * 7)
   {
     int64_t newCapacity = ngrt_live_capacity == 0 ? 16 : ngrt_live_capacity * 2;
-    int64_t *grown = (int64_t *)calloc((size_t)newCapacity, sizeof(int64_t));
+    int64_t *grown = (int64_t *) calloc((size_t) newCapacity, sizeof(int64_t));
     if (grown == NULL)
       abort();
     int64_t newMask = newCapacity - 1;
@@ -525,7 +599,7 @@ static void ngrt_live_add(int64_t handle)
       int64_t value = ngrt_live_table[index];
       if (value == 0)
         continue;
-      int64_t slot = (int64_t)(ngrt_hash_handle(value) & (uint64_t)newMask);
+      int64_t slot = (int64_t) (ngrt_hash_handle(value) & (uint64_t) newMask);
       while (grown[slot] != 0)
         slot = (slot + 1) & newMask;
       grown[slot] = value;
@@ -535,7 +609,7 @@ static void ngrt_live_add(int64_t handle)
     ngrt_live_capacity = newCapacity;
   }
   int64_t mask = ngrt_live_capacity - 1;
-  int64_t slot = (int64_t)(ngrt_hash_handle(handle) & (uint64_t)mask);
+  int64_t slot = (int64_t) (ngrt_hash_handle(handle) & (uint64_t) mask);
   while (ngrt_live_table[slot] != 0)
     slot = (slot + 1) & mask;
   ngrt_live_table[slot] = handle;
@@ -547,7 +621,7 @@ static void ngrt_live_remove(int64_t handle)
   if (ngrt_live_capacity == 0)
     return;
   int64_t mask = ngrt_live_capacity - 1;
-  int64_t slot = (int64_t)(ngrt_hash_handle(handle) & (uint64_t)mask);
+  int64_t slot = (int64_t) (ngrt_hash_handle(handle) & (uint64_t) mask);
   for (int64_t probe = 0; probe < ngrt_live_capacity; ++probe)
   {
     if (ngrt_live_table[slot] == 0)
@@ -562,7 +636,7 @@ static void ngrt_live_remove(int64_t handle)
       int64_t next = (slot + 1) & mask;
       while (ngrt_live_table[next] != 0)
       {
-        int64_t home = (int64_t)(ngrt_hash_handle(ngrt_live_table[next]) & (uint64_t)mask);
+        int64_t home = (int64_t) (ngrt_hash_handle(ngrt_live_table[next]) & (uint64_t) mask);
         int canShift = next > hole ? (home <= hole || home > next) : (home <= hole && home > next);
         if (canShift)
         {
@@ -580,12 +654,12 @@ static void ngrt_live_remove(int64_t handle)
 
 int64_t ngrt_allocate(int64_t value)
 {
-  int64_t *cell = (int64_t *)malloc(sizeof(int64_t));
+  int64_t *cell = (int64_t *) malloc(sizeof(int64_t));
   if (cell == NULL)
     abort();
   *cell = value;
-  ngrt_live_add((int64_t)(uintptr_t)cell);
-  return (int64_t)(uintptr_t)cell;
+  ngrt_live_add((int64_t) (uintptr_t) cell);
+  return (int64_t) (uintptr_t) cell;
 }
 
 int64_t ngrt_load(int64_t handle)
@@ -595,7 +669,7 @@ int64_t ngrt_load(int64_t handle)
     ngrt_fail("invalid heap handle");
     return 0;
   }
-  return *(int64_t *)(uintptr_t)handle;
+  return *(int64_t *) (uintptr_t) handle;
 }
 
 int64_t ngrt_store(int64_t handle, int64_t value)
@@ -605,7 +679,7 @@ int64_t ngrt_store(int64_t handle, int64_t value)
     ngrt_fail("invalid heap handle");
     return -1;
   }
-  *(int64_t *)(uintptr_t)handle = value;
+  *(int64_t *) (uintptr_t) handle = value;
   return 0;
 }
 
@@ -617,7 +691,7 @@ int64_t ngrt_release(int64_t handle)
     return -1;
   }
   ngrt_live_remove(handle);
-  free((void *)(uintptr_t)handle);
+  free((void *) (uintptr_t) handle);
   return 0;
 }
 
@@ -639,10 +713,10 @@ char *ngrt_currentExecutablePath(void)
   if (read > 0)
   {
     buffer[read] = 0;
-    length = (size_t)read;
+    length = (size_t) read;
   }
 #elif defined(__APPLE__)
-  uint32_t size = (uint32_t)sizeof buffer;
+  uint32_t size = (uint32_t) sizeof buffer;
   if (_NSGetExecutablePath(buffer, &size) == 0)
   {
     char resolved[PATH_MAX];
@@ -665,7 +739,7 @@ char *ngrt_currentExecutablePath(void)
       buffer[0] = 0;
     length = strlen(buffer);
   }
-  return ngrt_new_string(buffer, (int64_t)length);
+  return ngrt_new_string(buffer, (int64_t) length);
 }
 
 char *ngrt_readLine(void)
@@ -680,7 +754,7 @@ char *ngrt_readLine(void)
   }
   if (length > 0 && line[length - 1] == '\n')
     --length;
-  char *result = ngrt_new_string(line, (int64_t)length);
+  char *result = ngrt_new_string(line, (int64_t) length);
   free(line);
   return result;
 }
@@ -714,13 +788,13 @@ char *ngrt_readFile(const char *path)
     fclose(file);
     return ngrt_new_string("", 0);
   }
-  char *buffer = (char *)malloc((size_t)size);
+  char *buffer = (char *) malloc((size_t) size);
   if (buffer == NULL)
   {
     fclose(file);
     abort();
   }
-  if (fread(buffer, 1, (size_t)size, file) != (size_t)size)
+  if (fread(buffer, 1, (size_t) size, file) != (size_t) size)
   {
     free(buffer);
     fclose(file);
@@ -728,7 +802,7 @@ char *ngrt_readFile(const char *path)
     return NULL;
   }
   fclose(file);
-  char *result = ngrt_new_string(buffer, (int64_t)size);
+  char *result = ngrt_new_string(buffer, (int64_t) size);
   free(buffer);
   return result;
 }
@@ -743,7 +817,7 @@ int64_t ngrt_writeFile(const char *path, const char *content)
     ngrt_fail("cannot write file");
     return -1;
   }
-  size_t expected = (size_t)ngrt_str_len(content);
+  size_t expected = (size_t) ngrt_str_len(content);
   size_t written = fwrite(ngrt_str_bytes(content), 1, expected, file);
   int closeStatus = fclose(file);
   if (written != expected || closeStatus != 0)
@@ -753,7 +827,6 @@ int64_t ngrt_writeFile(const char *path, const char *content)
   }
   return 0;
 }
-
 
 /* ------------------------------------------------------------------------- */
 /* std.io: system command bindings                                            */
@@ -783,7 +856,7 @@ char *ngrt_systemOutput(const char *command)
   }
   size_t capacity = 1024;
   size_t length = 0;
-  char *buffer = (char *)malloc(capacity);
+  char *buffer = (char *) malloc(capacity);
   if (buffer == NULL)
     abort();
   for (;;)
@@ -791,7 +864,7 @@ char *ngrt_systemOutput(const char *command)
     if (length == capacity)
     {
       capacity *= 2;
-      char *grown = (char *)realloc(buffer, capacity);
+      char *grown = (char *) realloc(buffer, capacity);
       if (grown == NULL)
         abort();
       buffer = grown;
@@ -815,16 +888,16 @@ char *ngrt_systemOutput(const char *command)
     char suffix[64];
     snprintf(suffix, sizeof suffix, "[exit %d]", code);
     size_t suffixLength = strlen(suffix);
-    char *result = (char *)malloc(length + suffixLength + 8);
+    char *result = (char *) malloc(length + suffixLength + 8);
     if (result == NULL)
       abort();
-    *(int64_t *)result = (int64_t)(length + suffixLength);
+    *(int64_t *) result = (int64_t) (length + suffixLength);
     memcpy(result + 8, buffer, length);
     memcpy(result + 8 + length, suffix, suffixLength);
     free(buffer);
     return result;
   }
-  char *result = ngrt_new_string(buffer, (int64_t)length);
+  char *result = ngrt_new_string(buffer, (int64_t) length);
   free(buffer);
   return result;
 }
@@ -835,12 +908,12 @@ char *ngrt_systemOutput(const char *command)
 
 int64_t ngrt_fixture_point_sum(struct ngrt_fixture_point point)
 {
-  return (int64_t)point.x + (int64_t)point.y;
+  return (int64_t) point.x + (int64_t) point.y;
 }
 
 int64_t ngrt_fixture_mixed_sum(struct ngrt_fixture_mixed mixed)
 {
-  return (int64_t)mixed.a + (int64_t)mixed.b + (int64_t)mixed.c;
+  return (int64_t) mixed.a + (int64_t) mixed.b + (int64_t) mixed.c;
 }
 
 struct ngrt_fixture_point ngrt_fixture_point_swap(struct ngrt_fixture_point point)

@@ -1,0 +1,7 @@
+// Contract: parseRawInt traps on non-numeric input (INC-7). The safe entry
+// point is the Option-style parseInt wrapper.
+import prelude;
+
+fun main() -> unit {
+    let broken = parseRawInt("not-a-number");
+}

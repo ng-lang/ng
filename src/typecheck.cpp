@@ -3200,6 +3200,24 @@ namespace NG::typecheck
               const auto &candidateSignature = signatures_.at(candidate.value);
               if (candidateSignature.parameters.size() != expression.operands.size() - 1)
                 continue;
+              // Same argument-type filter as the statement-position path
+              // below: without it, differing-width overloads (e.g.
+              // toString(i64)/toString(u64)) tie on specificity whenever a
+              // call sits in argument position and get rejected as ambiguous.
+              if (!isGeneric(candidateSignature))
+              {
+                try
+                {
+                  for (size_t index = 0; index < candidateSignature.parameters.size(); ++index)
+                    requireType(candidateSignature.parameters[index],
+                                infer(*expression.operands[index + 1], locals),
+                                expression.operands[index + 1]->span, "specialization argument");
+                }
+                catch (const TypeError &)
+                {
+                  continue;
+                }
+              }
               int score = isGeneric(candidateSignature) ? 0 : 100;
               for (const auto parameter : candidateSignature.parameters)
                 score += specificity(parameter);

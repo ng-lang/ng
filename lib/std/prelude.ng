@@ -24,6 +24,29 @@ export native fun toFloat(value: i64) -> f64;
 export native fun toFloat(value: u64) -> f64;
 export native fun toSigned(value: u64) -> i64;
 
+// String conversions and integer parsing (INC-7). toString mirrors the
+// print formatters; parseRawInt traps on invalid input, so the Option-style
+// parseInt wrapper below is the safe entry point until Result lands (INC-12).
+export native fun toString(value: i64) -> string;
+export native fun toString(value: i32) -> string;
+export native fun toString(value: u64) -> string;
+export native fun toString(value: f64) -> string;
+export native fun toString(value: bool) -> string;
+export native fun canParseInt(text: string) -> bool;
+export native fun parseRawInt(text: string) -> i64;
+
+export enum OptionalInt {
+    Some(value: i64),
+    None,
+}
+
+export fun parseInt(text: string) -> OptionalInt {
+    if (canParseInt(text)) {
+        return OptionalInt.Some(parseRawInt(text));
+    }
+    return OptionalInt.None;
+}
+
 export fun not(value: bool) -> bool {
     return !value;
 }
