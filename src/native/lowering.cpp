@@ -167,6 +167,19 @@ namespace NG::native
                         "@ok\n"
                         "\tret %r\n"
                         "}\n"},
+        {"checked_uadd",
+         // INC-5 (F1③): unsigned addition wraps silently in the slot; the
+         // wrap is detectable as result < left operand (unsigned).
+         "function l $ngrt_checked_uadd(l %a, l %b) {\n"
+         "@start\n"
+         "\t%r =l add %a, %b\n"
+         "\t%ov =w cultl %r, %a\n"
+         "\tjnz %ov, @halt, @ok\n"
+         "@halt\n"
+         "\thlt\n"
+         "@ok\n"
+         "\tret %r\n"
+         "}\n"},
         {"checked_sub", "function l $ngrt_checked_sub(l %a, l %b) {\n"
                         "@start\n"
                         "\t%r =l sub %a, %b\n"
@@ -187,6 +200,18 @@ namespace NG::native
                         "@ok\n"
                         "\tret %r\n"
                         "}\n"},
+        {"checked_usub",
+         // INC-5 (F1③): unsigned subtraction traps iff left < right.
+         "function l $ngrt_checked_usub(l %a, l %b) {\n"
+         "@start\n"
+         "\t%ov =w cultl %a, %b\n"
+         "\tjnz %ov, @halt, @ok\n"
+         "@halt\n"
+         "\thlt\n"
+         "@ok\n"
+         "\t%r =l sub %a, %b\n"
+         "\tret %r\n"
+         "}\n"},
         {"checked_mul", "function l $ngrt_checked_mul(l %a, l %b) {\n"
                         "@start\n"
                         "\t%r =l mul %a, %b\n"
@@ -206,6 +231,46 @@ namespace NG::native
                         "@ok\n"
                         "\tret %r\n"
                         "}\n"},
+        {"checked_umul",
+         // INC-5 (F1③): unsigned multiply verified by dividing back with
+         // the unsigned quotient; b == 0 always succeeds.
+         "function l $ngrt_checked_umul(l %a, l %b) {\n"
+         "@start\n"
+         "\t%r =l mul %a, %b\n"
+         "\t%bz =w ceql %b, 0\n"
+         "\tjnz %bz, @ok, @check\n"
+         "@check\n"
+         "\t%q =l udiv %r, %b\n"
+         "\t%same =w ceql %q, %a\n"
+         "\tjnz %same, @ok, @halt\n"
+         "@halt\n"
+         "\thlt\n"
+         "@ok\n"
+         "\tret %r\n"
+         "}\n"},
+        {"checked_udiv",
+         // INC-5 (F1③): unsigned division only traps on a zero divisor;
+         // the signed MIN / -1 edge does not exist without signs.
+         "function l $ngrt_checked_udiv(l %a, l %b) {\n"
+         "@start\n"
+         "\t%bz =w ceql %b, 0\n"
+         "\tjnz %bz, @halt, @ok\n"
+         "@halt\n"
+         "\thlt\n"
+         "@ok\n"
+         "\t%r =l udiv %a, %b\n"
+         "\tret %r\n"
+         "}\n"},
+        {"checked_urem", "function l $ngrt_checked_urem(l %a, l %b) {\n"
+                         "@start\n"
+                         "\t%bz =w ceql %b, 0\n"
+                         "\tjnz %bz, @halt, @ok\n"
+                         "@halt\n"
+                         "\thlt\n"
+                         "@ok\n"
+                         "\t%r =l urem %a, %b\n"
+                         "\tret %r\n"
+                         "}\n"},
         {"checked_div", "function l $ngrt_checked_div(l %a, l %b) {\n"
                         "@start\n"
                         "\t%bz =w ceql %b, 0\n"
@@ -2773,27 +2838,33 @@ namespace NG::native
           }
         }
 
-        // INC-4 (F1①): ordering comparisons follow operand signedness.
-        // u64 values live in 64-bit slots bit-pattern-wise; comparing them
-        // with signed instructions would treat u64::MAX as -1.
-        const auto unsignedOrdering =
+        // INC-4 (F1①) / INC-5 (F1③): ordering comparisons and checked
+        // arithmetic follow operand signedness. u64 values live in 64-bit
+        // slots bit-pattern-wise; signed instructions would treat u64::MAX
+        // as -1 and silently accept wrapping arithmetic.
+        const auto usesUnsignedOps =
             typecheck::isUnsignedIntegerBuiltin(leftType) || typecheck::isUnsignedIntegerBuiltin(rightType);
         switch (payload)
         {
         case 1:
-          emitCheckedOp(instruction, "checked_add", std::format("l {}, l {}", left, right));
+          emitCheckedOp(instruction, usesUnsignedOps ? "checked_uadd" : "checked_add",
+                        std::format("l {}, l {}", left, right));
           return;
         case 2:
-          emitCheckedOp(instruction, "checked_sub", std::format("l {}, l {}", left, right));
+          emitCheckedOp(instruction, usesUnsignedOps ? "checked_usub" : "checked_sub",
+                        std::format("l {}, l {}", left, right));
           return;
         case 3:
-          emitCheckedOp(instruction, "checked_mul", std::format("l {}, l {}", left, right));
+          emitCheckedOp(instruction, usesUnsignedOps ? "checked_umul" : "checked_mul",
+                        std::format("l {}, l {}", left, right));
           return;
         case 4:
-          emitCheckedOp(instruction, "checked_div", std::format("l {}, l {}", left, right));
+          emitCheckedOp(instruction, usesUnsignedOps ? "checked_udiv" : "checked_div",
+                        std::format("l {}, l {}", left, right));
           return;
         case 5:
-          emitCheckedOp(instruction, "checked_rem", std::format("l {}, l {}", left, right));
+          emitCheckedOp(instruction, usesUnsignedOps ? "checked_urem" : "checked_rem",
+                        std::format("l {}, l {}", left, right));
           return;
         case 6:
           integerCompare(instruction, "ceql", left, right);
@@ -2802,16 +2873,16 @@ namespace NG::native
           integerCompare(instruction, "cnel", left, right);
           return;
         case 8:
-          integerCompare(instruction, unsignedOrdering ? "cultl" : "csltl", left, right);
+          integerCompare(instruction, usesUnsignedOps ? "cultl" : "csltl", left, right);
           return;
         case 9:
-          integerCompare(instruction, unsignedOrdering ? "culel" : "cslel", left, right);
+          integerCompare(instruction, usesUnsignedOps ? "culel" : "cslel", left, right);
           return;
         case 10:
-          integerCompare(instruction, unsignedOrdering ? "cugtl" : "csgtl", left, right);
+          integerCompare(instruction, usesUnsignedOps ? "cugtl" : "csgtl", left, right);
           return;
         case 11:
-          integerCompare(instruction, unsignedOrdering ? "cugel" : "csgel", left, right);
+          integerCompare(instruction, usesUnsignedOps ? "cugel" : "csgel", left, right);
           return;
         case 12:
         case 13:

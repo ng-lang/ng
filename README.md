@@ -79,7 +79,8 @@ top-down; status and verification baselines live there ([10-baselines.md](./docs
 - ✅ INC-2 — conformance corpus runner, layers 1+2 (`test/conformance/`)
 - ✅ INC-3 — differential contract runner, Const ↔ QBE (N=500/run)
 - ✅ INC-4 — unsigned ordering comparisons (F1①); `u64::MAX > 5` now true
-- ⬜ INC-5 … INC-36 — pending
+- ✅ INC-5 — unsigned checked arithmetic (F1③); u64 wrap attempts now trap
+- ⬜ INC-6 … INC-36 — pending
 
 ## Community
 

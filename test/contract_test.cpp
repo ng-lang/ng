@@ -14,6 +14,10 @@
 //     span:    [begin, end)                (exact byte interval)
 // The driver must exit non-zero and emit exactly that diagnostic.
 //
+// Trap contracts — `<case>.trap.ng`: the program must compile but fail at
+// runtime (arithmetic trap / bounds abort), reported by the driver as a
+// killed child or a non-zero child exit.
+//
 // This corpus is the authoritative executable specification for language
 // behavior; later increments (INC-4, INC-6, ...) extend it rather than
 // duplicating assertions in C++ tests. INC-9 upgrades the directives to
@@ -140,7 +144,7 @@ TEST_CASE("INC-2 positive contract corpus matches recorded behavior", "[INC2][Co
 
   for (const auto &caseName : cases)
   {
-    if (caseName.ends_with(".neg.ng"))
+    if (caseName.ends_with(".neg.ng") || caseName.ends_with(".trap.ng"))
       continue;
     INFO("positive case: " << caseName);
     const auto sourcePath = directory / caseName;
@@ -210,5 +214,28 @@ TEST_CASE("INC-2 negative diagnostic contracts assert kind, pattern, and span", 
       break;
     }
     CHECK(matchedDiagnostic);
+  }
+}
+
+TEST_CASE("INC-2 trap contracts compile but must fail at runtime", "[INC2][Contract][Trap]")
+{
+  const auto directory = conformanceDirectory();
+  const auto cases = listCases(directory, ".trap.ng");
+  REQUIRE(!cases.empty());
+
+  for (const auto &caseName : cases)
+  {
+    INFO("trap case: " << caseName);
+    const auto sourcePath = directory / caseName;
+
+    std::ostringstream output;
+    std::ostringstream errors;
+    const int status = NG::runDriver({sourcePath.string()}, output, errors);
+    CHECK(status != 0);
+    const auto errorText = errors.str();
+    INFO(errorText);
+    const bool trapped = errorText.find("killed by a signal") != std::string::npos ||
+                         errorText.find("exited with code") != std::string::npos;
+    CHECK(trapped);
   }
 }

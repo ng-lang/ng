@@ -1,0 +1,6 @@
+// Contract: u64 arithmetic must trap on wrap instead of silently wrapping
+// (INC-5, F1③). The driver reports the trap as a killed child process.
+fun main() -> unit {
+    let big: u64 = 18446744073709551615;
+    let wrapped = big + 20;
+}
