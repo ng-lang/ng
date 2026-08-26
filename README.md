@@ -76,7 +76,8 @@ top-down; status and verification baselines live there ([10-baselines.md](./docs
 
 - ✅ INC-0 — ASan/UBSan build variant + deterministic leak baseline
 - ✅ INC-1 — lightweight seeded PBT harness (`test/pbt.hpp`)
-- ⬜ INC-2 … INC-36 — pending
+- ✅ INC-2 — conformance corpus runner, layers 1+2 (`test/conformance/`)
+- ⬜ INC-3 … INC-36 — pending
 
 ## Community
 

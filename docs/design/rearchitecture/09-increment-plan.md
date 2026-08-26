@@ -71,12 +71,17 @@
   骨架随首个消费者（INC-3 随机程序生成器）落地。自测首跑即抓到并修复
   生成器自身一处边界分支不可达缺陷。
 
-### INC-2 · 契约语料 runner（层 1+2）〔新增基建〕
+### INC-2 · 契约语料 runner（层 1+2）〔新增基建〕 ✅ 2026-08-26
 - **产出**: `test/conformance/<case>.ng` + `<case>.expected`（stdout/exit）+
   负诊断契约格式（消息模式 + span 区间断言）；Catch2 runner
   `test/contract_test.cpp`。迁移 3-5 个现有示例行为进语料作为种子。
 - **验证**: 种子语料全绿；一条负契约（`use of moved value`）按码+span 断言。
 - **价值**: 行为规格的唯一权威载体，后续 INC 直接追加语料。
+- **执行记录**: 正例 = `.ng` + `.expected`（程序 stdout 精确逐行匹配，过滤
+  驱动横幅行）；负例 = `.neg.ng` + `.neg.expected`（kind/pattern/span 指令，
+  span 精确区间断言；INC-9 增加 code: 指令）。种子：numeric-basics /
+  enum-dispatch / string-basics（自 numeric_types、enum_match、std_string
+  迁移）+ moved-value 负契约。runner 目录扫描自动发现新语料。
 
 ### INC-3 · 差分契约：ConstInterpreter ↔ QBE 原生（层 3）〔新增基建〕
 - **产出**: 差分 runner——同一模块双路径求值比对；受限随机程序生成器
@@ -347,4 +352,5 @@ INC-15 → INC-16 → INC-17（M2b；唯一交汇点——闭包语法面取自 
 | 五项语义决策（DEC-A..E） | ✅ 2026-08-25 敲定（§0b）；正式文档修订随实现 commit |
 | INC-0 ASAN/泄漏基线 | ✅ 2026-08-26（asan 变体全绿；基线见 10-baselines.md） |
 | INC-1 PBT harness | ✅ 2026-08-26（`test/pbt.hpp` + 6 条自测性质；无 shrink 已声明） |
-| INC-2 … INC-36 | ⬜ 未开始（逐个推进，每个完成后更新本表） |
+| INC-2 契约 runner 层 1+2 | ✅ 2026-08-26（4 个种子语料 + 负契约 span 断言） |
+| INC-3 … INC-36 | ⬜ 未开始（逐个推进，每个完成后更新本表） |

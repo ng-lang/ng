@@ -1,0 +1,11 @@
+import prelude;
+
+struct Token {
+    id: i64,
+}
+
+fun main() -> i64 {
+    let first = Token { id: 1 };
+    let second = first;
+    return first.id;
+}
