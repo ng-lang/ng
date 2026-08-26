@@ -69,6 +69,14 @@ ctest --test-dir build -j  # or through CTest
 - Heap domains (`Box<T>`, `Gc`, `Arc`); `isize`/`usize`; declared C ABI/bindgen
 - Concurrency (R10) and tooling (R11: formatter, LSP, debugger, package manager)
 
+### Increment plan progress
+
+Executing the [implementation increment plan](./docs/design/rearchitecture/09-increment-plan.md)
+top-down; status and verification baselines live there ([10-baselines.md](./docs/design/rearchitecture/10-baselines.md)).
+
+- ✅ INC-0 — ASan/UBSan build variant + deterministic leak baseline
+- ⬜ INC-1 … INC-36 — pending
+
 ## Community
 
 - **Discussions:** [GitHub Discussions](https://github.com/ng-lang/ng/discussions)

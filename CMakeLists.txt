@@ -26,6 +26,16 @@ endif()
 
 project(ng)
 
+# AddressSanitizer + UndefinedBehaviorSanitizer build variant (INC-0):
+# configure with -DNG_ASAN=ON into a separate tree, e.g.
+#   cmake -S . -B build-asan -GNinja -DNG_ASAN=ON && cmake --build build-asan -j
+# Instruments the compiler pipeline (ng), the runtime archive (ngrt), and both
+# frontends (ngi/ng_test) so memory errors surface inside the test process.
+option(NG_ASAN "Instrument ng/ngrt/ngi/ng_test with -fsanitize=address,undefined." OFF)
+if(NG_ASAN)
+  set(NG_SANITIZER_FLAGS -fsanitize=address,undefined -fno-omit-frame-pointer)
+endif()
+
 if(DEFINED ENV{RUNNING_ON_GITHUB})
 set(SDL_UNIX_CONSOLE_BUILD ON)
 endif()
@@ -65,6 +75,12 @@ set(NG_SRC
 
 add_library(ng ${NG_SRC})
 target_include_directories(ng PUBLIC include)
+if(NG_ASAN)
+  # PUBLIC compile options propagate the instrumentation into ngi/ng_test;
+  # INTERFACE link options make the executables pull in the sanitizer runtime.
+  target_compile_options(ng PUBLIC ${NG_SANITIZER_FLAGS})
+  target_link_options(ng INTERFACE ${NG_SANITIZER_FLAGS})
+endif()
 
 # libngrt: the single C implementation of the standard native functions.
 # The native backend links this archive into every generated executable; the
@@ -73,6 +89,10 @@ add_library(ngrt STATIC src/native/libngrt.c)
 set_target_properties(ngrt PROPERTIES C_STANDARD 99 C_STANDARD_REQUIRED ON)
 target_include_directories(ngrt PUBLIC include)
 target_compile_options(ngrt PRIVATE -Wall -Wextra -Wpedantic)
+# Note: ngrt deliberately stays uninstrumented under NG_ASAN — it is linked
+# into generated executables assembled by the plain system cc, which would
+# miss the sanitizer runtime (undefined ___asan_* symbols at link time).
+# Memory-error guarding covers the compiler pipeline inside ngi/ng_test.
 target_link_libraries(ng PUBLIC ngrt)
 target_compile_definitions(ng PUBLIC "NG_NGRT_PATH=\"$<TARGET_FILE:ngrt>\"")
 add_dependencies(ng ngrt)

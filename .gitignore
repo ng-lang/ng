@@ -38,6 +38,7 @@ build.ninja
 
 .vscode
 build/
+build-asan/
 
 # LLVM Coverages
 

@@ -26,7 +26,8 @@ namespace NG::typecheck
         constNativeHost_ = host;
         reprCStructIds_.clear();
         for (const auto &structure : module.structs)
-          if (structure.reprC) reprCStructIds_.insert(structure.id.value);
+          if (structure.reprC)
+            reprCStructIds_.insert(structure.id.value);
         {
           std::unordered_map<std::string, syntax::SourceSpan> typeNames;
           const auto declareName = [&](const std::string &name, syntax::SourceSpan span)
@@ -54,7 +55,8 @@ namespace NG::typecheck
           interner_.registerStructTemplate(structure);
         for (const auto &structure : module.structs)
         {
-          if (structure.reprC) validateReprCStruct(structure);
+          if (structure.reprC)
+            validateReprCStruct(structure);
           if (!structure.genericParameters.empty())
             continue;
           std::vector<std::string> fields;
@@ -196,7 +198,8 @@ namespace NG::typecheck
                                         interner_.display(signature.returnType)),
                             function.span);
           displaySignature.returnType = interner_.display(signature.returnType);
-          if (function.externC) validateExternSignature(function, signature);
+          if (function.externC)
+            validateExternSignature(function, signature);
           signatures_.emplace(function.id.value, signature);
           functionTypeIds_.emplace(function.id.value, signature);
           functionTypes_.emplace(function.id.value, std::move(displaySignature));
@@ -1499,16 +1502,18 @@ namespace NG::typecheck
         for (const auto &field : structure.fields)
         {
           const TypeId type = interner_.resolve(field.type);
-          if (isIntegerBuiltin(type) || type == builtin::F32 || type == builtin::F64) continue;
+          if (isIntegerBuiltin(type) || type == builtin::F32 || type == builtin::F64)
+            continue;
           if (type == builtin::Bool)
             throw TypeError(std::format("bool field `{}` in repr(C) struct `{}` is deferred (C `_Bool` layout "
                                         "differs from NG bool)",
                                         field.name, structure.name),
                             field.span);
           if (interner_.descriptor(type).kind == TypeKind::Struct)
-            throw TypeError(std::format("nested struct field `{}` in repr(C) struct `{}` is deferred to a later B3 slice",
-                                        field.name, structure.name),
-                            field.span);
+            throw TypeError(
+                std::format("nested struct field `{}` in repr(C) struct `{}` is deferred to a later B3 slice",
+                            field.name, structure.name),
+                field.span);
           throw TypeError(std::format("field `{}` of repr(C) struct `{}` is not ABI-safe (`{}`); repr(C) fields "
                                       "must be fixed-width integers or floats",
                                       field.name, structure.name, interner_.display(type)),
@@ -1682,7 +1687,9 @@ namespace NG::typecheck
           incomingLocals.insert(local);
         const MutableBindings saved = mutableBindings_;
         const BorrowState borrowsSaved = borrowState_;
-        const auto &lastUse = lastUseByBlock(block);
+        // Copied by value: nested checks inside statements clear
+        // lastUseCache_, which would dangle a cache-element reference here.
+        const std::unordered_map<uint32_t, size_t> lastUse = lastUseByBlock(block);
         for (size_t index = 0; index < block.statements.size(); ++index)
         {
           const size_t loansBefore = borrowState_.loans.size();
@@ -3310,8 +3317,8 @@ namespace NG::typecheck
             // (the C function cannot own NG memory), so passing a value never
             // consumes the source place — repr(C) records stay usable across
             // several boundary calls without derive(Copy) ceremony.
-            const bool externTarget = selected.value < module_->functions.size() &&
-                                      module_->functions.at(selected.value).externC;
+            const bool externTarget =
+                selected.value < module_->functions.size() && module_->functions.at(selected.value).externC;
             for (size_t index = 0; index < supplied; ++index)
             {
               const TypeId parameterType = index < fixedParameters
@@ -4116,8 +4123,8 @@ namespace NG::typecheck
             throw TypeError(std::format("call to `{}` does not satisfy its where clause",
                                         module_->functions.at(selected.value).name),
                             expression.span);
-          const bool externTarget = selected.value < module_->functions.size() &&
-                                    module_->functions.at(selected.value).externC;
+          const bool externTarget =
+              selected.value < module_->functions.size() && module_->functions.at(selected.value).externC;
           if (!hasSpread)
           {
             for (size_t index = 0; index < supplied; ++index)

@@ -43,13 +43,19 @@
 
 ## Phase 0 — 基建（harness 预置，先行落地）
 
-### INC-0 · ASAN/UBSAN 构建变体与泄漏基线 〔研究 I8〕
+### INC-0 · ASAN/UBSAN 构建变体与泄漏基线 〔研究 I8〕 ✅ 2026-08-26
 - **产出**: CMake target/preset `ng_test_asan`（`-fsanitize=address,undefined`）；
   泄漏探针语料（附录 B 的字符串拼接 probe 入 `test/`）。
 - **动作**: 加构建变体；跑全量套件记录当前泄漏/UB 基线报告存档。
 - **验证**: asan 变体 ctest 全绿（或已知问题清单化）；leak probe 在 asan 下
   给出确定的泄漏计数。
 - **价值**: 让 F2/F4 类缺陷在 CI 可见；为 INC-18 arena 改造提供前后对照。
+- **执行记录**: `NG_ASAN` CMake 选项 + `asan` preset（build-asan）；asan 变体
+  458/458 全绿。平台偏差：arm64 macOS 的 Apple clang 无 LeakSanitizer，
+  确定泄漏计数改由 macOS `leaks(MallocStackLogging)` 对 `--output` 产物给出
+  （探针 20000 次拼接 → 19999 leaks ≈205MB；maxRSS ≈207MB）。基线存档于
+  [10-baselines.md](10-baselines.md)。首跑即修复 typecheck.cpp 一处真实
+  heap-use-after-free（lastUseCache_ 嵌套 clear 悬垂引用）。
 
 ### INC-1 · 自研轻量 PBT harness 〔新增基建〕
 - **产出**: `test/pbt.hpp`——seeded PRNG（seed 可注入/打印）、数值域生成器
@@ -333,4 +339,5 @@ INC-15 → INC-16 → INC-17（M2b；唯一交汇点——闭包语法面取自 
 | 项 | 状态 |
 |---|---|
 | 五项语义决策（DEC-A..E） | ✅ 2026-08-25 敲定（§0b）；正式文档修订随实现 commit |
-| INC-0 … INC-36 | ⬜ 全部未开始（等待执行指令，逐个推进，每个完成后更新本表） |
+| INC-0 ASAN/泄漏基线 | ✅ 2026-08-26（asan 变体全绿；基线见 10-baselines.md） |
+| INC-1 … INC-36 | ⬜ 未开始（逐个推进，每个完成后更新本表） |
