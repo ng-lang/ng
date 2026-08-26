@@ -83,12 +83,18 @@
   enum-dispatch / string-basics（自 numeric_types、enum_match、std_string
   迁移）+ moved-value 负契约。runner 目录扫描自动发现新语料。
 
-### INC-3 · 差分契约：ConstInterpreter ↔ QBE 原生（层 3）〔新增基建〕
+### INC-3 · 差分契约：ConstInterpreter ↔ QBE 原生（层 3）〔新增基建〕 ✅ 2026-08-26
 - **产出**: 差分 runner——同一模块双路径求值比对；受限随机程序生成器
   （const 安全子集：i64 算术/if/loop/递归/调用），N≥500/次，seed 固定可选。
 - **验证**: 500 个生成程序双路径结果零分歧；人为注入一处 lowering 偏差
   能被捕获（自检）。
 - **价值**: 当前架构独有的免费 oracle 对；后续任何语义改动自动受守护。
+- **执行记录**: `test/differential_test.cpp`。批量技巧：N 个探针函数编入
+  同一模块，native 路径一次驱动运行收集全部输出；const 路径在进程内对
+  相同源码 resolve/check 后以 ConstInterpreter 逐个求值。生成子集全部
+  `%256` 有界（无溢出/trap 干扰），含表达式体/let 链/有界累加 loop/
+  守护递归/跨探针调用。500 程序零分歧 + 注入 +1 偏差被自检捕获；
+  PBT_SEED 可复现，多种子扫过。
 
 ## Phase 1 — 数值正确性（研究 F1①③②）
 
@@ -353,4 +359,5 @@ INC-15 → INC-16 → INC-17（M2b；唯一交汇点——闭包语法面取自 
 | INC-0 ASAN/泄漏基线 | ✅ 2026-08-26（asan 变体全绿；基线见 10-baselines.md） |
 | INC-1 PBT harness | ✅ 2026-08-26（`test/pbt.hpp` + 6 条自测性质；无 shrink 已声明） |
 | INC-2 契约 runner 层 1+2 | ✅ 2026-08-26（4 个种子语料 + 负契约 span 断言） |
-| INC-3 … INC-36 | ⬜ 未开始（逐个推进，每个完成后更新本表） |
+| INC-3 差分 runner 层 3 | ✅ 2026-08-26（N=500 零分歧 + 注入自检；`test/differential_test.cpp`） |
+| INC-4 … INC-36 | ⬜ 未开始（逐个推进，每个完成后更新本表） |
