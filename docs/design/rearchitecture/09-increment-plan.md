@@ -147,7 +147,20 @@
 
 ## Phase 2 — stdlib 与工效
 
-### INC-7 · I6 toString / parseInt（const-capable natives）
+### INC-7 · I6 toString / parseInt（const-capable natives） ✅ 2026-08-26
+- **动作**: 经 D-012 `= native` 通道注册纯宿主（regexMatch 先例）；
+  `toString(i64|i32|f64|bool)`、`parseInt(string) -> Result<…>` 形态预留
+  （Result 由 INC-12 定型前先返回 Option 式或临时枚举，INC-12 迁移）。
+- **测试**: PBT 往返 `parseInt(toString(n)) == n` 全宽度域含 INT_MIN；
+  边界契约（空串/+/-/溢出/非数字）。
+- **执行记录**: libngrt 严格十进制解析器（可选符号+纯数字、防溢出累加、
+  覆盖 INT64_MIN），按 NG 长度前缀字符串布局操作字节。prelude 声明
+  toString 五重载 + OptionalInt 枚举 + parseInt 安全包装；lowering 按
+  declaredType 分派符号（同 print 模式）。const 通道覆盖整数/布尔。
+  连带修复：inferExpected 的 Call 分支缺 requireType 候选过滤，宽度不同
+  重载在实参位置并列判歧义（toString 触发暴露）。边界契约 int-parse.ng
+  （空串/+/-/非数字/空白/双界溢出）+ int-tostring.ng 金样例 +
+  int-parse-invalid.trap.ng + E2E example/int_string.ng。
 - **动作**: 经 D-012 `= native` 通道注册纯宿主（regexMatch 先例）；
   `toString(i64|i32|f64|bool)`、`parseInt(string) -> Result<…>` 形态预留
   （Result 由 INC-12 定型前先返回 Option 式或临时枚举，INC-12 迁移）。
@@ -386,7 +399,9 @@ INC-15 → INC-16 → INC-17（M2b；唯一交汇点——闭包语法面取自 
 | INC-6 混比禁令+显式转换 | ✅ 2026-08-26（DEC-A 落地含 D-008 修订；toFloat/toSigned；负契约×2 + PBT + E2E） |
 | ARCH-1 helper 外置 | ✅ 2026-08-26（34 个 ngrt helper 从 lowering.cpp 的 590 行字符串迁至 `src/native/helpers/*.ssa`，构建期 qbe→cc→ar 装配 `libngrt_helpers.a`，链接期按引用拉取；useHelper 机制删除） |
 | ARCH-2 lowering 拆分 | ✅ 2026-08-26（FunctionLowerer 迁入内部头 + 按 cohesion 分 4 TU：scaffold/expr/aggregate/call；**47 个示例 --emit=ssa 逐字节 diff 一致**，双变体全绿） |
-| INC-7 … INC-36 | ⬜ 未开始（逐个推进，每个完成后更新本表） |
+| ARCH-3 const-host 注册表 | ✅ 2026-08-26（维护者指令插队；`src/native/const_hosts.cpp` 表驱动注册，driver 收敛为一行调用） |
+| INC-7 toString/parseInt | ✅ 2026-08-26（严格解析全 i64 域；Option 式 parseInt；PBT 往返 + 边界契约 + trap 语料 + E2E；**连带修复 inferExpected 实参位置重载过滤缺失**） |
+| INC-8 … INC-36 | ⬜ 未开始（逐个推进，每个完成后更新本表） |
 
 ### 架构修复插队记录（2026-08-26，维护者指令）
 

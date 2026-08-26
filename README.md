@@ -83,7 +83,8 @@ top-down; status and verification baselines live there ([10-baselines.md](./docs
 - ✅ INC-6 — DEC-A landed: implicit mixed comparisons rejected; `toFloat`/`toSigned`
 - ✅ ARCH — lowering.cpp split: runtime helpers assembled from `.ssa` files into
   `libngrt_helpers.a`; `FunctionLowerer` distributed across cohesive TUs
-- ⬜ INC-7 … INC-36 — pending
+- ✅ INC-7 — `toString`/`parseInt` (Option-style) natives; argument-position overload fix
+- ⬜ INC-8 … INC-36 — pending
 
 ## Community
 
