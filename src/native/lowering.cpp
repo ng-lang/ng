@@ -44,22 +44,30 @@ namespace NG::native
     {
       switch (type)
       {
-      case QType::Long: return "l";
-      case QType::Double: return "d";
-      case QType::None: return "";
-      case QType::Aggregate: return "l"; // call sites pass pointers at IL level
+      case QType::Long:
+        return "l";
+      case QType::Double:
+        return "d";
+      case QType::None:
+        return "";
+      case QType::Aggregate:
+        return "l"; // call sites pass pointers at IL level
       }
       return "";
     }
 
-    [[nodiscard]] auto isFloat(TypeId type) -> bool { return typecheck::isFloatBuiltin(type); }
+    [[nodiscard]] auto isFloat(TypeId type) -> bool
+    {
+      return typecheck::isFloatBuiltin(type);
+    }
 
     /// QBE double literal: `d_0.5`. A bare integer formatting is given a `.0`
     /// so the parser reads it as a float constant.
     [[nodiscard]] auto doubleConstant(double value) -> std::string
     {
       std::string text = std::format("{}", value);
-      if (text.find_first_of(".en") == std::string::npos) text += ".0";
+      if (text.find_first_of(".en") == std::string::npos)
+        text += ".0";
       return "d_" + text;
     }
 
@@ -72,7 +80,8 @@ namespace NG::native
       escaped.reserve(text.size());
       for (const char character : text)
       {
-        if (character == '\\' || character == '"') escaped += '\\';
+        if (character == '\\' || character == '"')
+          escaped += '\\';
         escaped += character;
       }
       return escaped;
@@ -112,7 +121,8 @@ namespace NG::native
     /// modules cannot collide.
     [[nodiscard]] auto qbeSymbol(const std::string &name, uint32_t defId) -> std::string
     {
-      if (name == "main") return "$main";
+      if (name == "main")
+        return "$main";
       std::string cleaned = name;
       for (auto &character : cleaned)
         if (!std::isalnum(static_cast<unsigned char>(character)) && character != '_' && character != '.')
@@ -137,455 +147,432 @@ namespace NG::native
          "@start\n"
          "\thlt\n"
          "}\n"},
-        {"checked_add",
-         "function l $ngrt_checked_add(l %a, l %b) {\n"
+        {"checked_add", "function l $ngrt_checked_add(l %a, l %b) {\n"
+                        "@start\n"
+                        "\t%r =l add %a, %b\n"
+                        "\t%ap =w csgtl %a, 0\n"
+                        "\t%bp =w csgtl %b, 0\n"
+                        "\t%rn =w cslel %r, 0\n"
+                        "\t%an =w csltl %a, 0\n"
+                        "\t%bn =w csltl %b, 0\n"
+                        "\t%rz =w csgel %r, 0\n"
+                        "\t%o1 =w and %ap, %bp\n"
+                        "\t%o1 =w and %o1, %rn\n"
+                        "\t%o2 =w and %an, %bn\n"
+                        "\t%o2 =w and %o2, %rz\n"
+                        "\t%ov =w or %o1, %o2\n"
+                        "\tjnz %ov, @halt, @ok\n"
+                        "@halt\n"
+                        "\thlt\n"
+                        "@ok\n"
+                        "\tret %r\n"
+                        "}\n"},
+        {"checked_sub", "function l $ngrt_checked_sub(l %a, l %b) {\n"
+                        "@start\n"
+                        "\t%r =l sub %a, %b\n"
+                        "\t%ap =w csgel %a, 0\n"
+                        "\t%bn =w csltl %b, 0\n"
+                        "\t%rn =w csltl %r, 0\n"
+                        "\t%an =w csltl %a, 0\n"
+                        "\t%bp =w csgtl %b, 0\n"
+                        "\t%rz =w csgel %r, 0\n"
+                        "\t%o1 =w and %ap, %bn\n"
+                        "\t%o1 =w and %o1, %rn\n"
+                        "\t%o2 =w and %an, %bp\n"
+                        "\t%o2 =w and %o2, %rz\n"
+                        "\t%ov =w or %o1, %o2\n"
+                        "\tjnz %ov, @halt, @ok\n"
+                        "@halt\n"
+                        "\thlt\n"
+                        "@ok\n"
+                        "\tret %r\n"
+                        "}\n"},
+        {"checked_mul", "function l $ngrt_checked_mul(l %a, l %b) {\n"
+                        "@start\n"
+                        "\t%r =l mul %a, %b\n"
+                        "\t%bz =w ceql %b, 0\n"
+                        "\t%bm1 =w ceql %b, -1\n"
+                        "\t%amin =w ceql %a, -9223372036854775808\n"
+                        "\t%edge =w and %bm1, %amin\n"
+                        "\t%skip =w or %bz, %edge\n"
+                        "\t%neg =w ceqw %skip, 0\n"
+                        "\tjnz %neg, @check, @ok\n"
+                        "@check\n"
+                        "\t%q =l div %r, %b\n"
+                        "\t%same =w ceql %q, %a\n"
+                        "\tjnz %same, @ok, @halt\n"
+                        "@halt\n"
+                        "\thlt\n"
+                        "@ok\n"
+                        "\tret %r\n"
+                        "}\n"},
+        {"checked_div", "function l $ngrt_checked_div(l %a, l %b) {\n"
+                        "@start\n"
+                        "\t%bz =w ceql %b, 0\n"
+                        "\t%bm1 =w ceql %b, -1\n"
+                        "\t%amin =w ceql %a, -9223372036854775808\n"
+                        "\t%edge =w and %bm1, %amin\n"
+                        "\t%bad =w or %bz, %edge\n"
+                        "\tjnz %bad, @halt, @ok\n"
+                        "@halt\n"
+                        "\thlt\n"
+                        "@ok\n"
+                        "\t%r =l div %a, %b\n"
+                        "\tret %r\n"
+                        "}\n"},
+        {"checked_rem", "function l $ngrt_checked_rem(l %a, l %b) {\n"
+                        "@start\n"
+                        "\t%bz =w ceql %b, 0\n"
+                        "\t%bm1 =w ceql %b, -1\n"
+                        "\t%amin =w ceql %a, -9223372036854775808\n"
+                        "\t%edge =w and %bm1, %amin\n"
+                        "\t%bad =w or %bz, %edge\n"
+                        "\tjnz %bad, @halt, @ok\n"
+                        "@halt\n"
+                        "\thlt\n"
+                        "@ok\n"
+                        "\t%r =l rem %a, %b\n"
+                        "\tret %r\n"
+                        "}\n"},
+        {"checked_neg", "function l $ngrt_checked_neg(l %a) {\n"
+                        "@start\n"
+                        "\t%amin =w ceql %a, -9223372036854775808\n"
+                        "\tjnz %amin, @halt, @ok\n"
+                        "@halt\n"
+                        "\thlt\n"
+                        "@ok\n"
+                        "\t%r =l neg %a\n"
+                        "\tret %r\n"
+                        "}\n"},
+        {"checked_shl", "function l $ngrt_checked_shl(l %a, l %b) {\n"
+                        "@start\n"
+                        "\t%neg =w csltl %b, 0\n"
+                        "\t%high =w csgel %b, 64\n"
+                        "\t%bad =w or %neg, %high\n"
+                        "\tjnz %bad, @halt, @ok\n"
+                        "@halt\n"
+                        "\thlt\n"
+                        "@ok\n"
+                        "\t%r =l shl %a, %b\n"
+                        "\tret %r\n"
+                        "}\n"},
+        {"checked_shr", "function l $ngrt_checked_shr(l %a, l %b) {\n"
+                        "@start\n"
+                        "\t%neg =w csltl %b, 0\n"
+                        "\t%high =w csgel %b, 64\n"
+                        "\t%bad =w or %neg, %high\n"
+                        "\tjnz %bad, @halt, @ok\n"
+                        "@halt\n"
+                        "\thlt\n"
+                        "@ok\n"
+                        "\t%r =l shr %a, %b\n"
+                        "\tret %r\n"
+                        "}\n"},
+        {"check_w_i8", "function l $ngrt_check_w_i8(l %v) {\n"
+                       "@start\n"
+                       "\t%lo =w csltl %v, -128\n"
+                       "\t%hi =w csgtl %v, 127\n"
+                       "\t%bad =w or %lo, %hi\n"
+                       "\tjnz %bad, @halt, @ok\n"
+                       "@halt\n"
+                       "\thlt\n"
+                       "@ok\n"
+                       "\tret %v\n"
+                       "}\n"},
+        {"check_w_i16", "function l $ngrt_check_w_i16(l %v) {\n"
+                        "@start\n"
+                        "\t%lo =w csltl %v, -32768\n"
+                        "\t%hi =w csgtl %v, 32767\n"
+                        "\t%bad =w or %lo, %hi\n"
+                        "\tjnz %bad, @halt, @ok\n"
+                        "@halt\n"
+                        "\thlt\n"
+                        "@ok\n"
+                        "\tret %v\n"
+                        "}\n"},
+        {"check_w_i32", "function l $ngrt_check_w_i32(l %v) {\n"
+                        "@start\n"
+                        "\t%lo =w csltl %v, -2147483648\n"
+                        "\t%hi =w csgtl %v, 2147483647\n"
+                        "\t%bad =w or %lo, %hi\n"
+                        "\tjnz %bad, @halt, @ok\n"
+                        "@halt\n"
+                        "\thlt\n"
+                        "@ok\n"
+                        "\tret %v\n"
+                        "}\n"},
+        {"check_w_u8", "function l $ngrt_check_w_u8(l %v) {\n"
+                       "@start\n"
+                       "\t%lo =w csltl %v, 0\n"
+                       "\t%hi =w csgtl %v, 255\n"
+                       "\t%bad =w or %lo, %hi\n"
+                       "\tjnz %bad, @halt, @ok\n"
+                       "@halt\n"
+                       "\thlt\n"
+                       "@ok\n"
+                       "\tret %v\n"
+                       "}\n"},
+        {"check_w_u16", "function l $ngrt_check_w_u16(l %v) {\n"
+                        "@start\n"
+                        "\t%lo =w csltl %v, 0\n"
+                        "\t%hi =w csgtl %v, 65535\n"
+                        "\t%bad =w or %lo, %hi\n"
+                        "\tjnz %bad, @halt, @ok\n"
+                        "@halt\n"
+                        "\thlt\n"
+                        "@ok\n"
+                        "\tret %v\n"
+                        "}\n"},
+        {"check_w_u32", "function l $ngrt_check_w_u32(l %v) {\n"
+                        "@start\n"
+                        "\t%lo =w csltl %v, 0\n"
+                        "\t%hi =w csgtl %v, 4294967295\n"
+                        "\t%bad =w or %lo, %hi\n"
+                        "\tjnz %bad, @halt, @ok\n"
+                        "@halt\n"
+                        "\thlt\n"
+                        "@ok\n"
+                        "\tret %v\n"
+                        "}\n"},
+        {"str_clone", "function l $ngrt_str_clone(l %s) {\n"
+                      "@start\n"
+                      "\t%len =l loadl %s\n"
+                      "\t%total =l add %len, 8\n"
+                      "\t%p =l call $malloc(l %total)\n"
+                      "\tstorel %len, %p\n"
+                      "\t%dst =l add %p, 8\n"
+                      "\t%src =l add %s, 8\n"
+                      "\t%m =l call $memcpy(l %dst, l %src, l %len)\n"
+                      "\tret %p\n"
+                      "}\n"},
+        {"arr_clone_words", "function l $ngrt_arr_clone_words(l %src) {\n"
+                            "@start\n"
+                            "\t%len =l loadl %src\n"
+                            "\t%size =l mul %len, 8\n"
+                            "\t%total =l add %size, 16\n"
+                            "\t%p =l call $malloc(l %total)\n"
+                            "\tstorel %len, %p\n"
+                            "\t%cap =l add %p, 8\n"
+                            "\tstorel %len, %cap\n"
+                            "\t%dst =l add %p, 16\n"
+                            "\t%srcp =l add %src, 16\n"
+                            "\t%m =l call $memcpy(l %dst, l %srcp, l %size)\n"
+                            "\tret %p\n"
+                            "}\n"},
+        {"arr_clone_strings", "function l $ngrt_arr_clone_strings(l %src) {\n"
+                              "@start\n"
+                              "\t%len =l loadl %src\n"
+                              "\t%size =l mul %len, 8\n"
+                              "\t%total =l add %size, 16\n"
+                              "\t%p =l call $malloc(l %total)\n"
+                              "\tstorel %len, %p\n"
+                              "\t%cap =l add %p, 8\n"
+                              "\tstorel %len, %cap\n"
+                              "\t%i =l copy 0\n"
+                              "@loop\n"
+                              "\t%done =w csgel %i, %len\n"
+                              "\tjnz %done, @end, @copy\n"
+                              "@copy\n"
+                              "\t%v =l call $ngrt_arr_get(l %src, l %i)\n"
+                              "\t%c =l call $ngrt_str_clone(l %v)\n"
+                              "\t%off =l mul %i, 8\n"
+                              "\t%base =l add %p, 16\n"
+                              "\t%addr =l add %base, %off\n"
+                              "\tstorel %c, %addr\n"
+                              "\t%i =l add %i, 1\n"
+                              "\tjmp @loop\n"
+                              "@end\n"
+                              "\tret %p\n"
+                              "}\n"},
+        {"str_concat", "function l $ngrt_str_concat(l %a, l %b) {\n"
+                       "@start\n"
+                       "\t%la =l loadl %a\n"
+                       "\t%lb =l loadl %b\n"
+                       "\t%n =l add %la, %lb\n"
+                       "\t%size =l add %n, 8\n"
+                       "\t%p =l call $malloc(l %size)\n"
+                       "\tstorel %n, %p\n"
+                       "\t%pa =l add %p, 8\n"
+                       "\t%sa =l add %a, 8\n"
+                       "\t%m =l call $memcpy(l %pa, l %sa, l %la)\n"
+                       "\t%pd =l add %pa, %la\n"
+                       "\t%sb =l add %b, 8\n"
+                       "\t%m2 =l call $memcpy(l %pd, l %sb, l %lb)\n"
+                       "\tret %p\n"
+                       "}\n"},
+        {"str_eq", "function w $ngrt_str_eq(l %a, l %b) {\n"
+                   "@start\n"
+                   "\t%la =l loadl %a\n"
+                   "\t%lb =l loadl %b\n"
+                   "\t%eq =w ceql %la, %lb\n"
+                   "\tjnz %eq, @cmp, @no\n"
+                   "@cmp\n"
+                   "\t%pa =l add %a, 8\n"
+                   "\t%pb =l add %b, 8\n"
+                   "\t%c =w call $memcmp(l %pa, l %pb, l %la)\n"
+                   "\t%z =w ceqw %c, 0\n"
+                   "\tret %z\n"
+                   "@no\n"
+                   "\tret 0\n"
+                   "}\n"},
+        {"arr_addr", "function l $ngrt_arr_addr(l %a, l %i) {\n"
+                     "@start\n"
+                     "\t%len =l loadl %a\n"
+                     "\t%neg =w csltl %i, 0\n"
+                     "\t%high =w csgel %i, %len\n"
+                     "\t%bad =w or %neg, %high\n"
+                     "\tjnz %bad, @halt, @ok\n"
+                     "@halt\n"
+                     "\thlt\n"
+                     "@ok\n"
+                     "\t%off =l mul %i, 8\n"
+                     "\t%base =l add %a, 16\n"
+                     "\t%addr =l add %base, %off\n"
+                     "\tret %addr\n"
+                     "}\n"},
+        {"arr_get", "function l $ngrt_arr_get(l %a, l %i) {\n"
+                    "@start\n"
+                    "\t%addr =l call $ngrt_arr_addr(l %a, l %i)\n"
+                    "\t%v =l loadl %addr\n"
+                    "\tret %v\n"
+                    "}\n"},
+        {"arr_append", "function l $ngrt_arr_append(l %a, l %e) {\n"
+                       "@start\n"
+                       "\t%len =l loadl %a\n"
+                       "\t%n =l add %len, 1\n"
+                       "\t%total =l mul %n, 8\n"
+                       "\t%total =l add %total, 16\n"
+                       "\t%p =l call $malloc(l %total)\n"
+                       "\tstorel %n, %p\n"
+                       "\t%cap =l add %p, 8\n"
+                       "\tstorel %n, %cap\n"
+                       "\t%dst =l add %p, 16\n"
+                       "\t%src =l add %a, 16\n"
+                       "\t%oldsize =l mul %len, 8\n"
+                       "\t%m =l call $memcpy(l %dst, l %src, l %oldsize)\n"
+                       "\t%last =l add %dst, %oldsize\n"
+                       "\tstorel %e, %last\n"
+                       "\tret %p\n"
+                       "}\n"},
+        {"arr_slice", "function l $ngrt_arr_slice(l %a, l %s, l %e) {\n"
+                      "@start\n"
+                      "\t%len =l loadl %a\n"
+                      "\t%sneg =w csltl %s, 0\n"
+                      "\t%shigh =w csgel %s, %e\n"
+                      "\t%ehigh =w csgtl %e, %len\n"
+                      "\t%bad =w or %sneg, %shigh\n"
+                      "\t%bad =w or %bad, %ehigh\n"
+                      "\tjnz %bad, @halt, @ok\n"
+                      "@halt\n"
+                      "\thlt\n"
+                      "@ok\n"
+                      "\t%n =l sub %e, %s\n"
+                      "\t%size =l mul %n, 8\n"
+                      "\t%total =l add %size, 16\n"
+                      "\t%p =l call $malloc(l %total)\n"
+                      "\tstorel %n, %p\n"
+                      "\t%cap =l add %p, 8\n"
+                      "\tstorel %n, %cap\n"
+                      "\t%dst =l add %p, 16\n"
+                      "\t%off =l mul %s, 8\n"
+                      "\t%src =l add %a, 16\n"
+                      "\t%src =l add %src, %off\n"
+                      "\t%m =l call $memcpy(l %dst, l %src, l %size)\n"
+                      "\tret %p\n"
+                      "}\n"},
+        {"ref_load",
+         // A reference value is { l root-cell, l count, { l kind, l payload }[] }.
+         // Steps: 0 = struct field (offset 8p), 1 = runtime index
+         // (bounds-checked element), 2 = constant index into an array/tuple
+         // (offset 16 + 8p). Loading walks from the root cell's current
+         // value, mirroring the VM's (cell + path) view semantics.
+         "function l $ngrt_ref_load(l %ref) {\n"
          "@start\n"
-         "\t%r =l add %a, %b\n"
-         "\t%ap =w csgtl %a, 0\n"
-         "\t%bp =w csgtl %b, 0\n"
-         "\t%rn =w cslel %r, 0\n"
-         "\t%an =w csltl %a, 0\n"
-         "\t%bn =w csltl %b, 0\n"
-         "\t%rz =w csgel %r, 0\n"
-         "\t%o1 =w and %ap, %bp\n"
-         "\t%o1 =w and %o1, %rn\n"
-         "\t%o2 =w and %an, %bn\n"
-         "\t%o2 =w and %o2, %rz\n"
-         "\t%ov =w or %o1, %o2\n"
-         "\tjnz %ov, @halt, @ok\n"
-         "@halt\n"
-         "\thlt\n"
-         "@ok\n"
-         "\tret %r\n"
-         "}\n"},
-        {"checked_sub",
-         "function l $ngrt_checked_sub(l %a, l %b) {\n"
-         "@start\n"
-         "\t%r =l sub %a, %b\n"
-         "\t%ap =w csgel %a, 0\n"
-         "\t%bn =w csltl %b, 0\n"
-         "\t%rn =w csltl %r, 0\n"
-         "\t%an =w csltl %a, 0\n"
-         "\t%bp =w csgtl %b, 0\n"
-         "\t%rz =w csgel %r, 0\n"
-         "\t%o1 =w and %ap, %bn\n"
-         "\t%o1 =w and %o1, %rn\n"
-         "\t%o2 =w and %an, %bp\n"
-         "\t%o2 =w and %o2, %rz\n"
-         "\t%ov =w or %o1, %o2\n"
-         "\tjnz %ov, @halt, @ok\n"
-         "@halt\n"
-         "\thlt\n"
-         "@ok\n"
-         "\tret %r\n"
-         "}\n"},
-        {"checked_mul",
-         "function l $ngrt_checked_mul(l %a, l %b) {\n"
-         "@start\n"
-         "\t%r =l mul %a, %b\n"
-         "\t%bz =w ceql %b, 0\n"
-         "\t%bm1 =w ceql %b, -1\n"
-         "\t%amin =w ceql %a, -9223372036854775808\n"
-         "\t%edge =w and %bm1, %amin\n"
-         "\t%skip =w or %bz, %edge\n"
-         "\t%neg =w ceqw %skip, 0\n"
-         "\tjnz %neg, @check, @ok\n"
-         "@check\n"
-         "\t%q =l div %r, %b\n"
-         "\t%same =w ceql %q, %a\n"
-         "\tjnz %same, @ok, @halt\n"
-         "@halt\n"
-         "\thlt\n"
-         "@ok\n"
-         "\tret %r\n"
-         "}\n"},
-        {"checked_div",
-         "function l $ngrt_checked_div(l %a, l %b) {\n"
-         "@start\n"
-         "\t%bz =w ceql %b, 0\n"
-         "\t%bm1 =w ceql %b, -1\n"
-         "\t%amin =w ceql %a, -9223372036854775808\n"
-         "\t%edge =w and %bm1, %amin\n"
-         "\t%bad =w or %bz, %edge\n"
-         "\tjnz %bad, @halt, @ok\n"
-         "@halt\n"
-         "\thlt\n"
-         "@ok\n"
-         "\t%r =l div %a, %b\n"
-         "\tret %r\n"
-         "}\n"},
-        {"checked_rem",
-         "function l $ngrt_checked_rem(l %a, l %b) {\n"
-         "@start\n"
-         "\t%bz =w ceql %b, 0\n"
-         "\t%bm1 =w ceql %b, -1\n"
-         "\t%amin =w ceql %a, -9223372036854775808\n"
-         "\t%edge =w and %bm1, %amin\n"
-         "\t%bad =w or %bz, %edge\n"
-         "\tjnz %bad, @halt, @ok\n"
-         "@halt\n"
-         "\thlt\n"
-         "@ok\n"
-         "\t%r =l rem %a, %b\n"
-         "\tret %r\n"
-         "}\n"},
-        {"checked_neg",
-         "function l $ngrt_checked_neg(l %a) {\n"
-         "@start\n"
-         "\t%amin =w ceql %a, -9223372036854775808\n"
-         "\tjnz %amin, @halt, @ok\n"
-         "@halt\n"
-         "\thlt\n"
-         "@ok\n"
-         "\t%r =l neg %a\n"
-         "\tret %r\n"
-         "}\n"},
-        {"checked_shl",
-         "function l $ngrt_checked_shl(l %a, l %b) {\n"
-         "@start\n"
-         "\t%neg =w csltl %b, 0\n"
-         "\t%high =w csgel %b, 64\n"
-         "\t%bad =w or %neg, %high\n"
-         "\tjnz %bad, @halt, @ok\n"
-         "@halt\n"
-         "\thlt\n"
-         "@ok\n"
-         "\t%r =l shl %a, %b\n"
-         "\tret %r\n"
-         "}\n"},
-        {"checked_shr",
-         "function l $ngrt_checked_shr(l %a, l %b) {\n"
-         "@start\n"
-         "\t%neg =w csltl %b, 0\n"
-         "\t%high =w csgel %b, 64\n"
-         "\t%bad =w or %neg, %high\n"
-         "\tjnz %bad, @halt, @ok\n"
-         "@halt\n"
-         "\thlt\n"
-         "@ok\n"
-         "\t%r =l shr %a, %b\n"
-         "\tret %r\n"
-         "}\n"},
-        {"check_w_i8",
-         "function l $ngrt_check_w_i8(l %v) {\n"
-         "@start\n"
-         "\t%lo =w csltl %v, -128\n"
-         "\t%hi =w csgtl %v, 127\n"
-         "\t%bad =w or %lo, %hi\n"
-         "\tjnz %bad, @halt, @ok\n"
-         "@halt\n"
-         "\thlt\n"
-         "@ok\n"
-         "\tret %v\n"
-         "}\n"},
-        {"check_w_i16",
-         "function l $ngrt_check_w_i16(l %v) {\n"
-         "@start\n"
-         "\t%lo =w csltl %v, -32768\n"
-         "\t%hi =w csgtl %v, 32767\n"
-         "\t%bad =w or %lo, %hi\n"
-         "\tjnz %bad, @halt, @ok\n"
-         "@halt\n"
-         "\thlt\n"
-         "@ok\n"
-         "\tret %v\n"
-         "}\n"},
-        {"check_w_i32",
-         "function l $ngrt_check_w_i32(l %v) {\n"
-         "@start\n"
-         "\t%lo =w csltl %v, -2147483648\n"
-         "\t%hi =w csgtl %v, 2147483647\n"
-         "\t%bad =w or %lo, %hi\n"
-         "\tjnz %bad, @halt, @ok\n"
-         "@halt\n"
-         "\thlt\n"
-         "@ok\n"
-         "\tret %v\n"
-         "}\n"},
-        {"check_w_u8",
-         "function l $ngrt_check_w_u8(l %v) {\n"
-         "@start\n"
-         "\t%lo =w csltl %v, 0\n"
-         "\t%hi =w csgtl %v, 255\n"
-         "\t%bad =w or %lo, %hi\n"
-         "\tjnz %bad, @halt, @ok\n"
-         "@halt\n"
-         "\thlt\n"
-         "@ok\n"
-         "\tret %v\n"
-         "}\n"},
-        {"check_w_u16",
-         "function l $ngrt_check_w_u16(l %v) {\n"
-         "@start\n"
-         "\t%lo =w csltl %v, 0\n"
-         "\t%hi =w csgtl %v, 65535\n"
-         "\t%bad =w or %lo, %hi\n"
-         "\tjnz %bad, @halt, @ok\n"
-         "@halt\n"
-         "\thlt\n"
-         "@ok\n"
-         "\tret %v\n"
-         "}\n"},
-        {"check_w_u32",
-         "function l $ngrt_check_w_u32(l %v) {\n"
-         "@start\n"
-         "\t%lo =w csltl %v, 0\n"
-         "\t%hi =w csgtl %v, 4294967295\n"
-         "\t%bad =w or %lo, %hi\n"
-         "\tjnz %bad, @halt, @ok\n"
-         "@halt\n"
-         "\thlt\n"
-         "@ok\n"
-         "\tret %v\n"
-         "}\n"},
-        {"str_clone",
-         "function l $ngrt_str_clone(l %s) {\n"
-         "@start\n"
-         "\t%len =l loadl %s\n"
-         "\t%total =l add %len, 8\n"
-         "\t%p =l call $malloc(l %total)\n"
-         "\tstorel %len, %p\n"
-         "\t%dst =l add %p, 8\n"
-         "\t%src =l add %s, 8\n"
-         "\t%m =l call $memcpy(l %dst, l %src, l %len)\n"
-         "\tret %p\n"
-         "}\n"},
-        {"arr_clone_words",
-         "function l $ngrt_arr_clone_words(l %src) {\n"
-         "@start\n"
-         "\t%len =l loadl %src\n"
-         "\t%size =l mul %len, 8\n"
-         "\t%total =l add %size, 16\n"
-         "\t%p =l call $malloc(l %total)\n"
-         "\tstorel %len, %p\n"
-         "\t%cap =l add %p, 8\n"
-         "\tstorel %len, %cap\n"
-         "\t%dst =l add %p, 16\n"
-         "\t%srcp =l add %src, 16\n"
-         "\t%m =l call $memcpy(l %dst, l %srcp, l %size)\n"
-         "\tret %p\n"
-         "}\n"},
-        {"arr_clone_strings",
-         "function l $ngrt_arr_clone_strings(l %src) {\n"
-         "@start\n"
-         "\t%len =l loadl %src\n"
-         "\t%size =l mul %len, 8\n"
-         "\t%total =l add %size, 16\n"
-         "\t%p =l call $malloc(l %total)\n"
-         "\tstorel %len, %p\n"
-         "\t%cap =l add %p, 8\n"
-         "\tstorel %len, %cap\n"
+         "\t%root =l loadl %ref\n"
+         "\t%cntp =l add %ref, 8\n"
+         "\t%cnt =l loadl %cntp\n"
+         "\t%cur =l loadl %root\n"
+         "\t%sp =l add %ref, 16\n"
          "\t%i =l copy 0\n"
          "@loop\n"
-         "\t%done =w csgel %i, %len\n"
-         "\tjnz %done, @end, @copy\n"
-         "@copy\n"
-         "\t%v =l call $ngrt_arr_get(l %src, l %i)\n"
-         "\t%c =l call $ngrt_str_clone(l %v)\n"
-         "\t%off =l mul %i, 8\n"
-         "\t%base =l add %p, 16\n"
-         "\t%addr =l add %base, %off\n"
-         "\tstorel %c, %addr\n"
+         "\t%done =w csgel %i, %cnt\n"
+         "\tjnz %done, @end, @step\n"
+         "@step\n"
+         "\t%off =l mul %i, 16\n"
+         "\t%kindp =l add %sp, %off\n"
+         "\t%kind =l loadl %kindp\n"
+         "\t%isIndex =w ceql %kind, 1\n"
+         "\t%payloadp =l add %kindp, 8\n"
+         "\t%payload =l loadl %payloadp\n"
+         "\tjnz %isIndex, @index, @memberlike\n"
+         "@memberlike\n"
+         "\t%isHeader =w ceql %kind, 2\n"
+         "\tjnz %isHeader, @header, @plain\n"
+         "@header\n"
+         "\t%moff =l mul %payload, 8\n"
+         "\t%moff =l add %moff, 16\n"
+         "\tjmp @apply\n"
+         "@plain\n"
+         "\t%moff =l copy %payload\n"
+         "@apply\n"
+         "\t%addr =l add %cur, %moff\n"
+         "\t%cur =l loadl %addr\n"
+         "\tjmp @next\n"
+         "@index\n"
+         "\t%cur =l call $ngrt_arr_get(l %cur, l %payload)\n"
+         "@next\n"
          "\t%i =l add %i, 1\n"
          "\tjmp @loop\n"
          "@end\n"
-         "\tret %p\n"
+         "\tret %cur\n"
          "}\n"},
-        {"str_concat",
-         "function l $ngrt_str_concat(l %a, l %b) {\n"
+        {"ref_addr",
+         // Walks to the address of the referenced place (same step kinds as
+         // ref_load); a plain local reference addresses the cell itself.
+         "function l $ngrt_ref_addr(l %ref) {\n"
          "@start\n"
-         "\t%la =l loadl %a\n"
-         "\t%lb =l loadl %b\n"
-         "\t%n =l add %la, %lb\n"
-         "\t%size =l add %n, 8\n"
-         "\t%p =l call $malloc(l %size)\n"
-         "\tstorel %n, %p\n"
-         "\t%pa =l add %p, 8\n"
-         "\t%sa =l add %a, 8\n"
-         "\t%m =l call $memcpy(l %pa, l %sa, l %la)\n"
-         "\t%pd =l add %pa, %la\n"
-         "\t%sb =l add %b, 8\n"
-         "\t%m2 =l call $memcpy(l %pd, l %sb, l %lb)\n"
-         "\tret %p\n"
+         "\t%root =l loadl %ref\n"
+         "\t%cntp =l add %ref, 8\n"
+         "\t%cnt =l loadl %cntp\n"
+         "\t%none =w ceql %cnt, 0\n"
+         "\t%cur =l loadl %root\n"
+         "\tjnz %none, @end0, @pre\n"
+         "@end0\n"
+         "\tret %root\n"
+         "@pre\n"
+         "\t%sp =l add %ref, 16\n"
+         "\t%i =l copy 0\n"
+         "@loop\n"
+         "\t%done =w csgel %i, %cnt\n"
+         "\tjnz %done, @end, @step\n"
+         "@step\n"
+         "\t%off =l mul %i, 16\n"
+         "\t%kindp =l add %sp, %off\n"
+         "\t%kind =l loadl %kindp\n"
+         "\t%isIndex =w ceql %kind, 1\n"
+         "\t%payloadp =l add %kindp, 8\n"
+         "\t%payload =l loadl %payloadp\n"
+         "\tjnz %isIndex, @index, @memberlike\n"
+         "@memberlike\n"
+         "\t%isHeader =w ceql %kind, 2\n"
+         "\tjnz %isHeader, @header, @plain\n"
+         "@header\n"
+         "\t%moff =l mul %payload, 8\n"
+         "\t%moff =l add %moff, 16\n"
+         "\tjmp @apply\n"
+         "@plain\n"
+         "\t%moff =l copy %payload\n"
+         "@apply\n"
+         "\t%cur =l add %cur, %moff\n"
+         "\tjmp @next\n"
+         "@index\n"
+         "\t%cur =l call $ngrt_arr_addr(l %cur, l %payload)\n"
+         "@next\n"
+         "\t%i =l add %i, 1\n"
+         "\tjmp @loop\n"
+         "@end\n"
+         "\tret %cur\n"
          "}\n"},
-        {"str_eq",
-         "function w $ngrt_str_eq(l %a, l %b) {\n"
-         "@start\n"
-         "\t%la =l loadl %a\n"
-         "\t%lb =l loadl %b\n"
-         "\t%eq =w ceql %la, %lb\n"
-         "\tjnz %eq, @cmp, @no\n"
-         "@cmp\n"
-         "\t%pa =l add %a, 8\n"
-         "\t%pb =l add %b, 8\n"
-         "\t%c =w call $memcmp(l %pa, l %pb, l %la)\n"
-         "\t%z =w ceqw %c, 0\n"
-         "\tret %z\n"
-         "@no\n"
-         "\tret 0\n"
-         "}\n"},
-        {"arr_addr",
-         "function l $ngrt_arr_addr(l %a, l %i) {\n"
-         "@start\n"
-         "\t%len =l loadl %a\n"
-         "\t%neg =w csltl %i, 0\n"
-         "\t%high =w csgel %i, %len\n"
-         "\t%bad =w or %neg, %high\n"
-         "\tjnz %bad, @halt, @ok\n"
-         "@halt\n"
-         "\thlt\n"
-         "@ok\n"
-         "\t%off =l mul %i, 8\n"
-         "\t%base =l add %a, 16\n"
-         "\t%addr =l add %base, %off\n"
-         "\tret %addr\n"
-         "}\n"},
-        {"arr_get",
-         "function l $ngrt_arr_get(l %a, l %i) {\n"
-         "@start\n"
-         "\t%addr =l call $ngrt_arr_addr(l %a, l %i)\n"
-         "\t%v =l loadl %addr\n"
-         "\tret %v\n"
-         "}\n"},
-        {"arr_append",
-         "function l $ngrt_arr_append(l %a, l %e) {\n"
-         "@start\n"
-         "\t%len =l loadl %a\n"
-         "\t%n =l add %len, 1\n"
-         "\t%total =l mul %n, 8\n"
-         "\t%total =l add %total, 16\n"
-         "\t%p =l call $malloc(l %total)\n"
-         "\tstorel %n, %p\n"
-         "\t%cap =l add %p, 8\n"
-         "\tstorel %n, %cap\n"
-         "\t%dst =l add %p, 16\n"
-         "\t%src =l add %a, 16\n"
-         "\t%oldsize =l mul %len, 8\n"
-         "\t%m =l call $memcpy(l %dst, l %src, l %oldsize)\n"
-         "\t%last =l add %dst, %oldsize\n"
-         "\tstorel %e, %last\n"
-         "\tret %p\n"
-         "}\n"},
-        {"arr_slice",
-         "function l $ngrt_arr_slice(l %a, l %s, l %e) {\n"
-         "@start\n"
-         "\t%len =l loadl %a\n"
-         "\t%sneg =w csltl %s, 0\n"
-         "\t%shigh =w csgel %s, %e\n"
-         "\t%ehigh =w csgtl %e, %len\n"
-         "\t%bad =w or %sneg, %shigh\n"
-         "\t%bad =w or %bad, %ehigh\n"
-         "\tjnz %bad, @halt, @ok\n"
-         "@halt\n"
-         "\thlt\n"
-         "@ok\n"
-         "\t%n =l sub %e, %s\n"
-         "\t%size =l mul %n, 8\n"
-         "\t%total =l add %size, 16\n"
-         "\t%p =l call $malloc(l %total)\n"
-         "\tstorel %n, %p\n"
-         "\t%cap =l add %p, 8\n"
-         "\tstorel %n, %cap\n"
-         "\t%dst =l add %p, 16\n"
-         "\t%off =l mul %s, 8\n"
-         "\t%src =l add %a, 16\n"
-         "\t%src =l add %src, %off\n"
-         "\t%m =l call $memcpy(l %dst, l %src, l %size)\n"
-         "\tret %p\n"
-         "}\n"},
-         {"ref_load",
-          // A reference value is { l root-cell, l count, { l kind, l payload }[] }.
-          // Steps: 0 = struct field (offset 8p), 1 = runtime index
-          // (bounds-checked element), 2 = constant index into an array/tuple
-          // (offset 16 + 8p). Loading walks from the root cell's current
-          // value, mirroring the VM's (cell + path) view semantics.
-          "function l $ngrt_ref_load(l %ref) {\n"
-          "@start\n"
-          "\t%root =l loadl %ref\n"
-          "\t%cntp =l add %ref, 8\n"
-          "\t%cnt =l loadl %cntp\n"
-          "\t%cur =l loadl %root\n"
-          "\t%sp =l add %ref, 16\n"
-          "\t%i =l copy 0\n"
-          "@loop\n"
-          "\t%done =w csgel %i, %cnt\n"
-          "\tjnz %done, @end, @step\n"
-          "@step\n"
-          "\t%off =l mul %i, 16\n"
-          "\t%kindp =l add %sp, %off\n"
-          "\t%kind =l loadl %kindp\n"
-          "\t%isIndex =w ceql %kind, 1\n"
-          "\t%payloadp =l add %kindp, 8\n"
-          "\t%payload =l loadl %payloadp\n"
-          "\tjnz %isIndex, @index, @memberlike\n"
-          "@memberlike\n"
-          "\t%isHeader =w ceql %kind, 2\n"
-          "\tjnz %isHeader, @header, @plain\n"
-          "@header\n"
-          "\t%moff =l mul %payload, 8\n"
-          "\t%moff =l add %moff, 16\n"
-          "\tjmp @apply\n"
-          "@plain\n"
-          "\t%moff =l copy %payload\n"
-          "@apply\n"
-          "\t%addr =l add %cur, %moff\n"
-          "\t%cur =l loadl %addr\n"
-          "\tjmp @next\n"
-          "@index\n"
-          "\t%cur =l call $ngrt_arr_get(l %cur, l %payload)\n"
-          "@next\n"
-          "\t%i =l add %i, 1\n"
-          "\tjmp @loop\n"
-          "@end\n"
-          "\tret %cur\n"
-          "}\n"},
-         {"ref_addr",
-          // Walks to the address of the referenced place (same step kinds as
-          // ref_load); a plain local reference addresses the cell itself.
-          "function l $ngrt_ref_addr(l %ref) {\n"
-          "@start\n"
-          "\t%root =l loadl %ref\n"
-          "\t%cntp =l add %ref, 8\n"
-          "\t%cnt =l loadl %cntp\n"
-          "\t%none =w ceql %cnt, 0\n"
-          "\t%cur =l loadl %root\n"
-          "\tjnz %none, @end0, @pre\n"
-          "@end0\n"
-          "\tret %root\n"
-          "@pre\n"
-          "\t%sp =l add %ref, 16\n"
-          "\t%i =l copy 0\n"
-          "@loop\n"
-          "\t%done =w csgel %i, %cnt\n"
-          "\tjnz %done, @end, @step\n"
-          "@step\n"
-          "\t%off =l mul %i, 16\n"
-          "\t%kindp =l add %sp, %off\n"
-          "\t%kind =l loadl %kindp\n"
-          "\t%isIndex =w ceql %kind, 1\n"
-          "\t%payloadp =l add %kindp, 8\n"
-          "\t%payload =l loadl %payloadp\n"
-          "\tjnz %isIndex, @index, @memberlike\n"
-          "@memberlike\n"
-          "\t%isHeader =w ceql %kind, 2\n"
-          "\tjnz %isHeader, @header, @plain\n"
-          "@header\n"
-          "\t%moff =l mul %payload, 8\n"
-          "\t%moff =l add %moff, 16\n"
-          "\tjmp @apply\n"
-          "@plain\n"
-          "\t%moff =l copy %payload\n"
-          "@apply\n"
-          "\t%cur =l add %cur, %moff\n"
-          "\tjmp @next\n"
-          "@index\n"
-          "\t%cur =l call $ngrt_arr_addr(l %cur, l %payload)\n"
-          "@next\n"
-          "\t%i =l add %i, 1\n"
-          "\tjmp @loop\n"
-          "@end\n"
-          "\tret %cur\n"
-          "}\n"},
         {"copy_elements",
          // Copies `count` 8-byte elements from src's payload into dst
          // (tuple-splice building block).
@@ -742,10 +729,13 @@ namespace NG::native
         switch (descriptor.kind)
         {
         case TypeKind::Builtin:
-          if (type == typecheck::builtin::String || type == typecheck::builtin::Bool || typecheck::isIntegerBuiltin(type))
+          if (type == typecheck::builtin::String || type == typecheck::builtin::Bool ||
+              typecheck::isIntegerBuiltin(type))
             return QType::Long;
-          if (typecheck::isFloatBuiltin(type)) return QType::Double;
-          if (type == typecheck::builtin::Unit) return QType::None;
+          if (typecheck::isFloatBuiltin(type))
+            return QType::Double;
+          if (type == typecheck::builtin::Unit)
+            return QType::None;
           break;
         case TypeKind::DynamicArray:
         case TypeKind::FixedArray:
@@ -769,16 +759,17 @@ namespace NG::native
           // loudly, so this cannot silently miscompile. The proper fix is
           // substitution-aware typing in the typechecker (tracked for M4).
           return QType::Long;
-        default: break;
+        default:
+          break;
         }
-        throw LoweringError(
-            std::format("native lowering (M2): type `{}` has no QBE mapping yet", descriptor.name));
+        throw LoweringError(std::format("native lowering (M2): type `{}` has no QBE mapping yet", descriptor.name));
       }
 
       /// Aggregate slots hold `l`; doubles are bit-cast when stored/loaded.
       [[nodiscard]] auto castForSlot(const std::string &temp, QType type) -> std::string
       {
-        if (type != QType::Double) return temp;
+        if (type != QType::Double)
+          return temp;
         const auto cast = fresh();
         line(std::format("{} =l cast {}", cast, temp));
         return cast;
@@ -801,22 +792,27 @@ namespace NG::native
       [[nodiscard]] auto unionMemberFor(TypeId unionType, TypeId memberType) -> int64_t
       {
         const auto &descriptor = function_.typeDescriptors[unionType.value];
-        const auto matches = [&](TypeId candidate) {
-          if (memberType == typecheck::builtin::String) return candidate == typecheck::builtin::String;
-          if (typecheck::isFloatBuiltin(memberType)) return typecheck::isFloatBuiltin(candidate);
-          if (memberType == typecheck::builtin::Bool) return candidate == typecheck::builtin::Bool;
+        const auto matches = [&](TypeId candidate)
+        {
+          if (memberType == typecheck::builtin::String)
+            return candidate == typecheck::builtin::String;
+          if (typecheck::isFloatBuiltin(memberType))
+            return typecheck::isFloatBuiltin(candidate);
+          if (memberType == typecheck::builtin::Bool)
+            return candidate == typecheck::builtin::Bool;
           return typecheck::isIntegerBuiltin(candidate);
         };
         for (size_t index = 0; index < descriptor.elements.size(); ++index)
-          if (matches(descriptor.elements[index])) return static_cast<int64_t>(index);
-        throw LoweringError(std::format("native lowering (M2): value does not match any member of union `{}`",
-                                        descriptor.name));
+          if (matches(descriptor.elements[index]))
+            return static_cast<int64_t>(index);
+        throw LoweringError(
+            std::format("native lowering (M2): value does not match any member of union `{}`", descriptor.name));
       }
 
       /// Wraps a produced payload temp into a tagged union box
       /// { l memberIndex, l payloadWord } and binds the instruction result.
-      void bindUnionBox(const Instruction &instruction, TypeId unionType, int64_t member, const std::string &payloadTemp,
-                        QType payloadType)
+      void bindUnionBox(const Instruction &instruction, TypeId unionType, int64_t member,
+                        const std::string &payloadTemp, QType payloadType)
       {
         const auto pointer = fresh();
         line(std::format("{} =l call $malloc(l 16)", pointer));
@@ -831,7 +827,8 @@ namespace NG::native
       /// Reverses castForSlot after a load from an aggregate slot.
       [[nodiscard]] auto castFromSlot(const std::string &temp, QType type) -> std::string
       {
-        if (type != QType::Double) return temp;
+        if (type != QType::Double)
+          return temp;
         const auto cast = fresh();
         line(std::format("{} =d cast {}", cast, temp));
         return cast;
@@ -840,9 +837,12 @@ namespace NG::native
       [[nodiscard]] auto symbolFor(hir::DefId id) -> std::string
       {
         std::string name;
-        if (id == function_.source) name = function_.name;
-        else if (const auto found = names_.find(id.value); found != names_.end()) name = found->second;
-        else name = std::format("fn{}", id.value);
+        if (id == function_.source)
+          name = function_.name;
+        else if (const auto found = names_.find(id.value); found != names_.end())
+          name = found->second;
+        else
+          name = std::format("fn{}", id.value);
         return qbeSymbol(name, id.value);
       }
 
@@ -857,7 +857,8 @@ namespace NG::native
         for (size_t index = 0; index < count; ++index)
         {
           const auto &terminator = *function_.blocks[index].terminator;
-          if (terminator.kind == TerminatorKind::TailRecur) hasTailRecur_ = true;
+          if (terminator.kind == TerminatorKind::TailRecur)
+            hasTailRecur_ = true;
           if (terminator.kind == TerminatorKind::Jump || terminator.kind == TerminatorKind::LoopBackedge)
             predecessors_.at(terminator.targets[0].value).push_back({index, terminator.arguments});
           else if (terminator.kind == TerminatorKind::Branch)
@@ -883,7 +884,8 @@ namespace NG::native
 
       void ensureSlot(uint32_t local)
       {
-        if (localSlots_.contains(local)) return;
+        if (localSlots_.contains(local))
+          return;
         QType type = QType::Long;
         if (const auto found = function_.localTypes.find(local); found != function_.localTypes.end())
           type = qtypeOf(found->second);
@@ -910,18 +912,25 @@ namespace NG::native
       /// f64 a `d`, and everything else an 8-byte `l` word.
       [[nodiscard]] auto memberSuffix(TypeId type) -> std::string
       {
-        if (type == typecheck::builtin::I8 || type == typecheck::builtin::U8) return "b";
-        if (type == typecheck::builtin::I16 || type == typecheck::builtin::U16) return "h";
-        if (type == typecheck::builtin::I32 || type == typecheck::builtin::U32) return "w";
-        if (type == typecheck::builtin::F32) return "s";
-        if (type == typecheck::builtin::F64) return "d";
+        if (type == typecheck::builtin::I8 || type == typecheck::builtin::U8)
+          return "b";
+        if (type == typecheck::builtin::I16 || type == typecheck::builtin::U16)
+          return "h";
+        if (type == typecheck::builtin::I32 || type == typecheck::builtin::U32)
+          return "w";
+        if (type == typecheck::builtin::F32)
+          return "s";
+        if (type == typecheck::builtin::F64)
+          return "d";
         return "l";
       }
 
       [[nodiscard]] auto memberLayout(TypeId type) -> std::pair<size_t, size_t>
       {
-        if (type == typecheck::builtin::I8 || type == typecheck::builtin::U8) return {1, 1};
-        if (type == typecheck::builtin::I16 || type == typecheck::builtin::U16) return {2, 2};
+        if (type == typecheck::builtin::I8 || type == typecheck::builtin::U8)
+          return {1, 1};
+        if (type == typecheck::builtin::I16 || type == typecheck::builtin::U16)
+          return {2, 2};
         if (type == typecheck::builtin::I32 || type == typecheck::builtin::U32 || type == typecheck::builtin::F32)
           return {4, 4};
         return {8, 8};
@@ -944,7 +953,8 @@ namespace NG::native
       [[nodiscard]] auto aggregateSize(TypeId type) -> size_t
       {
         const auto &descriptor = function_.typeDescriptors[type.value];
-        if (descriptor.kind == TypeKind::Enum) return 16;
+        if (descriptor.kind == TypeKind::Enum)
+          return 16;
         size_t size = 0;
         size_t align = 1;
         for (const auto field : descriptor.elements)
@@ -1002,12 +1012,18 @@ namespace NG::native
         }
         const auto loaded = fresh();
         const char *loadOp = "loadl";
-        if (fieldType == typecheck::builtin::I8) loadOp = "loadsb";
-        else if (fieldType == typecheck::builtin::U8) loadOp = "loadub";
-        else if (fieldType == typecheck::builtin::I16) loadOp = "loadsh";
-        else if (fieldType == typecheck::builtin::U16) loadOp = "loaduh";
-        else if (fieldType == typecheck::builtin::I32) loadOp = "loadsw";
-        else if (fieldType == typecheck::builtin::U32) loadOp = "loaduw";
+        if (fieldType == typecheck::builtin::I8)
+          loadOp = "loadsb";
+        else if (fieldType == typecheck::builtin::U8)
+          loadOp = "loadub";
+        else if (fieldType == typecheck::builtin::I16)
+          loadOp = "loadsh";
+        else if (fieldType == typecheck::builtin::U16)
+          loadOp = "loaduh";
+        else if (fieldType == typecheck::builtin::I32)
+          loadOp = "loadsw";
+        else if (fieldType == typecheck::builtin::U32)
+          loadOp = "loaduw";
         line(std::format("{} =l {} {}", loaded, loadOp, address));
         if (typecheck::isFloatBuiltin(fieldType))
         {
@@ -1059,7 +1075,8 @@ namespace NG::native
       [[nodiscard]] auto qbeSuffixFor(TypeId type) -> std::string
       {
         const auto qtype = qtypeOf(type);
-        if (qtype == QType::Aggregate) return aggregateName(type);
+        if (qtype == QType::Aggregate)
+          return aggregateName(type);
         return suffix(qtype);
       }
 
@@ -1071,14 +1088,20 @@ namespace NG::native
       /// are `l`.
       [[nodiscard]] auto externSuffixFor(TypeId type) -> std::string
       {
-        if (type == typecheck::builtin::I8) return "sb";
-        if (type == typecheck::builtin::U8) return "ub";
-        if (type == typecheck::builtin::I16) return "sh";
-        if (type == typecheck::builtin::U16) return "uh";
+        if (type == typecheck::builtin::I8)
+          return "sb";
+        if (type == typecheck::builtin::U8)
+          return "ub";
+        if (type == typecheck::builtin::I16)
+          return "sh";
+        if (type == typecheck::builtin::U16)
+          return "uh";
         if (type == typecheck::builtin::I32 || type == typecheck::builtin::U32 || type == typecheck::builtin::Bool)
           return "w";
-        if (type == typecheck::builtin::F32) return "s";
-        if (type == typecheck::builtin::F64) return "d";
+        if (type == typecheck::builtin::F32)
+          return "s";
+        if (type == typecheck::builtin::F64)
+          return "d";
         return "l";
       }
 
@@ -1086,7 +1109,8 @@ namespace NG::native
       /// falls back to the declared local type.
       [[nodiscard]] auto localQType(uint32_t local) -> QType
       {
-        if (const auto found = localQTypes_.find(local); found != localQTypes_.end()) return found->second;
+        if (const auto found = localQTypes_.find(local); found != localQTypes_.end())
+          return found->second;
         if (const auto typed = function_.localTypes.find(local); typed != function_.localTypes.end())
           return qtypeOf(typed->second);
         return QType::Long;
@@ -1139,7 +1163,8 @@ namespace NG::native
         {
           for (const auto &instruction : block.instructions)
           {
-            if (instruction.local) ssaCandidates_.insert(instruction.local->value);
+            if (instruction.local)
+              ssaCandidates_.insert(instruction.local->value);
             if (instruction.kind == InstructionKind::AssignPlace && instruction.placeRootLocal)
               ssaExcluded_.insert(instruction.placeRootLocal->value);
           }
@@ -1147,33 +1172,38 @@ namespace NG::native
         for (const auto local : function_.parameterLocals)
         {
           ssaCandidates_.insert(local.value);
-          if (hasTailRecur_) ssaExcluded_.insert(local.value);
+          if (hasTailRecur_)
+            ssaExcluded_.insert(local.value);
         }
         for (const auto local : ssaCandidates_)
           if (!ssaExcluded_.contains(local) && !cellLocals_.contains(local) &&
-              !(function_.localTypes.contains(local) &&
-                qtypeOf(function_.localTypes.at(local)) == QType::Aggregate))
+              !(function_.localTypes.contains(local) && qtypeOf(function_.localTypes.at(local)) == QType::Aggregate))
             ssaLocals_.insert(local);
         paramTemps_.reserve(function_.parameterLocals.size());
         for (size_t index = 0; index < function_.parameterLocals.size(); ++index)
         {
           const auto local = function_.parameterLocals[index].value;
           paramTemps_.push_back(std::format("%p{}", index));
-          if (ssaLocals_.contains(local)) currentTemps_.emplace(local, paramTemps_.back());
-          else ensureSlot(local);
+          if (ssaLocals_.contains(local))
+            currentTemps_.emplace(local, paramTemps_.back());
+          else
+            ensureSlot(local);
         }
         for (const auto &block : function_.blocks)
-          for (const auto local : block.parameterLocals) ensureSlot(local.value);
+          for (const auto local : block.parameterLocals)
+            ensureSlot(local.value);
         for (const auto &block : function_.blocks)
         {
           for (const auto &instruction : block.instructions)
           {
-            if (instruction.local && !ssaLocals_.contains(instruction.local->value)) ensureSlot(instruction.local->value);
+            if (instruction.local && !ssaLocals_.contains(instruction.local->value))
+              ensureSlot(instruction.local->value);
             if (instruction.kind == InstructionKind::Evaluate &&
                 instruction.expressionKind == ExpressionKind::ResolvedName)
             {
               const auto local = static_cast<uint32_t>(instruction.payload);
-              if (!ssaLocals_.contains(local)) ensureSlot(local);
+              if (!ssaLocals_.contains(local))
+                ensureSlot(local);
             }
             if (instruction.kind == InstructionKind::AssignPlace && instruction.placeRootLocal)
               ensureSlot(instruction.placeRootLocal->value);
@@ -1187,19 +1217,24 @@ namespace NG::native
       /// defining instruction is emitted in a later block.
       void preassignValueTemps()
       {
-        const auto touch = [&](ValueId value) {
-          if (!valueTemps_.contains(value.value)) valueTemps_.emplace(value.value, fresh());
+        const auto touch = [&](ValueId value)
+        {
+          if (!valueTemps_.contains(value.value))
+            valueTemps_.emplace(value.value, fresh());
         };
         for (const auto &block : function_.blocks)
         {
           for (const auto &instruction : block.instructions)
           {
             touch(instruction.result);
-            if (instruction.source) touch(*instruction.source);
-            for (const auto operand : instruction.operands) touch(operand);
+            if (instruction.source)
+              touch(*instruction.source);
+            for (const auto operand : instruction.operands)
+              touch(operand);
           }
           if (block.terminator)
-            for (const auto argument : block.terminator->arguments) touch(argument);
+            for (const auto argument : block.terminator->arguments)
+              touch(argument);
         }
       }
 
@@ -1235,8 +1270,10 @@ namespace NG::native
         out_ << ' ' << symbolFor(function_.source) << '(';
         for (size_t index = 0; index < paramTemps_.size(); ++index)
         {
-          if (index != 0) out_ << ", ";
-          out_ << qbeSuffixFor(function_.localTypes.at(function_.parameterLocals[index].value)) << ' ' << paramTemps_[index];
+          if (index != 0)
+            out_ << ", ";
+          out_ << qbeSuffixFor(function_.localTypes.at(function_.parameterLocals[index].value)) << ' '
+               << paramTemps_[index];
         }
         out_ << ") {\n";
         // One-shot entry logic: frame slots and parameter stores live under
@@ -1263,7 +1300,8 @@ namespace NG::native
         for (size_t param = 0; param < paramTemps_.size(); ++param)
         {
           const auto local = function_.parameterLocals[param].value;
-          if (ssaLocals_.contains(local)) continue; // parameter temps are used directly
+          if (ssaLocals_.contains(local))
+            continue; // parameter temps are used directly
           const auto localTypeId = function_.localTypes.at(local);
           if (isCellLocal(local))
           {
@@ -1282,13 +1320,16 @@ namespace NG::native
                              localSlots_.at(local)));
           }
         }
-        if (hasTailRecur_) line(std::format("jmp {}", labels_.front()));
-        for (size_t index = 0; index < function_.blocks.size(); ++index) emitBlock(index);
+        if (hasTailRecur_)
+          line(std::format("jmp {}", labels_.front()));
+        for (size_t index = 0; index < function_.blocks.size(); ++index)
+          emitBlock(index);
         out_ << "}\n";
         // String-literal data items are collected while emitting blocks, so
         // they are written after the body — data declarations are top-level
         // and order-independent.
-        for (const auto &item : dataItems_) out_ << item << '\n';
+        for (const auto &item : dataItems_)
+          out_ << item << '\n';
         return out_.str();
       }
 
@@ -1298,7 +1339,8 @@ namespace NG::native
         // Block 0 without tail recursion continues `@start` directly; every
         // other block (and block 0 behind the tail-recursion trampoline)
         // carries its own label.
-        if (index != 0 || hasTailRecur_) out_ << labels_[index] << '\n';
+        if (index != 0 || hasTailRecur_)
+          out_ << labels_[index] << '\n';
         // Block parameters become phi temporaries stored into their slots.
         // QBE requires every phi of a block to be consecutive at the top, so
         // all phis are emitted before any store.
@@ -1314,9 +1356,10 @@ namespace NG::native
           {
             const auto &[predIndex, values] = predecessors[edge];
             if (values.size() != block.parameterLocals.size())
-              throw LoweringError(std::format("native lowering (M1): malformed block-parameter edge in `{}`",
-                                              function_.name));
-            if (edge != 0) arguments += ", ";
+              throw LoweringError(
+                  std::format("native lowering (M1): malformed block-parameter edge in `{}`", function_.name));
+            if (edge != 0)
+              arguments += ", ";
             arguments += std::format("{} {}", labels_[predIndex], valueTemps_.at(values[param].value));
           }
           const auto phi = fresh();
@@ -1335,11 +1378,11 @@ namespace NG::native
           }
           else
           {
-            line(std::format("store{} {}, {}", suffix(localQTypes_.at(local)), phiTemps[param],
-                             localSlots_.at(local)));
+            line(std::format("store{} {}, {}", suffix(localQTypes_.at(local)), phiTemps[param], localSlots_.at(local)));
           }
         }
-        for (const auto &instruction : block.instructions) lowerInstruction(instruction);
+        for (const auto &instruction : block.instructions)
+          lowerInstruction(instruction);
         lowerTerminator(*block.terminator, index);
       }
 
@@ -1348,10 +1391,7 @@ namespace NG::native
         line(std::format("{} ={} {}", valueTemps_.at(instruction.result.value), suffix(type), text));
       }
 
-      [[nodiscard]] auto operandTemp(ValueId value) -> const std::string &
-      {
-        return valueTemps_.at(value.value);
-      }
+      [[nodiscard]] auto operandTemp(ValueId value) -> const std::string & { return valueTemps_.at(value.value); }
 
       /// Integer compare returning an NG bool (i64 0/1).
       void integerCompare(const Instruction &instruction, std::string_view qbeOp, const std::string &left,
@@ -1380,13 +1420,26 @@ namespace NG::native
         const char *name = nullptr;
         switch (type.value)
         {
-        case typecheck::builtin::I8.value: name = "check_w_i8"; break;
-        case typecheck::builtin::I16.value: name = "check_w_i16"; break;
-        case typecheck::builtin::I32.value: name = "check_w_i32"; break;
-        case typecheck::builtin::U8.value: name = "check_w_u8"; break;
-        case typecheck::builtin::U16.value: name = "check_w_u16"; break;
-        case typecheck::builtin::U32.value: name = "check_w_u32"; break;
-        default: return;
+        case typecheck::builtin::I8.value:
+          name = "check_w_i8";
+          break;
+        case typecheck::builtin::I16.value:
+          name = "check_w_i16";
+          break;
+        case typecheck::builtin::I32.value:
+          name = "check_w_i32";
+          break;
+        case typecheck::builtin::U8.value:
+          name = "check_w_u8";
+          break;
+        case typecheck::builtin::U16.value:
+          name = "check_w_u16";
+          break;
+        case typecheck::builtin::U32.value:
+          name = "check_w_u32";
+          break;
+        default:
+          return;
         }
         useHelper(name);
         const auto temp = valueTemps_.at(instruction.result.value);
@@ -1397,7 +1450,9 @@ namespace NG::native
       {
         switch (instruction.kind)
         {
-        case InstructionKind::Evaluate: lowerEvaluate(instruction); return;
+        case InstructionKind::Evaluate:
+          lowerEvaluate(instruction);
+          return;
         case InstructionKind::ExtractTuple:
         {
           // Tuple representation == array representation.
@@ -1453,7 +1508,8 @@ namespace NG::native
           line(std::format("{} =l add {}, 8", endAddress, range));
           const auto end = fresh();
           line(std::format("{} =l loadl {}", end, endAddress));
-          bindResult(instruction, QType::Long, std::format("call $ngrt_arr_slice(l {}, l {}, l {})", array, start, end));
+          bindResult(instruction, QType::Long,
+                     std::format("call $ngrt_arr_slice(l {}, l {}, l {})", array, start, end));
           return;
         }
         case InstructionKind::BindLocal:
@@ -1467,13 +1523,15 @@ namespace NG::native
           // later in-place mutation cannot alias the source.
           if (needsClone(sourceType))
           {
-            const bool aggregateSlot = qtypeOf(sourceType) == QType::Aggregate && !isCellLocal(instruction.local->value) &&
+            const bool aggregateSlot = qtypeOf(sourceType) == QType::Aggregate &&
+                                       !isCellLocal(instruction.local->value) &&
                                        !ssaLocals_.contains(instruction.local->value);
             if (aggregateSlot)
             {
               // Copy the value straight into the local's stack slot.
               emitAggregateCopy(localSlots_.at(instruction.local->value), source, sourceType);
-              bindResult(instruction, QType::Aggregate, std::format("copy {}", localSlots_.at(instruction.local->value)));
+              bindResult(instruction, QType::Aggregate,
+                         std::format("copy {}", localSlots_.at(instruction.local->value)));
               return;
             }
             boundValue = emitClone(source, sourceType);
@@ -1604,7 +1662,8 @@ namespace NG::native
           }
           const auto resultTypeId = function_.valueTypes.at(instruction.result.value);
           const auto resultType = qtypeOf(resultTypeId);
-          if (resultType == QType::None) line(std::format("call {}({})", function, arguments));
+          if (resultType == QType::None)
+            line(std::format("call {}({})", function, arguments));
           else
             line(std::format("{} ={} call {}({})", valueTemps_.at(instruction.result.value),
                              resultType == QType::Aggregate ? "l" : qbeSuffixFor(resultTypeId), function, arguments));
@@ -1621,7 +1680,8 @@ namespace NG::native
           std::string value = loaded;
           // Copy-first semantics: `*r` yields a deep copy of aggregates
           // (the VM deep-copies on every reference load).
-          if (needsClone(resultTypeId)) value = emitClone(loaded, resultTypeId);
+          if (needsClone(resultTypeId))
+            value = emitClone(loaded, resultTypeId);
           bindResult(instruction, resultType, std::format("copy {}", castFromSlot(value, resultType)));
           return;
         }
@@ -1655,7 +1715,8 @@ namespace NG::native
             const auto current = fresh();
             line(std::format("{} =l call $ngrt_ref_load(l {})", current, reference));
             std::string address = current;
-            const auto referent = function_.typeDescriptors[function_.valueTypes.at(instruction.placeRootRef->value).value].element;
+            const auto referent =
+                function_.typeDescriptors[function_.valueTypes.at(instruction.placeRootRef->value).value].element;
             for (const auto &step : normalizeSteps(referent, instruction.placeSteps))
             {
               const auto next = fresh();
@@ -1730,7 +1791,8 @@ namespace NG::native
             return;
           }
           std::string current;
-          if (isCellLocal(rootLocal)) current = loadLocal(rootLocal);
+          if (isCellLocal(rootLocal))
+            current = loadLocal(rootLocal);
           else if (qtypeOf(function_.localTypes.at(rootLocal)) == QType::Aggregate)
             current = rootSlot; // the slot IS the aggregate object
           else
@@ -1750,7 +1812,8 @@ namespace NG::native
             else if (step.kind == 2)
             {
               // Constant index into an array/tuple: header + element offset.
-              line(std::format("{} =l add {}, {}", next, address, std::format("{}", 16 + 8 * std::stoll(step.payload))));
+              line(
+                  std::format("{} =l add {}, {}", next, address, std::format("{}", 16 + 8 * std::stoll(step.payload))));
             }
             else
             {
@@ -1805,7 +1868,8 @@ namespace NG::native
           }
           else
           {
-            bindResult(instruction, QType::Double, std::format("copy {}", doubleConstant(std::bit_cast<double>(payload))));
+            bindResult(instruction, QType::Double,
+                       std::format("copy {}", doubleConstant(std::bit_cast<double>(payload))));
           }
           return;
         }
@@ -1813,7 +1877,7 @@ namespace NG::native
         {
           const auto name = std::format("$ngstr_{}_{}", function_.source.value, dataItems_.size());
           dataItems_.push_back(std::format("data {} = {{ l {}, b \"{}\", b 0 }}", name, instruction.text.size(),
-                                            escapeQbeString(instruction.text)));
+                                           escapeQbeString(instruction.text)));
           const auto text = fresh();
           line(std::format("{} =l copy {}", text, name));
           if (isUnionType(resultTypeId(instruction)))
@@ -1844,8 +1908,8 @@ namespace NG::native
           else
           {
             const auto elementType = qtypeOf(function_.valueTypes.at(instruction.operands[0].value));
-            line(std::format("storel {}, {}",
-                             castForSlot(operandTemp(instruction.operands[0]), elementType), wordAddress));
+            line(std::format("storel {}, {}", castForSlot(operandTemp(instruction.operands[0]), elementType),
+                             wordAddress));
           }
           bindResult(instruction, QType::Aggregate, std::format("copy {}", pointer));
           return;
@@ -1892,9 +1956,10 @@ namespace NG::native
             bindResult(instruction, type, std::format("copy {}", castFromSlot(loadLocal(local), type)));
           else if (type == QType::Aggregate)
             bindResult(instruction, type, std::format("copy {}", localSlots_.at(local)));
-          else bindResult(instruction, type, std::format("load{} {}", suffix(type), localSlots_.at(local)));
-          if (const auto found = function_.localTypes.find(local); found != function_.localTypes.end() &&
-                                                               isUnionType(found->second))
+          else
+            bindResult(instruction, type, std::format("load{} {}", suffix(type), localSlots_.at(local)));
+          if (const auto found = function_.localTypes.find(local);
+              found != function_.localTypes.end() && isUnionType(found->second))
             unionBoxedValues_.emplace(instruction.result.value, found->second);
           return;
         }
@@ -1903,12 +1968,17 @@ namespace NG::native
           const auto source = operandTemp(instruction.operands[0]);
           bindResult(instruction, qtypeOf(function_.valueTypes.at(instruction.result.value)),
                      std::format("copy {}", source));
-          if (const auto found = unionBoxedValues_.find(instruction.operands[0].value); found != unionBoxedValues_.end())
+          if (const auto found = unionBoxedValues_.find(instruction.operands[0].value);
+              found != unionBoxedValues_.end())
             unionBoxedValues_.emplace(instruction.result.value, found->second);
           return;
         }
-        case ExpressionKind::Prefix: lowerPrefix(instruction); return;
-        case ExpressionKind::Binary: lowerBinary(instruction); return;
+        case ExpressionKind::Prefix:
+          lowerPrefix(instruction);
+          return;
+        case ExpressionKind::Binary:
+          lowerBinary(instruction);
+          return;
         case ExpressionKind::Call:
           // An unresolved trait-slot call inside a generic original body:
           // the VM throws on the same path (evaluateInstruction rejects
@@ -1949,13 +2019,15 @@ namespace NG::native
           const auto type = qtypeOf(typeId);
           if (type == QType::None)
             throw LoweringError(std::format("native lowering (M2): unit call argument in `{}`", function_.name));
-          if (index != 0) arguments += ", ";
+          if (index != 0)
+            arguments += ", ";
           arguments += std::format("{} {}", qbeSuffixFor(typeId), operandTemp(instruction.operands[index]));
         }
         const auto resultId = function_.valueTypes.at(instruction.result.value);
         const auto resultType = qtypeOf(resultId);
         const auto symbol = symbolFor(*instruction.callTarget);
-        if (resultType == QType::None) line(std::format("call {}({})", symbol, arguments));
+        if (resultType == QType::None)
+          line(std::format("call {}({})", symbol, arguments));
         else
           line(std::format("{} ={} call {}({})", valueTemps_.at(instruction.result.value),
                            resultType == QType::Aggregate ? "l" : qbeSuffixFor(resultId), symbol, arguments));
@@ -1985,16 +2057,24 @@ namespace NG::native
         };
         /// The ngrt width-check helper for a narrow declared C integer type
         /// (D-008 parity: C must never see a silently truncated NG value).
-        const auto widthCheck = [](TypeId type) -> const char * {
+        const auto widthCheck = [](TypeId type) -> const char *
+        {
           switch (type.value)
           {
-          case typecheck::builtin::I8.value: return "check_w_i8";
-          case typecheck::builtin::I16.value: return "check_w_i16";
-          case typecheck::builtin::I32.value: return "check_w_i32";
-          case typecheck::builtin::U8.value: return "check_w_u8";
-          case typecheck::builtin::U16.value: return "check_w_u16";
-          case typecheck::builtin::U32.value: return "check_w_u32";
-          default: return nullptr;
+          case typecheck::builtin::I8.value:
+            return "check_w_i8";
+          case typecheck::builtin::I16.value:
+            return "check_w_i16";
+          case typecheck::builtin::I32.value:
+            return "check_w_i32";
+          case typecheck::builtin::U8.value:
+            return "check_w_u8";
+          case typecheck::builtin::U16.value:
+            return "check_w_u16";
+          case typecheck::builtin::U32.value:
+            return "check_w_u32";
+          default:
+            return nullptr;
           }
         };
         std::string arguments;
@@ -2015,7 +2095,8 @@ namespace NG::native
             line(std::format("{} =s truncd {}", single, value));
             value = single;
           }
-          if (index != 0) arguments += ", ";
+          if (index != 0)
+            arguments += ", ";
           if (qtypeOf(typeId) == QType::Aggregate)
             arguments += std::format("{} {}", aggregateName(typeId), value);
           else
@@ -2083,7 +2164,8 @@ namespace NG::native
         const auto &descriptor = function_.typeDescriptors[typeId.value];
         const size_t count = descriptor.fieldNames.size();
         if (count != instruction.operands.size())
-          throw LoweringError(std::format("native lowering (M2): struct literal arity mismatch in `{}`", function_.name));
+          throw LoweringError(
+              std::format("native lowering (M2): struct literal arity mismatch in `{}`", function_.name));
         const auto pointer = fresh();
         line(std::format("{} =l alloc8 {}", pointer, aggregateSize(typeId)));
         for (size_t index = 0; index < count; ++index)
@@ -2205,7 +2287,8 @@ namespace NG::native
       /// copy at bind/load sites (the VM deep-copies all of these).
       [[nodiscard]] auto needsClone(TypeId type) -> bool
       {
-        if (type.value >= function_.typeDescriptors.size()) return false;
+        if (type.value >= function_.typeDescriptors.size())
+          return false;
         const auto kind = function_.typeDescriptors[type.value].kind;
         return kind == TypeKind::Struct || kind == TypeKind::Enum || kind == TypeKind::Tuple ||
                kind == TypeKind::DynamicArray || kind == TypeKind::FixedArray ||
@@ -2220,7 +2303,8 @@ namespace NG::native
         const auto &descriptor = function_.typeDescriptors[type.value];
         if (descriptor.kind == TypeKind::Builtin)
         {
-          if (type != typecheck::builtin::String) return source;
+          if (type != typecheck::builtin::String)
+            return source;
           useHelper("str_clone");
           const auto clone = fresh();
           line(std::format("{} =l call $ngrt_str_clone(l {})", clone, source));
@@ -2237,14 +2321,16 @@ namespace NG::native
         }
         if (descriptor.kind == TypeKind::Struct || descriptor.kind == TypeKind::Tuple)
         {
-          const size_t count = descriptor.kind == TypeKind::Struct ? descriptor.fieldNames.size()
-                                                                   : descriptor.elements.size();
+          const size_t count =
+              descriptor.kind == TypeKind::Struct ? descriptor.fieldNames.size() : descriptor.elements.size();
           const size_t header = descriptor.kind == TypeKind::Struct ? 0 : 16;
           const auto clone = fresh();
           // Struct clones live on the heap: they are values that can be
           // borrowed and escape their frame (cell locals store the pointer).
-          if (descriptor.kind == TypeKind::Struct) line(std::format("{} =l call $malloc(l {})", clone, count * 8));
-          else line(std::format("{} =l call $malloc(l {})", clone, count * 8 + header));
+          if (descriptor.kind == TypeKind::Struct)
+            line(std::format("{} =l call $malloc(l {})", clone, count * 8));
+          else
+            line(std::format("{} =l call $malloc(l {})", clone, count * 8 + header));
           if (descriptor.kind == TypeKind::Tuple)
           {
             line(std::format("storel {}, {}", count, clone));
@@ -2275,8 +2361,8 @@ namespace NG::native
             line(std::format("{} =l call $ngrt_arr_clone_strings(l {})", clone, source));
             return clone;
           }
-          if (elementKind == TypeKind::Struct || elementKind == TypeKind::Tuple || elementKind == TypeKind::DynamicArray ||
-              elementKind == TypeKind::FixedArray)
+          if (elementKind == TypeKind::Struct || elementKind == TypeKind::Tuple ||
+              elementKind == TypeKind::DynamicArray || elementKind == TypeKind::FixedArray)
             throw LoweringError(std::format("native lowering (M2): deep copy of nested aggregate arrays is not "
                                             "supported yet in `{}`",
                                             function_.name));
@@ -2313,12 +2399,12 @@ namespace NG::native
             const auto &descriptor = function_.typeDescriptors[current.value];
             const bool elementLike = descriptor.kind == TypeKind::DynamicArray ||
                                      descriptor.kind == TypeKind::FixedArray || descriptor.kind == TypeKind::Tuple;
-            const int64_t payload = elementLike ? static_cast<int64_t>(step.field)
-                                                : static_cast<int64_t>(fieldOffset(current, step.field));
+            const int64_t payload =
+                elementLike ? static_cast<int64_t>(step.field) : static_cast<int64_t>(fieldOffset(current, step.field));
             result.push_back(NormalizedStep{.kind = elementLike ? 2 : 0, .payload = std::format("{}", payload)});
-            current = elementLike ? (descriptor.kind == TypeKind::Tuple ? descriptor.elements[step.field]
-                                                                        : descriptor.element)
-                                  : descriptor.elements[step.field];
+            current = elementLike
+                          ? (descriptor.kind == TypeKind::Tuple ? descriptor.elements[step.field] : descriptor.element)
+                          : descriptor.elements[step.field];
           }
           else
           {
@@ -2365,9 +2451,7 @@ namespace NG::native
           throw LoweringError(std::format("native `{}` expects {} argument(s), got {} in `{}`", name,
                                           found->second.size(), instruction.operands.size(), function_.name));
         const auto argType = [&](size_t index) -> TypeId
-        {
-          return function_.valueTypes.at(instruction.operands[index].value);
-        };
+        { return function_.valueTypes.at(instruction.operands[index].value); };
         // The declared parameter type is authoritative for shim selection
         // (e.g. print's unsigned/boolean variants).
         const auto declaredType = [&](size_t index) -> TypeId
@@ -2388,23 +2472,30 @@ namespace NG::native
               found != ngrt_.nativeOwnerships.end() && index < found->second.size())
             ownership = found->second[index];
           const auto type = argType(index);
-          if (ownership == Ownership::Copy && needsClone(type)) return emitClone(value, type);
+          if (ownership == Ownership::Copy && needsClone(type))
+            return emitClone(value, type);
           return value;
         };
         const auto argSuffix = [&](TypeId type) -> const char *
         {
-          if (typecheck::isFloatBuiltin(type)) return "d";
+          if (typecheck::isFloatBuiltin(type))
+            return "d";
           return "l";
         };
         std::string symbol;
         if (name == "print")
         {
           const auto type = declaredType(0);
-          if (type == typecheck::builtin::String) symbol = "$ngrt_print_str";
-          else if (type == typecheck::builtin::Bool) symbol = "$ngrt_print_bool";
-          else if (typecheck::isUnsignedIntegerBuiltin(type)) symbol = "$ngrt_print_u64";
-          else if (isFloat(type)) symbol = "$ngrt_print_f64";
-          else symbol = "$ngrt_print_i64";
+          if (type == typecheck::builtin::String)
+            symbol = "$ngrt_print_str";
+          else if (type == typecheck::builtin::Bool)
+            symbol = "$ngrt_print_bool";
+          else if (typecheck::isUnsignedIntegerBuiltin(type))
+            symbol = "$ngrt_print_u64";
+          else if (isFloat(type))
+            symbol = "$ngrt_print_f64";
+          else
+            symbol = "$ngrt_print_i64";
         }
         else
         {
@@ -2414,7 +2505,8 @@ namespace NG::native
         std::string arguments;
         for (size_t index = 0; index < instruction.operands.size(); ++index)
         {
-          if (index != 0) arguments += ", ";
+          if (index != 0)
+            arguments += ", ";
           arguments += std::format("{} {}", argSuffix(declaredType(index)), arg(index));
         }
 
@@ -2446,10 +2538,12 @@ namespace NG::native
       void lowerUnionCompare(const Instruction &instruction, TypeId unionType, bool leftIsUnion)
       {
         const auto payload = instruction.payload;
-        const auto memberType = function_.valueTypes.at(
-            (leftIsUnion ? instruction.operands[1] : instruction.operands[0]).value);
-        const auto unionTemp = leftIsUnion ? operandTemp(instruction.operands[0]) : operandTemp(instruction.operands[1]);
-        const auto memberTemp = leftIsUnion ? operandTemp(instruction.operands[1]) : operandTemp(instruction.operands[0]);
+        const auto memberType =
+            function_.valueTypes.at((leftIsUnion ? instruction.operands[1] : instruction.operands[0]).value);
+        const auto unionTemp =
+            leftIsUnion ? operandTemp(instruction.operands[0]) : operandTemp(instruction.operands[1]);
+        const auto memberTemp =
+            leftIsUnion ? operandTemp(instruction.operands[1]) : operandTemp(instruction.operands[0]);
         const auto member = unionMemberFor(unionType, memberType);
         const auto payloadAddress = fresh();
         line(std::format("{} =l add {}, 8", payloadAddress, unionTemp));
@@ -2466,8 +2560,8 @@ namespace NG::native
           return;
         }
         if (payload != 6 && payload != 7)
-          throw LoweringError(std::format("native lowering (M2): unsupported union binary payload {} in `{}`",
-                                          payload, function_.name));
+          throw LoweringError(std::format("native lowering (M2): unsupported union binary payload {} in `{}`", payload,
+                                          function_.name));
         const auto tag = fresh();
         line(std::format("{} =l loadl {}", tag, unionTemp));
         const auto tagOk = fresh();
@@ -2492,8 +2586,10 @@ namespace NG::native
         line(std::format("{} =w and {}, {}", combined, tagOk, valueOk));
         const auto extended = fresh();
         line(std::format("{} =l extsw {}", extended, combined));
-        if (payload == 6) bindResult(instruction, QType::Long, std::format("copy {}", extended));
-        else bindResult(instruction, QType::Long, std::format("xor {}, 1", extended));
+        if (payload == 6)
+          bindResult(instruction, QType::Long, std::format("copy {}", extended));
+        else
+          bindResult(instruction, QType::Long, std::format("xor {}, 1", extended));
       }
 
       void lowerPrefix(const Instruction &instruction)
@@ -2506,33 +2602,39 @@ namespace NG::native
         if (payload == 3 || payload == 4 || payload == 5)
         {
           bindResult(instruction, resultType, std::format("copy {}", operand));
-          if (payload == 3 && typecheck::isIntegerBuiltin(operandType)) applyWidthCheck(instruction);
-          if (const auto found = unionBoxedValues_.find(instruction.operands[0].value); found != unionBoxedValues_.end())
+          if (payload == 3 && typecheck::isIntegerBuiltin(operandType))
+            applyWidthCheck(instruction);
+          if (const auto found = unionBoxedValues_.find(instruction.operands[0].value);
+              found != unionBoxedValues_.end())
             unionBoxedValues_.emplace(instruction.result.value, found->second);
           return;
         }
         if (payload == 2)
         {
-          if (isFloat(operandType)) bindResult(instruction, resultType, std::format("neg {}", operand));
-          else emitCheckedOp(instruction, "checked_neg", std::format("l {}", operand));
+          if (isFloat(operandType))
+            bindResult(instruction, resultType, std::format("neg {}", operand));
+          else
+            emitCheckedOp(instruction, "checked_neg", std::format("l {}", operand));
           return;
         }
         if (payload == 1)
         {
           if (isFloat(operandType))
-            throw LoweringError(std::format("native lowering (M1): logical negation of a float in `{}`", function_.name));
+            throw LoweringError(
+                std::format("native lowering (M1): logical negation of a float in `{}`", function_.name));
           integerCompare(instruction, "ceql", operand, "0");
           return;
         }
-        throw LoweringError(std::format("native lowering (M1): unsupported prefix payload {} in `{}`", payload,
-                                        function_.name));
+        throw LoweringError(
+            std::format("native lowering (M1): unsupported prefix payload {} in `{}`", payload, function_.name));
       }
 
       /// Converts an integer temp to double for mixed numeric promotion
       /// (VM `asNumber` semantics: any float operand promotes the whole op).
       [[nodiscard]] auto promoteToDouble(const std::string &temp, TypeId type) -> std::string
       {
-        if (isFloat(type)) return temp;
+        if (isFloat(type))
+          return temp;
         const auto converted = fresh();
         line(std::format("{} =d sltof {}", converted, temp));
         return converted;
@@ -2555,7 +2657,8 @@ namespace NG::native
           if (const auto found = unionBoxedValues_.find(value.value); found != unionBoxedValues_.end())
             return found->second;
           const auto type = function_.valueTypes.at(value.value);
-          if (isUnionType(type)) return type;
+          if (isUnionType(type))
+            return type;
           return std::nullopt;
         };
         const auto leftUnion = unionTypeOf(instruction.operands[0]);
@@ -2582,12 +2685,14 @@ namespace NG::native
             line(std::format("{} =w call $ngrt_str_eq(l {}, l {})", compared, left, right));
             const auto extended = fresh();
             line(std::format("{} =l extsw {}", extended, compared));
-            if (payload == 6) bindResult(instruction, QType::Long, std::format("copy {}", extended));
-            else bindResult(instruction, QType::Long, std::format("xor {}, 1", extended));
+            if (payload == 6)
+              bindResult(instruction, QType::Long, std::format("copy {}", extended));
+            else
+              bindResult(instruction, QType::Long, std::format("xor {}, 1", extended));
             return;
           }
-          throw LoweringError(std::format("native lowering (M2): unsupported string binary payload {} in `{}`",
-                                          payload, function_.name));
+          throw LoweringError(std::format("native lowering (M2): unsupported string binary payload {} in `{}`", payload,
+                                          function_.name));
         }
         // Range construction: { l start, l end }.
         if (payload == 19)
@@ -2608,10 +2713,18 @@ namespace NG::native
           const auto rightDouble = promoteToDouble(right, rightType);
           switch (payload)
           {
-          case 1: bindResult(instruction, QType::Double, std::format("add {}, {}", leftDouble, rightDouble)); return;
-          case 2: bindResult(instruction, QType::Double, std::format("sub {}, {}", leftDouble, rightDouble)); return;
-          case 3: bindResult(instruction, QType::Double, std::format("mul {}, {}", leftDouble, rightDouble)); return;
-          case 4: bindResult(instruction, QType::Double, std::format("div {}, {}", leftDouble, rightDouble)); return;
+          case 1:
+            bindResult(instruction, QType::Double, std::format("add {}, {}", leftDouble, rightDouble));
+            return;
+          case 2:
+            bindResult(instruction, QType::Double, std::format("sub {}, {}", leftDouble, rightDouble));
+            return;
+          case 3:
+            bindResult(instruction, QType::Double, std::format("mul {}, {}", leftDouble, rightDouble));
+            return;
+          case 4:
+            bindResult(instruction, QType::Double, std::format("div {}, {}", leftDouble, rightDouble));
+            return;
           case 6:
           {
             const auto compared = fresh();
@@ -2660,19 +2773,46 @@ namespace NG::native
           }
         }
 
+        // INC-4 (F1①): ordering comparisons follow operand signedness.
+        // u64 values live in 64-bit slots bit-pattern-wise; comparing them
+        // with signed instructions would treat u64::MAX as -1.
+        const auto unsignedOrdering =
+            typecheck::isUnsignedIntegerBuiltin(leftType) || typecheck::isUnsignedIntegerBuiltin(rightType);
         switch (payload)
         {
-        case 1: emitCheckedOp(instruction, "checked_add", std::format("l {}, l {}", left, right)); return;
-        case 2: emitCheckedOp(instruction, "checked_sub", std::format("l {}, l {}", left, right)); return;
-        case 3: emitCheckedOp(instruction, "checked_mul", std::format("l {}, l {}", left, right)); return;
-        case 4: emitCheckedOp(instruction, "checked_div", std::format("l {}, l {}", left, right)); return;
-        case 5: emitCheckedOp(instruction, "checked_rem", std::format("l {}, l {}", left, right)); return;
-        case 6: integerCompare(instruction, "ceql", left, right); return;
-        case 7: integerCompare(instruction, "cnel", left, right); return;
-        case 8: integerCompare(instruction, "csltl", left, right); return;
-        case 9: integerCompare(instruction, "cslel", left, right); return;
-        case 10: integerCompare(instruction, "csgtl", left, right); return;
-        case 11: integerCompare(instruction, "csgel", left, right); return;
+        case 1:
+          emitCheckedOp(instruction, "checked_add", std::format("l {}, l {}", left, right));
+          return;
+        case 2:
+          emitCheckedOp(instruction, "checked_sub", std::format("l {}, l {}", left, right));
+          return;
+        case 3:
+          emitCheckedOp(instruction, "checked_mul", std::format("l {}, l {}", left, right));
+          return;
+        case 4:
+          emitCheckedOp(instruction, "checked_div", std::format("l {}, l {}", left, right));
+          return;
+        case 5:
+          emitCheckedOp(instruction, "checked_rem", std::format("l {}, l {}", left, right));
+          return;
+        case 6:
+          integerCompare(instruction, "ceql", left, right);
+          return;
+        case 7:
+          integerCompare(instruction, "cnel", left, right);
+          return;
+        case 8:
+          integerCompare(instruction, unsignedOrdering ? "cultl" : "csltl", left, right);
+          return;
+        case 9:
+          integerCompare(instruction, unsignedOrdering ? "culel" : "cslel", left, right);
+          return;
+        case 10:
+          integerCompare(instruction, unsignedOrdering ? "cugtl" : "csgtl", left, right);
+          return;
+        case 11:
+          integerCompare(instruction, unsignedOrdering ? "cugel" : "csgel", left, right);
+          return;
         case 12:
         case 13:
         {
@@ -2687,11 +2827,21 @@ namespace NG::native
           bindResult(instruction, QType::Long, std::format("extsw {}", combined));
           return;
         }
-        case 14: bindResult(instruction, QType::Long, std::format("and {}, {}", left, right)); return;
-        case 15: bindResult(instruction, QType::Long, std::format("or {}, {}", left, right)); return;
-        case 16: bindResult(instruction, QType::Long, std::format("xor {}, {}", left, right)); return;
-        case 17: emitCheckedOp(instruction, "checked_shl", std::format("l {}, l {}", left, right)); return;
-        case 18: emitCheckedOp(instruction, "checked_shr", std::format("l {}, l {}", left, right)); return;
+        case 14:
+          bindResult(instruction, QType::Long, std::format("and {}, {}", left, right));
+          return;
+        case 15:
+          bindResult(instruction, QType::Long, std::format("or {}, {}", left, right));
+          return;
+        case 16:
+          bindResult(instruction, QType::Long, std::format("xor {}, {}", left, right));
+          return;
+        case 17:
+          emitCheckedOp(instruction, "checked_shl", std::format("l {}, l {}", left, right));
+          return;
+        case 18:
+          emitCheckedOp(instruction, "checked_shr", std::format("l {}, l {}", left, right));
+          return;
         default:
           throw LoweringError(std::format("native lowering (M1): unsupported integer binary payload {} in `{}`",
                                           payload, function_.name));
@@ -2710,8 +2860,8 @@ namespace NG::native
           else if (qtypeOf(function_.valueTypes.at(terminator.arguments[0].value)) == QType::Aggregate &&
                    function_.name != "main")
           {
-            const auto clone = emitClone(operandTemp(terminator.arguments[0]),
-                                         function_.valueTypes.at(terminator.arguments[0].value));
+            const auto clone =
+                emitClone(operandTemp(terminator.arguments[0]), function_.valueTypes.at(terminator.arguments[0].value));
             line(std::format("ret {}", clone));
           }
           else if (function_.name == "main")
@@ -2754,10 +2904,11 @@ namespace NG::native
           for (size_t index = 0; index < function_.parameterLocals.size(); ++index)
           {
             const auto local = function_.parameterLocals[index].value;
-            if (isCellLocal(local)) bindFreshCell(local, operandTemp(terminator.arguments[index]));
+            if (isCellLocal(local))
+              bindFreshCell(local, operandTemp(terminator.arguments[index]));
             else
-              line(std::format("store{} {}, {}", suffix(localQTypes_.at(local)), operandTemp(terminator.arguments[index]),
-                               localSlots_.at(local)));
+              line(std::format("store{} {}, {}", suffix(localQTypes_.at(local)),
+                               operandTemp(terminator.arguments[index]), localSlots_.at(local)));
           }
           line(std::format("jmp {}", labels_.front()));
           return;
@@ -2773,10 +2924,11 @@ namespace NG::native
   }
 
   auto lowerModule(const std::vector<Function> &functions, const VtableMap &vtables,
-                  const NativeOwnerships &nativeOwnerships) -> std::string
+                   const NativeOwnerships &nativeOwnerships) -> std::string
   {
     FunctionNames names;
-    for (const auto &function : functions) names.emplace(function.source.value, function.name);
+    for (const auto &function : functions)
+      names.emplace(function.source.value, function.name);
     NgrtContext ngrt;
     ngrt.nativeOwnerships = nativeOwnerships;
     for (const auto &function : functions)
@@ -2789,8 +2941,8 @@ namespace NG::native
           if (const auto found = function.localTypes.find(local.value); found != function.localTypes.end())
             declared.push_back(found->second);
         ngrt.nativeSignatures.emplace(function.source.value, std::move(declared));
-          if (function.declaredResultType.has_value())
-            ngrt.nativeResultTypes.emplace(function.source.value, *function.declaredResultType);
+        if (function.declaredResultType.has_value())
+          ngrt.nativeResultTypes.emplace(function.source.value, *function.declaredResultType);
       }
       else if (function.externC)
       {
@@ -2844,12 +2996,18 @@ namespace NG::native
             for (size_t member = 0; member < function.typeDescriptors[typeId].elements.size(); ++member)
             {
               const auto memberType = function.typeDescriptors[typeId].elements[member];
-              const auto suffixFor = [](TypeId type) -> const char * {
-                if (type == typecheck::builtin::I8 || type == typecheck::builtin::U8) return "b";
-                if (type == typecheck::builtin::I16 || type == typecheck::builtin::U16) return "h";
-                if (type == typecheck::builtin::I32 || type == typecheck::builtin::U32) return "w";
-                if (type == typecheck::builtin::F32) return "s";
-                if (type == typecheck::builtin::F64) return "d";
+              const auto suffixFor = [](TypeId type) -> const char *
+              {
+                if (type == typecheck::builtin::I8 || type == typecheck::builtin::U8)
+                  return "b";
+                if (type == typecheck::builtin::I16 || type == typecheck::builtin::U16)
+                  return "h";
+                if (type == typecheck::builtin::I32 || type == typecheck::builtin::U32)
+                  return "w";
+                if (type == typecheck::builtin::F32)
+                  return "s";
+                if (type == typecheck::builtin::F64)
+                  return "d";
                 return "l";
               };
               result += std::format("{}{}", member == 0 ? " " : ", ", suffixFor(memberType));
@@ -2861,7 +3019,8 @@ namespace NG::native
     }
     for (const auto &function : functions)
     {
-      if (function.nativeFunction || function.externC) continue;
+      if (function.nativeFunction || function.externC)
+        continue;
       try
       {
         result += FunctionLowerer{function, names, ngrt}.run();
@@ -2879,23 +3038,31 @@ namespace NG::native
     // Emit each used ngrt helper (with its dependencies) exactly once, after
     // all functions.
     const std::unordered_map<std::string, std::vector<std::string>> helperDependencies = {
-      {"arr_get", {"arr_addr"}},       {"ref_load", {"arr_get", "arr_addr"}},
-      {"ref_addr", {"arr_addr"}},      {"copy_elements", {"arr_get", "arr_addr"}},
+      {"arr_get", {"arr_addr"}},
+      {"ref_load", {"arr_get", "arr_addr"}},
+      {"ref_addr", {"arr_addr"}},
+      {"copy_elements", {"arr_get", "arr_addr"}},
       {"arr_clone_strings", {"arr_get", "arr_addr", "str_clone"}}};
     std::set<std::string> helpersToEmit;
-    std::function<void(const std::string &)> addHelper = [&](const std::string &name) {
-      if (!helpersToEmit.insert(name).second) return;
+    std::function<void(const std::string &)> addHelper = [&](const std::string &name)
+    {
+      if (!helpersToEmit.insert(name).second)
+        return;
       if (const auto found = helperDependencies.find(name); found != helperDependencies.end())
-        for (const auto &dependency : found->second) addHelper(dependency);
+        for (const auto &dependency : found->second)
+          addHelper(dependency);
     };
-    for (const auto &name : ngrt.usedHelpers) addHelper(name);
-    for (const auto &name : helpersToEmit) result += ngrtHelpers().at(name) + '\n';
+    for (const auto &name : ngrt.usedHelpers)
+      addHelper(name);
+    for (const auto &name : helpersToEmit)
+      result += ngrtHelpers().at(name) + '\n';
     // Trait dispatch: per-(trait, concrete) vtable data plus a linear
     // key -> vtable lookup (keys are sorted for deterministic output).
     if (ngrt.needsTraitDispatch)
     {
       std::vector<uint64_t> keys;
-      for (const auto &[key, methods] : vtables) keys.push_back(key);
+      for (const auto &[key, methods] : vtables)
+        keys.push_back(key);
       std::sort(keys.begin(), keys.end());
       for (const auto key : keys)
       {
@@ -2903,7 +3070,8 @@ namespace NG::native
         const auto &methods = vtables.at(key);
         for (size_t index = 0; index < methods.size(); ++index)
         {
-          if (index != 0) result += ", ";
+          if (index != 0)
+            result += ", ";
           result += std::format("l {}", qbeSymbol(names.at(methods[index]), methods[index]));
         }
         result += " }\n";

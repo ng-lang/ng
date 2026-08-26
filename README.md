@@ -78,7 +78,8 @@ top-down; status and verification baselines live there ([10-baselines.md](./docs
 - ✅ INC-1 — lightweight seeded PBT harness (`test/pbt.hpp`)
 - ✅ INC-2 — conformance corpus runner, layers 1+2 (`test/conformance/`)
 - ✅ INC-3 — differential contract runner, Const ↔ QBE (N=500/run)
-- ⬜ INC-4 … INC-36 — pending
+- ✅ INC-4 — unsigned ordering comparisons (F1①); `u64::MAX > 5` now true
+- ⬜ INC-5 … INC-36 — pending
 
 ## Community
 

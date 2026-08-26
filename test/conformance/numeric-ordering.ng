@@ -1,0 +1,26 @@
+// Contract: integer ordering follows operand signedness (INC-4, F1①).
+// u64::MAX must compare greater than small values; narrow unsigned widths
+// stay in domain; signed widths keep negative ordering.
+import prelude;
+
+fun main() -> unit {
+    let umax: u64 = 18446744073709551615;
+    let five: u64 = 5;
+    print(umax > five);
+    print(umax > 5);
+    print(five < umax);
+    print(five <= 5);
+    print(umax >= umax);
+
+    let wide: u32 = 4294967295;
+    print(wide > 5);
+    print(wide >= 0);
+
+    let byte: u8 = 255;
+    print(byte > 128);
+
+    let negative: i64 = -7;
+    let positive: i64 = 2;
+    print(negative < positive);
+    print(negative > -10);
+}
