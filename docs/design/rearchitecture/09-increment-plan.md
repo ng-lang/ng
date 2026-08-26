@@ -413,5 +413,9 @@ INC-6 完成后暂停增量推进，优先处理 lowering.cpp 架构问题（原
    archive。运行时代码归位 libngrt 一侧；`--emit=ssa` 只含用户模块。
 2. **ARCH-2（0f85ed8）**: lowering 拆分为 5 个编译单元。验证采用
    重构前后全示例 IL **逐字节比对**——零行为变化的强证据。
+3. **ARCH-4（a13a290）**: typecheck.cpp 拆分为 5 个编译单元（按 cohesion 分组：
+   register/infer/check/const/unify）+ 内部头。新增 `test/guard_test.cpp`
+   强制执行源文件行数上限（.cpp ≤ 1900, .hpp ≤ 900），防止未来回归。
+   484 用例全绿，ASAN 变体干净。
 
-后续 INC 在新结构上进行（lowering 相关改动落点见各 TU 职责注释）。
+后续 INC 在新结构上进行（lowering/typecheck 相关改动落点见各 TU 职责注释）。

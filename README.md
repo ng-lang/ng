@@ -82,7 +82,8 @@ top-down; status and verification baselines live there ([10-baselines.md](./docs
 - ✅ INC-5 — unsigned checked arithmetic (F1③); u64 wrap attempts now trap
 - ✅ INC-6 — DEC-A landed: implicit mixed comparisons rejected; `toFloat`/`toSigned`
 - ✅ ARCH — lowering.cpp split: runtime helpers assembled from `.ssa` files into
-  `libngrt_helpers.a`; `FunctionLowerer` distributed across cohesive TUs
+  `libngrt_helpers.a`; `FunctionLowerer` distributed across cohesive TUs;
+  typecheck.cpp split into 5 cohesion TUs + file-size guard
 - ✅ INC-7 — `toString`/`parseInt` (Option-style) natives; argument-position overload fix
 - ✅ PBT 收敛 — challenge-review follow-up: shared width/oracle/batch runner in
   `test/pbt.hpp`; fixed false-green literal bug; ~200 lines duplicated code removed
