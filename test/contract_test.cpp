@@ -24,6 +24,7 @@
 // stable error codes.
 
 #include "driver.hpp"
+#include "pbt.hpp"
 #include "test.hpp"
 
 #include <cstddef>
@@ -82,9 +83,7 @@ namespace
     std::vector<std::string> kept;
     for (auto &line : splitLines(driverOutput))
     {
-      if (line.starts_with("compiled ") && line.ends_with(" vNext function(s)"))
-        continue;
-      if (line.starts_with("native main exited with code "))
+      if (pbt::isDriverBanner(line))
         continue;
       kept.push_back(std::move(line));
     }

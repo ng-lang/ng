@@ -123,3 +123,55 @@ TEST_CASE("PBT forAll reports counterexamples with seed and trial", "[INC1][Pbt]
   REQUIRE_THAT(rendered, ContainsSubstring("trial 3"));
   REQUIRE_THAT(rendered, ContainsSubstring("PBT_SEED=1234"));
 }
+
+TEST_CASE("PBT literal helpers never emit double signs or signed reinterpretations", "[INC1][Pbt]")
+{
+  // Regression guard for the `--N` false-green: a negative literal spelled
+  // through a broken negation path parses as two unary minuses, and both
+  // sides of a generated comparison then agree on the wrong value.
+  REQUIRE(pbt::decimalLiteral(0) == "0");
+  REQUIRE(pbt::decimalLiteral(-7) == "-7");
+  REQUIRE(pbt::decimalLiteral(INT64_MIN + 1) == "-9223372036854775807");
+  for (const auto &width : pbt::integerWidths())
+  {
+    const auto maxLiteral = pbt::widthLiteral(width, width.max);
+    REQUIRE(maxLiteral.find("--") == std::string::npos);
+    if (!width.isSigned && width.max > 2)
+      REQUIRE(pbt::widthLiteral(width, width.max) == std::to_string(width.max));
+  }
+  REQUIRE(pbt::widthLiteral(pbt::integerWidths()[4], 200) == "200");   // u8
+  REQUIRE(pbt::widthLiteral(pbt::integerWidths()[7], UINT64_MAX) ==
+          "18446744073709551615");                                     // u64 full range
+}
+
+TEST_CASE("PBT banner filter strips driver lines only", "[INC1][Pbt]")
+{
+  REQUIRE(pbt::isDriverBanner("compiled 12 vNext function(s)"));
+  REQUIRE(pbt::isDriverBanner("native main exited with code 0"));
+  REQUIRE_FALSE(pbt::isDriverBanner("true"));
+  REQUIRE_FALSE(pbt::isDriverBanner("compiled something else entirely"));
+}
+
+TEST_CASE("PBT batch runner reports failing probes with their source", "[INC1][Pbt]")
+{
+  const auto ok = pbt::runBatchProbes(
+      "pbt-selftest-ok", "native fun print(value: bool) -> unit;",
+      {{.source = "    print(1 < 2);", .expect = "true", .label = "lt-holds"},
+       {.source = "    let n: i64 = -3; print(n == -3);", .expect = "true", .label = "negative-binding"}});
+  REQUIRE(!ok.has_value());
+
+  const auto failure =
+      pbt::runBatchProbes("pbt-selftest-bad", "native fun print(value: bool) -> unit;",
+                          {
+                              {.source = "    print(1 < 2);", .expect = "true", .label = "fine"},
+                              {.source = "    print(2 < 1);", .expect = "true", .label = "broken-probe"},
+                          });
+  REQUIRE(failure.has_value());
+  REQUIRE_THAT(*failure, ContainsSubstring("broken-probe"));
+  REQUIRE_THAT(*failure, ContainsSubstring("print(2 < 1);"));
+
+  const auto compileFailure = pbt::runBatchProbes(
+      "pbt-selftest-syntax", "native fun print(value: bool) -> unit;",
+      {{.source = "    print(", .expect = "true", .label = "syntax-error"}});
+  REQUIRE(compileFailure.has_value());
+}

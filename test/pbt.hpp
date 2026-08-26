@@ -5,7 +5,7 @@
 // Design (per docs/design/rearchitecture/09-increment-plan.md INC-1):
 //   * Deterministic, seeded PRNG (xoshiro256**): a run is reproducible by
 //     replaying `PBT_SEED=<seed> ./build/ng_test "<filter>"`; every property
-//     reports its seed through Catch2 INFO/WARN output.
+//     reports its seed through Catch2 WARN output.
 //   * Integer generators weight boundary values (each width's MIN/MAX, -1,
 //     0, 1, and narrow sub-ranges) so off-by-one bugs surface early.
 //   * String/array/NG-source-snippet generators compose from the core ones.
@@ -13,17 +13,31 @@
 //     failing trial aborts immediately and reports the seed, the trial
 //     number, and the formatted counterexample; minimizing the input is a
 //     manual step (rerun with the same seed and smaller bounds).
+//
+// Batched-probe runner (challenge review follow-up): NG source literals,
+// width tables, driver-banner filtering, and the compile-run-compare loop
+// used to be re-implemented (with drifting behavior) in every consumer test;
+// they are consolidated here so a property test only states its probes.
 
 #pragma once
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <unistd.h>
+
+#include "driver.hpp"
+
+#include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <filesystem>
 #include <format>
+#include <fstream>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -264,5 +278,163 @@ namespace pbt
     for (size_t index = 0; index < length; ++index)
       items.push_back(generator(rng));
     return items;
+  }
+
+  // ---- Shared NG-source oracles (challenge-review consolidation) ----
+  //
+  // These used to exist as three drifting `literalFor` variants and two
+  // width tables across consumer tests; the drift produced invalid literals
+  // (`--N`, u64 rendered negative) that silently weakened properties.
+
+  struct IntegerWidth
+  {
+    const char *name;
+    bool isSigned;
+    int64_t min;
+    uint64_t max;
+  };
+
+  /// The D-008 integer tower, ordered i8..u64.
+  [[nodiscard]] inline auto integerWidths() -> const std::vector<IntegerWidth> &
+  {
+    static const std::vector<IntegerWidth> widths = {
+        {"i8", true, -128, 127},
+        {"i16", true, -32768, 32767},
+        {"i32", true, -2147483648LL, 2147483647ULL},
+        {"i64", true, -9223372036854775807LL - 1, 9223372036854775807ULL},
+        {"u8", false, 0, 255},
+        {"u16", false, 0, 65535},
+        {"u32", false, 0, 4294967295ULL},
+        {"u64", false, 0, 18446744073709551615ULL},
+    };
+    return widths;
+  }
+
+  /// Boundary-weighted operand inside one width's domain. The signed minimum
+  /// is never produced: its only spelling negates an overflowing literal,
+  /// and naive emission yields invalid text like `--9223372036854775808`.
+  /// INT64_MIN's expressibility has dedicated tests.
+  [[nodiscard]] inline auto drawOperand(Rng &rng, const IntegerWidth &width) -> uint64_t
+  {
+    const auto roll = rng.nextU64InRange(0, 99);
+    if (roll < 15)
+      return width.max;
+    if (roll < 25)
+      return width.isSigned ? static_cast<uint64_t>(width.min) + 1 : static_cast<uint64_t>(width.min);
+    if (roll < 35)
+      return rng.below(0.5) ? 1 : width.max / 2;
+    if (!width.isSigned && roll < 45)
+      return rng.nextU64InRange(0, std::min<uint64_t>(width.max, 8));
+    if (width.isSigned)
+    {
+      const auto span = static_cast<uint64_t>(width.max) - static_cast<uint64_t>(width.min);
+      return static_cast<uint64_t>(width.min) + rng.nextU64InRange(1, span - 1);
+    }
+    return rng.nextU64InRange(0, width.max);
+  }
+
+  /// Decimal literal for an in-domain value of `width`. Negatives spell a
+  /// bare `-N` (a bare negative literal adopts the declared width;
+  /// parenthesizing would turn it into an i64 unary-minus expression).
+  /// Unsigned widths always render plain digits regardless of how the bit
+  /// pattern reads as signed — rendering them via the int64 interpretation
+  /// was a real bug this consolidation removes.
+  [[nodiscard]] inline auto widthLiteral(const IntegerWidth &width, uint64_t raw) -> std::string
+  {
+    if (!width.isSigned || static_cast<int64_t>(raw) >= 0)
+      return std::to_string(raw);
+    return "-" + std::to_string(-static_cast<int64_t>(raw));
+  }
+
+  /// Signed i64 decimal literal. INT64_MIN itself is not spellable this way;
+  /// spell it as `-9223372036854775807 - 1` where needed.
+  [[nodiscard]] inline auto decimalLiteral(int64_t raw) -> std::string
+  {
+    if (raw >= 0)
+      return std::to_string(raw);
+    return "-" + std::to_string(-raw);
+  }
+
+  // ---- Batched-probe runner ----
+
+  /// True for driver-internal stdout lines ("compiled ... vNext function(s)"
+  /// and the trailing exit-code line); everything else is program output.
+  [[nodiscard]] inline auto isDriverBanner(std::string_view line) -> bool
+  {
+    return (line.starts_with("compiled ") && line.ends_with(" vNext function(s)")) ||
+           line.starts_with("native main exited with code ");
+  }
+
+  /// Program stdout lines from a captured driver output stream.
+  [[nodiscard]] inline auto programOutputLines(const std::string &driverOutput) -> std::vector<std::string>
+  {
+    std::vector<std::string> kept;
+    size_t begin = 0;
+    while (begin <= driverOutput.size())
+    {
+      const size_t end = driverOutput.find('\n', begin);
+      const auto line = driverOutput.substr(begin, end == std::string::npos ? std::string::npos : end - begin);
+      if (!isDriverBanner(line) && !line.empty())
+        kept.emplace_back(line);
+      if (end == std::string::npos)
+        break;
+      begin = end + 1;
+    }
+    while (!kept.empty() && kept.back().empty())
+      kept.pop_back();
+    return kept;
+  }
+
+  struct BatchProbe
+  {
+    std::string source;                 // statements; must print exactly one line
+    std::string expect{"true"};         // the line that must be printed
+    std::string label;                  // echoed verbatim when the probe fails
+  };
+
+  /// Compiles and runs one batched module (every probe in a single main) and
+  /// compares program output lines against probe expectations. Returns a
+  /// description of the first failing probe — echoing its label and source —
+  /// or nullopt when every line matched. This replaces the per-test
+  /// compile/run/parse loops whose duplication hid a false-green regression.
+  [[nodiscard]] inline auto runBatchProbes(std::string_view label, std::string_view preamble,
+                                           const std::vector<BatchProbe> &probes) -> std::optional<std::string>
+  {
+    std::string sanitized(label);
+    for (auto &character : sanitized)
+      if (!std::isalnum(static_cast<unsigned char>(character)) && character != '_')
+        character = '_';
+    const auto modulePath =
+        std::filesystem::temp_directory_path() /
+        std::format("ng_batch_{}_{}.ng", sanitized, static_cast<unsigned>(::getpid()));
+    {
+      std::ofstream stream(modulePath);
+      stream << preamble << "\nfun main() -> unit {\n";
+      for (const auto &probe : probes)
+        stream << probe.source << "\n";
+      stream << "}\n";
+    }
+    std::ostringstream output;
+    std::ostringstream errors;
+    const int status = NG::runDriver({modulePath.string()}, output, errors);
+    if (status != 0)
+    {
+      auto message = std::format("batch `{}` failed to compile/run (status {}):\n{}", label, status, errors.str());
+      for (const auto &probe : probes)
+        message += probe.source + "\n";
+      std::filesystem::remove(modulePath);
+      return message;
+    }
+    const auto lines = programOutputLines(output.str());
+    std::filesystem::remove(modulePath);
+    if (lines.size() != probes.size())
+      return std::format("batch `{}` produced {} output lines for {} probes", label, lines.size(), probes.size());
+    for (size_t index = 0; index < probes.size(); ++index)
+    {
+      if (lines[index] != probes[index].expect)
+        return std::format("probe #{} ({}) failed: expected `{}`, got `{}`\nsource:\n{}", index, probes[index].label,
+                           probes[index].expect, lines[index], probes[index].source);
+    }
+    return std::nullopt;
   }
 } // namespace pbt

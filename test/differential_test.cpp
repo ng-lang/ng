@@ -172,26 +172,7 @@ namespace
     return std::pair{std::move(source), std::move(probes)};
   }
 
-  [[nodiscard]] auto programOutputLines(const std::string &driverOutput) -> std::vector<std::string>
-  {
-    std::vector<std::string> kept;
-    size_t begin = 0;
-    while (begin <= driverOutput.size())
-    {
-      const auto end = driverOutput.find('\n', begin);
-      const auto line = driverOutput.substr(begin, end == std::string::npos ? std::string::npos : end - begin);
-      if (!line.starts_with("compiled ") && !line.starts_with("native main exited with code "))
-        kept.push_back(line);
-      if (end == std::string::npos)
-        break;
-      begin = end + 1;
-    }
-    while (!kept.empty() && kept.back().empty())
-      kept.pop_back();
-    return kept;
-  }
-
-  /// Const path: evaluates one probe call against the checked module copy.
+/// Const path: evaluates one probe call against the checked module copy.
   [[nodiscard]] auto evaluateConstCall(const hir::Module &module, const std::unordered_set<uint32_t> &constFunctions,
                                        const_eval::ConstInterner &interner, const Probe &probe) -> int64_t
   {
@@ -236,7 +217,7 @@ namespace
     const int status = NG::runDriver({modulePath.string()}, output, errors);
     INFO(errors.str());
     REQUIRE(status == 0);
-    const auto nativeValues = programOutputLines(output.str());
+    const auto nativeValues = pbt::programOutputLines(output.str());
     REQUIRE(nativeValues.size() == count);
 
     const auto module = hir::Resolver{}.resolve(syntax::parseSourceUnit(source));
