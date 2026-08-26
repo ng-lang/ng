@@ -87,7 +87,8 @@ top-down; status and verification baselines live there ([10-baselines.md](./docs
 - ✅ INC-7 — `toString`/`parseInt` (Option-style) natives; argument-position overload fix
 - ✅ PBT 收敛 — challenge-review follow-up: shared width/oracle/batch runner in
   `test/pbt.hpp`; fixed false-green literal bug; ~200 lines duplicated code removed
-- ⬜ INC-8 … INC-36 — pending
+- ✅ INC-8 — `derive(Eq)`: field-level structural `==`/`!=`; nested Eq structs; float fields rejected
+- ⬜ INC-9 … INC-36 — pending
 
 ## Community
 

@@ -402,6 +402,7 @@ INC-15 → INC-16 → INC-17（M2b；唯一交汇点——闭包语法面取自 
 | ARCH-3 const-host 注册表 | ✅ 2026-08-26（维护者指令插队；`src/native/const_hosts.cpp` 表驱动注册，driver 收敛为一行调用） |
 | PBT 收敛 | ✅ 2026-08-26（挑战审查后续；`test/pbt.hpp` 收纳 width/oracle/批量运行器三套漂移代码，修复 string_conversion `literalFor` 双负 false-green bug；5 个消费者迁移共删 ~200 行；pbt_test 覆盖新 helpers） |
 | INC-7 toString/parseInt | ✅ 2026-08-26（严格解析全 i64 域；Option 式 parseInt；PBT 往返 + 边界契约 + trap 语料 + E2E；**连带修复 inferExpected 实参位置重载过滤缺失**） |
+| INC-8 derive(Eq) | ✅ 2026-08-26（derive(Eq) 落地：checker 验证 Eq-comparable 字段 + flowir 逐字段展开；嵌套 Eq struct 递归展开；PBT + 契约 + E2E） |
 | INC-8 … INC-36 | ⬜ 未开始（逐个推进，每个完成后更新本表） |
 
 ### 架构修复插队记录（2026-08-26，维护者指令）
