@@ -172,10 +172,10 @@
 - **测试**: PBT 代律性质（自反/对称/传递）作用于生成 Eq 值域；
   与手写 == 的对照契约。
 
-### INC-9 · I1 诊断第一阶段：错误码 + did-you-mean
-- **动作**: 错误码命名空间落核心诊断集（move/borrow/type/parse）；
-  未解析名 Levenshtein≤2 建议。
-- **测试**: 负契约全面改用错误码断言（INC-2 格式升级）；建议命中单测。
+### INC-9 · I1 诊断第一阶段：错误码 + did-you-mean — ✅ 2026-08-27
+- **动作**: 错误码命名空间落核心诊断集（move/borrow/type/parse）；未解析名 Levenshtein≤2 建议。
+- **落地**: 错误类（TypeError/ResolutionError/ParseError）统一带 `code` 字段（默认 `E-type`/`E-resolve`/`E-parse`），driver 输出 `type error E-xxx at bytes [b, e): msg`；核心站点落具体码：`E-move-used`/`E-move-field`/`E-move-partial`/`E-borrow-conflict`/`E-borrow-too-many`/`E-compare-mixed-sign`/`E-compare-mixed-kind`/`E-unresolved-name`/`E-name-not-visible`；resolver 对未解析/不可见名做模块内候选 Levenshtein≤2 扫描，命中则追加 `; did you mean `X`?`。
+- **测试**: INC-2 负契约增加 `code:` 指令并断言（三条 .neg.expected 全升级）；driver/borrow/move/float 单测断言 error.code；did-you-mean 命中/未命中单测。
 - **价值**: 为后续所有步骤提供稳定 UI 测试锚点（越早越省）。
 
 ### DEC-B + INC-10 · M3/F5 while/break — **DEC-B 已决策：不捕获 + continue**（见 §0b）
@@ -405,7 +405,8 @@ INC-15 → INC-16 → INC-17（M2b；唯一交汇点——闭包语法面取自 
 | INC-8 derive(Eq) | ✅ 2026-08-26（derive(Eq) 落地：checker 验证 Eq-comparable 字段 + flowir 逐字段展开；嵌套 Eq struct 递归展开；PBT + 契约 + E2E） |
 | INC-B 核心 trait → prelude.ng | ✅ 2026-08-27（Copy/Clone/Eq 移出 compiler 注入，改由 `lib/std/prelude.ng` 声明（`export trait …`），derive 校验改为按已注册 trait 查询；`clone` 为关键字故 parser 接受其作 trait 方法名；derive/Eq 教程示例 `import prelude;` 显式接入） |
 | INC-A prelude 自动加载 | ❌ 2026-08-27 决定跳过（尝试自动注入 `import prelude;`：typechecker 对合并模块的所有 overload 统一注册，visibility 只作用于 resolver 名字解析，与本地声明形成歧义特化；改例受限注入/影子化仍无法收敛 → **用户拍板**：显式 `import prelude;`，自动加载推迟至 typechecker 支持按模块可见性注册 overload 之后再议） |
-| INC-9 … INC-36 | ⬜ 未开始（逐个推进，每个完成后更新本表） |
+| INC-9 诊断第一阶段：错误码+did-you-mean | ✅ 2026-08-27（错误类统一 `code` 字段，driver 输出 `type error E-xxx at bytes […]`；核心诊断落码：move/borrow/compare/unresolved-name 九码；resolver Levenshtein≤2 建议追加 `; did you mean \`X\`?`；INC-2 负契约升级 `code:` 指令并断言；序列化不改 what()，borrow/driver/move/float 单测加码；did-you-mean 命中单测；双变体全绿，ASan 仅剩既有 imgui 链接失败） |
+| INC-10 … INC-36 | ⬜ 未开始（逐个推进，每个完成后更新本表） |
 
 ### 架构修复插队记录（2026-08-26，维护者指令）
 

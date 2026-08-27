@@ -92,7 +92,10 @@ top-down; status and verification baselines live there ([10-baselines.md](./docs
   compiler injection; derive validation now queries registered traits
 - ❌ INC-A — prelude auto-loading: skipped by decision (typechecker overload registration is
   visibility-blind; explicit `import prelude;` required, auto-load deferred)
-- ⬜ INC-9 … INC-36 — pending
+- ✅ INC-9 — diagnostics stage one: error-code namespaces (`E-move-used`, `E-borrow-conflict`,
+  `E-compare-mixed-sign`, …) on core move/borrow/type/parse diagnostics; resolver Levenshtein≤2
+  `did you mean` suggestions for unknown names; negative-contract corpus upgraded to `code:` directives
+- ⬜ INC-10 … INC-36 — pending
 
 ## Community
 
