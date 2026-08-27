@@ -399,6 +399,15 @@ void Checker::collectDropMovedFields(const hir::Statement &statement, uint32_t s
     for (const auto &argument : statement.arguments)
       collectDropMovedFields(*argument, selfLocal, fields);
     return;
+  case hir::StatementKind::While:
+    if (statement.expression != nullptr)
+      collectDropMovedFields(*statement.expression, selfLocal, fields);
+    if (statement.body != nullptr)
+      collectDropMovedFields(*statement.body, selfLocal, fields);
+    return;
+  case hir::StatementKind::Continue:
+  case hir::StatementKind::Break:
+    return;
   case hir::StatementKind::Switch:
     if (statement.expression != nullptr)
       collectDropMovedFields(*statement.expression, selfLocal, fields);

@@ -152,6 +152,62 @@ namespace
     return probe;
   }
 
+  /// A simple bounded state machine over `seed`: accumulate with a stride,
+  /// occasionally `continue` (skip) or `break`. Emitted once in `while`+`continue`
+  /// form and once as an equivalent hand-written `loop`/`next` form so the
+  /// desugar-equivalence can be verified across both evaluation paths
+  /// (09-increment-plan.md INC-10).
+  ///
+  /// Semantics: `it` counts 0..bound-1; `continue` fires on the iteration that
+  /// would make `it + 1 == skip` (skipping that iteration's accumulation),
+  /// `break` fires when the accumulator reaches `stop`. The loop form mirrors
+  /// this with `it + 1 == skip` and `next (it + 1)` backedges.
+  [[nodiscard]] auto generateWhileStateMachine(pbt::Rng &rng, size_t index) -> std::pair<Probe, Probe>
+  {
+    const auto bound = rng.nextU64InRange(2, 10);
+    const auto stride = rng.nextU64InRange(1, 9);
+    const auto skip = rng.nextU64InRange(2, bound + 1);
+    const auto stop = rng.nextU64InRange(3, 32);
+    const auto base = rng.nextU64InRange(1, 255);
+
+    const auto whileName = "wprobe_" + std::to_string(index);
+    const auto loopName = "lprobe_" + std::to_string(index);
+
+    Probe whileProbe{
+        .name = whileName,
+        .argument = static_cast<int64_t>(rng.nextU64InRange(0, 48)),
+        .source = "const fun " + whileName + "(seed: i64) -> i64 {\n"
+                  "    let mut acc = (seed + " + std::to_string(base) + ") % 256;\n"
+                  "    let mut it = 0;\n"
+                  "    while (it < " + std::to_string(bound) + ") {\n"
+                  "        it := it + 1;\n"
+                  "        if (it == " + std::to_string(skip) + ") { continue; }\n"
+                  "        acc := (acc + " + std::to_string(stride) + ") % 256;\n"
+                  "        if (acc == " + std::to_string(stop) + ") { break; }\n"
+                  "    }\n"
+                  "    return acc;\n"
+                  "}"};
+
+    // Equivalent hand-written loop form: the while header becomes the loop's
+    // pre-body condition check, `continue` becomes the loop's next back-edge,
+    // and `break` exits the loop (works in both loop and while per DEC-B).
+    Probe loopProbe{
+        .name = loopName,
+        .argument = whileProbe.argument,
+        .source = "const fun " + loopName + "(seed: i64) -> i64 {\n"
+                  "    let mut acc = (seed + " + std::to_string(base) + ") % 256;\n"
+                  "    loop (it = 0) {\n"
+                  "        if (it == " + std::to_string(bound) + ") { break; }\n"
+                  "        if (it + 1 == " + std::to_string(skip) + ") { next (it + 1); }\n"
+                  "        acc := (acc + " + std::to_string(stride) + ") % 256;\n"
+                  "        if (acc == " + std::to_string(stop) + ") { break; }\n"
+                  "        next (it + 1);\n"
+                  "    }\n"
+                  "    return acc;\n"
+                  "}"};
+    return {std::move(whileProbe), std::move(loopProbe)};
+  }
+
   [[nodiscard]] auto generateBatch(pbt::Rng &rng, uint32_t count, bool biasNativeSide)
   {
     std::vector<Probe> probes;
@@ -249,6 +305,67 @@ TEST_CASE("INC-3 differential: 500 generated programs match across both paths", 
   else
   {
     REQUIRE(!divergence.has_value());
+  }
+}
+
+TEST_CASE("INC-10 while/continue desugars equivalently to a hand-written loop on both paths", "[INC10][Differential]")
+{
+  constexpr uint32_t kWhileCount = 300;
+  pbt::Rng rng{pbt::currentSeed("diff-while")};
+  std::vector<Probe> whileProbes;
+  std::vector<Probe> loopProbes;
+  whileProbes.reserve(kWhileCount);
+  loopProbes.reserve(kWhileCount);
+
+  std::string source = "native fun print(value: i64) -> unit;\n\n";
+  for (uint32_t index = 0; index < kWhileCount; ++index)
+  {
+    auto [whileProbe, loopProbe] = generateWhileStateMachine(rng, index);
+    whileProbes.push_back(std::move(whileProbe));
+    loopProbes.push_back(std::move(loopProbe));
+  }
+  for (const auto &probe : whileProbes)
+    source += probe.source + "\n\n";
+  for (const auto &probe : loopProbes)
+    source += probe.source + "\n\n";
+  source += "fun main() -> unit {\n";
+  for (const auto &probe : whileProbes)
+    source += "    print(" + probe.name + "(" + std::to_string(probe.argument) + "));\n";
+  for (const auto &probe : loopProbes)
+    source += "    print(" + probe.name + "(" + std::to_string(probe.argument) + "));\n";
+  source += "}\n";
+
+  const auto modulePath = std::filesystem::temp_directory_path() / "ng_diff_while_module.ng";
+  {
+    std::ofstream stream(modulePath);
+    stream << source;
+  }
+
+  std::ostringstream output;
+  std::ostringstream errors;
+  const int status = NG::runDriver({modulePath.string()}, output, errors);
+  INFO(errors.str());
+  REQUIRE(status == 0);
+  const auto nativeValues = pbt::programOutputLines(output.str());
+  REQUIRE(nativeValues.size() == kWhileCount * 2);
+
+  const auto module = hir::Resolver{}.resolve(syntax::parseSourceUnit(source));
+  std::unordered_set<uint32_t> constFunctions;
+  for (const auto &function : module.functions)
+    if (function.constFunction)
+      constFunctions.insert(function.id.value);
+
+  const_eval::ConstInterner interner;
+  for (size_t index = 0; index < whileProbes.size(); ++index)
+  {
+    const auto whileNative = static_cast<int64_t>(std::stoll(nativeValues[index]));
+    const auto loopNative = static_cast<int64_t>(std::stoll(nativeValues[kWhileCount + index]));
+    const auto whileConst = evaluateConstCall(module, constFunctions, interner, whileProbes[index]);
+    const auto loopConst = evaluateConstCall(module, constFunctions, interner, loopProbes[index]);
+    INFO("probe " << index);
+    CHECK(whileNative == loopNative);
+    CHECK(whileConst == loopConst);
+    CHECK(whileNative == whileConst);
   }
 }
 

@@ -135,6 +135,9 @@ namespace NG::hir
     Next,
     Switch,
     Expression,
+    While,
+    Continue,
+    Break,
   };
 
   enum class NextTargetKind
@@ -420,6 +423,11 @@ namespace NG::hir
     struct ActiveLoop
     {
       LoopId id;
+      /// Whether a bare `next` inside this construct is captured (a `loop`
+      /// WITH binders). `while` and binderless loops never capture bare `next`.
+      bool capturesNext;
+      /// Whether this construct is a `while` (only `while` allows `continue`).
+      bool isWhile;
     };
 
     [[nodiscard]] auto resolveFunction(const syntax::FunctionDeclaration &function, DefId id) -> Function;

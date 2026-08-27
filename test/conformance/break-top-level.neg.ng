@@ -1,0 +1,5 @@
+// Negative contract: `break` is only valid inside a `loop` or `while` loop.
+
+fun broken() -> unit {
+    break;
+}

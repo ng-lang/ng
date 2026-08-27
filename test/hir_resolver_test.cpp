@@ -178,3 +178,65 @@ TEST_CASE("vNext resolver rejects duplicate nominal and lexical declarations", "
     REQUIRE(error.span.begin == 29);
   }
 }
+
+TEST_CASE("vNext resolver does not capture bare next inside a while body (DEC-B)", "[vNext][HIR][Resolver]")
+{
+  const auto syntaxUnit =
+      syntax::parseSourceUnit("fun step(seed: i64) -> i64 { while (seed > 0) { next (seed - 1); } return seed; }");
+  const auto module = hir::Resolver{}.resolve(syntaxUnit);
+  const auto &function = module.functions[0];
+  const auto &whileStatement = function.body.statements[0];
+  REQUIRE(whileStatement.kind == hir::StatementKind::While);
+  REQUIRE(whileStatement.loop.has_value());
+  const auto &nextStatement = whileStatement.body->statements[0];
+  REQUIRE(nextStatement.kind == hir::StatementKind::Next);
+  REQUIRE(nextStatement.nextTarget->kind == hir::NextTargetKind::Function);
+  REQUIRE(nextStatement.nextTarget->id == function.id.value);
+}
+
+TEST_CASE("vNext resolver targets while break and continue to the innermost while", "[vNext][HIR][Resolver]")
+{
+  const auto syntaxUnit = syntax::parseSourceUnit(
+      "fun step(limit: i64) -> i64 { let mut i = 0; while (i < limit) { if (i == 3) { break; } i := i + 1; "
+      "while (i < 10) { continue; } } return i; }");
+  const auto module = hir::Resolver{}.resolve(syntaxUnit);
+  const auto &function = module.functions[0];
+  const auto &outerWhile = function.body.statements[1];
+  REQUIRE(outerWhile.kind == hir::StatementKind::While);
+  const auto &ifStatement = outerWhile.body->statements[0];
+  const auto &breakStatement = ifStatement.consequence->statements[0];
+  REQUIRE(breakStatement.kind == hir::StatementKind::Break);
+  REQUIRE(breakStatement.loop->value == outerWhile.loop->value);
+
+  const auto &innerWhile = outerWhile.body->statements[2];
+  REQUIRE(innerWhile.kind == hir::StatementKind::While);
+  const auto &continueStatement = innerWhile.body->statements[0];
+  REQUIRE(continueStatement.kind == hir::StatementKind::Continue);
+  REQUIRE(continueStatement.loop->value == innerWhile.loop->value);
+}
+
+TEST_CASE("vNext resolver rejects continue inside a loop and break at top level", "[vNext][HIR][Resolver]")
+{
+  const auto continueInLoop =
+      syntax::parseSourceUnit("fun step() { loop (i = 0) { continue; next (i + 1); } }");
+  try
+  {
+    static_cast<void>(hir::Resolver{}.resolve(continueInLoop));
+    FAIL("expected continue inside a loop to fail");
+  }
+  catch (const hir::ResolutionError &error)
+  {
+    REQUIRE(std::string{error.what()} == "`continue` is not allowed inside a `loop`");
+  }
+
+  const auto breakAtTop = syntax::parseSourceUnit("fun step() { break; }");
+  try
+  {
+    static_cast<void>(hir::Resolver{}.resolve(breakAtTop));
+    FAIL("expected break at function top level to fail");
+  }
+  catch (const hir::ResolutionError &error)
+  {
+    REQUIRE(std::string{error.what()} == "`break` is only valid inside a `loop` or `while` loop");
+  }
+}

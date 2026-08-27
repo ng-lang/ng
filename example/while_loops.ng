@@ -1,0 +1,38 @@
+// vNext while/break/continue: search-style loops written with `while`,
+// `break`, and `continue` instead of a boolean "found" flag. The tail
+// recursion rule is unchanged: a bare `next(args)` inside a `while` body
+// still targets the enclosing function (DEC-B).
+
+import prelude;
+import seq;
+
+fun first_greater(values: array<i64>, threshold: i64) -> i64 {
+    // Flag-free search: `break` exits as soon as the condition holds.
+    let mut index = 0;
+    while (index < len(values)) {
+        if (values[index] > threshold) { return index; }
+        index := index + 1;
+    }
+    return index;
+}
+
+fun sum_positive(values: array<i64>) -> i64 {
+    // `continue` skips to the condition re-evaluation.
+    let mut index = 0;
+    let mut total = 0;
+    while (index < len(values)) {
+        index := index + 1;
+        if (values[index - 1] <= 0) { continue; }
+        total := total + values[index - 1];
+    }
+    return total;
+}
+
+fun main() -> unit {
+    let values = [3, 1, 4, 1, 5, 9, 2, 6];
+    assert(first_greater(values, 4) == 4);
+    assert(first_greater(values, 100) == len(values));
+    assert(sum_positive(values) == 31);
+    assert(sum_positive([-1, -2, -3]) == 0);
+    assert(sum_positive([0, 0, 5]) == 5);
+}

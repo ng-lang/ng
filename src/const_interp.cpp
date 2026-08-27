@@ -344,6 +344,27 @@ namespace NG::const_eval
           return control;
         break;
       }
+      case hir::StatementKind::While:
+      {
+        Control control = runWhile(statement, locals);
+        if (control.kind != Control::Kind::Fallthrough)
+          return control;
+        break;
+      }
+      case hir::StatementKind::Continue:
+      {
+        Control control{.kind = Control::Kind::Continue};
+        if (statement.loop.has_value())
+          control.loopTarget = statement.loop->value;
+        return control;
+      }
+      case hir::StatementKind::Break:
+      {
+        Control control{.kind = Control::Kind::Break};
+        if (statement.loop.has_value())
+          control.loopTarget = statement.loop->value;
+        return control;
+      }
       case hir::StatementKind::Next:
       {
         Control control{.kind = Control::Kind::Fallthrough};
@@ -392,6 +413,27 @@ namespace NG::const_eval
           locals[statement.loopBindings[index].value] = control.arguments[index];
         continue;
       }
+      if (control.kind == Control::Kind::Break && control.loopTarget == loopId)
+        return Control{};
+      return control;
+    }
+  }
+
+  auto ConstInterpreter::runWhile(const hir::Statement &statement, LocalValues &locals) -> Control
+  {
+    const uint32_t loopId = statement.loop->value;
+    while (true)
+    {
+      consumeStep(statement.span);
+      if (!evaluateCondition(*statement.expression, locals))
+        return Control{};
+      Control control = runBlock(*statement.body, locals);
+      if (control.kind == Control::Kind::Continue && control.loopTarget == loopId)
+        continue;
+      if (control.kind == Control::Kind::Break && control.loopTarget == loopId)
+        return Control{};
+      if (control.kind == Control::Kind::Fallthrough)
+        continue;
       return control;
     }
   }

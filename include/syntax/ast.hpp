@@ -291,6 +291,9 @@ namespace NG::syntax
     Next,
     Switch,
     Expression,
+    While,
+    Continue,
+    Break,
   };
 
   struct Statement
@@ -424,6 +427,27 @@ namespace NG::syntax
       : Statement(StatementKind::Next, sourceSpan), arguments(std::move(nextArguments))
     {
     }
+  };
+
+  struct WhileStatement final : Statement
+  {
+    ExpressionPtr condition;
+    Block body;
+
+    WhileStatement(ExpressionPtr cond, Block loopBody, SourceSpan sourceSpan)
+      : Statement(StatementKind::While, sourceSpan), condition(std::move(cond)), body(std::move(loopBody))
+    {
+    }
+  };
+
+  struct ContinueStatement final : Statement
+  {
+    explicit ContinueStatement(SourceSpan sourceSpan) : Statement(StatementKind::Continue, sourceSpan) {}
+  };
+
+  struct BreakStatement final : Statement
+  {
+    explicit BreakStatement(SourceSpan sourceSpan) : Statement(StatementKind::Break, sourceSpan) {}
   };
 
   struct SwitchCasePattern final

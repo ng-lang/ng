@@ -1544,6 +1544,15 @@ namespace NG::flowir
         case hir::StatementKind::Loop:
           lowerLoop(statement);
           return;
+        case hir::StatementKind::While:
+          lowerWhile(statement);
+          return;
+        case hir::StatementKind::Continue:
+          lowerContinue(statement);
+          return;
+        case hir::StatementKind::Break:
+          lowerBreak(statement);
+          return;
         case hir::StatementKind::Next:
           lowerNext(statement);
           return;
@@ -1615,6 +1624,7 @@ namespace NG::flowir
             Terminator{.kind = TerminatorKind::Jump, .targets = {body}, .arguments = {}};
 
         loopHeaders_.emplace(statement.loop->value, header);
+        loopExits_.emplace(statement.loop->value, exit);
         current_ = body;
         lowerBlock(*statement.body);
         if (!block().terminator.has_value())
@@ -1622,7 +1632,51 @@ namespace NG::flowir
           block().terminator = Terminator{.kind = TerminatorKind::Jump, .targets = {exit}, .arguments = {}};
         }
         loopHeaders_.erase(statement.loop->value);
+        loopExits_.erase(statement.loop->value);
         current_ = exit;
+      }
+
+      void lowerWhile(const hir::Statement &statement)
+      {
+        const BlockId header = appendBlock();
+        const BlockId body = appendBlock();
+        const BlockId exit = appendBlock();
+        block().terminator = Terminator{.kind = TerminatorKind::Jump, .targets = {header}, .arguments = {}};
+
+        current_ = header;
+        const ValueId condition = lowerExpression(*statement.expression);
+        block().terminator = Terminator{.kind = TerminatorKind::Branch, .targets = {body, exit}, .arguments = {condition}};
+
+        // `continue` jumps back to the condition re-evaluation (the header).
+        loopHeaders_.emplace(statement.loop->value, header);
+        loopExits_.emplace(statement.loop->value, exit);
+        current_ = body;
+        lowerBlock(*statement.body);
+        if (!block().terminator.has_value())
+        {
+          block().terminator = Terminator{.kind = TerminatorKind::Jump, .targets = {header}, .arguments = {}};
+        }
+        loopHeaders_.erase(statement.loop->value);
+        loopExits_.erase(statement.loop->value);
+        current_ = exit;
+      }
+
+      void lowerContinue(const hir::Statement &statement)
+      {
+        if (currentHirBlock_ != nullptr)
+          emitBlockDrops(*currentHirBlock_);
+        block().terminator = Terminator{.kind = TerminatorKind::Jump,
+                                        .targets = {loopHeaders_.at(statement.loop->value)},
+                                        .arguments = {}};
+      }
+
+      void lowerBreak(const hir::Statement &statement)
+      {
+        if (currentHirBlock_ != nullptr)
+          emitBlockDrops(*currentHirBlock_);
+        block().terminator = Terminator{.kind = TerminatorKind::Jump,
+                                        .targets = {loopExits_.at(statement.loop->value)},
+                                        .arguments = {}};
       }
 
       void lowerNext(const hir::Statement &statement)
@@ -1878,6 +1932,7 @@ namespace NG::flowir
       const typecheck::TypeCheckResult *types_{};
       const hir::Block *currentHirBlock_{};
       std::unordered_map<uint32_t, BlockId> loopHeaders_;
+      std::unordered_map<uint32_t, BlockId> loopExits_;
     };
   } // namespace
 

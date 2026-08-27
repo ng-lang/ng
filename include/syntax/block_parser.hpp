@@ -23,6 +23,9 @@ namespace NG::syntax
     [[nodiscard]] auto parseConstIfStatement() -> StatementPtr;
     [[nodiscard]] auto parseLoopStatement() -> StatementPtr;
     [[nodiscard]] auto parseNextStatement() -> StatementPtr;
+    [[nodiscard]] auto parseWhileStatement() -> StatementPtr;
+    [[nodiscard]] auto parseContinueStatement() -> StatementPtr;
+    [[nodiscard]] auto parseBreakStatement() -> StatementPtr;
     [[nodiscard]] auto parseSwitchStatement() -> StatementPtr;
     [[nodiscard]] auto parseNestedBlock() -> Block;
     [[nodiscard]] auto parseExpressionUntil(TokenKind terminator) -> ExpressionPtr;

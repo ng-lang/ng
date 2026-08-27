@@ -602,10 +602,48 @@ namespace NG::hir
         resolved.loopBindings.push_back(local);
         resolved.arguments.push_back(std::move(initializers[index]));
       }
-      loops_.push_back(ActiveLoop{*resolved.loop});
+      loops_.push_back(ActiveLoop{*resolved.loop, /*capturesNext=*/!loop->bindings.empty(), /*isWhile=*/false});
       resolved.body = std::make_unique<Block>(resolveBlock(loop->body, false));
       loops_.pop_back();
       scopes_.pop_back();
+      return resolved;
+    }
+
+    if (const auto *whileLoop = dynamic_cast<const syntax::WhileStatement *>(&statement))
+    {
+      Statement resolved{.kind = StatementKind::While, .span = whileLoop->span};
+      scopes_.emplace_back();
+      resolved.loop = LoopId{nextLoop_++};
+      resolved.expression = resolveExpression(*whileLoop->condition);
+      // `while` never captures bare `next`; tail recursion inside its body
+      // still targets the enclosing function (DEC-B).
+      loops_.push_back(ActiveLoop{*resolved.loop, /*capturesNext=*/false, /*isWhile=*/true});
+      resolved.body = std::make_unique<Block>(resolveBlock(whileLoop->body, false));
+      loops_.pop_back();
+      scopes_.pop_back();
+      return resolved;
+    }
+
+    if (const auto *continueStatement = dynamic_cast<const syntax::ContinueStatement *>(&statement))
+    {
+      Statement resolved{.kind = StatementKind::Continue, .span = continueStatement->span};
+      if (loops_.empty())
+        throw ResolutionError("`continue` is only valid inside a `while` loop", continueStatement->span);
+      // `continue` belongs to `while` only: the nearest enclosing loop-like
+      // construct must be a `while`; a `loop` (binderless or not) in between
+      // is an error (continue is not a `loop` control).
+      if (!loops_.back().isWhile)
+        throw ResolutionError("`continue` is not allowed inside a `loop`", continueStatement->span);
+      resolved.loop = loops_.back().id;
+      return resolved;
+    }
+
+    if (const auto *breakStatement = dynamic_cast<const syntax::BreakStatement *>(&statement))
+    {
+      Statement resolved{.kind = StatementKind::Break, .span = breakStatement->span};
+      if (loops_.empty())
+        throw ResolutionError("`break` is only valid inside a `loop` or `while` loop", breakStatement->span);
+      resolved.loop = loops_.back().id;
       return resolved;
     }
 
@@ -617,19 +655,21 @@ namespace NG::hir
       {
         resolved.arguments.push_back(resolveExpression(*argument));
       }
-      if (!loops_.empty())
+      // DEC-B: bare `next` is captured only by the nearest `loop` WITH binders.
+      for (auto it = loops_.rbegin(); it != loops_.rend(); ++it)
       {
-        resolved.nextTarget = NextTarget{.kind = NextTargetKind::Loop, .id = loops_.back().id.value};
+        if (it->capturesNext)
+        {
+          resolved.nextTarget = NextTarget{.kind = NextTargetKind::Loop, .id = it->id.value};
+          return resolved;
+        }
       }
-      else if (currentFunction_.has_value())
+      if (currentFunction_.has_value())
       {
         resolved.nextTarget = NextTarget{.kind = NextTargetKind::Function, .id = currentFunction_->value};
+        return resolved;
       }
-      else
-      {
-        throw ResolutionError("next has no enclosing loop or function", next->span);
-      }
-      return resolved;
+      throw ResolutionError("next has no enclosing loop or function", next->span);
     }
 
     if (const auto *switchStatement = dynamic_cast<const syntax::SwitchStatement *>(&statement))

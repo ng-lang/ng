@@ -63,6 +63,8 @@ namespace NG::const_eval
         Return,
         NextLoop,
         TailRecur,
+        Continue,
+        Break,
       };
       Kind kind{Kind::Fallthrough};
       ConstValueId value;
@@ -73,6 +75,7 @@ namespace NG::const_eval
     [[nodiscard]] auto runFunction(const hir::Function &function, const std::vector<ConstValueId> &arguments) -> ConstValueId;
     [[nodiscard]] auto runBlock(const hir::Block &block, LocalValues &locals) -> Control;
     [[nodiscard]] auto runLoop(const hir::Statement &statement, LocalValues &locals) -> Control;
+    [[nodiscard]] auto runWhile(const hir::Statement &statement, LocalValues &locals) -> Control;
     [[nodiscard]] auto asBool(ConstValueId id, syntax::SourceSpan span) const -> bool;
     [[nodiscard]] auto asInteger(ConstValueId id, syntax::SourceSpan span) const -> int64_t;
     void consumeStep(syntax::SourceSpan span) const;

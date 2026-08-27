@@ -1,0 +1,10 @@
+// Negative contract: a bare `next(args)` inside a `while` body is NOT
+// captured by the while (DEC-B). It targets the enclosing function, so its
+// arity error points at the function's parameters, not a loop's bindings.
+
+fun count_down(start: i64) -> i64 {
+    while (start > 0) {
+        next (start - 1, start);
+    }
+    start
+}

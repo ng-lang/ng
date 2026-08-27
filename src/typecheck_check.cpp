@@ -447,6 +447,20 @@ void Checker::checkStatement(const hir::Statement &statement, LocalTypes &locals
   case hir::StatementKind::Next:
     checkNext(statement, locals, loops);
     return;
+  case hir::StatementKind::While:
+  {
+    requireType(builtin::Bool, infer(*statement.expression, locals), statement.expression->span, "while condition");
+    const MoveState before = moveState_;
+    const BorrowState borrowsBefore = borrowState_;
+    checkBlock(*statement.body, locals, loops, returnType, true);
+    moveState_ = before.mergedWith(moveState_);
+    borrowState_ = borrowsBefore.mergedWith(borrowState_);
+    return;
+  }
+  case hir::StatementKind::Continue:
+  case hir::StatementKind::Break:
+    // Terminators with a unit value; control leaves the enclosing loop.
+    return;
   case hir::StatementKind::Switch:
     checkSwitch(statement, locals, loops, returnType);
     return;

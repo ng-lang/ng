@@ -76,6 +76,21 @@ namespace NG::syntax
         statements.push_back(parseSwitchStatement());
         continue;
       }
+      if (current().kind == TokenKind::KeywordWhile)
+      {
+        statements.push_back(parseWhileStatement());
+        continue;
+      }
+      if (current().kind == TokenKind::KeywordContinue)
+      {
+        statements.push_back(parseContinueStatement());
+        continue;
+      }
+      if (current().kind == TokenKind::KeywordBreak)
+      {
+        statements.push_back(parseBreakStatement());
+        continue;
+      }
 
       auto expression = parseExpressionUntil(TokenKind::RightBrace);
       if (current().kind == TokenKind::Semicolon)
@@ -240,6 +255,31 @@ namespace NG::syntax
     const Token semicolon = current();
     expect(TokenKind::Semicolon, "expected `;` after next arguments");
     return std::make_unique<NextStatement>(std::move(arguments), SourceSpan{nextToken.span.begin, semicolon.span.end});
+  }
+
+  auto BlockParser::parseWhileStatement() -> StatementPtr
+  {
+    const Token whileToken = consume();
+    auto condition = parseExpressionUntil(TokenKind::LeftBrace);
+    Block body = parseNestedBlock();
+    const SourceSpan span{whileToken.span.begin, body.span.end};
+    return std::make_unique<WhileStatement>(std::move(condition), std::move(body), span);
+  }
+
+  auto BlockParser::parseContinueStatement() -> StatementPtr
+  {
+    const Token continueToken = consume();
+    const Token semicolon = current();
+    expect(TokenKind::Semicolon, "expected `;` after `continue`");
+    return std::make_unique<ContinueStatement>(SourceSpan{continueToken.span.begin, semicolon.span.end});
+  }
+
+  auto BlockParser::parseBreakStatement() -> StatementPtr
+  {
+    const Token breakToken = consume();
+    const Token semicolon = current();
+    expect(TokenKind::Semicolon, "expected `;` after `break`");
+    return std::make_unique<BreakStatement>(SourceSpan{breakToken.span.begin, semicolon.span.end});
   }
 
   auto BlockParser::parseIfStatement() -> StatementPtr

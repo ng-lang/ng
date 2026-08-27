@@ -164,6 +164,9 @@ namespace NG::syntax
                              : text == "true" ? TokenKind::KeywordTrue
                              : text == "type" ? TokenKind::KeywordType
                              : text == "where" ? TokenKind::KeywordWhere
+                             : text == "while" ? TokenKind::KeywordWhile
+                             : text == "continue" ? TokenKind::KeywordContinue
+                             : text == "break" ? TokenKind::KeywordBreak
                              : text == "false" ? TokenKind::KeywordFalse
                                                : TokenKind::Identifier;
         tokens.push_back(Token{.kind = kind, .text = text, .span = SourceSpan{begin, offset}});

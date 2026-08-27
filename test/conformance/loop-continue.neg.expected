@@ -1,0 +1,3 @@
+kind: resolution
+code: E-resolve
+pattern: continue is not allowed inside a `loop`

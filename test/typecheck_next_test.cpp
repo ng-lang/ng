@@ -313,3 +313,35 @@ TEST_CASE("vNext type checker rejects tail next arity mismatch", "[vNext][Typech
     REQUIRE(error.span.end == 52);
   }
 }
+
+TEST_CASE("vNext type checker accepts while/break/continue and validates while conditions", "[vNext][Typecheck][While]")
+{
+  REQUIRE_NOTHROW(check("fun step(limit: i64) -> i64 { let mut i = 0; let mut total = 0; while (i < limit) { "
+                        "i := i + 1; if (i % 2 == 0) { continue; } total := total + i; if (total > 100) { break; } } "
+                        "return total; }"));
+  REQUIRE_NOTHROW(check("fun nested() -> i64 { let mut i = 0; while (true) { i := i + 1; if (i > 10) { break; } } return i; }"));
+  REQUIRE_NOTHROW(check("fun loopBreak() -> i64 { loop (i = 0) { if (i == 5) { break; } next (i + 1); } return 0; }"));
+
+  try
+  {
+    check("fun invalid() { let mut i = 0; while (1) { i := i + 1; } }");
+    FAIL("expected a while condition type error");
+  }
+  catch (const typecheck::TypeError &error)
+  {
+    REQUIRE(std::string{error.what()} == "while condition type mismatch: expected bool, got i64");
+  }
+}
+
+TEST_CASE("vNext type checker treats while body next as function tail recursion arity", "[vNext][Typecheck][While]")
+{
+  try
+  {
+    check("fun invalid(first: i64, second: i64) -> i64 { let mut i = 0; while (i < 3) { next (first); } return i; }");
+    FAIL("expected while body next arity mismatch against function parameters");
+  }
+  catch (const typecheck::TypeError &error)
+  {
+    REQUIRE(std::string{error.what()} == "next argument count mismatch: expected 2, got 1");
+  }
+}
