@@ -570,6 +570,39 @@ The VM reuses the active frame for `TailRecur`; it does not push a normal call f
 - moved/borrowed loop state and cleanup on exit/back-edge;
 - no C++ stack growth for tail recursion.
 
+### Revision — DEC-B while/continue/break (2026-08-27 decided; landed with INC-10)
+
+`while` is added as a structural loop with three dedicated control forms, and
+the bare-`next` capture rule is tightened:
+
+- **Bare `next` is captured only by a `loop` WITH binders.** A binderless
+  `loop ()` and a `while` never capture a bare `next`; inside either, a bare
+  `next (...)` targets the enclosing function (tail recursion) or the nearest
+  enclosing binder-loop. This keeps the self-tail-recursion rule from D-010
+  stable: `while` bodies cannot silently rebind loop state through `next`.
+- **`while (cond) { ... }`** is a statement loop whose header re-evaluates
+  `cond` each iteration; falling out of the body jumps back to the condition
+  re-evaluation. FlowIR lowers it to a header `Branch` plus `Jump` back-edges —
+  no new terminator kinds are needed (`break`/`continue` lower to plain
+  `Jump`s to the loop's exit/header block).
+- **`continue;`** (no arguments) is valid **only inside a `while`**; it jumps to
+  the condition re-evaluation. Using `continue` inside a `loop` is an error
+  (continue is not a `loop` control form).
+- **`break;`** (unit value) works in both `loop` and `while`; it jumps to the
+  enclosing loop/while's exit block. A bare `break`/`continue` outside any
+  loop-like construct is a resolution error.
+- Tail recursion from inside a `while` body is unchanged from D-010: a bare
+  `next (...)` there is a self-tail-recursion terminator against the enclosing
+  function (or the nearest binder-loop, if one is active).
+
+**Required diagnostics/tests (INC-10):**
+- `while` body bare `next(args)` arity error points at the function's
+  parameters (proving the while does not capture it) — counterexample suite;
+- `continue` inside a `loop` is rejected;
+- `break` at function top level is rejected;
+- desugar equivalence PBT: a generated state machine in `while`+`continue` form
+  equals a hand-written `loop`/`next` form on both the const and native paths.
+
 ---
 
 ## D-011 — Traits as abstract types and dynamic `ref<Trait>` views
@@ -1088,7 +1121,7 @@ let writable = ref mut value;
 | D-007 | Error model | Accepted | `Result<T, E>` + `?`; panic boundary separated; algebraic effects deferred. |
 | D-008 | Numeric model | Accepted | i8–i64/u8–u64, f32/f64, isize/usize, checked arithmetic. |
 | D-009 | Module items vs. block statements | Accepted | Module declarations create `DefId`; block `let` creates lexical `LocalId`; no local declarations in MVP. |
-| D-010 | `loop` / `next` / tail recursion | Accepted | Explicit loop binders; nearest-target `next`; self-tail recursion outside loops; dedicated HIR/FlowIR terminators. |
+| D-010 | `loop` / `next` / tail recursion | Accepted | Explicit loop binders; nearest-target `next`; self-tail recursion outside loops; dedicated HIR/FlowIR terminators. DEC-B (2026-08-27): bare `next` captured only by binder `loop`s; `while`/`continue`/`break` added (INC-10). |
 | D-011 | Trait abstract types and `ref<Trait>` | Accepted | Traits have no by-value instance; object-safe dynamic dispatch uses non-owning abstract reference views plus immutable selected dispatch descriptors. |
 | D-012 | Const declarations and const predicates | Accepted | `const name<T>: bool = ...` with `= expr` / `= native` / `= delete`, pattern specialization, exact→pattern→pack→primary priority; abstract types remain D-001 `opaque` + D-011 traits. |
 | D-013 | `const fun` | Accepted | Typed-HIR compile-time interpreter over `ConstEvaluator`; `Pure` capability; runtime-callable; `= native` const predicates; fuel/recursion budgets. |

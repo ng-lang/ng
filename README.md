@@ -95,7 +95,10 @@ top-down; status and verification baselines live there ([10-baselines.md](./docs
 - ✅ INC-9 — diagnostics stage one: error-code namespaces (`E-move-used`, `E-borrow-conflict`,
   `E-compare-mixed-sign`, …) on core move/borrow/type/parse diagnostics; resolver Levenshtein≤2
   `did you mean` suggestions for unknown names; negative-contract corpus upgraded to `code:` directives
-- ⬜ INC-10 … INC-36 — pending
+- ✅ INC-10 + DEC-B — `while`/`continue`/`break` control flow: bare `next` captured only by binder
+  `loop`s; FlowIR header-branch while lowering; desugar-equivalence PBT (while+continue ≡ hand-written
+  loop on const+native); `example/while_loops.ng`
+- ⬜ INC-11 … INC-36 — pending
 
 ## Community
 

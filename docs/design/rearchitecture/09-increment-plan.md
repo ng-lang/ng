@@ -178,17 +178,30 @@
 - **测试**: INC-2 负契约增加 `code:` 指令并断言（三条 .neg.expected 全升级）；driver/borrow/move/float 单测断言 error.code；did-you-mean 命中/未命中单测。
 - **价值**: 为后续所有步骤提供稳定 UI 测试锚点（越早越省）。
 
-### DEC-B + INC-10 · M3/F5 while/break — **DEC-B 已决策：不捕获 + continue**（见 §0b）
-- **DEC-B 剩余工作（随 INC-10 首 commit）**: D-010 修订文本 + 反例测试集
-  （while 体内裸 `next(args)` 必须仍解析为函数尾递归调用）。
-- **INC-10 动作**: `while (cond)` 脱糖 loop+Branch；无参 `continue` 关键字
-  （仅 while 合法，跳到条件重估）；`break`（unit 值）在 loop/while 通用，
-  FlowIR LoopBreak/Jump-to-exit。
-- **测试**: 脱糖等价性 PBT（生成简单状态机，while+continue 形式 ≡ 手写
-  loop 形式，经 INC-3 差分双路径验证）；负契约：①while 内 `next(args)`
-  arity 错误指向函数参数（证明未被循环捕获）；②loop 内使用 `continue`
-  报错（continue 不属于 loop）；③break 在函数顶层报错。
-- **E2E**: 搜索循环示例去掉标志位。
+### DEC-B + INC-10 · M3/F5 while/break — ✅ 2026-08-27
+ - **DEC-B 剩余工作（随 INC-10 首 commit）**: D-010 修订文本 + 反例测试集
+   （while 体内裸 `next(args)` 必须仍解析为函数尾递归调用）。
+ - **INC-10 动作**: `while (cond)` 脱糖 loop+Branch；无参 `continue` 关键字
+   （仅 while 合法，跳到条件重估）；`break`（unit 值）在 loop/while 通用，
+   FlowIR LoopBreak/Jump-to-exit。
+ - **测试**: 脱糖等价性 PBT（生成简单状态机，while+continue 形式 ≡ 手写
+   loop 形式，经 INC-3 差分双路径验证）；负契约：①while 内 `next(args)`
+   arity 错误指向函数参数（证明未被循环捕获）；②loop 内使用 `continue`
+   报错（continue 不属于 loop）；③break 在函数顶层报错。
+ - **E2E**: 搜索循环示例去掉标志位。
+ - **执行记录**: 语法层加 `while`/`continue`/`break` 关键字与 AST 语句节点；
+   HIR 新增 `StatementKind::While/Continue/Break`，resolver 仅让带绑定器的
+   `loop` 捕获裸 `next`（`while` 与 `loop ()` 不捕获，体内 `next` 指向函数尾
+   递归），`break` 指向最近 loop/while、`continue` 仅允许最近为 `while`；
+   FlowIR `lowerWhile` 产出 header 条件 Branch + body 回跳（隐式 continue），
+   `lowerContinue`/`lowerBreak` 为指向 header/exit 的普通 `Jump`（无需新终结
+   符种类），新增 `loopExits_` 映射；const 解释器新增 `runWhile` 与
+   `Continue`/`Break` 控制流（Fallthrough 重新求值条件）。验证：INC-3 差分
+   双路径 300 状态机（while+continue ≡ 手写 loop，native=const）零分歧；
+   三条负契约（while 内 next 指向函数参数、loop 内 continue 报错、顶层
+   break 报错）；flowir/resolver/typecheck/parser 单测；`example/while_loops.ng`
+   （用 while/break/continue 去掉搜索循环的标志位）。D-010 修订文本落
+   04-language-decisions.md。全套 489→497 用例、ctest 490→498 全绿。
 
 ### INC-11 · derive(Show) 〔研究 I5 第二片〕
 - **依赖**: INC-7（数值→串）、INC-8。
@@ -406,7 +419,8 @@ INC-15 → INC-16 → INC-17（M2b；唯一交汇点——闭包语法面取自 
 | INC-B 核心 trait → prelude.ng | ✅ 2026-08-27（Copy/Clone/Eq 移出 compiler 注入，改由 `lib/std/prelude.ng` 声明（`export trait …`），derive 校验改为按已注册 trait 查询；`clone` 为关键字故 parser 接受其作 trait 方法名；derive/Eq 教程示例 `import prelude;` 显式接入） |
 | INC-A prelude 自动加载 | ❌ 2026-08-27 决定跳过（尝试自动注入 `import prelude;`：typechecker 对合并模块的所有 overload 统一注册，visibility 只作用于 resolver 名字解析，与本地声明形成歧义特化；改例受限注入/影子化仍无法收敛 → **用户拍板**：显式 `import prelude;`，自动加载推迟至 typechecker 支持按模块可见性注册 overload 之后再议） |
 | INC-9 诊断第一阶段：错误码+did-you-mean | ✅ 2026-08-27（错误类统一 `code` 字段，driver 输出 `type error E-xxx at bytes […]`；核心诊断落码：move/borrow/compare/unresolved-name 九码；resolver Levenshtein≤2 建议追加 `; did you mean \`X\`?`；INC-2 负契约升级 `code:` 指令并断言；序列化不改 what()，borrow/driver/move/float 单测加码；did-you-mean 命中单测；双变体全绿，ASan 仅剩既有 imgui 链接失败） |
-| INC-10 … INC-36 | ⬜ 未开始（逐个推进，每个完成后更新本表） |
+| INC-10 + DEC-B while/break/continue | ✅ 2026-08-27（`while`/`continue`/`break` 语法+HIR+FlowIR+const；裸 `next` 仅被带绑定器的 `loop` 捕获；差分 PBT 300 状态机 while≡loop 双路径零分歧；3 条负契约；flowir/resolver/typecheck/parser 单测；`example/while_loops.ng`；D-010 修订；489→497 用例、ctest 490→498 全绿） |
+| INC-11 … INC-36 | ⬜ 未开始（逐个推进，每个完成后更新本表） |
 
 ### 架构修复插队记录（2026-08-26，维护者指令）
 
