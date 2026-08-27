@@ -88,6 +88,10 @@ top-down; status and verification baselines live there ([10-baselines.md](./docs
 - ✅ PBT 收敛 — challenge-review follow-up: shared width/oracle/batch runner in
   `test/pbt.hpp`; fixed false-green literal bug; ~200 lines duplicated code removed
 - ✅ INC-8 — `derive(Eq)`: field-level structural `==`/`!=`; nested Eq structs; float fields rejected
+- ✅ INC-B — core traits (`Copy`/`Clone`/`Eq`) declared in `lib/std/prelude.ng`, moved out of
+  compiler injection; derive validation now queries registered traits
+- ❌ INC-A — prelude auto-loading: skipped by decision (typechecker overload registration is
+  visibility-blind; explicit `import prelude;` required, auto-load deferred)
 - ⬜ INC-9 … INC-36 — pending
 
 ## Community
