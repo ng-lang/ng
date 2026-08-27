@@ -87,6 +87,7 @@ TEST_CASE("vNext shared and mutable borrows conflict on the same binding", "[vNe
   catch (const typecheck::TypeError &error)
   {
     REQUIRE(std::string{error.what()} == "cannot mutably borrow `value` while it is shared-borrowed");
+    REQUIRE(error.code == "E-borrow-conflict");
   }
 
   try
@@ -97,6 +98,7 @@ TEST_CASE("vNext shared and mutable borrows conflict on the same binding", "[vNe
   catch (const typecheck::TypeError &error)
   {
     REQUIRE(std::string{error.what()} == "cannot shared-borrow `value` while it is mutably borrowed");
+    REQUIRE(error.code == "E-borrow-conflict");
   }
 
   try
@@ -107,6 +109,7 @@ TEST_CASE("vNext shared and mutable borrows conflict on the same binding", "[vNe
   catch (const typecheck::TypeError &error)
   {
     REQUIRE(std::string{error.what()} == "cannot mutably borrow `value` while it is already mutably borrowed");
+    REQUIRE(error.code == "E-borrow-conflict");
   }
 }
 
@@ -156,5 +159,6 @@ TEST_CASE("vNext borrows still conflict when the shared ref outlives the mutable
   catch (const typecheck::TypeError &error)
   {
     REQUIRE(std::string{error.what()} == "cannot mutably borrow `value` while it is shared-borrowed");
+    REQUIRE(error.code == "E-borrow-conflict");
   }
 }

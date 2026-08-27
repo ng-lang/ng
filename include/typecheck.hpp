@@ -69,9 +69,15 @@ namespace NG::typecheck
   struct TypeError : std::runtime_error
   {
     syntax::SourceSpan span;
+    std::string code;
 
     TypeError(std::string message, syntax::SourceSpan sourceSpan)
-        : std::runtime_error(std::move(message)), span(sourceSpan)
+        : TypeError("E-type", std::move(message), sourceSpan)
+    {
+    }
+
+    TypeError(std::string errorCode, std::string message, syntax::SourceSpan sourceSpan)
+        : std::runtime_error(std::move(message)), span(sourceSpan), code(std::move(errorCode))
     {
     }
   };

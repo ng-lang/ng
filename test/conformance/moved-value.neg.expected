@@ -1,3 +1,4 @@
 kind: type
+code: E-move-used
 pattern: use of moved value
 span: [136, 141)

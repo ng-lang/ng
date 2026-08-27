@@ -1017,7 +1017,7 @@ auto Checker::infer(const hir::Expression &expression, const LocalTypes &locals)
       throw TypeError(std::format("const parameter `{}` is not a runtime value", expression.text),
                       expression.span);
     if (moveState_.isWholeMoved(expression.resolvedName->id))
-      throw TypeError(std::format("use of moved value `{}`", expression.text), expression.span);
+      throw TypeError("E-move-used", std::format("use of moved value `{}`", expression.text), expression.span);
     type = locals.at(expression.resolvedName->id);
     break;
   case hir::ExpressionKind::Grouped:
@@ -1098,11 +1098,13 @@ auto Checker::infer(const hir::Expression &expression, const LocalTypes &locals)
           if (expression.text == "ref mut")
           {
             if (counts.shared != 0)
-              throw TypeError(std::format("cannot mutably borrow `{}` while it is shared-borrowed",
+              throw TypeError("E-borrow-conflict",
+                              std::format("cannot mutably borrow `{}` while it is shared-borrowed",
                                           expression.operands[0]->text),
                               expression.span);
             if (counts.mutableRefs != 0)
-              throw TypeError(std::format("cannot mutably borrow `{}` while it is already mutably borrowed",
+              throw TypeError("E-borrow-conflict",
+                              std::format("cannot mutably borrow `{}` while it is already mutably borrowed",
                                           expression.operands[0]->text),
                               expression.span);
             borrowState_.add(&expression, root->value, 0, true);
@@ -1110,11 +1112,12 @@ auto Checker::infer(const hir::Expression &expression, const LocalTypes &locals)
           else
           {
             if (counts.mutableRefs != 0)
-              throw TypeError(std::format("cannot shared-borrow `{}` while it is mutably borrowed",
+              throw TypeError("E-borrow-conflict",
+                              std::format("cannot shared-borrow `{}` while it is mutably borrowed",
                                           expression.operands[0]->text),
                               expression.span);
             if (counts.shared >= BorrowState::MaxShared)
-              throw TypeError("too many shared borrows of one binding", expression.span);
+              throw TypeError("E-borrow-too-many", "too many shared borrows of one binding", expression.span);
             borrowState_.add(&expression, root->value, 0, false);
           }
         }
@@ -1230,12 +1233,14 @@ auto Checker::infer(const hir::Expression &expression, const LocalTypes &locals)
       const bool mixedKind = isFloatBuiltin(left) != isFloatBuiltin(right);
       const bool mixedSign = bothIntegers && isSignedIntegerBuiltin(left) != isSignedIntegerBuiltin(right);
       if (mixedSign)
-        throw TypeError(std::format("implicit mixed-sign comparison between {} and {}; convert explicitly "
+        throw TypeError("E-compare-mixed-sign",
+                        std::format("implicit mixed-sign comparison between {} and {}; convert explicitly "
                                     "with toFloat or toSigned",
                                     interner_.display(left), interner_.display(right)),
                         expression.span);
       if (mixedKind)
-        throw TypeError(std::format("implicit mixed numeric-kind comparison between {} and {}; convert "
+        throw TypeError("E-compare-mixed-kind",
+                        std::format("implicit mixed numeric-kind comparison between {} and {}; convert "
                                     "explicitly with toFloat or toSigned",
                                     interner_.display(left), interner_.display(right)),
                         expression.span);
@@ -1555,6 +1560,7 @@ auto Checker::infer(const hir::Expression &expression, const LocalTypes &locals)
         const uint32_t field = static_cast<uint32_t>(std::distance(fieldNames.begin(), found));
         if (moveState_.isFieldMoved(root->value, field))
           throw TypeError(
+              "E-move-field",
               std::format("use of moved field `{}.{}`", expression.operands[0]->text, expression.text),
               expression.span);
       }

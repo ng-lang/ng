@@ -59,8 +59,8 @@ namespace NG
       }
       catch (const syntax::ParseError &error)
       {
-        errors << "syntax error at bytes [" << error.span().begin << ", " << error.span().end << "): " << error.what()
-               << '\n';
+        errors << "syntax error " << error.code() << " at bytes [" << error.span().begin << ", " << error.span().end
+               << "): " << error.what() << '\n';
         return 1;
       }
     }
@@ -396,20 +396,20 @@ namespace NG
       }
       catch (const syntax::ParseError &error)
       {
-        errors << "syntax error at bytes [" << error.span().begin << ", " << error.span().end << "): " << error.what()
-               << '\n';
+        errors << "syntax error " << error.code() << " at bytes [" << error.span().begin << ", " << error.span().end
+               << "): " << error.what() << '\n';
         return 1;
       }
       catch (const hir::ResolutionError &error)
       {
-        errors << "resolution error at bytes [" << error.span.begin << ", " << error.span.end << "): " << error.what()
-               << '\n';
+        errors << "resolution error " << error.code << " at bytes [" << error.span.begin << ", " << error.span.end
+               << "): " << error.what() << '\n';
         return 1;
       }
       catch (const typecheck::TypeError &error)
       {
-        errors << "type error at bytes [" << error.span.begin << ", " << error.span.end << "): " << error.what()
-               << '\n';
+        errors << "type error " << error.code << " at bytes [" << error.span.begin << ", " << error.span.end << "): "
+               << error.what() << '\n';
         return 1;
       }
       catch (const flowir::VerificationError &error)
@@ -440,8 +440,8 @@ namespace NG
       }
       catch (const syntax::ParseError &error)
       {
-        errors << "syntax error at bytes [" << error.span().begin << ", " << error.span().end << "): " << error.what()
-               << '\n';
+        errors << "syntax error " << error.code() << " at bytes [" << error.span().begin << ", " << error.span().end
+               << "): " << error.what() << '\n';
         return 1;
       }
     }
@@ -571,9 +571,9 @@ namespace NG
     }
     catch (const syntax::ParseError &error)
     {
-      errors << "syntax error at bytes [" << error.span().begin << ", " << error.span().end << "): " << error.what()
-             << '\n';
-      return 1;
+errors << "syntax error " << error.code() << " at bytes [" << error.span().begin << ", " << error.span().end
+               << "): " << error.what() << '\n';
+        return 1;
+      }
     }
-  }
 } // namespace NG

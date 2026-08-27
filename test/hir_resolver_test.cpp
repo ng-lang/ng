@@ -116,6 +116,42 @@ TEST_CASE("vNext resolver rejects unknown names with a source span", "[vNext][HI
   }
 }
 
+TEST_CASE("vNext resolver suggests a close module candidate for unknown names", "[vNext][HIR][Resolver]")
+{
+  const auto syntaxUnit = syntax::parseSourceUnit("fun entry() { entrf() }");
+  try
+  {
+    static_cast<void>(hir::Resolver{}.resolve(syntaxUnit));
+    FAIL("expected resolver to reject an unknown name");
+  }
+  catch (const hir::ResolutionError &error)
+  {
+    REQUIRE(std::string{error.what()} == "unresolved name `entrf`; did you mean `entry`?");
+  }
+
+  const auto syntaxUnitModule = syntax::parseSourceUnit("struct Point { x: i64 } fun entry() { Poiny }");
+  try
+  {
+    static_cast<void>(hir::Resolver{}.resolve(syntaxUnitModule));
+    FAIL("expected resolver to reject an unknown type name");
+  }
+  catch (const hir::ResolutionError &error)
+  {
+    REQUIRE(std::string{error.what()} == "unresolved name `Poiny`; did you mean `Point`?");
+  }
+
+  const auto noSuggestion = syntax::parseSourceUnit("fun entry() { missing }");
+  try
+  {
+    static_cast<void>(hir::Resolver{}.resolve(noSuggestion));
+    FAIL("expected resolver to reject an unknown name");
+  }
+  catch (const hir::ResolutionError &error)
+  {
+    REQUIRE(std::string{error.what()} == "unresolved name `missing`");
+  }
+}
+
 TEST_CASE("vNext resolver rejects duplicate nominal and lexical declarations", "[vNext][HIR][Resolver]")
 {
   const auto duplicateModule = syntax::parseSourceUnit("struct Same { value: i64 } struct Same { value: i64 }");

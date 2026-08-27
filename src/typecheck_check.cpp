@@ -770,7 +770,8 @@ void Checker::trackConsumption(const hir::Expression &expression, const LocalTyp
       return;
     const uint32_t field = static_cast<uint32_t>(std::distance(descriptor.fieldNames.begin(), found));
     if (moveState_.hasMovedField(root->value))
-      throw TypeError(std::format("use of partially moved value `{}`", expression.operands[0]->text),
+      throw TypeError("E-move-partial",
+                      std::format("use of partially moved value `{}`", expression.operands[0]->text),
                       expression.span);
     moveState_.markField(root->value, field);
     return;
@@ -782,7 +783,8 @@ void Checker::trackConsumption(const hir::Expression &expression, const LocalTyp
     if (!isAffine(locals.at(local)))
       return;
     if (moveState_.hasMovedField(local))
-      throw TypeError(std::format("use of partially moved value `{}`", expression.text), expression.span);
+      throw TypeError("E-move-partial",
+                      std::format("use of partially moved value `{}`", expression.text), expression.span);
     moveState_.markWhole(local);
   }
 }

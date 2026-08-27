@@ -8,6 +8,7 @@
 #include <format>
 #include <unordered_set>
 #include <utility>
+#include <vector>
 
 namespace NG::hir
 {
@@ -88,6 +89,49 @@ namespace NG::hir
         return renderTypeName(*pack->target) + "...";
       }
       throw ResolutionError("unsupported type during name resolution", type.span);
+    }
+
+    /// Levenshtein distance, cut off at `limit` to keep typo scanning cheap.
+    [[nodiscard]] auto editDistance(std::string_view left, std::string_view right, size_t limit) -> size_t
+    {
+      if (left.size() > right.size()) return editDistance(right, left, limit);
+      if (right.size() - left.size() > limit) return limit + 1;
+      std::vector<size_t> previous(left.size() + 1), current(left.size() + 1);
+      for (size_t column = 0; column <= left.size(); ++column) previous[column] = column;
+      for (size_t row = 1; row <= right.size(); ++row)
+      {
+        current[0] = row;
+        size_t rowMinimum = row;
+        for (size_t column = 1; column <= left.size(); ++column)
+        {
+          const size_t deletion = previous[column] + 1;
+          const size_t insertion = current[column - 1] + 1;
+          const size_t substitution = previous[column - 1] + (left[column - 1] == right[row - 1] ? 0 : 1);
+          current[column] = std::min({deletion, insertion, substitution});
+          rowMinimum = std::min(rowMinimum, current[column]);
+        }
+        if (rowMinimum > limit) return limit + 1;
+        previous.swap(current);
+      }
+      return previous[left.size()];
+    }
+
+    /// Best candidate within `limit` edits of `name`, never empty.
+    [[nodiscard]] auto closestName(std::string_view name, const std::unordered_set<std::string> &candidates, size_t limit)
+        -> std::optional<std::string>
+    {
+      std::optional<std::string> best;
+      size_t bestDistance = limit + 1;
+      for (const auto &candidate : candidates)
+      {
+        const size_t distance = editDistance(name, candidate, limit);
+        if (distance < bestDistance)
+        {
+          bestDistance = distance;
+          best = candidate;
+        }
+      }
+      return best;
     }
   } // namespace
 
@@ -889,12 +933,32 @@ namespace NG::hir
     }
     const auto visible = visibleNames_.find(currentOrigin_);
     if (visible != visibleNames_.end() && !visible->second.contains(expression.name))
-      throw ResolutionError(std::format("name `{}` is not visible in this module", expression.name), expression.span);
+      throw ResolutionError("E-name-not-visible",
+                            std::format("name `{}` is not visible in this module{}", expression.name,
+                                        suggestionFor(expression.name)),
+                            expression.span);
     if (const auto function = functions_.find(expression.name); function != functions_.end())
     {
       return ResolvedName{.kind = ResolvedNameKind::Function, .id = function->second.front().value};
     }
-    throw ResolutionError(std::format("unresolved name `{}`", expression.name), expression.span);
+    throw ResolutionError("E-unresolved-name",
+                          std::format("unresolved name `{}`{}", expression.name, suggestionFor(expression.name)),
+                          expression.span);
+  }
+
+  auto Resolver::suggestionFor(const std::string &name) const -> std::string
+  {
+    std::unordered_set<std::string> candidates;
+    for (const auto &[candidate, unused] : functions_) candidates.insert(candidate);
+    for (const auto &[candidate, unused] : structs_) candidates.insert(candidate);
+    for (const auto &[candidate, unused] : enums_) candidates.insert(candidate);
+    for (const auto &[candidate, unused] : traits_) candidates.insert(candidate);
+    for (const auto &[candidate, unused] : opaqueTypes_) candidates.insert(candidate);
+    const auto visible = visibleNames_.find(currentOrigin_);
+    if (visible != visibleNames_.end())
+      candidates.insert(visible->second.begin(), visible->second.end());
+    const auto closest = closestName(name, candidates, 2);
+    return closest ? std::format("; did you mean `{}`?", *closest) : std::string{};
   }
 
   auto Resolver::declareLocal(const std::string &name, syntax::SourceSpan span) -> LocalId

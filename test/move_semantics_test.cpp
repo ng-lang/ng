@@ -101,6 +101,7 @@ TEST_CASE("vNext move checking rejects uses of moved values", "[vNext][Move][Err
   catch (const typecheck::TypeError &error)
   {
     REQUIRE(std::string{error.what()} == "use of moved value `a`");
+    REQUIRE(error.code == "E-move-used");
   }
 
   try
@@ -111,6 +112,7 @@ TEST_CASE("vNext move checking rejects uses of moved values", "[vNext][Move][Err
   catch (const typecheck::TypeError &error)
   {
     REQUIRE(std::string{error.what()} == "use of moved value `a`");
+    REQUIRE(error.code == "E-move-used");
   }
 }
 
@@ -124,6 +126,7 @@ TEST_CASE("vNext move checking rejects partially moved whole values and moved fi
   catch (const typecheck::TypeError &error)
   {
     REQUIRE(std::string{error.what()} == "use of partially moved value `a`");
+    REQUIRE(error.code == "E-move-partial");
   }
 
   try
@@ -134,6 +137,7 @@ TEST_CASE("vNext move checking rejects partially moved whole values and moved fi
   catch (const typecheck::TypeError &error)
   {
     REQUIRE(std::string{error.what()} == "use of moved field `a.x`");
+    REQUIRE(error.code == "E-move-field");
   }
 }
 
@@ -149,6 +153,7 @@ TEST_CASE("vNext move checking consumes by-value call arguments", "[vNext][Move]
   catch (const typecheck::TypeError &error)
   {
     REQUIRE(std::string{error.what()} == "use of moved value `a`");
+    REQUIRE(error.code == "E-move-used");
   }
 }
 
@@ -164,6 +169,7 @@ TEST_CASE("vNext move checking merges branch states conservatively", "[vNext][Mo
   catch (const typecheck::TypeError &error)
   {
     REQUIRE(std::string{error.what()} == "use of moved value `a`");
+    REQUIRE(error.code == "E-move-used");
   }
 
   expectValue("struct P { x: i64 } "

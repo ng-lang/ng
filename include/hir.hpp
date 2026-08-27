@@ -47,9 +47,15 @@ namespace NG::hir
   struct ResolutionError : std::runtime_error
   {
     syntax::SourceSpan span;
+    std::string code;
 
     ResolutionError(std::string message, syntax::SourceSpan sourceSpan)
-      : std::runtime_error(std::move(message)), span(sourceSpan)
+      : ResolutionError("E-resolve", std::move(message), sourceSpan)
+    {
+    }
+
+    ResolutionError(std::string errorCode, std::string message, syntax::SourceSpan sourceSpan)
+      : std::runtime_error(std::move(message)), span(sourceSpan), code(std::move(errorCode))
     {
     }
   };
@@ -427,6 +433,7 @@ namespace NG::hir
     [[nodiscard]] auto resolveStatement(const syntax::Statement &statement) -> Statement;
     [[nodiscard]] auto resolveExpression(const syntax::Expression &expression) -> ExpressionPtr;
     [[nodiscard]] auto resolveName(const syntax::IdentifierExpression &expression) const -> ResolvedName;
+    [[nodiscard]] auto suggestionFor(const std::string &name) const -> std::string;
     auto declareLocal(const std::string &name, syntax::SourceSpan span) -> LocalId;
 
     std::unordered_map<std::string, std::vector<DefId>> functions_;

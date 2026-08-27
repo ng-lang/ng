@@ -10,6 +10,7 @@
 // Layer 2 — negative diagnostic contracts: `<case>.neg.ng` plus
 // `<case>.neg.expected` made of `key: value` directives:
 //     kind:    type | resolution | syntax   (diagnostic class)
+//     code:    stable error-code namespace (e.g. E-move-used)
 //     pattern: substring the message must contain
 //     span:    [begin, end)                (exact byte interval)
 // The driver must exit non-zero and emit exactly that diagnostic.
@@ -93,6 +94,7 @@ namespace
   struct NegativeContract
   {
     std::string kind;
+    std::string code;
     std::string pattern;
     std::optional<std::pair<size_t, size_t>> span;
   };
@@ -115,6 +117,8 @@ namespace
         contract.kind = value;
         sawKind = true;
       }
+      else if (key == "code")
+        contract.code = value;
       else if (key == "pattern")
         contract.pattern = value;
       else if (key == "span" && value.starts_with('['))
@@ -129,7 +133,7 @@ namespace
             std::make_pair(static_cast<size_t>(std::stoull(beginValue)), static_cast<size_t>(std::stoull(endValue)));
       }
     }
-    if (!sawKind)
+    if (!sawKind || contract.code.empty())
       return std::nullopt;
     return contract;
   }
@@ -164,7 +168,7 @@ TEST_CASE("INC-2 positive contract corpus matches recorded behavior", "[INC2][Co
   }
 }
 
-TEST_CASE("INC-2 negative diagnostic contracts assert kind, pattern, and span", "[INC2][Contract][Negative]")
+TEST_CASE("INC-2 negative diagnostic contracts assert kind, code, pattern, and span", "[INC2][Contract][Negative]")
 {
   const auto directory = conformanceDirectory();
   const auto cases = listCases(directory, ".neg.ng");
@@ -185,16 +189,22 @@ TEST_CASE("INC-2 negative diagnostic contracts assert kind, pattern, and span", 
     CHECK(status != 0);
 
     // Find the diagnostic of the contracted kind and verify its shape:
-    // "<kind> error at bytes [begin, end): <message>".
+    // "<kind> error <code> at bytes [begin, end): <message>".
     bool matchedDiagnostic = false;
     for (const auto &line : splitLines(errors.str()))
     {
-      const auto prefix = contract->kind + " error at bytes [";
-      if (!line.starts_with(prefix))
+      const auto kindPrefix = contract->kind + " error ";
+      const auto marker = line.find(" at bytes [");
+      if (!line.starts_with(kindPrefix) || marker == std::string::npos)
         continue;
       matchedDiagnostic = true;
 
-      const auto separator = line.find(", ");
+      const auto code = line.substr(kindPrefix.size(), marker - kindPrefix.size());
+      INFO("reported code: " << code);
+      CHECK(code == contract->code);
+
+      const auto prefix = line.substr(0, marker + std::string{" at bytes ["}.size());
+      const auto separator = line.find(", ", marker);
       const auto closeParen = line.find("): ");
       CHECK(separator != std::string::npos);
       CHECK(closeParen != std::string::npos);

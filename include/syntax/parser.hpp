@@ -98,11 +98,14 @@ namespace NG::syntax
   {
   public:
     ParseError(std::string message, SourceSpan sourceSpan);
+    ParseError(std::string errorCode, std::string message, SourceSpan sourceSpan);
 
     [[nodiscard]] auto span() const noexcept -> SourceSpan { return sourceSpan_; }
+    [[nodiscard]] auto code() const noexcept -> const std::string & { return code_; }
 
   private:
     SourceSpan sourceSpan_;
+    std::string code_;
   };
 
   class Lexer final

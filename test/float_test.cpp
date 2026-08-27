@@ -86,7 +86,7 @@ TEST_CASE("vNext equality keeps exact cross-width forms under DEC-A", "[vNext][F
 
 TEST_CASE("vNext implicit mixed comparisons are compile errors per DEC-A", "[vNext][Floats][Errors]")
 {
-  auto expectMixedError = [](std::string_view expressionText)
+  auto expectMixedError = [](std::string_view expressionText, std::string_view expectedCode)
   {
     try
     {
@@ -98,11 +98,12 @@ TEST_CASE("vNext implicit mixed comparisons are compile errors per DEC-A", "[vNe
     catch (const typecheck::TypeError &error)
     {
       REQUIRE_THAT(std::string{error.what()}, ContainsSubstring("comparison"));
+      REQUIRE(error.code == expectedCode);
     }
   };
-  expectMixedError("a == b");       // signed vs unsigned variables
-  expectMixedError("b != a");       // unsigned vs signed variables
-  expectMixedError("2.5f64 > 2i8"); // suffixed float vs suffixed integer
+  expectMixedError("a == b", "E-compare-mixed-sign");       // signed vs unsigned variables
+  expectMixedError("b != a", "E-compare-mixed-sign");       // unsigned vs signed variables
+  expectMixedError("2.5f64 > 2i8", "E-compare-mixed-kind"); // suffixed float vs suffixed integer
 }
 
 TEST_CASE("vNext float validation rejects bad suffixes and conflicts", "[vNext][Floats][Errors]")

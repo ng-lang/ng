@@ -79,7 +79,12 @@ namespace NG::syntax
   } // namespace
 
   ParseError::ParseError(std::string message, SourceSpan sourceSpan)
-    : std::runtime_error(std::move(message)), sourceSpan_(sourceSpan)
+    : ParseError("E-parse", std::move(message), sourceSpan)
+  {
+  }
+
+  ParseError::ParseError(std::string errorCode, std::string message, SourceSpan sourceSpan)
+    : std::runtime_error(std::move(message)), sourceSpan_(sourceSpan), code_(std::move(errorCode))
   {
   }
 

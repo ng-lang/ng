@@ -81,7 +81,7 @@ TEST_CASE("vNext ngi driver reports typed pipeline errors through its new fronte
   std::string errors;
   REQUIRE(run({"--source", "fun main() { if 1 { return; } }"}, output, errors) == 1);
   REQUIRE(output.empty());
-  REQUIRE(errors == "type error at bytes [16, 17): if condition type mismatch: expected bool, got i64\n");
+  REQUIRE(errors == "type error E-type at bytes [16, 17): if condition type mismatch: expected bool, got i64\n");
 }
 
 TEST_CASE("vNext ngi driver reports syntax errors through its new frontend boundary", "[vNext][Driver]")
@@ -90,7 +90,7 @@ TEST_CASE("vNext ngi driver reports syntax errors through its new frontend bound
   std::string errors;
   REQUIRE(run({"--expr", "a + @"}, output, errors) == 1);
   REQUIRE(output.empty());
-  REQUIRE(errors == "syntax error at bytes [4, 5): unexpected character `@`\n");
+  REQUIRE(errors == "syntax error E-parse at bytes [4, 5): unexpected character `@`\n");
 }
 
 TEST_CASE("vNext ngi driver reports syntax errors in --source units instead of aborting", "[vNext][Driver]")
@@ -99,7 +99,7 @@ TEST_CASE("vNext ngi driver reports syntax errors in --source units instead of a
   std::string errors;
   REQUIRE(run({"--source", "fun main() { return if (true) { 1 } else { 0 }; }"}, output, errors) == 1);
   REQUIRE(output.empty());
-  REQUIRE_THAT(errors, ContainsSubstring("syntax error at bytes ["));
+  REQUIRE_THAT(errors, ContainsSubstring("syntax error E-parse at bytes ["));
   REQUIRE_THAT(errors, ContainsSubstring("expected an expression"));
 }
 
@@ -114,7 +114,7 @@ TEST_CASE("vNext ngi driver reports syntax errors in file mode instead of aborti
   std::string errors;
   REQUIRE(run({path.string()}, output, errors) == 1);
   REQUIRE(output.empty());
-  REQUIRE_THAT(errors, ContainsSubstring("syntax error at bytes ["));
+  REQUIRE_THAT(errors, ContainsSubstring("syntax error E-parse at bytes ["));
   std::filesystem::remove(path);
 }
 
