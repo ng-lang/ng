@@ -88,8 +88,8 @@ auto Checker::check(const hir::Module &module, const const_eval::ConstNativeHost
       if (!seen.insert(traitName).second)
         throw TypeError(std::format("duplicate derive for trait `{}` on type `{}`", traitName, structure.name),
                         structure.span);
-      if (traitName != "Copy" && traitName != "Clone" && traitName != "Eq")
-        throw TypeError(std::format("derive currently supports Copy, Clone, and Eq only: {}", traitName),
+      if (!traits_.contains(traitName))
+        throw TypeError(std::format("derive: unknown trait `{}`; import a module that declares it", traitName),
                         structure.span);
       for (const auto &impl : impls_)
         if (impl.target == target && impl.traitName == traitName)
@@ -316,19 +316,6 @@ void Checker::registerTraits()
       }
     }
     traits_.emplace(trait.name, std::move(info));
-  }
-  if (!traits_.contains("Copy"))
-  {
-    TraitInfo copy{.name = "Copy", .selfParameter = interner_.internTypeParameter("Self", 0)};
-    traits_.emplace("Copy", std::move(copy));
-  }
-  if (!traits_.contains("Clone"))
-  {
-    TraitInfo clone{.name = "Clone", .selfParameter = interner_.internTypeParameter("Self", 0)};
-    clone.methodParameters.emplace("clone",
-                                    std::vector<TypeId>{interner_.internReference(clone.selfParameter, false)});
-    clone.methodReturns.emplace("clone", clone.selfParameter);
-    traits_.emplace("Clone", std::move(clone));
   }
 }
 

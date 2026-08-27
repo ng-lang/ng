@@ -59,7 +59,7 @@ namespace
 
 TEST_CASE("vNext derived clone deep-copies independently of the source", "[vNext][Derive][Runtime]")
 {
-  expectValue("struct Point: derive(Copy + Clone) { x: i64, y: i64, } "
+  expectValue("import prelude; struct Point: derive(Copy + Clone) { x: i64, y: i64, } "
               "fun main() -> i64 { "
               "let point = Point { x: 20, y: 22 }; "
               "let mut cloned = point.clone(); "
@@ -73,7 +73,7 @@ TEST_CASE("vNext derived clone deep-copies independently of the source", "[vNext
 
 TEST_CASE("vNext derived Copy and Clone satisfy trait bounds and where clauses", "[vNext][Derive][Runtime]")
 {
-  expectValue("struct Point: derive(Copy + Clone) { x: i64, } "
+  expectValue("import prelude; struct Point: derive(Copy + Clone) { x: i64, } "
               "fun require_copy<T: Copy>() -> i64 { return 1; } "
               "fun require_clone<T: Clone>() -> i64 { return 2; } "
               "fun require_copy_where<T>(value: T) -> i64 where T: Copy { return 4; } "
@@ -93,46 +93,38 @@ TEST_CASE("vNext auto traits apply to every concrete type", "[vNext][Derive][Run
 
 TEST_CASE("vNext derive validation reports malformed derives", "[vNext][Derive][Errors]")
 {
-  try
   {
-    check("auto trait Send {} struct Point: derive(Send) { x: i64, } fun main() -> i64 { return 0; }");
-    FAIL("expected an unsupported derive target error");
-  }
-  catch (const typecheck::TypeError &error)
-  {
-    REQUIRE(std::string{error.what()} == "derive currently supports Copy, Clone, and Eq only: Send");
+    std::string output;
+    std::string errors;
+    REQUIRE(run("import prelude; struct Point: derive(Unknown) { x: i64, } fun main() -> i64 { return 0; }",
+                output, errors) != 0);
+    REQUIRE(errors.find("derive: unknown trait `Unknown`; import a module that declares it") != std::string::npos);
   }
 
-  try
   {
-    check("struct Point: derive(Copy + Copy) { x: i64, } fun main() -> i64 { return 0; }");
-    FAIL("expected a duplicate derive error");
-  }
-  catch (const typecheck::TypeError &error)
-  {
-    REQUIRE(std::string{error.what()} == "duplicate derive for trait `Copy` on type `Point`");
+    std::string output;
+    std::string errors;
+    REQUIRE(run("import prelude; struct Point: derive(Copy + Copy) { x: i64, } fun main() -> i64 { return 0; }",
+                output, errors) != 0);
+    REQUIRE(errors.find("duplicate derive for trait `Copy` on type `Point`") != std::string::npos);
   }
 
-  try
   {
-    check("struct Point: derive(Copy) { x: i64, } impl Copy for Point {} "
-          "fun main() -> i64 { return 0; }");
-    FAIL("expected a derive/impl conflict error");
-  }
-  catch (const typecheck::TypeError &error)
-  {
-    REQUIRE(std::string{error.what()} == "derive conflicts with explicit impl for trait `Copy` on type `Point`");
+    std::string output;
+    std::string errors;
+    REQUIRE(run("import prelude; struct Point: derive(Copy) { x: i64, } impl Copy for Point {} "
+                "fun main() -> i64 { return 0; }",
+                output, errors) != 0);
+    REQUIRE(errors.find("derive conflicts with explicit impl for trait `Copy` on type `Point`") != std::string::npos);
   }
 
-  try
   {
-    check("struct Point: derive(Copy) { x: i64, } "
-          "fun main() -> i64 { let point = Point { x: 1 }; let bad = point.clone(); return 0; }");
-    FAIL("expected a missing clone method error");
-  }
-  catch (const typecheck::TypeError &error)
-  {
-    REQUIRE(std::string{error.what()} == "no method `clone` for value of type Point");
+    std::string output;
+    std::string errors;
+    REQUIRE(run("import prelude; struct Point: derive(Copy) { x: i64, } "
+                "fun main() -> i64 { let point = Point { x: 1 }; let bad = point.clone(); return 0; }",
+                output, errors) != 0);
+    REQUIRE(errors.find("no method `clone` for value of type Point") != std::string::npos);
   }
 }
 
@@ -148,7 +140,7 @@ TEST_CASE("vNext derive example file runs end to end through ngi", "[vNext][Deri
 
 TEST_CASE("vNext derive(Eq) synthesizes field-level struct equality", "[vNext][Derive][Eq][Runtime]")
 {
-  expectValue("struct Point: derive(Eq) { x: i64, y: i64, } "
+  expectValue("import prelude; struct Point: derive(Eq) { x: i64, y: i64, } "
               "fun main() -> i64 { "
               "let p1 = Point { x: 1, y: 2 }; "
               "let p2 = Point { x: 1, y: 2 }; "
@@ -163,7 +155,7 @@ TEST_CASE("vNext derive(Eq) synthesizes field-level struct equality", "[vNext][D
 
 TEST_CASE("vNext derive(Eq) works for nested structs", "[vNext][Derive][Eq][Runtime]")
 {
-  expectValue("struct Inner: derive(Eq) { a: i64, b: i64, } "
+  expectValue("import prelude; struct Inner: derive(Eq) { a: i64, b: i64, } "
               "struct Outer: derive(Eq) { x: i64, inner: Inner, } "
               "fun main() -> i64 { "
               "let o1 = Outer { x: 1, inner: Inner { a: 10, b: 20 } }; "
@@ -178,30 +170,20 @@ TEST_CASE("vNext derive(Eq) works for nested structs", "[vNext][Derive][Eq][Runt
 
 TEST_CASE("vNext derive(Eq) error: non-Eq field type", "[vNext][Derive][Eq][Errors]")
 {
-  try
-  {
-    check("struct Inner { a: i64, } "
-          "struct Outer: derive(Eq) { inner: Inner, } "
-          "fun main() -> i64 { return 0; }");
-    FAIL("expected a derive(Eq) field error");
-  }
-  catch (const typecheck::TypeError &error)
-  {
-    REQUIRE(std::string{error.what()} ==
-            "derive(Eq) on `Outer`: field `inner` type `Inner` does not derive Eq");
-  }
+  std::string output;
+  std::string errors;
+  REQUIRE(run("import prelude; struct Inner { a: i64, } "
+              "struct Outer: derive(Eq) { inner: Inner, } "
+              "fun main() -> i64 { return 0; }",
+              output, errors) != 0);
+  REQUIRE(errors.find("derive(Eq) on `Outer`: field `inner` type `Inner` does not derive Eq") != std::string::npos);
 }
 
 TEST_CASE("vNext derive(Eq) error: float field not Eq-comparable", "[vNext][Derive][Eq][Errors]")
 {
-  try
-  {
-    check("struct Bad: derive(Eq) { x: f64, } fun main() -> i64 { return 0; }");
-    FAIL("expected a derive(Eq) float field error");
-  }
-  catch (const typecheck::TypeError &error)
-  {
-    REQUIRE(std::string{error.what()} ==
-            "derive(Eq) on `Bad`: field `x` type `f64` is not Eq-comparable");
-  }
+  std::string output;
+  std::string errors;
+  REQUIRE(run("import prelude; struct Bad: derive(Eq) { x: f64, } fun main() -> i64 { return 0; }",
+              output, errors) != 0);
+  REQUIRE(errors.find("derive(Eq) on `Bad`: field `x` type `f64` is not Eq-comparable") != std::string::npos);
 }

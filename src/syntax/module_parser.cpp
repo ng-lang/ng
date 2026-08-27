@@ -731,7 +731,8 @@ namespace NG::syntax
   auto ModuleParser::parseTraitMethod() -> TraitMethodDeclaration
   {
     const Token funToken = consume();
-    if (current().kind != TokenKind::Identifier) throw ParseError("expected a method name after `fun`", current().span);
+    if (current().kind != TokenKind::Identifier && current().kind != TokenKind::KeywordClone)
+      throw ParseError("expected a method name after `fun`", current().span);
     const Token name = consume();
     expect(TokenKind::LeftParen, "expected `(` after method name");
     std::vector<FunctionParameter> parameters;

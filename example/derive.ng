@@ -3,6 +3,8 @@
 // marker Copy impl plus a deep-copying `clone(self: Self ref) -> Self`
 // method, and `derive(Eq)` synthesizes field-level structural equality.
 
+import prelude;
+
 auto trait Send {}
 
 struct Point: derive(Copy + Clone) {
