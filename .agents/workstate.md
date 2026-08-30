@@ -14,8 +14,9 @@ variant) → doc-sync → commit (feat + docs separately).
 - INC-9 (error codes + did-you-mean): committed `e38e51c`/`55b815d`.
 - INC-10 + DEC-B (while/continue/break): committed; D-010 revised.
 - INC-11 (derive(Show)): implemented + verified (500 cases / 3468 assertions, ctest 501/501);
-  ASan 499/500 — the one failure is the **pre-existing, unrelated** imgui link in
-  `driver_test.cpp:178`. Commits pending (feat + docs staged below).
+  ASan 500/500 — the historical imgui link failure in `driver_test.cpp:178` is now **fixed**
+  (imgui archives kept uninstrumented, mirroring the ngrt precedent). Commits pending
+  (feat + docs staged below).
 
 ## Recent completed changes
 
@@ -26,13 +27,18 @@ variant) → doc-sync → commit (feat + docs separately).
   `trait Show` in prelude-importing sources renamed `RenderText`; guard ceiling 2075→2150.
   Tests: golden contracts + property PBT (24 random structs) + 4 negative contracts;
   `example/derive.ng` extended (exit 127→255).
+- ASan imgui link fix: `libngrt_imgui.a` + vendored `libimgui.a` were compiled with
+  `-fsanitize=address,undefined` under NG_ASAN but linked into generated executables by the
+  plain system `cc` (no sanitizer runtime), failing on `___ubsan_vptr_type_cache`. Now
+  `-fno-sanitize=address,undefined` on both targets (mirrors the documented ngrt precedent,
+  CMakeLists.txt). ASan full suite 500/500.
 
 ## Next steps
 
 - Commit INC-11 as two commits: `feat(vnext): INC-11 derive(Show) …` and
-  `docs(vnext): INC-11 doc sync`.
+  `docs(vnext): INC-11 doc sync`; commit the ASan imgui link fix separately
+  (`fix(native): …`).
 - Then INC-12 onward per `docs/design/rearchitecture/09-increment-plan.md`.
-- Do not chase the ASan imgui link failure in `driver_test.cpp:178` (pre-existing).
 
 ## References
 

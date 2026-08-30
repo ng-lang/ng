@@ -225,7 +225,10 @@
   的同源片段；不导入 prelude 的本地 Show 不受影响）。guard_test 行数上限
   2075→2150（flowir.cpp 2149，ARCH 拆分仍在 post-cutover plan 跟踪）。
   `example/derive.ng` 增 derive(Show) 断言（退出码 127→255）。全套
-  497→500 用例、ctest 498→501 全绿；ASan 仅剩既有 imgui 链接失败。
+  497→500 用例、ctest 498→501 全绿。ASan 附随修复：driver 生成可执行文件由
+  裸系统 `cc` 链接（无 sanitizer runtime），`-fsanitize` 会让两个 imgui 归档
+  （vendored `imgui` + `ngrt_imgui`）产出 `___ubsan_vptr_type_cache` 未定义符号；
+  与 `ngrt` 避让同因，改为 `-fno-sanitize=address,undefined`。ASan 500/500。
 
 ## Phase 3 — M1 错误处理主线
 
@@ -440,7 +443,7 @@ INC-15 → INC-16 → INC-17（M2b；唯一交汇点——闭包语法面取自 
 | INC-A prelude 自动加载 | ❌ 2026-08-27 决定跳过（尝试自动注入 `import prelude;`：typechecker 对合并模块的所有 overload 统一注册，visibility 只作用于 resolver 名字解析，与本地声明形成歧义特化；改例受限注入/影子化仍无法收敛 → **用户拍板**：显式 `import prelude;`，自动加载推迟至 typechecker 支持按模块可见性注册 overload 之后再议） |
 | INC-9 诊断第一阶段：错误码+did-you-mean | ✅ 2026-08-27（错误类统一 `code` 字段，driver 输出 `type error E-xxx at bytes […]`；核心诊断落码：move/borrow/compare/unresolved-name 九码；resolver Levenshtein≤2 建议追加 `; did you mean \`X\`?`；INC-2 负契约升级 `code:` 指令并断言；序列化不改 what()，borrow/driver/move/float 单测加码；did-you-mean 命中单测；双变体全绿，ASan 仅剩既有 imgui 链接失败） |
 | INC-10 + DEC-B while/break/continue | ✅ 2026-08-27（`while`/`continue`/`break` 语法+HIR+FlowIR+const；裸 `next` 仅被带绑定器的 `loop` 捕获；差分 PBT 300 状态机 while≡loop 双路径零分歧；3 条负契约；flowir/resolver/typecheck/parser 单测；`example/while_loops.ng`；D-010 修订；489→497 用例、ctest 490→498 全绿） |
-| INC-11 derive(Show) | ✅ 2026-08-30（prelude `export trait Show`；checker 字段校验+`toString` DefId 注册；infer `show` 特例；FlowIR 合成 `name{field: value, ...}` 串（嵌套递归、标量走原生 toString、string 直通）；黄金契约+性质 PBT（24 随机 struct）+4 条负契约；本地 `trait Show`（含 prelude 者）改 `RenderText`；guard 上限 2075→2150；`example/derive.ng` 增断言 127→255；497→500 用例、ctest 498→501 全绿） |
+| INC-11 derive(Show) | ✅ 2026-08-30（prelude `export trait Show`；checker 字段校验+`toString` DefId 注册；infer `show` 特例；FlowIR 合成 `name{field: value, ...}` 串（嵌套递归、标量走原生 toString、string 直通）；黄金契约+性质 PBT（24 随机 struct）+4 条负契约；本地 `trait Show`（含 prelude 者）改 `RenderText`；guard 上限 2075→2150；`example/derive.ng` 增断言 127→255；497→500 用例、ctest 498→501 全绿；ASan 附随清理 imgui 链接符（两 imgui 归档 `-fno-sanitize`）→ ASan 500/500） |
 | INC-12 … INC-36 | ⬜ 未开始（逐个推进，每个完成后更新本表） |
 
 ### 架构修复插队记录（2026-08-26，维护者指令）

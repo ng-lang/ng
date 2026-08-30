@@ -164,6 +164,15 @@ target_compile_definitions(ng PUBLIC "NG_SDL_PATH=\"$<TARGET_FILE:SDL3::SDL3-sta
 target_compile_definitions(ng PUBLIC "NG_NGRT_IMGUI_EXTRA=\"libimgui.a libSDL3.a ${NG_NGRT_IMGUI_SDL_LIBS}\"")
 add_dependencies(ng ngrt_imgui)
 
+if(NG_ASAN)
+  # imgui glue and the vendored Dear ImGui archives are linked into generated
+  # executables assembled by the plain system cc (no sanitizer runtime), the
+  # same reason ngrt stays uninstrumented above — otherwise the final link
+  # fails on unresolved ___asan_*/___ubsan_* symbols.
+  target_compile_options(ngrt_imgui PRIVATE -fno-sanitize=address,undefined)
+  target_compile_options(imgui PRIVATE -fno-sanitize=address,undefined)
+endif()
+
 
 
 # Instrument the pipeline sources so llvm-cov measures src/ and include/
