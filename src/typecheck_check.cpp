@@ -214,6 +214,12 @@ void Checker::checkStatement(const hir::Statement &statement, LocalTypes &locals
     const TypeId type = statement.bindingType != nullptr
                             ? inferExpected(*statement.expression, bindingType, locals, "let initializer")
                             : infer(*statement.expression, locals);
+    if (statement.expression->kind == hir::ExpressionKind::Closure)
+    {
+      const auto foundCode = closureFunctions_.find(statement.expression.get());
+      if (foundCode != closureFunctions_.end() && statement.local.has_value())
+        closureLocals_.emplace(statement.local->value, foundCode->second);
+    }
     if (interner_.descriptor(type).kind != TypeKind::TraitReference)
       trackConsumption(*statement.expression, locals);
     if (!statement.destructuredLocals.empty() || statement.restLocal.has_value())
@@ -801,6 +807,78 @@ void Checker::trackConsumption(const hir::Expression &expression, const LocalTyp
                       std::format("use of partially moved value `{}`", expression.text), expression.span);
     moveState_.markWhole(local);
   }
+}
+
+void Checker::ensureNoCapturedLocals(const hir::Expression &closure) const
+{
+  std::unordered_set<uint32_t> inScope;
+  for (const auto parameter : closure.closureParameterIds)
+    inScope.insert(parameter.value);
+  std::function<void(const hir::Block &)> collectBlock;
+  std::function<void(const hir::Expression &)> visitExpression;
+  std::unordered_set<uint32_t> referenced;
+  const auto declare = [&](hir::LocalId local)
+  {
+    inScope.insert(local.value);
+  };
+  visitExpression = [&](const hir::Expression &expression)
+  {
+    if (expression.resolvedName.has_value() && expression.resolvedName->kind == hir::ResolvedNameKind::Local)
+      referenced.insert(expression.resolvedName->id);
+    for (const auto &operand : expression.operands)
+      visitExpression(*operand);
+  };
+  collectBlock = [&](const hir::Block &block)
+  {
+    for (const auto &statement : block.statements)
+    {
+      if (statement.local.has_value())
+        declare(*statement.local);
+      for (const auto local : statement.destructuredLocals)
+        declare(local);
+      if (statement.restLocal.has_value())
+        declare(*statement.restLocal);
+      for (const auto local : statement.loopBindings)
+        declare(local);
+      for (const auto &switchCase : statement.switchCases)
+      {
+        if (switchCase.binding.has_value())
+          declare(*switchCase.binding);
+        for (const auto binding : switchCase.bindings)
+          declare(binding);
+      }
+      if (statement.expression != nullptr)
+        visitExpression(*statement.expression);
+      if (statement.assignmentTarget != nullptr)
+        visitExpression(*statement.assignmentTarget);
+      for (const auto &argument : statement.arguments)
+        visitExpression(*argument);
+      if (statement.consequence != nullptr)
+        collectBlock(*statement.consequence);
+      if (statement.alternative != nullptr)
+        collectBlock(*statement.alternative);
+      if (statement.body != nullptr)
+        collectBlock(*statement.body);
+      for (const auto &switchCase : statement.switchCases)
+        if (switchCase.body != nullptr)
+          collectBlock(*switchCase.body);
+    }
+    if (block.tailExpression != nullptr)
+      visitExpression(*block.tailExpression);
+  };
+  const auto firstCapture = [&]() -> std::optional<uint32_t>
+  {
+    for (const auto local : referenced)
+      if (!inScope.contains(local))
+        return local;
+    return std::nullopt;
+  };
+  if (closure.closureBody != nullptr)
+    collectBlock(*closure.closureBody);
+  if (const auto capture = firstCapture())
+    throw TypeError(std::format("closure would capture local {}; captures are not yet supported (INC-14 S3)",
+                                capture.value()),
+                    closure.span);
 }
 
 } // namespace NG::typecheck::detail

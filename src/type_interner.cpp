@@ -138,6 +138,18 @@ namespace NG::typecheck
                                  .elements = members});
   }
 
+  auto TypeInterner::internClosure(const std::vector<TypeId> &parameters, TypeId result) -> TypeId
+  {
+    for (uint32_t index = 6; index < descriptors_.size(); ++index)
+      if (descriptors_[index].kind == TypeKind::Closure && descriptors_[index].elements == parameters &&
+          descriptors_[index].element == result)
+        return TypeId{index};
+    return append(TypeDescriptor{.kind = TypeKind::Closure,
+                                 .name = "closure",
+                                 .element = result,
+                                 .elements = parameters});
+  }
+
   auto TypeInterner::declareOpaqueType(const hir::OpaqueType &opaque) -> TypeId
   {
     if (namedTypes_.contains(opaque.name))
@@ -790,6 +802,16 @@ namespace NG::typecheck
         item.kind == TypeKind::Opaque || item.kind == TypeKind::TypeConstructor || item.kind == TypeKind::Trait)
       return item.name;
     if (item.kind == TypeKind::TraitReference) return std::format("ref<{}>", item.name);
+    if (item.kind == TypeKind::Closure)
+    {
+      std::string result{"|"};
+      for (size_t index = 0; index < item.elements.size(); ++index)
+      {
+        if (index != 0) result += ", ";
+        result += display(item.elements[index]);
+      }
+      return result + "| -> " + display(item.element);
+    }
     if (item.kind == TypeKind::TypeApplication)
     {
       std::string result{item.name + "<"};

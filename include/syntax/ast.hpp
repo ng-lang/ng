@@ -19,6 +19,8 @@ namespace NG::syntax
 
   struct TypeSyntax;
   using TypeSyntaxPtr = std::unique_ptr<TypeSyntax>;
+  struct FunctionParameter;
+  struct Block;
 
   enum class ExpressionKind
   {
@@ -39,6 +41,7 @@ namespace NG::syntax
     Index,
     Member,
     Binary,
+    Closure,
   };
 
   struct Expression
@@ -651,6 +654,24 @@ namespace NG::syntax
 
     FunctionParameter(std::string parameterName, TypeSyntaxPtr parameterType, SourceSpan sourceSpan)
       : name(std::move(parameterName)), type(std::move(parameterType)), span(sourceSpan)
+    {
+    }
+  };
+
+  /// Anonymous function literal: `|params| expression` or `|params| { statements }`
+  /// (D-006). `body` is a block whose tail carries the single-expression form's
+  /// value, mirroring `=> body` function sugar. Parameters may declare explicit
+  /// types (`|x: i64| ...`); an omitted annotation is inferred at the call site
+  /// by INC-14 slice S2.
+  struct ClosureExpression final : Expression
+  {
+    std::vector<FunctionParameter> parameters;
+    std::unique_ptr<Block> body;
+
+    ClosureExpression(std::vector<FunctionParameter> closureParameters, std::unique_ptr<Block> closureBody,
+                      SourceSpan sourceSpan)
+      : Expression(ExpressionKind::Closure, sourceSpan), parameters(std::move(closureParameters)),
+        body(std::move(closureBody))
     {
     }
   };

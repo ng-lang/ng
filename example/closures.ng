@@ -1,0 +1,21 @@
+// INC-14 slice S1: closures with explicit parameter types and direct calls.
+// Captures and generic closures arrive in later slices (S2-S4).
+import prelude;
+
+fun apply(x: i64) -> i64 {
+    let doubler = |v: i64| v * 2;
+    return doubler(x);
+}
+
+fun main() -> i64 {
+    let add = |a: i64, b: i64| a + b;
+    let mul = |a: i64, b: i64| { let c = a * b; c + 1 };
+    let identity = |x: i64| x;
+    let plan = |x: i64| { let y = x - 1; y * y };
+    print(add(2, 3));
+    print(mul(5, 6));
+    print(identity(7));
+    print(plan(5));
+    print(apply(21));
+    return 0;
+}

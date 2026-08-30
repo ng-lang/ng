@@ -1,10 +1,12 @@
 // AI-generated code; reviewed for this repository's vNext rewrite.
 #include "syntax/const_expr.hpp"
+#include "syntax/block_parser.hpp"
 #include "syntax/parser.hpp"
 #include "syntax/type_parser.hpp"
 
 #include <cctype>
 #include <format>
+#include <algorithm>
 #include <unordered_set>
 #include <utility>
 
@@ -567,6 +569,11 @@ namespace NG::syntax
 
   auto ExpressionParser::parsePrefix() -> ExpressionPtr
   {
+    if (current().kind == TokenKind::Pipe)
+    {
+      return parseClosure();
+    }
+
     const Token token = consume();
     switch (token.kind)
     {
@@ -714,6 +721,98 @@ namespace NG::syntax
   auto ExpressionParser::isAtEnd() const -> bool
   {
     return current().kind == TokenKind::End;
+  }
+
+  auto ExpressionParser::parseClosure() -> ExpressionPtr
+  {
+    const Token open = consume();
+    std::vector<FunctionParameter> parameters;
+    if (current().kind != TokenKind::Pipe)
+    {
+      while (true)
+      {
+        const Token name = current();
+        if (name.kind != TokenKind::Identifier)
+          throw ParseError("expected a closure parameter name", name.span);
+        consume();
+        TypeSyntaxPtr type;
+        SourceSpan parameterSpan = name.span;
+        if (current().kind == TokenKind::Colon)
+        {
+          consume();
+          type = parseTypeUntil({TokenKind::Comma, TokenKind::Pipe});
+          parameterSpan.end = type->span.end;
+        }
+        parameters.emplace_back(name.text, std::move(type), parameterSpan);
+        if (current().kind != TokenKind::Comma) break;
+        consume();
+      }
+    }
+    if (current().kind != TokenKind::Pipe)
+      throw ParseError("expected `|` to close closure parameters", current().span);
+    consume();
+
+    std::unique_ptr<Block> body;
+    if (current().kind == TokenKind::LeftBrace)
+    {
+      auto blockTokens = consumeBlockTokens();
+      body = std::make_unique<Block>(BlockParser{std::move(blockTokens)}.parse());
+    }
+    else
+    {
+      auto tail = parseExpression(0);
+      body = std::make_unique<Block>(Block{SourceSpan{tail->span.begin, tail->span.end}, {},
+                                           std::move(tail)});
+    }
+    const SourceSpan span{open.span.begin, body->span.end};
+    return std::make_unique<ClosureExpression>(std::move(parameters), std::move(body), span);
+  }
+
+  auto ExpressionParser::parseTypeUntil(const std::vector<TokenKind> &terminators) -> TypeSyntaxPtr
+  {
+    std::vector<Token> typeTokens;
+    size_t angleDepth{};
+    while (current().kind != TokenKind::End)
+    {
+      if (current().kind == TokenKind::Less) ++angleDepth;
+      else if (current().kind == TokenKind::Greater && angleDepth != 0) --angleDepth;
+      else if (current().kind == TokenKind::ShiftRight)
+      {
+        const Token token = consume();
+        const size_t middle = token.span.begin + 1;
+        typeTokens.push_back(Token{.kind = TokenKind::Greater, .text = ">",
+                                   .span = SourceSpan{token.span.begin, middle}});
+        typeTokens.push_back(Token{.kind = TokenKind::Greater, .text = ">",
+                                   .span = SourceSpan{middle, token.span.end}});
+        angleDepth = angleDepth > 2 ? angleDepth - 2 : 0;
+        continue;
+      }
+      if (angleDepth == 0 &&
+          std::find(terminators.begin(), terminators.end(), current().kind) != terminators.end())
+        break;
+      typeTokens.push_back(consume());
+    }
+    const size_t position = typeTokens.empty() ? current().span.begin : typeTokens.back().span.end;
+    typeTokens.push_back(Token{.kind = TokenKind::End, .text = {}, .span = SourceSpan{position, position}});
+    return TypeParser{std::move(typeTokens)}.parse();
+  }
+
+  auto ExpressionParser::consumeBlockTokens() -> std::vector<Token>
+  {
+    std::vector<Token> blockTokens;
+    size_t depth{};
+    do
+    {
+      const Token token = consume();
+      if (token.kind == TokenKind::LeftBrace) ++depth;
+      else if (token.kind == TokenKind::RightBrace) --depth;
+      blockTokens.push_back(token);
+      if (token.kind == TokenKind::End)
+        throw ParseError("expected `}` to close closure body", token.span);
+    } while (depth != 0);
+    const size_t end = blockTokens.back().span.end;
+    blockTokens.push_back(Token{.kind = TokenKind::End, .text = {}, .span = SourceSpan{end, end}});
+    return blockTokens;
   }
 
   auto parseExpression(std::string_view source) -> ExpressionPtr

@@ -134,6 +134,23 @@ namespace NG::flowir
         if (expression.kind == hir::ExpressionKind::GenericApplication)
           throw VerificationError("const predicate application is not a runtime value");
 
+        // INC-14 S1: a closure literal has no runtime value at its binding
+        // site — the synthesized code function receives the call parameters
+        // directly — so lower it as an inert zero word (the closure type
+        // maps to `Long` in the native tier).
+        if (expression.kind == hir::ExpressionKind::Closure)
+        {
+          const ValueId value{nextValue_++};
+          if (types_ != nullptr)
+            function_.valueTypes.emplace(value.value, types_->typeIdOf(expression));
+          block().instructions.push_back(
+              Instruction{.kind = InstructionKind::Evaluate,
+                          .result = value,
+                          .expressionKind = hir::ExpressionKind::IntegerLiteral,
+                          .payload = 0});
+          return value;
+        }
+
         if (expression.kind == hir::ExpressionKind::Call && expression.methodCall)
           return lowerMethodCall(expression);
 
@@ -209,9 +226,20 @@ namespace NG::flowir
           return result;
         }
 
-        const bool directCall = expression.kind == hir::ExpressionKind::Call && !expression.operands.empty() &&
+        /// INC-14 S1 closure calls: the callee is a closure-typed local rather
+        /// than a function name; directCall skips it as an operand because the
+        /// synthesized closure code function receives the parameters directly.
+        const bool closureCall =
+            expression.kind == hir::ExpressionKind::Call && !expression.operands.empty() &&
+            expression.operands[0]->resolvedName.has_value() &&
+            expression.operands[0]->resolvedName->kind == hir::ResolvedNameKind::Local && types_ != nullptr &&
+            types_->callTargets.contains(&expression) &&
+            types_->typeDescriptors.at(types_->typeIdOf(*expression.operands[0]).value).kind ==
+                typecheck::TypeKind::Closure;
+        const bool directCall = (expression.kind == hir::ExpressionKind::Call && !expression.operands.empty() &&
                                 expression.operands[0]->resolvedName.has_value() &&
-                                expression.operands[0]->resolvedName->kind == hir::ResolvedNameKind::Function;
+                                expression.operands[0]->resolvedName->kind == hir::ResolvedNameKind::Function) ||
+                                closureCall;
         if (expression.kind == hir::ExpressionKind::Prefix && (expression.text == "-" || expression.text == "+") &&
             !expression.operands.empty() && expression.operands[0]->kind == hir::ExpressionKind::IntegerLiteral)
         {

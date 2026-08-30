@@ -32,10 +32,16 @@ namespace
   /// 2149: INC-11 derive(Show) string synthesis (buildShowString) landed in
   /// flowir.cpp — the generate/show slice is ~90 lines and is planned to
   /// move out with the ARCH flowir split in the post-cutover plan.
-  constexpr size_t kMaxCppLines = 2150;
+  /// 2177: INC-14 S1 closure lowering (extended directCall for closure calls,
+  /// inert zero-word closure literals) landed in flowir.cpp; ARCH split
+  /// tracked in the post-cutover plan.
+  constexpr size_t kMaxCppLines = 2177;
   /// 917: INC-10 added While/Continue/Break statement nodes to ast.hpp;
   /// ARCH split tracked in the post-cutover plan.
-  constexpr size_t kMaxHeaderLines = 925;
+  /// 938: INC-14 S1 added ClosureExpression to ast.hpp (plus FunctionParameter
+  /// and Block forward declarations); ARCH split tracked in the post-cutover
+  /// plan.
+  constexpr size_t kMaxHeaderLines = 938;
 
   /// Recursively collect every file matching `extension` under `root`.
   auto collectFiles(const std::string &root, std::string_view extension) -> std::vector<std::filesystem::path>

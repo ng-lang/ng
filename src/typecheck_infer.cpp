@@ -1285,6 +1285,30 @@ auto Checker::infer(const hir::Expression &expression, const LocalTypes &locals)
   {
     if (expression.methodCall)
       return inferMethodCall(expression, locals);
+    if (expression.operands[0]->resolvedName.has_value() &&
+        expression.operands[0]->resolvedName->kind == hir::ResolvedNameKind::Local)
+    {
+      const TypeId calleeType = infer(*expression.operands[0], locals);
+      if (interner_.descriptor(calleeType).kind == TypeKind::Closure)
+      {
+        const auto foundCode = closureLocals_.find(expression.operands[0]->resolvedName->id);
+        if (foundCode == closureLocals_.end())
+          throw TypeError(std::format("closure value `{}` was not created directly by a closure literal",
+                                      expression.operands[0]->text),
+                          expression.span);
+        const auto &closure = interner_.descriptor(calleeType);
+        if (closure.elements.size() != expression.operands.size() - 1)
+          throw TypeError(std::format("closure argument count mismatch: expected {}, got {}",
+                                      closure.elements.size(), expression.operands.size() - 1),
+                          expression.span);
+        for (size_t index = 0; index < closure.elements.size(); ++index)
+          static_cast<void>(inferExpected(*expression.operands[index + 1], closure.elements[index], locals,
+                                          std::format("closure argument {}", index + 1)));
+        callTargets_.insert_or_assign(&expression, foundCode->second);
+        type = closure.element;
+        break;
+      }
+    }
     if (!expression.operands[0]->resolvedName.has_value() ||
         expression.operands[0]->resolvedName->kind != hir::ResolvedNameKind::Function)
       throw TypeError("call target is not a function", expression.operands[0]->span);
@@ -1551,6 +1575,47 @@ auto Checker::infer(const hir::Expression &expression, const LocalTypes &locals)
                         expression.span);
       type = descriptor.element;
     }
+    break;
+  }
+  case hir::ExpressionKind::Closure:
+  {
+    LocalTypes closureLocals;
+    std::vector<TypeId> parameterTypes;
+    parameterTypes.reserve(expression.closureParameterIds.size());
+    for (size_t index = 0; index < expression.closureParameterIds.size(); ++index)
+    {
+      const TypeId parameterType =
+          interner_.resolveInScope(*expression.closureParameterTypes[index], genericBindings_);
+      if (interner_.descriptor(parameterType).kind == TypeKind::TypeParameter)
+        throw TypeError("closure parameters require concrete types (generic closures arrive in INC-14 S2)",
+                        expression.span);
+      parameterTypes.push_back(parameterType);
+      closureLocals.emplace(expression.closureParameterIds[index].value, parameterType);
+      recordLocal(expression.closureParameterIds[index], parameterType);
+    }
+    // Closure locals are borrowed/copied by value into the synthesized code
+    // function; captures from outer scopes remain INC-14 slices S3-S4.
+    ensureNoCapturedLocals(expression);
+    const MoveState movesBefore = moveState_;
+    checkBlock(*expression.closureBody, closureLocals, {}, TypeId{}, false);
+    moveState_ = movesBefore;
+    const TypeId resultType = expression.closureBody->tailExpression != nullptr
+                                  ? expressionTypeIds_.at(expression.closureBody->tailExpression.get())
+                                  : builtin::Unit;
+    const hir::DefId closureId{static_cast<uint32_t>(module_->functions.size() + instances_.size())};
+    const std::string closureName = std::format("__closure{}", closureCounter_++);
+    const FunctionTypeIds closureSignature{.parameters = parameterTypes, .returnType = resultType};
+    signatures_.emplace(closureId.value, closureSignature);
+    functionTypeIds_.emplace(closureId.value, closureSignature);
+    FunctionType displaySignature;
+    for (const auto parameter : parameterTypes)
+      displaySignature.parameters.push_back(interner_.display(parameter));
+    displaySignature.returnType = interner_.display(resultType);
+    functionTypes_.emplace(closureId.value, std::move(displaySignature));
+    instances_.push_back(hir::makeClosureFunction(expression, closureName, closureId, nextInstanceLocal_));
+    checkFunction(instances_.back(), {});
+    closureFunctions_.emplace(&expression, closureId);
+    type = interner_.internClosure(parameterTypes, resultType);
     break;
   }
   case hir::ExpressionKind::Member:

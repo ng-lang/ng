@@ -954,6 +954,28 @@ namespace NG::hir
       resolved->operands.push_back(resolveExpression(*binary->right));
       return resolved;
     }
+    if (const auto *closure = dynamic_cast<const syntax::ClosureExpression *>(&expression))
+    {
+      scopes_.emplace_back();
+      resolved->kind = ExpressionKind::Closure;
+      resolved->closureParameterNames.reserve(closure->parameters.size());
+      resolved->closureParameterIds.reserve(closure->parameters.size());
+      resolved->closureParameterTypes.reserve(closure->parameters.size());
+      for (const auto &parameter : closure->parameters)
+      {
+        if (parameter.type == nullptr)
+          throw ResolutionError(std::format("closure parameter `{}` requires a type annotation", parameter.name),
+                                parameter.span);
+        const LocalId local = declareLocal(parameter.name, parameter.span);
+        localMutability_.emplace(local.value, false);
+        resolved->closureParameterNames.push_back(parameter.name);
+        resolved->closureParameterIds.push_back(local);
+        resolved->closureParameterTypes.push_back(std::make_shared<Type>(lowerType(*parameter.type)));
+      }
+      resolved->closureBody = std::make_unique<Block>(resolveBlock(*closure->body, false));
+      scopes_.pop_back();
+      return resolved;
+    }
 
     throw ResolutionError("unsupported expression during name resolution", expression.span);
   }
@@ -1025,6 +1047,9 @@ namespace
     uint32_t &nextLocal;
   };
 
+  [[nodiscard]] auto cloneExpression(CloneContext &context, const hir::Expression &source) -> hir::ExpressionPtr;
+  [[nodiscard]] auto cloneBlock(CloneContext &context, const hir::Block &source) -> hir::Block;
+
   [[nodiscard]] auto remapLocal(CloneContext &context, hir::LocalId local) -> hir::LocalId
   {
     const auto found = context.locals.find(local.value);
@@ -1083,6 +1108,17 @@ namespace
     cloned->methodCall = source.methodCall;
     if (cloned->resolvedName.has_value() && cloned->resolvedName->kind == hir::ResolvedNameKind::Local)
       cloned->resolvedName->id = remapLocal(context, LocalId{cloned->resolvedName->id}).value;
+    if (source.kind == hir::ExpressionKind::Closure)
+    {
+      for (const auto &parameterName : source.closureParameterNames)
+        cloned->closureParameterNames.push_back(parameterName);
+      for (const auto parameterId : source.closureParameterIds)
+        cloned->closureParameterIds.push_back(remapLocal(context, parameterId));
+      for (const auto &parameterType : source.closureParameterTypes)
+        cloned->closureParameterTypes.push_back(std::make_shared<hir::Type>(cloneType(*parameterType)));
+      if (source.closureBody != nullptr)
+        cloned->closureBody = std::make_unique<hir::Block>(cloneBlock(context, *source.closureBody));
+    }
     for (const auto &operand : source.operands) cloned->operands.push_back(cloneExpression(context, *operand));
     return cloned;
   }
@@ -1159,5 +1195,27 @@ namespace
     if (source.whereClause != nullptr) cloned.whereClause = cloneExpression(context, *source.whereClause);
     cloned.body = cloneBlock(context, source.body);
     return cloned;
+  }
+
+  auto makeClosureFunction(const Expression &closure, const std::string &name, DefId id, uint32_t &nextLocal)
+      -> Function
+  {
+    CloneContext context{.nextLocal = nextLocal};
+    Function result;
+    result.id = id;
+    result.name = name;
+    result.span = closure.span;
+    result.parameters.reserve(closure.closureParameterNames.size());
+    for (size_t index = 0; index < closure.closureParameterNames.size(); ++index)
+    {
+      result.parameters.push_back(Parameter{.name = closure.closureParameterNames[index],
+                                            .typeName = closure.closureParameterTypes[index]->name,
+                                            .type = cloneType(*closure.closureParameterTypes[index]),
+                                            .local = remapLocal(context, closure.closureParameterIds[index]),
+                                            .span = closure.span});
+    }
+    result.body = cloneBlock(context, *closure.closureBody);
+    nextLocal = context.nextLocal;
+    return result;
   }
 } // namespace NG::hir

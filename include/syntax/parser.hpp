@@ -128,6 +128,12 @@ namespace NG::syntax
     [[nodiscard]] auto parseExpression(int minimumBindingPower) -> ExpressionPtr;
     [[nodiscard]] auto parsePrefix() -> ExpressionPtr;
     [[nodiscard]] auto parsePostfix(ExpressionPtr expression) -> ExpressionPtr;
+    [[nodiscard]] auto parseClosure() -> ExpressionPtr;
+    /// Slices a type up to a terminator token range and hands it to TypeParser.
+    [[nodiscard]] auto parseTypeUntil(const std::vector<TokenKind> &terminators) -> TypeSyntaxPtr;
+    /// Captures a balanced `{ ... }` token range plus an End token, unchanged
+    /// from the ModuleParser helper under a matching name.
+    [[nodiscard]] auto consumeBlockTokens() -> std::vector<Token>;
     [[nodiscard]] auto current() const -> const Token &;
     [[nodiscard]] auto consume() -> Token;
     [[nodiscard]] auto prefixBindingPower(TokenKind kind) const -> int;

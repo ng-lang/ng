@@ -93,10 +93,12 @@ namespace NG::hir
     Index,
     Member,
     Binary,
+    Closure,
   };
 
   struct TypeArgument;
   struct Type;
+  struct Block;
 
   struct Expression
   {
@@ -119,6 +121,12 @@ namespace NG::hir
     /// Method call (`receiver.method(...)` or qualified `Trait.method(...)`):
     /// operands[0] is the Member callee whose operands[0] is the receiver.
     bool methodCall{};
+    /// Anonymous closure literal (`|x| body`): parameter locals declared in a
+    /// closure body scope, resolved parameter type trees, and the body block.
+    std::vector<std::string> closureParameterNames;
+    std::vector<LocalId> closureParameterIds;
+    std::vector<std::shared_ptr<Type>> closureParameterTypes;
+    std::unique_ptr<Block> closureBody;
     std::vector<std::unique_ptr<Expression>> operands;
   };
 
@@ -411,6 +419,11 @@ namespace NG::hir
   /// every `LocalId` and `LoopId` so the instance occupies a fresh identity
   /// space. Types, where clauses, and names are copied structurally.
   [[nodiscard]] auto cloneFunction(const Function &source, uint32_t &nextLocal) -> Function;
+  /// Deep-copies an anonymous closure `|params| body` into an independent code
+  /// function whose parameter locals are remapped. The typechecker uses this
+  /// to synthesize closures as ordinary concrete functions (INC-14 S1).
+  [[nodiscard]] auto makeClosureFunction(const Expression &closure, const std::string &name, DefId id,
+                                         uint32_t &nextLocal) -> Function;
 
   class Resolver final
   {

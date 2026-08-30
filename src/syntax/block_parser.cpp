@@ -505,7 +505,7 @@ namespace NG::syntax
     while (current().kind != TokenKind::End)
     {
       const TokenKind kind = current().kind;
-      if (parenthesisDepth == 0 && squareDepth == 0 &&
+      if (parenthesisDepth == 0 && squareDepth == 0 && braceDepth == 0 &&
           std::find(terminators.begin(), terminators.end(), kind) != terminators.end())
       {
         break;

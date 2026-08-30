@@ -110,6 +110,9 @@ namespace NG::typecheck
     /// `ref<Trait>` dynamic view: a reference to a value implementing the
     /// named trait plus a dispatch table index.
     TraitReference,
+    /// Anonymous closure literal (`|x: i64| ...`): `elements` are the
+    /// parameter types, `element` is the return type.
+    Closure,
   };
 
   struct TypeDescriptor
@@ -167,6 +170,7 @@ namespace NG::typecheck
     [[nodiscard]] auto internRawPointer(TypeId target, bool mutablePointee) -> TypeId;
     [[nodiscard]] auto internTuple(const std::vector<TypeId> &elements) -> TypeId;
     [[nodiscard]] auto internUnion(const std::vector<TypeId> &members) -> TypeId;
+    [[nodiscard]] auto internClosure(const std::vector<TypeId> &parameters, TypeId result) -> TypeId;
     [[nodiscard]] auto internTypePack(TypeId element) -> TypeId;
     [[nodiscard]] auto internRange(TypeId element) -> TypeId;
     [[nodiscard]] auto declareTraitType(std::string name) -> TypeId;

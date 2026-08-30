@@ -225,6 +225,9 @@ namespace NG::native
         case TypeKind::TraitReference:
         case TypeKind::Opaque:
         case TypeKind::Union:
+        /// INC-14 S1: closure literals are inert handles; their synthesized
+        /// code functions receive call parameters directly.
+        case TypeKind::Closure:
           return QType::Long;
         case TypeKind::Struct:
         case TypeKind::Enum:

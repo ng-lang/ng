@@ -321,6 +321,9 @@ namespace NG::typecheck::detail
     void checkIntegerLiteralMagnitude(uint64_t magnitude, std::string_view text, TypeId type,
                                       syntax::SourceSpan span) const;
     void checkIntegerLiteral(int64_t value, std::string_view text, TypeId type, syntax::SourceSpan span) const;
+    /// INC-14 S1 negative contract: a closure body must not reference locals
+    /// from an enclosing scope until capture slices land (copy/move S3-S4).
+    void ensureNoCapturedLocals(const hir::Expression &closure) const;
 
     // ---- data members ----
     TypeInterner interner_;
@@ -363,6 +366,11 @@ namespace NG::typecheck::detail
     std::unordered_map<const hir::Expression *, TypeId> methodReceiverRefTypes_;
     std::unordered_map<std::string, hir::DefId> instanceTable_;
     std::deque<hir::Function> instances_;
+    /// Closure literal expression -> its synthesized code function (INC-14 S1).
+    std::unordered_map<const hir::Expression *, hir::DefId> closureFunctions_;
+    /// Closure-typed local id -> its synthesized code function.
+    std::unordered_map<uint32_t, hir::DefId> closureLocals_;
+    uint32_t closureCounter_{};
     std::unordered_set<uint32_t> deferredMethodFunctions_;
     hir::DefId currentFunctionId_{};
     uint32_t nextInstanceLocal_{1'000'000};
