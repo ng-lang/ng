@@ -29,7 +29,10 @@ namespace
   /// 2058: INC-10 while/continue/break loop lowering landed in flowir.cpp
   /// (lowerWhile/lowerContinue/lowerBreak); ARCH split tracked in the
   /// post-cutover plan.
-  constexpr size_t kMaxCppLines = 2075;
+  /// 2149: INC-11 derive(Show) string synthesis (buildShowString) landed in
+  /// flowir.cpp — the generate/show slice is ~90 lines and is planned to
+  /// move out with the ARCH flowir split in the post-cutover plan.
+  constexpr size_t kMaxCppLines = 2150;
   /// 917: INC-10 added While/Continue/Break statement nodes to ast.hpp;
   /// ARCH split tracked in the post-cutover plan.
   constexpr size_t kMaxHeaderLines = 925;

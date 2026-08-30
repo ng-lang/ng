@@ -299,6 +299,13 @@ namespace NG::typecheck
     /// Types that derived `Eq`: type id set; field-level == is synthesized
     /// by the FlowIR builder for binary comparisons on these types.
     std::unordered_set<uint32_t> derivedEqTypes;
+    /// Types that derived `Show`: type id set; `.show()` on these synthesizes
+    /// a `name{field: value, ...}` string in FlowIR.
+    std::unordered_set<uint32_t> derivedShowTypes;
+    /// Derived `show()` calls: expression -> receiver type.
+    std::unordered_map<const hir::Expression *, TypeId> derivedShowCalls;
+    /// Scalar type id -> native `toString` DefId used by derive(Show).
+    std::unordered_map<uint32_t, hir::DefId> showToStringTargets;
     /// Trait-view coercions (`ref<Trait>`): expression -> (trait, concrete type).
     std::unordered_map<const hir::Expression *, std::pair<std::string, TypeId>> traitViewCoercions;
     /// Dynamic method calls through trait views: expression -> (trait, method index).

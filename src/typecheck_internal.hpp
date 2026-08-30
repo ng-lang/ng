@@ -350,11 +350,15 @@ namespace NG::typecheck::detail
     std::unordered_set<uint32_t> placeholderFunctions_;
     std::unordered_set<uint32_t> derivedCloneTypes_;
     std::unordered_set<uint32_t> derivedEqTypes_;
+    std::unordered_set<uint32_t> derivedShowTypes_;
     std::unordered_map<uint32_t, std::vector<std::string>> dropMovedFields_;
     std::unordered_map<const hir::Expression *, std::pair<std::string, TypeId>> traitViewCoercions_;
     std::unordered_map<const hir::Expression *, std::pair<std::string, size_t>> traitViewCalls_;
     std::unordered_map<std::string, std::unordered_map<uint32_t, std::vector<hir::DefId>>> traitViewTables_;
     std::unordered_map<const hir::Expression *, TypeId> derivedCloneCalls_;
+    std::unordered_map<const hir::Expression *, TypeId> derivedShowCalls_;
+    /// Scalar type id -> native `toString` DefId (for derive(Show) synthesis).
+    std::unordered_map<uint32_t, hir::DefId> showToStringTargets_;
     std::unordered_map<const hir::Expression *, bool> methodReceiverMutable_;
     std::unordered_map<const hir::Expression *, TypeId> methodReceiverRefTypes_;
     std::unordered_map<std::string, hir::DefId> instanceTable_;

@@ -307,6 +307,16 @@ auto Checker::inferMethodCall(const hir::Expression &expression, const LocalType
     record(expression, dispatchType);
     return dispatchType;
   }
+  if (expression.text == "show" && derivedShowTypes_.contains(dispatchType.value))
+  {
+    if (expression.operands.size() != firstArgument)
+      throw TypeError("derived show takes no arguments", expression.span);
+    methodReceiverMutable_.insert_or_assign(&expression, false);
+    methodReceiverRefTypes_.insert_or_assign(&expression, interner_.internReference(dispatchType, false));
+    derivedShowCalls_.insert_or_assign(&expression, dispatchType);
+    record(expression, builtin::String);
+    return builtin::String;
+  }
   hir::DefId selected;
   bool selectedFound = false;
   Substitution matchedSubstitution;

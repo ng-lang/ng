@@ -310,8 +310,8 @@ TEST_CASE("vNext generic impls instantiate per concrete receiver", "[vNext][Trai
   std::string output;
   std::string errors;
   REQUIRE(run("import prelude; import list; "
-              "trait Show { fun show(self: Self ref) -> string; } "
-              "impl<T> Show for List<T> { fun show(self: Self ref) -> string { return \"list\"; } } "
+              "trait RenderText { fun show(self: Self ref) -> string; } "
+              "impl<T> RenderText for List<T> { fun show(self: Self ref) -> string { return \"list\"; } } " 
               "fun main() -> i64 { let xs = listFrom([1, 2, 3]); "
               "if (xs.show() == \"list\") { return 1; } return 0; }",
               output, errors) == 0);
@@ -319,8 +319,8 @@ TEST_CASE("vNext generic impls instantiate per concrete receiver", "[vNext][Trai
   REQUIRE(output.find("native main exited with code 1") != std::string::npos);
 
   REQUIRE(run("import prelude; "
-              "trait Show { fun show(self: Self ref) -> string; } "
-              "impl<T> Show for array<T> { fun show(self: Self ref) -> string { return \"array\"; } } "
+              "trait RenderText { fun show(self: Self ref) -> string; } "
+              "impl<T> RenderText for array<T> { fun show(self: Self ref) -> string { return \"array\"; } } " 
               "fun main() -> i64 { let xs = [1, 2, 3]; "
               "if (xs.show() == \"array\") { return 2; } return 0; }",
               output, errors) == 0);
@@ -333,12 +333,12 @@ TEST_CASE("vNext generic impls satisfy trait bounds and views, concrete wins", "
   std::string output;
   std::string errors;
   REQUIRE(run("import prelude; import list; "
-              "trait Show { fun show(self: Self ref) -> string; } "
-              "impl<T> Show for List<T> { fun show(self: Self ref) -> string { return \"generic\"; } } "
-              "impl Show for List<i64> { fun show(self: Self ref) -> string { return \"concrete\"; } } "
-              "fun render<U: Show>(value: U ref) -> string { return value.show(); } "
+              "trait RenderText { fun show(self: Self ref) -> string; } "
+              "impl<T> RenderText for List<T> { fun show(self: Self ref) -> string { return \"generic\"; } } "
+              "impl RenderText for List<i64> { fun show(self: Self ref) -> string { return \"concrete\"; } } "
+              "fun render<U: RenderText>(value: U ref) -> string { return value.show(); } "
               "fun main() -> i64 { let numbers = listFrom([1]); let words = listFrom([\"a\"]); "
-              "let view: ref<Show> = words; "
+              "let view: ref<RenderText> = words; "
               "if (numbers.show() == \"concrete\" && words.show() == \"generic\" && view.show() == \"generic\") "
               "{ return 1; } return 0; }",
               output, errors) == 0);
@@ -351,16 +351,16 @@ TEST_CASE("vNext generic impls diagnose duplicates and missing methods", "[vNext
   std::string output;
   std::string errors;
   REQUIRE(run("import prelude; import list; "
-              "trait Show { fun show(self: Self ref) -> string; } "
-              "impl<T> Show for List<T> { fun show(self: Self ref) -> string { return \"a\"; } } "
-              "impl<U> Show for List<U> { fun show(self: Self ref) -> string { return \"b\"; } } "
+              "trait RenderText { fun show(self: Self ref) -> string; } "
+              "impl<T> RenderText for List<T> { fun show(self: Self ref) -> string { return \"a\"; } } "
+              "impl<U> RenderText for List<U> { fun show(self: Self ref) -> string { return \"b\"; } } "
               "fun main() { }",
               output, errors) == 1);
   REQUIRE_THAT(errors, ContainsSubstring("duplicate generic impl"));
 
   REQUIRE(run("import prelude; import list; "
-              "trait Show { fun show(self: Self ref) -> string; } "
-              "impl<T> Show for List<T> { fun show(self: Self ref) -> string { return \"list\"; } } "
+              "trait RenderText { fun show(self: Self ref) -> string; } "
+              "impl<T> RenderText for List<T> { fun show(self: Self ref) -> string { return \"list\"; } } "
               "fun main() { let n = 5; n.show(); }",
               output, errors) == 1);
   REQUIRE_THAT(errors, ContainsSubstring("no method `show` for value of type i64"));

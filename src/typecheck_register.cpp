@@ -126,6 +126,49 @@ auto Checker::check(const hir::Module &module, const const_eval::ConstNativeHost
         }
         derivedEqTypes_.insert(target.value);
       }
+      if (traitName == "Show")
+      {
+        // Validate: every field must be a string, a scalar with a native
+        // `toString` overload (i64/i32/u64/f64/bool in the prelude), or a
+        // Show-derived struct. Resolution order: nested structs must be
+        // declared (and derive Show) before the struct that contains them.
+        const auto &descriptor = interner_.descriptor(target);
+        for (size_t i = 0; i < descriptor.elements.size(); ++i)
+        {
+          const auto &fieldType = descriptor.elements[i];
+          const auto &fd = interner_.descriptor(fieldType);
+          if (fd.kind == TypeKind::Struct || fd.kind == TypeKind::Enum)
+          {
+            if (fd.kind == TypeKind::Enum || !derivedShowTypes_.contains(fieldType.value))
+              throw TypeError(std::format("derive(Show) on `{}`: field `{}` type `{}` does not derive Show",
+                                          structure.name, descriptor.fieldNames[i], interner_.display(fieldType)),
+                              structure.span);
+          }
+          else if (fieldType != builtin::String && !showToStringTargets_.contains(fieldType.value))
+          {
+            hir::DefId toStringTarget{};
+            bool found = false;
+            for (const auto &candidate : module_->functions)
+            {
+              if (!candidate.nativeFunction || candidate.name != "toString" || candidate.parameters.size() != 1)
+                continue;
+              if (interner_.resolve(candidate.parameters[0].type) == fieldType)
+              {
+                toStringTarget = candidate.id;
+                found = true;
+                break;
+              }
+            }
+            if (!found)
+              throw TypeError(std::format("derive(Show) on `{}`: field `{}` type `{}` is not showable "
+                                          "(no toString overload)",
+                                          structure.name, descriptor.fieldNames[i], interner_.display(fieldType)),
+                              structure.span);
+            showToStringTargets_.emplace(fieldType.value, toStringTarget);
+          }
+        }
+        derivedShowTypes_.insert(target.value);
+      }
     }
   }
   for (const auto &function : module.functions)
@@ -260,6 +303,9 @@ auto Checker::check(const hir::Module &module, const const_eval::ConstNativeHost
                           .deferredMethodFunctions = std::move(deferredMethodFunctions_),
                           .derivedCloneCalls = std::move(derivedCloneCalls_),
                           .derivedEqTypes = std::move(derivedEqTypes_),
+                          .derivedShowTypes = std::move(derivedShowTypes_),
+                          .derivedShowCalls = std::move(derivedShowCalls_),
+                          .showToStringTargets = std::move(showToStringTargets_),
                           .traitViewCoercions = std::move(traitViewCoercions_),
                           .traitViewCalls = std::move(traitViewCalls_),
                           .traitViewTables = std::move(traitViewTables_),

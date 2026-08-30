@@ -1196,6 +1196,18 @@ namespace NG::flowir
               Instruction{.kind = InstructionKind::LoadRef, .result = value, .operands = {receiverValue}});
           return value;
         }
+        if (types_ != nullptr && types_->derivedShowCalls.contains(&expression))
+        {
+          // INC-11 derive(Show): the receiver is a `Self ref`; load the struct
+          // value and synthesize a `name{field: value, ...}` string in place
+          // from string literals, per-field toString calls, and nested show.
+          const typecheck::TypeId structType = types_->derivedShowCalls.at(&expression);
+          const ValueId structValue{nextValue_++};
+          function_.valueTypes.emplace(structValue.value, structType);
+          block().instructions.push_back(
+              Instruction{.kind = InstructionKind::LoadRef, .result = structValue, .operands = {receiverValue}});
+          return buildShowString(structValue, structType);
+        }
         std::vector<ValueId> operands{receiverValue};
         for (size_t index = qualified ? 2 : 1; index < expression.operands.size(); ++index)
           operands.push_back(lowerExpression(*expression.operands[index]));
@@ -1212,6 +1224,85 @@ namespace NG::flowir
                                                    .callTarget = callTarget,
                                                    .operands = std::move(operands)});
         return value;
+      }
+
+      /// INC-11 derive(Show): synthesize the `name{field: value, ...}` string
+      /// for a Show-derived struct value from string literals, per-field
+      /// native `toString` calls, and nested derived-Show structs.
+      [[nodiscard]] auto buildShowString(ValueId structValue, typecheck::TypeId structType) -> ValueId
+      {
+        const auto &descriptor = types_->typeDescriptors.at(structType.value);
+
+        const auto stringLiteral = [&](std::string text) -> ValueId
+        {
+          const ValueId literal{nextValue_++};
+          function_.valueTypes.emplace(literal.value, typecheck::builtin::String);
+          block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
+                                                     .result = literal,
+                                                     .expressionKind = hir::ExpressionKind::StringLiteral,
+                                                     .text = std::move(text)});
+          return literal;
+        };
+
+        const auto concat = [&](ValueId left, ValueId right) -> ValueId
+        {
+          const ValueId value{nextValue_++};
+          function_.valueTypes.emplace(value.value, typecheck::builtin::String);
+          block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
+                                                     .result = value,
+                                                     .expressionKind = hir::ExpressionKind::Binary,
+                                                     .text = "+",
+                                                     .payload = 1,
+                                                     .operands = {left, right}});
+          return value;
+        };
+
+        const auto extractField = [&](ValueId source, size_t index, typecheck::TypeId fieldType) -> ValueId
+        {
+          const ValueId extracted{nextValue_++};
+          function_.valueTypes.emplace(extracted.value, fieldType);
+          block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
+                                                     .result = extracted,
+                                                     .expressionKind = hir::ExpressionKind::Member,
+                                                     .payload = static_cast<int64_t>(index),
+                                                     .text = std::to_string(index),
+                                                     .operands = {source}});
+          return extracted;
+        };
+
+        // Renders a single field value: strings pass through, nested
+        // Show-derived structs recurse, scalars call the recorded native.
+        const auto fieldToString = [&](ValueId field, typecheck::TypeId fieldType) -> ValueId
+        {
+          if (fieldType == typecheck::builtin::String)
+            return field;
+          const auto &fd = types_->typeDescriptors.at(fieldType.value);
+          if (fd.kind == typecheck::TypeKind::Struct && types_->derivedShowTypes.contains(fieldType.value))
+            return buildShowString(field, fieldType);
+          const ValueId value{nextValue_++};
+          function_.valueTypes.emplace(value.value, typecheck::builtin::String);
+          block().instructions.push_back(
+              Instruction{.kind = InstructionKind::Evaluate,
+                          .result = value,
+                          .expressionKind = hir::ExpressionKind::Call,
+                          .text = "toString",
+                          .callTarget = types_->showToStringTargets.at(fieldType.value),
+                          .operands = {field}});
+          return value;
+        };
+
+        // `name{field: value, ...}` — no space inside the braces (research A4).
+        ValueId accumulator = concat(stringLiteral(descriptor.name), stringLiteral("{"));
+        for (size_t i = 0; i < descriptor.elements.size(); ++i)
+        {
+          if (i != 0)
+            accumulator = concat(accumulator, stringLiteral(", "));
+          accumulator = concat(accumulator, stringLiteral(descriptor.fieldNames[i]));
+          accumulator = concat(accumulator, stringLiteral(": "));
+          const ValueId field = extractField(structValue, i, descriptor.elements[i]);
+          accumulator = concat(accumulator, fieldToString(field, descriptor.elements[i]));
+        }
+        return concat(accumulator, stringLiteral("}"));
       }
 
       /// Lowers a place expression to its root (a current-frame local or a

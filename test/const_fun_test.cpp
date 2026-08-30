@@ -271,9 +271,9 @@ TEST_CASE("vNext generic const funs evaluate at compile time per type argument",
   std::string output;
   std::string errors;
   REQUIRE(run("import prelude; "
-              "trait Show { fun show(self: Self ref) -> string; } "
-              "impl Show for i64 { fun show(self: Self ref) -> string { return \"int\"; } } "
-              "const fun is_showable<T>() -> bool where T: Show { return true; } "
+              "trait RenderText { fun show(self: Self ref) -> string; } "
+              "impl RenderText for i64 { fun show(self: Self ref) -> string { return \"int\"; } } "
+              "const fun is_showable<T>() -> bool where T: RenderText { return true; } "
               "fun main() { const if (is_showable<i64>()) { print(\"yes\"); } else { assert(false); } }",
               output, errors) == 0);
   REQUIRE(errors.empty());
@@ -287,8 +287,8 @@ TEST_CASE("vNext generic const funs evaluate at compile time per type argument",
   REQUIRE(output.find("folded\n") != std::string::npos);
 
   REQUIRE(run("import prelude; "
-              "trait Show { fun show(self: Self ref) -> string; } "
-              "const fun is_showable<T>() -> bool where T: Show { return true; } "
+              "trait RenderText { fun show(self: Self ref) -> string; } "
+              "const fun is_showable<T>() -> bool where T: RenderText { return true; } "
               "fun main() { const if (is_showable<string>()) { assert(false); } }",
               output, errors) == 1);
   REQUIRE_THAT(errors, ContainsSubstring("does not satisfy its where clause"));
@@ -299,10 +299,10 @@ TEST_CASE("vNext generic const funs defer abstract calls to instances", "[vNext]
   std::string output;
   std::string errors;
   REQUIRE(run("import prelude; "
-              "trait Show { fun show(self: Self ref) -> string; } "
-              "impl Show for i64 { fun show(self: Self ref) -> string { return \"int\"; } } "
-              "const fun is_showable<T>() -> bool where T: Show { return true; } "
-              "fun classify<U: Show>() -> i64 { const if (is_showable<U>()) { return 1; } return 0; } "
+              "trait RenderText { fun show(self: Self ref) -> string; } "
+              "impl RenderText for i64 { fun show(self: Self ref) -> string { return \"int\"; } } "
+              "const fun is_showable<T>() -> bool where T: RenderText { return true; } "
+              "fun classify<U: RenderText>() -> i64 { const if (is_showable<U>()) { return 1; } return 0; } "
               "fun main() { assert(classify<i64>() == 1); }",
               output, errors) == 0);
   REQUIRE(errors.empty());

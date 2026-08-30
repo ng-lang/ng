@@ -6,6 +6,8 @@
 #include "typecheck.hpp"
 
 #include <filesystem>
+#include <format>
+#include <random>
 #include <sstream>
 
 namespace hir = NG::hir;
@@ -135,7 +137,7 @@ TEST_CASE("vNext derive example file runs end to end through ngi", "[vNext][Deri
   REQUIRE(runExample("example/derive.ng", output, errors) == 0);
   INFO("errors: " << errors);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("native main exited with code 127\n") != std::string::npos);
+  REQUIRE(output.find("native main exited with code 255\n") != std::string::npos);
 }
 
 TEST_CASE("vNext derive(Eq) synthesizes field-level struct equality", "[vNext][Derive][Eq][Runtime]")
@@ -186,4 +188,134 @@ TEST_CASE("vNext derive(Eq) error: float field not Eq-comparable", "[vNext][Deri
   REQUIRE(run("import prelude; struct Bad: derive(Eq) { x: f64, } fun main() -> i64 { return 0; }",
               output, errors) != 0);
   REQUIRE(errors.find("derive(Eq) on `Bad`: field `x` type `f64` is not Eq-comparable") != std::string::npos);
+}
+
+TEST_CASE("vNext derive(Show) synthesizes name{field: value, ...} golden strings", "[vNext][Derive][Show][Runtime]")
+{
+  std::string output;
+  std::string errors;
+  const std::string source =
+      "import prelude; "
+      "struct Inner: derive(Show) { a: i64, b: i64, } "
+      "struct Point: derive(Show) { x: i64, y: i64, } "
+      "struct Mixed: derive(Show) { n: i32, flag: bool, ratio: f64, part: Inner, label: string, } "
+      "struct Tagged: derive(Show) { name: string, } "
+      "struct Empty: derive(Show) { } "
+      "fun main() -> i64 { "
+      "let p = Point { x: 20, y: 22 }; print(p.show()); "
+      "let m = Mixed { n: 7, flag: true, ratio: 2.5, part: Inner { a: 1, b: 2 }, label: \"hi\" }; print(m.show()); "
+      "let t = Tagged { name: \"cube\" }; print(t.show()); "
+      "let e = Empty { }; print(e.show()); "
+      "return 0; }";
+  REQUIRE(run(source, output, errors) == 0);
+  INFO("errors: " << errors);
+  REQUIRE(errors.empty());
+  REQUIRE(output.find("Point{x: 20, y: 22}\n") != std::string::npos);
+  REQUIRE(output.find("Mixed{n: 7, flag: true, ratio: 2.5, part: Inner{a: 1, b: 2}, label: hi}\n") != std::string::npos);
+  REQUIRE(output.find("Tagged{name: cube}\n") != std::string::npos);
+  REQUIRE(output.find("Empty{}\n") != std::string::npos);
+}
+
+TEST_CASE("vNext derive(Show) property: output contains the type name and every field label",
+          "[vNext][Derive][Show][Property]")
+{
+  // Generate random simple structs; the runtime show() output must contain
+  // the type name and every field label (plan INC-11 property slice), and
+  // equal the format built here from the same source data.
+  std::minstd_rand random{11};
+  const char *const kinds[] = {"i64", "string", "bool"};
+  constexpr size_t sampleCount = 24;
+  std::string source = "import prelude; ";
+  std::vector<std::string> expectedLines;
+  std::vector<size_t> fieldCounts;
+  for (size_t n = 0; n < sampleCount; ++n)
+  {
+    const std::string name = std::format("Gen_{}", n);
+    const size_t fieldCount = 1 + random() % 4;
+    fieldCounts.push_back(fieldCount);
+    std::vector<std::pair<std::string, std::string>> fields; // label -> display value
+    std::string structText = std::format("struct {}: derive(Show) {{ ", name);
+    std::string runText = std::format(" fun run_{}() -> string {{ let v = {}{{ ", name, name);
+    for (size_t f = 0; f < fieldCount; ++f)
+    {
+      const std::string label = std::format("f_{}", f);
+      const std::string kind = kinds[random() % 3];
+      const size_t choice = random() % 3;
+      std::string ngValue;
+      std::string display;
+      if (kind == "i64")
+      {
+        ngValue = std::to_string(choice + 1);
+        display = ngValue;
+      }
+      else if (kind == "string")
+      {
+        ngValue = std::format("\"v{}\"", choice);
+        display = std::format("v{}", choice);
+      }
+      else
+      {
+        ngValue = choice % 2 == 0 ? "true" : "false";
+        display = ngValue;
+      }
+      structText += std::format("{}: {}, ", label, kind);
+      runText += std::format("{}: {}, ", label, ngValue);
+      fields.emplace_back(label, display);
+    }
+    structText += "} ";
+    runText += "}; return v.show(); } ";
+    source += structText + runText;
+    std::string expected = name + "{";
+    for (size_t i = 0; i < fields.size(); ++i)
+      expected += fields[i].first + ": " + fields[i].second + (i + 1 < fields.size() ? ", " : "");
+    expected += "}";
+    expectedLines.push_back(std::move(expected));
+  }
+  source += "fun main() -> i64 { ";
+  for (size_t n = 0; n < sampleCount; ++n)
+    source += std::format("print(run_{}()); ", std::format("Gen_{}", n));
+  source += "return 0; }";
+
+  std::string output;
+  std::string errors;
+  REQUIRE(run(source, output, errors) == 0);
+  INFO("errors: " << errors);
+  REQUIRE(errors.empty());
+  for (size_t n = 0; n < sampleCount; ++n)
+  {
+    INFO("sample " << n);
+    const std::string name = std::format("Gen_{}", n);
+    const std::string &expected = expectedLines[n];
+    const auto begin = output.find(name + "{");
+    REQUIRE(begin != std::string::npos);
+    const auto end = output.find('\n', begin);
+    REQUIRE(end != std::string::npos);
+    const std::string line = output.substr(begin, end - begin);
+    REQUIRE(line == expected);
+    // Plan property slice: the output contains the type name and each label.
+    REQUIRE(line.find(name) != std::string::npos);
+    for (size_t f = 0; f < fieldCounts[n]; ++f)
+      REQUIRE(line.find(std::format("f_{}", f)) != std::string::npos);
+  }
+}
+
+TEST_CASE("vNext derive(Show) errors: unshowable fields and misuse", "[vNext][Derive][Show][Errors]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(run("import prelude; struct Bad: derive(Show) { x: i8, } fun main() -> i64 { return 0; }", output, errors) != 0);
+  REQUIRE(errors.find("derive(Show) on `Bad`: field `x` type `i8` is not showable (no toString overload)") !=
+          std::string::npos);
+
+  REQUIRE(run("import prelude; struct Inner { a: i64, } "
+              "struct Outer: derive(Show) { inner: Inner, } fun main() -> i64 { return 0; }", output, errors) != 0);
+  REQUIRE(errors.find("derive(Show) on `Outer`: field `inner` type `Inner` does not derive Show") != std::string::npos);
+
+  REQUIRE(run("import prelude; struct Plain { x: i64, } "
+              "fun main() -> i64 { let p = Plain { x: 1 }; let s = p.show(); return 0; }", output, errors) != 0);
+  REQUIRE(errors.find("no method `show` for value of type Plain") != std::string::npos);
+
+  REQUIRE(run("import prelude; struct Point: derive(Show) { x: i64, } "
+              "fun main() -> i64 { let p = Point { x: 1 }; let s = p.show(2); return 0; }", output, errors) != 0);
+  REQUIRE(errors.find("derived show takes no arguments") != std::string::npos);
 }

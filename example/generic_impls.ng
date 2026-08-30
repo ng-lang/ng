@@ -6,30 +6,30 @@ import prelude;
 import seq;
 import list;
 
-trait Show {
+trait RenderText {
     fun show(self: Self ref) -> string;
 }
 
-impl<T> Show for List<T> {
+impl<T> RenderText for List<T> {
     fun show(self: Self ref) -> string {
         if (length(self) == 0) { return "[]"; }
         return "list";
     }
 }
 
-impl<T> Show for array<T> {
+impl<T> RenderText for array<T> {
     fun show(self: Self ref) -> string {
         return "array";
     }
 }
 
-impl Show for List<i64> {
+impl RenderText for List<i64> {
     fun show(self: Self ref) -> string {
         return "int-list";
     }
 }
 
-fun render<U: Show>(value: U ref) -> string {
+fun render<U: RenderText>(value: U ref) -> string {
     return value.show();
 }
 
@@ -52,6 +52,6 @@ fun main() -> unit {
     assert(render(ref values) == "array");
 
     // Dynamic dispatch through a trait view.
-    let view: ref<Show> = words;
+    let view: ref<RenderText> = words;
     assert(view.show() == "list");
 }

@@ -54,13 +54,16 @@ export fun not(value: bool) -> bool {
 export const is_ref<T>: bool = false;
 export const<T> is_ref<ref<T>>: bool = true;
 
-// Core traits: Copy, Clone, and Eq are declared here so that user modules
-// can use `derive(Copy)`, `derive(Clone)`, and `derive(Eq)` after importing
-// the prelude.
+// Core traits: Copy, Clone, Eq, and Show are declared here so that user
+// modules can use `derive(Copy)`, `derive(Clone)`, `derive(Eq)`, and
+// `derive(Show)` after importing the prelude.
 export trait Copy {}
 export trait Clone {
     fun clone(self: Self ref) -> Self;
 }
 export trait Eq {
     fun eq(self: Self ref, other: Self ref) -> bool;
+}
+export trait Show {
+    fun show(self: Self ref) -> string;
 }

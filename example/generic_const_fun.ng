@@ -4,17 +4,17 @@
 
 import prelude;
 
-trait Show {
+trait RenderText {
     fun show(self: Self ref) -> string;
 }
 
-impl Show for i64 {
+impl RenderText for i64 {
     fun show(self: Self ref) -> string {
         return "int";
     }
 }
 
-const fun is_showable<T>() -> bool where T: Show {
+const fun is_showable<T>() -> bool where T: RenderText {
     return true;
 }
 
@@ -22,7 +22,7 @@ const fun identity<T>(value: T) -> T {
     return value;
 }
 
-fun classify<U: Show>() -> i64 {
+fun classify<U: RenderText>() -> i64 {
     const if (is_showable<U>()) { return 1; }
     return 0;
 }
