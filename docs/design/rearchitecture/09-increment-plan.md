@@ -203,9 +203,29 @@
    （用 while/break/continue 去掉搜索循环的标志位）。D-010 修订文本落
    04-language-decisions.md。全套 489→497 用例、ctest 490→498 全绿。
 
-### INC-11 · derive(Show) 〔研究 I5 第二片〕
+### INC-11 · derive(Show) — ✅ 2026-08-30
 - **依赖**: INC-7（数值→串）、INC-8。
 - **测试**: 性质：show 输出含类型名与每个字段标签；黄金样例契约若干。
+- **执行记录**: prelude.ng 声明 `export trait Show { fun show(self: Self ref) -> string; }`；
+  checker 在 derive 注册循环新增 `Show` 分支——字段必须为 string、带原生
+  `toString` 重载的标量（prelude 的 i64/i32/u64/f64/bool），或已 derive Show
+  的嵌套 struct（声明序先在先校验，语义同 derive(Eq)）；标量类型→`toString`
+  原生 DefId 记入 `showToStringTargets` 供合成调用。infer 在 clone 特例后新增
+  `show` 特例（`derivedShowCalls_` → `builtin::String`，`Self ref` 接收者）。
+  FlowIR `lowerMethodCall` 对 derive(Show) 调用 LoadRef 接收者后逐字段提取
+  （Member 索引）并合成 `name{field: value, ...}` 串（研究 A4 格式，大括号内
+  无空格）：string 字面量 + `$ngrt_str_concat` 链、标量走原生 `toString` 调用、
+  嵌套 Show struct 递归。命中方确认：driver 将原生函数也纳入 flows，合成
+   `toString` 调用经 nativeDefIds 派发到正确符号。验证：黄金契约（整数/串/
+  bool/f64/i32/嵌套/空 struct 精确输出）、性质 PBT（24 随机 struct 输出含类型
+  名+字段标签且与程序生成期望逐行相等）、4 条负契约（i8/f32 无 toString、
+  非 Show 嵌套、非 Show 类型调用、arity）。三处示例（trait_defaults/
+  generic_impls/generic_const_fun）与 trait_stage1/const_fun 测试的本地
+  `trait Show` 因 prelude 新增 Show 而重命名为 `RenderText`（含`import prelude`
+  的同源片段；不导入 prelude 的本地 Show 不受影响）。guard_test 行数上限
+  2075→2150（flowir.cpp 2149，ARCH 拆分仍在 post-cutover plan 跟踪）。
+  `example/derive.ng` 增 derive(Show) 断言（退出码 127→255）。全套
+  497→500 用例、ctest 498→501 全绿；ASan 仅剩既有 imgui 链接失败。
 
 ## Phase 3 — M1 错误处理主线
 
@@ -420,7 +440,8 @@ INC-15 → INC-16 → INC-17（M2b；唯一交汇点——闭包语法面取自 
 | INC-A prelude 自动加载 | ❌ 2026-08-27 决定跳过（尝试自动注入 `import prelude;`：typechecker 对合并模块的所有 overload 统一注册，visibility 只作用于 resolver 名字解析，与本地声明形成歧义特化；改例受限注入/影子化仍无法收敛 → **用户拍板**：显式 `import prelude;`，自动加载推迟至 typechecker 支持按模块可见性注册 overload 之后再议） |
 | INC-9 诊断第一阶段：错误码+did-you-mean | ✅ 2026-08-27（错误类统一 `code` 字段，driver 输出 `type error E-xxx at bytes […]`；核心诊断落码：move/borrow/compare/unresolved-name 九码；resolver Levenshtein≤2 建议追加 `; did you mean \`X\`?`；INC-2 负契约升级 `code:` 指令并断言；序列化不改 what()，borrow/driver/move/float 单测加码；did-you-mean 命中单测；双变体全绿，ASan 仅剩既有 imgui 链接失败） |
 | INC-10 + DEC-B while/break/continue | ✅ 2026-08-27（`while`/`continue`/`break` 语法+HIR+FlowIR+const；裸 `next` 仅被带绑定器的 `loop` 捕获；差分 PBT 300 状态机 while≡loop 双路径零分歧；3 条负契约；flowir/resolver/typecheck/parser 单测；`example/while_loops.ng`；D-010 修订；489→497 用例、ctest 490→498 全绿） |
-| INC-11 … INC-36 | ⬜ 未开始（逐个推进，每个完成后更新本表） |
+| INC-11 derive(Show) | ✅ 2026-08-30（prelude `export trait Show`；checker 字段校验+`toString` DefId 注册；infer `show` 特例；FlowIR 合成 `name{field: value, ...}` 串（嵌套递归、标量走原生 toString、string 直通）；黄金契约+性质 PBT（24 随机 struct）+4 条负契约；本地 `trait Show`（含 prelude 者）改 `RenderText`；guard 上限 2075→2150；`example/derive.ng` 增断言 127→255；497→500 用例、ctest 498→501 全绿） |
+| INC-12 … INC-36 | ⬜ 未开始（逐个推进，每个完成后更新本表） |
 
 ### 架构修复插队记录（2026-08-26，维护者指令）
 

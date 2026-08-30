@@ -98,7 +98,11 @@ top-down; status and verification baselines live there ([10-baselines.md](./docs
 - ✅ INC-10 + DEC-B — `while`/`continue`/`break` control flow: bare `next` captured only by binder
   `loop`s; FlowIR header-branch while lowering; desugar-equivalence PBT (while+continue ≡ hand-written
   loop on const+native); `example/while_loops.ng`
-- ⬜ INC-11 … INC-36 — pending
+- ✅ INC-11 — `derive(Show)`: prelude `export trait Show`; checker field validation for showable
+  scalar/string/nested-Show fields; FlowIR synthesizes `name{field: value, ...}` strings (research A4
+  format) with native `toString` for scalars and recursion for nested derived structs; golden + property
+  PBT + negative contracts; `example/derive.ng`
+- ⬜ INC-12 … INC-36 — pending
 
 ## Community
 
