@@ -232,9 +232,40 @@
 
 ## Phase 3 — M1 错误处理主线
 
-### INC-12 · prelude Option/Result + 组合子
-- **动作**: prelude 定义两泛型枚举 + map/andThen/orElse；parseInt/std_string
-  迁移到 Result。
+### ⚠️ 已交换排序（2026-08-30 维护者决策）
+INC-14（最小闭包）**前移**至 INC-12/13 之前执行，INC-12/13 顺延至闭包之后。
+原因：D-006/研究 §C3 证据——NG 无一等函数（closrue 未落地前所有高阶能力皆是
+编译器内建特例），INC-12 规格中的 `map/andThen/orElse` 组合子与函子/单元
+代律 PBT 均需把变换作为实参传入，无法闭包-free 表达。执行切片（每片独立
+可验证，落地后合并回 INC-14 状态表）：
+- **S1** 闭包语法 + 显式类型参数绑定（`|x: i64| expr`；`TypeKind::Closure`
+  描述符；局部绑定 + 直接调用）。
+- **S2** 调用点参数/返回类型推导（expected-type 驱动）+ 泛型 `map` 单态化的
+  闭包实参 + 差分契约雏形。
+- **S3** copy 捕获 + 匿名 env 记录 + 拷贝独立契约。
+- **S4** move 捕获 + env drop。
+- **S5** Fn/FnOnce 最小 auto trait 面 + 非逃逸负契约 + seq map/filter/fold 库化。
+- **S6** 差分 PBT（`map(xs, |x| f(x)) ≡ [f(xs)...]`）等。
+完成后 INC-12（含完整组合子 + 代律 PBT）落地。
+
+### INC-14 · 非逃逸闭包（copy/move 捕获）— ✅ 前移执行中（S1 完成）
+- **范围**: `|x| expr` 语法；仅 copy/move 捕获；不可逃逸；Fn/FnOnce 最小
+  auto trait 面。borrow 捕获**明确不在本步**。
+- **测试**: 差分契约：`map(xs, |x| f(x)) ≡ [f(xs)...]` 内建特例（生成数组×
+  纯函数，双路径）；拷贝独立性契约（捕获副本修改不影响原绑定）；
+  负契约（逃逸闭包拒绝）。
+- **E2E**: seq.ng 的 map/filter/fold 库化；comprehension 降级为糖。
+- **S1 落地（2026-08-31）**: `|x: i64| expr | { body }` 语法 → resolver →
+  `TypeKind::Closure` 描述符 → 自检器对每个闭包字面量合成唯一代码函数
+  （`__closureN`，克隆 body + 参数局部重映射，经 `instances_` 复检），调用
+  复用 `callTargets` → FlowIR 直接调用（跳过 callee 局部操作数）；字面量降
+  为惰性零字。参数需显式类型；捕获拒绝（负契约，S3 开启）。测试
+  `test/closure_test.cpp`（12 例）+ `example/closures.ng`。`||` 零参闭包与
+  `||` 逻辑或存在词法歧义，留待 S2 处理。
+
+### INC-12 · prelude Option/Result + 组合子（顺延至闭包落地后）
+- **动作**: prelude 定义两泛型枚举 + map/andThen/orElse（以最小闭包作变换实参）；
+  parseInt/std_string 迁移到 Result。
 - **测试**: PBT 函子/单元代律（map/andThen 在生成值上满足律）；
   契约 `option-result.ng`。
 
@@ -246,13 +277,9 @@
 
 ## Phase 4 — M2a 最小闭包
 
-### INC-14 · 非逃逸闭包（copy/move 捕获）
-- **范围**: `|x| expr` 语法；仅 copy/move 捕获；不可逃逸；Fn/FnOnce 最小
-  auto trait 面。borrow 捕获**明确不在本步**。
-- **测试**: 差分契约：`map(xs, |x| f(x)) ≡ [f(xs)...]` 内建特例（生成数组×
-  纯函数，双路径）；拷贝独立性契约（捕获副本修改不影响原绑定）；
-  负契约（逃逸闭包拒绝）。
-- **E2E**: seq.ng 的 map/filter/fold 库化；comprehension 降级为糖。
+### INC-14 · 非逃逸闭包（copy/move 捕获）— ⚠️ 前移至 Phase 3（见上）
+范围与测试如上；borrow 捕获（随 A1 的 M2b 切片）仍留在本 Phase，于
+INC-15/16 之后再执行。
 
 ## Phase 5 — A1 完整 loan 分析 + M2b（合并切片，plan A1 原范围）
 
