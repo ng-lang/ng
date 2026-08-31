@@ -30,7 +30,12 @@ auto Checker::analyzeCallSpread(const hir::Expression &expression, size_t firstA
     }
     else
     {
-      info.expandedTypes.push_back(infer(argument, locals));
+      // INC-14 S2c: closure literal arguments cannot be inferred standalone;
+      // the call checks them against the closure parameter in a deferred pass.
+      // Their expandedTypes slot stays unused unless the same call spreads
+      // elsewhere, which higher-order calls do not.
+      info.expandedTypes.push_back(argument.kind == hir::ExpressionKind::Closure ? TypeId{}
+                                                                                : infer(argument, locals));
       info.spreadSlot.push_back(false);
       info.argumentExpressions.push_back(&argument);
     }
@@ -665,6 +670,7 @@ auto Checker::inferExpected(const hir::Expression &expression, TypeId expected, 
                                     signature.parameters.size(), supplied),
                         expression.span);
       const size_t packCount = variadic ? supplied - fixedParameters : 0;
+      std::vector<std::pair<size_t, hir::DefId>> closureTargets;
       if (!expression.genericArguments.empty())
       {
         substitution = explicitSubstitution(expression, signature);
@@ -687,6 +693,12 @@ auto Checker::inferExpected(const hir::Expression &expression, TypeId expected, 
           const TypeId parameterType = index < fixedParameters
                                           ? signature.parameters[index]
                                           : interner_.descriptor(signature.parameters.back()).element;
+          if (argument.kind == hir::ExpressionKind::Closure && index < fixedParameters)
+          {
+            static_cast<void>(inferCallClosureArgument(argument, parameterType, index, locals, substitution,
+                                                       closureTargets));
+            continue;
+          }
           if (variadic && index >= fixedParameters)
           {
             const TypeId argumentType = infer(argument, locals);
@@ -754,7 +766,7 @@ auto Checker::inferExpected(const hir::Expression &expression, TypeId expected, 
           packedTypes.push_back(infer(*expression.operands[index + 1], locals));
         callPackTupleTypes_.insert_or_assign(&expression, interner_.internTuple(std::move(packedTypes)));
       }
-      selected = instantiateFunction(selected, substitution, packCount, expression.span);
+      selected = instantiateFunction(selected, substitution, packCount, expression.span, closureTargets);
       requireType(expected, specialized, expression.span, context);
       record(expression, specialized);
       callTargets_.insert_or_assign(&expression, selected);
@@ -1320,9 +1332,28 @@ auto Checker::infer(const hir::Expression &expression, const LocalTypes &locals)
       {
         const auto foundCode = closureLocals_.find(expression.operands[0]->resolvedName->id);
         if (foundCode == closureLocals_.end())
+        {
+          // INC-14 S2c: higher-order templates call closure-typed parameters
+          // with no concrete binding yet; the model types the call from the
+          // descriptor and defers codegen to the closure-specialized instance.
+          if (parameterLocals_.contains(expression.operands[0]->resolvedName->id) &&
+              placeholderFunctions_.contains(currentFunctionId_.value))
+          {
+            const auto &closure = interner_.descriptor(calleeType);
+            if (closure.elements.size() != expression.operands.size() - 1)
+              throw TypeError(std::format("closure argument count mismatch: expected {}, got {}",
+                                          closure.elements.size(), expression.operands.size() - 1),
+                              expression.span);
+            for (size_t index = 0; index < closure.elements.size(); ++index)
+              static_cast<void>(inferExpected(*expression.operands[index + 1], closure.elements[index], locals,
+                                              std::format("closure argument {}", index + 1)));
+            type = closure.element;
+            break;
+          }
           throw TypeError(std::format("closure value `{}` was not created directly by a closure literal",
                                       expression.operands[0]->text),
                           expression.span);
+        }
         const auto &closure = interner_.descriptor(calleeType);
         if (closure.elements.size() != expression.operands.size() - 1)
           throw TypeError(std::format("closure argument count mismatch: expected {}, got {}",
@@ -1422,6 +1453,13 @@ auto Checker::infer(const hir::Expression &expression, const LocalTypes &locals)
     if (hasSpread)
       callSpreadPositions_.insert_or_assign(&expression, spreadInfo.spreadPositions);
     Substitution substitution;
+    // INC-14 S2c: closure-typed parameters receive closure literal arguments
+    // inside their generic-argument machinery. Literal arguments are deferred
+    // until the substitution is bound; both literal and variable arguments
+    // record the closure's code function so instantiateFunction can re-check
+    // the callee with the concrete closure binding.
+    std::vector<size_t> deferredClosureArgs;
+    std::vector<std::pair<size_t, hir::DefId>> closureTargets;
     const auto argumentTypeAt = [&](size_t index) -> TypeId
     { return hasSpread ? spreadInfo.expandedTypes[index] : infer(*expression.operands[index + 1], locals); };
     if (!expression.genericArguments.empty())
@@ -1450,7 +1488,20 @@ auto Checker::infer(const hir::Expression &expression, const LocalTypes &locals)
         const TypeId parameterType = index < fixedParameters
                                         ? signature.parameters[index]
                                         : interner_.descriptor(signature.parameters.back()).element;
+        if (!hasSpread && index < fixedParameters && argument.kind == hir::ExpressionKind::Closure)
+        {
+          deferredClosureArgs.push_back(index);
+          continue;
+        }
         const TypeId argumentType = argumentTypeAt(index);
+        if (!hasSpread && index < fixedParameters && argument.resolvedName.has_value() &&
+            argument.resolvedName->kind == hir::ResolvedNameKind::Local &&
+            interner_.descriptor(argumentType).kind == TypeKind::Closure)
+        {
+          const auto bound = closureLocals_.find(argument.resolvedName->id);
+          if (bound != closureLocals_.end())
+            closureTargets.emplace_back(index, bound->second);
+        }
         if (!isGeneric(signature))
         {
           if (hasSpread && spreadInfo.spreadSlot[index])
@@ -1504,6 +1555,15 @@ auto Checker::infer(const hir::Expression &expression, const LocalTypes &locals)
           unify(parameterType, argumentType, substitution, argument.span);
         }
       }
+    }
+    for (const size_t index : deferredClosureArgs)
+    {
+      const auto &argument = expression.operands[index + 1];
+      const TypeId parameterType = index < fixedParameters
+                                       ? signature.parameters[index]
+                                       : interner_.descriptor(signature.parameters.back()).element;
+      static_cast<void>(
+          inferCallClosureArgument(*argument, parameterType, index, locals, substitution, closureTargets));
     }
     type = specializeReturnType(signature, substitution, packCount);
     if (!signature.genericParameters.empty() && interner_.descriptor(type).kind == TypeKind::TypeParameter)
@@ -1559,7 +1619,7 @@ auto Checker::infer(const hir::Expression &expression, const LocalTypes &locals)
         packedTypes.push_back(argumentTypeAt(index));
       callPackTupleTypes_.insert_or_assign(&expression, interner_.internTuple(std::move(packedTypes)));
     }
-    selected = instantiateFunction(selected, substitution, packCount, expression.span);
+    selected = instantiateFunction(selected, substitution, packCount, expression.span, closureTargets);
     callTargets_.insert_or_assign(&expression, selected);
     break;
   }
@@ -1657,6 +1717,31 @@ auto Checker::infer(const hir::Expression &expression, const LocalTypes &locals)
   }
   record(expression, type);
   return type;
+}
+
+auto Checker::inferCallClosureArgument(const hir::Expression &closure, TypeId parameterType, size_t index,
+                                       const LocalTypes &locals, Substitution &substitution,
+                                       std::vector<std::pair<size_t, hir::DefId>> &closureTargets) -> TypeId
+{
+  const TypeId specialized = specialize(parameterType, substitution);
+  const auto &closureDescriptor = interner_.descriptor(specialized);
+  if (closureDescriptor.kind != TypeKind::Closure)
+    throw TypeError(std::format("closure argument is not applicable to parameter of type {}",
+                                interner_.display(specialized)),
+                    closure.span);
+  if (closure.closureParameterIds.size() != closureDescriptor.elements.size())
+    throw TypeError(std::format("closure argument count mismatch: expected {}, got {}",
+                                closureDescriptor.elements.size(), closure.closureParameterIds.size()),
+                    closure.span);
+  std::vector<TypeId> closureParameterTypes;
+  closureParameterTypes.reserve(closureDescriptor.elements.size());
+  for (const auto parameter : closureDescriptor.elements)
+    closureParameterTypes.push_back(specialize(parameter, substitution));
+  const TypeId closureType = inferClosure(closure, closureParameterTypes, locals);
+  record(closure, closureType);
+  unify(parameterType, closureType, substitution, closure.span);
+  closureTargets.emplace_back(index, closureFunctions_.at(&closure));
+  return closureType;
 }
 
 auto Checker::inferClosure(const hir::Expression &closure, const std::vector<TypeId> &parameterTypes,

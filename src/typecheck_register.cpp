@@ -257,6 +257,16 @@ auto Checker::check(const hir::Module &module, const const_eval::ConstNativeHost
     signatures_.emplace(function.id.value, signature);
     functionTypeIds_.emplace(function.id.value, signature);
     functionTypes_.emplace(function.id.value, std::move(displaySignature));
+    // INC-14 S2c: a function with a closure-typed parameter is a higher-order
+    // template. Calls that pass a concrete closure are re-checked as
+    // closure-specialized instances; the original body (whose closure-param
+    // calls are unresolved) is only type-modeled here and never lowered.
+    for (const auto &parameter : signature.parameters)
+      if (interner_.descriptor(parameter).kind == TypeKind::Closure)
+      {
+        placeholderFunctions_.insert(function.id.value);
+        break;
+      }
   }
   for (const auto &declaration : module.consts)
     checkConstDeclaration(declaration);

@@ -6,3 +6,17 @@ export native fun len<T>(values: array<T>) -> i64;
 export native fun sum(values: array<i64>) -> i64;
 export native fun arrayContains(values: array<i64>, value: i64) -> bool;
 export native fun reverse(values: array<i64>) -> array<i64>;
+
+// INC-14 S2c: higher-order map. `f` is a closure typed against the element and
+// result type parameters; a call passing a closure literal is re-checked as a
+// closure-specialized instance in which `f(values[i])` binds to the literal's
+// synthesized code function.
+export fun map<T, U>(values: array<T>, f: |T| -> U) -> array<U> {
+    let mut result: array<U> = [];
+    let mut index = 0;
+    while (index < len(values)) {
+        result := result << f(values[index]);
+        index := index + 1;
+    }
+    return result;
+}

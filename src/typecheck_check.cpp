@@ -35,6 +35,9 @@ void Checker::checkFunction(const hir::Function &function, const const_eval::Con
     locals.emplace(function.parameters[index].local.value, signature.parameters[index]);
     recordLocal(function.parameters[index].local, signature.parameters[index]);
   }
+  parameterLocals_.clear();
+  for (const auto &parameter : function.parameters)
+    parameterLocals_.insert(parameter.local.value);
   inConstGenericFunction_ = !signature.constParameters.empty();
   if (function.whereClause != nullptr && !isGeneric(signature))
   {

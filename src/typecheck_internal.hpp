@@ -311,7 +311,9 @@ namespace NG::typecheck::detail
     [[nodiscard]] auto specializeReturnType(const FunctionTypeIds &signature, const Substitution &substitution,
                                             size_t packCount) -> TypeId;
     [[nodiscard]] auto instantiateFunction(hir::DefId original, const Substitution &substitution, size_t packCount,
-                                           syntax::SourceSpan span) -> hir::DefId;
+                                           syntax::SourceSpan span,
+                                           const std::vector<std::pair<size_t, hir::DefId>> &closureTargets = {})
+        -> hir::DefId;
     [[nodiscard]] auto ensureTraitViewTable(const std::string &traitName, TypeId concreteType) -> bool;
     [[nodiscard]] auto typeContains(TypeId type, TypeId needle) const -> bool;
     [[nodiscard]] auto isGeneric(const FunctionTypeIds &signature) const -> bool;
@@ -319,6 +321,12 @@ namespace NG::typecheck::detail
                                std::string_view functionName, syntax::SourceSpan span) const;
     void record(const hir::Expression &expression, TypeId type);
     void recordLocal(hir::LocalId local, TypeId type);
+    /// Types a closure-literal call argument against a (possibly still generic)
+    /// closure parameter, records its code function in `closureTargets`, and
+    /// unifies the specialized parameter with the inferred literal type.
+    auto inferCallClosureArgument(const hir::Expression &closure, TypeId parameterType, size_t index,
+                                  const LocalTypes &locals, Substitution &substitution,
+                                  std::vector<std::pair<size_t, hir::DefId>> &closureTargets) -> TypeId;
     [[nodiscard]] auto typeFromNumericSuffix(std::string_view suffix) const -> TypeId;
     [[nodiscard]] auto parseIntegerLiteralMagnitude(std::string_view text, TypeId type, syntax::SourceSpan span) const
         -> uint64_t;
@@ -374,6 +382,9 @@ namespace NG::typecheck::detail
     std::unordered_map<const hir::Expression *, hir::DefId> closureFunctions_;
     /// Closure-typed local id -> its synthesized code function.
     std::unordered_map<uint32_t, hir::DefId> closureLocals_;
+    /// Parameter local ids of the current function body; calls through these
+    /// resolve as closure calls only when a binding exists (INC-14 S2c).
+    std::unordered_set<uint32_t> parameterLocals_;
     uint32_t closureCounter_{};
     std::unordered_set<uint32_t> deferredMethodFunctions_;
     hir::DefId currentFunctionId_{};

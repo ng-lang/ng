@@ -353,6 +353,14 @@ namespace NG::typecheck
       return internReference(specialize(source.element, bindings, constBindings, constructors), source.referenceMutable);
     if (source.kind == TypeKind::RawPointer)
       return internRawPointer(specialize(source.element, bindings, constBindings, constructors), source.referenceMutable);
+    if (source.kind == TypeKind::Closure)
+    {
+      std::vector<TypeId> parameters;
+      parameters.reserve(source.elements.size());
+      for (const auto element : source.elements)
+        parameters.push_back(specialize(element, bindings, constBindings, constructors));
+      return internClosure(parameters, specialize(source.element, bindings, constBindings, constructors));
+    }
     if (source.kind == TypeKind::Tuple)
     {
       std::vector<TypeId> elements;

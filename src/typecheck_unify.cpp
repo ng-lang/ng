@@ -303,11 +303,12 @@ auto Checker::specializeReturnType(const FunctionTypeIds &signature, const Subst
 }
 
 auto Checker::instantiateFunction(hir::DefId original, const Substitution &substitution, size_t packCount,
-                                   syntax::SourceSpan span) -> hir::DefId
+                                   syntax::SourceSpan span,
+                                   const std::vector<std::pair<size_t, hir::DefId>> &closureTargets) -> hir::DefId
 {
   const auto &source = module_->functions.at(original.value);
   const auto &signature = signatures_.at(original.value);
-  if (!isGeneric(signature))
+  if (!isGeneric(signature) && closureTargets.empty())
     return original;
   std::string key = std::format("{}#{}", source.name, original.value);
   std::vector<TypeId> concreteTypes;
@@ -369,6 +370,8 @@ auto Checker::instantiateFunction(hir::DefId original, const Substitution &subst
     }
   }
   const bool variadicParameter = !signature.packParameters.empty();
+  for (const auto &[index, defId] : closureTargets)
+    key += std::format("|cl{}#{}", index, defId.value);
   if (!concrete)
     return original;
   if (const auto existing = instanceTable_.find(key); existing != instanceTable_.end())
@@ -410,6 +413,12 @@ auto Checker::instantiateFunction(hir::DefId original, const Substitution &subst
     const auto found = substitution.consts.find(static_cast<uint32_t>(index));
     if (found != substitution.consts.end())
       instanceConstBindings.emplace(signature.constParameterNames[index], found->second);
+  }
+  for (const auto &[index, defId] : closureTargets)
+  {
+    if (index >= instances_.back().parameters.size())
+      continue;
+    closureLocals_.emplace(instances_.back().parameters[index].local.value, defId);
   }
   checkFunction(instances_.back(), instanceConstBindings);
   return instanceId;
@@ -585,6 +594,17 @@ void Checker::unifyGuarded(TypeId expected, TypeId actual, Substitution &substit
   {
     if (expectedDescriptor.length != actualDescriptor.length)
       throw TypeError("generic array length mismatch", span);
+    unifyGuarded(expectedDescriptor.element, actualDescriptor.element, substitution, span, visited);
+    return;
+  }
+  if (expectedDescriptor.kind == TypeKind::Closure)
+  {
+    if (expectedDescriptor.elements.size() != actualDescriptor.elements.size())
+      throw TypeError(std::format("generic argument type mismatch: expected {}, got {}",
+                                  interner_.display(expected), interner_.display(actual)),
+                      span);
+    for (size_t index = 0; index < expectedDescriptor.elements.size(); ++index)
+      unifyGuarded(expectedDescriptor.elements[index], actualDescriptor.elements[index], substitution, span, visited);
     unifyGuarded(expectedDescriptor.element, actualDescriptor.element, substitution, span, visited);
     return;
   }

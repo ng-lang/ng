@@ -798,6 +798,7 @@ namespace NG::syntax
   {
     std::vector<Token> typeTokens;
     size_t angleDepth{};
+    size_t pipeDepth{};
     while (current().kind != TokenKind::End)
     {
       if (current().kind == TokenKind::Less) ++angleDepth;
@@ -813,7 +814,20 @@ namespace NG::syntax
         angleDepth = angleDepth > 2 ? angleDepth - 2 : 0;
         continue;
       }
-      if (angleDepth == 0 && std::find(terminators.begin(), terminators.end(), current().kind) != terminators.end()) break;
+      // Closure parameter pipes (`|T, U| -> R`) nest like brackets: a `|` at a
+      // type-start position (first token, or after `(`/`,`/`<`) opens a
+      // parameter list and its matching `|` closes it, so terminator commas
+      // inside the list are kept instead of truncating the type.
+      else if (current().kind == TokenKind::Pipe)
+      {
+        const bool typeStart = typeTokens.empty() || typeTokens.back().kind == TokenKind::Comma ||
+                               typeTokens.back().kind == TokenKind::LeftParen || typeTokens.back().kind == TokenKind::Less;
+        if (pipeDepth == 0 && typeStart) ++pipeDepth;
+        else if (pipeDepth != 0) --pipeDepth;
+      }
+      if (angleDepth == 0 && pipeDepth == 0 &&
+          std::find(terminators.begin(), terminators.end(), current().kind) != terminators.end())
+        break;
       typeTokens.push_back(consume());
     }
 

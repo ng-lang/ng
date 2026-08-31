@@ -1,11 +1,22 @@
-// INC-14 slices S1-S2: closures with explicit parameter types, direct calls,
-// expected-type-driven untyped parameter inference, and `||` zero-parameter
-// heads. Captures and generic closures arrive in later slices (S3-S4/S2c).
+// INC-14 slices S1-S2c: closures with explicit parameter types, direct calls,
+// expected-type-driven untyped parameter inference, `||` zero-parameter
+// heads, and higher-order functions: closure-typed parameters specialize per
+// concrete closure argument so f(x) calls bind to the literal's code function.
+// Captures and fully generic closures arrive in later slices (S3-S4).
 import prelude;
+import seq;
 
 fun apply(x: i64) -> i64 {
     let doubler = |v: i64| v * 2;
     return doubler(x);
+}
+
+fun twice(f: |i64| -> i64, x: i64) -> i64 {
+    return f(f(x));
+}
+
+fun invokes(f: |i64| -> i64, x: i64) -> i64 {
+    return f(x);
 }
 
 fun main() -> i64 {
@@ -24,5 +35,12 @@ fun main() -> i64 {
     print(double(21));
     print(pair(4, 38));
     print(fortyTwo());
+    print(invokes(|v| v + 1, 41));                 // S2c: closure literal arg
+    print(invokes(double, 41));                    // S2c: closure-typed local arg
+    print(twice(|v| v * 2, 21));                   // S2c: non-generic higher-order
+    print(twice(|v| v + 1, 20));                   // S2c: distinct closure instance
+    let xs = [1, 2, 3, 4];
+    let doubled = map(xs, |x| x * 2);              // S2c: std.seq map<T,U>
+    print(doubled[0] + doubled[1] + doubled[2] + doubled[3]);
     return 0;
 }
