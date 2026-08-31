@@ -21,9 +21,22 @@ arguments that NG cannot express without first-class functions.
   `120eb50` (imgui archives kept uninstrumented).
 - INC-14 **S1** (minimal closures — syntax, explicit param types, direct calls): committed
   `ffae039`/`bc4729a` (512 cases / 3511 assertions, ctest 513/513, ASan 512/512).
+- INC-14 **S2a+S2b** (zero-param `||` heads, expected-type-driven inference, `|T| -> R`
+  type literal, tail-return latent fix): implemented, released suite green pending commit.
 
 ## Recent completed changes
 
+- INC-14 S2a+S2b: `parsePrefix` routes `OrOr` to `parseClosure` as an empty head
+  (`|| expr`); new `ClosureTypeSyntax` (`|T| -> R`) → `hir::TypeKind::Closure` →
+  `internClosure`; closure parameter annotations may be omitted and are inferred
+  from the expected closure type (`inferExpected` Closure branch, factored
+  `Checker::inferClosure`, records the closure expression type — previously an
+  `unordered_map::at` crash). No-expected-type untyped params → clean error;
+  result mismatch → clean error. FlowIR now wires the function-body tail value
+  into the fallthrough Return (latent bugfix: bare `ret` previously returned a
+  leftover QBE register; `|| 7` exposed it). Guard ceilings raised: flowir
+  2177→2185, ast.hpp 938→955 (justified). Tests 12→15 closure cases (+2 S2
+  runtime +3 negative/S2); `example/closures.ng` extended.
 - INC-14 S1: `ClosureExpression` AST; resolver closure params/body; `TypeKind::Closure`;
   per-literal synthesized code function (`__closureN`, body cloned + param-local
   remapped, re-checked via `instances_`); calls reuse `callTargets`; FlowIR direct-call
@@ -41,18 +54,19 @@ arguments that NG cannot express without first-class functions.
 
 ## Next steps
 
-- INC-14 **S2**: call-site parameter/result inference (expected-type driven) + generic
-  `map` monomorphization with closure arguments + `||` lexer disambiguation; differential
-  contract seeding.
-- Then S3 copy captures + env record, S4 move captures + env drop, S5 Fn/FnOnce minimal
-  auto-trait face + non-escaping negative contract + seq map/filter/fold libification,
-  S6 differential PBT.
+- Commit INC-14 S2a+S2b (feat/docs/chore), verify ASan + ctest.
+- INC-14 **S2c**: generic `map<T, U>` monomorphization with closure arguments —
+  closure-typed parameters on generic calls (unify site `typecheck_infer.cpp:1477`),
+  the paramLocal→codeDefId threading for `f(x)` inside `map`'s re-checked body, and
+  `lib/std/seq.ng` `map` (currently no stdlib `map`; only compiler-internal fold +
+  `[f(xs)...]` map-spread comprehensions).
+- The plan also lists differential contract seeding (map vs map-spread) — carries into S6.
 - Thereafter INC-12 (combinators + law PBT), then INC-13 `?` desugar per plan order.
 
 ## References
 
 - `.agents/worklog/2026-08-27.md` — INC-B / INC-A / INC-9 / INC-10 entries
 - `.agents/worklog/2026-08-30.md` — INC-11 entry
-- `.agents/worklog/2026-08-31.md` — INC-14 S1 entry
+- `.agents/worklog/2026-08-31.md` — INC-14 S1 entry + S2a+S2b entry
 - `docs/design/rearchitecture/09-increment-plan.md` — execution table + INC-14 slices
 - `AGENTS.md` — pipeline/build/test/commit conventions
