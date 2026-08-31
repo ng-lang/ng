@@ -1,7 +1,8 @@
 // AI-generated code; reviewed for this repository's vNext rewrite.
-// INC-14 slice S1: closure syntax, explicit parameter typing, and direct
-// calls through closure-typed locals. Captures arrive in S3/S4 and generic
-// closures in S2, so this suite asserts the S1 negative contracts too.
+// INC-14 slices S1-S2: closure syntax, explicit parameter typing, direct calls
+// through closure-typed locals, expected-type-driven parameter inference, and
+// `||` zero-parameter heads. Captures arrive in S3/S4 and generic closures in
+// S2, so this suite asserts the negative contracts too.
 #include "test.hpp"
 
 #include "driver.hpp"
@@ -125,13 +126,38 @@ TEST_CASE("vNext closure arity must match its call", "[vNext][Closure][TypeCheck
   REQUIRE_THAT(errors, Catch::Matchers::ContainsSubstring("argument count mismatch"));
 }
 
-TEST_CASE("vNext closures require explicit parameter types in INC-14 S1", "[vNext][Closure][TypeCheck]")
+TEST_CASE("vNext untyped closure parameters need an expected type in INC-14 S2",
+          "[vNext][Closure][TypeCheck]")
 {
   std::string output;
   std::string errors;
   const int status = run("fun main() -> i64 { let f = |x| x + 1; return f(1); }", output, errors);
   REQUIRE(status != 0);
-  REQUIRE_THAT(errors, Catch::Matchers::ContainsSubstring("requires a type annotation"));
+  REQUIRE_THAT(errors, Catch::Matchers::ContainsSubstring("cannot infer closure parameter"));
+}
+
+TEST_CASE("vNext expected closure types drive untyped parameter inference in INC-14 S2",
+          "[vNext][Closure][TypeCheck]")
+{
+  expectValue("fun main() -> i64 { let double: |i64| -> i64 = |x| x * 2; return double(21); }", "42");
+  expectValue("fun main() -> i64 { let add: |i64, i64| -> i64 = |a, b| a + b; return add(2, 40); }", "42");
+}
+
+TEST_CASE("vNext expected closure types reject result type mismatches in INC-14 S2",
+          "[vNext][Closure][TypeCheck]")
+{
+  std::string output;
+  std::string errors;
+  const int status = run("fun main() -> i64 { let d: |i64| -> bool = |x: i64| x * 2; return 0; }", output, errors);
+  REQUIRE(status != 0);
+  REQUIRE_THAT(errors, Catch::Matchers::ContainsSubstring("type mismatch: expected |i64| -> bool"));
+}
+
+TEST_CASE("vNext zero-parameter closures use the double-pipe head in INC-14 S2",
+          "[vNext][Closure][Syntax]")
+{
+  expectValue("fun main() -> i64 { let seven = || 7; return seven(); }", "7");
+  expectValue("import prelude; fun main() -> i64 { let one = || { print(1); }; one(); return 0; }", "0");
 }
 
 TEST_CASE("vNext closures reject captures until INC-14 S3", "[vNext][Closure][TypeCheck]")

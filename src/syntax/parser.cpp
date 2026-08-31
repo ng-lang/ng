@@ -569,7 +569,7 @@ namespace NG::syntax
 
   auto ExpressionParser::parsePrefix() -> ExpressionPtr
   {
-    if (current().kind == TokenKind::Pipe)
+    if (current().kind == TokenKind::Pipe || current().kind == TokenKind::OrOr)
     {
       return parseClosure();
     }
@@ -727,30 +727,33 @@ namespace NG::syntax
   {
     const Token open = consume();
     std::vector<FunctionParameter> parameters;
-    if (current().kind != TokenKind::Pipe)
+    if (open.kind != TokenKind::OrOr)
     {
-      while (true)
+      if (current().kind != TokenKind::Pipe)
       {
-        const Token name = current();
-        if (name.kind != TokenKind::Identifier)
-          throw ParseError("expected a closure parameter name", name.span);
-        consume();
-        TypeSyntaxPtr type;
-        SourceSpan parameterSpan = name.span;
-        if (current().kind == TokenKind::Colon)
+        while (true)
         {
+          const Token name = current();
+          if (name.kind != TokenKind::Identifier)
+            throw ParseError("expected a closure parameter name", name.span);
           consume();
-          type = parseTypeUntil({TokenKind::Comma, TokenKind::Pipe});
-          parameterSpan.end = type->span.end;
+          TypeSyntaxPtr type;
+          SourceSpan parameterSpan = name.span;
+          if (current().kind == TokenKind::Colon)
+          {
+            consume();
+            type = parseTypeUntil({TokenKind::Comma, TokenKind::Pipe});
+            parameterSpan.end = type->span.end;
+          }
+          parameters.emplace_back(name.text, std::move(type), parameterSpan);
+          if (current().kind != TokenKind::Comma) break;
+          consume();
         }
-        parameters.emplace_back(name.text, std::move(type), parameterSpan);
-        if (current().kind != TokenKind::Comma) break;
-        consume();
       }
+      if (current().kind != TokenKind::Pipe)
+        throw ParseError("expected `|` to close closure parameters", current().span);
+      consume();
     }
-    if (current().kind != TokenKind::Pipe)
-      throw ParseError("expected `|` to close closure parameters", current().span);
-    consume();
 
     std::unique_ptr<Block> body;
     if (current().kind == TokenKind::LeftBrace)

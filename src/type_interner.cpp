@@ -424,6 +424,14 @@ namespace NG::typecheck
     }
     if (type.kind == hir::TypeKind::RawPointer && type.target != nullptr)
       return internRawPointer(resolveWithBindings(*type.target, bindings, constBindings), type.isMutable);
+    if (type.kind == hir::TypeKind::Closure && type.result != nullptr)
+    {
+      std::vector<TypeId> parameters;
+      parameters.reserve(type.parameters.size());
+      for (const auto &parameter : type.parameters)
+        parameters.push_back(resolveWithBindings(parameter, bindings, constBindings));
+      return internClosure(parameters, resolveWithBindings(*type.result, bindings, constBindings));
+    }
     if (type.kind != hir::TypeKind::Applied || type.target == nullptr || type.target->kind != hir::TypeKind::Named)
       return resolve(type);
     if (const auto bound = bindings.find(type.target->name); bound != bindings.end() &&

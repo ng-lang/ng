@@ -16,6 +16,7 @@ namespace NG::syntax
 
   private:
     [[nodiscard]] auto parsePrimary() -> TypeSyntaxPtr;
+    [[nodiscard]] auto parsePostfix(TypeSyntaxPtr type) -> TypeSyntaxPtr;
     [[nodiscard]] auto isConstArgumentStart() const -> bool;
     [[nodiscard]] auto current() const -> const Token &;
     [[nodiscard]] auto consume() -> Token;

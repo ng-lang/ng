@@ -810,6 +810,33 @@ auto Checker::inferExpected(const hir::Expression &expression, TypeId expected, 
     record(expression, expected);
     return expected;
   }
+  if (expression.kind == hir::ExpressionKind::Closure && descriptor.kind == TypeKind::Closure)
+  {
+    if (expression.closureParameterIds.size() != descriptor.elements.size())
+      throw TypeError(std::format("closure arity mismatch: expected {}, got {}", descriptor.elements.size(),
+                                  expression.closureParameterIds.size()),
+                      expression.span);
+    std::vector<TypeId> parameterTypes;
+    parameterTypes.reserve(expression.closureParameterIds.size());
+    for (size_t index = 0; index < expression.closureParameterIds.size(); ++index)
+    {
+      if (expression.closureParameterTypes[index] == nullptr)
+      {
+        parameterTypes.push_back(descriptor.elements[index]);
+        continue;
+      }
+      const TypeId declared =
+          interner_.resolveInScope(*expression.closureParameterTypes[index], genericBindings_);
+      if (interner_.descriptor(declared).kind == TypeKind::TypeParameter)
+        throw TypeError("closure parameters require concrete types (generic closures arrive in INC-14 S3)",
+                        expression.span);
+      parameterTypes.push_back(declared);
+    }
+    const TypeId actual = inferClosure(expression, parameterTypes, locals);
+    requireType(expected, actual, expression.span, context);
+    record(expression, actual);
+    return actual;
+  }
   const TypeId actual = infer(expression, locals);
   requireType(expected, actual, expression.span, context);
   return actual;
@@ -1579,43 +1606,23 @@ auto Checker::infer(const hir::Expression &expression, const LocalTypes &locals)
   }
   case hir::ExpressionKind::Closure:
   {
-    LocalTypes closureLocals;
     std::vector<TypeId> parameterTypes;
     parameterTypes.reserve(expression.closureParameterIds.size());
     for (size_t index = 0; index < expression.closureParameterIds.size(); ++index)
     {
+      if (expression.closureParameterTypes[index] == nullptr)
+        throw TypeError(
+            std::format("cannot infer closure parameter `{}`; annotate it or the expected closure type",
+                        expression.closureParameterNames[index]),
+            expression.span);
       const TypeId parameterType =
           interner_.resolveInScope(*expression.closureParameterTypes[index], genericBindings_);
       if (interner_.descriptor(parameterType).kind == TypeKind::TypeParameter)
-        throw TypeError("closure parameters require concrete types (generic closures arrive in INC-14 S2)",
+        throw TypeError("closure parameters require concrete types (generic closures arrive in INC-14 S3)",
                         expression.span);
       parameterTypes.push_back(parameterType);
-      closureLocals.emplace(expression.closureParameterIds[index].value, parameterType);
-      recordLocal(expression.closureParameterIds[index], parameterType);
     }
-    // Closure locals are borrowed/copied by value into the synthesized code
-    // function; captures from outer scopes remain INC-14 slices S3-S4.
-    ensureNoCapturedLocals(expression);
-    const MoveState movesBefore = moveState_;
-    checkBlock(*expression.closureBody, closureLocals, {}, TypeId{}, false);
-    moveState_ = movesBefore;
-    const TypeId resultType = expression.closureBody->tailExpression != nullptr
-                                  ? expressionTypeIds_.at(expression.closureBody->tailExpression.get())
-                                  : builtin::Unit;
-    const hir::DefId closureId{static_cast<uint32_t>(module_->functions.size() + instances_.size())};
-    const std::string closureName = std::format("__closure{}", closureCounter_++);
-    const FunctionTypeIds closureSignature{.parameters = parameterTypes, .returnType = resultType};
-    signatures_.emplace(closureId.value, closureSignature);
-    functionTypeIds_.emplace(closureId.value, closureSignature);
-    FunctionType displaySignature;
-    for (const auto parameter : parameterTypes)
-      displaySignature.parameters.push_back(interner_.display(parameter));
-    displaySignature.returnType = interner_.display(resultType);
-    functionTypes_.emplace(closureId.value, std::move(displaySignature));
-    instances_.push_back(hir::makeClosureFunction(expression, closureName, closureId, nextInstanceLocal_));
-    checkFunction(instances_.back(), {});
-    closureFunctions_.emplace(&expression, closureId);
-    type = interner_.internClosure(parameterTypes, resultType);
+    type = inferClosure(expression, parameterTypes, locals);
     break;
   }
   case hir::ExpressionKind::Member:
@@ -1650,6 +1657,40 @@ auto Checker::infer(const hir::Expression &expression, const LocalTypes &locals)
   }
   record(expression, type);
   return type;
+}
+
+auto Checker::inferClosure(const hir::Expression &closure, const std::vector<TypeId> &parameterTypes,
+                           const LocalTypes &locals) -> TypeId
+{
+  LocalTypes closureLocals;
+  for (size_t index = 0; index < closure.closureParameterIds.size(); ++index)
+  {
+    closureLocals.emplace(closure.closureParameterIds[index].value, parameterTypes[index]);
+    recordLocal(closure.closureParameterIds[index], parameterTypes[index]);
+  }
+  // Closure locals are borrowed/copied by value into the synthesized code
+  // function; captures from outer scopes remain INC-14 slices S3-S4.
+  ensureNoCapturedLocals(closure);
+  const MoveState movesBefore = moveState_;
+  checkBlock(*closure.closureBody, closureLocals, {}, TypeId{}, false);
+  moveState_ = movesBefore;
+  const TypeId resultType = closure.closureBody->tailExpression != nullptr
+                                ? expressionTypeIds_.at(closure.closureBody->tailExpression.get())
+                                : builtin::Unit;
+  const hir::DefId closureId{static_cast<uint32_t>(module_->functions.size() + instances_.size())};
+  const std::string closureName = std::format("__closure{}", closureCounter_++);
+  const FunctionTypeIds closureSignature{.parameters = parameterTypes, .returnType = resultType};
+  signatures_.emplace(closureId.value, closureSignature);
+  functionTypeIds_.emplace(closureId.value, closureSignature);
+  FunctionType displaySignature;
+  for (const auto parameter : parameterTypes)
+    displaySignature.parameters.push_back(interner_.display(parameter));
+  displaySignature.returnType = interner_.display(resultType);
+  functionTypes_.emplace(closureId.value, std::move(displaySignature));
+  instances_.push_back(hir::makeClosureFunction(closure, closureName, closureId, nextInstanceLocal_));
+  checkFunction(instances_.back(), {});
+  closureFunctions_.emplace(&closure, closureId);
+  return interner_.internClosure(parameterTypes, resultType);
 }
 
 } // namespace NG::typecheck::detail

@@ -27,36 +27,7 @@ namespace NG::syntax
       const SourceSpan span{members.front()->span.begin, members.back()->span.end};
       type = std::make_unique<UnionTypeSyntax>(std::move(members), span);
     }
-    while (current().kind != TokenKind::End)
-    {
-      if (current().kind == TokenKind::Ellipsis)
-      {
-        static_cast<void>(consume());
-        type = std::make_unique<PackTypeSyntax>(std::move(type), SourceSpan{type->span.begin, tokens_[cursor_ - 1].span.end});
-        continue;
-      }
-      if (current().kind == TokenKind::KeywordRef)
-      {
-        static_cast<void>(consume());
-        const bool isMutable = current().kind == TokenKind::KeywordMut;
-        if (isMutable) static_cast<void>(consume());
-        type = std::make_unique<ScopedReferenceTypeSyntax>(std::move(type), isMutable,
-                                                            SourceSpan{type->span.begin, tokens_[cursor_ - 1].span.end});
-        continue;
-      }
-      if (current().kind == TokenKind::Star)
-      {
-        static_cast<void>(consume());
-        bool isMutable{};
-        if (current().kind == TokenKind::KeywordConst) static_cast<void>(consume());
-        else if (current().kind == TokenKind::KeywordMut) { isMutable = true; static_cast<void>(consume()); }
-        else throw ParseError("expected `const` or `mut` after `*` in raw pointer type", current().span);
-        type = std::make_unique<RawPointerTypeSyntax>(std::move(type), isMutable,
-                                                       SourceSpan{type->span.begin, tokens_[cursor_ - 1].span.end});
-        continue;
-      }
-      throw ParseError("unexpected token in type", current().span);
-    }
+    type = parsePostfix(std::move(type));
     return type;
   }
 
@@ -76,6 +47,34 @@ namespace NG::syntax
       const Token close = consume();
       return std::make_unique<ScopedReferenceTypeSyntax>(std::move(target), isMutable,
                                                          SourceSpan{refToken.span.begin, close.span.end});
+    }
+    if (current().kind == TokenKind::Pipe || current().kind == TokenKind::OrOr)
+    {
+      const Token open = consume();
+      std::vector<TypeSyntaxPtr> parameters;
+      if (open.kind != TokenKind::OrOr)
+      {
+        if (current().kind != TokenKind::Pipe)
+        {
+          while (true)
+          {
+            parameters.push_back(parsePrimary());
+            if (current().kind != TokenKind::Comma) break;
+            static_cast<void>(consume());
+          }
+        }
+        if (current().kind != TokenKind::Pipe)
+          throw ParseError("expected `|` to close closure parameter types", current().span);
+        static_cast<void>(consume());
+      }
+      if (current().kind != TokenKind::Arrow)
+        throw ParseError("expected `->` result type after closure parameters", current().span);
+      static_cast<void>(consume());
+      TypeSyntaxPtr result = parsePrimary();
+      result = parsePostfix(std::move(result));
+      const TypeSyntaxPtr &last = parameters.empty() ? result : parameters.back();
+      return std::make_unique<ClosureTypeSyntax>(std::move(parameters), std::move(result),
+                                                 SourceSpan{open.span.begin, last->span.end});
     }
     if (current().kind != TokenKind::Identifier) throw ParseError("expected a type name", current().span);
     const Token name = consume();
@@ -122,6 +121,41 @@ namespace NG::syntax
     if (current().kind != TokenKind::Greater) throw ParseError("expected `>` after generic arguments", current().span);
     const Token close = consume();
     return std::make_unique<AppliedTypeSyntax>(std::move(type), std::move(arguments), SourceSpan{name.span.begin, close.span.end});
+  }
+
+  auto TypeParser::parsePostfix(TypeSyntaxPtr type) -> TypeSyntaxPtr
+  {
+    while (current().kind != TokenKind::End)
+    {
+      if (current().kind == TokenKind::Ellipsis)
+      {
+        static_cast<void>(consume());
+        type = std::make_unique<PackTypeSyntax>(std::move(type), SourceSpan{type->span.begin, tokens_[cursor_ - 1].span.end});
+        continue;
+      }
+      if (current().kind == TokenKind::KeywordRef)
+      {
+        static_cast<void>(consume());
+        const bool isMutable = current().kind == TokenKind::KeywordMut;
+        if (isMutable) static_cast<void>(consume());
+        type = std::make_unique<ScopedReferenceTypeSyntax>(std::move(type), isMutable,
+                                                            SourceSpan{type->span.begin, tokens_[cursor_ - 1].span.end});
+        continue;
+      }
+      if (current().kind == TokenKind::Star)
+      {
+        static_cast<void>(consume());
+        bool isMutable{};
+        if (current().kind == TokenKind::KeywordConst) static_cast<void>(consume());
+        else if (current().kind == TokenKind::KeywordMut) { isMutable = true; static_cast<void>(consume()); }
+        else throw ParseError("expected `const` or `mut` after `*` in raw pointer type", current().span);
+        type = std::make_unique<RawPointerTypeSyntax>(std::move(type), isMutable,
+                                                       SourceSpan{type->span.begin, tokens_[cursor_ - 1].span.end});
+        continue;
+      }
+      break;
+    }
+    return type;
   }
 
   auto TypeParser::isConstArgumentStart() const -> bool

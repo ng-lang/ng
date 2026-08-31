@@ -219,6 +219,7 @@ namespace NG::hir
     RawPointer,
     Pack,
     Union,
+    Closure,
   };
 
   struct Type;
@@ -241,6 +242,9 @@ namespace NG::hir
     /// Union members (`A | B`).
     std::vector<Type> members;
     bool isMutable{};
+    /// Closure type (`|T| -> U`): parameters then result.
+    std::vector<Type> parameters;
+    std::unique_ptr<Type> result;
   };
 
   struct Parameter

@@ -35,13 +35,18 @@ namespace
   /// 2177: INC-14 S1 closure lowering (extended directCall for closure calls,
   /// inert zero-word closure literals) landed in flowir.cpp; ARCH split
   /// tracked in the post-cutover plan.
-  constexpr size_t kMaxCppLines = 2177;
+  /// 2185: INC-14 S2 wired function-body tail values into the fallthrough
+  /// return (latent bugfix: bare value tails previously emitted `ret` without
+  /// an operand), plus the closure instance return target.
+  constexpr size_t kMaxCppLines = 2185;
   /// 917: INC-10 added While/Continue/Break statement nodes to ast.hpp;
   /// ARCH split tracked in the post-cutover plan.
   /// 938: INC-14 S1 added ClosureExpression to ast.hpp (plus FunctionParameter
   /// and Block forward declarations); ARCH split tracked in the post-cutover
   /// plan.
-  constexpr size_t kMaxHeaderLines = 938;
+  /// 955: INC-14 S2 added ClosureTypeSyntax (`|T| -> R` function-type literal)
+  /// to ast.hpp for expected-type-driven inference.
+  constexpr size_t kMaxHeaderLines = 955;
 
   /// Recursively collect every file matching `extension` under `root`.
   auto collectFiles(const std::string &root, std::string_view extension) -> std::vector<std::filesystem::path>

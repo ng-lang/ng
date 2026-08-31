@@ -513,6 +513,7 @@ namespace NG::syntax
     RawPointer,
     Pack,
     Union,
+    Closure,
   };
 
   struct TypeSyntax
@@ -612,12 +613,28 @@ namespace NG::syntax
 
 
   /// `A | B | C` union of member types (legacy 19).
-  struct UnionTypeSyntax final : TypeSyntax
+struct UnionTypeSyntax final : TypeSyntax
   {
     std::vector<TypeSyntaxPtr> members;
 
-    UnionTypeSyntax(std::vector<TypeSyntaxPtr> unionMembers, SourceSpan sourceSpan)
+    UnionTypeSyntax(std::vector<TypeSyntaxPtr> unionMembers, const SourceSpan &sourceSpan)
       : TypeSyntax(TypeSyntaxKind::Union, sourceSpan), members(std::move(unionMembers))
+    {
+    }
+  };
+
+  /// Function type literal: `|T, U| -> R` (params then required result).
+  /// The parameters may be omitted (`|| -> unit`) but the result type is
+  /// mandatory, keeping `|T|` unambiguous in union position.
+  struct ClosureTypeSyntax final : TypeSyntax
+  {
+    std::vector<TypeSyntaxPtr> parameters;
+    TypeSyntaxPtr result;
+
+    ClosureTypeSyntax(std::vector<TypeSyntaxPtr> closureParameters, TypeSyntaxPtr returnType,
+                      const SourceSpan &sourceSpan)
+      : TypeSyntax(TypeSyntaxKind::Closure, sourceSpan), parameters(std::move(closureParameters)),
+        result(std::move(returnType))
     {
     }
   };

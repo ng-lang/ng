@@ -243,6 +243,10 @@ namespace NG::typecheck::detail
                                            const LocalTypes &locals) -> TypeId;
     [[nodiscard]] auto infer(const hir::Expression &expression, const LocalTypes &locals) -> TypeId;
     [[nodiscard]] auto inferMethodCall(const hir::Expression &expression, const LocalTypes &locals) -> TypeId;
+    /// INC-14 S2: checks a closure body against resolved parameter types and
+    /// synthesizes its code function. Returns the interned closure type.
+    [[nodiscard]] auto inferClosure(const hir::Expression &closure, const std::vector<TypeId> &parameterTypes,
+                                    const LocalTypes &locals) -> TypeId;
     [[nodiscard]] auto analyzeCallSpread(const hir::Expression &expression, size_t firstArgument,
                                          const LocalTypes &locals, CallSpreadInfo &info) -> bool;
     [[nodiscard]] auto analyzeFoldCall(const hir::Expression &expression, const LocalTypes &locals) -> FoldInfo;

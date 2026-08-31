@@ -45,6 +45,13 @@ namespace NG::hir
         for (const auto &member : unionType->members) result.members.push_back(lowerType(*member));
         return result;
       }
+      if (const auto *closureType = dynamic_cast<const syntax::ClosureTypeSyntax *>(&type))
+      {
+        Type result{.kind = TypeKind::Closure, .span = type.span};
+        for (const auto &parameter : closureType->parameters) result.parameters.push_back(lowerType(*parameter));
+        result.result = std::make_unique<Type>(lowerType(*closureType->result));
+        return result;
+      }
       throw ResolutionError("unsupported type during name resolution", type.span);
     }
 
@@ -87,6 +94,17 @@ namespace NG::hir
       if (const auto *pack = dynamic_cast<const syntax::PackTypeSyntax *>(&type))
       {
         return renderTypeName(*pack->target) + "...";
+      }
+      if (const auto *closure = dynamic_cast<const syntax::ClosureTypeSyntax *>(&type))
+      {
+        std::string result = "|";
+        for (size_t index = 0; index < closure->parameters.size(); ++index)
+        {
+          if (index != 0) result += ", ";
+          result += renderTypeName(*closure->parameters[index]);
+        }
+        result += "| -> " + renderTypeName(*closure->result);
+        return result;
       }
       throw ResolutionError("unsupported type during name resolution", type.span);
     }
@@ -963,14 +981,13 @@ namespace NG::hir
       resolved->closureParameterTypes.reserve(closure->parameters.size());
       for (const auto &parameter : closure->parameters)
       {
-        if (parameter.type == nullptr)
-          throw ResolutionError(std::format("closure parameter `{}` requires a type annotation", parameter.name),
-                                parameter.span);
         const LocalId local = declareLocal(parameter.name, parameter.span);
         localMutability_.emplace(local.value, false);
         resolved->closureParameterNames.push_back(parameter.name);
         resolved->closureParameterIds.push_back(local);
-        resolved->closureParameterTypes.push_back(std::make_shared<Type>(lowerType(*parameter.type)));
+        resolved->closureParameterTypes.push_back(parameter.type != nullptr
+                                                      ? std::make_shared<Type>(lowerType(*parameter.type))
+                                                      : nullptr);
       }
       resolved->closureBody = std::make_unique<Block>(resolveBlock(*closure->body, false));
       scopes_.pop_back();
@@ -1208,11 +1225,17 @@ namespace
     result.parameters.reserve(closure.closureParameterNames.size());
     for (size_t index = 0; index < closure.closureParameterNames.size(); ++index)
     {
-      result.parameters.push_back(Parameter{.name = closure.closureParameterNames[index],
-                                            .typeName = closure.closureParameterTypes[index]->name,
-                                            .type = cloneType(*closure.closureParameterTypes[index]),
-                                            .local = remapLocal(context, closure.closureParameterIds[index]),
-                                            .span = closure.span});
+      // Untyped closure parameters (INC-14 S2) are resolved at the inference
+      // site and recorded in the closure's synthesized signature; the HIR
+      // parameter carries only the declared annotation when present.
+      Parameter parameter{.name = closure.closureParameterNames[index], .span = closure.span};
+      if (closure.closureParameterTypes[index] != nullptr)
+      {
+        parameter.typeName = closure.closureParameterTypes[index]->name;
+        parameter.type = cloneType(*closure.closureParameterTypes[index]);
+      }
+      parameter.local = remapLocal(context, closure.closureParameterIds[index]);
+      result.parameters.push_back(std::move(parameter));
     }
     result.body = cloneBlock(context, *closure.closureBody);
     nextLocal = context.nextLocal;

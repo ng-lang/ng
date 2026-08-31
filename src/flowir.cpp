@@ -60,6 +60,7 @@ namespace NG::flowir
         }
         function_.entry = appendBlock();
         current_ = function_.entry;
+        functionBody_ = &source.body;
         lowerBlock(source.body);
         if (!block().terminator.has_value())
         {
@@ -69,7 +70,10 @@ namespace NG::flowir
                 drops != types_->fallthroughDrops.end())
               lowerDropCalls(drops->second);
           }
-          block().terminator = Terminator{.kind = TerminatorKind::Return, .targets = {}, .arguments = {}};
+          std::vector<ValueId> arguments;
+          if (fallthroughReturn_.has_value())
+            arguments.push_back(*fallthroughReturn_);
+          block().terminator = Terminator{.kind = TerminatorKind::Return, .targets = {}, .arguments = std::move(arguments)};
         }
         return std::move(function_);
       }
@@ -1516,7 +1520,9 @@ namespace NG::flowir
         }
         if (!block().terminator.has_value() && source.tailExpression != nullptr)
         {
-          static_cast<void>(lowerExpression(*source.tailExpression));
+          const ValueId tailValue = lowerExpression(*source.tailExpression);
+          if (functionBody_ == &source && function_.declaredResultType != typecheck::builtin::Unit)
+            fallthroughReturn_ = tailValue;
         }
         if (!block().terminator.has_value())
           emitBlockDrops(source);
@@ -2050,6 +2056,8 @@ namespace NG::flowir
       uint32_t nextSyntheticLocal_{};
       const typecheck::TypeCheckResult *types_{};
       const hir::Block *currentHirBlock_{};
+      const hir::Block *functionBody_{};
+      std::optional<ValueId> fallthroughReturn_;
       std::unordered_map<uint32_t, BlockId> loopHeaders_;
       std::unordered_map<uint32_t, BlockId> loopExits_;
     };
