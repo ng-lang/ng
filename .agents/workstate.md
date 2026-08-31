@@ -22,10 +22,26 @@ arguments that NG cannot express without first-class functions.
 - INC-14 **S1** (minimal closures — syntax, explicit param types, direct calls): committed
   `ffae039`/`bc4729a` (512 cases / 3511 assertions, ctest 513/513, ASan 512/512).
 - INC-14 **S2a+S2b** (zero-param `||` heads, expected-type-driven inference, `|T| -> R`
-  type literal, tail-return latent fix): implemented, released suite green pending commit.
+  type literal, tail-return latent fix): committed `777651d`/`ed2e18c`/`2a0d879`/`002849e`
+  (515 cases / 3525 assertions, ctest 516/516, ASan 515/515).
+- INC-14 **S2c** (higher-order closures + std.seq `map<T,U>`): implemented, suite green,
+  commit pending (525 cases / 3553 assertions, ctest 526/526, ASan 525/525).
 
 ## Recent completed changes
 
+- INC-14 S2c: closure-typed function parameters act semi-generic — every concrete
+  closure argument (literal or closure-typed local) creates a closure-specialized
+  instance via `instantiateFunction` (`closureTargets`, key `|cl{index}#{defId}`),
+  parameter local bound to the literal's code DefId via `closureLocals_`; the original
+  higher-order function is marked `placeholderFunctions_` (driver lowers a stub Return,
+  body compiles only in instances). Deferred template-body path: calls through a param
+  local of a placeholder are typed from the closure descriptor without recording a
+  call target. `analyzeCallSpread` and `inferExpected`'s generic branch handle closure
+  args (shared `Checker::inferCallClosureArgument`); `TypeInterner::specialize` and
+  `unifyGuarded` gained Closure cases. `lib/std/seq.ng` now has `export fun map<T, U>`.
+  Parser fix: `ModuleParser::parseTypeUntil` pipe-depth nesting so `|i64, i64|` isn't
+  truncated at the parameter comma in function signatures. Tests `test/closure_ho_test.cpp`
+  (10 cases, closure suites 15→25); `example/closures.ng` +6 groups.
 - INC-14 S2a+S2b: `parsePrefix` routes `OrOr` to `parseClosure` as an empty head
   (`|| expr`); new `ClosureTypeSyntax` (`|T| -> R`) → `hir::TypeKind::Closure` →
   `internClosure`; closure parameter annotations may be omitted and are inferred
@@ -54,12 +70,8 @@ arguments that NG cannot express without first-class functions.
 
 ## Next steps
 
-- Commit INC-14 S2a+S2b (feat/docs/chore), verify ASan + ctest.
-- INC-14 **S2c**: generic `map<T, U>` monomorphization with closure arguments —
-  closure-typed parameters on generic calls (unify site `typecheck_infer.cpp:1477`),
-  the paramLocal→codeDefId threading for `f(x)` inside `map`'s re-checked body, and
-  `lib/std/seq.ng` `map` (currently no stdlib `map`; only compiler-internal fold +
-  `[f(xs)...]` map-spread comprehensions).
+- Commit INC-14 S2c (feat/docs/chore).
+- INC-14 **S3** (copy/move captures — enabling closures over enclosing state).
 - The plan also lists differential contract seeding (map vs map-spread) — carries into S6.
 - Thereafter INC-12 (combinators + law PBT), then INC-13 `?` desugar per plan order.
 
@@ -67,6 +79,6 @@ arguments that NG cannot express without first-class functions.
 
 - `.agents/worklog/2026-08-27.md` — INC-B / INC-A / INC-9 / INC-10 entries
 - `.agents/worklog/2026-08-30.md` — INC-11 entry
-- `.agents/worklog/2026-08-31.md` — INC-14 S1 entry + S2a+S2b entry
+- `.agents/worklog/2026-08-31.md` — INC-14 S1 entry + S2a+S2b entry + S2c entry
 - `docs/design/rearchitecture/09-increment-plan.md` — execution table + INC-14 slices
 - `AGENTS.md` — pipeline/build/test/commit conventions
