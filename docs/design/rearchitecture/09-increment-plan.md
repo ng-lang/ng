@@ -262,6 +262,17 @@ INC-14（最小闭包）**前移**至 INC-12/13 之前执行，INC-12/13 顺延�
   为惰性零字。参数需显式类型；捕获拒绝（负契约，S3 开启）。测试
   `test/closure_test.cpp`（12 例）+ `example/closures.ng`。`||` 零参闭包与
   `||` 逻辑或存在词法歧义，留待 S2 处理。
+- **S2 落地（2026-08-31）**: ① `||` 零参闭包头——前缀位 `OrOr` 视为空参数头
+  （`|| expr`），避开 `|` 位或的 S1 歧义。② 期望类型驱动推导——resolver 允许
+  省略参数类型（`closureParameterTypes` 空指针），自检器按期望闭包类型分支
+  （`inferExpected` Closure case → `inferClosure` 复用 body 检查 + 代码函数合成）
+  推导参数；绑定注解 `|i64| -> i64` 经新 `ClosureTypeSyntax`/`hir::TypeKind::Closure`
+  解析并 `internClosure`；无期望类型时在检查期报“cannot infer closure parameter”。
+  ③ 修正潜伏 bug：值型函数体尾部表达式此前降为裸 `ret`（QBE 遗留寄存器），
+  `|| 7` 直接暴露——FlowIR 现将函数体尾部值接入 fallthrough return，
+  `fun f() -> i64 { 42 }` 因此返回 42。测试 `test/closure_test.cpp`（+4 例：
+  零参头、S2 推导、结果类型不匹配、无期望类型负契约）+ `example/closures.ng`
+  （+3 组）。泛型 `map` 闭包实参（S2c）与捕获（S3）仍在后续切片。
 
 ### INC-12 · prelude Option/Result + 组合子（顺延至闭包落地后）
 - **动作**: prelude 定义两泛型枚举 + map/andThen/orElse（以最小闭包作变换实参）；
