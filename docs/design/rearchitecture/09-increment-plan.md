@@ -248,7 +248,7 @@ INC-14（最小闭包）**前移**至 INC-12/13 之前执行，INC-12/13 顺延�
 - **S6** 差分 PBT（`map(xs, |x| f(x)) ≡ [f(xs)...]`）等。
 完成后 INC-12（含完整组合子 + 代律 PBT）落地。
 
-### INC-14 · 非逃逸闭包（copy/move 捕获）— ✅ 前移执行中（S1 完成）
+### INC-14 · 非逃逸闭包（copy/move 捕获）— ✅ 前移执行中（S1/S2/S2c 完成）
 - **范围**: `|x| expr` 语法；仅 copy/move 捕获；不可逃逸；Fn/FnOnce 最小
   auto trait 面。borrow 捕获**明确不在本步**。
 - **测试**: 差分契约：`map(xs, |x| f(x)) ≡ [f(xs)...]` 内建特例（生成数组×
@@ -270,9 +270,21 @@ INC-14（最小闭包）**前移**至 INC-12/13 之前执行，INC-12/13 顺延�
   解析并 `internClosure`；无期望类型时在检查期报“cannot infer closure parameter”。
   ③ 修正潜伏 bug：值型函数体尾部表达式此前降为裸 `ret`（QBE 遗留寄存器），
   `|| 7` 直接暴露——FlowIR 现将函数体尾部值接入 fallthrough return，
-  `fun f() -> i64 { 42 }` 因此返回 42。测试 `test/closure_test.cpp`（+4 例：
-  零参头、S2 推导、结果类型不匹配、无期望类型负契约）+ `example/closures.ng`
-  （+3 组）。泛型 `map` 闭包实参（S2c）与捕获（S3）仍在后续切片。
+  `fun f() -> i64 { 42 }` 因此返回 42。
+- **S2c 落地（2026-08-31）**: 高一阶（higher-order）——闭包型函数参数视为
+  半泛型：`instantiateFunction` 新增 `closureTargets`（参数索引 → 代码 DefId），
+  每个具体闭包实参（字面量或闭包 typed 局部）产生闭包特化实例，参数局部经
+  `closureLocals_` 绑定到字面量合成函数，正文中 `f(x)` 直接绑定其代码函数。
+  带闭包参数的原函数在注册期标记 `placeholderFunctions_`，驱动只降示例 stub，
+  正文仅在实例中编译；未实例化模板体内 `f(x)` 按延迟路径建模（描述符定类型、
+  不记录 callTarget）。`TypeInterner::specialize`/`unifyGuarded` 补 Closure 结构
+  特化/合一；`analyzeCallSpread`/`inferExpected` 泛型分支补闭包实参处理；
+  `lib/std/seq.ng` 落地 `export fun map<T, U>(values: array<T>, f: |T| -> U)`。
+  ModuleParser `parseTypeUntil` 补 `|...|` 管道嵌套，多参闭包类型
+  `|i64, i64| -> i64` 在函数签名中不再被参数逗号截断。测试
+  `test/closure_ho_test.cpp`（10 例：非泛型/泛型高一阶、闭包 typed 局部实参、
+  块体/多参闭包实参、嵌套调用、未用模板占位、负契约、seq.map E2E）+
+  `example/closures.ng`（+6 组）。捕获（S3）与完全泛型闭包仍在后续切片。
 
 ### INC-12 · prelude Option/Result + 组合子（顺延至闭包落地后）
 - **动作**: prelude 定义两泛型枚举 + map/andThen/orElse（以最小闭包作变换实参）；
