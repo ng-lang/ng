@@ -24,24 +24,30 @@ arguments that NG cannot express without first-class functions.
 - INC-14 **S2a+S2b** (zero-param `||` heads, expected-type-driven inference, `|T| -> R`
   type literal, tail-return latent fix): committed `777651d`/`ed2e18c`/`2a0d879`/`002849e`
   (515 cases / 3525 assertions, ctest 516/516, ASan 515/515).
-- INC-14 **S2c** (higher-order closures + std.seq `map<T,U>`): implemented, suite green,
-  commit pending (525 cases / 3553 assertions, ctest 526/526, ASan 525/525).
+- INC-14 **S2c** (higher-order closures + std.seq `map<T,U>`): committed
+  `d964f63`/`c7a7e39`/`25a65b4` (525 cases / 3553 assertions, ctest 526/526,
+  ASan 525/525).
+- INC-14 **S3** (copy/move captures + static capture threading): implemented,
+  suite green, commit pending (526 cases, ctest 526/526).
 
 ## Recent completed changes
 
-- INC-14 S2c: closure-typed function parameters act semi-generic — every concrete
-  closure argument (literal or closure-typed local) creates a closure-specialized
-  instance via `instantiateFunction` (`closureTargets`, key `|cl{index}#{defId}`),
-  parameter local bound to the literal's code DefId via `closureLocals_`; the original
-  higher-order function is marked `placeholderFunctions_` (driver lowers a stub Return,
-  body compiles only in instances). Deferred template-body path: calls through a param
-  local of a placeholder are typed from the closure descriptor without recording a
-  call target. `analyzeCallSpread` and `inferExpected`'s generic branch handle closure
-  args (shared `Checker::inferCallClosureArgument`); `TypeInterner::specialize` and
-  `unifyGuarded` gained Closure cases. `lib/std/seq.ng` now has `export fun map<T, U>`.
-  Parser fix: `ModuleParser::parseTypeUntil` pipe-depth nesting so `|i64, i64|` isn't
-  truncated at the parameter comma in function signatures. Tests `test/closure_ho_test.cpp`
-  (10 cases, closure suites 15→25); `example/closures.ng` +6 groups.
+- INC-14 S3: explicit capture lists `[x, move y] |p| body`. Resolver resolves
+  capture names to enclosing-local ids (`CaptureInfo{local, isMove}`) and shadows
+  them with fresh closure-body-scope locals (`closureCaptureParams`), so bodies
+  read capture params. `inferClosure` types capture params from enclosing locals,
+  checks the body, then marks move captures (whole value). `validateCaptures`
+  replaced `ensureNoCapturedLocals` (uncaptured enclosing local → clean error).
+  Code functions `__closureN` prepend capture params; FlowIR prepends capture
+  values as leading operands (synthetic ResolvedName Evaluate) at direct closure
+  calls; `instantiateFunction` prepends capture groups to higher-order instance
+  signatures and re-binds the instance's closure call via
+  `instanceCaptureParamsByLocal_`. Fixed the S3 blocker: overload resolution
+  re-infers a call once per candidate (15× for `print(apply(f,5,7))`), so the
+  higher-order capture record is now idempotent (first-inference only) —
+  `apply(f,5,7)` = 112, `apply(cap2,2,0)` = 50, copy array = 2, move array = 7.
+  Tests `test/closure_ho_test.cpp` +7 (closure suites 25→32);
+  `example/closures.ng` +6 capture groups; guard flowir 2202→2203.
 - INC-14 S2a+S2b: `parsePrefix` routes `OrOr` to `parseClosure` as an empty head
   (`|| expr`); new `ClosureTypeSyntax` (`|T| -> R`) → `hir::TypeKind::Closure` →
   `internClosure`; closure parameter annotations may be omitted and are inferred
@@ -70,9 +76,12 @@ arguments that NG cannot express without first-class functions.
 
 ## Next steps
 
-- Commit INC-14 S2c (feat/docs/chore).
-- INC-14 **S3** (copy/move captures — enabling closures over enclosing state).
-- The plan also lists differential contract seeding (map vs map-spread) — carries into S6.
+- Commit INC-14 S3 (feat/docs/chore).
+- INC-14 **S3 follow-ups**: enforce move-capture consumption on the original
+  (`[move b]` marks `b` moved at the literal site but later reads aren't yet
+  rejected); then continue the capture matrix as needed.
+- INC-14 **S4** (fully generic closures), then S5 (Fn traits), S6
+  (differential PBT seeding — map vs map-spread).
 - Thereafter INC-12 (combinators + law PBT), then INC-13 `?` desugar per plan order.
 
 ## References
@@ -80,5 +89,6 @@ arguments that NG cannot express without first-class functions.
 - `.agents/worklog/2026-08-27.md` — INC-B / INC-A / INC-9 / INC-10 entries
 - `.agents/worklog/2026-08-30.md` — INC-11 entry
 - `.agents/worklog/2026-08-31.md` — INC-14 S1 entry + S2a+S2b entry + S2c entry
+- `.agents/worklog/2026-09-01.md` — INC-14 S3 entry
 - `docs/design/rearchitecture/09-increment-plan.md` — execution table + INC-14 slices
 - `AGENTS.md` — pipeline/build/test/commit conventions
