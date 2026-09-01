@@ -2,6 +2,7 @@
 #pragma once
 
 #include "syntax/ast.hpp"
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -128,7 +129,10 @@ namespace NG::syntax
     [[nodiscard]] auto parseExpression(int minimumBindingPower) -> ExpressionPtr;
     [[nodiscard]] auto parsePrefix() -> ExpressionPtr;
     [[nodiscard]] auto parsePostfix(ExpressionPtr expression) -> ExpressionPtr;
-    [[nodiscard]] auto parseClosure() -> ExpressionPtr;
+    [[nodiscard]] auto parseClosure(std::vector<Capture> captures = {}) -> ExpressionPtr;
+    /// INC-14 S3: attempt to parse `[name, move name, ...]` as a closure capture
+    /// list. Returns nullopt if the pattern does not match (falls back to array).
+    [[nodiscard]] auto tryParseClosureCaptureList() -> std::optional<std::vector<Capture>>;
     /// Slices a type up to a terminator token range and hands it to TypeParser.
     [[nodiscard]] auto parseTypeUntil(const std::vector<TokenKind> &terminators) -> TypeSyntaxPtr;
     /// Captures a balanced `{ ... }` token range plus an End token, unchanged

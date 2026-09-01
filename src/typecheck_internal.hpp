@@ -335,7 +335,7 @@ namespace NG::typecheck::detail
     void checkIntegerLiteral(int64_t value, std::string_view text, TypeId type, syntax::SourceSpan span) const;
     /// INC-14 S1 negative contract: a closure body must not reference locals
     /// from an enclosing scope until capture slices land (copy/move S3-S4).
-    void ensureNoCapturedLocals(const hir::Expression &closure) const;
+    void validateCaptures(const hir::Expression &closure) const;
 
     // ---- data members ----
     TypeInterner interner_;
@@ -380,6 +380,25 @@ namespace NG::typecheck::detail
     std::deque<hir::Function> instances_;
     /// Closure literal expression -> its synthesized code function (INC-14 S1).
     std::unordered_map<const hir::Expression *, hir::DefId> closureFunctions_;
+    /// Closure literal expression -> capture types (INC-14 S3).
+    std::unordered_map<const hir::Expression *, std::vector<TypeId>> closureCaptures_;
+    /// Closure code function DefId -> capture types (INC-14 S3), for threading
+    /// through closure-specialized higher-order instances.
+    std::unordered_map<uint32_t, std::vector<TypeId>> closureCaptureTypesByFunction_;
+    /// Closure-typed local id -> capture locals {local_id, isMove, type} (INC-14 S3).
+    struct CaptureLocalInfo
+    {
+      uint32_t localId;
+      bool isMove;
+      TypeId type;
+    };
+    std::unordered_map<uint32_t, std::vector<CaptureLocalInfo>> closureCapturesByLocal_;
+    /// Instance closure-typed param local -> instance capture param locals
+    /// (INC-14 S3), so the instance body's closure call threads its own
+    /// capture params.
+    std::unordered_map<uint32_t, std::vector<uint32_t>> instanceCaptureParamsByLocal_;
+    /// Call expression -> capture local IDs to prepend as leading args (INC-14 S3).
+    std::unordered_map<const hir::Expression *, std::vector<uint32_t>> callCaptures_;
     /// Closure-typed local id -> its synthesized code function.
     std::unordered_map<uint32_t, hir::DefId> closureLocals_;
     /// Parameter local ids of the current function body; calls through these

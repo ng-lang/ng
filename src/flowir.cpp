@@ -281,6 +281,24 @@ namespace NG::flowir
         }
         std::vector<ValueId> operands;
         operands.reserve(expression.operands.size() - (directCall ? 1 : 0));
+        // INC-14 S3: capture threading prepends captured local values as
+        // leading operands (the synthesized code function / specialized
+        // instance takes capture params first). Captured locals are
+        // current-frame locals referenced by a ResolvedName instruction so the
+        // backend loads the local's value.
+        if (directCall && types_ != nullptr && types_->callCaptures.contains(&expression))
+        {
+          for (const uint32_t captureLocal : types_->callCaptures.at(&expression))
+          {
+            const ValueId capture{nextValue_++};
+            function_.valueTypes.emplace(capture.value, types_->localTypeIds.at(captureLocal));
+            block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
+                                                       .result = capture,
+                                                       .expressionKind = hir::ExpressionKind::ResolvedName,
+                                                       .payload = captureLocal});
+            operands.push_back(capture);
+          }
+        }
         const bool hasSpreadPositions =
             directCall && types_ != nullptr && types_->callSpreadPositions.contains(&expression);
         if (hasSpreadPositions)

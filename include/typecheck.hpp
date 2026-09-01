@@ -264,6 +264,10 @@ namespace NG::typecheck
     std::unordered_map<uint32_t, FunctionType> functionTypes;
     std::unordered_map<uint32_t, FunctionTypeIds> functionTypeIds;
     std::unordered_map<const hir::Expression *, hir::DefId> callTargets;
+    /// Closure-typed call sites that must prepend capture values as
+    /// leading operands; maps call expression -> captured enclosing local IDs
+    /// (INC-14 S3).
+    std::unordered_map<const hir::Expression *, std::vector<uint32_t>> callCaptures;
     /// Number of trailing call arguments packed into the callee's tuple
     /// parameter (variadic calls).
     std::unordered_map<const hir::Expression *, size_t> callPackArgCounts;

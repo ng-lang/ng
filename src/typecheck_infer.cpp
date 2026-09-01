@@ -1363,6 +1363,24 @@ auto Checker::infer(const hir::Expression &expression, const LocalTypes &locals)
           static_cast<void>(inferExpected(*expression.operands[index + 1], closure.elements[index], locals,
                                           std::format("closure argument {}", index + 1)));
         callTargets_.insert_or_assign(&expression, foundCode->second);
+        // INC-14 S3: record capture values for call-site threading. Original
+        // frames look up the closure local's capture locals; instance frames
+        // look up the instance's capture params.
+        std::vector<uint32_t> captureIds;
+        const auto foundCaptures = closureCapturesByLocal_.find(expression.operands[0]->resolvedName->id);
+        if (foundCaptures != closureCapturesByLocal_.end())
+        {
+          for (const auto &cap : foundCaptures->second)
+            captureIds.push_back(cap.localId);
+        }
+        else
+        {
+          const auto foundInstanceCaptures = instanceCaptureParamsByLocal_.find(expression.operands[0]->resolvedName->id);
+          if (foundInstanceCaptures != instanceCaptureParamsByLocal_.end())
+            captureIds = foundInstanceCaptures->second;
+        }
+        if (!captureIds.empty())
+          callCaptures_.emplace(&expression, std::move(captureIds));
         type = closure.element;
         break;
       }
@@ -1500,7 +1518,22 @@ auto Checker::infer(const hir::Expression &expression, const LocalTypes &locals)
         {
           const auto bound = closureLocals_.find(argument.resolvedName->id);
           if (bound != closureLocals_.end())
+          {
             closureTargets.emplace_back(index, bound->second);
+            // INC-14 S3: a capturing closure passed into a higher-order
+            // function threads its capture values into the specialized
+            // instance as leading args.
+            const auto foundCaptures = closureCapturesByLocal_.find(argument.resolvedName->id);
+            if (foundCaptures != closureCapturesByLocal_.end() &&
+                callTargets_.find(&expression) == callTargets_.end())
+            {
+              std::vector<uint32_t> captureIds;
+              for (const auto &cap : foundCaptures->second)
+                captureIds.push_back(cap.localId);
+              auto &callCaptureList = callCaptures_[&expression];
+              callCaptureList.insert(callCaptureList.end(), captureIds.begin(), captureIds.end());
+            }
+          }
         }
         if (!isGeneric(signature))
         {
@@ -1745,36 +1778,63 @@ auto Checker::inferCallClosureArgument(const hir::Expression &closure, TypeId pa
 }
 
 auto Checker::inferClosure(const hir::Expression &closure, const std::vector<TypeId> &parameterTypes,
-                           const LocalTypes &locals) -> TypeId
+                            const LocalTypes &locals) -> TypeId
 {
   LocalTypes closureLocals;
+  std::vector<TypeId> captureTypes;
+  // INC-14 S3: resolve explicit capture list. The closure body references the
+  // fresh capture params (closureCaptureParams), typed from the enclosing
+  // locals; the original capture locals (closureCaptures) drive call-site
+  // threading.
+  validateCaptures(closure);
+  for (size_t index = 0; index < closure.closureCaptures.size(); ++index)
+  {
+    const auto &capture = closure.closureCaptures[index];
+    const auto found = locals.find(capture.local.value);
+    if (found == locals.end())
+      throw TypeError(std::format("capture is not in scope"), closure.span);
+    const TypeId captureType = found->second;
+    captureTypes.push_back(captureType);
+    closureLocals.emplace(closure.closureCaptureParams[index].value, captureType);
+    recordLocal(closure.closureCaptureParams[index], captureType);
+  }
   for (size_t index = 0; index < closure.closureParameterIds.size(); ++index)
   {
     closureLocals.emplace(closure.closureParameterIds[index].value, parameterTypes[index]);
     recordLocal(closure.closureParameterIds[index], parameterTypes[index]);
   }
-  // Closure locals are borrowed/copied by value into the synthesized code
-  // function; captures from outer scopes remain INC-14 slices S3-S4.
-  ensureNoCapturedLocals(closure);
   const MoveState movesBefore = moveState_;
   checkBlock(*closure.closureBody, closureLocals, {}, TypeId{}, false);
   moveState_ = movesBefore;
+  // INC-14 S3: move captures consume the original enclosing local at the
+  // literal site (after the body is checked against the capture params).
+  for (const auto &capture : closure.closureCaptures)
+    if (capture.isMove)
+      moveState_.markWhole(capture.local.value);
   const TypeId resultType = closure.closureBody->tailExpression != nullptr
                                 ? expressionTypeIds_.at(closure.closureBody->tailExpression.get())
                                 : builtin::Unit;
   const hir::DefId closureId{static_cast<uint32_t>(module_->functions.size() + instances_.size())};
   const std::string closureName = std::format("__closure{}", closureCounter_++);
-  const FunctionTypeIds closureSignature{.parameters = parameterTypes, .returnType = resultType};
+  // Code function signature: capture params (owned, same type) + user params.
+  std::vector<TypeId> codeParamTypes;
+  codeParamTypes.reserve(captureTypes.size() + parameterTypes.size());
+  for (const auto captureType : captureTypes) codeParamTypes.push_back(captureType);
+  for (const auto paramType : parameterTypes) codeParamTypes.push_back(paramType);
+  const FunctionTypeIds closureSignature{.parameters = codeParamTypes, .returnType = resultType};
   signatures_.emplace(closureId.value, closureSignature);
   functionTypeIds_.emplace(closureId.value, closureSignature);
   FunctionType displaySignature;
-  for (const auto parameter : parameterTypes)
-    displaySignature.parameters.push_back(interner_.display(parameter));
+  for (const auto param : codeParamTypes)
+    displaySignature.parameters.push_back(interner_.display(param));
   displaySignature.returnType = interner_.display(resultType);
   functionTypes_.emplace(closureId.value, std::move(displaySignature));
   instances_.push_back(hir::makeClosureFunction(closure, closureName, closureId, nextInstanceLocal_));
   checkFunction(instances_.back(), {});
   closureFunctions_.emplace(&closure, closureId);
+  // Record capture info for call-site threading.
+  closureCaptures_[&closure] = captureTypes;
+  closureCaptureTypesByFunction_[closureId.value] = captureTypes;
   return interner_.internClosure(parameterTypes, resultType);
 }
 

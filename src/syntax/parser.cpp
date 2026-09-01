@@ -591,6 +591,12 @@ namespace NG::syntax
       return std::make_unique<BooleanLiteralExpression>(false, token.span);
     case TokenKind::LeftSquare:
     {
+      // INC-14 S3: try closure capture list `[x, move y] |params| body` first.
+      auto captures = tryParseClosureCaptureList();
+      if (captures.has_value())
+        return parseClosure(std::move(*captures));
+
+      // Fall back to array literal `[expr, ...]`.
       std::vector<ExpressionPtr> elements;
       if (current().kind != TokenKind::RightSquare)
       {
@@ -723,7 +729,45 @@ namespace NG::syntax
     return current().kind == TokenKind::End;
   }
 
-  auto ExpressionParser::parseClosure() -> ExpressionPtr
+  auto ExpressionParser::tryParseClosureCaptureList() -> std::optional<std::vector<Capture>>
+  {
+    // Look-ahead: parse `(ident | move ident) [, ...]* ] |` without consuming
+    // permanently. If the pattern matches, return the capture list; otherwise
+    // restore the cursor so the caller can fall back to array literal parsing.
+    if (current().kind != TokenKind::Identifier && current().kind != TokenKind::KeywordMove)
+      return std::nullopt;
+
+    const size_t saved = cursor_;
+    std::vector<Capture> captures;
+    while (true)
+    {
+      const bool isMove = current().kind == TokenKind::KeywordMove;
+      if (isMove) static_cast<void>(consume());
+      if (current().kind != TokenKind::Identifier)
+      {
+        cursor_ = saved;
+        return std::nullopt;
+      }
+      const Token name = consume();
+      captures.push_back(Capture{.name = name.text, .isMove = isMove, .span = name.span});
+      if (current().kind != TokenKind::Comma) break;
+      static_cast<void>(consume());
+    }
+    if (current().kind != TokenKind::RightSquare)
+    {
+      cursor_ = saved;
+      return std::nullopt;
+    }
+    static_cast<void>(consume()); // skip ']'
+    if (current().kind != TokenKind::Pipe && current().kind != TokenKind::OrOr)
+    {
+      cursor_ = saved;
+      return std::nullopt;
+    }
+    return captures;
+  }
+
+  auto ExpressionParser::parseClosure(std::vector<Capture> captures) -> ExpressionPtr
   {
     const Token open = consume();
     std::vector<FunctionParameter> parameters;
@@ -768,7 +812,8 @@ namespace NG::syntax
                                            std::move(tail)});
     }
     const SourceSpan span{open.span.begin, body->span.end};
-    return std::make_unique<ClosureExpression>(std::move(parameters), std::move(body), span);
+    return std::make_unique<ClosureExpression>(std::move(captures), std::move(parameters),
+                                               std::move(body), span);
   }
 
   auto ExpressionParser::parseTypeUntil(const std::vector<TokenKind> &terminators) -> TypeSyntaxPtr

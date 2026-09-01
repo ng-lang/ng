@@ -123,10 +123,21 @@ namespace NG::hir
     bool methodCall{};
     /// Anonymous closure literal (`|x| body`): parameter locals declared in a
     /// closure body scope, resolved parameter type trees, and the body block.
+    /// INC-14 S3: explicit capture list resolved to enclosing-scope locals.
+    struct CaptureInfo
+    {
+      LocalId local;
+      bool isMove = false;
+    };
     std::vector<std::string> closureParameterNames;
     std::vector<LocalId> closureParameterIds;
     std::vector<std::shared_ptr<Type>> closureParameterTypes;
     std::unique_ptr<Block> closureBody;
+    std::vector<CaptureInfo> closureCaptures;
+    /// INC-14 S3: closure-body-scope locals that shadow the captured names;
+    /// the closure code function body references these (parallel to
+    /// closureCaptures). Original enclosing locals live in closureCaptures.
+    std::vector<LocalId> closureCaptureParams;
     std::vector<std::unique_ptr<Expression>> operands;
   };
 

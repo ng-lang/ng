@@ -679,16 +679,27 @@ struct UnionTypeSyntax final : TypeSyntax
   /// (D-006). `body` is a block whose tail carries the single-expression form's
   /// value, mirroring `=> body` function sugar. Parameters may declare explicit
   /// types (`|x: i64| ...`); an omitted annotation is inferred at the call site
-  /// by INC-14 slice S2.
+  /// by INC-14 slice S2. An optional capture list `[x, move y]` before the head
+  /// names enclosing locals captured by the closure (INC-14 S3).
+  struct Capture
+  {
+    std::string name;
+    bool isMove = false;
+    SourceSpan span;
+  };
+
   struct ClosureExpression final : Expression
   {
+    std::vector<Capture> captures;
     std::vector<FunctionParameter> parameters;
     std::unique_ptr<Block> body;
 
-    ClosureExpression(std::vector<FunctionParameter> closureParameters, std::unique_ptr<Block> closureBody,
+    ClosureExpression(std::vector<Capture> closureCaptures,
+                      std::vector<FunctionParameter> closureParameters,
+                      std::unique_ptr<Block> closureBody,
                       SourceSpan sourceSpan)
-      : Expression(ExpressionKind::Closure, sourceSpan), parameters(std::move(closureParameters)),
-        body(std::move(closureBody))
+      : Expression(ExpressionKind::Closure, sourceSpan), captures(std::move(closureCaptures)),
+        parameters(std::move(closureParameters)), body(std::move(closureBody))
     {
     }
   };

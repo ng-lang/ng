@@ -296,6 +296,7 @@ auto Checker::check(const hir::Module &module, const const_eval::ConstNativeHost
                           .functionTypes = std::move(functionTypes_),
                           .functionTypeIds = std::move(functionTypeIds_),
                           .callTargets = std::move(callTargets_),
+                          .callCaptures = std::move(callCaptures_),
                           .callPackArgCounts = std::move(callPackArgCounts_),
                           .callPackTupleTypes = std::move(callPackTupleTypes_),
                           .callSpreadPositions = std::move(callSpreadPositions_),

@@ -399,6 +399,50 @@ auto Checker::instantiateFunction(hir::DefId original, const Substitution &subst
   instanceSignature.constParameters = signature.constParameters;
   instanceSignature.constParameterNames = signature.constParameterNames;
   instanceSignature.returnType = specializeReturnType(signature, substitution, packCount);
+  instances_.push_back(std::move(clone));
+
+  // INC-14 S3: closure targets may capture; the specialized instance receives
+  // the capture values as hidden leading params (code-function capture groups
+  // prepended in closure-target order). Also shift the closure-typed param
+  // positions (capture params are prepended before them).
+  hir::Function &current = instances_.back();
+  unsigned long capturePrefixCount = 0;
+  std::vector<std::pair<uint32_t, hir::DefId>> shiftedClosureBindings;
+  for (const auto &[index, defId] : closureTargets)
+  {
+    const auto found = closureCaptureTypesByFunction_.find(defId.value);
+    if (found == closureCaptureTypesByFunction_.end())
+    {
+      // Non-capturing closure: no shift for this target.
+      if (index < current.parameters.size())
+        shiftedClosureBindings.emplace_back(current.parameters[index + capturePrefixCount].local.value, defId);
+      continue;
+    }
+    std::vector<uint32_t> captureLocalIds;
+    captureLocalIds.reserve(found->second.size());
+    for (const auto captureType : found->second)
+    {
+      hir::Parameter captureParameter;
+      captureParameter.name = std::format("__instance_cap{}", nextInstanceLocal_);
+      captureParameter.local = hir::LocalId{nextInstanceLocal_++};
+      captureLocalIds.push_back(captureParameter.local.value);
+      current.parameters.insert(current.parameters.begin() + static_cast<long>(capturePrefixCount),
+                                std::move(captureParameter));
+      instanceSignature.parameters.insert(instanceSignature.parameters.begin() + static_cast<long>(capturePrefixCount),
+                                          captureType);
+      ++capturePrefixCount;
+    }
+    // The instance body's closure call (f(...) where f maps to the code
+    // function) must prepend these capture params.
+    const size_t shiftedIndex = index + capturePrefixCount;
+    if (shiftedIndex < current.parameters.size())
+    {
+      const uint32_t closureParamLocal = current.parameters[shiftedIndex].local.value;
+      instanceCaptureParamsByLocal_.emplace(closureParamLocal, captureLocalIds);
+      shiftedClosureBindings.emplace_back(closureParamLocal, defId);
+    }
+  }
+
   FunctionType displaySignature;
   for (const auto parameter : instanceSignature.parameters)
     displaySignature.parameters.push_back(interner_.display(parameter));
@@ -406,7 +450,6 @@ auto Checker::instantiateFunction(hir::DefId original, const Substitution &subst
   signatures_.emplace(instanceId.value, std::move(instanceSignature));
   functionTypes_.emplace(instanceId.value, std::move(displaySignature));
   instanceTable_.emplace(std::move(key), instanceId);
-  instances_.push_back(std::move(clone));
   const_eval::ConstBindings instanceConstBindings;
   for (size_t index = 0; index < signature.constParameters.size(); ++index)
   {
@@ -414,12 +457,8 @@ auto Checker::instantiateFunction(hir::DefId original, const Substitution &subst
     if (found != substitution.consts.end())
       instanceConstBindings.emplace(signature.constParameterNames[index], found->second);
   }
-  for (const auto &[index, defId] : closureTargets)
-  {
-    if (index >= instances_.back().parameters.size())
-      continue;
-    closureLocals_.emplace(instances_.back().parameters[index].local.value, defId);
-  }
+  for (const auto &[paramLocal, defId] : shiftedClosureBindings)
+    closureLocals_.emplace(paramLocal, defId);
   checkFunction(instances_.back(), instanceConstBindings);
   return instanceId;
 }

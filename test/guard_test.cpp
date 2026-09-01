@@ -38,7 +38,13 @@ namespace
   /// 2185: INC-14 S2 wired function-body tail values into the fallthrough
   /// return (latent bugfix: bare value tails previously emitted `ret` without
   /// an operand), plus the closure instance return target.
-  constexpr size_t kMaxCppLines = 2185;
+  /// 2202: INC-14 S3 closure capture threading in flowir.cpp (prepend captured
+  /// enclosing-local values as leading closure-call operands); ARCH split
+  /// tracked in the post-cutover plan.
+  /// 2203: INC-14 S3 higher-order capture threading widened the directCall
+  /// guard to fire on callCaptures (overload re-inference safe);
+  /// ARCH split tracked in the post-cutover plan.
+  constexpr size_t kMaxCppLines = 2203;
   /// 917: INC-10 added While/Continue/Break statement nodes to ast.hpp;
   /// ARCH split tracked in the post-cutover plan.
   /// 938: INC-14 S1 added ClosureExpression to ast.hpp (plus FunctionParameter
@@ -46,7 +52,10 @@ namespace
   /// plan.
   /// 955: INC-14 S2 added ClosureTypeSyntax (`|T| -> R` function-type literal)
   /// to ast.hpp for expected-type-driven inference.
-  constexpr size_t kMaxHeaderLines = 955;
+  /// 966: INC-14 S3 added `Capture`-aware CaptureInfo field and
+  /// closureCaptureParams to the Closure expression; ARCH split tracked in the
+  /// post-cutover plan.
+  constexpr size_t kMaxHeaderLines = 966;
 
   /// Recursively collect every file matching `extension` under `root`.
   auto collectFiles(const std::string &root, std::string_view extension) -> std::vector<std::filesystem::path>

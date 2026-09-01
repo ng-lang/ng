@@ -114,3 +114,51 @@ TEST_CASE("vNext std.seq map with a closure literal runs end to end", "[vNext][C
               "  return ys[0] + ys[1] + ys[2] + ys[3]; }",
               "20");
 }
+
+TEST_CASE("vNext higher-order call threads a copy-captured scalar", "[vNext][Closure][S3]")
+{
+  expectValue("fun apply(f: |i64, i64| -> i64, a: i64, b: i64) -> i64 { return f(a, b); }"
+              "fun main() -> i64 { let base = 100; let f = [base] |x: i64, y: i64| x + y + base;"
+              "  return apply(f, 5, 7); }",
+              "112");
+}
+
+TEST_CASE("vNext higher-order call threads a copy-captured array", "[vNext][Closure][S3]")
+{
+  expectValue("fun call(f: |i64| -> i64, x: i64) -> i64 { return f(x); }"
+              "fun main() -> i64 { let a = [1, 2, 3]; let f = [a] |x: i64| x + a[0];"
+              "  return call(f, 1); }",
+              "2");
+}
+
+TEST_CASE("vNext higher-order call threads a move-captured array", "[vNext][Closure][S3]")
+{
+  expectValue("fun call(f: |i64| -> i64, x: i64) -> i64 { return f(x); }"
+              "fun main() -> i64 { let a = [4, 5, 6]; let f = [move a] |x: i64| x + a[1];"
+              "  return call(f, 2); }",
+              "7");
+}
+
+TEST_CASE("vNext higher-order call threads multiple captures", "[vNext][Closure][S3]")
+{
+  expectValue("fun apply(f: |i64, i64| -> i64, a: i64, b: i64) -> i64 { return f(a, b); }"
+              "fun main() -> i64 { let lo = 10; let hi = 20;"
+              "  let f = [lo, hi] |x: i64, y: i64| lo + hi * x; return apply(f, 2, 0); }",
+              "50");
+}
+
+TEST_CASE("vNext higher-order capture groups are per-call-site independent", "[vNext][Closure][S3]")
+{
+  expectValue("fun apply(f: |i64, i64| -> i64, a: i64, b: i64) -> i64 { return f(a, b); }"
+              "fun main() -> i64 { let base = 100; let f = [base] |x: i64, y: i64| x + y + base;"
+              "  return apply(f, 5, 7) + apply(f, 1, 2); }",
+              "215");
+}
+
+TEST_CASE("vNext higher-order uncaptured enclosing local is rejected (S3 contract)", "[vNext][Closure][S3]")
+{
+  expectError("fun apply(f: |i64| -> i64, x: i64) -> i64 { return f(x); }"
+              "fun main() -> i64 { let secret = 9; let f = |v: i64| v + secret;"
+              "  return apply(f, 1); }",
+              "which is not listed in the capture list");
+}

@@ -1,8 +1,9 @@
-// INC-14 slices S1-S2c: closures with explicit parameter types, direct calls,
+// INC-14 slices S1-S3: closures with explicit parameter types, direct calls,
 // expected-type-driven untyped parameter inference, `||` zero-parameter
-// heads, and higher-order functions: closure-typed parameters specialize per
-// concrete closure argument so f(x) calls bind to the literal's code function.
-// Captures and fully generic closures arrive in later slices (S3-S4).
+// heads, higher-order functions: closure-typed parameters specialize per
+// concrete closure argument so f(x) calls bind to the literal's code function,
+// and explicit captures `[x, move y]` threaded as hidden leading params into
+// direct and higher-order calls. Fully generic closures arrive in S4.
 import prelude;
 import seq;
 
@@ -17,6 +18,10 @@ fun twice(f: |i64| -> i64, x: i64) -> i64 {
 
 fun invokes(f: |i64| -> i64, x: i64) -> i64 {
     return f(x);
+}
+
+fun apply(f: |i64, i64| -> i64, a: i64, b: i64) -> i64 {
+    return f(a, b);
 }
 
 fun main() -> i64 {
@@ -42,5 +47,19 @@ fun main() -> i64 {
     let xs = [1, 2, 3, 4];
     let doubled = map(xs, |x| x * 2);              // S2c: std.seq map<T,U>
     print(doubled[0] + doubled[1] + doubled[2] + doubled[3]);
+    let base = 100;
+    let bonus = [base] |x: i64| x + base;          // S3: copy capture
+    print(bonus(5));
+    let nums = [1, 2, 3];
+    let indexed = [nums] |x: i64| x + nums[0];     // S3: array copy capture
+    print(indexed(1));
+    let owned = [4, 5, 6];
+    let moved = [move owned] |x: i64| x + owned[1]; // S3: array move capture
+    print(moved(2));
+    let lo = 10;
+    let hi = 20;
+    let twoCap = [lo, hi] |x: i64, y: i64| lo + hi * x; // S3: multiple captures
+    print(apply(twoCap, 2, 0));                     // S3: capture threaded into higher-order
+    print(invokes(bonus, 41));                     // S3: capture threaded via a closure local
     return 0;
 }

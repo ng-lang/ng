@@ -221,7 +221,23 @@ void Checker::checkStatement(const hir::Statement &statement, LocalTypes &locals
     {
       const auto foundCode = closureFunctions_.find(statement.expression.get());
       if (foundCode != closureFunctions_.end() && statement.local.has_value())
+      {
         closureLocals_.emplace(statement.local->value, foundCode->second);
+        // INC-14 S3: record capture info for call-site threading.
+        const auto foundCaptures = closureCaptures_.find(statement.expression.get());
+        if (foundCaptures != closureCaptures_.end())
+        {
+          std::vector<CaptureLocalInfo> captureInfos;
+          const auto &closureExpr = dynamic_cast<const hir::Expression &>(*statement.expression);
+          for (size_t i = 0; i < closureExpr.closureCaptures.size(); ++i)
+          {
+            captureInfos.push_back(CaptureLocalInfo{.localId = closureExpr.closureCaptures[i].local.value,
+                                                     .isMove = closureExpr.closureCaptures[i].isMove,
+                                                     .type = foundCaptures->second[i]});
+          }
+          closureCapturesByLocal_.emplace(statement.local->value, std::move(captureInfos));
+        }
+      }
     }
     if (interner_.descriptor(type).kind != TypeKind::TraitReference)
       trackConsumption(*statement.expression, locals);
@@ -812,11 +828,14 @@ void Checker::trackConsumption(const hir::Expression &expression, const LocalTyp
   }
 }
 
-void Checker::ensureNoCapturedLocals(const hir::Expression &closure) const
+void Checker::validateCaptures(const hir::Expression &closure) const
 {
   std::unordered_set<uint32_t> inScope;
   for (const auto parameter : closure.closureParameterIds)
     inScope.insert(parameter.value);
+  // Explicitly captured names are shadowed by fresh closure-scope params.
+  for (const auto param : closure.closureCaptureParams)
+    inScope.insert(param.value);
   std::function<void(const hir::Block &)> collectBlock;
   std::function<void(const hir::Expression &)> visitExpression;
   std::unordered_set<uint32_t> referenced;
@@ -879,7 +898,7 @@ void Checker::ensureNoCapturedLocals(const hir::Expression &closure) const
   if (closure.closureBody != nullptr)
     collectBlock(*closure.closureBody);
   if (const auto capture = firstCapture())
-    throw TypeError(std::format("closure would capture local {}; captures are not yet supported (INC-14 S3)",
+    throw TypeError(std::format("closure body references local {} which is not listed in the capture list",
                                 capture.value()),
                     closure.span);
 }

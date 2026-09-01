@@ -976,6 +976,20 @@ namespace NG::hir
     {
       scopes_.emplace_back();
       resolved->kind = ExpressionKind::Closure;
+      // INC-14 S3: resolve capture names to enclosing-scope locals.
+      resolved->closureCaptures.reserve(closure->captures.size());
+      resolved->closureCaptureParams.reserve(closure->captures.size());
+      for (const auto &capture : closure->captures)
+      {
+        const LocalId source{resolveName(syntax::IdentifierExpression{capture.name, capture.span}).id};
+        // Shadow the captured name with a fresh closure-body-scope local so
+        // body references read the captured value (a code-function param),
+        // not the enclosing local directly.
+        const LocalId param = declareLocal(capture.name, capture.span);
+        localMutability_.emplace(param.value, false);
+        resolved->closureCaptures.push_back(Expression::CaptureInfo{.local = source, .isMove = capture.isMove});
+        resolved->closureCaptureParams.push_back(param);
+      }
       resolved->closureParameterNames.reserve(closure->parameters.size());
       resolved->closureParameterIds.reserve(closure->parameters.size());
       resolved->closureParameterTypes.reserve(closure->parameters.size());
@@ -1127,6 +1141,11 @@ namespace
       cloned->resolvedName->id = remapLocal(context, LocalId{cloned->resolvedName->id}).value;
     if (source.kind == hir::ExpressionKind::Closure)
     {
+      for (const auto &capture : source.closureCaptures)
+        cloned->closureCaptures.push_back(Expression::CaptureInfo{.local = remapLocal(context, capture.local),
+                                                                   .isMove = capture.isMove});
+      for (const auto captureParam : source.closureCaptureParams)
+        cloned->closureCaptureParams.push_back(remapLocal(context, captureParam));
       for (const auto &parameterName : source.closureParameterNames)
         cloned->closureParameterNames.push_back(parameterName);
       for (const auto parameterId : source.closureParameterIds)
@@ -1222,7 +1241,15 @@ namespace
     result.id = id;
     result.name = name;
     result.span = closure.span;
-    result.parameters.reserve(closure.closureParameterNames.size());
+    // INC-14 S3: capture params are prepended (hidden leading params).
+    result.parameters.reserve(closure.closureCaptures.size() + closure.closureParameterNames.size());
+    for (size_t index = 0; index < closure.closureCaptureParams.size(); ++index)
+    {
+      const auto &capture = closure.closureCaptures[index];
+      Parameter parameter{.name = std::format("__cap{}", index), .span = closure.span};
+      parameter.local = remapLocal(context, closure.closureCaptureParams[index]);
+      result.parameters.push_back(std::move(parameter));
+    }
     for (size_t index = 0; index < closure.closureParameterNames.size(); ++index)
     {
       // Untyped closure parameters (INC-14 S2) are resolved at the inference
