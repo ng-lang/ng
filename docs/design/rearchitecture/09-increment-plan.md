@@ -285,6 +285,25 @@ INC-14（最小闭包）**前移**至 INC-12/13 之前执行，INC-12/13 顺延�
   `test/closure_ho_test.cpp`（10 例：非泛型/泛型高一阶、闭包 typed 局部实参、
   块体/多参闭包实参、嵌套调用、未用模板占位、负契约、seq.map E2E）+
   `example/closures.ng`（+6 组）。捕获（S3）与完全泛型闭包仍在后续切片。
+- **S3 落地（2026-09-01）**: copy/move 捕获 + 静态捕获穿线（无运行时 env 载体）。
+  ① **显式捕获列表** `[x, move y] |p| body`：resolver 将捕获名解析为外层局部
+  id（`CaptureInfo{local, isMove}`），并以全新闭包体作用域影子局部
+  （`closureCaptureParams`）承接 body 引用——正文读捕获参数而非外层局部。
+  ② **检查期**：`inferClosure` 先按 `closureCaptureParams` 定捕获参数类型、
+  以闭包作用域局部检查正文、body 检查完再标记 move 捕获转移；
+  `validateCaptures` 替换 `ensureNoCapturedLocals`：未列出外层局部引用 → 报
+  `closure body references local N which is not listed in the capture list`；
+  代码函数 `__closureN` 前置捕获参数（`__cap{i}`）。③ **调用点穿线**：直接
+  闭包调用与闭包 typed 局部实参的高一阶调用点，FlowIR 以合成
+  `ResolvedName` Evaluate（负载为捕获局部 id）把捕获值前置为实参；
+  高一阶 `instantiateFunction` 按 `closureTargets` 顺序前置捕获参数组
+  （`__instance_capN`）到特化实例签名 + clone 参数，`instanceCaptureParamsByLocal_`
+  记录实例内闭包调用的捕获参数局部。④ **幂等性修正**：重载解析会多次重推
+  同一调用（如 `print` 12+ 重载各自重试实参），高一阶捕获记录改为仅在首次
+  推断（`callTargets` 未含该调用节点）时累积，杜绝捕获实参 15× 重复
+  （此前 `callCaptures_` 累积 → `apply(f,5,7)` 错误结果 300）。测试
+  `test/closure_ho_test.cpp`（+7 例：copy 标量/数组、move 数组、多捕获、
+  多调用点独立、未捕获负契约）+ `example/closures.ng`（+6 组捕获）。
 
 ### INC-12 · prelude Option/Result + 组合子（顺延至闭包落地后）
 - **动作**: prelude 定义两泛型枚举 + map/andThen/orElse（以最小闭包作变换实参）；
