@@ -162,3 +162,25 @@ TEST_CASE("vNext higher-order uncaptured enclosing local is rejected (S3 contrac
               "  return apply(f, 1); }",
               "which is not listed in the capture list");
 }
+
+TEST_CASE("vNext move capture consumes the affine original local (S3)", "[vNext][Closure][S3]")
+{
+  expectError("struct S { v: i64 }"
+              "fun mk() -> S { return S { v: 4 }; }"
+              "fun main() -> i64 { let s = mk(); let h = [move s] |x: i64| x + s.v; let z = s; return 0; }",
+              "use of moved value `s`");
+}
+
+TEST_CASE("vNext move capture consumes the original array local (S3)", "[vNext][Closure][S3]")
+{
+  expectError("fun main() -> i64 { let a = [1, 2, 3]; let h = [move a] |x: i64| x + a[0];"
+              "  let z = a; return 0; }",
+              "use of moved value `a`");
+}
+
+TEST_CASE("vNext copy capture leaves the original usable (S3)", "[vNext][Closure][S3]")
+{
+  expectValue("fun main() -> i64 { let a = [1, 2, 3]; let h = [a] |x: i64| x + a[0];"
+              "  return h(1) + a[0]; }",
+              "3");
+}

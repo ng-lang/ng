@@ -1806,11 +1806,6 @@ auto Checker::inferClosure(const hir::Expression &closure, const std::vector<Typ
   const MoveState movesBefore = moveState_;
   checkBlock(*closure.closureBody, closureLocals, {}, TypeId{}, false);
   moveState_ = movesBefore;
-  // INC-14 S3: move captures consume the original enclosing local at the
-  // literal site (after the body is checked against the capture params).
-  for (const auto &capture : closure.closureCaptures)
-    if (capture.isMove)
-      moveState_.markWhole(capture.local.value);
   const TypeId resultType = closure.closureBody->tailExpression != nullptr
                                 ? expressionTypeIds_.at(closure.closureBody->tailExpression.get())
                                 : builtin::Unit;
@@ -1832,6 +1827,13 @@ auto Checker::inferClosure(const hir::Expression &closure, const std::vector<Typ
   instances_.push_back(hir::makeClosureFunction(closure, closureName, closureId, nextInstanceLocal_));
   checkFunction(instances_.back(), {});
   closureFunctions_.emplace(&closure, closureId);
+  // INC-14 S3: move captures consume the original enclosing local at the
+  // literal site. Applied AFTER checkFunction because checkFunction resets
+  // moveState_ to empty (clobbering any mark made before it); the closure body
+  // was already checked against the capture params above.
+  for (const auto &capture : closure.closureCaptures)
+    if (capture.isMove)
+      moveState_.markWhole(capture.local.value);
   // Record capture info for call-site threading.
   closureCaptures_[&closure] = captureTypes;
   closureCaptureTypesByFunction_[closureId.value] = captureTypes;
