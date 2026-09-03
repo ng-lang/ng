@@ -27,8 +27,8 @@ arguments that NG cannot express without first-class functions.
 - INC-14 **S2c** (higher-order closures + std.seq `map<T,U>`): committed
   `d964f63`/`c7a7e39`/`25a65b4` (525 cases / 3553 assertions, ctest 526/526,
   ASan 525/525).
-- INC-14 **S3** (copy/move captures + static capture threading): implemented,
-  suite green, commit pending (526 cases, ctest 526/526).
+- INC-14 **S3** (copy/move captures + static capture threading): committed
+  `a07198a`/`6921620`/`01390c7` (526 cases, ctest 526/526).
 
 ## Recent completed changes
 
@@ -76,10 +76,18 @@ arguments that NG cannot express without first-class functions.
 
 ## Next steps
 
-- Commit INC-14 S3 (feat/docs/chore).
-- INC-14 **S3 follow-ups**: enforce move-capture consumption on the original
-  (`[move b]` marks `b` moved at the literal site but later reads aren't yet
-  rejected); then continue the capture matrix as needed.
+- INC-14 **S3 follow-up (done)**: move-capture consumption enforced on the
+  original — `inferClosure` marks move-captured locals moved AFTER its
+  `checkFunction(instance)` (which resets `moveState_`), so direct
+  `let z = a` after `[move a]` is rejected. 3 tests added.
+- INC-14 **S3 known gap**: consumption enforcement does not survive a
+  higher-order use of the closure (`apply(h, x)` re-enters `checkFunction` via
+  `instantiateFunction`, wiping `moveState_`). Fixing this correctly requires
+  making `checkFunction` save/restore `moveState_`/`borrowState_` across
+  re-entrancy — a broad change that exposes latent move-use bugs in
+  `example/hkt.ng` (moves affine value through `unwrap` then reuses it) and
+  `example/derive.ng` (`derive(Copy)` types still treated as affine / moved).
+  Deferred; revisit together with Copy-semantics teaching the move checker.
 - INC-14 **S4** (fully generic closures), then S5 (Fn traits), S6
   (differential PBT seeding — map vs map-spread).
 - Thereafter INC-12 (combinators + law PBT), then INC-13 `?` desugar per plan order.
