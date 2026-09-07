@@ -29,9 +29,27 @@ arguments that NG cannot express without first-class functions.
   ASan 525/525).
 - INC-14 **S3** (copy/move captures + static capture threading): committed
   `a07198a`/`6921620`/`01390c7` (526 cases, ctest 526/526).
+- INC-14 **S4-fwd** (closure-param forwarding + capture-value threading
+  completion): committed (539 cases / 3592 assertions, ctest 539/539).
 
 ## Recent completed changes
 
+- INC-14 S4-fwd: closure-typed **parameters** can now be forwarded into another
+  higher-order call (`mapClosure<T>(values, f) { map(values, f) }`). The
+  `inferExpected` generic arg loop now records closureTargets for bound
+  closure-typed locals (mirrors the `infer` Call-case), closing the gap where
+  the inner `map` instance was built with `closureTargets={}` and its `f(x)`
+  threw `closure value f was not created directly by a closure literal`. This
+  also surfaced and fixed an **S3 runtime gap**: capturing closures passed to a
+  higher-order call never filled `callCaptures_` (deferred-literal loop and
+  `inferExpected` literal branch recorded targets but not capture values), so an
+  instance with a capture param received `(values, f)` — arg-count mismatch that
+  crashed (`map([1,2],[factor])`). Both now fill `callCaptures_` from the
+  literal's `closureCaptures`, guarded by the `callTargets` first-inference
+  idempotency check. Forwarding a current-instance closure **param** now threads
+  the instance's own capture params (`instanceCaptureParamsByLocal_`) before
+  falling back to `closureCapturesByLocal_`. 4-level chains and multi-param
+  with-capture forwarding verified; tests +6 (38 closure cases).
 - INC-14 S3: explicit capture lists `[x, move y] |p| body`. Resolver resolves
   capture names to enclosing-local ids (`CaptureInfo{local, isMove}`) and shadows
   them with fresh closure-body-scope locals (`closureCaptureParams`), so bodies
@@ -89,7 +107,9 @@ arguments that NG cannot express without first-class functions.
   `example/derive.ng` (`derive(Copy)` types still treated as affine / moved).
   Deferred; revisit together with Copy-semantics teaching the move checker.
 - INC-14 **S4** (fully generic closures), then S5 (Fn traits), S6
-  (differential PBT seeding — map vs map-spread).
+  (differential PBT seeding — map vs map-spread). Note: the plan's original S4
+  "move captures + env drop" was subsumed by S3's static threading; the next
+  slice is fully generic closure literals.
 - Thereafter INC-12 (combinators + law PBT), then INC-13 `?` desugar per plan order.
 
 ## References
@@ -98,5 +118,6 @@ arguments that NG cannot express without first-class functions.
 - `.agents/worklog/2026-08-30.md` — INC-11 entry
 - `.agents/worklog/2026-08-31.md` — INC-14 S1 entry + S2a+S2b entry + S2c entry
 - `.agents/worklog/2026-09-01.md` — INC-14 S3 entry
+- `.agents/worklog/2026-09-07.md` — INC-14 S4-fwd (closure-param forwarding) entry
 - `docs/design/rearchitecture/09-increment-plan.md` — execution table + INC-14 slices
 - `AGENTS.md` — pipeline/build/test/commit conventions
