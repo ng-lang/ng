@@ -248,7 +248,7 @@ INC-14（最小闭包）**前移**至 INC-12/13 之前执行，INC-12/13 顺延�
 - **S6** 差分 PBT（`map(xs, |x| f(x)) ≡ [f(xs)...]`）等。
 完成后 INC-12（含完整组合子 + 代律 PBT）落地。
 
-### INC-14 · 非逃逸闭包（copy/move 捕获）— ✅ 前移执行中（S1/S2/S2c 完成）
+### INC-14 · 非逃逸闭包（copy/move 捕获）— ✅ 完成（S1–S6 全落地）
 - **范围**: `|x| expr` 语法；仅 copy/move 捕获；不可逃逸；Fn/FnOnce 最小
   auto trait 面。borrow 捕获**明确不在本步**。
 - **测试**: 差分契约：`map(xs, |x| f(x)) ≡ [f(xs)...]` 内建特例（生成数组×
@@ -370,6 +370,21 @@ INC-14（最小闭包）**前移**至 INC-12/13 之前执行，INC-12/13 顺延�
   （不在本步）：签名内建 `<T: X>` trait 界在调用点不强制（`T: Copy`/`Send`
   同样如此，仅 `where T: X` 被检查）；闭包参数不可变绑定；聚合/视图中的闭包
   类型仍按旧路径拒绝。剩余：差分 PBT（S6），完成后 INC-12 落地。
+- **S6 落地（2026-09-07）**: 差分 PBT（INC-14 收尾）。闭包组合子 ≡ 语言内建
+  spread 形态，经 INC-1 harness 全随机比对（xoshiro256**，PBT_SEED 可重放）：
+  `map(xs, |v: i64| f(v)) == [f(xs)...]`（map 理解，经 `same()` 长+元素双
+  比较）与 `fold(xs, seed, |acc: i64, v: i64| g(acc, v)) == g(seed, xs...)`
+  （fold spread，累加值相等）。每次 300 trial × 双探针 = 600 探针单模块批量
+  编译运行（`runBatchProbes`），纯函数图 f0..f4/g0..g3 内嵌（值域受限防检查
+  算术 trap），数组长 0..6、元素/种子 ∈ [-15,15]，覆盖空数组、单元素、负值
+  边界；跨 4 个随机种子稳定。测试 `test/closure_differential_test.cpp`。
+  发现的历史（非本步）缺口：① 重载候选评分吞掉实参 `infer()` 内层 TypeError
+  → 直接处于实参位置的 map-理解数组字面量报 `no matching function
+  specialization`（与已记录的 print 12 重载吞错同族；探针将理解先绑定时规避）；
+  ② 未注解空数组字面量 `[]` 报 `cannot infer the type of an empty array
+  literal`（探针以 `array<i64>` 注解规避）。INC-14 全切片完成；guard 稳定
+  （flowir 2203, ast.hpp 966）。下一步：INC-12（Option/Result + 组合子 + 代律
+  PBT）。
 
 ### INC-12 · prelude Option/Result + 组合子（顺延至闭包落地后）
 - **动作**: prelude 定义两泛型枚举 + map/andThen/orElse（以最小闭包作变换实参）；
