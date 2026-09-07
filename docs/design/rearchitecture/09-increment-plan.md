@@ -346,6 +346,30 @@ INC-14（最小闭包）**前移**至 INC-12/13 之前执行，INC-12/13 顺延�
   有代码）。测试 `test/closure_ho_test.cpp`（+5 例：泛型局部调用/转发/捕获/
   具体闭包于泛型体内/运算拒绝）。guard 稳定。剩余：Fn/FnOnce + seq
   filter/fold（S5）、差分 PBT（S6）。
+- **S5 落地（2026-09-07）**: Fn/FnOnce 最小 auto trait 面 + 非逃逸负契约 +
+  seq filter/fold 库化。① **seq.filter/fold 库化**：`export fun filter<T>(
+  values: array<T>, pred: |T| -> bool) -> array<T>`（保留 `pred` 为 true 的元素）
+  与 `export fun fold<T, U>(values: array<T>, initial: U, f: |U, T| -> U) -> U`
+  （左折叠累加器）。复用 S2c 单态化 + S3 捕获 + S4 转发全套闭包机制，无需
+  新编译器代码；转发包装（`fun myFold(values, initial, f) { return fold(...); }`）
+  与捕获（`[offs] |acc, x| acc + x + offs`）端到端工作。② **Fn/FnOnce 最小
+  auto trait 面**：prelude 新增 `export auto trait Fn {}` / `FnOnce {}` 标记
+  空 trait；`hasImpl` 对 Fn 族 auto trait 特判为**仅闭包类型满足**
+  （区别于 Send 式全具体类型）——`where T: Fn` / `where T: FnOnce` 泛型约束
+  以闭包类型实参通过、以 i64 实参报 `does not satisfy its where clause`。
+  闭包可调用签名活在闭包类型本身，标记 trait 只作 callable 断言（Rust 式
+  `Fn(T) -> U` 关联参数签名不在本步）。③ **非逃逸负契约**：函数返回闭包类型
+  现被明确拒绝——`checkFunction` 检查声明的返回类型，若为 Closure 描述符报
+  `function X returns a closure, which cannot escape its scope (non-escaping
+  closures, INC-14)`；嵌套闭包字面量（`|x| |y| x`）经捕获契约或合成代码函
+  返回类型检查同样被拒。此前该情形可被编译（无捕获闭包 = 裸代码指针），
+  带捕获时潜在地引用已释放局部。验证：filter `[1..6]` 偶数 → 12、fold
+  `[1..5]` 求和 → 15、捕获 fold → 36、forwardFold → 6、Fn/FnOnce 双约束 → 3；
+  guard 稳定。测试 `test/closure_ho_test.cpp`（+8 例：filter/fold/fold-捕获/
+  filter-捕获/泛型转发/逃逸拒绝/Fn+FnOnce 满足/Fn 不满足）。发现的历史缺口
+  （不在本步）：签名内建 `<T: X>` trait 界在调用点不强制（`T: Copy`/`Send`
+  同样如此，仅 `where T: X` 被检查）；闭包参数不可变绑定；聚合/视图中的闭包
+  类型仍按旧路径拒绝。剩余：差分 PBT（S6），完成后 INC-12 落地。
 
 ### INC-12 · prelude Option/Result + 组合子（顺延至闭包落地后）
 - **动作**: prelude 定义两泛型枚举 + map/andThen/orElse（以最小闭包作变换实参）；
