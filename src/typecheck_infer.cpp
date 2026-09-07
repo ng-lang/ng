@@ -883,9 +883,6 @@ auto Checker::inferExpected(const hir::Expression &expression, TypeId expected, 
       }
       const TypeId declared =
           interner_.resolveInScope(*expression.closureParameterTypes[index], genericBindings_);
-      if (interner_.descriptor(declared).kind == TypeKind::TypeParameter)
-        throw TypeError("closure parameters require concrete types (generic closures arrive in INC-14 S3)",
-                        expression.span);
       parameterTypes.push_back(declared);
     }
     const TypeId actual = inferClosure(expression, parameterTypes, locals);
@@ -1377,11 +1374,13 @@ auto Checker::infer(const hir::Expression &expression, const LocalTypes &locals)
         const auto foundCode = closureLocals_.find(expression.operands[0]->resolvedName->id);
         if (foundCode == closureLocals_.end())
         {
-          // INC-14 S2c: higher-order templates call closure-typed parameters
-          // with no concrete binding yet; the model types the call from the
-          // descriptor and defers codegen to the closure-specialized instance.
-          if (parameterLocals_.contains(expression.operands[0]->resolvedName->id) &&
-              placeholderFunctions_.contains(currentFunctionId_.value))
+          // INC-14 S2c/S4: templates call closure-typed parameters or generic
+          // closure locals with no concrete binding yet; the model types the
+          // call from the descriptor and defers codegen to the
+          // closure-specialized instance.
+          if (placeholderFunctions_.contains(currentFunctionId_.value) &&
+              (parameterLocals_.contains(expression.operands[0]->resolvedName->id) ||
+               deferredClosureLocals_.contains(expression.operands[0]->resolvedName->id)))
           {
             const auto &closure = interner_.descriptor(calleeType);
             if (closure.elements.size() != expression.operands.size() - 1)
@@ -1774,9 +1773,6 @@ auto Checker::infer(const hir::Expression &expression, const LocalTypes &locals)
             expression.span);
       const TypeId parameterType =
           interner_.resolveInScope(*expression.closureParameterTypes[index], genericBindings_);
-      if (interner_.descriptor(parameterType).kind == TypeKind::TypeParameter)
-        throw TypeError("closure parameters require concrete types (generic closures arrive in INC-14 S3)",
-                        expression.span);
       parameterTypes.push_back(parameterType);
     }
     type = inferClosure(expression, parameterTypes, locals);
@@ -1837,7 +1833,11 @@ auto Checker::inferCallClosureArgument(const hir::Expression &closure, TypeId pa
   const TypeId closureType = inferClosure(closure, closureParameterTypes, locals);
   record(closure, closureType);
   unify(parameterType, closureType, substitution, closure.span);
-  closureTargets.emplace_back(index, closureFunctions_.at(&closure));
+  // INC-14 S4: a generic closure has no code function (deferred until the
+  // enclosing generic is instantiated); the model call types from the
+  // descriptor and the not-concrete instantiation is a model no-op.
+  if (!deferredClosures_.contains(&closure))
+    closureTargets.emplace_back(index, closureFunctions_.at(&closure));
   return closureType;
 }
 
@@ -1880,6 +1880,19 @@ auto Checker::inferClosure(const hir::Expression &closure, const std::vector<Typ
   codeParamTypes.reserve(captureTypes.size() + parameterTypes.size());
   for (const auto captureType : captureTypes) codeParamTypes.push_back(captureType);
   for (const auto paramType : parameterTypes) codeParamTypes.push_back(paramType);
+  // INC-14 S4: generic closure — a code function whose signature names type
+  // parameters cannot be lowered or called. Model-typed only; the concrete
+  // code function is synthesized when the enclosing generic is instantiated
+  // and the closure re-inferred with concrete types.
+  const bool genericClosure = interner_.descriptor(resultType).kind == TypeKind::TypeParameter ||
+                              std::any_of(codeParamTypes.begin(), codeParamTypes.end(), [&](TypeId type) {
+                                return interner_.descriptor(type).kind == TypeKind::TypeParameter;
+                              });
+  if (genericClosure)
+  {
+    deferredClosures_.insert(&closure);
+    return interner_.internClosure(parameterTypes, resultType);
+  }
   const FunctionTypeIds closureSignature{.parameters = codeParamTypes, .returnType = resultType};
   signatures_.emplace(closureId.value, closureSignature);
   functionTypeIds_.emplace(closureId.value, closureSignature);

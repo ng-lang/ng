@@ -5,13 +5,30 @@
 // explicit captures `[x, move y]` threaded as hidden leading params into
 // direct and higher-order calls, and (S4) closure-typed parameters forwarded
 // into another higher-order call — including their capture groups remapped to
-// the forwarding instance's own capture params.
+// the forwarding instance's own capture params — and (S4) generic closure
+// literals inside generic bodies: model-typed only, with real code functions
+// synthesized when the generic is instantiated.
 import prelude;
 import seq;
 
 fun apply(x: i64) -> i64 {
     let doubler = |v: i64| v * 2;
     return doubler(x);
+}
+
+fun genApply<T>(x: T, y: T) -> T {
+    let f: |T| -> T = |v: T| v;         // S4: generic closure literal
+    return f(x);
+}
+
+fun genMap<T>(xs: array<T>) -> array<T> {
+    let id: |T| -> T = |v: T| v;        // S4: generic closure into higher-order
+    return map(xs, id);
+}
+
+fun genCapture<T>(base: T, x: T) -> T {
+    let g = [base] |v: T| base;         // S4: generic closure capturing type-param local
+    return g(x);
 }
 
 fun twice(f: |i64| -> i64, x: i64) -> i64 {
@@ -76,5 +93,9 @@ fun main() -> i64 {
     let scale = 4;
     let fwdCap = forwardTwice(5, [scale] |x: i64| x + scale); // S4: forward captured closure
     print(fwdCap);
+    print(genApply(21, 0));                   // S4: generic closure literal (21)
+    let gxs = genMap([3, 9, 15]);             // S4: generic closure into map
+    print(gxs[0] + gxs[1] + gxs[2]);
+    print(genCapture(40, 2));                 // S4: generic closure capturing type-param local
     return 0;
 }

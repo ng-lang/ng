@@ -1111,6 +1111,8 @@ namespace
       cloned.arguments.push_back(std::move(lowered));
     }
     for (const auto &member : type.members) cloned.members.push_back(cloneType(member));
+    for (const auto &parameter : type.parameters) cloned.parameters.push_back(cloneType(parameter));
+    if (type.result != nullptr) cloned.result = std::make_unique<hir::Type>(cloneType(*type.result));
     return cloned;
   }
 

@@ -9,6 +9,12 @@
 // passed into another higher-order call records a closure target (with its
 // capture group, remapped to the forwarding instance's own capture params),
 // so nested higher-order chains specialize and thread captures correctly.
+// INC-14 slice S4 (generic): generic closure literals in generic function
+// bodies. A closure whose signature names type parameters is model-typed
+// only (no code function exists until the enclosing generic is instantiated
+// with concrete types); calls through model closures defer via the
+// placeholder path, concrete instances synthesize real lowered code, and
+// closure-typed bindings survive function cloning intact.
 #include "test.hpp"
 
 #include "driver.hpp"
@@ -233,4 +239,49 @@ TEST_CASE("vNext literal capture threads into a direct higher-order call (S4 reg
               "  let ys = map([1, 2], [factor] |x: i64| x * factor);"
               "  return ys[0] + ys[1]; }",
               "9");
+}
+
+TEST_CASE("vNext generic closure local calls through a type parameter (S4)", "[vNext][Closure][S4]")
+{
+  expectValue("import prelude;"
+              "fun genUse<T>(x: T, y: T) -> T { let f: |T| -> T = |v: T| v; return f(x); }"
+              "fun main() -> i64 { return genUse(21, 0); }",
+              "21");
+}
+
+TEST_CASE("vNext generic closure local forwards into a higher-order call (S4)", "[vNext][Closure][S4]")
+{
+  expectValue("import prelude; import seq;"
+              "fun genMap<T>(xs: array<T>) -> array<T> { let id: |T| -> T = |v: T| v; return map(xs, id); }"
+              "fun main() -> i64 { let ys = genMap([5, 6, 7]); return ys[0] + ys[1] + ys[2]; }",
+              "18");
+}
+
+TEST_CASE("vNext generic closure captures a type-parameter local (S4)", "[vNext][Closure][S4]")
+{
+  expectValue("import prelude;"
+              "fun genAdd<T>(base: T, x: T) -> T { let g = [base] |v: T| base; return g(x); }"
+              "fun main() -> i64 { return genAdd(40, 2); }",
+              "40");
+}
+
+TEST_CASE("vNext generic body with a concrete closure literal instantiates (S4)", "[vNext][Closure][S4]")
+{
+  expectValue("import prelude;"
+              "fun makeT<T>(x: T, k: i64) -> T { let f: |i64| -> i64 = |v: i64| v;"
+              "  let r: i64 = f(1); return x; }"
+              "fun main() -> i64 { return makeT(41, 1); }",
+              "41");
+}
+
+TEST_CASE("vNext op-using generic closure body is rejected at model time (S4)", "[vNext][Closure][S4+]")
+{
+  std::string output;
+  std::string errors;
+  const int status = run("import prelude;"
+                         "fun genBad<T>(x: T) -> T { let f = |v: T| v * v; return f(x); }"
+                         "fun main() -> i64 { return genBad(2); }",
+                         output, errors);
+  REQUIRE(status != 0);
+  REQUIRE(errors.find("binary operand type mismatch") != std::string::npos);
 }

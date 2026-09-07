@@ -238,6 +238,13 @@ void Checker::checkStatement(const hir::Statement &statement, LocalTypes &locals
           closureCapturesByLocal_.emplace(statement.local->value, std::move(captureInfos));
         }
       }
+      else if (statement.local.has_value())
+      {
+        // INC-14 S4: generic closure literal. Model-typed only; the concrete
+        // code function is synthesized when the enclosing generic function is
+        // instantiated. Calls through this local defer via the placeholder path.
+        deferredClosureLocals_.insert(statement.local->value);
+      }
     }
     if (interner_.descriptor(type).kind != TypeKind::TraitReference)
       trackConsumption(*statement.expression, locals);

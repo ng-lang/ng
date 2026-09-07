@@ -404,6 +404,13 @@ namespace NG::typecheck::detail
     /// Parameter local ids of the current function body; calls through these
     /// resolve as closure calls only when a binding exists (INC-14 S2c).
     std::unordered_set<uint32_t> parameterLocals_;
+    /// Closure literals whose synthesized code function would be generic
+    /// (param/result/capture type is a type parameter). Model-typed only; the
+    /// concrete code function appears at monomorphization (INC-14 S4).
+    std::unordered_set<const hir::Expression *> deferredClosures_;
+    /// Local ids bound via `let` to a deferred generic closure literal
+    /// (INC-14 S4); calls through them defer to the parameter-closure path.
+    std::unordered_set<uint32_t> deferredClosureLocals_;
     uint32_t closureCounter_{};
     std::unordered_set<uint32_t> deferredMethodFunctions_;
     hir::DefId currentFunctionId_{};
