@@ -33,8 +33,30 @@ arguments that NG cannot express without first-class functions.
   completion): committed (539 cases / 3592 assertions, ctest 539/539).
 - INC-14 **S4-generic** (generic closure literals): committed (544 cases /
   3606 assertions, ctest 544/544).
+- INC-14 **S5** (Fn/FnOnce auto-traits + escaping negative contract + seq
+  filter/fold): committed (552 cases / 3628 assertions, ctest 552/552).
 
 ## Recent completed changes
+
+- INC-14 S5: three-part slice. ① **seq.filter/fold library-ized**
+  (`lib/std/seq.ng`): `filter<T>(values, pred: |T| -> bool)` keeps accepted
+  elements, `fold<T, U>(values, initial: U, f: |U, T| -> U)` left-folds the
+  accumulator — reuse of S2c/S3/S4 closure machinery, no new compiler code;
+  forwarding wrappers and captured accumulators/offsets run end to end.
+  ② **Fn/FnOnce minimal auto-trait surface** (`prelude.ng` + `hasImpl`):
+  `export auto trait Fn {}` / `FnOnce {}` markers satisfied **only by closure
+  types** (vs Send-style universal auto traits); `where T: Fn(Once)` generic
+  bounds accept closures and reject non-closures (`does not satisfy its where
+  clause`). ③ **Non-escaping negative contract**: `checkFunction` rejects a
+  closure-typed declared return with `function X returns a closure, which
+  cannot escape its scope (non-escaping closures, INC-14)` — previously a
+  no-capture closure return compiled (bare code pointer) and a captured one
+  referenced dead locals; nested `|x| |y| x` literals also rejected. Tests +8
+  (52 closure cases); `example/closures.ng` + forwardFold/runBounded + 5
+  invocations; guards held. Recorded gaps: signature `<T: X>` trait bounds are
+  not call-site enforced (same for `Copy`/`Send`, only `where T: X` is
+  checked); closure params immutable in bodies; closures in aggregates/views
+  still rejected via legacy `unsupported type form`.
 
 - INC-14 S4-generic: fully generic closure literals in generic function bodies
   (`let f: |T| -> T = |v: T| v; f(x)`, forwarded into higher-order calls,
@@ -130,7 +152,9 @@ arguments that NG cannot express without first-class functions.
   (differential PBT seeding — map vs map-spread). Note: the plan's original S4
   "move captures + env drop" was subsumed by S3's static threading; the next
   slice is fully generic closure literals.
-- Thereafter INC-12 (combinators + law PBT), then INC-13 `?` desugar per plan order.
+- INC-14 **S6** (differential PBT seeding — `map(xs, |x| f(x))` vs map/fold
+  spreads on generated arrays). Then INC-12 (combinators + law PBT), then
+  INC-13 `?` desugar per plan order.
 
 ## References
 
@@ -138,6 +162,6 @@ arguments that NG cannot express without first-class functions.
 - `.agents/worklog/2026-08-30.md` — INC-11 entry
 - `.agents/worklog/2026-08-31.md` — INC-14 S1 entry + S2a+S2b entry + S2c entry
 - `.agents/worklog/2026-09-01.md` — INC-14 S3 entry
-- `.agents/worklog/2026-09-07.md` — INC-14 S4-fwd (closure-param forwarding) entry
+- `.agents/worklog/2026-09-07.md` — INC-14 S4-fwd (closure-param forwarding), S4-generic, S5 entries
 - `docs/design/rearchitecture/09-increment-plan.md` — execution table + INC-14 slices
 - `AGENTS.md` — pipeline/build/test/commit conventions
