@@ -20,6 +20,11 @@ void Checker::checkFunction(const hir::Function &function, const const_eval::Con
   releasedLoans_.clear();
   lastUseCache_.clear();
   const auto &signature = signatures_.at(function.id.value);
+  if (interner_.descriptor(signature.returnType).kind == TypeKind::Closure)
+    throw TypeError(
+        std::format("function `{}` returns a closure, which cannot escape its scope (non-escaping closures, INC-14)",
+                    function.name),
+        function.span);
   if (!signature.packParameters.empty())
     placeholderFunctions_.insert(function.id.value);
   genericBindings_.clear();

@@ -492,6 +492,8 @@ auto Checker::hasImpl(const std::string &traitName, TypeId target) const -> bool
   if (declared != traits_.end() && declared->second.autoTrait)
   {
     const auto kind = interner_.descriptor(target).kind;
+    if (traitName == "Fn" || traitName == "FnOnce" || traitName == "FnMut")
+      return kind == TypeKind::Closure;
     return kind != TypeKind::TypeParameter && kind != TypeKind::TypeConstructor &&
             kind != TypeKind::TypeApplication;
   }

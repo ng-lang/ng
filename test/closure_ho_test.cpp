@@ -285,3 +285,70 @@ TEST_CASE("vNext op-using generic closure body is rejected at model time (S4)", 
   REQUIRE(status != 0);
   REQUIRE(errors.find("binary operand type mismatch") != std::string::npos);
 }
+
+TEST_CASE("vNext std.seq filter keeps elements the predicate accepts (S5)", "[vNext][Closure][S5]")
+{
+  expectValue("import prelude; import seq;"
+              "fun main() -> i64 { let evens = filter([1, 2, 3, 4, 5, 6], |x| x % 2 == 0);"
+              "  return evens[0] + evens[1] + evens[2]; }",
+              "12");
+}
+
+TEST_CASE("vNext std.seq fold threads an accumulator through a two-parameter closure (S5)", "[vNext][Closure][S5]")
+{
+  expectValue("import prelude; import seq;"
+              "fun main() -> i64 { return fold([1, 2, 3, 4, 5], 0, |acc, x| acc + x); }",
+              "15");
+}
+
+TEST_CASE("vNext std.seq fold threads a captured accumulator offset (S5)", "[vNext][Closure][S5]")
+{
+  expectValue("import prelude; import seq;"
+              "fun main() -> i64 { let offs: i64 = 10;"
+              "  return fold([1, 2, 3], 0, [offs] |acc, x| acc + x + offs); }",
+              "36");
+}
+
+TEST_CASE("vNext std.seq filter threads a captured lower bound (S5)", "[vNext][Closure][S5]")
+{
+  expectValue("import prelude; import seq;"
+              "fun main() -> i64 { let lo: i64 = 2;"
+              "  let kept = filter([1, 2, 3, 4], [lo] |x| x >= lo);"
+              "  return kept[0] + kept[1] + kept[2]; }",
+              "9");
+}
+
+TEST_CASE("vNext generic wrapper forwards its closure into std.seq fold (S5)", "[vNext][Closure][S5]")
+{
+  expectValue("import prelude; import seq;"
+              "fun myFold<T, U>(values: array<T>, initial: U, f: |U, T| -> U) -> U {"
+              "  return fold(values, initial, f); }"
+              "fun main() -> i64 { return myFold([1, 2, 3], 0, |acc, x| acc + x); }",
+              "6");
+}
+
+TEST_CASE("vNext function returning a closure is rejected as escaping (S5 negative)", "[vNext][Closure][S5]")
+{
+  expectError("fun makeAdd(double: bool) -> |i64| -> i64 {"
+              "  if (double) { return |x| x * 2; }"
+              "  return |x| x; }",
+              "which cannot escape its scope");
+}
+
+TEST_CASE("vNext closure type satisfies the Fn/FnOnce auto-trait bounds (S5)", "[vNext][Closure][S5]")
+{
+  expectValue("import prelude;"
+              "fun runFn<T>(f: T) -> i64 where T: Fn { return 1; }"
+              "fun runOnce<T>(f: T) -> i64 where T: FnOnce { return 2; }"
+              "fun main() -> i64 { let double: |i64| -> i64 = |x: i64| x * 2;"
+              "  return runFn(double) + runOnce(double); }",
+              "3");
+}
+
+TEST_CASE("vNext non-closure type fails the Fn auto-trait bound (S5 negative)", "[vNext][Closure][S5]")
+{
+  expectError("import prelude;"
+              "fun runFn<T>(f: T) -> i64 where T: Fn { return 1; }"
+              "fun main() -> i64 { return runFn(3); }",
+              "does not satisfy its where clause");
+}

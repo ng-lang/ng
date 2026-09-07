@@ -67,3 +67,11 @@ export trait Eq {
 export trait Show {
     fun show(self: Self ref) -> string;
 }
+
+// INC-14 S5: closure family marker auto traits. Unlike the universal auto
+// traits (Send-style, satisfied by every concrete type), Fn/FnOnce are
+// satisfied implicitly by closure types only; the callable signature lives on
+// the closure type itself, so these bounds assert "this type is a callable
+// closure value".
+export auto trait Fn {}
+export auto trait FnOnce {}

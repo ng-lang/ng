@@ -1,4 +1,4 @@
-// INC-14 slices S1-S4: closures with explicit parameter types, direct calls,
+// INC-14 slices S1-S5: closures with explicit parameter types, direct calls,
 // expected-type-driven untyped parameter inference, `||` zero-parameter
 // heads, higher-order functions: closure-typed parameters specialize per
 // concrete closure argument so f(x) calls bind to the literal's code function,
@@ -7,7 +7,9 @@
 // into another higher-order call — including their capture groups remapped to
 // the forwarding instance's own capture params — and (S4) generic closure
 // literals inside generic bodies: model-typed only, with real code functions
-// synthesized when the generic is instantiated.
+// synthesized when the generic is instantiated. (S5) std.seq gains higher-order
+// filter/fold combinators, closures satisfy the Fn/FnOnce auto-trait bounds,
+// and functions returning closures are rejected as escaping.
 import prelude;
 import seq;
 
@@ -49,6 +51,14 @@ fun forwardMap<T>(values: array<T>, f: |T| -> T) -> array<T> {
 
 fun forwardTwice(x: i64, f: |i64| -> i64) -> i64 {
     return twice(f, x);                                // S4: forward f into twice
+}
+
+fun forwardFold<T, U>(values: array<T>, initial: U, f: |U, T| -> U) -> U {
+    return fold(values, initial, f);                   // S5: forward f into seq.fold
+}
+
+fun runBounded<T>(f: T) -> i64 where T: Fn {           // S5: closure satisfies the Fn auto-trait bound
+    return 5;
 }
 
 fun main() -> i64 {
@@ -97,5 +107,12 @@ fun main() -> i64 {
     let gxs = genMap([3, 9, 15]);             // S4: generic closure into map
     print(gxs[0] + gxs[1] + gxs[2]);
     print(genCapture(40, 2));                 // S4: generic closure capturing type-param local
+    let evens = filter([1, 2, 3, 4, 5, 6], |x| x % 2 == 0); // S5: seq.filter
+    print(evens[0] + evens[1] + evens[2]);
+    print(fold([1, 2, 3, 4, 5], 0, |acc, x| acc + x)); // S5: seq.fold
+    let offs = 10;
+    print(fold([1, 2, 3], 0, [offs] |acc, x| acc + x + offs)); // S5: fold with capture
+    print(forwardFold([1, 2, 3], 0, |acc, x| acc + x)); // S5: forward into fold
+    print(runBounded(double));                 // S5: Fn auto-trait bound accepts a closure
     return 0;
 }
