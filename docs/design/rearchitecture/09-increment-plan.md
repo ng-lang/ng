@@ -325,6 +325,27 @@ INC-14（最小闭包）**前移**至 INC-12/13 之前执行，INC-12/13 顺延�
   （+6 例：转发字面量/带捕获/多级链/多参+捕获/直接字面量捕获回归）。guard
   ceilings 稳定（flowir 2203、ast.hpp 966）。剩余：完全泛型闭包字面量
   （新 S4）、Fn/FnOnce + seq filter/fold（S5）、差分 PBT（S6）。
+- **S4-generic 落地（2026-09-07）**: 完全泛型闭包字面量。泛型函数体内的
+  `let f: |T| -> T = |v: T| v`、`map(xs, id)` 转发、`[base] |v: T| base`
+  类型参数捕获均可端到端运行。设计按用户指示**拒绝 stub/skip lowering**：
+  泛型闭包在模型期只做类型建模——**不合成代码函数**；外层泛型实例化时才以
+  具体类型重推闭包、合成真正可降级的 `__closureN`。修复三处：① 删除两处
+  `closure parameters require concrete types` 闸门（`inferExpected` 声明注解
+  路径 + `infer` Closure 分支）；② **`cloneType` 丢弃闭包类型**（根因
+  —— 泛型函数内 closure-typed `let` 从未被实例化）：克隆只拷贝
+  kind/span/name，丢失 `parameters`/`result` → 实例绑定类型为无 result 的
+  Closure → `resolveWithBindings` 落空进入 `resolve()` 报 `unsupported type
+  form`。现克隆闭包参数与结果；③ 注册期将所有**泛型模板**标记为
+  placeholder（模型检查、不降级，与 S2c 高一阶模板一致），消除 SSA 中
+  TypeParameter 模型闭包死代码（此前 `identityMap_0` 泄漏 `__closure0_49`），
+  并使延迟闭包调用路径覆盖泛型闭包局部（`deferredClosures_` /
+  `deferredClosureLocals_`）。语义与泛型函数一致：无运算正文通过、类型参数
+  上运算（`|v: T| v * v`）在模型期报错。验证：`genUse<T>` → 21、
+  `genMap<T>`（泛型闭包入 map）→ 18、`genAdd<T>`（T 捕获）→ 40、泛型体内
+  具体闭包 → 41（`cloneType` 回归）；SSA 干净（模板为空 stub、仅具体实例链
+  有代码）。测试 `test/closure_ho_test.cpp`（+5 例：泛型局部调用/转发/捕获/
+  具体闭包于泛型体内/运算拒绝）。guard 稳定。剩余：Fn/FnOnce + seq
+  filter/fold（S5）、差分 PBT（S6）。
 
 ### INC-12 · prelude Option/Result + 组合子（顺延至闭包落地后）
 - **动作**: prelude 定义两泛型枚举 + map/andThen/orElse（以最小闭包作变换实参）；
