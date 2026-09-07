@@ -31,8 +31,28 @@ arguments that NG cannot express without first-class functions.
   `a07198a`/`6921620`/`01390c7` (526 cases, ctest 526/526).
 - INC-14 **S4-fwd** (closure-param forwarding + capture-value threading
   completion): committed (539 cases / 3592 assertions, ctest 539/539).
+- INC-14 **S4-generic** (generic closure literals): committed (544 cases /
+  3606 assertions, ctest 544/544).
 
 ## Recent completed changes
+
+- INC-14 S4-generic: fully generic closure literals in generic function bodies
+  (`let f: |T| -> T = |v: T| v; f(x)`, forwarded into higher-order calls,
+  capturing type-parameter locals) now land end-to-end. Per user direction,
+  **no stubbed/skipped lowering**: a generic closure is model-typed only — no
+  code function exists until the enclosing generic is instantiated, then the
+  closure re-infers with concrete types and a real lowered `__closureN` is
+  synthesized. Two fixes: (a) removed the two `closure parameters require
+  concrete types` gates (`inferExpected` + `infer`); (b) `cloneType` now clones
+  closure `parameters`/`result` (was the latent "generics incomplete" bug —
+  closure-typed `let`s never instantiated in generic bodies). Registration now
+  marks **all generic templates** as placeholders (model-checked, not lowered),
+  which eliminated dead TypeParameter model closures from the SSA and made the
+  deferred closure-call path cover generic closure locals
+  (`deferredClosures_`/`deferredClosureLocals_`). Generic closure bodies follow
+  the generic-function model: op-free passes, ops on type params error at model
+  time. Tests +5 (44 closure cases); `example/closures.ng` +3 invocations;
+  guards held.
 
 - INC-14 S4-fwd: closure-typed **parameters** can now be forwarded into another
   higher-order call (`mapClosure<T>(values, f) { map(values, f) }`). The
