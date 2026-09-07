@@ -304,6 +304,27 @@ INC-14（最小闭包）**前移**至 INC-12/13 之前执行，INC-12/13 顺延�
   （此前 `callCaptures_` 累积 → `apply(f,5,7)` 错误结果 300）。测试
   `test/closure_ho_test.cpp`（+7 例：copy 标量/数组、move 数组、多捕获、
   多调用点独立、未捕获负契约）+ `example/closures.ng`（+6 组捕获）。
+- **S4-fwd 落地（2026-09-07）**: 闭包参数转发（工具任务 S3 之后的优先切
+  片）。闭包 typed 参数可转交进另一个高一阶调用（`mapClosure<T>(values, f)
+  { map(values, f) }`）。根因：内层 `map(values, f)` 的 `f` 是闭包 typed 局
+  部，但 `mapClosure_i` 实例正文经 `inferExpected` 泛型分支推断，该分支只
+  为闭包**字面量**（延迟）而不为闭包 typed **局部**记录 target →
+  `map` 实例以 `closureTargets={}` 建立，其 `f(x)` 报 `closure value f was
+  not created directly by a closure literal`。修复：① `inferExpected` 泛型实
+  参循环镜像 `infer` Call-case——`closureLocals_` 已绑定的闭包 typed 局部记
+  录 closureTarget；② 补齐捕获**值**穿线缺口（S3 遗留运行时缺口）：`infer`
+  延迟字面量循环与 `inferExpected` 字面量分支此前只记 `closureTargets` 而
+  不填 `callCaptures_`，导致带捕获的实例签名有捕获参数但调用点只发
+  `(values, f)`——实参错位、`%p0` 错乱/进程被杀（`map([1,2],[factor])` 直
+  接复现）；现按字面量 `closureCaptures` 填写（`callTargets` 幂等保护）；
+  ③ 转发 remap：转发当前实例的闭包 typed **参数**时，捕获局部取该实例自
+  身捕获参数（`instanceCaptureParamsByLocal_`）而非原闭包的外层局部捕获。
+  验证：`mapClosure([1,2,3],|x| x*2)` → 12；`[factor=5]` → 30；
+  4 级 `apply4→apply2` + `[offs=3]` → 7；多参 `biMapF(3,4,[offs=10])` → 22；
+  直接 `map` 带捕获 → 9（S3 崩溃回归）。测试 `test/closure_ho_test.cpp`
+  （+6 例：转发字面量/带捕获/多级链/多参+捕获/直接字面量捕获回归）。guard
+  ceilings 稳定（flowir 2203、ast.hpp 966）。剩余：完全泛型闭包字面量
+  （新 S4）、Fn/FnOnce + seq filter/fold（S5）、差分 PBT（S6）。
 
 ### INC-12 · prelude Option/Result + 组合子（顺延至闭包落地后）
 - **动作**: prelude 定义两泛型枚举 + map/andThen/orElse（以最小闭包作变换实参）；
