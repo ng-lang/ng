@@ -35,8 +35,22 @@ arguments that NG cannot express without first-class functions.
   3606 assertions, ctest 544/544).
 - INC-14 **S5** (Fn/FnOnce auto-traits + escaping negative contract + seq
   filter/fold): committed (552 cases / 3628 assertions, ctest 552/552).
+- INC-14 **S6** (differential PBT — closure combinators ≡ builtin spreads):
+  committed (553 cases / 3628 assertions).
 
 ## Recent completed changes
+
+- INC-14 S6 (final slice; INC-14 fully landed): differential PBT closing the
+  closure contract. `map(xs, |v| f(v))` element-for-element equals the builtin
+  map comprehension `[f(xs)...]`, and closure `fold(xs, seed, |a,v| g(a,v))`
+  equals the builtin `g(seed, xs...)` spread — over generated arrays × a
+  stable of pure functions (300 trials × 2 probes = 600 probes per batch,
+  INC-1 harness, replay via PBT_SEED; green across 4 seeds). Two pre-existing
+  NG inference gaps surfaced while building probes (documented, worked around):
+  overload candidate scoring swallows inner `infer()` errors (comprehension in
+  argument position → cryptic `no matching function specialization`; bind the
+  comprehension to a local first), and unannotated `[]` cannot infer its
+  element type (annotate `: array<i64>`).
 
 - INC-14 S5: three-part slice. ① **seq.filter/fold library-ized**
   (`lib/std/seq.ng`): `filter<T>(values, pred: |T| -> bool)` keeps accepted
@@ -153,8 +167,8 @@ arguments that NG cannot express without first-class functions.
   "move captures + env drop" was subsumed by S3's static threading; the next
   slice is fully generic closure literals.
 - INC-14 **S6** (differential PBT seeding — `map(xs, |x| f(x))` vs map/fold
-  spreads on generated arrays). Then INC-12 (combinators + law PBT), then
-  INC-13 `?` desugar per plan order.
+  spreads on generated arrays) — **done**. All INC-14 slices (S1–S6) landed.
+- INC-12 (combinators + law PBT), then INC-13 `?` desugar per plan order.
 
 ## References
 
