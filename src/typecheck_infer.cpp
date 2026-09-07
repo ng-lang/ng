@@ -697,7 +697,51 @@ auto Checker::inferExpected(const hir::Expression &expression, TypeId expected, 
           {
             static_cast<void>(inferCallClosureArgument(argument, parameterType, index, locals, substitution,
                                                        closureTargets));
+            // INC-14 S3/S4: capture values of a literal passed to a
+            // higher-order call thread into the specialized instance as
+            // leading args (recorded once, before the call target commits).
+            if (callTargets_.find(&expression) == callTargets_.end() && !argument.closureCaptures.empty())
+            {
+              std::vector<uint32_t> captureIds;
+              for (const auto &cap : argument.closureCaptures)
+                captureIds.push_back(cap.local.value);
+              auto &callCaptureList = callCaptures_[&expression];
+              callCaptureList.insert(callCaptureList.end(), captureIds.begin(), captureIds.end());
+            }
             continue;
+          }
+          // INC-14 S3 follow-up / S4: a closure-typed local or bound closure
+          // parameter forwarded into a higher-order call records a closure
+          // target so the callee specializes with the forwarding closure bound.
+          if (index < fixedParameters &&
+              interner_.descriptor(parameterType).kind == TypeKind::Closure &&
+              argument.resolvedName.has_value() &&
+              argument.resolvedName->kind == hir::ResolvedNameKind::Local)
+          {
+            const auto bound = closureLocals_.find(argument.resolvedName->id);
+            if (bound != closureLocals_.end() &&
+                interner_.descriptor(infer(argument, locals)).kind == TypeKind::Closure)
+            {
+              closureTargets.emplace_back(index, bound->second);
+              if (callTargets_.find(&expression) == callTargets_.end())
+              {
+                const auto instanceParams = instanceCaptureParamsByLocal_.find(argument.resolvedName->id);
+                auto &callCaptureList = callCaptures_[&expression];
+                if (instanceParams != instanceCaptureParamsByLocal_.end())
+                  callCaptureList.insert(callCaptureList.end(), instanceParams->second.begin(),
+                                         instanceParams->second.end());
+                else
+                {
+                  const auto foundCaptures = closureCapturesByLocal_.find(argument.resolvedName->id);
+                  if (foundCaptures != closureCapturesByLocal_.end())
+                  {
+                    for (const auto &cap : foundCaptures->second)
+                      callCaptureList.push_back(cap.localId);
+                  }
+                }
+              }
+              continue;
+            }
           }
           if (variadic && index >= fixedParameters)
           {
@@ -1520,18 +1564,27 @@ auto Checker::infer(const hir::Expression &expression, const LocalTypes &locals)
           if (bound != closureLocals_.end())
           {
             closureTargets.emplace_back(index, bound->second);
-            // INC-14 S3: a capturing closure passed into a higher-order
+            // INC-14 S3/S4: a capturing closure passed into a higher-order
             // function threads its capture values into the specialized
-            // instance as leading args.
-            const auto foundCaptures = closureCapturesByLocal_.find(argument.resolvedName->id);
-            if (foundCaptures != closureCapturesByLocal_.end() &&
-                callTargets_.find(&expression) == callTargets_.end())
+            // instance as leading args. When forwarding a closure-typed param
+            // of the current instance, thread that instance's own capture
+            // params (frame-local) rather than the original closure's captures.
+            if (callTargets_.find(&expression) == callTargets_.end())
             {
-              std::vector<uint32_t> captureIds;
-              for (const auto &cap : foundCaptures->second)
-                captureIds.push_back(cap.localId);
+              const auto instanceParams = instanceCaptureParamsByLocal_.find(argument.resolvedName->id);
               auto &callCaptureList = callCaptures_[&expression];
-              callCaptureList.insert(callCaptureList.end(), captureIds.begin(), captureIds.end());
+              if (instanceParams != instanceCaptureParamsByLocal_.end())
+                callCaptureList.insert(callCaptureList.end(), instanceParams->second.begin(),
+                                       instanceParams->second.end());
+              else
+              {
+                const auto foundCaptures = closureCapturesByLocal_.find(argument.resolvedName->id);
+                if (foundCaptures != closureCapturesByLocal_.end())
+                {
+                  for (const auto &cap : foundCaptures->second)
+                    callCaptureList.push_back(cap.localId);
+                }
+              }
             }
           }
         }
@@ -1597,6 +1650,17 @@ auto Checker::infer(const hir::Expression &expression, const LocalTypes &locals)
                                        : interner_.descriptor(signature.parameters.back()).element;
       static_cast<void>(
           inferCallClosureArgument(*argument, parameterType, index, locals, substitution, closureTargets));
+      // INC-14 S3: a capturing closure literal passed into a higher-order call
+      // threads its capture values into the specialized instance as leading
+      // args (recorded once, before the call target is committed).
+      if (callTargets_.find(&expression) == callTargets_.end() && !argument->closureCaptures.empty())
+      {
+        std::vector<uint32_t> captureIds;
+        for (const auto &cap : argument->closureCaptures)
+          captureIds.push_back(cap.local.value);
+        auto &callCaptureList = callCaptures_[&expression];
+        callCaptureList.insert(callCaptureList.end(), captureIds.begin(), captureIds.end());
+      }
     }
     type = specializeReturnType(signature, substitution, packCount);
     if (!signature.genericParameters.empty() && interner_.descriptor(type).kind == TypeKind::TypeParameter)

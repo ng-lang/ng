@@ -1,9 +1,11 @@
-// INC-14 slices S1-S3: closures with explicit parameter types, direct calls,
+// INC-14 slices S1-S4: closures with explicit parameter types, direct calls,
 // expected-type-driven untyped parameter inference, `||` zero-parameter
 // heads, higher-order functions: closure-typed parameters specialize per
 // concrete closure argument so f(x) calls bind to the literal's code function,
-// and explicit captures `[x, move y]` threaded as hidden leading params into
-// direct and higher-order calls. Fully generic closures arrive in S4.
+// explicit captures `[x, move y]` threaded as hidden leading params into
+// direct and higher-order calls, and (S4) closure-typed parameters forwarded
+// into another higher-order call — including their capture groups remapped to
+// the forwarding instance's own capture params.
 import prelude;
 import seq;
 
@@ -22,6 +24,14 @@ fun invokes(f: |i64| -> i64, x: i64) -> i64 {
 
 fun apply(f: |i64, i64| -> i64, a: i64, b: i64) -> i64 {
     return f(a, b);
+}
+
+fun forwardMap<T>(values: array<T>, f: |T| -> T) -> array<T> {
+    return map(values, f);                             // S4: forward f into seq.map
+}
+
+fun forwardTwice(x: i64, f: |i64| -> i64) -> i64 {
+    return twice(f, x);                                // S4: forward f into twice
 }
 
 fun main() -> i64 {
@@ -61,5 +71,10 @@ fun main() -> i64 {
     let twoCap = [lo, hi] |x: i64, y: i64| lo + hi * x; // S3: multiple captures
     print(apply(twoCap, 2, 0));                     // S3: capture threaded into higher-order
     print(invokes(bonus, 41));                     // S3: capture threaded via a closure local
+    let fwd = forwardMap([1, 2, 3], |x: i64| x * 3); // S4: forward literal into map
+    print(fwd[0] + fwd[1] + fwd[2]);
+    let scale = 4;
+    let fwdCap = forwardTwice(5, [scale] |x: i64| x + scale); // S4: forward captured closure
+    print(fwdCap);
     return 0;
 }

@@ -5,6 +5,10 @@
 // specialized instances in which calls through the parameter bind to the
 // literal's synthesized code function. The original template body is only
 // type-modeled (deferred closure calls) and lowered as a placeholder.
+// INC-14 slice S4: closure-param forwarding — a closure-typed parameter
+// passed into another higher-order call records a closure target (with its
+// capture group, remapped to the forwarding instance's own capture params),
+// so nested higher-order chains specialize and thread captures correctly.
 #include "test.hpp"
 
 #include "driver.hpp"
@@ -183,4 +187,50 @@ TEST_CASE("vNext copy capture leaves the original usable (S3)", "[vNext][Closure
   expectValue("fun main() -> i64 { let a = [1, 2, 3]; let h = [a] |x: i64| x + a[0];"
               "  return h(1) + a[0]; }",
               "3");
+}
+
+TEST_CASE("vNext higher-order closure parameter forwards into another higher-order call (S4)", "[vNext][Closure][S4]")
+{
+  expectValue("fun mapClosure<T>(values: array<T>, f: |T| -> T) -> array<T> { return map(values, f); }"
+              "import prelude; import seq;"
+              "fun main() -> i64 { let ys = mapClosure([1, 2, 3], |x: i64| x * 2);"
+              "  return ys[0] + ys[1] + ys[2]; }",
+              "12");
+}
+
+TEST_CASE("vNext forwarded closure parameter threads its capture group (S4)", "[vNext][Closure][S4]")
+{
+  expectValue("fun mapClosure<T>(values: array<T>, f: |T| -> T) -> array<T> { return map(values, f); }"
+              "import prelude; import seq;"
+              "fun main() -> i64 { let factor: i64 = 5;"
+              "  let ys = mapClosure([1, 2, 3], [factor] |x: i64| x * factor);"
+              "  return ys[0] + ys[1] + ys[2]; }",
+              "30");
+}
+
+TEST_CASE("vNext closure parameter forwards through a multi-level chain (S4)", "[vNext][Closure][S4]")
+{
+  expectValue("fun apply2<T>(x: T, f: |T| -> T) -> T { return f(x); }"
+              "fun apply3<T>(x: T, f: |T| -> T) -> T { return apply2(x, f); }"
+              "fun apply4<T>(x: T, f: |T| -> T) -> T { return apply3(x, f); }"
+              "fun main() -> i64 { let offs: i64 = 3; return apply4(4, [offs] |x: i64| x + offs); }",
+              "7");
+}
+
+TEST_CASE("vNext forwarded multi-parameter closure with capture (S4)", "[vNext][Closure][S4]")
+{
+  expectValue("fun biMap<T>(x: T, y: T, f: |T, T| -> T) -> T { return f(x, y); }"
+              "fun biMapF<T>(x: T, y: T, f: |T, T| -> T) -> T { return biMap(x, y, f); }"
+              "fun main() -> i64 { let offs: i64 = 10;"
+              "  return biMapF(3, 4, [offs] |a: i64, b: i64| a * b + offs); }",
+              "22");
+}
+
+TEST_CASE("vNext literal capture threads into a direct higher-order call (S4 regression)", "[vNext][Closure][S4]")
+{
+  expectValue("import prelude; import seq;"
+              "fun main() -> i64 { let factor: i64 = 3;"
+              "  let ys = map([1, 2], [factor] |x: i64| x * factor);"
+              "  return ys[0] + ys[1]; }",
+              "9");
 }
