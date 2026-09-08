@@ -37,8 +37,34 @@ arguments that NG cannot express without first-class functions.
   filter/fold): committed (552 cases / 3628 assertions, ctest 552/552).
 - INC-14 **S6** (differential PBT — closure combinators ≡ builtin spreads):
   committed (553 cases / 3628 assertions).
+- INC-12 (prelude Option<T>/Result<T,E> + opt/result combinators + parseInt
+  Result migration + law PBT + contract example): committed (554 cases /
+  3634 assertions, ctest 555/555).
 
 ## Recent completed changes
+
+- INC-12: prelude generic `Option<T>`/`Result<T,E>` enums plus combinator
+  family `optMap/optAndThen/optOrElse` and `resultMap/resultAndThen/
+  resultOrElse` (closure-typed transform arguments; pure library on the
+  INC-14 closure machinery, no new compiler code). `parseInt` migrated to
+  `Result<i64, string>` (Err payload = the offending text); legacy
+  `OptionalInt` removed and all call sites updated (`example/int_string.ng`,
+  `test/string_conversion_test.cpp`, trap note). Laws tested by PBT
+  (`test/option_result_test.cpp`, INC-1 harness, 60 trials × 8 probes):
+  Option identity, Option/Result composition on both Some/None and Ok/Err,
+  Option orElse default + keep-on-Some; contract example
+  `example/option_result.ng` prints 8 true assertions. **Names deviated from
+  the plan (map/andThen/orElse)** because seq.map already owns `map` and
+  cross-module same-name generic overloads silently select one candidate
+  (`map(xs, ...)` with a local Option-map present dies with `expected Opt,
+  got array<i64>`); documented in the plan. Newly surfaced pre-existing gaps
+  recorded: (a) a non-generic function with a concrete generic-enum param
+  (`fun f(o: Opt<i64>)`) is uncallable (`no matching function
+  specialization`); (b) nullary/assorted enum constructors in argument/switch
+  positions lack expected-type inference (bind through an annotated `let`
+  first); (c) no `derive(Eq)` for generic enums, so law equality reduces to
+  nested-switch → i64 compare; (d) block-closure bodies use a tail expression,
+  not `return`.
 
 - INC-14 S6 (final slice; INC-14 fully landed): differential PBT closing the
   closure contract. `map(xs, |v| f(v))` element-for-element equals the builtin
@@ -168,7 +194,12 @@ arguments that NG cannot express without first-class functions.
   slice is fully generic closure literals.
 - INC-14 **S6** (differential PBT seeding — `map(xs, |x| f(x))` vs map/fold
   spreads on generated arrays) — **done**. All INC-14 slices (S1–S6) landed.
-- INC-12 (combinators + law PBT), then INC-13 `?` desugar per plan order.
+- INC-12 (combinators + law PBT) — **done**. Next: INC-13 `?` desugar per
+  plan order.
+- INC-13 **`?` desugar (up next)**: HIR-side rewrite of `expr?` into a switch
+  + early return wired into the three drop-edge tables; differential property
+  (`?` form ≡ hand-written switch expansion) and the negative contract
+  (`?` inside a non-Result return).
 
 ## References
 
@@ -176,6 +207,7 @@ arguments that NG cannot express without first-class functions.
 - `.agents/worklog/2026-08-30.md` — INC-11 entry
 - `.agents/worklog/2026-08-31.md` — INC-14 S1 entry + S2a+S2b entry + S2c entry
 - `.agents/worklog/2026-09-01.md` — INC-14 S3 entry
-- `.agents/worklog/2026-09-07.md` — INC-14 S4-fwd (closure-param forwarding), S4-generic, S5 entries
+- `.agents/worklog/2026-09-07.md` — INC-14 S4-fwd (closure-param forwarding), S4-generic, S5, S6 entries
+- `.agents/worklog/2026-09-08.md` — INC-12 entry
 - `docs/design/rearchitecture/09-increment-plan.md` — execution table + INC-14 slices
 - `AGENTS.md` — pipeline/build/test/commit conventions
