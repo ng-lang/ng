@@ -40,8 +40,28 @@ arguments that NG cannot express without first-class functions.
 - INC-12 (prelude Option<T>/Result<T,E> + opt/result combinators + parseInt
   Result migration + law PBT + contract example): committed (554 cases /
   3634 assertions, ctest 555/555).
+- INC-13 (`?` try-operator desugar): committed (560 cases / 3662 assertions,
+  ctest 561/561).
 
 ## Recent completed changes
+
+- INC-13: HIR-side desugar of the `?` try operator (D-007) into switch +
+  early-return. New `TryExpression` syntax node (ast.hpp 966 → 977 guard
+  note); parser disambiguates `?` by lookahead — `f(xs)?...` stays the
+  map-spread filter marker, any other `?` becomes the try operator.
+  `Resolver::desugarTry` restructures `let x = expr?;` (and bare `expr?;`)
+  into `let $tryN = expr; switch ($tryN) { case Ok($okN) { let x = $okN;
+  <rest> [tail] } case Err($errN) { return Result.Err($errN); } }`, producing
+  only pre-existing let/switch/return nodes so the checker's three drop-edge
+  tables and FlowIR lowering apply unchanged (zero backend changes).
+  Function-body tails move into the Ok arm as explicit returns; if/loop-branch
+  semantics unchanged. Differential PBT (`test/try_operator_test.cpp`, INC-1
+  harness): 2/3-step chains + drop-edge variant, `?` ≡ hand-written expansion,
+  60 trials × 3 probes, green across 4 seeds. Negative contracts (E-resolve
+  messages): non-Result return (i64/unit), `return <expr>?`, mid-expression,
+  closure body, destructuring let. Contract example `example/try_operator.ng`
+  (parse → validate → compute chain, 4 true assertions). Full suite 560/560
+  (3662 assertions), ctest 561/561.
 
 - INC-12: prelude generic `Option<T>`/`Result<T,E>` enums plus combinator
   family `optMap/optAndThen/optOrElse` and `resultMap/resultAndThen/
@@ -194,12 +214,13 @@ arguments that NG cannot express without first-class functions.
   slice is fully generic closure literals.
 - INC-14 **S6** (differential PBT seeding — `map(xs, |x| f(x))` vs map/fold
   spreads on generated arrays) — **done**. All INC-14 slices (S1–S6) landed.
-- INC-12 (combinators + law PBT) — **done**. Next: INC-13 `?` desugar per
-  plan order.
-- INC-13 **`?` desugar (up next)**: HIR-side rewrite of `expr?` into a switch
-  + early return wired into the three drop-edge tables; differential property
-  (`?` form ≡ hand-written switch expansion) and the negative contract
-  (`?` inside a non-Result return).
+- INC-12 (combinators + law PBT) — **done**.
+- INC-13 (`?` try-operator desugar) — **done** (see Recent completed changes
+  and worklog 2026-09-08). INC-13 boundary documented: `?` limited to let/
+  statement roots; mid-expression, `return <expr>?`, closure bodies, and
+  destructuring lets are explicitly rejected for later slices.
+- INC-15 (A1 origin contracts, `T ref(a)` → param ordinals, return-path
+  checks) — **next** per the increment plan.
 
 ## References
 
@@ -208,6 +229,6 @@ arguments that NG cannot express without first-class functions.
 - `.agents/worklog/2026-08-31.md` — INC-14 S1 entry + S2a+S2b entry + S2c entry
 - `.agents/worklog/2026-09-01.md` — INC-14 S3 entry
 - `.agents/worklog/2026-09-07.md` — INC-14 S4-fwd (closure-param forwarding), S4-generic, S5, S6 entries
-- `.agents/worklog/2026-09-08.md` — INC-12 entry
+- `.agents/worklog/2026-09-08.md` — INC-12 + INC-13 entries
 - `docs/design/rearchitecture/09-increment-plan.md` — execution table + INC-14 slices
 - `AGENTS.md` — pipeline/build/test/commit conventions
