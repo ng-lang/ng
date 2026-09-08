@@ -1,5 +1,5 @@
 // Contract: parseRawInt traps on non-numeric input (INC-7). The safe entry
-// point is the Option-style parseInt wrapper.
+// point is the Result-based parseInt wrapper (INC-12).
 import prelude;
 
 fun main() -> unit {

@@ -23,8 +23,8 @@ namespace
             "    let s{0} = toString({1});\n"
             "    let r{0} = parseInt(s{0});\n"
             "    switch (r{0}) {{\n"
-            "        case Some(v{0}) {{ print(v{0} == {1}); }}\n"
-            "        case None {{ print(false); }}\n"
+            "        case Ok(v{0}) {{ print(v{0} == {1}); }}\n"
+            "        case Err(e{0}) {{ print(false); }}\n"
             "    }}",
             index, literal),
         .expect = "true",
@@ -46,8 +46,8 @@ TEST_CASE("INC-7 parseInt(toString(n)) recovers every generated integer", "[INC7
       .source = "    let min0 = -9223372036854775807 - 1;\n"
                 "    let r0 = parseInt(toString(min0));\n"
                 "    switch (r0) {\n"
-                "        case Some(v0) { print(v0 == -9223372036854775807 - 1); }\n"
-                "        case None { print(false); }\n"
+                "        case Ok(v0) { print(v0 == -9223372036854775807 - 1); }\n"
+                "        case Err(e0) { print(false); }\n"
                 "    }",
       .expect = "true",
       .label = "INT64_MIN round trip",

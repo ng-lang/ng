@@ -1,6 +1,6 @@
 // vNext string conversions and integer parsing (INC-7): toString mirrors the
-// print formatters, and parseInt returns an Option-style value instead of
-// trapping on bad input.
+// print formatters, and parseInt returns a Result value instead of trapping
+// on bad input.
 import prelude;
 
 fun show(value: i64) -> string {
@@ -14,22 +14,22 @@ fun main() -> unit {
     print(toString(true) + "/" + toString(false));
     print(toString(2.5));
 
-    // Safe parsing: Option-style result instead of a trap.
+    // Safe parsing: Result-style value instead of a trap.
     switch (parseInt("123")) {
-        case Some(value) { print(value == 123); }
-        case None { print(false); }
+        case Ok(value) { print(value == 123); }
+        case Err(text) { print(false); }
     }
 
     // Boundary values survive the round trip exactly.
     let min = -9223372036854775807 - 1;
     let max = 9223372036854775807;
     switch (parseInt(toString(min))) {
-        case Some(value) { print(value == min); }
-        case None { print(false); }
+        case Ok(value) { print(value == min); }
+        case Err(text) { print(false); }
     }
     switch (parseInt(toString(max))) {
-        case Some(value) { print(value == max); }
-        case None { print(false); }
+        case Ok(value) { print(value == max); }
+        case Err(text) { print(false); }
     }
 
     // Invalid inputs report false rather than trapping...

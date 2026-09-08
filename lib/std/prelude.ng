@@ -25,8 +25,8 @@ export native fun toFloat(value: u64) -> f64;
 export native fun toSigned(value: u64) -> i64;
 
 // String conversions and integer parsing (INC-7). toString mirrors the
-// print formatters; parseRawInt traps on invalid input, so the Option-style
-// parseInt wrapper below is the safe entry point until Result lands (INC-12).
+// print formatters; parseRawInt traps on invalid input, so the Result-based
+// parseInt wrapper below is the safe entry point (INC-12).
 export native fun toString(value: i64) -> string;
 export native fun toString(value: i32) -> string;
 export native fun toString(value: u64) -> string;
@@ -35,16 +35,63 @@ export native fun toString(value: bool) -> string;
 export native fun canParseInt(text: string) -> bool;
 export native fun parseRawInt(text: string) -> i64;
 
-export enum OptionalInt {
-    Some(value: i64),
+export enum Option<T> {
+    Some(value: T),
     None,
 }
 
-export fun parseInt(text: string) -> OptionalInt {
+export enum Result<T, E> {
+    Ok(value: T),
+    Err(error: E),
+}
+
+export fun parseInt(text: string) -> Result<i64, string> {
     if (canParseInt(text)) {
-        return OptionalInt.Some(parseRawInt(text));
+        return Result.Ok(parseRawInt(text));
     }
-    return OptionalInt.None;
+    return Result.Err(text);
+}
+
+export fun optMap<T, U>(value: Option<T>, f: |T| -> U) -> Option<U> {
+    switch (value) {
+        case Some(item) { return Option.Some(f(item)); }
+        case None { let u: Option<U> = Option.None; return u; }
+    }
+}
+
+export fun optAndThen<T, U>(value: Option<T>, f: |T| -> Option<U>) -> Option<U> {
+    switch (value) {
+        case Some(item) { return f(item); }
+        case None { let u: Option<U> = Option.None; return u; }
+    }
+}
+
+export fun optOrElse<T>(value: Option<T>, fallback: || -> Option<T>) -> Option<T> {
+    switch (value) {
+        case Some(item) { return Option.Some(item); }
+        case None { return fallback(); }
+    }
+}
+
+export fun resultMap<T, U, E>(value: Result<T, E>, f: |T| -> U) -> Result<U, E> {
+    switch (value) {
+        case Ok(item) { return Result.Ok(f(item)); }
+        case Err(error) { return Result.Err(error); }
+    }
+}
+
+export fun resultAndThen<T, U, E>(value: Result<T, E>, f: |T| -> Result<U, E>) -> Result<U, E> {
+    switch (value) {
+        case Ok(item) { return f(item); }
+        case Err(error) { return Result.Err(error); }
+    }
+}
+
+export fun resultOrElse<T, E, F>(value: Result<T, E>, fallback: |E| -> Result<T, F>) -> Result<T, F> {
+    switch (value) {
+        case Ok(item) { return Result.Ok(item); }
+        case Err(error) { return fallback(error); }
+    }
 }
 
 export fun not(value: bool) -> bool {
