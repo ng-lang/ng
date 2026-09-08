@@ -55,7 +55,9 @@ namespace
   /// 966: INC-14 S3 added `Capture`-aware CaptureInfo field and
   /// closureCaptureParams to the Closure expression; ARCH split tracked in the
   /// post-cutover plan.
-  constexpr size_t kMaxHeaderLines = 966;
+  /// 977: INC-13 added TryExpression (`expr?`, D-007) to ast.hpp; ARCH split
+  /// tracked in the post-cutover plan.
+  constexpr size_t kMaxHeaderLines = 977;
 
   /// Recursively collect every file matching `extension` under `root`.
   auto collectFiles(const std::string &root, std::string_view extension) -> std::vector<std::filesystem::path>

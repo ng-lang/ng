@@ -1,0 +1,51 @@
+// vNext `?` try-operator end-to-end (INC-13, D-007): a parse -> validate ->
+// compute chain short-circuits exactly like the hand-written switch +
+// early-return expansion it is desugared into on the HIR side.
+
+import prelude;
+
+fun requirePositive(x: i64) -> Result<i64, string> {
+    if (x < 0) {
+        let e: Result<i64, string> = Result.Err("not positive");
+        return e;
+    }
+    let r: Result<i64, string> = Result.Ok(x);
+    return r;
+}
+
+fun requireEven(x: i64) -> Result<i64, string> {
+    if (x % 2 != 0) {
+        let e: Result<i64, string> = Result.Err("not even");
+        return e;
+    }
+    let r: Result<i64, string> = Result.Ok(x);
+    return r;
+}
+
+// parse -> validate -> compute: `?` propagates the first Err, skips the rest.
+fun parseEvenDouble(text: string) -> Result<i64, string> {
+    let n = parseInt(text)?;
+    let v = requirePositive(n)?;
+    let w = requireEven(v)?;
+    let r: Result<i64, string> = Result.Ok(w * 2);
+    return r;
+}
+
+fun main() -> unit {
+    switch (parseEvenDouble("8")) {
+        case Ok(value) { print(value == 16); }
+        case Err(error) { print(false); }
+    }
+    switch (parseEvenDouble("-3")) {
+        case Ok(value) { print(false); }
+        case Err(error) { print(error == "not positive"); }
+    }
+    switch (parseEvenDouble("5")) {
+        case Ok(value) { print(false); }
+        case Err(error) { print(error == "not even"); }
+    }
+    switch (parseEvenDouble("12x")) {
+        case Ok(value) { print(false); }
+        case Err(error) { print(error == "12x"); }
+    }
+}

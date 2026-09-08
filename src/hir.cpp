@@ -227,7 +227,8 @@ namespace NG::hir
     for (const auto &item : unit.items)
     {
       if (const auto *function = dynamic_cast<const syntax::FunctionDeclaration *>(item.get()))
-        module.functions.push_back(resolveFunction(*function, functionIds_.at(function)));
+        module.functions.push_back(resolveFunction(const_cast<syntax::FunctionDeclaration &>(*function),
+                                                   functionIds_.at(function)));
     }
     for (const auto &item : unit.items)
     {
@@ -300,7 +301,7 @@ namespace NG::hir
     return module;
   }
 
-  auto Resolver::resolveTraitMethod(const syntax::TraitMethodDeclaration &method) -> TraitMethod
+  auto Resolver::resolveTraitMethod(syntax::TraitMethodDeclaration &method) -> TraitMethod
   {
     scopes_.emplace_back();
     TraitMethod resolved{.name = method.name, .span = method.span};
@@ -314,7 +315,15 @@ namespace NG::hir
                                                .span = parameter.span});
     }
     if (method.returnType != nullptr) resolved.returnType = std::make_unique<Type>(lowerType(*method.returnType));
-    if (method.body.has_value()) resolved.body = resolveBlock(*method.body, false);
+    if (method.body.has_value())
+    {
+      currentReturnTypeName_ = method.returnType != nullptr ? renderTypeName(*method.returnType) : std::string{};
+      ++functionBodyDepth_;
+      closureBodyDepth_ = 0;
+      resolved.body = resolveBlock(*method.body, false, true);
+      --functionBodyDepth_;
+      currentReturnTypeName_.clear();
+    }
     scopes_.pop_back();
     return resolved;
   }
@@ -325,7 +334,8 @@ namespace NG::hir
                     .autoTrait = declaration.autoTrait, .span = declaration.span};
     const uint32_t previousOrigin = currentOrigin_;
     currentOrigin_ = declaration.originModule;
-    for (const auto &method : declaration.methods) resolved.methods.push_back(resolveTraitMethod(method));
+    for (const auto &method : declaration.methods)
+      resolved.methods.push_back(resolveTraitMethod(const_cast<syntax::TraitMethodDeclaration &>(method)));
     currentOrigin_ = previousOrigin;
     return resolved;
   }
@@ -337,7 +347,8 @@ namespace NG::hir
     if (declaration.targetType != nullptr) resolved.targetType = std::make_unique<Type>(lowerType(*declaration.targetType));
     const uint32_t previousOrigin = currentOrigin_;
     currentOrigin_ = declaration.originModule;
-    for (const auto &method : declaration.methods) resolved.methods.push_back(resolveTraitMethod(method));
+    for (const auto &method : declaration.methods)
+      resolved.methods.push_back(resolveTraitMethod(const_cast<syntax::TraitMethodDeclaration &>(method)));
     currentOrigin_ = previousOrigin;
     return resolved;
   }
@@ -416,7 +427,7 @@ namespace NG::hir
     return resolved;
   }
 
-  auto Resolver::resolveFunction(const syntax::FunctionDeclaration &function, DefId id) -> Function
+  auto Resolver::resolveFunction(syntax::FunctionDeclaration &function, DefId id) -> Function
   {
     scopes_.clear();
     scopes_.emplace_back();
@@ -470,12 +481,17 @@ namespace NG::hir
       resolved.returnType = std::make_unique<Type>(lowerType(*function.returnType));
     }
     if (function.whereClause != nullptr) resolved.whereClause = resolveExpression(*function.whereClause);
-    resolved.body = resolveBlock(function.body, false);
+    currentReturnTypeName_ = resolved.returnTypeName.value_or(std::string{});
+    ++functionBodyDepth_;
+    closureBodyDepth_ = 0;
+    resolved.body = resolveBlock(function.body, false, true);
+    --functionBodyDepth_;
+    currentReturnTypeName_.clear();
     currentFunction_.reset();
     return resolved;
   }
 
-  auto Resolver::resolveBlock(const syntax::Block &block, bool introduceScope) -> Block
+  auto Resolver::resolveBlock(syntax::Block &block, bool introduceScope, bool isFunctionBody) -> Block
   {
     if (introduceScope)
     {
@@ -483,15 +499,7 @@ namespace NG::hir
     }
 
     Block resolved{.span = block.span};
-    resolved.statements.reserve(block.statements.size());
-    for (const auto &statement : block.statements)
-    {
-      resolved.statements.push_back(resolveStatement(*statement));
-    }
-    if (block.tailExpression != nullptr)
-    {
-      resolved.tailExpression = resolveExpression(*block.tailExpression);
-    }
+    resolveStatementList(block, isFunctionBody, resolved);
 
     if (introduceScope)
     {
@@ -500,7 +508,124 @@ namespace NG::hir
     return resolved;
   }
 
-  auto Resolver::resolveStatement(const syntax::Statement &statement) -> Statement
+  void Resolver::resolveStatementList(syntax::Block &source, bool isFunctionBody, Block &out)
+  {
+    out.statements.reserve(source.statements.size());
+    for (size_t index = 0; index < source.statements.size(); ++index)
+    {
+      const auto &statement = source.statements[index];
+      if (auto *tryExpr = rootTryOf(*statement))
+      {
+        desugarTry(*statement, *tryExpr, source, index + 1, isFunctionBody, out);
+        return;
+      }
+      out.statements.push_back(resolveStatement(*statement));
+    }
+    if (source.tailExpression != nullptr)
+    {
+      out.tailExpression = resolveExpression(*source.tailExpression);
+    }
+  }
+
+  auto Resolver::rootTryOf(syntax::Statement &statement) -> syntax::TryExpression *
+  {
+    if (const auto *let = dynamic_cast<const syntax::LetStatement *>(&statement))
+    {
+      return const_cast<syntax::TryExpression *>(
+          dynamic_cast<const syntax::TryExpression *>(let->initializer.get()));
+    }
+    if (const auto *expression = dynamic_cast<const syntax::ExpressionStatement *>(&statement))
+    {
+      const syntax::Expression *root = expression->expression.get();
+      while (const auto *grouped = dynamic_cast<const syntax::GroupedExpression *>(root))
+        root = grouped->expression.get();
+      return const_cast<syntax::TryExpression *>(dynamic_cast<const syntax::TryExpression *>(root));
+    }
+    return nullptr;
+  }
+
+  void Resolver::desugarTry(const syntax::Statement &statement, syntax::TryExpression &tryExpr,
+                            syntax::Block &source, size_t startIndex, bool isFunctionBody, Block &out)
+  {
+    if (functionBodyDepth_ == 0)
+      throw ResolutionError("cannot use `?` outside of a function body", tryExpr.span);
+    if (closureBodyDepth_ > 0)
+      throw ResolutionError("`?` is not supported inside a closure body", tryExpr.span);
+    if (currentReturnTypeName_.empty() || !currentReturnTypeName_.starts_with("Result"))
+    {
+      const std::string actual = currentReturnTypeName_.empty() ? std::string{"unit"} : currentReturnTypeName_;
+      throw ResolutionError(std::format("`?` requires the enclosing function to return "
+                                        "`Result` (it returns `{}`)",
+                                        actual),
+                            tryExpr.span);
+    }
+
+    // Desugaring re-parents the operand, the remaining statements, and the
+    // tail by move into the generated switch; the moved-from slots are never
+    // re-read below the consuming statement.
+    const std::string tryLocal = std::format("$try{}", nextTryId_);
+    const std::string okLocal = std::format("$ok{}", nextTryId_);
+    const std::string errorLocal = std::format("$err{}", nextTryId_);
+    ++nextTryId_;
+
+    // `let $tryN = <operand>;` — the scrutinee lives in the current block.
+    auto scrutinee = std::make_unique<syntax::LetStatement>(tryLocal, false, nullptr, std::move(tryExpr.operand),
+                                                           tryExpr.span);
+    out.statements.push_back(resolveStatement(*scrutinee));
+
+    // Ok arm: rebind the payload into the user's binding (let form), continue
+    // with the remaining statements (nested `?` recurses via
+    // resolveStatementList), then the tail — as an explicit `return` when it
+    // was the function body's implicit return.
+    std::vector<syntax::StatementPtr> okStatements;
+    if (const auto *let = dynamic_cast<const syntax::LetStatement *>(&statement))
+    {
+      if (!let->destructuredNames.empty() || let->restName.has_value())
+        throw ResolutionError("`?` with a destructuring `let` is not supported", let->span);
+      okStatements.push_back(std::make_unique<syntax::LetStatement>(
+          let->name, let->isMutable, let->annotation,
+          std::make_unique<syntax::IdentifierExpression>(okLocal, tryExpr.span), let->span));
+    }
+    for (size_t index = startIndex; index < source.statements.size(); ++index)
+      okStatements.push_back(std::move(source.statements[index]));
+
+    syntax::ExpressionPtr okTail;
+    if (source.tailExpression != nullptr)
+    {
+      if (isFunctionBody)
+      {
+        okStatements.push_back(std::make_unique<syntax::ReturnStatement>(
+            std::exchange(source.tailExpression, nullptr), tryExpr.span));
+      }
+      else
+      {
+        okTail = std::exchange(source.tailExpression, nullptr);
+      }
+    }
+    auto okBody = syntax::Block{tryExpr.span, std::move(okStatements), std::move(okTail)};
+
+    // Err arm: `return Result.Err($errN);`.
+    std::vector<syntax::StatementPtr> errorStatements;
+    std::vector<syntax::ExpressionPtr> errorArguments;
+    errorArguments.push_back(std::make_unique<syntax::IdentifierExpression>(errorLocal, tryExpr.span));
+    errorStatements.push_back(std::make_unique<syntax::ReturnStatement>(
+        std::make_unique<syntax::CallExpression>(
+            std::make_unique<syntax::MemberExpression>(
+                std::make_unique<syntax::IdentifierExpression>("Result", tryExpr.span), "Err", tryExpr.span),
+            std::move(errorArguments), tryExpr.span),
+        tryExpr.span));
+
+    std::vector<syntax::SwitchCase> cases;
+    cases.push_back(syntax::SwitchCase{syntax::SwitchCasePattern{"Ok", okLocal, {}, tryExpr.span}, std::move(okBody)});
+    cases.push_back(syntax::SwitchCase{syntax::SwitchCasePattern{"Err", errorLocal, {}, tryExpr.span},
+                                       syntax::Block{tryExpr.span, std::move(errorStatements), nullptr}});
+
+    auto switchStatement = std::make_unique<syntax::SwitchStatement>(
+        std::make_unique<syntax::IdentifierExpression>(tryLocal, tryExpr.span), std::move(cases), nullptr, tryExpr.span);
+    out.statements.push_back(resolveStatement(*switchStatement));
+  }
+
+  auto Resolver::resolveStatement(syntax::Statement &statement) -> Statement
   {
     if (const auto *let = dynamic_cast<const syntax::LetStatement *>(&statement))
     {
@@ -572,12 +697,17 @@ namespace NG::hir
       Statement resolved{.kind = StatementKind::Return, .span = returnStatement->span};
       if (returnStatement->value != nullptr)
       {
+        const syntax::Expression *root = returnStatement->value.get();
+        while (const auto *grouped = dynamic_cast<const syntax::GroupedExpression *>(root))
+          root = grouped->expression.get();
+        if (dynamic_cast<const syntax::TryExpression *>(root) != nullptr)
+          throw ResolutionError("`return <expr>?` is not supported", returnStatement->value->span);
         resolved.expression = resolveExpression(*returnStatement->value);
       }
       return resolved;
     }
 
-    if (const auto *ifStatement = dynamic_cast<const syntax::IfStatement *>(&statement))
+    if (auto *ifStatement = dynamic_cast<syntax::IfStatement *>(&statement))
     {
       Statement resolved{.kind = StatementKind::If, .span = ifStatement->span};
       resolved.expression = resolveExpression(*ifStatement->condition);
@@ -589,7 +719,7 @@ namespace NG::hir
       return resolved;
     }
 
-    if (const auto *constIf = dynamic_cast<const syntax::ConstIfStatement *>(&statement))
+    if (auto *constIf = dynamic_cast<syntax::ConstIfStatement *>(&statement))
     {
       Statement resolved{.kind = StatementKind::ConstIf, .span = constIf->span};
       resolved.expression = resolveExpression(*constIf->condition);
@@ -601,7 +731,7 @@ namespace NG::hir
       return resolved;
     }
 
-    if (const auto *loop = dynamic_cast<const syntax::LoopStatement *>(&statement))
+    if (auto *loop = dynamic_cast<syntax::LoopStatement *>(&statement))
     {
       Statement resolved{.kind = StatementKind::Loop, .span = loop->span};
       std::vector<ExpressionPtr> initializers;
@@ -627,7 +757,7 @@ namespace NG::hir
       return resolved;
     }
 
-    if (const auto *whileLoop = dynamic_cast<const syntax::WhileStatement *>(&statement))
+    if (auto *whileLoop = dynamic_cast<syntax::WhileStatement *>(&statement))
     {
       Statement resolved{.kind = StatementKind::While, .span = whileLoop->span};
       scopes_.emplace_back();
@@ -690,13 +820,13 @@ namespace NG::hir
       throw ResolutionError("next has no enclosing loop or function", next->span);
     }
 
-    if (const auto *switchStatement = dynamic_cast<const syntax::SwitchStatement *>(&statement))
+    if (auto *switchStatement = dynamic_cast<syntax::SwitchStatement *>(&statement))
     {
       Statement resolved{.kind = StatementKind::Switch,
                          .span = switchStatement->span,
                          .expression = resolveExpression(*switchStatement->value)};
       resolved.switchCases.reserve(switchStatement->cases.size());
-      for (const auto &switchCase : switchStatement->cases)
+      for (auto &switchCase : switchStatement->cases)
       {
         SwitchCase caseResolved{.variantName = switchCase.pattern.variantName,
                                 .literalTexts = switchCase.pattern.literalTexts,
@@ -751,6 +881,11 @@ namespace NG::hir
   auto Resolver::resolveExpression(const syntax::Expression &expression) -> ExpressionPtr
   {
     auto resolved = std::make_unique<Expression>(Expression{.span = expression.span});
+
+    // A try operator that is not a statement root (let initializer or bare
+    // expression statement) is rejected: INC-13 desugars `?` only at roots.
+    if (dynamic_cast<const syntax::TryExpression *>(&expression) != nullptr)
+      throw ResolutionError("`?` cannot appear mid-expression", expression.span);
 
     if (const auto *identifier = dynamic_cast<const syntax::IdentifierExpression *>(&expression))
     {
@@ -1003,7 +1138,10 @@ namespace NG::hir
                                                       ? std::make_shared<Type>(lowerType(*parameter.type))
                                                       : nullptr);
       }
-      resolved->closureBody = std::make_unique<Block>(resolveBlock(*closure->body, false));
+      ++closureBodyDepth_;
+      resolved->closureBody = std::make_unique<Block>(
+          resolveBlock(*const_cast<syntax::Block *>(closure->body.get()), false));
+      --closureBodyDepth_;
       scopes_.pop_back();
       return resolved;
     }

@@ -33,6 +33,7 @@ namespace NG::syntax
     StructLiteral,
     BooleanLiteral,
     Prefix,
+    Try,
     Grouped,
     Call,
     GenericApplication,
@@ -150,6 +151,16 @@ namespace NG::syntax
 
     PrefixExpression(std::string op, ExpressionPtr value, SourceSpan sourceSpan)
       : Expression(ExpressionKind::Prefix, sourceSpan), operatorText(std::move(op)), operand(std::move(value))
+    {
+    }
+  };
+
+  struct TryExpression final : Expression
+  {
+    ExpressionPtr operand;
+
+    TryExpression(ExpressionPtr value, SourceSpan sourceSpan)
+      : Expression(ExpressionKind::Try, sourceSpan), operand(std::move(value))
     {
     }
   };

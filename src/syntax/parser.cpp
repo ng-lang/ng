@@ -376,10 +376,19 @@ namespace NG::syntax
     {
       if (current().kind == TokenKind::QuestionMark)
       {
-        // Filter marker in map spreads: `f(xs)?...` keeps matching elements.
         const Token question = consume();
-        expression = std::make_unique<PrefixExpression>("?", std::move(expression),
-                                                        SourceSpan{expression->span.begin, question.span.end});
+        // `f(xs)?...` keeps matching elements (filter marker in map spreads);
+        // any other `?` is the try operator (INC-13, D-007).
+        if (current().kind == TokenKind::Ellipsis)
+        {
+          expression = std::make_unique<PrefixExpression>("?", std::move(expression),
+                                                          SourceSpan{expression->span.begin, question.span.end});
+        }
+        else
+        {
+          expression = std::make_unique<TryExpression>(std::move(expression),
+                                                       SourceSpan{expression->span.begin, question.span.end});
+        }
         continue;
       }
       if (current().kind == TokenKind::Ellipsis)

@@ -458,19 +458,35 @@ namespace NG::hir
       bool isWhile;
     };
 
-    [[nodiscard]] auto resolveFunction(const syntax::FunctionDeclaration &function, DefId id) -> Function;
+    [[nodiscard]] auto resolveFunction(syntax::FunctionDeclaration &function, DefId id) -> Function;
     [[nodiscard]] auto resolveStruct(const syntax::StructDeclaration &structure, StructId id) -> Struct;
     [[nodiscard]] auto resolveEnum(const syntax::EnumDeclaration &enumeration, EnumId id) -> Enum;
     [[nodiscard]] auto resolveConstDeclaration(const syntax::ConstDeclaration &declaration, DefId id) -> ConstDeclaration;
     [[nodiscard]] auto resolveTrait(const syntax::TraitDeclaration &declaration) -> Trait;
     [[nodiscard]] auto resolveImpl(const syntax::ImplDeclaration &declaration) -> Impl;
-    [[nodiscard]] auto resolveTraitMethod(const syntax::TraitMethodDeclaration &method) -> TraitMethod;
-    [[nodiscard]] auto resolveBlock(const syntax::Block &block, bool introduceScope) -> Block;
-    [[nodiscard]] auto resolveStatement(const syntax::Statement &statement) -> Statement;
+    [[nodiscard]] auto resolveTraitMethod(syntax::TraitMethodDeclaration &method) -> TraitMethod;
+    /// `isFunctionBody` marks the top-level body of a function/method: only
+    /// there is a trailing block tail an implicit return (INC-13 try desugar
+    /// moves it into the Ok arm as an explicit return).
+    [[nodiscard]] auto resolveBlock(syntax::Block &block, bool introduceScope,
+                                    bool isFunctionBody = false) -> Block;
+    [[nodiscard]] auto resolveStatement(syntax::Statement &statement) -> Statement;
     [[nodiscard]] auto resolveExpression(const syntax::Expression &expression) -> ExpressionPtr;
     [[nodiscard]] auto resolveName(const syntax::IdentifierExpression &expression) const -> ResolvedName;
     [[nodiscard]] auto suggestionFor(const std::string &name) const -> std::string;
     auto declareLocal(const std::string &name, syntax::SourceSpan span) -> LocalId;
+
+    /// INC-13 (D-007): resolves a statement list, restructuring the rest of
+    /// the list into the Ok arm when a root `?` (try) statement appears.
+    void resolveStatementList(syntax::Block &source, bool isFunctionBody, Block &out);
+    /// INC-13 (D-007): desugars `expr?` into a scrutinee let + switch whose
+    /// Err arm early-returns `Result.Err($err)`; the Ok arm binds the payload
+    /// and resolves the remaining statements/tail (recursing for nested `?`).
+    void desugarTry(const syntax::Statement &statement, syntax::TryExpression &tryExpr,
+                    syntax::Block &source, size_t startIndex, bool isFunctionBody, Block &out);
+    /// Extracts a try operator that roots a let initializer or a standalone
+    /// expression statement (the only positions INC-13 desugars).
+    [[nodiscard]] static auto rootTryOf(syntax::Statement &statement) -> syntax::TryExpression *;
 
     std::unordered_map<std::string, std::vector<DefId>> functions_;
     std::unordered_map<const syntax::FunctionDeclaration *, DefId> functionIds_;
@@ -488,6 +504,16 @@ namespace NG::hir
     std::unordered_map<std::string, uint32_t> constParameters_;
     std::unordered_map<uint32_t, bool> localMutability_;
     std::optional<DefId> currentFunction_;
+    /// Name (as written) of the enclosing function's return type; INC-13 `?`
+    /// is only allowed when it starts with the `Result` prefix.
+    std::string currentReturnTypeName_;
+    /// Deepest nesting of plain function/method bodies (guards the try
+    /// desugar's implicit-return handling for nested blocks).
+    int functionBodyDepth_{};
+    /// Count of enclosing closure bodies; `?` is rejected inside them.
+    int closureBodyDepth_{};
+    /// Monotone counter for synthesized `$tryN`/`$okN`/`$errN` locals.
+    uint32_t nextTryId_{};
     uint32_t nextLocal_{};
     uint32_t nextLoop_{};
     uint32_t nextConstId_{};
