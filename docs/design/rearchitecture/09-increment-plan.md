@@ -452,9 +452,15 @@ INC-15/16 之后再执行。
 
 ## Phase 5 — A1 完整 loan 分析 + M2b（合并切片，plan A1 原范围）
 
-### INC-15 · origin contracts 与返回引用（A1.1）
+### INC-15 · origin contracts 与返回引用（A1.1）— ✅ 已落地
 - `T ref(a)` / `T ref(a|b)` 解析到参数序号；返回路径核查。
-- 测试：正例（first/choose 类）+ 负契约（origin 不满足）。
+- 落地点：语法 `T ref(a|b)` 起源表解析（postfix `ref` 后 `(a | b)`）；Resolver 把起源名解析为
+  当前函数参数序号并随 HIR 返回 `Type.originOrdinals` 传递（clone 保留）；checker 在 `return`
+  处以返回引用表达式的 origin root（穿透 Grouped/Index/Member/`ref`/`*`）核对所在参数序号是否
+  落于声明集。无声明起源的引用仍不可返回（原行为保留，消息更新）。
+- 测试：正例（first/choose 类 / 整引用透传 / 单起源身份 / 跨函数同参序）+ 负契约（origin 不满足、
+  local 非参数起源、非参数声明起源、无声明起源仍禁返）+ E2E `example/origin_contracts.ng`。
+- 边界：ref 字段/跨调用借用（A1.2/3）仍属 INC-16；`array<T> ref` 的直接索引亦待 INC-16。
 
 ### INC-16 · 引用入聚合与跨调用借用（A1.2/3）
 - ref 字段/全局/task payload 的放行规则；use-after-move-through-ref。
