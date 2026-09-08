@@ -410,11 +410,39 @@ INC-14（最小闭包）**前移**至 INC-12/13 之前执行，INC-12/13 顺延�
   枚举空构造子作为表达式需要类型上下文（`Option.Some(5)` 作实参/switch 悉知
   需先绑 `let` 注解）。下一个：INC-13 `?` 脱糖。
 
-### INC-13 · `?` 脱糖（D-007 落地）
+### INC-13 · `?` 脱糖（D-007 落地）— ✅ 完成（2026-09-08）
 - **动作**: HIR 侧脱糖为 switch + early-return，挂接三张 drop 边表。
 - **测试**: 差分性质：`?` 形式 ≡ 手工 switch 展开（生成调用链，双路径比对）；
   负契约（非 Result 返回函数内使用 `?`）。
 - **E2E**: 解析链示例（parse→validate→compute）。
+- **落地（2026-09-08）**: ① **语法/解析**：`ast.hpp` 新增 `TryExpression`
+  （`ExpressionKind::Try`），postfix `?` 按后继 token 消歧——紧跟 `...` 保留
+  原 map-spread 过滤语义（`f(xs)?...`），否则为 try 运算符。② **HIR 脱糖**
+  （`Resolver::desugarTry`，src/hir.cpp）：`let x = expr?;` 重构为
+
+  ```ng
+  let $tryN = expr;
+  switch ($tryN) {
+      case Ok($okN) { let x = $okN; <块剩余语句> [尾表达式] }
+      case Err($errN) { return Result.Err($errN); }
+  }
+  ```
+  产生的都是既有 let/switch/return 节点 → checker 三张 drop 边表
+  （fallthrough/block/return）与 FlowIR switch/early-return 降低原样生效，
+  后端零改动。**支持形态**：`let` 初始化（含注解/`let mut`）、独立语句式
+  `expr?;`；函数体尾表达式移位成 Ok 臂内显式 `return`（isFunctionBody 仅对
+  函数/方法体顶层为真，if/loop 分支尾语义不变）。嵌套 `?` 经 Ok 臂递归
+  `resolveStatementList` 自然链式。合成名用 `$` 前缀（lexer 不可产生）杜绝
+  用户冲突。③ **差分 PBT**（`test/try_operator_test.cpp`）：2 步/3 步调用链 +
+  串前 string 局部（drop 边场景）的 `?` 形态 ≡ 手工 switch 展开双路径比对，
+  60 trial × 3 探针批量编译运行，4 随机种子稳定。**负契约**：非 Result 返回
+  （i64/unit）、`return <expr>?`、表达式中部（`g()? + 1`）、闭包体内、解构
+  let——均为明确的 E-resolve 消息。④ **E2E**：`example/try_operator.ng`
+  parse（parseInt）→ validate（正数/偶数守卫）→ compute 链，4 断言全 true。
+  guard 更新（ast.hpp 966→977，TryExpression）。全量 560 用例/3662 断言，
+  ctest 561 全绿。**本次划定边界（后续增量可放开）**：`?` 仅限 let 根/语句根，
+  表达式中部、`return ?`、闭包体内、解构 let 显式拒绝；需包 `Ok(...)` 的场景由
+  用户手写。下一个：INC-15（A1 origin contracts）。
 
 ## Phase 4 — M2a 最小闭包
 
