@@ -1,7 +1,7 @@
 // AI-generated code; reviewed for this repository's vNext rewrite.
 #include "syntax/type_parser.hpp"
 #include "syntax/const_expr.hpp"
-
+#include <algorithm>
 #include <utility>
 
 namespace NG::syntax
@@ -138,8 +138,10 @@ namespace NG::syntax
         static_cast<void>(consume());
         const bool isMutable = current().kind == TokenKind::KeywordMut;
         if (isMutable) static_cast<void>(consume());
-        type = std::make_unique<ScopedReferenceTypeSyntax>(std::move(type), isMutable,
-                                                            SourceSpan{type->span.begin, tokens_[cursor_ - 1].span.end});
+        auto scoped = std::make_unique<ScopedReferenceTypeSyntax>(std::move(type), isMutable,
+                                                                  SourceSpan{type->span.begin, tokens_[cursor_ - 1].span.end});
+        parseOrigins(*scoped);
+        type = std::move(scoped);
         continue;
       }
       if (current().kind == TokenKind::Star)
@@ -156,6 +158,31 @@ namespace NG::syntax
       break;
     }
     return type;
+  }
+
+  void TypeParser::parseOrigins(ScopedReferenceTypeSyntax &scoped)
+  {
+    if (current().kind != TokenKind::LeftParen) return;
+    static_cast<void>(consume());
+    std::vector<std::string> names;
+    if (current().kind != TokenKind::RightParen)
+    {
+      while (true)
+      {
+        if (current().kind != TokenKind::Identifier)
+          throw ParseError("expected an origin source name (a function parameter) in reference origin list",
+                           current().span);
+        names.push_back(consume().text);
+        if (current().kind != TokenKind::Pipe) break;
+        static_cast<void>(consume());
+      }
+    }
+    if (current().kind != TokenKind::RightParen)
+      throw ParseError("expected `)` to close reference origin list", current().span);
+    static_cast<void>(consume());
+    std::sort(names.begin(), names.end());
+    names.erase(std::unique(names.begin(), names.end()), names.end());
+    scoped.origins = std::move(names);
   }
 
   auto TypeParser::isConstArgumentStart() const -> bool

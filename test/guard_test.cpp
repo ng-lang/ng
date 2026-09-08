@@ -57,7 +57,9 @@ namespace
   /// post-cutover plan.
   /// 977: INC-13 added TryExpression (`expr?`, D-007) to ast.hpp; ARCH split
   /// tracked in the post-cutover plan.
-  constexpr size_t kMaxHeaderLines = 977;
+  /// 980: INC-15 added the `origins` list to ScopedReferenceTypeSyntax
+  /// (`T ref(a | b)`, D-002 A1.1); ARCH split tracked in the post-cutover plan.
+  constexpr size_t kMaxHeaderLines = 980;
 
   /// Recursively collect every file matching `extension` under `root`.
   auto collectFiles(const std::string &root, std::string_view extension) -> std::vector<std::filesystem::path>

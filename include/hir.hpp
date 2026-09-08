@@ -256,6 +256,9 @@ namespace NG::hir
     /// Closure type (`|T| -> U`): parameters then result.
     std::vector<Type> parameters;
     std::unique_ptr<Type> result;
+    /// D-002 A1.1 origin contracts: resolved parameter ordinals for
+    /// scoped references with declared origins (e.g. `T ref(a | b)`).
+    std::vector<uint32_t> originOrdinals;
   };
 
   struct Parameter
@@ -514,6 +517,9 @@ namespace NG::hir
     int closureBodyDepth_{};
     /// Monotone counter for synthesized `$tryN`/`$okN`/`$errN` locals.
     uint32_t nextTryId_{};
+    /// Maps the current function's parameter names to their declaration
+    /// ordinal (D-002 A1.1 origin contracts). Set during return-type lowering.
+    std::unordered_map<std::string, uint32_t> paramOrdinals_;
     uint32_t nextLocal_{};
     uint32_t nextLoop_{};
     uint32_t nextConstId_{};

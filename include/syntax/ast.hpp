@@ -654,6 +654,9 @@ struct UnionTypeSyntax final : TypeSyntax
   {
     TypeSyntaxPtr target;
     const bool isMutable;
+    /// D-002 A1.1 origin contracts: the declared source names behind
+    /// `T ref(a | b)` / `T ref mut(a)`. Empty for plain `T ref` / `ref<T>`.
+    std::vector<std::string> origins;
 
     ScopedReferenceTypeSyntax(TypeSyntaxPtr referencedType, bool mutableReference, SourceSpan sourceSpan)
       : TypeSyntax(TypeSyntaxKind::ScopedReference, sourceSpan), target(std::move(referencedType)),

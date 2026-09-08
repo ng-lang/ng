@@ -21,7 +21,7 @@ namespace
   }
 } // namespace
 
-TEST_CASE("vNext references cannot be returned from functions", "[vNext][Borrow][Errors]")
+TEST_CASE("vNext references cannot be returned without declared origins", "[vNext][Borrow][Errors]")
 {
   try
   {
@@ -30,7 +30,9 @@ TEST_CASE("vNext references cannot be returned from functions", "[vNext][Borrow]
   }
   catch (const typecheck::TypeError &error)
   {
-    REQUIRE(std::string{error.what()} == "references cannot be returned from a function");
+    REQUIRE(std::string{error.what()} ==
+            "references cannot be returned from a function; declare the origin set on the "
+            "return type (`T ref(a | b)`) (D-002 A1.1)");
   }
 
   try
@@ -40,7 +42,9 @@ TEST_CASE("vNext references cannot be returned from functions", "[vNext][Borrow]
   }
   catch (const typecheck::TypeError &error)
   {
-    REQUIRE(std::string{error.what()} == "references cannot be returned from a function");
+    REQUIRE(std::string{error.what()} ==
+            "references cannot be returned from a function; declare the origin set on the "
+            "return type (`T ref(a | b)`) (D-002 A1.1)");
   }
 }
 

@@ -41,8 +41,28 @@ void Checker::checkFunction(const hir::Function &function, const const_eval::Con
     recordLocal(function.parameters[index].local, signature.parameters[index]);
   }
   parameterLocals_.clear();
-  for (const auto &parameter : function.parameters)
-    parameterLocals_.insert(parameter.local.value);
+  paramOrdinalOf_.clear();
+  for (size_t index = 0; index < function.parameters.size(); ++index)
+  {
+    parameterLocals_.insert(function.parameters[index].local.value);
+    paramOrdinalOf_.emplace(function.parameters[index].local.value, static_cast<uint32_t>(index));
+  }
+  returnOriginOrdinals_.clear();
+  returnOriginDisplay_.clear();
+  if (function.returnType != nullptr && function.returnType->kind == hir::TypeKind::ScopedReference &&
+      !function.returnType->originOrdinals.empty())
+  {
+    returnOriginOrdinals_.insert(function.returnType->originOrdinals.begin(), function.returnType->originOrdinals.end());
+    std::string display;
+    for (size_t i = 0; i < function.returnType->originOrdinals.size(); ++i)
+    {
+      const auto &ordinal = function.returnType->originOrdinals[i];
+      if (i > 0) display += " | ";
+      if (ordinal < function.parameters.size()) display += function.parameters[ordinal].name;
+      else display += std::format("<param{}>", ordinal);
+    }
+    returnOriginDisplay_ = std::move(display);
+  }
   inConstGenericFunction_ = !signature.constParameters.empty();
   if (function.whereClause != nullptr && !isGeneric(signature))
   {
@@ -357,7 +377,16 @@ void Checker::checkStatement(const hir::Statement &statement, LocalTypes &locals
     {
       const TypeId returned = inferExpected(*statement.expression, returnType, locals, "return value");
       if (interner_.descriptor(returned).kind == TypeKind::Reference)
-        throw TypeError("references cannot be returned from a function", statement.expression->span);
+      {
+        if (returnOriginOrdinals_.empty())
+          throw TypeError("references cannot be returned from a function; declare the origin set on the "
+                          "return type (`T ref(a | b)`) (D-002 A1.1)",
+                          statement.expression->span);
+        if (!returnOriginSatisfied(*statement.expression))
+          throw TypeError("returned reference does not satisfy the declared origin(s) `" + returnOriginDisplay_ +
+                              "` of the return type (D-002 A1.1)",
+                          statement.expression->span);
+      }
     }
     else
       requireType(returnType, builtin::Unit, statement.span, "return value");
@@ -772,6 +801,41 @@ auto Checker::rootLocalOf(const hir::Expression &expression) const -> std::optio
       root->resolvedName->kind == hir::ResolvedNameKind::Local)
     return hir::LocalId{root->resolvedName->id};
   return std::nullopt;
+}
+
+auto Checker::originRootLocalOf(const hir::Expression &expression) -> std::optional<hir::LocalId>
+{
+  const hir::Expression *root = &expression;
+  while (true)
+  {
+    if (root->kind == hir::ExpressionKind::Index || root->kind == hir::ExpressionKind::Member ||
+        root->kind == hir::ExpressionKind::Grouped)
+    {
+      root = root->operands[0].get();
+      continue;
+    }
+    if (root->kind == hir::ExpressionKind::Prefix &&
+        (root->text == "*" || root->text == "ref" || root->text == "ref mut"))
+    {
+      root = root->operands[0].get();
+      continue;
+    }
+    break;
+  }
+  if (root->kind == hir::ExpressionKind::ResolvedName && root->resolvedName.has_value() &&
+      root->resolvedName->kind == hir::ResolvedNameKind::Local)
+    return hir::LocalId{root->resolvedName->id};
+  return std::nullopt;
+}
+
+auto Checker::returnOriginSatisfied(const hir::Expression &expression) const -> bool
+{
+  if (returnOriginOrdinals_.empty()) return false;
+  const auto root = originRootLocalOf(expression);
+  if (!root.has_value()) return false;
+  const auto ordinal = paramOrdinalOf_.find(root->value);
+  if (ordinal == paramOrdinalOf_.end()) return false;
+  return returnOriginOrdinals_.contains(ordinal->second);
 }
 
 void Checker::trackConsumption(const hir::Expression &expression, const LocalTypes &locals)

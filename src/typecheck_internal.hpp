@@ -275,6 +275,14 @@ namespace NG::typecheck::detail
     void requireMutableDeref(const hir::Expression &expression, const LocalTypes &locals);
     [[nodiscard]] auto isAffine(TypeId type) const -> bool;
     [[nodiscard]] auto rootLocalOf(const hir::Expression &expression) const -> std::optional<hir::LocalId>;
+    /// D-002 A1.1: the origin root of `expression` — walks through Grouped,
+    /// Index, Member, and `ref`/`ref mut`/deref prefixes to the underlying
+    /// root local (the only expression whose *origin* can be a parameter).
+    [[nodiscard]] static auto originRootLocalOf(const hir::Expression &expression) -> std::optional<hir::LocalId>;
+    /// D-002 A1.1: true when returning `expression` (a `T ref` value) is safe
+    /// given the enclosing function's declared origin set — i.e. the value's
+    /// origin root is a parameter whose ordinal is a declared origin.
+    [[nodiscard]] auto returnOriginSatisfied(const hir::Expression &expression) const -> bool;
     void trackConsumption(const hir::Expression &expression, const LocalTypes &locals);
 
     // ---- typecheck_const.cpp ----
@@ -404,6 +412,14 @@ namespace NG::typecheck::detail
     /// Parameter local ids of the current function body; calls through these
     /// resolve as closure calls only when a binding exists (INC-14 S2c).
     std::unordered_set<uint32_t> parameterLocals_;
+    /// Parameter local id -> declaration ordinal (D-002 A1.1 origin contracts).
+    std::unordered_map<uint32_t, uint32_t> paramOrdinalOf_;
+    /// Declared origin ordinals of the current function's scoped-reference
+    /// return type (`T ref(a | b)`); empty when the return type has no declared
+    /// origins or is not a scoped reference (A1.1).
+    std::unordered_set<uint32_t> returnOriginOrdinals_;
+    /// Human-readable declared origin list for diagnostics (e.g. `a | b`).
+    std::string returnOriginDisplay_;
     /// Closure literals whose synthesized code function would be generic
     /// (param/result/capture type is a type parameter). Model-typed only; the
     /// concrete code function appears at monomorphization (INC-14 S4).

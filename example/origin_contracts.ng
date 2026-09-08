@@ -1,0 +1,44 @@
+// vNext origin contracts end-to-end (INC-15, D-002 A1.1): a function may
+// return a scoped reference only when every return path originates from a
+// parameter named in the declared origin list `T ref(a | b)`. The checker
+// resolves origins to parameter ordinals and verifies each returned reference
+// against the declared set; returning a borrow that is not one of the declared
+// origins is a type error.
+
+import prelude;
+
+struct Box {
+    value: i64,
+}
+
+// first-like: borrow an element out of a parameter array under `items`.
+fun first(items: array<i64>, idx: i64) -> i64 ref(items) {
+    return ref items[0];
+}
+
+// choose-like: both return paths satisfy the same declared origin union.
+fun choose(a: Box ref, b: Box ref, prefer_a: bool) -> Box ref(a | b) {
+    if (prefer_a) {
+        return a;
+    }
+    return b;
+}
+
+// whole-reference passthrough under its own origin.
+fun pass_through(items: array<i64> ref) -> array<i64> ref(items) {
+    return items;
+}
+
+fun main() -> unit {
+    let mut xs = [10, 20, 30];
+    let r = first(xs, 0);
+    print(*r == 10);
+
+    let mut x = Box { value: 7 };
+    let mut y = Box { value: 8 };
+    let chosen = choose(ref x, ref y, false);
+    print((*chosen).value == 8);
+
+    let whole = pass_through(ref xs);
+    print((*whole)[1] == 20);
+}

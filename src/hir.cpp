@@ -14,45 +14,74 @@ namespace NG::hir
 {
   namespace
   {
-    [[nodiscard]] auto lowerType(const syntax::TypeSyntax &type) -> Type
+    [[nodiscard]] auto resolveOriginOrdinals(const std::vector<std::string> &names, syntax::SourceSpan span,
+                                             const std::unordered_map<std::string, uint32_t> *paramOrdinals)
+        -> std::vector<uint32_t>;
+    [[nodiscard]] auto lowerType(const syntax::TypeSyntax &type,
+                                 const std::unordered_map<std::string, uint32_t> *paramOrdinals = nullptr) -> Type
     {
       if (const auto *named = dynamic_cast<const syntax::NamedTypeSyntax *>(&type))
         return Type{.kind = TypeKind::Named, .span = type.span, .name = named->name};
       if (const auto *applied = dynamic_cast<const syntax::AppliedTypeSyntax *>(&type))
       {
-        Type result{.kind = TypeKind::Applied, .span = type.span, .target = std::make_unique<Type>(lowerType(*applied->constructor))};
+        Type result{.kind = TypeKind::Applied, .span = type.span, .target = std::make_unique<Type>(lowerType(*applied->constructor, paramOrdinals))};
         for (const auto &argument : applied->arguments)
         {
           TypeArgument lowered{.kind = argument.kind, .span = argument.span};
-          if (argument.kind == syntax::GenericArgumentKind::Type) lowered.type = std::make_unique<Type>(lowerType(*argument.type));
+          if (argument.kind == syntax::GenericArgumentKind::Type) lowered.type = std::make_unique<Type>(lowerType(*argument.type, paramOrdinals));
           else lowered.constExpr = syntax::cloneConstExpr(*argument.constExpr);
           result.arguments.push_back(std::move(lowered));
         }
         return result;
       }
       if (const auto *reference = dynamic_cast<const syntax::ScopedReferenceTypeSyntax *>(&type))
-        return Type{.kind = TypeKind::ScopedReference, .span = type.span,
-                    .target = std::make_unique<Type>(lowerType(*reference->target)), .isMutable = reference->isMutable};
+      {
+        hir::Type lowered{.kind = TypeKind::ScopedReference, .span = type.span,
+                          .target = std::make_unique<Type>(lowerType(*reference->target, paramOrdinals)), .isMutable = reference->isMutable};
+        if (!reference->origins.empty())
+          lowered.originOrdinals = resolveOriginOrdinals(reference->origins, type.span, paramOrdinals);
+        return lowered;
+      }
       if (const auto *pointer = dynamic_cast<const syntax::RawPointerTypeSyntax *>(&type))
         return Type{.kind = TypeKind::RawPointer, .span = type.span,
-                    .target = std::make_unique<Type>(lowerType(*pointer->pointee)), .isMutable = pointer->isMutable};
+                    .target = std::make_unique<Type>(lowerType(*pointer->pointee, paramOrdinals)), .isMutable = pointer->isMutable};
       if (const auto *pack = dynamic_cast<const syntax::PackTypeSyntax *>(&type))
         return Type{.kind = TypeKind::Pack, .span = type.span,
-                    .target = std::make_unique<Type>(lowerType(*pack->target))};
+                    .target = std::make_unique<Type>(lowerType(*pack->target, paramOrdinals))};
       if (const auto *unionType = dynamic_cast<const syntax::UnionTypeSyntax *>(&type))
       {
         Type result{.kind = TypeKind::Union, .span = type.span};
-        for (const auto &member : unionType->members) result.members.push_back(lowerType(*member));
+        for (const auto &member : unionType->members) result.members.push_back(lowerType(*member, paramOrdinals));
         return result;
       }
       if (const auto *closureType = dynamic_cast<const syntax::ClosureTypeSyntax *>(&type))
       {
         Type result{.kind = TypeKind::Closure, .span = type.span};
-        for (const auto &parameter : closureType->parameters) result.parameters.push_back(lowerType(*parameter));
-        result.result = std::make_unique<Type>(lowerType(*closureType->result));
+        for (const auto &parameter : closureType->parameters) result.parameters.push_back(lowerType(*parameter, paramOrdinals));
+        result.result = std::make_unique<Type>(lowerType(*closureType->result, paramOrdinals));
         return result;
       }
       throw ResolutionError("unsupported type during name resolution", type.span);
+    }
+
+    /// D-002 A1.1: resolves `T ref(a | b)` origin names to the enclosing
+    /// function's parameter ordinals, rejecting sources that are not params.
+    [[nodiscard]] auto resolveOriginOrdinals(const std::vector<std::string> &names, syntax::SourceSpan span,
+                                             const std::unordered_map<std::string, uint32_t> *paramOrdinals)
+        -> std::vector<uint32_t>
+    {
+      std::vector<uint32_t> ordinals;
+      if (paramOrdinals == nullptr)
+        throw ResolutionError("reference origin list out of function parameter context", span);
+      for (const auto &name : names)
+      {
+        const auto found = paramOrdinals->find(name);
+        if (found == paramOrdinals->end())
+          throw ResolutionError(std::format("reference origin `{}` is not a parameter of the enclosing function", name),
+                                span);
+        ordinals.push_back(found->second);
+      }
+      return ordinals;
     }
 
     [[nodiscard]] auto renderTypeName(const syntax::TypeSyntax &type) -> std::string
@@ -75,7 +104,18 @@ namespace NG::hir
       }
       if (const auto *reference = dynamic_cast<const syntax::ScopedReferenceTypeSyntax *>(&type))
       {
-        return renderTypeName(*reference->target) + (reference->isMutable ? " ref mut" : " ref");
+        std::string result = renderTypeName(*reference->target) + (reference->isMutable ? " ref mut" : " ref");
+        if (!reference->origins.empty())
+        {
+          result += "(";
+          for (size_t originIndex = 0; originIndex < reference->origins.size(); ++originIndex)
+          {
+            if (originIndex != 0) result += " | ";
+            result += reference->origins[originIndex];
+          }
+          result += ")";
+        }
+        return result;
       }
       if (const auto *pointer = dynamic_cast<const syntax::RawPointerTypeSyntax *>(&type))
       {
@@ -305,16 +345,21 @@ namespace NG::hir
   {
     scopes_.emplace_back();
     TraitMethod resolved{.name = method.name, .span = method.span};
-    for (const auto &parameter : method.parameters)
+    paramOrdinals_.clear();
+    for (size_t index = 0; index < method.parameters.size(); ++index)
     {
+      const auto &parameter = method.parameters[index];
       const LocalId local = declareLocal(parameter.name, parameter.span);
+      paramOrdinals_.emplace(parameter.name, static_cast<uint32_t>(index));
       resolved.parameters.push_back(Parameter{.name = parameter.name,
                                                .typeName = renderTypeName(*parameter.type),
-                                               .type = lowerType(*parameter.type),
+                                               .type = lowerType(*parameter.type, &paramOrdinals_),
                                                .local = local,
                                                .span = parameter.span});
     }
-    if (method.returnType != nullptr) resolved.returnType = std::make_unique<Type>(lowerType(*method.returnType));
+    if (method.returnType != nullptr)
+      resolved.returnType = std::make_unique<Type>(lowerType(*method.returnType, &paramOrdinals_));
+    paramOrdinals_.clear();
     if (method.body.has_value())
     {
       currentReturnTypeName_ = method.returnType != nullptr ? renderTypeName(*method.returnType) : std::string{};
@@ -465,21 +510,25 @@ namespace NG::hir
       }
     }
     resolved.parameters.reserve(function.parameters.size());
-    for (const auto &parameter : function.parameters)
+    paramOrdinals_.clear();
+    for (size_t index = 0; index < function.parameters.size(); ++index)
     {
+      const auto &parameter = function.parameters[index];
       const LocalId local = declareLocal(parameter.name, parameter.span);
       localMutability_.emplace(local.value, false);
+      paramOrdinals_.emplace(parameter.name, static_cast<uint32_t>(index));
       resolved.parameters.push_back(Parameter{.name = parameter.name,
                                                .typeName = renderTypeName(*parameter.type),
-                                               .type = lowerType(*parameter.type),
+                                               .type = lowerType(*parameter.type, &paramOrdinals_),
                                                .local = local,
                                                .span = parameter.span});
     }
     if (function.returnType != nullptr)
     {
       resolved.returnTypeName = renderTypeName(*function.returnType);
-      resolved.returnType = std::make_unique<Type>(lowerType(*function.returnType));
+      resolved.returnType = std::make_unique<Type>(lowerType(*function.returnType, &paramOrdinals_));
     }
+    paramOrdinals_.clear();
     if (function.whereClause != nullptr) resolved.whereClause = resolveExpression(*function.whereClause);
     currentReturnTypeName_ = resolved.returnTypeName.value_or(std::string{});
     ++functionBodyDepth_;
@@ -1251,6 +1300,7 @@ namespace
     for (const auto &member : type.members) cloned.members.push_back(cloneType(member));
     for (const auto &parameter : type.parameters) cloned.parameters.push_back(cloneType(parameter));
     if (type.result != nullptr) cloned.result = std::make_unique<hir::Type>(cloneType(*type.result));
+    cloned.originOrdinals = type.originOrdinals;
     return cloned;
   }
 
