@@ -42,8 +42,23 @@ arguments that NG cannot express without first-class functions.
   3634 assertions, ctest 555/555).
 - INC-13 (`?` try-operator desugar): committed (560 cases / 3662 assertions,
   ctest 561/561).
+- INC-15 (origin contracts, D-002 A1.1): implemented, verified, docs-synced;
+  committed (570 cases / 3672 assertions, ctest 571/571).
 
 ## Recent completed changes
+
+- INC-15: origin contracts for returned scoped references (D-002 A1.1).
+  `T ref(a)` / `T ref mut(a | b)` origin lists are parsed into
+  `ScopedReferenceTypeSyntax.origins`, resolved by the `Resolver` to the
+  enclosing function's parameter ordinals and carried on HIR return
+  `Type.originOrdinals` (clone preserves them). `checkFunction` records the
+  declared origin set; the former blanket "references cannot be returned"
+  rejection is now origin-aware: a returned `T ref` is admitted only when its
+  origin root (Grouped/Index/Member/`ref`/`ref mut`/`*` unwrapped) is a
+  parameter whose ordinal is declared; a bare `T ref` stays non-returnable with
+  an updated message. Positive/negative tests + E2E
+  (`test/origin_contracts_test.cpp`, `example/origin_contracts.ng`).
+  Full suite 570/570 (3672 assertions), ctest 571/571; guard ast.hpp 977 → 980.
 
 - INC-13: HIR-side desugar of the `?` try operator (D-007) into switch +
   early-return. New `TryExpression` syntax node (ast.hpp 966 → 977 guard
@@ -220,7 +235,12 @@ arguments that NG cannot express without first-class functions.
   statement roots; mid-expression, `return <expr>?`, closure bodies, and
   destructuring lets are explicitly rejected for later slices.
 - INC-15 (A1 origin contracts, `T ref(a)` → param ordinals, return-path
-  checks) — **next** per the increment plan.
+  checks) — **done** (see Recent completed changes and worklog 2026-09-08).
+  INC-15 boundary: only returned references with declared origins are admitted;
+  ref fields / cross-call borrows (`array<T> ref` direct indexing,
+  ref-in-aggregate) are INC-16.
+- INC-16 (A1.2/3: references into aggregates + cross-call borrows) — **next**
+  per the increment plan.
 
 ## References
 
