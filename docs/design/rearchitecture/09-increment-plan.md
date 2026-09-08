@@ -386,11 +386,29 @@ INC-14（最小闭包）**前移**至 INC-12/13 之前执行，INC-12/13 顺延�
   （flowir 2203, ast.hpp 966）。下一步：INC-12（Option/Result + 组合子 + 代律
   PBT）。
 
-### INC-12 · prelude Option/Result + 组合子（顺延至闭包落地后）
+### INC-12 · prelude Option/Result + 组合子 — ✅ 完成（2026-09-08）
 - **动作**: prelude 定义两泛型枚举 + map/andThen/orElse（以最小闭包作变换实参）；
   parseInt/std_string 迁移到 Result。
 - **测试**: PBT 函子/单元代律（map/andThen 在生成值上满足律）；
   契约 `option-result.ng`。
+- **落地（2026-09-08）**: ① **泛型枚举**：prelude 新增 `Option<T>`（Some/None）
+  与 `Result<T,E>`（Ok/Err）；`parseInt` 迁回 `Result<i64, string>`（Err 载荷为
+  原输入文本），删除旧 `OptionalInt`（全部调用点已同步）。② **组合子**（闭包
+  实参）：`optMap`/`optAndThen`/`optOrElse` 与 `resultMap`/`resultAndThen`/
+  `resultOrElse`。**命名偏离计划说明**：计划写 map/andThen/orElse；seq.map 已
+  占用 `map`，实测跨模块同名泛型重载的候选评分只静默选中一个候选（option 侧
+  抢走 array 侧的 `map(xs, ...)` 调用 → `expected Opt, got array`），故以
+  opt/result 前缀消歧，保组合子语义。③ **代律 PBT**：
+  `test/option_result_test.cpp`（INC-1 harness）：Option 同一律、组合律
+  （Some/None 双路径）、orElse 默认/穿透；Result 组合律（Ok/Err 双路径），
+  60 trial × 8 探针批量编译运行；因泛型枚举无 derive(Eq) 且具体枚举形参函数
+  不可调（见缺口②），代律等式以嵌套 switch 归约到 i64 相等表达。契约示例
+  `example/option_result.ng`（8 个断言全 true）。**顺带发现的历史缺口**：
+  ① 非泛型函数以具体泛型枚举实例作形参（`Opt<i64>`）→ `no matching
+  function specialization`（未注解 `let x: Option<i64> = ...` 不触发，形参位
+  置触发）；② 无返回注解的块闭包体内 `return` 不可用（尾表达式风格）、具体
+  枚举空构造子作为表达式需要类型上下文（`Option.Some(5)` 作实参/switch 悉知
+  需先绑 `let` 注解）。下一个：INC-13 `?` 脱糖。
 
 ### INC-13 · `?` 脱糖（D-007 落地）
 - **动作**: HIR 侧脱糖为 switch + early-return，挂接三张 drop 边表。
