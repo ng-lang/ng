@@ -53,4 +53,29 @@ ASAN 变体首跑即在 `typecheck.cpp` 抓到一处真实 heap-use-after-free�
 
 - F2/F4 类内存缺陷自此在 CI 可见（asan 变体 + 泄漏计数双通道）。
 - INC-18（exit-time bump arena）落地时，以本表 maxRSS/leak 计数作
-  before 对照；RC/CoW（DEC-C）落地后探针泄漏应归零。
+  before 对照；RC/CoW（DEC-C）落地后，探针泄漏已归零。
+
+---
+
+## INC-18 · exit-time bump arena 落地对照（2026-09-10）
+
+纯程序值分配改道 per-process mmap 匿名 bump arena（`ngrt_alloc`/`ngrt_new_string`
+bump，`ngrt_free` 按指针归属调度，atexit 向 OS 归还）。生成代码 `$malloc` 全移除
+（helpers + 13 处 lowering 发射点 → `$ngrt_alloc`）。保留 malloc 暂存：regex
+`ngrt_c_string`、readFile/systemOutput 缓冲（随用随释放）。
+
+| 指标 | INC-0 基线（before） | INC-18（after） | 说明 |
+|---|---|---|---|
+| 拼接探针 leaks(1) 计数 | 19999 leaks / ≈205.2 MB | **0 leaks / 0 bytes** | `test/leak_probe_test.cpp` 翻转契约 |
+| arena_all 探针 leaks(1) | — | **0 leaks / 0 bytes** | `test/probes/arena_all.ng` 覆盖全部发射点 |
+| 拼接探针峰值 footprint | ≈207.5 MB（maxRSS） | **194.5 MB**（leaks pte footprint） | arena 内增长，看 run 内总账 |
+| 常规构建套件 | 458/458 → 609/609 | 全绿 | INC-18 新增 `[INC-18]` 4 例 |
+
+### 如实标注的限制（过渡脚手架，随 RC/CoW 落地拆除）
+
+- **不解决单运行内增长**：arena 块只增不还（进程退出统一归 OS）；长运行大分配
+  峰值 footprint 高于等价及时释放方案是期望内的账，并非泄漏（leaks 计 0）。
+- 主机侧（ng_test / ngi 进程内）arena 块同样只增不还、进程结束回收；测试进程
+  内统计以 `ngrt_arena_bytes()`/`ngrt_arena_blocks()` 观测。
+- `ngrt_release` 退化为句柄 live-table 逻辑清除，物理归还随 DEC-C（INC-19）
+  的 RC/CoW 存储头一并设计。

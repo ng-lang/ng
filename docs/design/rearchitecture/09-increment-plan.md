@@ -517,6 +517,22 @@ INC-15/16 之后再执行。
 - 依赖 INC-0（asan 对照）。
 - 测试：asan 变体下除 arena 外零泄漏；分配吞吐 smoke（前后对比）。
 - **限制如实标注**：不解决单运行内增长；RC/CoW 落地后拆除。
+- **已落地（INC-18 commit）**: 纯程序值分配改道 per-process mmap 匿名 bump arena
+  （`NgrtArenaBlock` 链，1MiB 块、16B 对齐、块耗尽时 mmap 新块、atexit 统一向 OS
+  归还）；`ngrt_alloc`/`ngrt_new_string` bump 进 arena，`ngrt_free` 按指针归属调度
+  （arena 指针 no-op，外部 malloc 暂存照常释放），`ngrt_release` 退化为仅做句柄
+  live-table 逻辑清除。生成代码中 `$malloc` 全部移除（helpers `str.ssa`/`arr.ssa` + 
+  13 处 lowering 发射点 → `$ngrt_alloc`；libngrt 8 处值返回路径改用
+  ngrt_alloc/arena new_string）。保留 malloc 暂存：`ngrt_c_string`（regex 编译）、
+  readFile 缓冲、systemOutput 缓冲。测试 `test/arena_test.cpp`（[INC-18]，主机侧
+  alloc/free 调度/吞吐引入 `ngrt_arena_bytes()`/`ngrt_arena_blocks()`）、探针
+  `test/probes/arena_all.ng`（覆盖全部发射点分配形态）；macOS `leaks(1)`：
+  拼接探针（`test/leak_probe_test.cpp` 翻转契约）与 arena_all 探针均 0 leak/0 bytes
+  （基线 19999 leaks ≈205MB → 0/0；单运行内存增长如实标注，峰值 footprint 观察不降）。
+  额外修复：`#define _DARWIN_C_SOURCE` 恢复被 `_POSIX_C_SOURCE` 隐藏的 MAP_ANONYMOUS，
+  `MAP_ANON` fallback；helpers 改 calls `$ngrt_alloc` 后 `native_qbe_test` 链接行
+  补 `libngrt.a`（原仅 `libngrt_helpers.a`，全量跑暴露 20 例链接失败）。脚手架性质
+  （随 RC/CoW 落地拆除）不变，见 INC-19。
 
 ### INC-19 · generic `Box<T>` + `new`（B1 核心）
 - 存储模型按 DEC-C：affine Box 走拥有句柄；Copy 聚合共享走 refcount+CoW。
