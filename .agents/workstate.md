@@ -48,11 +48,37 @@ arguments that NG cannot express without first-class functions.
   implemented, verified, docs-synced; committed (598 cases / 3694 assertions,
   ctest 599/599).
 - INC-17 (borrow-capturing closures, M2b): implemented, verified,
-  docs-synced; test `[INC-17]` corpus (11 cases) + focused suite green
-  (193 cases / 801 assertions in `[Borrow]...[INC-17]`); commits pending
-  final full-suite run.
+  docs-synced; committed `eeea445`/`4aab98c`/`5ab9ef6` (`[INC-17]` 11 cases,
+  focused suite 193/193 / 801 assertions, full 609/609 / 3705 assertions,
+  ctest 610/610).
+- INC-18 (exit-time bump arena, 过渡卫生层): implemented; arena probe
+  (`test/probes/arena_all.ng`) + `test/arena_test.cpp` `[INC-18]` 4 cases
+  green incl. leaks(1) 0/0; **full 613/613 (3726 assertions), ASan 613/613,
+  ctest confirm before commit**.
 
 ## Recent completed changes
+
+- INC-18 (exit-time bump arena): all program value allocations now bump a
+  per-process mmap anonymous arena (`NgrtArenaBlock` chain, 1 MiB blocks, 16B
+  alignment, atexit OS return). `ngrt_alloc`/`ngrt_new_string` bump;
+  `ngrt_free` dispatches by pointer origin (arena no-op / malloc scratch free);
+  `ngrt_release` reduced to logical live-table clearing. All generated `$malloc`
+  removed: helpers `str.ssa`/`arr.ssa` (6 sites) + 13 lowering emission points →
+  `$ngrt_alloc`; libngrt value-return paths (ngrt_str_case/replace/join/reverse/
+  split headers/ngrt_allocate cell) → ngrt_alloc/arena new_string. Kept-malloc
+  scratch: regex `ngrt_c_string`, readFile/systemOutput buffers. Fix
+  `_DARWIN_C_SOURCE` restores MAP_ANONYMOUS under `_POSIX_C_SOURCE` (+ MAP_ANON
+  fallback). **CTS caught the helpers→`$ngrt_alloc` link side-effect**: the
+  `native_qbe_test` link lines (helpers archive only) started failing 20 cases;
+  both now append the `NG_NGRT_PATH` archive (`[Qbe]` 47 cases green). macOS
+  leaks(1): concat probe (flipped contract in `test/leak_probe_test.cpp`,
+  19999→0) and arena_all probe both 0 leaks/0 bytes (footprint peak 194.5M,
+  in-run growth documented: blocks are returned only at exit per the DEC-C
+  scaffold limitation). Host stats surface `ngrt_arena_blocks()`/
+  `ngrt_arena_bytes()` pinned by `test/arena_test.cpp` (alloc/free dispatch
+  incl. malloc sentinel, new_string layout, block-crossing throughput
+  200k×64B, release idempotence/reuse). **Full 613/613 (3726 assertions),
+  ASan 613/613.**
 
 - INC-17 (borrow-capturing closures, M2b): multi-bearer `Loan.bearers`
   (release at the last surviving bearer's last use), paired with the
@@ -62,8 +88,8 @@ arguments that NG cannot express without first-class functions.
   declaration. `isAffine` Copy-aware via `derive(Copy)`. Corpora + E2E:
   `test/borrow_capture_test.cpp` (11 `[INC-17]` cases, incl. ref-mut write-
   through runtime) + `example/borrow_capture.ng` (6 true prints, exit 0).
-  Focused suite 193/193 (801 assertions); full-suite + ctest run pending
-  final numbers.
+  Committed `eeea445`/`4aab98c`/`5ab9ef6`; focused 193/193 (801 assertions),
+  full 609/609 (3705 assertions), ctest 610/610.
 
 - INC-16: move/assign-vs-borrow interplay, place-through-ref, and aggregate
   permission rules (D-002 A1.2/3). S1: checker gates `isBorrowed` +
@@ -266,9 +292,13 @@ arguments that NG cannot express without first-class functions.
   ref-in-aggregate permission rules landed (S3); the reference-through-
   reference / slicing boundary (A1.3) and the closure-capture variant of the
   corpus were carried to INC-17 (M2b).
-- INC-17 (M2b borrow-capturing closures) — **done** (see worklog
-  2026-09-10); commits pending full-suite confirmation, then **next** per
-  the increment plan: Phase 6 / INC-18 (exit-time bump arena).
+- INC-17 (M2b borrow-capturing closures) — **done** (`eeea445`/`4aab98c`/
+  `5ab9ef6`; see Recent completed changes and worklog 2026-09-10).
+- INC-18 (exit-time bump arena) — **implemented**: verification running
+  (focused + full suite + ctest + leaks(1) 0/0 confirmed), docs-synced,
+  commit (feat/docs/chore) pending confirmation, after which **next** per the
+  increment plan: Phase 6 堆域线 INC-19 (generic `Box<T>` + `new`, DEC-C
+  RC/CoW storage — arena 拆除时点随此落地).
 
 ## References
 
