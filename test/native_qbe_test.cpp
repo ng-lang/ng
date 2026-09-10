@@ -44,16 +44,29 @@ namespace
     const auto run = [](const std::string &command) -> int { return std::system(command.c_str()); };
     INFO(il);
     REQUIRE(run(std::format("'{}' -o '{}' '{}'", NG_QBE_PATH, asmFile.string(), ilFile.string())) == 0);
+#if defined(NG_NGRT_HELPERS_PATH) || defined(NG_NGRT_PATH)
+    // ARCH-1: runtime helpers live in a separate build-time archive. INC-18:
+    // helpers allocate through the bump arena, so their `$ngrt_alloc` calls
+    // must be resolved against the ngrt archive in the same link.
+    const auto runtimeArchives = [] {
+      std::string archs;
 #ifdef NG_NGRT_HELPERS_PATH
-    // ARCH-1: runtime helpers live in a separate build-time archive.
-    const auto helpersArchive = std::format("'{}'", NG_NGRT_HELPERS_PATH);
+      archs = std::format("'{}'", NG_NGRT_HELPERS_PATH);
+#endif
+#ifdef NG_NGRT_PATH
+      if (!archs.empty())
+        archs += " ";
+      archs += std::format("'{}'", NG_NGRT_PATH);
+#endif
+      return archs;
+    }();
 #else
-    const auto helpersArchive = std::string{""};
+    const auto runtimeArchives = std::string{""};
 #endif
 #ifdef __linux__
-    REQUIRE(run(std::format("cc '{}' {} -o '{}' -lm", asmFile.string(), helpersArchive, executable.string())) == 0);
+    REQUIRE(run(std::format("cc '{}' {} -o '{}' -lm", asmFile.string(), runtimeArchives, executable.string())) == 0);
 #else
-    REQUIRE(run(std::format("cc '{}' {} -o '{}'", asmFile.string(), helpersArchive, executable.string())) == 0);
+    REQUIRE(run(std::format("cc '{}' {} -o '{}'", asmFile.string(), runtimeArchives, executable.string())) == 0);
 #endif
     const int status = run(std::format("'{}'", executable.string()));
     REQUIRE(WIFEXITED(status));
@@ -259,16 +272,29 @@ TEST_CASE("vNext native lowering round-trips tail recursion through qbe and the 
   const auto run = [](const std::string &command) -> int { return std::system(command.c_str()); };
   INFO(il);
   REQUIRE(run(std::format("'{}' -o '{}' '{}'", NG_QBE_PATH, asmFile.string(), ilFile.string())) == 0);
+#if defined(NG_NGRT_HELPERS_PATH) || defined(NG_NGRT_PATH)
+  // ARCH-1: runtime helpers live in a separate build-time archive. INC-18:
+  // helpers allocate through the bump arena, so their `$ngrt_alloc` calls
+  // must be resolved against the ngrt archive in the same link.
+  const auto runtimeArchives = [] {
+    std::string archs;
 #ifdef NG_NGRT_HELPERS_PATH
-  // ARCH-1: runtime helpers live in a separate build-time archive.
-  const auto helpersArchive = std::format("'{}'", NG_NGRT_HELPERS_PATH);
+    archs = std::format("'{}'", NG_NGRT_HELPERS_PATH);
+#endif
+#ifdef NG_NGRT_PATH
+    if (!archs.empty())
+      archs += " ";
+    archs += std::format("'{}'", NG_NGRT_PATH);
+#endif
+    return archs;
+  }();
 #else
-  const auto helpersArchive = std::string{""};
+  const auto runtimeArchives = std::string{""};
 #endif
 #ifdef __linux__
-  REQUIRE(run(std::format("cc '{}' {} -o '{}' -lm", asmFile.string(), helpersArchive, executable.string())) == 0);
+  REQUIRE(run(std::format("cc '{}' {} -o '{}' -lm", asmFile.string(), runtimeArchives, executable.string())) == 0);
 #else
-  REQUIRE(run(std::format("cc '{}' {} -o '{}'", asmFile.string(), helpersArchive, executable.string())) == 0);
+  REQUIRE(run(std::format("cc '{}' {} -o '{}'", asmFile.string(), runtimeArchives, executable.string())) == 0);
 #endif
   const int status = run(std::format("'{}'", executable.string()));
   REQUIRE(WIFEXITED(status));

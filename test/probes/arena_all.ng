@@ -1,0 +1,81 @@
+// INC-18 probe: exercise every program value allocation form so the exit-time
+// bump arena is the only allocation path in a generated executable. Run under
+// leaks(1) it must report zero malloc leaks; the host-side smoke in
+// test/arena_test.cpp checks the counter surface.
+
+import prelude;
+import memory;
+import seq;
+
+struct Point { x: i64, y: i64 }
+enum Choice { Nothing, Pair(i64, i64) }
+
+fun main() -> unit {
+    // String literal, concatenation, and numeric/bool conversion.
+    let a = "ng";
+    let b = a + "-arena";
+    assert(b == "ng-arena");
+    assert(toString(9) == "9");
+    assert(toString(false) == "false");
+
+    // String transforms (str_case / replace / trim / charAt / substring).
+    assert(toUpper("aB") == "AB");
+    assert(toLower("Xy") == "xy");
+    assert(trim("  x ") == "x");
+    assert(replace("abc", "b", "X") == "aXc");
+    assert(charAt("xy", 1) == "y");
+    assert(substring("hello", 1, 3) == "el");
+
+    // split header + part strings, join.
+    let parts = split("a,b,c", ",");
+    assert(len(parts) == 3);
+    assert(join(parts, "-") == "a-b-c");
+
+    // Array literal + append + slice + seq.reverse.
+    let xs = [1, 2, 3];
+    let longer = xs << 4;
+    assert(longer[3] == 4);
+    let sliced = xs[1..3];
+    assert(len(sliced) == 2);
+    assert(sliced[0] == 2);
+    let rev = reverse([1, 2, 3]);
+    assert(rev[0] == 3);
+
+    // Aggregates: struct, tuple, enum (switch) literals.
+    let p = Point { x: 2, y: 3 };
+    assert(p.x + p.y == 5);
+    let tup = (4, 5);
+    assert(tup.0 + tup.1 == 9);
+    let choice: Choice = Choice.Pair(6, 7);
+    let mut total = 0;
+    switch (choice) {
+        case Nothing { total := total + 0; }
+        case Pair(a, b) { total := total + a + b; }
+    }
+    assert(total == 13);
+
+    // std.memory handle cells: allocate/store/load/release and Box drop.
+    let h = allocate(11);
+    store(h, 12);
+    assert(load(h) == 12);
+    assert(outstanding() >= 1);
+    release(h);
+    let mut first = box(7);
+    write(ref first, 9);
+    let readback = read(ref first);
+    let temp = box(100);
+    assert(readback == 9);
+    assert(outstanding() >= 2);
+    let _kept = read(ref temp);
+
+    // Closure capture and ref-mut cells.
+    let base = 10;
+    let add_base = [base] || base + 1;
+    assert(add_base() == 11);
+    let mut n = 1;
+    let nr = ref mut n;
+    *nr := 2;
+    assert(n == 2);
+
+    print("arena-ok");
+}

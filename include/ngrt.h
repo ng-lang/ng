@@ -36,6 +36,14 @@ void *ngrt_alloc(int64_t size);
 char *ngrt_new_string(const char *bytes, int64_t length);
 void ngrt_free(void *pointer);
 
+// INC-18: exit-time bump arena. `ngrt_alloc`/`ngrt_new_string` are served from
+// a per-process bump arena (mmap'd anonymous blocks, released at exit);
+// `ngrt_free` no-ops for arena-owned pointers and still frees malloc'd
+// scratch. The counters are for throughput smoke tests.
+int64_t ngrt_arena_blocks(void);
+int64_t ngrt_arena_bytes(void);
+void ngrt_arena_release(void);
+
 // Prelude.
 int64_t ngrt_print_i64(int64_t value);
 int64_t ngrt_print_u64(uint64_t value);

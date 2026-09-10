@@ -66,7 +66,7 @@ namespace NG::native::detail
   {
     const auto &slot = localSlots_.at(local);
     const auto cell = fresh();
-    line(std::format("{} =l call $malloc(l 8)", cell));
+    line(std::format("{} =l call $ngrt_alloc(l 8)", cell));
     line(std::format("storel {}, {}", cell, slot));
     line(std::format("storel {}, {}", value, cell));
   }
@@ -199,9 +199,9 @@ namespace NG::native::detail
       if (slot.heapCell)
       {
         // Cell locals: the slot stores a pointer to the current cell.
-        line(std::format("{} =l call $malloc(l 8)", localSlots_.at(slot.local)));
+        line(std::format("{} =l call $ngrt_alloc(l 8)", localSlots_.at(slot.local)));
         const auto cell = fresh();
-        line(std::format("{} =l call $malloc(l 8)", cell));
+        line(std::format("{} =l call $ngrt_alloc(l 8)", cell));
         line(std::format("storel {}, {}", cell, localSlots_.at(slot.local)));
         line(std::format("storel 0, {}", cell));
       }

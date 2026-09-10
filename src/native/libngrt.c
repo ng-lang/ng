@@ -15,6 +15,12 @@
 // independent of the platform's `long` width.
 #define _POSIX_C_SOURCE 200809L
 
+#ifdef __APPLE__
+// Restore the BSD mmap flags (MAP_ANON/MAP_ANONYMOUS) that _POSIX_C_SOURCE
+// hides; every other extension stays POSIX (INC-18 bump arena).
+#define _DARWIN_C_SOURCE 1
+#endif
+
 #include "ngrt.h"
 
 #include <ctype.h>
@@ -25,6 +31,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mman.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -70,28 +77,160 @@ static void ngrt_fail(const char *message)
   ngrt_error_handler(message);
 }
 
+/* ------------------------------------------------------------------------- */
+/* INC-18 (exit-time bump arena)                                              */
+/* ------------------------------------------------------------------------- */
+
+/* The program heap is served by a per-process bump arena. Every program-owned
+ * value allocation (strings, arrays, aggregate headers, box cells, closure
+ * cells) comes from one of a chain of mmap'd anonymous blocks; individual
+ * blocks are never returned. The whole arena is released when the process
+ * exits — an `atexit` handler munmaps the blocks, and the OS reclaims them in
+ * any case — which is the transitional hygiene layer of DEC-C (RC + CoW land
+ * in INC-19). It deliberately does not bound within-run growth, and a pointer
+ * whose physical storage lives in the arena is not individually freeable
+ * (`ngrt_free` no-ops for those; `ngrt_release` keeps the logical
+ * live-handle removal only).
+ *
+ * The arena is single-threaded by design (the runtime has no concurrency
+ * today); guard against lock-order concerns if a parallel executor ever
+ * lands, and note that ANONYMOUS mmap is never visible to malloc-based leak
+ * reporters (leaks(1) / LeakSanitizer), so a program that exercises only the
+ * arena reports zero malloc leaks. */
+
+typedef struct NgrtArenaBlock NgrtArenaBlock;
+struct NgrtArenaBlock
+{
+  NgrtArenaBlock *next;
+  size_t capacity; /* usable bytes after the header */
+  size_t used;     /* bump watermark within this block */
+  size_t mappingSize;
+  char data[] __attribute__((aligned(16)));
+};
+
+#define NGRT_ARENA_BLOCK_CAPACITY ((size_t) 1 << 20)
+
+#ifndef MAP_ANONYMOUS
+#define MAP_ANONYMOUS MAP_ANON
+#endif
+
+static NgrtArenaBlock *ngrt_arena_head = NULL;
+static NgrtArenaBlock *ngrt_arena_current = NULL;
+static int ngrt_arena_exit_registered = 0;
+
+void ngrt_arena_release(void)
+{
+  NgrtArenaBlock *block = ngrt_arena_head;
+  while (block != NULL)
+  {
+    NgrtArenaBlock *next = block->next;
+    munmap(block, block->mappingSize);
+    block = next;
+  }
+  ngrt_arena_head = NULL;
+  ngrt_arena_current = NULL;
+}
+
+static void ngrt_arena_exit_handler(void)
+{
+  ngrt_arena_release();
+}
+
+static void ngrt_arena_grow(size_t size)
+{
+  if (!ngrt_arena_exit_registered)
+  {
+    ngrt_arena_exit_registered = 1;
+    atexit(ngrt_arena_exit_handler);
+  }
+  const size_t headerSize = sizeof(NgrtArenaBlock);
+  const size_t capacity = size > NGRT_ARENA_BLOCK_CAPACITY ? size : NGRT_ARENA_BLOCK_CAPACITY;
+  const long page = sysconf(_SC_PAGESIZE);
+  const size_t pageSize = page > 0 ? (size_t) page : 4096;
+  size_t mappingSize = headerSize + capacity;
+  if (mappingSize % pageSize != 0)
+    mappingSize += pageSize - mappingSize % pageSize;
+  void *base = mmap(NULL, mappingSize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  if (base == MAP_FAILED)
+    abort();
+  NgrtArenaBlock *block = (NgrtArenaBlock *) base;
+  block->next = NULL;
+  block->capacity = mappingSize - headerSize;
+  block->used = 0;
+  block->mappingSize = mappingSize;
+  if (ngrt_arena_current != NULL)
+    ngrt_arena_current->next = block;
+  else
+    ngrt_arena_head = block;
+  ngrt_arena_current = block;
+}
+
+static void *ngrt_arena_bump(size_t size)
+{
+  size = (size + 15) & ~(size_t) 15;
+  if (ngrt_arena_current == NULL || ngrt_arena_current->used + size > ngrt_arena_current->capacity)
+    ngrt_arena_grow(size);
+  void *result = ngrt_arena_current->data + ngrt_arena_current->used;
+  ngrt_arena_current->used += size;
+  return result;
+}
+
+static int ngrt_pointer_in_arena(const void *pointer)
+{
+  for (const NgrtArenaBlock *block = ngrt_arena_head; block != NULL; block = block->next)
+  {
+    const char *begin = block->data;
+    const char *end = begin + block->used;
+    const char *p = (const char *) pointer;
+    if (p >= begin && p < end)
+      return 1;
+  }
+  return 0;
+}
+
+/* Replaces the malloc-per-value allocation of the pre-INC-18 runtime: the
+ * generated code emits `$ngrt_alloc` (not `$malloc`) for every program
+ * allocation, and both this and `ngrt_new_string` bump into the arena. */
 void *ngrt_alloc(int64_t size)
 {
-  void *result = malloc((size_t) size);
-  if (result == NULL)
+  if (size < 0)
     abort();
-  return result;
+  return ngrt_arena_bump((size_t) size);
 }
 
 char *ngrt_new_string(const char *bytes, int64_t length)
 {
-  char *result = (char *) malloc((size_t) length + 8);
-  if (result == NULL)
-    abort();
+  char *result = (char *) ngrt_arena_bump((size_t) length + 8);
   *(int64_t *) result = length;
   if (length > 0)
     memcpy(result + 8, bytes, (size_t) length);
   return result;
 }
 
+/* Arena-owned pointers are not individually freeable (bump allocation);
+ * malloc'd scratch (C-string conversions, file/command buffers, the live
+ * handle table) still goes through plain free(). */
 void ngrt_free(void *pointer)
 {
+  if (pointer == NULL || ngrt_pointer_in_arena(pointer))
+    return;
   free(pointer);
+}
+
+int64_t ngrt_arena_blocks(void)
+{
+  int64_t count = 0;
+  for (const NgrtArenaBlock *block = ngrt_arena_head; block != NULL; block = block->next)
+    ++count;
+  return count;
+}
+
+int64_t ngrt_arena_bytes(void)
+{
+  int64_t total = 0;
+  for (const NgrtArenaBlock *block = ngrt_arena_head; block != NULL; block = block->next)
+    total += (int64_t) block->used;
+  return total;
 }
 
 /* ------------------------------------------------------------------------- */
@@ -287,7 +426,7 @@ static char *ngrt_str_case(const char *value, int upper)
 {
   int64_t length = ngrt_str_len(value);
   const char *bytes = ngrt_str_bytes(value);
-  char *result = (char *) malloc((size_t) length + 8);
+  char *result = (char *) ngrt_alloc((size_t) length + 8);
   if (result == NULL)
     abort();
   *(int64_t *) result = length;
@@ -389,7 +528,7 @@ char *ngrt_replace(const char *text, const char *needle, const char *replacement
       ++index;
   }
   int64_t resultLength = textLength + occurrences * (replacementLength - needleLength);
-  char *result = (char *) malloc((size_t) resultLength + 8);
+  char *result = (char *) ngrt_alloc((size_t) resultLength + 8);
   if (result == NULL)
     abort();
   *(int64_t *) result = resultLength;
@@ -418,7 +557,7 @@ void *ngrt_split(const char *text, const char *delimiter)
   if (delimiterLength == 0)
   {
     /* Split on an empty delimiter returns the whole text as one part. */
-    int64_t *result = (int64_t *) malloc(sizeof(int64_t) * 3);
+    int64_t *result = (int64_t *) ngrt_alloc(sizeof(int64_t) * 3);
     if (result == NULL)
       abort();
     result[0] = 1;
@@ -433,7 +572,7 @@ void *ngrt_split(const char *text, const char *delimiter)
       ++parts;
       index += delimiterLength - 1;
     }
-  int64_t *result = (int64_t *) malloc(sizeof(int64_t) * (size_t) (parts + 2));
+  int64_t *result = (int64_t *) ngrt_alloc(sizeof(int64_t) * (size_t) (parts + 2));
   if (result == NULL)
     abort();
   result[0] = parts;
@@ -467,7 +606,7 @@ char *ngrt_join(const void *items, const char *separator)
     if (index + 1 < count)
       total += separatorLength;
   }
-  char *result = (char *) malloc((size_t) total + 8);
+  char *result = (char *) ngrt_alloc((size_t) total + 8);
   if (result == NULL)
     abort();
   *(int64_t *) result = total;
@@ -536,7 +675,7 @@ void *ngrt_reverse(const void *array)
 {
   const int64_t *header = array;
   int64_t length = header[0];
-  int64_t *result = (int64_t *) malloc(sizeof(int64_t) * (size_t) (length + 2));
+  int64_t *result = (int64_t *) ngrt_alloc(sizeof(int64_t) * (size_t) (length + 2));
   if (result == NULL)
     abort();
   result[0] = length;
@@ -654,7 +793,7 @@ static void ngrt_live_remove(int64_t handle)
 
 int64_t ngrt_allocate(int64_t value)
 {
-  int64_t *cell = (int64_t *) malloc(sizeof(int64_t));
+  int64_t *cell = (int64_t *) ngrt_alloc(sizeof(int64_t));
   if (cell == NULL)
     abort();
   *cell = value;
@@ -691,7 +830,9 @@ int64_t ngrt_release(int64_t handle)
     return -1;
   }
   ngrt_live_remove(handle);
-  free((void *) (uintptr_t) handle);
+  /* Cells are arena-owned (INC-18): the logical release above is the only
+   * reclamation within the run; the physical block is returned at exit. */
+  ngrt_free((void *) (uintptr_t) handle);
   return 0;
 }
 
@@ -888,7 +1029,7 @@ char *ngrt_systemOutput(const char *command)
     char suffix[64];
     snprintf(suffix, sizeof suffix, "[exit %d]", code);
     size_t suffixLength = strlen(suffix);
-    char *result = (char *) malloc(length + suffixLength + 8);
+    char *result = (char *) ngrt_alloc(length + suffixLength + 8);
     if (result == NULL)
       abort();
     *(int64_t *) result = (int64_t) (length + suffixLength);

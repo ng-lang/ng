@@ -1,12 +1,16 @@
 // AI-generated code; reviewed for this repository's vNext rewrite.
-// INC-0: leak probe corpus + deterministic leak-count baseline.
+// INC-0 + INC-18: leak probe corpus and the arena leak contract.
 //
 // The probe program (test/probes/leak_concat.ng) retains every intermediate
-// string buffer, so a correct accounting reports ~one leaked allocation per
-// concatenation. LeakSanitizer is unavailable on arm64 macOS (Apple clang:
-// "detect_leaks is not supported"), so the deterministic count comes from
-// the platform `leaks` tool (MallocStackLogging) run against the generated
-// executable; the ASan/UBSan build variant guards memory errors separately.
+// string buffer, so a non-arena runtime reports ~one leaked malloc block per
+// concatenation. INC-18 routes every program value allocation through the
+// exit-time bump arena (mmap'd anonymous blocks, released at exit), which is
+// never visible to malloc-based leak reporters — so the deterministic
+// contract is now ZERO malloc leaks for the same probe. LeakSanitizer is
+// unavailable on arm64 macOS ("detect_leaks is not supported"), so the count
+// comes from the platform `leaks` tool (MallocStackLogging) run against the
+// generated executable; the ASan/UBSan build variant guards memory errors
+// separately.
 
 #include "driver.hpp"
 #include "test.hpp"
@@ -80,7 +84,7 @@ TEST_CASE("INC-0 leak probe corpus compiles and runs cleanly", "[INC0][Leak][Pro
 }
 
 #ifdef __APPLE__
-TEST_CASE("INC-0 leak probe yields a deterministic leak count via leaks(1)", "[INC0][Leak][Probe]")
+TEST_CASE("INC-18 arena: leak probe reports zero malloc leaks via leaks(1)", "[INC18][Leak][Probe]")
 {
   const auto executable = std::filesystem::temp_directory_path() / "ng_leak_probe_out";
   std::error_code ignored;
@@ -101,13 +105,14 @@ TEST_CASE("INC-0 leak probe yields a deterministic leak count via leaks(1)", "[I
   }
   else
   {
-    // 19999 concatenations each strand the previous buffer; allow slack for
-    // allocator coalescing and runtime bookkeeping around both bounds.
-    CHECK(leakedAllocations >= 15000);
-    CHECK(leakedBytes >= 100'000'000);
+    // Every program allocation is arena-owned (INC-18), so the 19999 leaked
+    // concatenation buffers are gone: the mallocs left at exit are at most
+    // dyld/libc one-time allocations (originally a handful of nodes).
+    CHECK(leakedAllocations == 0);
+    CHECK(leakedBytes == 0);
   }
-  WARN("INC-0 baseline: leaks(1) reported " << leakedAllocations << " leaked allocations / " << leakedBytes
-                                            << " bytes");
+  WARN("INC-18: leaks(1) reported " << leakedAllocations << " leaked allocations / " << leakedBytes
+                                    << " bytes (arena-reclaimed; was 19999 / ~205 MB pre-INC-18)");
   std::filesystem::remove(executable, ignored);
 }
 #endif

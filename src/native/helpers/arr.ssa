@@ -30,7 +30,7 @@ export function l $ngrt_arr_append(l %a, l %e) {
 	%n =l add %len, 1
 	%total =l mul %n, 8
 	%total =l add %total, 16
-	%p =l call $malloc(l %total)
+	%p =l call $ngrt_alloc(l %total)
 	storel %n, %p
 	%cap =l add %p, 8
 	storel %n, %cap
@@ -58,7 +58,7 @@ export function l $ngrt_arr_slice(l %a, l %s, l %e) {
 	%n =l sub %e, %s
 	%size =l mul %n, 8
 	%total =l add %size, 16
-	%p =l call $malloc(l %total)
+	%p =l call $ngrt_alloc(l %total)
 	storel %n, %p
 	%cap =l add %p, 8
 	storel %n, %cap
@@ -75,7 +75,7 @@ export function l $ngrt_arr_clone_words(l %src) {
 	%len =l loadl %src
 	%size =l mul %len, 8
 	%total =l add %size, 16
-	%p =l call $malloc(l %total)
+	%p =l call $ngrt_alloc(l %total)
 	storel %len, %p
 	%cap =l add %p, 8
 	storel %len, %cap
@@ -90,7 +90,7 @@ export function l $ngrt_arr_clone_strings(l %src) {
 	%len =l loadl %src
 	%size =l mul %len, 8
 	%total =l add %size, 16
-	%p =l call $malloc(l %total)
+	%p =l call $ngrt_alloc(l %total)
 	storel %len, %p
 	%cap =l add %p, 8
 	storel %len, %cap

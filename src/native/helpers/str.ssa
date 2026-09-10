@@ -7,7 +7,7 @@ export function l $ngrt_str_concat(l %a, l %b) {
 	%lb =l loadl %b
 	%n =l add %la, %lb
 	%size =l add %n, 8
-	%p =l call $malloc(l %size)
+	%p =l call $ngrt_alloc(l %size)
 	storel %n, %p
 	%pa =l add %p, 8
 	%sa =l add %a, 8
@@ -22,7 +22,7 @@ export function l $ngrt_str_clone(l %s) {
 @start
 	%len =l loadl %s
 	%total =l add %len, 8
-	%p =l call $malloc(l %total)
+	%p =l call $ngrt_alloc(l %total)
 	storel %len, %p
 	%dst =l add %p, 8
 	%src =l add %s, 8

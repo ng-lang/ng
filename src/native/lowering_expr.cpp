@@ -204,7 +204,7 @@ namespace NG::native::detail
             std::format("native lowering (M2): only local-rooted trait views are supported in `{}`", function_.name));
       const auto reference = emitRefObject(instruction.placeRootLocal->value, instruction.placeSteps);
       const auto view = fresh();
-      line(std::format("{} =l call $malloc(l 24)", view));
+      line(std::format("{} =l call $ngrt_alloc(l 24)", view));
       line(std::format("storel {}, {}", reference, view));
       const auto traitAddress = fresh();
       line(std::format("{} =l add {}, 8", traitAddress, view));
@@ -335,7 +335,7 @@ namespace NG::native::detail
         if (isUnionType(localType) && !isUnionType(valueTypeId))
         {
           wrappedBox = fresh();
-          line(std::format("{} =l call $malloc(l 16)", wrappedBox));
+          line(std::format("{} =l call $ngrt_alloc(l 16)", wrappedBox));
           line(std::format("storel {}, {}", unionMemberFor(localType, valueTypeId), wrappedBox));
           const auto address = fresh();
           line(std::format("{} =l add {}, 8", address, wrappedBox));
@@ -673,7 +673,7 @@ namespace NG::native::detail
     if (payload == 19)
     {
       const auto pointer = fresh();
-      line(std::format("{} =l call $malloc(l 16)", pointer));
+      line(std::format("{} =l call $ngrt_alloc(l 16)", pointer));
       line(std::format("storel {}, {}", left, pointer));
       const auto endAddress = fresh();
       line(std::format("{} =l add {}, 8", endAddress, pointer));

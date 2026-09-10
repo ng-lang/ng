@@ -28,7 +28,7 @@ namespace NG::native::detail
                                      const std::string &payloadTemp, QType payloadType)
   {
     const auto pointer = fresh();
-    line(std::format("{} =l call $malloc(l 16)", pointer));
+    line(std::format("{} =l call $ngrt_alloc(l 16)", pointer));
     line(std::format("storel {}, {}", member, pointer));
     const auto address = fresh();
     line(std::format("{} =l add {}, 8", address, pointer));
@@ -222,7 +222,7 @@ namespace NG::native::detail
     const auto allocation = fresh();
     line(std::format("{} =l add {}, 16", allocation, bytes));
     const auto pointer = fresh();
-    line(std::format("{} =l call $malloc(l {})", pointer, allocation));
+    line(std::format("{} =l call $ngrt_alloc(l {})", pointer, allocation));
     line(std::format("storel {}, {}", total, pointer));
     const auto capAddress = fresh();
     line(std::format("{} =l add {}, 8", capAddress, pointer));
@@ -277,7 +277,7 @@ namespace NG::native::detail
     const auto normalized = normalizeSteps(rootType, steps);
     const size_t count = normalized.size();
     const auto pointer = fresh();
-    line(std::format("{} =l call $malloc(l {})", pointer, 16 + count * 16));
+    line(std::format("{} =l call $ngrt_alloc(l {})", pointer, 16 + count * 16));
     line(std::format("storel {}, {}", root, pointer));
     const auto countAddress = fresh();
     line(std::format("{} =l add {}, 8", countAddress, pointer));
@@ -318,7 +318,7 @@ namespace NG::native::detail
       // Heap copy of the two words (tag + payload; payload words are
       // never mutated in place, so sharing a tuple payload is safe).
       const auto clone = fresh();
-      line(std::format("{} =l call $malloc(l 16)", clone));
+      line(std::format("{} =l call $ngrt_alloc(l 16)", clone));
       emitAggregateCopy(clone, source, type);
       return clone;
     }
@@ -331,9 +331,9 @@ namespace NG::native::detail
       // Struct clones live on the heap: they are values that can be
       // borrowed and escape their frame (cell locals store the pointer).
       if (descriptor.kind == TypeKind::Struct)
-        line(std::format("{} =l call $malloc(l {})", clone, count * 8));
+        line(std::format("{} =l call $ngrt_alloc(l {})", clone, count * 8));
       else
-        line(std::format("{} =l call $malloc(l {})", clone, count * 8 + header));
+        line(std::format("{} =l call $ngrt_alloc(l {})", clone, count * 8 + header));
       if (descriptor.kind == TypeKind::Tuple)
       {
         line(std::format("storel {}, {}", count, clone));
@@ -406,7 +406,7 @@ namespace NG::native::detail
   {
     const size_t count = instruction.operands.size();
     const auto pointer = fresh();
-    line(std::format("{} =l call $malloc(l {})", pointer, count * 8 + 16));
+    line(std::format("{} =l call $ngrt_alloc(l {})", pointer, count * 8 + 16));
     line(std::format("storel {}, {}", count, pointer));
     const auto cap = fresh();
     line(std::format("{} =l add {}, 8", cap, pointer));
