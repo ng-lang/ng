@@ -78,16 +78,21 @@ namespace NG::typecheck::detail
       {
         const hir::Expression *site{};
         uint32_t root{};
-        uint32_t tiedLocal{};
+        // INC-17 (M2b): a scoped reference can have several live bearers. A
+        // `ref x` binding is the primary bearer; a closure capturing that
+        // binding becomes an anonymous borrower and is appended here, so the
+        // loan only releases once every bearer is dead. Bearer 0 marks an
+        // untied expression-level loan (released at statement end).
+        std::vector<uint32_t> bearers{};
         bool mutableLoan{};
       };
       std::vector<Loan> loans;
       std::unordered_map<uint32_t, Counts> counts;
       static constexpr size_t MaxShared{16};
 
-      void add(const hir::Expression *site, uint32_t root, uint32_t tiedLocal, bool mutableLoan)
+      void add(const hir::Expression *site, uint32_t root, uint32_t bearer, bool mutableLoan)
       {
-        loans.push_back(Loan{site, root, tiedLocal, mutableLoan});
+        loans.push_back(Loan{site, root, {bearer}, mutableLoan});
         rebuildCounts();
       }
 
@@ -378,6 +383,11 @@ namespace NG::typecheck::detail
     std::unordered_set<uint32_t> derivedCloneTypes_;
     std::unordered_set<uint32_t> derivedEqTypes_;
     std::unordered_set<uint32_t> derivedShowTypes_;
+    /// Types that derive Copy: pass-by-value / move of these does not consume
+    /// the binding (Copy semantics, D-002 rule 1). INC-17 M2b surfaced that
+    /// instance checks clobbered the enclosing move state, hiding an old
+    /// conflating of Copy-typed nominals with affine ones.
+    std::unordered_set<uint32_t> derivedCopyTypes_;
     std::unordered_map<uint32_t, std::vector<std::string>> dropMovedFields_;
     std::unordered_map<const hir::Expression *, std::pair<std::string, TypeId>> traitViewCoercions_;
     std::unordered_map<const hir::Expression *, std::pair<std::string, size_t>> traitViewCalls_;

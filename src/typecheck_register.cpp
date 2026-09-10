@@ -99,6 +99,8 @@ auto Checker::check(const hir::Module &module, const const_eval::ConstNativeHost
       impls_.push_back(ImplInfo{.traitName = traitName, .target = target, .methods = {}});
       if (traitName == "Clone")
         derivedCloneTypes_.insert(target.value);
+      if (traitName == "Copy")
+        derivedCopyTypes_.insert(target.value);
       if (traitName == "Eq")
       {
         // Validate: every field must be Eq-comparable (primitives, Eq structs, or

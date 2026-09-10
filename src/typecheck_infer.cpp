@@ -1530,8 +1530,19 @@ auto Checker::infer(const hir::Expression &expression, const LocalTypes &locals)
     // the callee with the concrete closure binding.
     std::vector<size_t> deferredClosureArgs;
     std::vector<std::pair<size_t, hir::DefId>> closureTargets;
+    // INC-17: reuse the argument types precomputed by analyzeCallSpread instead
+    // of re-inferring. Re-inferring a nested call re-reads its by-value affine
+    // locals (which the first pass already consumed), raising a spurious
+    // E-move-used on the second pass. Closure-literal slots are left empty
+    // (TypeId{}) by analyzeCallSpread and are inferred on demand instead.
     const auto argumentTypeAt = [&](size_t index) -> TypeId
-    { return hasSpread ? spreadInfo.expandedTypes[index] : infer(*expression.operands[index + 1], locals); };
+    {
+      if (hasSpread)
+        return spreadInfo.expandedTypes[index];
+      if (expression.operands[index + 1]->kind == hir::ExpressionKind::Closure)
+        return infer(*expression.operands[index + 1], locals);
+      return spreadInfo.expandedTypes[index];
+    };
     if (!expression.genericArguments.empty())
     {
       substitution = explicitSubstitution(expression, signature);

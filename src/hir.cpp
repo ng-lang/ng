@@ -1176,7 +1176,13 @@ namespace NG::hir
         // body references read the captured value (a code-function param),
         // not the enclosing local directly.
         const LocalId param = declareLocal(capture.name, capture.span);
-        localMutability_.emplace(param.value, false);
+        // INC-17 (M2b): capture params shadow enclosing locals and carry their
+        // types (which may be `T ref` / `T ref mut`). The resolver cannot see
+        // captured types, so the ref mutability of a write is enforced by the
+        // type checker (`requireMutableDeref`) — mirroring the function-param
+        // comment in `resolveFunction`: writing through a reference does not
+        // rebind the reference itself.
+        localMutability_.emplace(param.value, true);
         resolved->closureCaptures.push_back(Expression::CaptureInfo{.local = source, .isMove = capture.isMove});
         resolved->closureCaptureParams.push_back(param);
       }

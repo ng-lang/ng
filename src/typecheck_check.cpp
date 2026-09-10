@@ -48,6 +48,21 @@ void Checker::checkFunction(const hir::Function &function, const const_eval::Con
   activeConstBindings_ = constBindings;
   const auto previousGenericBindings = std::move(genericBindings_);
   const bool previousConstGeneric = inConstGenericFunction_;
+  // INC-17 (M2b): closure literals are checked as synthesized functions,
+  // re-entering checkFunction mid-statement of the enclosing body. Save the
+  // enclosing function's transient statement/borrow/move state so the closure
+  // check cannot wipe live loans (a closure capturing a ref is an anonymous
+  // borrower) or clobber the enclosing move/mutable context; restore at exit.
+  const MutableBindings savedMutableBindings = std::move(mutableBindings_);
+  MoveState savedMoveState = std::move(moveState_);
+  BorrowState savedBorrowState = std::move(borrowState_);
+  const auto savedBorrowExpressions = std::move(borrowExpressions_);
+  const auto savedReleasedLoans = std::move(releasedLoans_);
+  const auto savedLastUseCache = std::move(lastUseCache_);
+  const auto savedParameterLocals = std::move(parameterLocals_);
+  const auto savedParamOrdinalOf = std::move(paramOrdinalOf_);
+  const auto savedReturnOriginOrdinals = std::move(returnOriginOrdinals_);
+  const auto savedReturnOriginDisplay = std::move(returnOriginDisplay_);
   LocalTypes locals;
   mutableBindings_.clear();
   moveState_ = MoveState{};
@@ -108,6 +123,16 @@ void Checker::checkFunction(const hir::Function &function, const const_eval::Con
   checkBlock(function.body, locals, {}, signature.returnType);
   inConstGenericFunction_ = false;
   recordFallthroughDrops(function, locals);
+  mutableBindings_ = std::move(savedMutableBindings);
+  moveState_ = std::move(savedMoveState);
+  borrowState_ = std::move(savedBorrowState);
+  borrowExpressions_ = std::move(savedBorrowExpressions);
+  releasedLoans_ = std::move(savedReleasedLoans);
+  lastUseCache_ = std::move(savedLastUseCache);
+  parameterLocals_ = std::move(savedParameterLocals);
+  paramOrdinalOf_ = std::move(savedParamOrdinalOf);
+  returnOriginOrdinals_ = std::move(savedReturnOriginOrdinals);
+  returnOriginDisplay_ = std::move(savedReturnOriginDisplay);
   genericBindings_ = std::move(previousGenericBindings);
   inConstGenericFunction_ = previousConstGeneric;
   activeConstBindings_ = previousBindings;
@@ -134,6 +159,9 @@ auto Checker::lastUseByBlock(const hir::Block &block) -> const std::unordered_ma
   {
     if (expression.resolvedName.has_value() && expression.resolvedName->kind == hir::ResolvedNameKind::Local)
       lastUse[expression.resolvedName->id] = std::max(lastUse[expression.resolvedName->id], index);
+    if (expression.kind == hir::ExpressionKind::Closure)
+      for (const auto &capture : expression.closureCaptures)
+        lastUse[capture.local.value] = std::max(lastUse[capture.local.value], index);
     for (const auto &operand : expression.operands)
       self(self, *operand, index);
   };
@@ -150,6 +178,13 @@ auto Checker::lastUseByBlock(const hir::Block &block) -> const std::unordered_ma
   {
     if (statement.expression)
       visitExpression(visitExpression, *statement.expression, index);
+    // INC-17 (M2b): an explicit-capture closure local is a loan bearer. If the
+    // closure is never called, its last use is its declaration (closures cannot
+    // escape their scope, INC-14), so the carried loan dies there instead of
+    // guarding the rest of the block.
+    if (statement.kind == hir::StatementKind::Let && statement.local.has_value() && statement.expression &&
+        statement.expression->kind == hir::ExpressionKind::Closure)
+      lastUse[statement.local->value] = std::max(lastUse[statement.local->value], index);
     if (statement.assignmentTarget)
       visitExpression(visitExpression, *statement.assignmentTarget, index);
     for (const auto &argument : statement.arguments)
@@ -174,17 +209,28 @@ auto Checker::lastUseByBlock(const hir::Block &block) -> const std::unordered_ma
 void Checker::releaseLoansUsedUpTo(size_t statementIndex, const std::unordered_map<uint32_t, size_t> &lastUse,
                                     size_t loansBeforeStatement)
 {
+  constexpr size_t neverReleased = std::numeric_limits<size_t>::max();
   bool changed = false;
   for (size_t loanIndex = 0; loanIndex < borrowState_.loans.size(); ++loanIndex)
   {
     const auto &loan = borrowState_.loans[loanIndex];
     bool release = false;
-    if (loan.tiedLocal == 0)
+    const bool untied = std::find(loan.bearers.begin(), loan.bearers.end(), 0) != loan.bearers.end();
+    if (untied)
       release = loanIndex >= loansBeforeStatement;
     else
     {
-      const auto found = lastUse.find(loan.tiedLocal);
-      release = found != lastUse.end() && found->second == statementIndex;
+      // INC-17 (M2b): with several bearers (the ref binding + closure locals
+      // capturing it), the loan releases only at the statement where the
+      // LAST-surviving bearer is used for the last time.
+      size_t latest = 0;
+      for (const uint32_t bearer : loan.bearers)
+      {
+        const auto found = lastUse.find(bearer);
+        const size_t expiry = found != lastUse.end() ? found->second : neverReleased;
+        latest = std::max(latest, expiry);
+      }
+      release = latest == statementIndex;
     }
     if (!release)
       continue;
@@ -245,13 +291,27 @@ void Checker::checkBlock(const hir::Block &block, LocalTypes locals, LoopTypes l
     bool changed = false;
     for (size_t index = 0; index < borrowState_.loans.size(); ++index)
     {
-      const auto &loan = borrowState_.loans[index];
-      if (loan.tiedLocal == 0 || incomingLocals.contains(loan.tiedLocal))
+      auto &loan = borrowState_.loans[index];
+      // INC-17 (M2b): a captured closure local is a block-local bearer. It
+      // dies with the block, but the loan itself must stay alive while any
+      // outer bearer (the ref binding) survives — keep only surviving bearers.
+      std::vector<uint32_t> surviving;
+      for (const uint32_t bearer : loan.bearers)
+        if (bearer == 0 || incomingLocals.contains(bearer))
+          surviving.push_back(bearer);
+      if (surviving.empty())
+      {
+        releasedLoans_.insert(loan.site);
+        borrowState_.loans.erase(borrowState_.loans.begin() + static_cast<ptrdiff_t>(index));
+        --index;
+        changed = true;
         continue;
-      releasedLoans_.insert(loan.site);
-      borrowState_.loans.erase(borrowState_.loans.begin() + static_cast<ptrdiff_t>(index));
-      --index;
-      changed = true;
+      }
+      if (surviving.size() != loan.bearers.size())
+      {
+        loan.bearers = std::move(surviving);
+        changed = true;
+      }
     }
     if (changed)
       borrowState_.rebuildCounts();
@@ -296,6 +356,28 @@ void Checker::checkStatement(const hir::Statement &statement, LocalTypes &locals
                                                      .type = foundCaptures->second[i]});
           }
           closureCapturesByLocal_.emplace(statement.local->value, std::move(captureInfos));
+          // INC-17 (M2b): a closure capturing a live scoped reference becomes
+          // an anonymous borrower of that referent. Append the closure local
+          // to the captured ref binding's loan bearers, so the loan survives
+          // until every bearer (the ref binding and every closure capturing
+          // it) is dead. Move/assign of the referent while the closure is
+          // alive is then rejected by the usual E-borrow-conflict gates.
+          for (auto &loan : borrowState_.loans)
+          {
+            bool capturesLoan = false;
+            for (const auto &capture : closureExpr.closureCaptures)
+              if (std::find(loan.bearers.begin(), loan.bearers.end(), capture.local.value) != loan.bearers.end())
+              {
+                capturesLoan = true;
+                break;
+              }
+            if (!capturesLoan)
+              continue;
+            if (std::find(loan.bearers.begin(), loan.bearers.end(), statement.local->value) == loan.bearers.end())
+            {
+              loan.bearers.push_back(statement.local->value);
+            }
+          }
         }
       }
       else if (statement.local.has_value())
@@ -359,11 +441,14 @@ void Checker::checkStatement(const hir::Statement &statement, LocalTypes &locals
     {
       for (auto &loan : borrowState_.loans)
       {
-        if (loan.site == statement.expression.get() && loan.tiedLocal == 0)
-        {
-          loan.tiedLocal = statement.local->value;
-          break;
-        }
+        if (loan.site != statement.expression.get())
+          continue;
+        auto untied = std::find(loan.bearers.begin(), loan.bearers.end(), 0);
+        if (untied != loan.bearers.end())
+          *untied = statement.local->value;
+        else if (std::find(loan.bearers.begin(), loan.bearers.end(), statement.local->value) == loan.bearers.end())
+          loan.bearers.push_back(statement.local->value);
+        break;
       }
     }
     return;
@@ -844,7 +929,9 @@ auto Checker::isAffine(TypeId type) const -> bool
 {
   const auto &descriptor = interner_.descriptor(type);
   if (descriptor.kind == TypeKind::Struct || descriptor.kind == TypeKind::Enum)
-    return true;
+    // D-002 rule 1: Copy-derived types are copyable, so a "move" of one is a
+    // copy and must not consume the binding or block later use.
+    return !derivedCopyTypes_.contains(type.value);
   if (descriptor.kind == TypeKind::Tuple)
     return std::any_of(descriptor.elements.begin(), descriptor.elements.end(),
                        [this](TypeId element) { return isAffine(element); });

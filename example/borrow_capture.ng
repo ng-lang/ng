@@ -1,0 +1,30 @@
+// vNext borrow-capturing closures (INC-17, M2b): an explicit capture of a
+// scoped reference makes the closure an anonymous borrower of the referent.
+// The carried loan lives until every bearer — the ref binding AND every
+// closure capturing it — has been used for the last time.
+
+import prelude;
+
+struct Point { x: i64, y: i64 }
+
+fun main() -> unit {
+    // A closure capturing `ref mut` can write through the referent.
+    let mut origin = Point { x: 0, y: 0 };
+    let handle = ref mut origin;
+    let bump = [handle] || { handle.x := 40; handle.y := 2; *handle };
+    print(bump().x == 40);
+    print(bump().y == 2);
+    print(origin.x == 40);
+
+    // A second closure shares the same captured ref and reads through it.
+    let peek = [handle] || { *handle };
+    print(peek().x == 40);
+
+    // The loan survives while any capturing closure is still in use.
+    let combined = peek().x + peek().y;
+    print(combined == 42);
+
+    // Once every bearer has had its last use, the referent can be moved.
+    let frozen = move origin;
+    print(frozen.y == 2);
+}
