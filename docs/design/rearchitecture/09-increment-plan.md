@@ -484,6 +484,28 @@ INC-15/16 之后再执行。
 ### INC-17 · M2b borrow 捕获闭包
 - 依赖 INC-15/16（捕获即匿名借出场景，作为 loan 分析驱动测试集）。
 - 测试：捕获存活/释放与 INC-16 同一套语料的闭包变体。
+- **已落地（+++）**：
+  - Loan 改为**多承载者**（`Loan.bearers: vector<uint32_t>`；`0` 为无主表达式 loan）；
+    loan 在**最后一个存活承载者**的最后使用点（`releaseLoansUsedUpTo`，多承载按
+    使用序号取并）释放。承载者 = ref 绑定本身 + 每个捕获它的闭包局部。
+  - `checkFunction` **保存/恢复外层函数瞬态状态**（此前清掉借用/移动状态——
+    正是掩盖多个 pre-existing bug 的破坏者）；固定 `example/hkt.ng`（改
+    `ref back`）与 `example/option_result.ng`（`let empty: Option<i64>` 供
+    `optOrElse`；`none` 第 2 次 by-value 用是真实 move-after-move，旧 clobber 掩盖）。
+  - 嵌套调用**双重推断修复**（`typecheck_infer.cpp`）：`analyzeCallSpread` 预推断所有
+    非闭包实参后，参数循环的 `argumentTypeAt` 重复推断同一实参——对按值 affine
+    实参在第二遍误读已消耗局部 → 假 `E-move-used`；现直接复用
+    `spreadInfo.expandedTypes[index]`（闭包字面量槽位为 `TypeId{}` 按需推断）。
+  - 闭包捕获参数解析期可变（`hir.cpp`）；`derive(Copy)` 使 `isAffine` **Copy 感知**。
+  - **未调用（死）捕获闭包在其声明处释放 loan**（闭包不可逃逸，INC-14）——
+    `lastUseByBlock` 对 Let 且表达式为 Closure 的记录 lastUse=声明位置。
+  - 测试 `test/borrow_capture_test.cpp`（11 例，`[INC-17]`）：INC-16 同语料闭包变体
+    （移/赋 referent → E-borrow-conflict D-002 A1.2）+ M2b 语义（借用晚于 ref 绑定存活、
+    双闭包全死后才释放、死闭包声明即释放、ref mut 写入 E2E、`(*write).v := 9` 赋值穿透）。
+    E2E 示例 `example/borrow_capture.ng`（6 个断言打印全 true，exit 0）。
+  - **探针注记**：裸表达式语句 `move s;` 不经过 `trackConsumption`
+    （`StatementKind::Expression` 仅 infer，pre-existing，超出本次范围）——
+    测试用门控形式 `let y = move s;`。
 
 ## Phase 6 — B1 堆域及连带项
 
