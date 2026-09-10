@@ -1175,6 +1175,15 @@ auto Checker::infer(const hir::Expression &expression, const LocalTypes &locals)
     {
       if (!isPlace(*expression.operands[0]))
         throw TypeError("reference operand is not a place", expression.span);
+      // A1.3 (deferred): creating a reference rooted through an existing
+      // scoped reference would need ref-of-ref shadows; reads/writes through
+      // `arr[i]` / `s.field` on reference receivers are supported (A1.2), but
+      // `ref` built on such a place waits for the next slice.
+      if (const auto root = rootLocalOf(*expression.operands[0]); root.has_value() &&
+                                                                    interner_.descriptor(locals.at(root->value)).kind == TypeKind::Reference)
+        throw TypeError("creating a reference through a scoped reference is deferred (A1.3); dereference the "
+                        "reference first",
+                        expression.span);
       const auto &operandDescriptor = interner_.descriptor(operand);
       if (operandDescriptor.kind == TypeKind::Reference)
         throw TypeError("cannot create a reference to a reference", expression.span);
@@ -1723,9 +1732,22 @@ auto Checker::infer(const hir::Expression &expression, const LocalTypes &locals)
   {
     const TypeId receiver = infer(*expression.operands[0], locals);
     const TypeId indexType = infer(*expression.operands[1], locals);
+    // D-002 A1.2: place-through-ref — an element access on a scoped reference
+    // receiver (`arr[i]` on `array<T> ref`) is equivalent to indexing the
+    // dereferenced value; the read/write lowers through the ref object.
+    TypeId base = receiver;
+    bool throughRef = false;
+    if (interner_.descriptor(receiver).kind == TypeKind::Reference)
+    {
+      base = interner_.descriptor(receiver).element;
+      throughRef = true;
+    }
     if (interner_.descriptor(indexType).kind == TypeKind::Range)
     {
-      const auto &descriptor = interner_.descriptor(receiver);
+      if (throughRef)
+        throw TypeError("cannot slice through a scoped reference (A1.3 is deferred); dereference the reference first",
+                        expression.span);
+      const auto &descriptor = interner_.descriptor(base);
       if (descriptor.kind != TypeKind::DynamicArray && descriptor.kind != TypeKind::FixedArray &&
           descriptor.kind != TypeKind::DependentArray)
         throw TypeError(std::format("cannot slice value of type {}", interner_.display(receiver)),
@@ -1735,7 +1757,7 @@ auto Checker::infer(const hir::Expression &expression, const LocalTypes &locals)
     }
     requireType(builtin::I64, infer(*expression.operands[1], locals), expression.operands[1]->span,
                 "array index");
-    const auto &descriptor = interner_.descriptor(receiver);
+    const auto &descriptor = interner_.descriptor(base);
     if (descriptor.kind == TypeKind::Tuple)
     {
       if (expression.text.empty())
@@ -1781,7 +1803,17 @@ auto Checker::infer(const hir::Expression &expression, const LocalTypes &locals)
   case hir::ExpressionKind::Member:
   {
     const TypeId receiver = infer(*expression.operands[0], locals);
-    const auto &descriptor = interner_.descriptor(receiver);
+    // D-002 A1.2: member-through-ref — `s.field` on `S ref` lowers through the
+    // ref object like `(*s).field`, so the checker resolves the member on the
+    // referenced struct type.
+    TypeId base = receiver;
+    bool throughRef = false;
+    if (interner_.descriptor(receiver).kind == TypeKind::Reference)
+    {
+      base = interner_.descriptor(receiver).element;
+      throughRef = true;
+    }
+    const auto &descriptor = interner_.descriptor(base);
     if (descriptor.kind != TypeKind::Struct)
       throw TypeError(std::format("cannot access member `{}` on value of type {}", expression.text,
                                   interner_.display(receiver)),

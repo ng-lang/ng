@@ -236,7 +236,15 @@ namespace NG::typecheck
     for (const auto &field : structure->fields)
     {
       fields.push_back(field.name);
-      fieldTypes.push_back(resolveWithBindings(field.type, nested, {}));
+      const TypeId fieldType = resolveWithBindings(field.type, nested, {});
+      // D-002 A1.2/A3 (rule 8): safe refs are non-escaping and cannot be stored
+      // in heap-capable aggregates. Generic struct instances form their
+      // descriptors here, so the struct-field ban is re-applied — the same
+      // check the literal path enforces at construction time. Enum payloads are
+      // the sanctioned exception (recursive `List<T>` with `ref<List<T>>` tails).
+      if (descriptor(fieldType).kind == TypeKind::Reference)
+        throw TypeError("references cannot be stored in struct fields", field.span);
+      fieldTypes.push_back(fieldType);
     }
     return append(TypeDescriptor{.kind = TypeKind::Struct, .name = base.name, .element = TypeId{},
                                  .length = fieldTypes.size(), .elements = std::move(fieldTypes), .nominalId = structId,
@@ -511,7 +519,13 @@ namespace NG::typecheck
       for (const auto &field : structure->fields)
       {
         fields.push_back(field.name);
-        fieldTypes.push_back(resolveWithBindings(field.type, nested, constBindings));
+        const TypeId fieldType = resolveWithBindings(field.type, nested, constBindings);
+        // D-002 A1.2/A3 (rule 8): refs are non-escaping; a generic struct that
+        // instantiates a field with a reference is rejected (enum payloads are
+        // the sanctioned recursive `List<T>` exception).
+        if (descriptor(fieldType).kind == TypeKind::Reference)
+          throw TypeError("references cannot be stored in struct fields", field.span);
+        fieldTypes.push_back(fieldType);
       }
       return append(TypeDescriptor{.kind = TypeKind::Struct, .name = type.target->name, .element = TypeId{},
                                    .length = fieldTypes.size(), .elements = std::move(fieldTypes),

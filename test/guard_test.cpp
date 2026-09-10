@@ -44,7 +44,10 @@ namespace
   /// 2203: INC-14 S3 higher-order capture threading widened the directCall
   /// guard to fire on callCaptures (overload re-inference safe);
   /// ARCH split tracked in the post-cutover plan.
-  constexpr size_t kMaxCppLines = 2203;
+  /// 2256: INC-16 S2 place-through-ref (Index/Member expression reads on
+  /// scoped-reference receivers deref through LoadRef first);
+  /// ARCH split tracked in the post-cutover plan.
+  constexpr size_t kMaxCppLines = 2256;
   /// 917: INC-10 added While/Continue/Break statement nodes to ast.hpp;
   /// ARCH split tracked in the post-cutover plan.
   /// 938: INC-14 S1 added ClosureExpression to ast.hpp (plus FunctionParameter

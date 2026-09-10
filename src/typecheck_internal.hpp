@@ -283,6 +283,10 @@ namespace NG::typecheck::detail
     /// given the enclosing function's declared origin set — i.e. the value's
     /// origin root is a parameter whose ordinal is a declared origin.
     [[nodiscard]] auto returnOriginSatisfied(const hir::Expression &expression) const -> bool;
+    /// D-002 A1.2: true when `local` still has an active (non-released) loan of
+    /// any kind in the current borrow state. Couples borrow liveness (NLL) with
+    /// move/assign checks: moving or reassigning a borrowed binding is unsound.
+    [[nodiscard]] bool isBorrowed(uint32_t local) const;
     void trackConsumption(const hir::Expression &expression, const LocalTypes &locals);
 
     // ---- typecheck_const.cpp ----

@@ -135,6 +135,45 @@ namespace NG::flowir
           return lowerReferenceExpression(expression);
         }
 
+        // INC-16 S2 place-through-ref: an Index/Member *read* whose receiver
+        // is a scoped reference (`items[i]`, `box.value` on `T ref`) derefs
+        // the reference first, then reads through the referenced aggregate.
+        // The generic `Evaluate` emitter has no such step.
+        if (types_ != nullptr && expression.operands.size() >= 1 &&
+            (expression.kind == hir::ExpressionKind::Member || expression.kind == hir::ExpressionKind::Index) &&
+            types_->typeDescriptors.at(types_->typeIdOf(*expression.operands[0]).value).kind ==
+                typecheck::TypeKind::Reference)
+        {
+          const auto &receiverDescriptor = types_->typeDescriptors.at(types_->typeIdOf(*expression.operands[0]).value);
+          const ValueId reference = lowerExpression(*expression.operands[0]);
+          const ValueId deref{nextValue_++};
+          function_.valueTypes.emplace(deref.value, receiverDescriptor.element);
+          block().instructions.push_back(
+              Instruction{.kind = InstructionKind::LoadRef, .result = deref, .operands = {reference}});
+          const ValueId value{nextValue_++};
+          function_.valueTypes.emplace(value.value, types_->typeIdOf(expression));
+          std::vector<ValueId> operands{deref};
+          for (size_t index = 1; index < expression.operands.size(); ++index)
+            operands.push_back(lowerExpression(*expression.operands[index]));
+          int64_t payload = 0;
+          if (expression.kind == hir::ExpressionKind::Member)
+          {
+            const auto &elementDescriptor =
+                types_->typeDescriptors.at(receiverDescriptor.element.value);
+            const auto found =
+                std::find(elementDescriptor.fieldNames.begin(), elementDescriptor.fieldNames.end(), expression.text);
+            if (found != elementDescriptor.fieldNames.end())
+              payload = static_cast<int64_t>(std::distance(elementDescriptor.fieldNames.begin(), found));
+          }
+          block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
+                                                     .result = value,
+                                                     .expressionKind = expression.kind,
+                                                     .text = expression.text,
+                                                     .payload = payload,
+                                                     .operands = std::move(operands)});
+          return value;
+        }
+
         if (expression.kind == hir::ExpressionKind::GenericApplication)
           throw VerificationError("const predicate application is not a runtime value");
 
@@ -1365,6 +1404,15 @@ namespace NG::flowir
         case hir::ExpressionKind::ResolvedName:
           if (!expression.resolvedName.has_value() || expression.resolvedName->kind != hir::ResolvedNameKind::Local)
             throw VerificationError("place root is not a local binding");
+          // D-002 A1.2 place-through-ref: a local whose type is a scoped
+          // reference is itself the ref object, so a place rooted at it (`arr[i]`
+          // on `array<T> ref`) continues from the ref object exactly like `*arr`.
+          if (types_ != nullptr)
+          {
+            const auto receiverType = types_->typeIdOf(expression);
+            if (types_->typeDescriptors.at(receiverType.value).kind == typecheck::TypeKind::Reference)
+              return LoweredPlace{.rootRef = lowerExpression(expression)};
+          }
           return LoweredPlace{.rootLocal = hir::LocalId{expression.resolvedName->id}};
         case hir::ExpressionKind::Index:
         {
@@ -1390,7 +1438,12 @@ namespace NG::flowir
           if (types_ != nullptr)
           {
             const auto receiver = types_->typeIdOf(*expression.operands[0]);
-            const auto &descriptor = types_->typeDescriptors.at(receiver.value);
+            const auto &receiverDescriptor = types_->typeDescriptors.at(receiver.value);
+            // A1.2 place-through-ref: resolve the field against the referenced
+            // struct when the receiver is a scoped reference (`s.field` on `S ref`).
+            const auto &descriptor = receiverDescriptor.kind == typecheck::TypeKind::Reference
+                                         ? types_->typeDescriptors.at(receiverDescriptor.element.value)
+                                         : receiverDescriptor;
             const auto found = std::find(descriptor.fieldNames.begin(), descriptor.fieldNames.end(), expression.text);
             if (found != descriptor.fieldNames.end())
               field = std::distance(descriptor.fieldNames.begin(), found);

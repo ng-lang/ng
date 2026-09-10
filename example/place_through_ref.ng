@@ -1,0 +1,55 @@
+// vNext INC-16 (D-002 A1.2): place-through-ref.
+// Member and index places are read and written through scoped references that
+// cross call boundaries: `items[i]` and `box.value` on `T ref` / `T ref mut`
+// parameters, without an explicit `*`.
+//
+//   - reads through `ref` keep the deref (copy-first) value semantics;
+//   - writes go through `ref mut` parameters into the referenced aggregate;
+//   - a scoped reference binding can be passed along to another function.
+// Reference-through-reference creation and slicing remain deferred to A1.3.
+
+import prelude;
+
+struct Box { value: i64 }
+
+fun read_el(items: array<i64> ref, i: i64) -> i64 {
+    items[i]
+}
+
+fun write_el(items: array<i64> ref mut, i: i64, v: i64) -> unit {
+    items[i] := v;
+}
+
+fun read_field(b: Box ref) -> i64 {
+    b.value
+}
+
+fun write_field(b: Box ref mut, v: i64) -> unit {
+    b.value := v;
+}
+
+fun see_all(items: array<i64> ref) -> unit {
+    print(items[0] == 10);
+    print(items[1] == 20);
+    print(items[2] == 30);
+}
+
+fun main() -> i64 {
+    let mut xs = [10, 20, 30];
+    let r = ref xs;
+    see_all(r);
+    print(read_el(r, 0) == 10);
+
+    write_el(ref mut xs, 0, 7);
+    print(xs[0] == 7);
+
+    let r2 = ref xs;
+    print(read_el(r2, 0) == 7);
+
+    let mut b = Box { value: 99 };
+    print(read_field(ref b) == 99);
+    write_field(ref mut b, 42);
+    print(b.value == 42);
+
+    b.value
+}

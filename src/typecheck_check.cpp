@@ -5,6 +5,41 @@
 namespace NG::typecheck::detail
 {
 
+namespace
+{
+  /// D-002 A1.2: human-readable rendering of a place expression for diagnostics
+  /// (e.g. `p.y`, `items[0]`, `*r`).
+  std::string placeName(const hir::Expression &place)
+  {
+    switch (place.kind)
+    {
+    case hir::ExpressionKind::ResolvedName:
+      return place.text;
+    case hir::ExpressionKind::Member:
+      return placeName(*place.operands[0]) + "." + place.text;
+    case hir::ExpressionKind::Index:
+    {
+      const std::string index =
+          place.operands.size() > 1 ? place.operands[1]->text : "";
+      return placeName(*place.operands[0]) + "[" + index + "]";
+    }
+    case hir::ExpressionKind::Grouped:
+      return placeName(*place.operands[0]);
+    case hir::ExpressionKind::Prefix:
+      return "*" + placeName(*place.operands[0]);
+    default:
+      return place.text;
+    }
+  }
+} // namespace
+
+auto Checker::isBorrowed(uint32_t local) const -> bool
+{
+  const auto found = borrowState_.counts.find(local);
+  return found != borrowState_.counts.end() &&
+         (found->second.shared != 0 || found->second.mutableRefs != 0);
+}
+
 void Checker::checkFunction(const hir::Function &function, const const_eval::ConstBindings &constBindings)
 {
   const hir::DefId previousFunction = currentFunctionId_;
@@ -336,6 +371,16 @@ void Checker::checkStatement(const hir::Statement &statement, LocalTypes &locals
   case hir::StatementKind::Assign:
     if (statement.assignmentTarget != nullptr)
     {
+      if (statement.assignmentTarget->kind == hir::ExpressionKind::ResolvedName &&
+          statement.assignmentTarget->resolvedName->kind == hir::ResolvedNameKind::Local &&
+          interner_.descriptor(locals.at(statement.assignmentTarget->resolvedName->id)).kind == TypeKind::Reference)
+        throw TypeError("cannot reassign a scoped reference binding (A1.2; references are non-escaping views)",
+                        statement.span);
+      if (const auto root = rootLocalOf(*statement.assignmentTarget); root.has_value() && isBorrowed(root->value))
+        throw TypeError("E-borrow-conflict",
+                        std::format("cannot assign to `{}` while it is borrowed (D-002 A1.2)",
+                                    placeName(*statement.assignmentTarget)),
+                        statement.span);
       const MoveState beforeAssignment = moveState_;
       const auto reviveTarget = [&]()
       {
@@ -366,6 +411,15 @@ void Checker::checkStatement(const hir::Statement &statement, LocalTypes &locals
     }
     else
     {
+      if (interner_.descriptor(locals.at(statement.local->value)).kind == TypeKind::Reference)
+        throw TypeError("cannot reassign a scoped reference binding (A1.2; references are non-escaping views)",
+                        statement.span);
+      if (isBorrowed(statement.local->value))
+        throw TypeError(
+            "E-borrow-conflict",
+            std::format("cannot assign to this local (of type {}) while it is borrowed (D-002 A1.2)",
+                        interner_.display(locals.at(statement.local->value))),
+            statement.span);
       static_cast<void>(
           inferExpected(*statement.expression, locals.at(statement.local->value), locals, "assignment value"));
       trackConsumption(*statement.expression, locals);
@@ -758,6 +812,17 @@ void Checker::requireMutableDeref(const hir::Expression &expression, const Local
   case hir::ExpressionKind::Grouped:
     requireMutableDeref(*expression.operands[0], locals);
     return;
+  case hir::ExpressionKind::ResolvedName:
+    // A1.2 place-through-ref: the assignment writes through a reference when
+    // the root binding is itself a scoped reference (`s.field`, `arr[i]`), so
+    // the ref must be mutable — mirroring the `*r` path below.
+    if (expression.resolvedName.has_value() && expression.resolvedName->kind == hir::ResolvedNameKind::Local)
+    {
+      const auto &descriptor = interner_.descriptor(locals.at(expression.resolvedName->id));
+      if (descriptor.kind == TypeKind::Reference && !descriptor.referenceMutable)
+        throw TypeError("cannot assign through an immutable reference", expression.span);
+    }
+    return;
   case hir::ExpressionKind::Prefix:
     if (expression.text == "*")
     {
@@ -848,6 +913,10 @@ void Checker::trackConsumption(const hir::Expression &expression, const LocalTyp
     if (!root.has_value())
       return;
     const auto &operand = *expression.operands[0];
+    if (isBorrowed(root->value))
+      throw TypeError("E-borrow-conflict",
+                      std::format("cannot move `{}` while it is borrowed (D-002 A1.2)", placeName(operand)),
+                      operand.span);
     if (operand.kind == hir::ExpressionKind::Member)
     {
       const auto &descriptor = interner_.descriptor(locals.at(root->value));
@@ -884,6 +953,10 @@ void Checker::trackConsumption(const hir::Expression &expression, const LocalTyp
     if (found == descriptor.fieldNames.end())
       return;
     const uint32_t field = static_cast<uint32_t>(std::distance(descriptor.fieldNames.begin(), found));
+    if (isBorrowed(root->value))
+      throw TypeError("E-borrow-conflict",
+                      std::format("cannot move `{}` while it is borrowed (D-002 A1.2)", placeName(expression)),
+                      expression.span);
     if (moveState_.hasMovedField(root->value))
       throw TypeError("E-move-partial",
                       std::format("use of partially moved value `{}`", expression.operands[0]->text),
@@ -897,6 +970,10 @@ void Checker::trackConsumption(const hir::Expression &expression, const LocalTyp
     const uint32_t local = expression.resolvedName->id;
     if (!isAffine(locals.at(local)))
       return;
+    if (isBorrowed(local))
+      throw TypeError("E-borrow-conflict",
+                      std::format("cannot move `{}` while it is borrowed (D-002 A1.2)", expression.text),
+                      expression.span);
     if (moveState_.hasMovedField(local))
       throw TypeError("E-move-partial",
                       std::format("use of partially moved value `{}`", expression.text), expression.span);

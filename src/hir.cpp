@@ -515,7 +515,13 @@ namespace NG::hir
     {
       const auto &parameter = function.parameters[index];
       const LocalId local = declareLocal(parameter.name, parameter.span);
-      localMutability_.emplace(local.value, false);
+      // A1.2 place-through-ref: a `T ref mut` parameter is inherently writable
+      // through its member/index places (`s.field := ...`, `arr[i] := ...` even
+      // without an explicit `*`); its ref mutability is enforced by the checker.
+      const bool mutableView =
+          parameter.type != nullptr && parameter.type->kind == syntax::TypeSyntaxKind::ScopedReference &&
+          dynamic_cast<const syntax::ScopedReferenceTypeSyntax *>(parameter.type.get())->isMutable;
+      localMutability_.emplace(local.value, mutableView);
       paramOrdinals_.emplace(parameter.name, static_cast<uint32_t>(index));
       resolved.parameters.push_back(Parameter{.name = parameter.name,
                                                .typeName = renderTypeName(*parameter.type),
