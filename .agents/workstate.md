@@ -44,21 +44,27 @@ arguments that NG cannot express without first-class functions.
   ctest 561/561).
 - INC-15 (origin contracts, D-002 A1.1): implemented, verified, docs-synced;
   committed (570 cases / 3672 assertions, ctest 571/571).
+- INC-16 (refs into aggregates + cross-call borrows, D-002 A1.2/3):
+  implemented, verified, docs-synced; committed (598 cases / 3694 assertions,
+  ctest 599/599).
 
 ## Recent completed changes
 
-- INC-15: origin contracts for returned scoped references (D-002 A1.1).
-  `T ref(a)` / `T ref mut(a | b)` origin lists are parsed into
-  `ScopedReferenceTypeSyntax.origins`, resolved by the `Resolver` to the
-  enclosing function's parameter ordinals and carried on HIR return
-  `Type.originOrdinals` (clone preserves them). `checkFunction` records the
-  declared origin set; the former blanket "references cannot be returned"
-  rejection is now origin-aware: a returned `T ref` is admitted only when its
-  origin root (Grouped/Index/Member/`ref`/`ref mut`/`*` unwrapped) is a
-  parameter whose ordinal is declared; a bare `T ref` stays non-returnable with
-  an updated message. Positive/negative tests + E2E
-  (`test/origin_contracts_test.cpp`, `example/origin_contracts.ng`).
-  Full suite 570/570 (3672 assertions), ctest 571/571; guard ast.hpp 977 → 980.
+- INC-16: move/assign-vs-borrow interplay, place-through-ref, and aggregate
+  permission rules (D-002 A1.2/3). S1: checker gates `isBorrowed` +
+  `placeName` in `trackConsumption` (move prefix / Member / ResolvedName) and
+  the `Assign` handling fire `E-borrow-conflict` while a loan lives; NLL
+  positives (last-use release at statement grain) stay green. S2: `T ref mut`
+  params are mutable sub-target roots; Index/Member on a reference receiver
+  read/write directly (`items[i]`, `b.value`); reads deref first via
+  `LoadRef` (copy-first preserved); Field ordinals resolve through the
+  referenced descriptor; ref-through-ref and slicing are deferred A1.3;
+  immutable-ref writes and ref-binding reassignment are rejected. S3:
+  Reference fields rejected at both struct-instance build sites; enum payload
+  refs (recursive `List<T>`) remain the sanctioned exception. Corpora +
+  E2E: `test/nll_problem_cases_test.cpp`, `test/place_through_ref_test.cpp`,
+  `test/ref_permissions_test.cpp`, `example/place_through_ref.ng`. Full suite
+  598/598 (3694 assertions), ctest 599/599; guard flowir.cpp 2203 → 2256.
 
 - INC-13: HIR-side desugar of the `?` try operator (D-007) into switch +
   early-return. New `TryExpression` syntax node (ast.hpp 966 → 977 guard
