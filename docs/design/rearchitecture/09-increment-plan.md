@@ -462,9 +462,24 @@ INC-15/16 之后再执行。
   local 非参数起源、非参数声明起源、无声明起源仍禁返）+ E2E `example/origin_contracts.ng`。
 - 边界：ref 字段/跨调用借用（A1.2/3）仍属 INC-16；`array<T> ref` 的直接索引亦待 INC-16。
 
-### INC-16 · 引用入聚合与跨调用借用（A1.2/3）
-- ref 字段/全局/task payload 的放行规则；use-after-move-through-ref。
-- 测试：穷举式负语料（经典 NLL problem case 1-4 逐条入契约）。
+### INC-16 · 引用入聚合与跨调用借用（A1.2/3）— ✅ 已落地
+- **S1 跨调用借用（A1.2）**：move/assign 时若借贷存活即报 `E-borrow-conflict`
+  （`cannot move/assign ... while it is borrowed`）。按语句粒度放行：借贷在 last-use
+  释放，故 move/assign 于借贷最后使用之后合法。落地点：checker `isBorrowed` + `placeName`
+  + `trackConsumption`（move 前缀 / Member / ResolvedName 三支）+ `Assign` 两支门（
+  assignmentTarget 分支与整 local 赋值）。
+- **S2 place-through-ref（A1.2）**：`items[i]` / `box.value` 在 `T ref`/`T ref mut` 参数上
+  直接读写（无需显式 `*`）。Resolver：`T ref mut` 参数视为可变子目标根；checker：Index/Member
+  接收面解包 Reference、ref-through-ref 与切片按 A1.3 推迟、不可变 ref 写与 ref 绑定重绑均拒绝；
+  FlowIR：`lowerPlace` 对 Reference 局部返回 ref-root，Index/Member 读表达式先 `LoadRef` 解引用，
+  Member 字段序号按解包描述符解析。
+- **S3 放行规则（D-002 rule 8）**：struct 字段禁止 Reference（`internStructInstance` 与
+  `resolveWithBindings` 两处实例化路径均拦截）；enum 载荷引用为所受许例外（递归 `List<T>` 模式）；
+  模块 const 仅编译期 bool/i64 ⇒ 无需放行运行时全局。
+- 测试：`test/nll_problem_cases_test.cpp`（NLL case 1-4 负语料 + 放行对照 + E2E）、
+  `test/place_through_ref_test.cpp`（S2 正/负 + E2E）、`test/ref_permissions_test.cpp`（S3 规则）；
+  示例 `example/place_through_ref.ng` 端到端通过（8 个断言打印 + 返回 42）。
+- 边界/继承：ref 越借用创建（`ref r[0]`）与引用上切片（A1.3）仍推迟；闭包捕获变体 → INC-17。
 
 ### INC-17 · M2b borrow 捕获闭包
 - 依赖 INC-15/16（捕获即匿名借出场景，作为 loan 分析驱动测试集）。
