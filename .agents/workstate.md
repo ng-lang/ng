@@ -47,8 +47,23 @@ arguments that NG cannot express without first-class functions.
 - INC-16 (refs into aggregates + cross-call borrows, D-002 A1.2/3):
   implemented, verified, docs-synced; committed (598 cases / 3694 assertions,
   ctest 599/599).
+- INC-17 (borrow-capturing closures, M2b): implemented, verified,
+  docs-synced; test `[INC-17]` corpus (11 cases) + focused suite green
+  (193 cases / 801 assertions in `[Borrow]...[INC-17]`); commits pending
+  final full-suite run.
 
 ## Recent completed changes
+
+- INC-17 (borrow-capturing closures, M2b): multi-bearer `Loan.bearers`
+  (release at the last surviving bearer's last use), paired with the
+  `checkFunction` save/restore fix that un-masked `example/hkt.ng`,
+  `example/option_result.ng`, and the nested-call double-inference bug now
+  fixed in `argumentTypeAt`. Unused capturing closures release their loan at
+  declaration. `isAffine` Copy-aware via `derive(Copy)`. Corpora + E2E:
+  `test/borrow_capture_test.cpp` (11 `[INC-17]` cases, incl. ref-mut write-
+  through runtime) + `example/borrow_capture.ng` (6 true prints, exit 0).
+  Focused suite 193/193 (801 assertions); full-suite + ctest run pending
+  final numbers.
 
 - INC-16: move/assign-vs-borrow interplay, place-through-ref, and aggregate
   permission rules (D-002 A1.2/3). S1: checker gates `isBorrowed` +
@@ -221,14 +236,15 @@ arguments that NG cannot express without first-class functions.
   original — `inferClosure` marks move-captured locals moved AFTER its
   `checkFunction(instance)` (which resets `moveState_`), so direct
   `let z = a` after `[move a]` is rejected. 3 tests added.
-- INC-14 **S3 known gap**: consumption enforcement does not survive a
+- INC-14 **S3 known gap**: consumption enforcement did not survive a
   higher-order use of the closure (`apply(h, x)` re-enters `checkFunction` via
-  `instantiateFunction`, wiping `moveState_`). Fixing this correctly requires
-  making `checkFunction` save/restore `moveState_`/`borrowState_` across
-  re-entrancy — a broad change that exposes latent move-use bugs in
-  `example/hkt.ng` (moves affine value through `unwrap` then reuses it) and
-  `example/derive.ng` (`derive(Copy)` types still treated as affine / moved).
-  Deferred; revisit together with Copy-semantics teaching the move checker.
+  `instantiateFunction`, wiping `moveState_`). **FIXED in INC-17** — the
+  multi-bearer change made `checkFunction` save/restore
+  `moveState_`/`borrowState_`/transient state across re-entrancy, which exposed
+  and required the `example/hkt.ng` (`ref back`) and `example/option_result.ng`
+  (second `Option.None` use) fixes, plus the nested-call double-inference fix
+  in `argumentTypeAt`. Copy-semantics teaching of the move checker shipped via
+  `isAffine` Copy-awareness (`derive(Copy)`).
 - INC-14 **S4** (fully generic closures), then S5 (Fn traits), S6
   (differential PBT seeding — map vs map-spread). Note: the plan's original S4
   "move captures + env drop" was subsumed by S3's static threading; the next
@@ -245,8 +261,14 @@ arguments that NG cannot express without first-class functions.
   INC-15 boundary: only returned references with declared origins are admitted;
   ref fields / cross-call borrows (`array<T> ref` direct indexing,
   ref-in-aggregate) are INC-16.
-- INC-16 (A1.2/3: references into aggregates + cross-call borrows) — **next**
-  per the increment plan.
+- INC-16 (A1.2/3: references into aggregates + cross-call borrows) — **done**
+  (see Recent completed changes and worklog 2026-09-10). INC-16 boundary:
+  ref-in-aggregate permission rules landed (S3); the reference-through-
+  reference / slicing boundary (A1.3) and the closure-capture variant of the
+  corpus were carried to INC-17 (M2b).
+- INC-17 (M2b borrow-capturing closures) — **done** (see worklog
+  2026-09-10); commits pending full-suite confirmation, then **next** per
+  the increment plan: Phase 6 / INC-18 (exit-time bump arena).
 
 ## References
 
