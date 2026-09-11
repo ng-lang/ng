@@ -54,9 +54,33 @@ arguments that NG cannot express without first-class functions.
 - INC-18 (exit-time bump arena, 过渡卫生层): implemented; arena probe
   (`test/probes/arena_all.ng`) + `test/arena_test.cpp` `[INC-18]` 4 cases
   green incl. leaks(1) 0/0; **full 613/613 (3726 assertions), ASan 613/613,
-  ctest confirm before commit**.
+  ctest 614/614**; committed `a29604f`/`248cf30`/`a372728`.
+- INC-19 **S1** (generic `Box<T>` + `new`, DEC-C B1 core): implemented;
+  `test/box_test.cpp` `[Box]` 6 cases + `example/box.ng` sweep + `[Box]` full
+  **620/620 (3749 assertions), ctest 621/621** (per-case registration, +7 box
+  cases). Old single-typed memory natives removed → arena probe + one stdlib
+  fixture migrated to explicit-generic native calls. ASan + leaks(1) probe
+  rerun pending before commit as usual.
 
 ## Recent completed changes
+
+- INC-19 S1 (generic `Box<T>` + `new`): `lib/std/memory.ng` rewritten to a
+  generic affine `Box<T>` over the session-owned handle table —
+  `export impl<T> Drop for Box<T>` releases the cell drop-exactly-once;
+  `new`/`box`/`read`/`write` call the generic natives with **explicit**
+  `allocate<T>`/`load<T>`/`store<T>` (cross-callee type-parameter inference
+  is unsupported — probed, documented). Checker landed: Struct unify arm in
+  `unifyGuarded`, generic-Drop registration via `matchImplPattern` +
+  `instantiateFunction`, `dropEdge`/`hasDrop` replacing the `dropTypes_`
+  guards, and instance signatures recorded in `functionTypeIds_` (FlowIR
+  drop-call typing — the S1 blocker). Word payloads i64/string/array/struct/
+  enum/tuple plus f64/f32 bit-preserving round-trip (whole-word store/reload);
+  no aliasing (deep copy in/out). Old single-typed memory natives removed:
+  `test/probes/arena_all.ng` and a stdlib fixture migrated to explicit
+  generic-native calls. Corpora + E2E: `test/box_test.cpp` (6 `[Box]` cases,
+  incl. drop-exactly-once `outstanding()` accounting, affine-move negative
+  contract, and f64/f32/word round-trips) + `example/box.ng` (sweep, exit 0
+  with per-line markers). Full **620/620 (3749 assertions), ctest 621/621**.
 
 - INC-18 (exit-time bump arena): all program value allocations now bump a
   per-process mmap anonymous arena (`NgrtArenaBlock` chain, 1 MiB blocks, 16B
@@ -294,11 +318,19 @@ arguments that NG cannot express without first-class functions.
   corpus were carried to INC-17 (M2b).
 - INC-17 (M2b borrow-capturing closures) — **done** (`eeea445`/`4aab98c`/
   `5ab9ef6`; see Recent completed changes and worklog 2026-09-10).
-- INC-18 (exit-time bump arena) — **implemented**: verification running
-  (focused + full suite + ctest + leaks(1) 0/0 confirmed), docs-synced,
-  commit (feat/docs/chore) pending confirmation, after which **next** per the
-  increment plan: Phase 6 堆域线 INC-19 (generic `Box<T>` + `new`, DEC-C
-  RC/CoW storage — arena 拆除时点随此落地).
+- INC-18 (exit-time bump arena) — **done** (`a29604f`/`248cf30`/`a372728`;
+  see Recent completed changes and worklog 2026-09-10).
+- INC-19 (generic `Box<T>` + `new`, DEC-C B1 core) — **S1 implemented**:
+  verification running (focused + full 620/620 + ctest 621/621 green, ASan +
+  leaks(1) pending), docs-synced, commit (feat/docs/chore) pending final
+  confirmation, after which **next** per the increment plan: INC-19 S2+ —
+  std.string/std.list migration onto `Box` (INC-20 F4), Cell<T> (INC-22),
+  then the D-015/R6 refcount+CoW revision.
+- INC-19 S1 **known limits** (documented): no Gc/Arc/allocator params (R6);
+  generic call inference cannot pass a type parameter as an implicit arg
+  across a callee boundary — `new`/`read`/`write` spell `allocate<T>`/
+  `load<T>`/`store<T>` explicitly; floats are bit-preservation only until the
+  DEC-A checked-numeric redesign.
 
 ## References
 
@@ -308,5 +340,7 @@ arguments that NG cannot express without first-class functions.
 - `.agents/worklog/2026-09-01.md` — INC-14 S3 entry
 - `.agents/worklog/2026-09-07.md` — INC-14 S4-fwd (closure-param forwarding), S4-generic, S5, S6 entries
 - `.agents/worklog/2026-09-08.md` — INC-12 + INC-13 entries
+- `.agents/worklog/2026-09-10.md` — INC-17 + INC-18 entries
+- `.agents/worklog/2026-09-11.md` — INC-19 S1 (generic Box<T> + new) entry
 - `docs/design/rearchitecture/09-increment-plan.md` — execution table + INC-14 slices
 - `AGENTS.md` — pipeline/build/test/commit conventions
