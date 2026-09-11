@@ -774,7 +774,9 @@ void Checker::checkSwitch(const hir::Statement &statement, const LocalTypes &loc
     throw TypeError(std::format("switch value must be an enum type, got {}", interner_.display(scrutinee)),
                     statement.expression->span);
   std::vector<bool> covered(descriptor.fieldNames.size());
-  const MoveState beforeSwitch = moveState_;
+  MoveState beforeSwitch = moveState_;
+  if (isAffine(scrutinee))
+    consumeSwitchScrutinee(*statement.expression, locals, beforeSwitch);
   const BorrowState borrowsBeforeSwitch = borrowState_;
   MoveState merged;
   BorrowState borrowsMerged;
@@ -1065,6 +1067,45 @@ void Checker::trackConsumption(const hir::Expression &expression, const LocalTyp
       throw TypeError("E-move-partial",
                       std::format("use of partially moved value `{}`", expression.text), expression.span);
     moveState_.markWhole(local);
+  }
+}
+
+void Checker::consumeSwitchScrutinee(const hir::Expression &expression, const LocalTypes &locals, MoveState &moves)
+{
+  if (expression.kind == hir::ExpressionKind::Grouped)
+  {
+    consumeSwitchScrutinee(*expression.operands[0], locals, moves);
+    return;
+  }
+  if (expression.kind == hir::ExpressionKind::ResolvedName &&
+      expression.resolvedName->kind == hir::ResolvedNameKind::Local)
+  {
+    const uint32_t local = expression.resolvedName->id;
+    if (isBorrowed(local))
+      throw TypeError("E-borrow-conflict",
+                      std::format("cannot move `{}` while it is borrowed (D-002 A1.2)", expression.text),
+                      expression.span);
+    moves.markWhole(local);
+    return;
+  }
+  if (expression.kind == hir::ExpressionKind::Member)
+  {
+    const auto root = rootLocalOf(expression);
+    if (!root.has_value())
+      return;
+    const auto &descriptor = interner_.descriptor(locals.at(root->value));
+    if ((descriptor.kind != TypeKind::Struct && descriptor.kind != TypeKind::Enum) ||
+        descriptor.fieldNames.empty())
+      return;
+    const auto found =
+        std::find(descriptor.fieldNames.begin(), descriptor.fieldNames.end(), expression.text);
+    if (found == descriptor.fieldNames.end())
+      return;
+    if (isBorrowed(root->value))
+      throw TypeError("E-borrow-conflict",
+                      std::format("cannot move `{}` while it is borrowed (D-002 A1.2)", placeName(expression)),
+                      expression.span);
+    moves.markField(root->value, static_cast<uint32_t>(std::distance(descriptor.fieldNames.begin(), found)));
   }
 }
 

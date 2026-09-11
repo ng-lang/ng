@@ -293,6 +293,11 @@ namespace NG::typecheck::detail
     /// move/assign checks: moving or reassigning a borrowed binding is unsound.
     [[nodiscard]] bool isBorrowed(uint32_t local) const;
     void trackConsumption(const hir::Expression &expression, const LocalTypes &locals);
+    /// INC-20: a `switch` over an affine enum value consumes the scrutinee
+    /// (each arm binds the payload out of it). Mark the owned local/field moved
+    /// in `moves` so the enclosing scope drops neither the scrutinee nor its
+    /// now-moved affine payloads a second time.
+    void consumeSwitchScrutinee(const hir::Expression &expression, const LocalTypes &locals, MoveState &moves);
 
     // ---- typecheck_const.cpp ----
     [[nodiscard]] auto evaluateWhereCondition(const hir::Expression &condition, const Substitution &substitution,
