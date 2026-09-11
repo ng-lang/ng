@@ -1027,10 +1027,18 @@ let writable = ref mut value;
 7. Heap domains are deferred: no `Gc`, `Arc`, `Box<T, A>`, arena callbacks,
    or `new` in this revision (D-002 rules 7–9 and 14 deferred). They return
    with the R6 runtime session work. INC-19 lands the first slice of this
-   deferral: a single-owner affine `Box<T>` (std.memory) over a session-owned
-   native handle table with `new`/`read`/`write` and drop-exactly-once
-   release; `Gc`/`Arc`, allocator parameters and the runtime session
-   (rules 8–9/14) remain deferred.
+deferral: a single-owner affine `Box<T>` (std.memory) over a session-owned
+    native handle table with `new`/`read`/`write` and drop-exactly-once
+    release; `Gc`/`Arc`, allocator parameters and the runtime session
+    (rules 8–9/14) remain deferred.
+    - INC-20a note (2026-09-11): a `switch` over an affine enum value consumes
+      its scrutinee (marked `moveState_.isWholeMoved` before branches), the
+      keystone for any Box-in-enum traversal. Bound:
+      `read`/`load` shallow-copy Box handle words, and `hasDrop` only recognizes
+      explicit `impl Drop`, so Box fields inside aggregates without a Drop impl
+      are not recursively released — making non-destructive linked traversal
+      (`switch (*list)`, `read(ref b)`) unsound until Box `clone` (deep copy) /
+      a handle-ownership primitive like INC-22 `Cell<T>` lands.
 
 8. Raw pointers keep `T *const` / `T *mut` and the `unsafe` boundary
    (D-002 rule 10).
