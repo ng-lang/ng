@@ -59,8 +59,22 @@ arguments that NG cannot express without first-class functions.
   `test/box_test.cpp` `[Box]` 6 cases + `example/box.ng` sweep + `[Box]` full
   **620/620 (3749 assertions), ctest 621/621** (per-case registration, +7 box
   cases). Old single-typed memory natives removed → arena probe + one stdlib
-  fixture migrated to explicit-generic native calls. ASan + leaks(1) probe
-  rerun pending before commit as usual.
+  fixture migrated to explicit-generic native calls. Committed
+  `c36c53a`/`c03565f`/`d311f84`.
+
+- INC-20a (affine-enum switch consumption, keystone for Box-in-enum migration):
+  `checkSwitch` calls `consumeSwitchScrutinee` before branches when scrutinee
+  type is affine → `moveState_.isWholeMoved` suppresses scope-end double-drop.
+  Verified by probe: switch over affine enum with Box payload no longer double-
+  releases. ng_test ~[QBE] 573/573 (3558 assertions), ctest 621/621 (unchanged
+  baseline). **INC-20 BLOCKED**: probe deep-dive established that any `read` /
+  `load` of a Box-cell containing nested Box tokens shallow-copies the handles,
+  and `hasDrop` does not recursively drop Box fields inside structs/enums without
+  an explicit `Drop` impl — therefore non-destructive `List` iteration
+  (`switch (*list)` / `length(ref xs)`) and the destructive consume path both
+  require new primitives (Box `clone`, Handle INC-22, or linear-transfer
+  destructuring) not in scope for INC-20. Next candidate: INC-22 `Cell<T>` or
+  INC-21 `span<T>` + growing.
 
 ## Recent completed changes
 
@@ -320,17 +334,32 @@ arguments that NG cannot express without first-class functions.
   `5ab9ef6`; see Recent completed changes and worklog 2026-09-10).
 - INC-18 (exit-time bump arena) — **done** (`a29604f`/`248cf30`/`a372728`;
   see Recent completed changes and worklog 2026-09-10).
-- INC-19 (generic `Box<T>` + `new`, DEC-C B1 core) — **S1 implemented**:
-  verification running (focused + full 620/620 + ctest 621/621 green, ASan +
-  leaks(1) pending), docs-synced, commit (feat/docs/chore) pending final
-  confirmation, after which **next** per the increment plan: INC-19 S2+ —
-  std.string/std.list migration onto `Box` (INC-20 F4), Cell<T> (INC-22),
-  then the D-015/R6 refcount+CoW revision.
+- INC-19 (generic `Box<T>` + `new`, DEC-C B1 core) — **S1 landed**
+  (`c36c53a`/`c03565f`/`d311f84`); ASan + leaks(1) rerun pending but baseline
+  green (620/620, 3749 assertions, ctest 621/621). Next per plan: INC-20
+  (std.list onto Box) — **blocked at the data-representation level** (see
+  INC-20a blocker below). Candidate next increments that unblock downstream
+  work: **INC-22 Cell\<T\> (handle 式内部可变性)**, **INC-21 span\<T\> +
+  growing array + in-place pushBack**, or resolving the INC-20 blocker by
+  adding Box `clone` + linear-transfer destructuring.
 - INC-19 S1 **known limits** (documented): no Gc/Arc/allocator params (R6);
   generic call inference cannot pass a type parameter as an implicit arg
   across a callee boundary — `new`/`read`/`write` spell `allocate<T>`/
   `load<T>`/`store<T>` explicitly; floats are bit-preservation only until the
   DEC-A checked-numeric redesign.
+- INC-20a **keystone landed** (`1b09a64`): `consumeSwitchScrutinee` in
+  `checkSwitch` marks affine enum scrutinees moved before branches — required
+  by any future Box-in-enum design. **INC-20 BLOCKED** (2026-09-11 probe
+  conclusion): `Box<T>` tokens stored inside a cell are shallow-copied by
+  `read`/`load`; `hasDrop` only recognizes explicit `impl Drop`, so Box
+  fields inside structs/enums leak (demonstrated: `struct Wrap { b: Box<i64> }
+  ; fun make() { let w = Wrap { b: new(5) }; }` — `outstanding()` stays +1
+  after return). This blocks non-destructive list iteration (`switch (*list)`,
+  `length(ref xs)`, `read(ref b)`) and makes the destructive consume path
+  correct only when ownership is linearly transferred. Fix options:
+  (a) add `Box.clone` deep-copy + source-consumption primitives; (b) INC-22
+  `Handle` 式内部可变性 (separate ownership token from value access); (c)
+  destructive-only API (contract source changes, violates plan wording).
 
 ## References
 
@@ -341,6 +370,6 @@ arguments that NG cannot express without first-class functions.
 - `.agents/worklog/2026-09-07.md` — INC-14 S4-fwd (closure-param forwarding), S4-generic, S5, S6 entries
 - `.agents/worklog/2026-09-08.md` — INC-12 + INC-13 entries
 - `.agents/worklog/2026-09-10.md` — INC-17 + INC-18 entries
-- `.agents/worklog/2026-09-11.md` — INC-19 S1 (generic Box<T> + new) entry
+- `.agents/worklog/2026-09-11.md` — INC-19 S1 (generic Box<T> + new) + INC-20a (affine-enum switch consumption) entries
 - `docs/design/rearchitecture/09-increment-plan.md` — execution table + INC-14 slices
 - `AGENTS.md` — pipeline/build/test/commit conventions

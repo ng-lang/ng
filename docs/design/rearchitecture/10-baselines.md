@@ -84,6 +84,18 @@ bump，`ngrt_free` 按指针归属调度，atexit 向 OS 归还）。生成代�
 | 常规构建套件 | 613/613 | **620/620（3749 断言）** | `[Box]` 用例 + Sweep 走 `example/box.ng` |
 | `ctest` | 614/614 | **621/621** | box_test 单列为 ctest 条目 |
 
+### INC-20a · 检查器 affine-enum switch 消费（2026-09-11）
+
+`checkSwitch` 对 affine enum 值 switch 在分支开始前 `markWhole` scrutinee
+（`consumeSwitchScrutinee`），使 `moveState_.isWholeMoved` 抑制 scope-end
+的双重 drop。修复验证：switch 消费含 Box 载荷的 affine enum 值不再 double-
+release（probe exit 101，outstanding 平衡）。
+
+| 指标 | INC-19 S1（before） | INC-20a（after） | 说明 |
+|---|---|---|---|
+| 常规构建套件 | 620/620（3749 断言） | **620/620（3749 断言）** | 不影响现有契约 |
+| `ctest` | 621/621 | **621/621** | 同上 |
+
 ### 如实标注的限制（过渡脚手架，随 RC/CoW 落地拆除）
 
 - **不解决单运行内增长**：arena 块只增不还（进程退出统一归 OS）；长运行大分配

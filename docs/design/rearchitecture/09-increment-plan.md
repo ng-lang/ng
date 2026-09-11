@@ -557,6 +557,17 @@ INC-15/16 之后再执行。
 - 测试：既有 list 契约全绿不变；IR 契约断言无 List 专用 opcode；
   `lowering.cpp:612,635` 内嵌 helper 删除。
 
+> **INC-20 阻塞（2026-09-11 探针结论）**：`Box<T>` 是不透明所有权令牌，
+> 任何 materialize-then-read（`load`/`read`）会拷贝句柄字，产生别名副本。
+> 当前 `List<T>` = `Cons(head: T, tail: Box<List<T>>)` 设计中，非破坏性迭代
+> （`switch (*list)` / `read`/`length(ref xs)`）都因别名句柄的双重释放而
+> 不健全。破坏性迭代需要枚举 `Drop` 递归释放字段，但 `hasDrop` 仅认显式
+> `impl Drop`，聚合内的 `Box` 字段不被递归释放（结构体字段泄漏实证）。
+> 解法需任一：(a) `Box` 增加 `clone` 深拷贝 + 引用消费原语；(b) INC-22
+> `Handle` 内部可变性；(c) 破坏性 List API + 线性所有权转移。三者均需
+> 新增基础原语，不在 INC-20 内解决。当前变更（INC-20a）仅修检查器：
+> 枚举 switch 消费 scrutinee，属必要先决件（`feat(vnext): INC-20a`）。
+
 ### INC-21 · A7 span\<T\> + 数组增长 + in-place pushBack
 - 测试：span 越界负契约；增长序列 PBT（append N 次 ≡ 一次性构造）。
 
