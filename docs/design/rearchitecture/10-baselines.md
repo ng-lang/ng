@@ -69,7 +69,20 @@ bump，`ngrt_free` 按指针归属调度，atexit 向 OS 归还）。生成代�
 | 拼接探针 leaks(1) 计数 | 19999 leaks / ≈205.2 MB | **0 leaks / 0 bytes** | `test/leak_probe_test.cpp` 翻转契约 |
 | arena_all 探针 leaks(1) | — | **0 leaks / 0 bytes** | `test/probes/arena_all.ng` 覆盖全部发射点 |
 | 拼接探针峰值 footprint | ≈207.5 MB（maxRSS） | **194.5 MB**（leaks pte footprint） | arena 内增长，看 run 内总账 |
-| 常规构建套件 | 458/458 → 609/609 | 全绿 | INC-18 新增 `[INC-18]` 4 例 |
+| 常规构建套件 | 458/458 → 609/609 | 613/613（3726 断言） | INC-18 新增 `[INC-18]` 4 例 |
+
+### INC-19 S1 · generic `Box<T>` + `new` 落地对照（2026-09-11）
+
+`memory.Box<T>` 泛型化：`impl<T> Drop`（句柄 release，drop-exactly-once）、
+`new`/`box`/`read`/`write` 显式泛型实参调原生；检查器新增 Struct 泛型 unify 支路与
+泛型 Drop 实例化、`functionTypeIds_` 对实例签名登记；`test/probes/arena_all.ng` 与
+`test/stdlib_test.cpp` 原生句柄调用改为显式泛型实参（旧单型 API 移除）。新增
+`test/box_test.cpp`（`[Box]` 6 例）、`example/box.ng`（corpus sweep 覆盖）。
+
+| 指标 | INC-18（before） | INC-19 S1（after） | 说明 |
+|---|---|---|---|
+| 常规构建套件 | 613/613 | **620/620（3749 断言）** | `[Box]` 用例 + Sweep 走 `example/box.ng` |
+| `ctest` | 614/614 | **621/621** | box_test 单列为 ctest 条目 |
 
 ### 如实标注的限制（过渡脚手架，随 RC/CoW 落地拆除）
 

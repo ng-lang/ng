@@ -511,7 +511,8 @@ INC-15/16 之后再执行。
 
 ### DEC-C · F2 内存路线 — **已决策：终态 RC + CoW，exit-arena 为过渡脚手架**（见 §0b）
 - 剩余工作（随 INC-19 同 commit）：D-015/R6 修订——聚合头 refcount、
-  CoW 写入协议、arena 拆除时点。
+  CoW 写入协议、arena 拆除时点。INC-19 S1 先行落地了 D-015 修订所依赖的
+  `Box<T>`/`new` 语言面（见下），refcount/CoW 条款本身仍待 D-015 修订。
 
 ### INC-18 · exit-time bump arena（过渡卫生层）
 - 依赖 INC-0（asan 对照）。
@@ -538,6 +539,19 @@ INC-15/16 之后再执行。
 - 存储模型按 DEC-C：affine Box 走拥有句柄；Copy 聚合共享走 refcount+CoW。
 - 测试：drop-exactly-once PBT（计数分配器句柄）；CoW 观测不变性契约
   （共享期间的读不受写方影响）；heap_box 迁移契约。
+- **S1 已落地（INC-19 commit）**: `lib/std/memory.ng` 重写为泛型
+  `Box<T>`——`type Handle = native` 句柄表 + `export impl<T> Drop for Box<T>`
+  （`(*self).handle` → `release`，drop-exactly-once）；`new<T>`/`box<T>`/
+  `read<T>`/`write<T>` 以**显式泛型实参**调用 `allocate<T>`/`load<T>`/`store<T>`
+  （跨函数传参的类型参数不能作为隐式调用实参推断——call-site 推断只在同
+  TypeId 或显式实参下成立）。配套类型检查器：`unifyGuarded` 增 Struct 泛型
+  unify 支路、`registerImpls` 支持**泛型 Drop impl**（`matchImplPattern` →
+  `instantiateFunction`）、`dropEdge`/`hasDrop` 取代 `dropTypes_` 守卫、
+  `instantiateFunction` 把实例签名登记进 `functionTypeIds_` 以支持 FlowIR
+  drop-call 定型。词载荷走 64-bit word：i64/string/array/struct/enum/tuple/
+  f64/f32 全比特保真往返（无别名、深拷贝进出）。测试 `test/box_test.cpp`
+  （[Box]），端点 `example/box.ng`。待办（S2+）：std.string/std.list 迁移
+  （INC-20）、Cell（INC-22）、Gc/Arc。
 
 ### INC-20 · F4 std.list 迁移 Box + I3 FlowIR List 指令移除
 - 测试：既有 list 契约全绿不变；IR 契约断言无 List 专用 opcode；

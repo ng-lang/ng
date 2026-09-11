@@ -1026,7 +1026,11 @@ let writable = ref mut value;
 
 7. Heap domains are deferred: no `Gc`, `Arc`, `Box<T, A>`, arena callbacks,
    or `new` in this revision (D-002 rules 7–9 and 14 deferred). They return
-   with the R6 runtime session work.
+   with the R6 runtime session work. INC-19 lands the first slice of this
+   deferral: a single-owner affine `Box<T>` (std.memory) over a session-owned
+   native handle table with `new`/`read`/`write` and drop-exactly-once
+   release; `Gc`/`Arc`, allocator parameters and the runtime session
+   (rules 8–9/14) remain deferred.
 
 8. Raw pointers keep `T *const` / `T *mut` and the `unsafe` boundary
    (D-002 rule 10).
@@ -1070,9 +1074,12 @@ let writable = ref mut value;
 - Remaining D-015 work: returning references and D-002 origin contracts
   (`T ref(a)`, `T ref(a | b)`), and reference fields in aggregates/task
   payloads, all gated behind the full loan analysis and R10 transfer rules.
-- Heap domains stay deferred (no GC): a redesigned `memory` module provides
-  native handles plus a concrete `Box` with `impl Drop` release; generic
-  `Box<T>`, `Gc`, and `Arc` arrive with the R6 RuntimeSession.
+- Heap domains stay deferred (no GC): INC-19 S1 lands a generic single-owner
+  affine `Box<T>` in the redesigned `memory` module — `impl<T> Drop` release
+  through a native handle table, `new`/`read`/`write` value plumbing, and
+  drop-exactly-once live-cell accounting (`example/box.ng`,
+  `test/box_test.cpp`). `Gc` and `Arc` remain deferred to the R6
+  RuntimeSession.
 
 ### Borrow status — 2026-08-15
 
