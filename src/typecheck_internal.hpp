@@ -318,6 +318,7 @@ namespace NG::typecheck::detail
     [[nodiscard]] auto matchImplPattern(const ImplInfo &impl, TypeId concreteType, Substitution &substitution) const
         -> bool;
     [[nodiscard]] auto hasImpl(const std::string &traitName, TypeId target) const -> bool;
+    [[nodiscard]] auto hasDrop(TypeId type) const -> bool;
 
     // ---- typecheck_unify.cpp ----
     void unify(TypeId expected, TypeId actual, Substitution &substitution, syntax::SourceSpan span);
@@ -375,7 +376,7 @@ namespace NG::typecheck::detail
     std::unordered_map<const hir::Expression *, std::vector<size_t>> callSpreadPositions_;
     std::unordered_map<const hir::Expression *, std::vector<size_t>> callFoldSpreadPositions_;
     std::unordered_map<const hir::Expression *, std::vector<size_t>> callFoldAccumulatorPositions_;
-    std::unordered_set<uint32_t> dropTypes_;
+
     std::unordered_map<const hir::Statement *, std::vector<std::pair<uint32_t, uint32_t>>> returnDrops_;
     std::unordered_map<uint32_t, std::vector<std::pair<uint32_t, uint32_t>>> fallthroughDrops_;
     std::unordered_map<const hir::Block *, std::vector<std::pair<uint32_t, uint32_t>>> blockDrops_;

@@ -447,6 +447,7 @@ auto Checker::instantiateFunction(hir::DefId original, const Substitution &subst
   for (const auto parameter : instanceSignature.parameters)
     displaySignature.parameters.push_back(interner_.display(parameter));
   displaySignature.returnType = interner_.display(instanceSignature.returnType);
+  functionTypeIds_.emplace(instanceId.value, instanceSignature);
   signatures_.emplace(instanceId.value, std::move(instanceSignature));
   functionTypes_.emplace(instanceId.value, std::move(displaySignature));
   instanceTable_.emplace(std::move(key), instanceId);
@@ -577,6 +578,18 @@ void Checker::unifyGuarded(TypeId expected, TypeId actual, Substitution &substit
                       span);
     for (size_t index = 0; index < expectedDescriptor.elements.size(); ++index)
       unifyGuarded(expectedDescriptor.elements[index], actualDescriptor.elements[index], substitution, span,
+                   visited);
+    return;
+  }
+  if (expectedDescriptor.kind == TypeKind::Struct)
+  {
+    if (expectedDescriptor.nominalId != actualDescriptor.nominalId ||
+        expectedDescriptor.typeArguments.size() != actualDescriptor.typeArguments.size())
+      throw TypeError(std::format("generic argument type mismatch: expected {}, got {}",
+                                  interner_.display(expected), interner_.display(actual)),
+                      span);
+    for (size_t index = 0; index < expectedDescriptor.typeArguments.size(); ++index)
+      unifyGuarded(expectedDescriptor.typeArguments[index], actualDescriptor.typeArguments[index], substitution, span,
                    visited);
     return;
   }

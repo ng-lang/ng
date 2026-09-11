@@ -1,33 +1,51 @@
-// vNext std.memory (redesign, legacy 41 spirit): a session-owned native
-// handle table plus a concrete heap Box with Drop-driven release. There is no
-// GC; generic Box<T> and Gc/Arc arrive with the R6 heap domain.
+// vNext std.memory (INC-19 S1): generic affine Box<T> over a session-owned
+// native handle table. There is no GC; each cell lives in the bump arena and
+// the owning Box<T> releases it drop-exactly-once under the checker's affine
+// move rules. Payloads ride the 64-bit word slot: integers/bool/unit/string/
+// arrays/structs/enums/tuples (and f64) are stored by value (deep-copied on
+// the way in through the Copy-owned native shim and on the way out when a
+// bind deep-copies). f32/f64 round-trip bit-preservingly on the QBE backend
+// (the whole word is stored/reloaded, so a float re-reads to the same bits);
+// there is no numeric interpretation at the handle — refer to DEC-A for the
+// planned checked numeric redesign. No payload is ever aliased by the cell.
+//
+// The generic natives collapse to one C symbol each (typecheck keeps the
+// source name), so the C runtime in libngrt.c is shared by every T. Wrapper
+// functions pass their type parameter to the native explicitly; generic
+// call-site inference cannot yet carry a type parameter across a callee
+// boundary, so `new`, `read` and `write` spell `allocate<T>`, `load<T>` and
+// `store<T>` with the explicit argument.
 
 type Handle = native;
 
-export native fun allocate(value: i64) -> Handle;
-export native fun load(handle: Handle) -> i64;
-export native fun store(handle: Handle, value: i64) -> unit;
+export native fun allocate<T>(value: T) -> Handle;
+export native fun load<T>(handle: Handle) -> T;
+export native fun store<T>(handle: Handle, value: T) -> unit;
 export native fun release(handle: Handle) -> unit;
 export native fun outstanding() -> i64;
 
-export struct Box {
+export struct Box<T> {
     handle: Handle,
 }
 
-export impl Drop for Box {
+export impl<T> Drop for Box<T> {
     fun drop(self: Self ref) -> unit {
         release((*self).handle);
     }
 }
 
-export fun box(value: i64) -> Box {
-    return Box { handle: allocate(value) };
+export fun new<T>(value: T) -> Box<T> {
+    return Box { handle: allocate<T>(value) };
 }
 
-export fun read(value: Box ref) -> i64 {
-    return load((*value).handle);
+export fun box<T>(value: T) -> Box<T> {
+    return new<T>(value);
 }
 
-export fun write(value: Box ref, updated: i64) -> unit {
-    store((*value).handle, updated);
+export fun read<T>(value: Box<T> ref) -> T {
+    return load<T>((*value).handle);
+}
+
+export fun write<T>(value: Box<T> ref, updated: T) -> unit {
+    store<T>((*value).handle, updated);
 }

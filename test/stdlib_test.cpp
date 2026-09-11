@@ -172,9 +172,9 @@ TEST_CASE("vNext std.memory handles reuse freed slots", "[vNext][Stdlib][Runtime
 {
   std::string output;
   std::string errors;
-  REQUIRE(run({"--source", "import prelude; import memory; fun main() { "
-                           "let h1 = allocate(7); let h2 = allocate(9); print(load(h1) + load(h2)); "
-                           "release(h1); print(outstanding()); let h3 = allocate(5); print(load(h3)); }"},
+REQUIRE(run({"--source", "import prelude; import memory; fun main() { "
+                            "let h1 = allocate<i64>(7); let h2 = allocate<i64>(9); print(load<i64>(h1) + load<i64>(h2)); "
+                            "release(h1); print(outstanding()); let h3 = allocate<i64>(5); print(load<i64>(h3)); }"},
               output, errors) == 0);
   REQUIRE(errors.empty());
   REQUIRE(output.find("16\n1\n5\n") != std::string::npos);

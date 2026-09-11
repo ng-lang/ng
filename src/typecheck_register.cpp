@@ -508,9 +508,25 @@ void Checker::collectDropMovedFields(const hir::Expression &expression, uint32_t
 
 auto Checker::dropEdge(uint32_t local, TypeId type, syntax::SourceSpan span) -> std::pair<uint32_t, uint32_t>
 {
-  const auto &impl =
-      *std::find_if(impls_.begin(), impls_.end(), [&](const ImplInfo &candidate)
-                    { return candidate.traitName == "Drop" && candidate.target.value == type.value; });
+  const ImplInfo *impl = nullptr;
+  Substitution genericSubstitution;
+  for (const auto &candidate : impls_)
+  {
+    if (candidate.traitName != "Drop")
+      continue;
+    if (!candidate.generic && candidate.target.value == type.value)
+    {
+      impl = &candidate;
+      break;
+    }
+    if (candidate.generic && matchImplPattern(candidate, type, genericSubstitution))
+    {
+      impl = &candidate;
+      break;
+    }
+  }
+  if (impl == nullptr)
+    throw TypeError(std::format("no Drop impl registered for {}", interner_.display(type)), span);
   if (const auto moved = dropMovedFields_.find(type.value); moved != dropMovedFields_.end())
   {
     const auto &descriptor = interner_.descriptor(type);
@@ -524,7 +540,31 @@ auto Checker::dropEdge(uint32_t local, TypeId type, syntax::SourceSpan span) -> 
         throw TypeError(std::format("cannot drop a value with field `{}` moved out", fieldName), span);
     }
   }
-  return {local, impl.methods.at("drop").value};
+  if (impl->generic)
+  {
+    const hir::DefId method = impl->methods.at("drop");
+    const hir::DefId instance = instantiateFunction(method, genericSubstitution, 0, span);
+    return {local, instance.value};
+  }
+  return {local, impl->methods.at("drop").value};
+}
+
+auto Checker::hasDrop(TypeId type) const -> bool
+{
+  for (const auto &candidate : impls_)
+  {
+    if (candidate.traitName != "Drop")
+      continue;
+    if (!candidate.generic && candidate.target.value == type.value)
+      return true;
+    if (candidate.generic)
+    {
+      Substitution substitution;
+      if (matchImplPattern(candidate, type, substitution))
+        return true;
+    }
+  }
+  return false;
 }
 
 void Checker::registerImpls()
@@ -533,6 +573,41 @@ void Checker::registerImpls()
   {
     if (impl.traitName == "Drop")
     {
+      if (impl.methods.size() != 1 || impl.methods.front().name != "drop")
+        throw TypeError("Drop impl must define exactly one `drop` method", impl.span);
+      if (!impl.genericParameters.empty())
+      {
+        std::vector<TypeId> parameters;
+        std::unordered_map<std::string, TypeId> bindings;
+        for (size_t index = 0; index < impl.genericParameters.size(); ++index)
+        {
+          const TypeId parameter =
+              interner_.internTypeParameter(impl.genericParameters[index], static_cast<uint32_t>(index));
+          parameters.push_back(parameter);
+          bindings.emplace(impl.genericParameters[index], parameter);
+        }
+        const TypeId target = interner_.resolveInScope(*impl.targetType, bindings);
+        if (interner_.descriptor(target).kind != TypeKind::Struct)
+          throw TypeError("Drop impl target must be a struct type", impl.span);
+        const std::string patternDisplay = interner_.display(target);
+        for (const auto &existing : impls_)
+          if (existing.generic && existing.traitName == "Drop" &&
+              existing.targetPatternDisplay == patternDisplay)
+            throw TypeError(std::format("duplicate generic impl for trait `Drop` on `{}`", patternDisplay),
+                            impl.span);
+        resolveImplMethodSignature(impl.methodIds.at(0), module_->functions.at(impl.methodIds.at(0).value), target);
+        signatures_.at(impl.methodIds.at(0).value).genericParameters = parameters;
+        signatures_.at(impl.methodIds.at(0).value).genericParameterNames = impl.genericParameters;
+        placeholderFunctions_.insert(impl.methodIds.at(0).value);
+        ImplInfo info{.traitName = "Drop",
+                       .generic = true,
+                       .typeParameters = parameters,
+                       .targetPatternId = target,
+                       .targetPatternDisplay = patternDisplay};
+        info.methods.emplace("drop", impl.methodIds.at(0));
+        impls_.push_back(std::move(info));
+        continue;
+      }
       const TypeId target = interner_.resolve(*impl.targetType);
       if (interner_.descriptor(target).kind != TypeKind::Struct)
         throw TypeError("Drop impl target must be a struct type", impl.span);
@@ -549,7 +624,6 @@ void Checker::registerImpls()
       }
       ImplInfo info{.traitName = "Drop", .target = target};
       info.methods.emplace("drop", impl.methodIds.at(0));
-      dropTypes_.insert(target.value);
       impls_.push_back(std::move(info));
       continue;
     }

@@ -55,9 +55,9 @@ fun main() -> unit {
     assert(total == 13);
 
     // std.memory handle cells: allocate/store/load/release and Box drop.
-    let h = allocate(11);
-    store(h, 12);
-    assert(load(h) == 12);
+    let h = allocate<i64>(11);
+    store<i64>(h, 12);
+    assert(load<i64>(h) == 12);
     assert(outstanding() >= 1);
     release(h);
     let mut first = box(7);

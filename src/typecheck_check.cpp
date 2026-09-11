@@ -143,7 +143,7 @@ void Checker::recordFallthroughDrops(const hir::Function &function, const LocalT
 {
   for (const auto &[local, type] : locals)
   {
-    if (!dropTypes_.contains(type.value) || moveState_.isWholeMoved(local))
+    if (!hasDrop(type) || moveState_.isWholeMoved(local))
       continue;
     fallthroughDrops_[function.id.value].push_back(dropEdge(local, type, function.span));
   }
@@ -282,7 +282,7 @@ void Checker::checkBlock(const hir::Block &block, LocalTypes locals, LoopTypes l
     {
       if (incomingLocals.contains(local))
         continue;
-      if (!dropTypes_.contains(type.value) || moveState_.isWholeMoved(local))
+      if (!hasDrop(type) || moveState_.isWholeMoved(local))
         continue;
       drops.push_back(dropEdge(local, type, block.span));
     }
@@ -531,7 +531,7 @@ void Checker::checkStatement(const hir::Statement &statement, LocalTypes &locals
       requireType(returnType, builtin::Unit, statement.span, "return value");
     for (const auto &[local, type] : locals)
     {
-      if (!dropTypes_.contains(type.value) || moveState_.isWholeMoved(local))
+      if (!hasDrop(type) || moveState_.isWholeMoved(local))
         continue;
       returnDrops_[&statement].push_back(dropEdge(local, type, statement.span));
     }
