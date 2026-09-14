@@ -270,6 +270,20 @@ namespace NG::native::detail
       bindResult(instruction, resultType, std::format("copy {}", castFromSlot(value, resultType)));
       return;
     }
+    case InstructionKind::BoxClone:
+    {
+      // Box.clone(): shared-borrow the receiver box, deep-clone its cell
+      // payload, and rebuild a fresh Box<T> value (no function call is
+      // emitted; this is the derived `clone` method on Box).
+      const auto reference = operandTemp(instruction.operands[0]);
+      const auto box = fresh();
+      line(std::format("{} =l call $ngrt_ref_load(l {})", box, reference));
+      const auto resultType = qtypeOf(function_.valueTypes.at(instruction.result.value));
+      const auto resultTypeId = function_.valueTypes.at(instruction.result.value);
+      const auto clonedBox = emitBoxClone(box, resultTypeId);
+      bindResult(instruction, resultType, std::format("copy {}", castFromSlot(clonedBox, resultType)));
+      return;
+    }
     case InstructionKind::AssignPlace:
     {
       const auto value = operandTemp(instruction.operands.back());

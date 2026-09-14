@@ -2,8 +2,8 @@
 // INC-19 S1: generic affine Box<T> (std.memory) — value semantics through a
 // session-owned native handle table, deep-copy read/write, affine moves, and
 // drop-exactly-once live-cell accounting via `outstanding()`.
-#include "test.hpp"
 #include "driver.hpp"
+#include "test.hpp"
 
 #include <filesystem>
 #include <fstream>
@@ -38,7 +38,8 @@ namespace
   [[nodiscard]] auto runExample(std::string_view filename, std::string &output, std::string &errors) -> int
   {
     std::string path{filename};
-    if (!std::filesystem::is_directory(std::filesystem::current_path() / "example")) path = std::string{"../"} + path;
+    if (!std::filesystem::is_directory(std::filesystem::current_path() / "example"))
+      path = std::string{"../"} + path;
     std::ostringstream outputStream;
     std::ostringstream errorStream;
     const int status = NG::runDriver({path}, outputStream, errorStream);
@@ -101,12 +102,14 @@ TEST_CASE("vNext memory.Box<T> write snapshots; read never aliases the cell", "[
   REQUIRE(output.find("code 0") != std::string::npos);
 }
 
-TEST_CASE("vNext memory.Box<T> affine move transfers ownership and drops exactly once", "[vNext][Box][INC19][PBT][Runtime]")
+TEST_CASE("vNext memory.Box<T> affine move transfers ownership and drops exactly once",
+          "[vNext][Box][INC19][PBT][Runtime]")
 {
   std::string output;
   std::string errors;
   REQUIRE(run("import memory; "
-              "fun consume(b: Box<i64>) -> i64 { " "  return read(ref b); } "
+              "fun consume(b: Box<i64>) -> i64 { "
+              "  return read(ref b); } "
               "fun main() -> i64 { "
               "  let before = outstanding(); "
               "  let a = new(40); "
@@ -162,6 +165,74 @@ TEST_CASE("vNext memory.Box<T> read on a moved-from cell is rejected", "[vNext][
               "  return read(ref a); }",
               output, errors) != 0);
   REQUIRE_THAT(errors, ContainsSubstring("use of moved value"));
+}
+
+TEST_CASE("vNext memory.Box<T> clone() deep-copies; originals stay live and drops balance",
+          "[vNext][Box][INC20][Runtime]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(run("import memory; "
+              "fun main() -> i64 { "
+              "  let a = new([1, 2, 3]); "
+              "  let b = a.clone(); "
+              "  write(ref b, [7, 8, 9]); "
+              "  if (read(ref a)[0] != 1) { return 1; } "
+              "  if (read(ref b)[0] != 7) { return 2; } "
+              "  if (read(ref a)[2] != 3) { return 4; } "
+              "  return 0; }",
+              output, errors) == 0);
+  REQUIRE(errors.empty());
+  REQUIRE(output.find("code 0") != std::string::npos);
+}
+
+TEST_CASE("vNext memory.Box<T> clone() balances outstanding() through a helper", "[vNext][Box][INC20][PBT][Runtime]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(run("import memory; "
+              "struct Point { x: i64, y: i64 } "
+              "fun cloneTemps() -> i64 { "
+              "  let a = new(Point { x: 1, y: 2 }); "
+              "  let b = a.clone(); "
+              "  write(ref b, Point { x: 5, y: 6 }); "
+              "  if (read(ref a).x != 1) { return 1; } "
+              "  if (read(ref b).x != 5) { return 2; } "
+              "  return 0; } "
+              "fun main() -> i64 { "
+              "  let before = outstanding(); "
+              "  if (cloneTemps() != 0) { return 10; } "
+              "  if (outstanding() != before) { return 20; } "
+              "  return 0; }",
+              output, errors) == 0);
+  REQUIRE(errors.empty());
+  REQUIRE(output.find("code 0") != std::string::npos);
+}
+
+TEST_CASE("vNext memory.Box<T> clone() recurses into enum/Box payloads", "[vNext][Box][INC20][Runtime]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(run("import memory; "
+              "enum E { A(i64, Box<E>), B } "
+              "fun main() -> i64 { "
+              "  let leaf = new<E>(E.B); "
+              "  let inner = new<E>(E.A(2, leaf)); "
+              "  let root = new<E>(E.A(1, inner)); "
+              "  let other = root.clone(); "
+              "  switch (read(ref other)) { "
+              "    case A(v, rest) { if (v != 1) { return 1; } "
+              "      switch (read(ref rest)) { "
+              "        case A(w, deeper) { if (w != 2) { return 2; } "
+              "          switch (read(ref deeper)) { "
+              "            case B { } "
+              "            case A(u, w) { return 4; } } } "
+              "        case B { return 8; } } } "
+              "    case B { return 16; } } "
+              "  return 0; }",
+              output, errors) == 0);
+  REQUIRE(errors.empty());
+  REQUIRE(output.find("code 0") != std::string::npos);
 }
 
 TEST_CASE("vNext example/box.ng runs the box corpus end to end", "[vNext][Box][INC19][Sweep]")

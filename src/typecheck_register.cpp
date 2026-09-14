@@ -318,6 +318,7 @@ auto Checker::check(const hir::Module &module, const const_eval::ConstNativeHost
                                                                   std::make_move_iterator(instances_.end())},
                           .deferredMethodFunctions = std::move(deferredMethodFunctions_),
                           .derivedCloneCalls = std::move(derivedCloneCalls_),
+                           .boxCloneCalls = std::move(boxCloneCalls_),
                           .derivedEqTypes = std::move(derivedEqTypes_),
                           .derivedShowTypes = std::move(derivedShowTypes_),
                           .derivedShowCalls = std::move(derivedShowCalls_),

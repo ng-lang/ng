@@ -98,6 +98,13 @@ namespace NG::native
       /// DefIds of `native fun` placeholders: calling one from native code is
       /// rejected until the declared-descriptor shims land (M5).
       std::unordered_set<uint32_t> nativeDefIds;
+      /// Recursive deep-copy helpers are module-wide: generated once per type
+      /// by whichever function needs them first, and the generated tag-dispatch
+      /// labels must be unique across the whole emitted module (QBE treats
+      /// block labels as module-global).
+      std::unordered_set<uint32_t> cloneHelperTypes;
+      std::unordered_set<uint32_t> cloneHelpersEmitted;
+      size_t cloneLabelCounter{};
       /// R9 first slice: DefId -> declared parameter types of `native fun`
       /// declarations (arity validation and shim selection).
       std::unordered_map<uint32_t, std::vector<TypeId>> nativeSignatures;
@@ -192,6 +199,14 @@ namespace NG::native
       /// tables.
       std::unordered_map<uint32_t, TypeId> unionBoxedValues_;
       std::vector<std::string> paramTemps_;
+      /// Deep-copy codegen: while a type's clone body is being expanded,
+      /// recursive re-entries (e.g. `Box<Cell>` inside `Cell`) emit a call to a
+      /// generated runtime helper instead of re-expanding forever.
+      std::unordered_set<uint32_t> cloneInProgress_;
+      std::ostringstream cloneHelperOut_;
+      std::ostringstream *cloneHelperStream_{};
+      bool cloneSkipNextGuard_{};
+      size_t depthGuard_{};
       std::optional<QType> returnType_;
       std::optional<TypeId> returnTypeId_;
 
@@ -291,7 +306,7 @@ namespace NG::native
 
       [[nodiscard]] auto symbolFor(hir::DefId id) -> std::string;
 
-      void line(std::string_view text) { out_ << '\t' << text << '\n'; }
+      void line(std::string_view text) { (cloneHelperStream_ ? *cloneHelperStream_ : out_) << '\t' << text << '\n'; }
 
       void collectBlocks()
       {
@@ -468,12 +483,26 @@ namespace NG::native
 
       /// True for aggregate kinds whose copy-first semantics require a deep
       /// copy at bind/load sites (the VM deep-copies all of these).
+      [[nodiscard]] auto isBoxType(TypeId type) -> bool;
       [[nodiscard]] auto needsClone(TypeId type) -> bool;
 
       /// Emits a deep copy of a Tier 0 aggregate value (static type-driven:
       /// structs clone field-by-field recursively, tuples unroll statically,
       /// arrays pick a per-element-kind helper, strings use $ngrt_str_clone).
       [[nodiscard]] auto emitClone(const std::string &source, TypeId type) -> std::string;
+      /// Bare Box copy: heap envelope sharing the source's handle (the cell
+      /// stays single-owner). Envelopes are arena-owned and never released.
+      [[nodiscard]] auto emitBoxEnvelopeCopy(const std::string &source) -> std::string;
+      /// Full deep copy for Box.clone: Box edges become fresh cells and enum
+      /// payloads are cloned per variant (runtime tag dispatch). Re-entering a
+      /// type whose body is currently being expanded emits a call to its
+      /// generated runtime helper.
+      [[nodiscard]] auto emitCloneDeep(const std::string &source, TypeId type) -> std::string;
+      /// Box.clone(): rebuilds a Box whose fresh cell holds a deep copy of the
+      /// payload (see emitCloneDeep).
+      [[nodiscard]] auto emitBoxClone(const std::string &source, TypeId type) -> std::string;
+      /// Generates a runtime-recursive deep-clone helper function for a type.
+      void emitCloneHelper(TypeId type);
 
       /// Normalized place-step for emission: 0 = struct field (offset 8f),
       /// 1 = runtime index (bounds-checked element address), 2 = constant

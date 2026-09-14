@@ -40,10 +40,8 @@ namespace NG::flowir
 
       [[nodiscard]] auto lower(const hir::Function &source) -> Function
       {
-        function_ = Function{.source = source.id,
-                             .name = source.name,
-                             .nativeFunction = source.nativeFunction,
-                             .externC = source.externC};
+        function_ = Function{
+          .source = source.id, .name = source.name, .nativeFunction = source.nativeFunction, .externC = source.externC};
         if (types_ != nullptr)
         {
           function_.typeDescriptors = types_->typeDescriptors;
@@ -73,7 +71,8 @@ namespace NG::flowir
           std::vector<ValueId> arguments;
           if (fallthroughReturn_.has_value())
             arguments.push_back(*fallthroughReturn_);
-          block().terminator = Terminator{.kind = TerminatorKind::Return, .targets = {}, .arguments = std::move(arguments)};
+          block().terminator =
+              Terminator{.kind = TerminatorKind::Return, .targets = {}, .arguments = std::move(arguments)};
         }
         return std::move(function_);
       }
@@ -158,8 +157,7 @@ namespace NG::flowir
           int64_t payload = 0;
           if (expression.kind == hir::ExpressionKind::Member)
           {
-            const auto &elementDescriptor =
-                types_->typeDescriptors.at(receiverDescriptor.element.value);
+            const auto &elementDescriptor = types_->typeDescriptors.at(receiverDescriptor.element.value);
             const auto found =
                 std::find(elementDescriptor.fieldNames.begin(), elementDescriptor.fieldNames.end(), expression.text);
             if (found != elementDescriptor.fieldNames.end())
@@ -186,11 +184,10 @@ namespace NG::flowir
           const ValueId value{nextValue_++};
           if (types_ != nullptr)
             function_.valueTypes.emplace(value.value, types_->typeIdOf(expression));
-          block().instructions.push_back(
-              Instruction{.kind = InstructionKind::Evaluate,
-                          .result = value,
-                          .expressionKind = hir::ExpressionKind::IntegerLiteral,
-                          .payload = 0});
+          block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
+                                                     .result = value,
+                                                     .expressionKind = hir::ExpressionKind::IntegerLiteral,
+                                                     .payload = 0});
           return value;
         }
 
@@ -272,16 +269,15 @@ namespace NG::flowir
         /// INC-14 S1 closure calls: the callee is a closure-typed local rather
         /// than a function name; directCall skips it as an operand because the
         /// synthesized closure code function receives the parameters directly.
-        const bool closureCall =
-            expression.kind == hir::ExpressionKind::Call && !expression.operands.empty() &&
-            expression.operands[0]->resolvedName.has_value() &&
-            expression.operands[0]->resolvedName->kind == hir::ResolvedNameKind::Local && types_ != nullptr &&
-            types_->callTargets.contains(&expression) &&
-            types_->typeDescriptors.at(types_->typeIdOf(*expression.operands[0]).value).kind ==
-                typecheck::TypeKind::Closure;
+        const bool closureCall = expression.kind == hir::ExpressionKind::Call && !expression.operands.empty() &&
+                                 expression.operands[0]->resolvedName.has_value() &&
+                                 expression.operands[0]->resolvedName->kind == hir::ResolvedNameKind::Local &&
+                                 types_ != nullptr && types_->callTargets.contains(&expression) &&
+                                 types_->typeDescriptors.at(types_->typeIdOf(*expression.operands[0]).value).kind ==
+                                     typecheck::TypeKind::Closure;
         const bool directCall = (expression.kind == hir::ExpressionKind::Call && !expression.operands.empty() &&
-                                expression.operands[0]->resolvedName.has_value() &&
-                                expression.operands[0]->resolvedName->kind == hir::ResolvedNameKind::Function) ||
+                                 expression.operands[0]->resolvedName.has_value() &&
+                                 expression.operands[0]->resolvedName->kind == hir::ResolvedNameKind::Function) ||
                                 closureCall;
         if (expression.kind == hir::ExpressionKind::Prefix && (expression.text == "-" || expression.text == "+") &&
             !expression.operands.empty() && expression.operands[0]->kind == hir::ExpressionKind::IntegerLiteral)
@@ -1277,12 +1273,12 @@ namespace NG::flowir
         }
         if (types_ != nullptr && types_->derivedCloneCalls.contains(&expression))
         {
-          // Derived clone: shared-borrow the receiver place and deep-copy the
-          // referenced value (LoadRef copies); no function call is emitted.
+          // Derived clone/Box.clone: Box receivers deep-copy (BoxClone), else LoadRef.
+          const auto cloneKind =
+              types_->boxCloneCalls.contains(&expression) ? InstructionKind::BoxClone : InstructionKind::LoadRef;
           const ValueId value{nextValue_++};
           function_.valueTypes.emplace(value.value, types_->typeIdOf(expression));
-          block().instructions.push_back(
-              Instruction{.kind = InstructionKind::LoadRef, .result = value, .operands = {receiverValue}});
+          block().instructions.push_back(Instruction{.kind = cloneKind, .result = value, .operands = {receiverValue}});
           return value;
         }
         if (types_ != nullptr && types_->derivedShowCalls.contains(&expression))
@@ -1370,13 +1366,12 @@ namespace NG::flowir
             return buildShowString(field, fieldType);
           const ValueId value{nextValue_++};
           function_.valueTypes.emplace(value.value, typecheck::builtin::String);
-          block().instructions.push_back(
-              Instruction{.kind = InstructionKind::Evaluate,
-                          .result = value,
-                          .expressionKind = hir::ExpressionKind::Call,
-                          .text = "toString",
-                          .callTarget = types_->showToStringTargets.at(fieldType.value),
-                          .operands = {field}});
+          block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
+                                                     .result = value,
+                                                     .expressionKind = hir::ExpressionKind::Call,
+                                                     .text = "toString",
+                                                     .callTarget = types_->showToStringTargets.at(fieldType.value),
+                                                     .operands = {field}});
           return value;
         };
 
@@ -1841,7 +1836,8 @@ namespace NG::flowir
 
         current_ = header;
         const ValueId condition = lowerExpression(*statement.expression);
-        block().terminator = Terminator{.kind = TerminatorKind::Branch, .targets = {body, exit}, .arguments = {condition}};
+        block().terminator =
+            Terminator{.kind = TerminatorKind::Branch, .targets = {body, exit}, .arguments = {condition}};
 
         // `continue` jumps back to the condition re-evaluation (the header).
         loopHeaders_.emplace(statement.loop->value, header);
@@ -1861,18 +1857,16 @@ namespace NG::flowir
       {
         if (currentHirBlock_ != nullptr)
           emitBlockDrops(*currentHirBlock_);
-        block().terminator = Terminator{.kind = TerminatorKind::Jump,
-                                        .targets = {loopHeaders_.at(statement.loop->value)},
-                                        .arguments = {}};
+        block().terminator = Terminator{
+          .kind = TerminatorKind::Jump, .targets = {loopHeaders_.at(statement.loop->value)}, .arguments = {}};
       }
 
       void lowerBreak(const hir::Statement &statement)
       {
         if (currentHirBlock_ != nullptr)
           emitBlockDrops(*currentHirBlock_);
-        block().terminator = Terminator{.kind = TerminatorKind::Jump,
-                                        .targets = {loopExits_.at(statement.loop->value)},
-                                        .arguments = {}};
+        block().terminator = Terminator{
+          .kind = TerminatorKind::Jump, .targets = {loopExits_.at(statement.loop->value)}, .arguments = {}};
       }
 
       void lowerNext(const hir::Statement &statement)

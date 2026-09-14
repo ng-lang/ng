@@ -239,6 +239,29 @@ namespace NG::native::detail
     for (size_t index = 0; index < function_.blocks.size(); ++index)
       emitBlock(index);
     out_ << "}\n";
+    // Recursive deep-copy helpers requested while emitting the body are
+    // generated as additional QBE functions, module-wide and exactly once per
+    // type (later functions reuse the already-emitted helper). Generating a
+    // helper expands its whole structure, which can itself discover further
+    // recursive types, so loop until the registry stabilizes.
+    const size_t scanLimit = 128;
+    for (size_t scan = 0; !ngrt_.cloneHelperTypes.empty() && scan < scanLimit; ++scan)
+    {
+      std::vector<uint32_t> pendingHelpers;
+      for (const uint32_t id : ngrt_.cloneHelperTypes)
+        if (!ngrt_.cloneHelpersEmitted.contains(id))
+          pendingHelpers.push_back(id);
+      ngrt_.cloneHelperTypes.clear();
+      std::sort(pendingHelpers.begin(), pendingHelpers.end());
+      for (const uint32_t id : pendingHelpers)
+      {
+        ngrt_.cloneHelpersEmitted.insert(id);
+        TypeId type;
+        type.value = id;
+        emitCloneHelper(type);
+      }
+    }
+    out_ << cloneHelperOut_.str();
     // String-literal data items are collected while emitting blocks, so
     // they are written after the body — data declarations are top-level
     // and order-independent.

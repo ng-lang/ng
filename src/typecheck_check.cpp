@@ -940,6 +940,13 @@ auto Checker::isAffine(TypeId type) const -> bool
   return false;
 }
 
+auto Checker::isBox(TypeId type) const -> bool
+{
+  const auto &descriptor = interner_.descriptor(type);
+  return descriptor.kind == TypeKind::Struct && descriptor.name == "Box" && descriptor.fieldNames.size() == 1 &&
+         descriptor.fieldNames.front() == "handle" && descriptor.typeArguments.size() == 1;
+}
+
 auto Checker::rootLocalOf(const hir::Expression &expression) const -> std::optional<hir::LocalId>
 {
   const hir::Expression *root = &expression;

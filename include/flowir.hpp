@@ -59,6 +59,9 @@ namespace NG::flowir
     EnumVariantIndex,
     /// Reads the payload of an enum value (unit for payloadless variants).
     ExtractEnumPayload,
+    /// Deep-copies a Box<T> receiver: probes its handle cell, recursively deep
+    /// clones the payload (Box.clone), and rebuilds a box with a fresh cell.
+    BoxClone,
   };
 
   /// One step of a lowered place path. Member steps carry a product field

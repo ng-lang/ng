@@ -302,6 +302,17 @@ auto Checker::inferMethodCall(const hir::Expression &expression, const LocalType
     record(expression, returnType);
     return returnType;
   }
+  if (expression.text == "clone" && isBox(dispatchType))
+  {
+    if (expression.operands.size() != firstArgument)
+      throw TypeError("derived clone takes no arguments", expression.span);
+    methodReceiverMutable_.insert_or_assign(&expression, false);
+    methodReceiverRefTypes_.insert_or_assign(&expression, interner_.internReference(dispatchType, false));
+    derivedCloneCalls_.insert_or_assign(&expression, dispatchType);
+    boxCloneCalls_.insert_or_assign(&expression, dispatchType);
+    record(expression, dispatchType);
+    return dispatchType;
+  }
   if (expression.text == "clone" && derivedCloneTypes_.contains(dispatchType.value))
   {
     if (expression.operands.size() != firstArgument)

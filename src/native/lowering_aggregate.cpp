@@ -293,6 +293,14 @@ namespace NG::native::detail
     }
     return pointer;
   }
+  [[nodiscard]] auto FunctionLowerer::isBoxType(TypeId type) -> bool
+  {
+    if (type.value >= function_.typeDescriptors.size())
+      return false;
+    const auto &descriptor = function_.typeDescriptors[type.value];
+    return descriptor.kind == TypeKind::Struct && descriptor.name == "Box" && descriptor.fieldNames.size() == 1 &&
+           descriptor.fieldNames.front() == "handle" && descriptor.typeArguments.size() == 1;
+  }
   [[nodiscard]] auto FunctionLowerer::needsClone(TypeId type) -> bool
   {
     if (type.value >= function_.typeDescriptors.size())
@@ -304,7 +312,79 @@ namespace NG::native::detail
   }
   [[nodiscard]] auto FunctionLowerer::emitClone(const std::string &source, TypeId type) -> std::string
   {
+    // Copy-first D-015. A Box<T> value is a handle word. A bare Box copy
+    // shares the cell (deref/`(*b).handle` keeps the real handle) but still
+    // materializes a heap envelope: the source may be a stack temporary
+    // (e.g. a box literal's return), and only the heap envelope survives the
+    // originating frame. Envelopes are arena-owned and never released, so
+    // re-enveloping is harmless; the cell is released exactly once through
+    // the shared handle. Every other aggregate copy is deep so the copy
+    // OWNS its tree: box fields inside composites become fresh cells and
+    // drop-exactly-once holds (memory.ng: "no payload is ever aliased by
+    // the cell").
+    depthGuard_ = 0;
+    if (isBoxType(type))
+      return emitBoxEnvelopeCopy(source);
+    return emitCloneDeep(source, type);
+  }
+
+  // Allocate a fresh 8-byte envelope on the heap and copy `handle` into it.
+  // Used when a bare Box value is copied/returned: the handle is shared with
+  // the source box so the underlying cell stays single-owner, but the
+  // envelope gets a heap address instead of a stack-allocated one.
+  [[nodiscard]] auto FunctionLowerer::emitBoxEnvelopeCopy(const std::string &source) -> std::string
+  {
+    const auto envelope = fresh();
+    line(std::format("{} =l call $ngrt_alloc(l 8)", envelope));
+    const auto sourceHandle = fresh();
+    line(std::format("{} =l add {}, 0", sourceHandle, source));
+    const auto handle = fresh();
+    line(std::format("{} =l loadl {}", handle, sourceHandle));
+    const auto target = fresh();
+    line(std::format("{} =l add {}, 0", target, envelope));
+    line(std::format("storel {}, {}", handle, target));
+    return envelope;
+  }
+  [[nodiscard]] auto FunctionLowerer::emitCloneDeep(const std::string &source, TypeId type) -> std::string
+  {
+    // Full deep copy (used by Box.clone): Box edges become fresh cells and
+    // enum payloads are cloned per variant. Recursive types re-enter through
+    // generated runtime helpers instead of re-expanding forever.
+    if (cloneSkipNextGuard_)
+      cloneSkipNextGuard_ = false;
+    else if (cloneInProgress_.contains(type.value))
+    {
+      if (!ngrt_.cloneHelpersEmitted.contains(type.value))
+        ngrt_.cloneHelperTypes.insert(type.value);
+      const auto helper = fresh();
+      line(std::format("{} =l call $ng_clone{}_helper(l {})", helper, type.value, source));
+      return helper;
+    }
+    else
+    {
+      ++depthGuard_;
+      if (depthGuard_ > 128)
+        throw LoweringError(
+            std::format("clone recursion guard tripped in `{}` at type id {}", function_.name, type.value));
+    }
     const auto &descriptor = function_.typeDescriptors[type.value];
+    if (isBoxType(type))
+    {
+      const TypeId element = descriptor.typeArguments[0];
+      const auto handleAddress = fresh();
+      line(std::format("{} =l add {}, 0", handleAddress, source));
+      const auto handle = fresh();
+      line(std::format("{} =l loadl {}", handle, handleAddress));
+      const auto cellValue = fresh();
+      line(std::format("{} =l call $ngrt_load(l {})", cellValue, handle));
+      const auto clonedCellValue = emitCloneDeep(cellValue, element);
+      const auto freshCell = fresh();
+      line(std::format("{} =l call $ngrt_allocate(l {})", freshCell, clonedCellValue));
+      const auto box = fresh();
+      line(std::format("{} =l call $ngrt_alloc(l 8)", box));
+      line(std::format("storel {}, {}", freshCell, box));
+      return box;
+    }
     if (descriptor.kind == TypeKind::Builtin)
     {
       if (type != typecheck::builtin::String)
@@ -315,21 +395,69 @@ namespace NG::native::detail
     }
     if (descriptor.kind == TypeKind::Enum)
     {
-      // Heap copy of the two words (tag + payload; payload words are
-      // never mutated in place, so sharing a tuple payload is safe).
+      // Runtime tag dispatch needs block labels; inlining the ladder into a
+      // function body would split that function's QBE blocks and desync the
+      // phi predecessor sets of the surrounding control flow. Ladders are
+      // only ever emitted inside the per-type clone helper functions (the
+      // helper stream is active there), so when expanding into a function
+      // body, delegate to the (generated, module-wide) helper instead.
+      if (cloneHelperStream_ == nullptr)
+      {
+        if (!ngrt_.cloneHelpersEmitted.contains(type.value))
+          ngrt_.cloneHelperTypes.insert(type.value);
+        const auto helper = fresh();
+        line(std::format("{} =l call $ng_clone{}_helper(l {})", helper, type.value, source));
+        return helper;
+      }
+      // Deep clone with runtime tag dispatch so payload words inside
+      // variant blocks (e.g. Box handles) are recursively cloned.
+      cloneInProgress_.insert(type.value);
       const auto clone = fresh();
       line(std::format("{} =l call $ngrt_alloc(l 16)", clone));
-      emitAggregateCopy(clone, source, type);
+      const auto tag = fresh();
+      line(std::format("{} =l loadl {}", tag, source));
+      const auto payloadAddr = fresh();
+      line(std::format("{} =l add {}, 8", payloadAddr, source));
+      const auto payload = fresh();
+      line(std::format("{} =l loadl {}", payload, payloadAddr));
+      line(std::format("storel {}, {}", tag, clone));
+      const auto payloadTarget = fresh();
+      line(std::format("{} =l add {}, 8", payloadTarget, clone));
+      if (descriptor.elements.size() <= 1)
+      {
+        const TypeId payloadType = descriptor.elements.empty() ? typecheck::builtin::Unit : descriptor.elements[0];
+        const auto clonedPayload = emitCloneDeep(payload, payloadType);
+        line(std::format("storel {}, {}", clonedPayload, payloadTarget));
+      }
+      else
+      {
+        const size_t startLabel = ngrt_.cloneLabelCounter++;
+        const std::string endLabel = std::format("@ng_cl{}", startLabel + descriptor.elements.size());
+        for (size_t vi = 0; vi < descriptor.elements.size(); ++vi)
+        {
+          const std::string bodyLabel = std::format("@ng_cl{}", startLabel + vi);
+          const std::string nextLabel =
+              (vi + 1 == descriptor.elements.size()) ? endLabel : std::format("@ng_cl{}", startLabel + vi + 1);
+          const auto match = fresh();
+          line(std::format("{} =w ceql {}, {}", match, tag, vi));
+          line(std::format("jnz {}, {}, {}", match, bodyLabel, nextLabel));
+          line(bodyLabel);
+          const auto clonedPayload = emitCloneDeep(payload, descriptor.elements[vi]);
+          line(std::format("storel {}, {}", clonedPayload, payloadTarget));
+        }
+        line(endLabel);
+        ngrt_.cloneLabelCounter = startLabel + descriptor.elements.size() + 1;
+      }
+      cloneInProgress_.erase(type.value);
       return clone;
     }
     if (descriptor.kind == TypeKind::Struct || descriptor.kind == TypeKind::Tuple)
     {
+      cloneInProgress_.insert(type.value);
       const size_t count =
           descriptor.kind == TypeKind::Struct ? descriptor.fieldNames.size() : descriptor.elements.size();
       const size_t header = descriptor.kind == TypeKind::Struct ? 0 : 16;
       const auto clone = fresh();
-      // Struct clones live on the heap: they are values that can be
-      // borrowed and escape their frame (cell locals store the pointer).
       if (descriptor.kind == TypeKind::Struct)
         line(std::format("{} =l call $ngrt_alloc(l {})", clone, count * 8));
       else
@@ -347,11 +475,12 @@ namespace NG::native::detail
         line(std::format("{} =l add {}, {}", fieldAddress, source, header + index * 8));
         const auto fieldValue = fresh();
         line(std::format("{} =l loadl {}", fieldValue, fieldAddress));
-        const auto fieldClone = emitClone(fieldValue, descriptor.elements[index]);
+        const auto fieldClone = emitCloneDeep(fieldValue, descriptor.elements[index]);
         const auto target = fresh();
         line(std::format("{} =l add {}, {}", target, clone, header + index * 8));
         line(std::format("storel {}, {}", fieldClone, target));
       }
+      cloneInProgress_.erase(type.value);
       return clone;
     }
     if (descriptor.kind == TypeKind::DynamicArray || descriptor.kind == TypeKind::FixedArray)
@@ -373,6 +502,41 @@ namespace NG::native::detail
       return clone;
     }
     return source;
+  }
+  /// Box.clone(): `source` points at the 8-byte Box<T> struct block; returns a
+  /// rebuilt Box whose fresh cell holds a full deep copy of the payload.
+  [[nodiscard]] auto FunctionLowerer::emitBoxClone(const std::string &source, TypeId type) -> std::string
+  {
+    const auto &descriptor = function_.typeDescriptors[type.value];
+    const TypeId element = descriptor.typeArguments[0];
+    const auto handleAddress = fresh();
+    line(std::format("{} =l add {}, 0", handleAddress, source));
+    const auto handle = fresh();
+    line(std::format("{} =l loadl {}", handle, handleAddress));
+    const auto cellValue = fresh();
+    line(std::format("{} =l call $ngrt_load(l {})", cellValue, handle));
+    const auto clonedCellValue = emitCloneDeep(cellValue, element);
+    const auto freshCell = fresh();
+    line(std::format("{} =l call $ngrt_allocate(l {})", freshCell, clonedCellValue));
+    const auto box = fresh();
+    line(std::format("{} =l call $ngrt_alloc(l 8)", box));
+    line(std::format("storel {}, {}", freshCell, box));
+    return box;
+  }
+  void FunctionLowerer::emitCloneHelper(TypeId type)
+  {
+    cloneInProgress_.clear();
+    cloneInProgress_.insert(type.value);
+    cloneSkipNextGuard_ = true;
+    const auto previousStream = cloneHelperStream_;
+    cloneHelperStream_ = &cloneHelperOut_;
+    cloneHelperOut_ << "function l $ng_clone" << type.value << "_helper(l %p) {" << '\n'
+                    << "@ng_clone" << type.value << "_start" << '\n';
+    const auto result = emitCloneDeep("%p", type);
+    line(std::format("ret {}", result));
+    cloneHelperOut_ << "}\n";
+    cloneHelperStream_ = previousStream;
+    cloneInProgress_.clear();
   }
   [[nodiscard]] auto FunctionLowerer::normalizeSteps(TypeId rootType, const std::vector<flowir::PlaceStep> &steps)
       -> std::vector<NormalizedStep>
