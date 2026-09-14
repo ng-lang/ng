@@ -67,16 +67,45 @@ arguments that NG cannot express without first-class functions.
   type is affine → `moveState_.isWholeMoved` suppresses scope-end double-drop.
   Verified by probe: switch over affine enum with Box payload no longer double-
   releases. ng_test ~[QBE] 573/573 (3558 assertions), ctest 621/621 (unchanged
-  baseline). **INC-20 BLOCKED**: probe deep-dive established that any `read` /
-  `load` of a Box-cell containing nested Box tokens shallow-copies the handles,
-  and `hasDrop` does not recursively drop Box fields inside structs/enums without
-  an explicit `Drop` impl — therefore non-destructive `List` iteration
-  (`switch (*list)` / `length(ref xs)`) and the destructive consume path both
-  require new primitives (Box `clone`, Handle INC-22, or linear-transfer
-  destructuring) not in scope for INC-20. Next candidate: INC-22 `Cell<T>` or
-  INC-21 `span<T>` + growing.
+  baseline). Committed `1b09a64`.
+- INC-20b (`Box.clone()` real deep copy — option (a) of the INC-20 blocker):
+  **implemented, verified, docs-synced; uncommitted (commit pending)**. Clone
+  borrows the receiver (original stays live), deep-copies payload into a fresh
+  cell via `emitCloneDeep`; top-level Box copies re-envelope on heap
+  (`emitBoxEnvelopeCopy`, $ngrt_alloc(8) + handle copy) — fixes the
+  "invalid heap handle" crash from returning a stack-allocated QBE box
+  envelope; `list_spread.ng` unblocked by routing enum clone ladders through
+  `$ng_clone{id}_helper` (`cloneHelperStream_` gate, avoids inline ladder
+  predecessors-not-matched-in-phi). Typechecker tracks `boxCloneCalls`
+  (`isBoxReceiver`); FlowIR emits BoxClone/LoadRef. Full **623/623 (3758
+  assertions), ASan box/clone probes clean**.
 
 ## Recent completed changes
+
+- INC-20b (Box.clone deep copy, INC-20 unblocker option (a)): full root-cause
+  chain landed. **Crash fix**: `new()`'s box literal lowered to a *stack*
+  envelope (QBE `alloc8 8` is alloca); the old deep-clone-on-return heap-
+  lifted it, but the clone box-shortcut `return source` kept the stack pointer,
+  so the cell's stored `box` and the drop's `loadl(box+0)` read freed/reused
+  stack (e.g. `0x10052c050` = cell1's own address) → `ngrt_release(invalid
+  handle)`. `emitClone` top-level Box copies now `emitBoxEnvelopeCopy`: fresh
+  8-byte heap envelope (`$ngrt_alloc(8)`) + handle copy (shares the cell →
+  drop-exactly-once; envelopes arena-owned, never released). **phi crash fix**:
+  `list_spread.ng` `qbe: predecessors not matched in phi %t279` — inline enum
+  tag ladders split structured blocks (every QBE label is a block boundary);
+  the ladder's unterminated last block fell through to the next structured
+  label. Enum deep clones now always call `$ng_clone{id}_helper` from user
+  bodies (`cloneHelperStream_` null → delegate + register type); the ladder
+  inlines only inside the helper (no structured phis). Composite payloads
+  (struct/tuple/enum with Box fields) deep-copy into fresh cells via
+  `emitCloneDeep` (`$ng_clone{id}_helper` recursion) — "cell never aliases
+  payload". Box is affine (`let b = a` = E-move-used), so shared-handle
+  envelopes never double-release. Verified: `example/box.ng` (+clone section,
+  exit 0), `/tmp/p13.ng`/`/tmp/p14.ng` recursive/leaf clone exit 0,
+  `list_spread.ng` exit 0. 3 new box_test `[Box][INC20]` cases (deep-copy +
+  write isolation, `outstanding()` balance through a helper, recursive
+  `Box<E>` enum clone walk). **Full 623/623 (3758 assertions), ASan probe
+  batch clean**; guard flowir 2256 (at ceiling).
 
 - INC-19 S1 (generic `Box<T>` + `new`): `lib/std/memory.ng` rewritten to a
   generic affine `Box<T>` over the session-owned handle table —
@@ -336,12 +365,9 @@ arguments that NG cannot express without first-class functions.
   see Recent completed changes and worklog 2026-09-10).
 - INC-19 (generic `Box<T>` + `new`, DEC-C B1 core) — **S1 landed**
   (`c36c53a`/`c03565f`/`d311f84`); ASan + leaks(1) rerun pending but baseline
-  green (620/620, 3749 assertions, ctest 621/621). Next per plan: INC-20
-  (std.list onto Box) — **blocked at the data-representation level** (see
-  INC-20a blocker below). Candidate next increments that unblock downstream
-  work: **INC-22 Cell\<T\> (handle 式内部可变性)**, **INC-21 span\<T\> +
-  growing array + in-place pushBack**, or resolving the INC-20 blocker by
-  adding Box `clone` + linear-transfer destructuring.
+  green (620/620, 3749 assertions, ctest 621/621). INC-20 **unblocked** by
+  INC-20b (`Box.clone`, option (a)). Next: INC-20c (std.list on Box nodes,
+  remove FlowIR List opcodes).
 - INC-19 S1 **known limits** (documented): no Gc/Arc/allocator params (R6);
   generic call inference cannot pass a type parameter as an implicit arg
   across a callee boundary — `new`/`read`/`write` spell `allocate<T>`/
@@ -349,17 +375,11 @@ arguments that NG cannot express without first-class functions.
   DEC-A checked-numeric redesign.
 - INC-20a **keystone landed** (`1b09a64`): `consumeSwitchScrutinee` in
   `checkSwitch` marks affine enum scrutinees moved before branches — required
-  by any future Box-in-enum design. **INC-20 BLOCKED** (2026-09-11 probe
-  conclusion): `Box<T>` tokens stored inside a cell are shallow-copied by
-  `read`/`load`; `hasDrop` only recognizes explicit `impl Drop`, so Box
-  fields inside structs/enums leak (demonstrated: `struct Wrap { b: Box<i64> }
-  ; fun make() { let w = Wrap { b: new(5) }; }` — `outstanding()` stays +1
-  after return). This blocks non-destructive list iteration (`switch (*list)`,
-  `length(ref xs)`, `read(ref b)`) and makes the destructive consume path
-  correct only when ownership is linearly transferred. Fix options:
-  (a) add `Box.clone` deep-copy + source-consumption primitives; (b) INC-22
-  `Handle` 式内部可变性 (separate ownership token from value access); (c)
-  destructive-only API (contract source changes, violates plan wording).
+  by any future Box-in-enum design. **INC-20b landed (pending commit)**:
+  `Box.clone` deep copy implemented (see Status + Recent completed changes).
+  **INC-20 remaining**: INC-20c — migrate `lib/std/list.ng` to `Box` nodes,
+  remove `EnumListLength`/`EnumListGet` + `$ngrt_enum_list_*` runtime helpers,
+  keep list contracts green.
 
 ## References
 
@@ -371,5 +391,6 @@ arguments that NG cannot express without first-class functions.
 - `.agents/worklog/2026-09-08.md` — INC-12 + INC-13 entries
 - `.agents/worklog/2026-09-10.md` — INC-17 + INC-18 entries
 - `.agents/worklog/2026-09-11.md` — INC-19 S1 (generic Box<T> + new) + INC-20a (affine-enum switch consumption) entries
+- `.agents/worklog/2026-09-14.md` — INC-20b (Box.clone deep copy) entry
 - `docs/design/rearchitecture/09-increment-plan.md` — execution table + INC-14 slices
 - `AGENTS.md` — pipeline/build/test/commit conventions
