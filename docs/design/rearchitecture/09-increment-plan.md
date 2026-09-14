@@ -567,6 +567,24 @@ INC-15/16 之后再执行。
 > `Handle` 内部可变性；(c) 破坏性 List API + 线性所有权转移。三者均需
 > 新增基础原语，不在 INC-20 内解决。当前变更（INC-20a）仅修检查器：
 > 枚举 switch 消费 scrutinee，属必要先决件（`feat(vnext): INC-20a`）。
+>
+> **INC-20b（2026-09-14，落地）**：方案 (a) 的核心已实现并全绿 —
+> `Box.clone()` 显式深拷贝进新 cell（类型检查器在 `isBoxReceiver` 上登记
+> `boxCloneCalls`，FlowIR 对 Box 派生克隆发 `BoxClone` / 其余 `LoadRef`）。
+> 语义：clone 只共享受拷方句柄字、原盒保持存活且不受克隆写入影响
+> （`example/box.ng`、box_test `clone()` 三条回归），drop-exactly-once 由
+> `outstanding()` 断言。改动要点：
+> - `emitClone` 顶层 Box 拷贝 → `emitBoxEnvelopeCopy`：`$ngrt_alloc(8)`
+>   新建堆上外壳、拷贝句柄 → 修复返回路径上"栈外壳悬垂"导致的
+>   "invalid heap handle" 崩溃（QBE `alloc8 8` 是栈分配；旧深拷贝在返回时
+>   heap-lift 了外壳，短路路径保留栈针）。
+> - 枚举克隆一律经 `$ng_clone{id}_helper` 只读 helper 内联 tag 阶梯
+>   （`cloneHelperStream_` 门控）；在函数体内联阶梯会给结构化块 +1 个真实
+>   前驱、导致 `qbe: predecessors not matched in phi %t`（`list_spread.ng`）。
+> - 复合载荷（struct/tuple/enum 内含 Box 字段）走 `emitCloneDeep` 新 cell，
+>   保证"cell 永不别名载荷"。
+> 下一步（INC-20c）：`lib/std/list.ng` 迁移 `Box` 节点、移除
+> `EnumListLength`/`EnumListGet` + `$ngrt_enum_list_*`，list 契约保持全绿。
 
 ### INC-21 · A7 span\<T\> + 数组增长 + in-place pushBack
 - 测试：span 越界负契约；增长序列 PBT（append N 次 ≡ 一次性构造）。
