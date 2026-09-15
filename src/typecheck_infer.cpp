@@ -158,8 +158,11 @@ auto Checker::inferExpectedEnum(const hir::Expression &expression, TypeId expect
                                   expression.operands.size()),
                       expression.span);
     for (size_t index = 0; index < expression.operands.size(); ++index)
+    {
       static_cast<void>(
           inferExpected(*expression.operands[index], tuple.elements[index], locals, "variant payload"));
+      trackConsumption(*expression.operands[index], locals);
+    }
     record(expression, expected);
     return expected;
   }
@@ -169,8 +172,11 @@ auto Checker::inferExpectedEnum(const hir::Expression &expression, TypeId expect
                                 descriptor.fieldNames[variant], wanted, expression.operands.size()),
                     expression.span);
   if (wanted == 1)
+  {
     static_cast<void>(
         inferExpected(*expression.operands[0], descriptor.elements[variant], locals, "variant payload"));
+    trackConsumption(*expression.operands[0], locals);
+  }
   record(expression, expected);
   return expected;
 }
@@ -199,6 +205,7 @@ auto Checker::inferExpectedStruct(const hir::Expression &expression, TypeId expe
     seen[field] = true;
     const TypeId fieldType = inferExpected(*expression.operands[index], descriptor.elements[field], locals,
                                            std::format("field `{}`", expression.memberNames[index]));
+    trackConsumption(*expression.operands[index], locals);
     if (interner_.descriptor(fieldType).kind == TypeKind::Reference)
       throw TypeError("references cannot be stored in struct fields", expression.operands[index]->span);
   }

@@ -78,6 +78,14 @@ namespace NG::native::detail
         if ((instruction.kind == InstructionKind::MakeRef || instruction.kind == InstructionKind::MakeTraitView) &&
             instruction.placeRootLocal)
           cellLocals_.insert(instruction.placeRootLocal->value);
+    // Box locals always live in heap cells: a box VALUE is an address to an
+    // 8-byte cell holding the handle, and that address can be embedded in an
+    // aggregate/enum payload (moved into a constructor). A stack slot would
+    // be reused once the binding dies, dangling every payload token that
+    // pointed at it.
+    for (const auto &[local, type] : function_.localTypes)
+      if (isBoxType(type))
+        cellLocals_.insert(local);
     // Pass 1b: SSA locals — never borrowed, never assigned, never a
     // block parameter — live as QBE temps (no slot traffic; QBE's
     // non-SSA fixup handles rebinding and cross-block uses). Parameters
