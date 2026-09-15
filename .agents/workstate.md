@@ -69,7 +69,7 @@ arguments that NG cannot express without first-class functions.
   releases. ng_test ~[QBE] 573/573 (3558 assertions), ctest 621/621 (unchanged
   baseline). Committed `1b09a64`.
 - INC-20b (`Box.clone()` real deep copy — option (a) of the INC-20 blocker):
-  **implemented, verified, docs-synced; uncommitted (commit pending)**. Clone
+  **committed** `3c69e98`/`2b73209`/`f237e12`. Clone
   borrows the receiver (original stays live), deep-copies payload into a fresh
   cell via `emitCloneDeep`; top-level Box copies re-envelope on heap
   (`emitBoxEnvelopeCopy`, $ngrt_alloc(8) + handle copy) — fixes the
@@ -79,8 +79,43 @@ arguments that NG cannot express without first-class functions.
   predecessors-not-matched-in-phi). Typechecker tracks `boxCloneCalls`
   (`isBoxReceiver`); FlowIR emits BoxClone/LoadRef. Full **623/623 (3758
   assertions), ASan box/clone probes clean**.
+- INC-20c **S0** (Box-in-aggregate fixes + Box-list feasibility): two memory
+  bugs fixed and committed as `11bcc48` (fix). (1) Enum/struct literal payload
+  args are consumption-tracked (`inferExpectedEnum`/`inferExpectedStruct`) —
+  fixes the double `ngrt_release` crash when a box moved into `Pair.Cons(1, t)`
+  is read again via a switch pattern. (2) Box-typed locals always bind fresh
+  heap cells (`collectLocals` seeds `cellLocals_`) — fixes stale aggregate
+  payload tokens when a whole-moved Box local fell to the stack-slot fast path
+  (in-process `boxrec.ng` regression). `[enum-resolve]`/`[enum-spec]` tracing
+  proved the toolchain's "expected List, got List" on `new<List<T>>(tailLocal)`
+  was a probe typing error (`listLength<i64>(…)`, not `<List<i64>>`); var
+  reassignment is `:=`, not `=`. **Full Box-list semantics validated**: a
+  production-shaped `list.ng` probe (`Cons(head, tail: Box<List<T>>)`, fully
+  implicit inference — length/get/contains/listFrom/append/reverse/pushFront)
+  exits 0. Suite 623/623 (3758 assertions), ASan clean.
 
 ## Recent completed changes
+
+- INC-20c S0 (Box-in-aggregate fixes, foundation for std.list on Box nodes):
+  two memory bugs. ① Enum/struct literal payload arguments were not
+  consumption-tracked, so `let p: Pair = Pair.Cons(1, t)` left `t`'s scope-end
+  drop edge alive and the switch-arm return path released the same cell twice
+  (`invalid heap handle`) when a pattern-bound `b` shared it. `trackConsumption`
+  now runs on every payload arg in `inferExpectedEnum` (tuple + single-payload
+  branches) and `inferExpectedStruct`. ② Whole-moved Box locals then flipped to
+  stack slots; a box VALUE is an address to an 8-byte cell holding the handle,
+  and a stack slot is reused once the binding dies, dangling aggregate payload
+  tokens (in-process `boxrec.ng` wrong reads). `collectLocals()` forces every
+  Box-typed local into `cellLocals_`. Verified: `boxpattern.ng`/`boxpattern3.ng`
+  exit 0, `boxm2.ng` E-move-used, `boxrec.ng` exit 0 in-process, ASan probes
+  clean, full suite **623/623 (3758 assertions)**. Also proved (via
+  `[enum-resolve]`/`[enum-spec]` interner tracing) that `new<List<i64>>(list)`
+  works — earlier "expected List, got List" was a probe mis-typing
+  (`listLength<i64>` vs `listLength<List<i64>>`), and `:=` is the block/switch/
+  loop-body reassignment operator. **Box-list feasibility probe exits 0**:
+  production-shaped std.list on `Cons(head, tail: Box<List<T>>)` with fully
+  implicit inference (length/get/contains/listFrom/append/reverse/pushFront).
+  See worklog 2026-09-15. Committed `11bcc48` (fix).
 
 - INC-20b (Box.clone deep copy, INC-20 unblocker option (a)): full root-cause
   chain landed. **Crash fix**: `new()`'s box literal lowered to a *stack*
@@ -375,11 +410,18 @@ arguments that NG cannot express without first-class functions.
   DEC-A checked-numeric redesign.
 - INC-20a **keystone landed** (`1b09a64`): `consumeSwitchScrutinee` in
   `checkSwitch` marks affine enum scrutinees moved before branches — required
-  by any future Box-in-enum design. **INC-20b landed (pending commit)**:
-  `Box.clone` deep copy implemented (see Status + Recent completed changes).
-  **INC-20 remaining**: INC-20c — migrate `lib/std/list.ng` to `Box` nodes,
-  remove `EnumListLength`/`EnumListGet` + `$ngrt_enum_list_*` runtime helpers,
-  keep list contracts green.
+  by any future Box-in-enum design. **INC-20b landed** (`3c69e98`/`2b73209`/
+  `f237e12`): `Box.clone` deep copy. **INC-20c S0 landed** (`11bcc48`): Box
+  aggregate-move/drop fixes + full Box-list semantics validated by probe.
+  **INC-20 remaining — INC-20c S1**: migrate `lib/std/list.ng` to Box nodes,
+  retarget FlowIR list-literals to Box tails (value-cell + envelope) so
+  `[...]`/`[a,b]` spreads keep working, migrate the direct-construction corpus
+  (`example/std_list.ng`, `test/stdlib_redesign_test.cpp`,
+  `list_builders.ng`, `list_literals.ng`, `list_spread.ng`), keep list
+  contracts green. **S2**: remove `EnumListLength`/`EnumListGet` +
+  `$ngrt_enum_list_*` helpers by routing spread through std list helpers
+  (needs synthetic-call synthesis + FlowIR line budget at the 2256 guard).
+  Doc-sync + commit trio per convention.
 
 ## References
 
@@ -392,5 +434,6 @@ arguments that NG cannot express without first-class functions.
 - `.agents/worklog/2026-09-10.md` — INC-17 + INC-18 entries
 - `.agents/worklog/2026-09-11.md` — INC-19 S1 (generic Box<T> + new) + INC-20a (affine-enum switch consumption) entries
 - `.agents/worklog/2026-09-14.md` — INC-20b (Box.clone deep copy) entry
+- `.agents/worklog/2026-09-15.md` — INC-20c S0 (Box-in-aggregate fixes + Box-list feasibility) entry
 - `docs/design/rearchitecture/09-increment-plan.md` — execution table + INC-14 slices
 - `AGENTS.md` — pipeline/build/test/commit conventions
