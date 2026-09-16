@@ -585,6 +585,25 @@ INC-15/16 之后再执行。
 >   保证"cell 永不别名载荷"。
 > 下一步（INC-20c）：`lib/std/list.ng` 迁移 `Box` 节点、移除
 > `EnumListLength`/`EnumListGet` + `$ngrt_enum_list_*`，list 契约保持全绿。
+>
+> **INC-20c S1（落地，feat/box-nodes docs/chore trio）**：`List<T>` 尾改为
+> `Box<List<T>>` 落地，list 契约（遍历/字面量/展开/构建器）全绿。
+> - 检查器：集合字面量目标 & 展开源接受 `Box` 尾（`typecheck_infer.cpp`
+>   `isListTail`，两处），FlowIR 展开元素类型放宽到 `Box` 尾
+>   （`flowir.cpp`，2256 行守卫封顶）。
+> - 字面量构建（O(n)）：尾盒用登记细胞（`$ngrt_allocate`）封装现存节点地址
+>   而非深拷贝 — `lowering_expr.cpp` MakeRef 结果类型为 `Box` 时发
+>   `$ngrt_allocate(节点word)` + 16B 外壳；`enum.ssa` 行走器不变
+>   （field0=登记细胞 → 节点）。`new` 式构建的 `$ngrt_alloc` 未登记细胞、
+>   `ngrt_load/release` 拒绝 → "invalid heap handle" 崩溃已修。
+> - 构建器（`listFrom`/`pushFront`/`append`/`reverseList`）：`new(rest)` 在
+>   原生边界深拷贝整棵剩余子树（含尾 Box 递归），逐层累加 → **O(n²) 分配**，
+>   S1 接受并记档（小列表无碍；真正的 O(n) 修复随 R6 可变构建器）。
+>   Box 值本身 move/存字段/按值传参是浅拷贝（共享 pointee）；深拷贝只在
+>   `clone()` 与原生边界（`new`/`read`）整值物化时发生 — 设计自洽，
+>   深拷贝内对 Box 浅拷贝会别名/双重释放。
+> S2 待办：移除 `EnumListLength`/`EnumListGet` + `$ngrt_enum_list_*`
+> helper 与 IR 断言（`EnumListLength/Get` 仍按 Box 尾经 field0 行走）。
 
 ### INC-21 · A7 span\<T\> + 数组增长 + in-place pushBack
 - 测试：span 越界负契约；增长序列 PBT（append N 次 ≡ 一次性构造）。
