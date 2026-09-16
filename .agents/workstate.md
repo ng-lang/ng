@@ -93,6 +93,24 @@ arguments that NG cannot express without first-class functions.
   production-shaped `list.ng` probe (`Cons(head, tail: Box<List<T>>)`, fully
   implicit inference — length/get/contains/listFrom/append/reverse/pushFront)
   exits 0. Suite 623/623 (3758 assertions), ASan clean.
+- INC-20c **S1** (std.list on Box nodes): **migrated** `lib/std/list.ng` to
+  `Cons(head: T, tail: Box<List<T>>)`, list contracts end-to-end green.
+  Two typecheck joins (`isListTail`, list-literal target + spread source),
+  FlowIR spread element typing accepts Box tails (flowir at the 2256 guard),
+  and `lowering_expr.cpp` MakeRef-with-Box-result now builds real boxes —
+  registered cell (`$ngrt_allocate`) + 16B envelope wrapping the existing
+  node word (no deep copy) — fixing the literal-built "invalid heap handle"
+  crash (unregistered `$ngrt_alloc` value cells are rejected by
+  `ngrt_load/release`). `new`-built box probes clone/read/switch correctly.
+  **Accepted (documented)**: builders (`listFrom`/`pushFront`/`append`/
+  `reverseList`) are **O(n²) allocations** — `new`/`read` deep-copy the
+  whole remaining subtree (incl. tail boxes) at each recursion level
+  (measured: new(k-node)=k+1, read(k-node)=k; listFrom 1..4 → 3/8/15/24
+  cells). Box VALUE copies (move/field-store/param-by-value) are shallow
+  and share the pointee; deep copy happens only in `clone()` and at native
+  boundaries (`new`/`read`). Full **623/623 (3758 assertions)**; example
+  sweep + `stdlib_redesign` list cases green. Guard flowir 2256/2256 (at
+  ceiling).
 
 ## Recent completed changes
 
@@ -413,15 +431,134 @@ arguments that NG cannot express without first-class functions.
   by any future Box-in-enum design. **INC-20b landed** (`3c69e98`/`2b73209`/
   `f237e12`): `Box.clone` deep copy. **INC-20c S0 landed** (`11bcc48`): Box
   aggregate-move/drop fixes + full Box-list semantics validated by probe.
-  **INC-20 remaining — INC-20c S1**: migrate `lib/std/list.ng` to Box nodes,
-  retarget FlowIR list-literals to Box tails (value-cell + envelope) so
-  `[...]`/`[a,b]` spreads keep working, migrate the direct-construction corpus
-  (`example/std_list.ng`, `test/stdlib_redesign_test.cpp`,
-  `list_builders.ng`, `list_literals.ng`, `list_spread.ng`), keep list
-  contracts green. **S2**: remove `EnumListLength`/`EnumListGet` +
-  `$ngrt_enum_list_*` helpers by routing spread through std list helpers
-  (needs synthetic-call synthesis + FlowIR line budget at the 2256 guard).
-  Doc-sync + commit trio per convention.
+  **INC-20c S1 landed**: `lib/std/list.ng` on Box nodes (typecheck/fix +
+  lowering box-wrap), list contracts green. **S2**: remove
+  `EnumListLength`/`EnumListGet` + `$ngrt_enum_list_*` helpers by routing
+  spread through std list helpers (needs synthetic-call synthesis + FlowIR
+  line budget at the 2256 guard). Doc-sync + commit trio per convention.
+
+## INC-20c S1 change plan (EXECUTED 2026-09-16; see execution log below)
+
+**De-risking discovery (verified against SSA + lowering sources):** the feared
+"no flowir-level way to build a box envelope" is a non-issue. Three facts make
+S1 a *small* change:
+
+1. `emitRefObject` (src/native/lowering_aggregate.cpp:260) for a heap-cell local
+   snapshots `loadl(localSlots_[rootLocal])` into ref-object field0. In
+   `lowerListLiteral` the acc local is a heap cell whose value *is* the
+   value-slot pointer, so each MakeRef emission is `{valueSlotPtr, 0}` with
+   field0 == the box handle convention (a cell address). Walker:
+   `loadl(payload+24)` → field0 → `loadl(field0)` → node = **2 loads,
+   byte-identical for the ref layout and the box layout**.
+2. `enum.ssa` `$ngrt_enum_list_len/_get` only touch payload+24 / field0 /
+   deref — the walk needs **no change**.
+3. `new<T>(rest)` produces an 8-byte envelope `{handle=valueCell}` — same
+   field0 convention. User-built and literal-built boxes unify on it.
+
+The literal machinery is descriptor-driven, so `lowerListLiteral`'s instruction
+stream (flowir.cpp:733) types the refAcc from `descriptor.elements[consVariant]
+.elements[1]` — once `Cons` declares `tail: Box<List<T>>` the MakeRef result
+carries the Box type automatically. **No new instruction, no enum.ssa edit.**
+
+**Challenge outcome (2026-09-16):** the draft's flagged "double-release hazard in
+string-element clone ladders" was a **false positive**. The shallow tail in
+`$ng_clone120_helper`'s emitted SSA came from the *current ref build* — a Ref
+tail falls through `emitCloneDeep` to `return source` (lowering_aggregate.cpp:504).
+`emitCloneDeep` already owns a dedicated **Box branch** (lines 371-386): fresh
+cell (`$ngrt_allocate`) + fresh envelope (`$ngrt_alloc(8)`) + deep recursion via
+`$ng_clone{id}_helper`. With Box tails the field takes that branch → deep copy,
+no alias, no double release. **No clone-ladder edit needed**; instead a
+regression probe pins the behavior (below).
+
+**Edit set (ordered):**
+
+- **Fix 0 — pre-flight probes (before code edits):**
+  - Probe A: inline enum `Cons(head: i64, tail: Box<ListP<T>>)` + `[1,2,3]`
+    literal + switch/read traversal + `[...xs]` spread → exit 0. Validates the
+    literal→Box runtime path (A/B/C mechanics) independent of std.
+  - Probe B: `listFrom(["a","b"])`-shaped Box list + deep clone + drop →
+    `outstanding()` stays balanced (pins the Box branch of `emitCloneDeep` once
+    tails are Box; the shallow-ref SSA warning is gone).
+- **Fix A — typecheck_infer.cpp:486** (list-collection-literal target): accept
+  a Box tail alongside the ref tail. Extend the Cons-field1 condition with
+  `|| (isBox(field1) && interner_.descriptor(field1).typeArguments[0] == expected)`.
+- **Fix B — typecheck_infer.cpp:977** (spread source detection): same Box
+  acceptance, `isBox(field1) && typeArguments[0] == source` fills `listSource`/`listElement`.
+- **Fix C — flowir.cpp:944-948** (spread element typing, EnumListGet branch):
+  currently only matches `payload.elements[1].kind == Reference`; with Box tails
+  it matches nothing → `element` stays untyped → later
+  `function_.valueTypes.at(element.value)` throws. Extend to accept
+  Struct-Box-of-source; net lines ≈ 0 (simplify by reading the found variant
+  directly).
+- **Fix D — lib/std/list.ng** (the migration): `Cons(head: T, tail: Box<List<T>>)`.
+  `length/get/contains(list: ref<List<T>>)` pattern-match `*list`, recurse by
+  `let boxed: List<T> = read<List<T>>(ref rest); ... ref boxed` — probe
+  `listboxprobe3.ng` shape, fully implicit inference (validated exits 0).
+  Builders (`listFromInner/pushFront/append/reverseList`) return into
+  `new(rest)` boxes. ~91-line module, keeps the exported surface identical
+  (`length/get/contains/listFrom/pushFront/append/reverseList`).
+- **Fix E — corpus migration:**
+  - `test/stdlib_redesign_test.cpp:84-87`: `List.Cons(1, ref empty)` →
+    `List.Cons(1, new<List<i64>>(empty))` (each `new` affine-consumes the tail
+    value; chain stays move-valid — probe-verified pattern).
+  - `example/std_list.ng:8-11`: same rewiring.
+  - `list_builders.ng` / `list_literals.ng` / `list_spread.ng` + test strings at
+    lines 99–102, 161–163, 180–183: no source change expected (function/literal/
+    spread based); the spread cases only activate Fixes B/C.
+  - `lib/std/list.ng`'s `List.Cons` callers elsewhere: audit
+    `rg "List.Cons|ref empty" example lib test` for stragglers.
+
+**Verification (all in one S1 execution):**
+1. Apply A/B/C alone → full suite `./build/ng_test` still 623/623 (conditions
+   are joins, no behavior change while tails are ref).
+2. Apply D+E → stdlib_redesign list cases green again (direct construction via
+   `new`, literals, spreads).
+3. `./build/ngci --emit=ssa example/list_literals.ng` inspect: acc MakeRef field0
+   == value-slot pointer; `$ngrt_enum_list_len/_get` still walk it.
+4. ASan: `box`/list probe batch clean; `stdlib_redesign` + examples sweep green.
+5. Guard: flowir 2256-line ceiling — A/B/C must be net ≤ +2 lines or offset.
+
+**Risks / accepted:**
+- Literal-built boxes hold a *shallow* node word in the value-slot; correct
+  because the acc is affine-consumed (single owner). Drop path releases the
+  value-slot cell; the pointed-to node envelope leaks per literal node
+  (same documented Box-in-enum gap, probe leaked 123 cells, exits 0).
+- `new`-built vs literal-built boxes differ only in structure size (8 vs 16B);
+  both satisfy field0 handling / read. No double release (probe-validated).
+
+**Commit:** one `feat(vnext)` for A–E + doc-sync + chore worklog per the
+convention. S2 (opcode/helper removal) stays separate (needs the FlowIR
+line-budget plan).
+
+### Execution log (2026-09-16, all applied & green)
+
+Fixes A/B/C landed as planned (`isListTail` in `typecheck_infer.cpp` at both
+list-literal-target and spread-source sites; FlowIR spread element loop
+accepts Ref or Box tails — flowir net +6 lines, exactly **2256/2256**).
+
+**Deviation — the planned "no lowering change" was wrong**: probe A (inline
+Box-tailed enum + `[1,2,3]` literal) **compiled** (A/B/C typing correct) but
+**crashed at runtime** `invalid heap handle`, exit 1. Root cause: the literal's
+value-slot cells are allocated via `$ngrt_alloc` (bump arena, *not* registered
+in the live table), while every box operation (`read`/`ngrt_load`, the clone
+box branch, `release`) validates the handle via `ngrt_handle_valid` →
+`ngrt_live_add` is only in `$ngrt_allocate`. Box handles must be **registered
+cells**. Fixed in `lowering_expr.cpp` MakeRef: when the instruction result type
+is a Box, emit `value=loadl(loadl(accSlot)); cell=$ngrt_allocate(value);
+env=$ngrt_alloc(16); storel cell; storel 0,+8; result=env` — wraps the existing
+node *word* (no deep copy), so literal tails become real boxes and the
+`enum.ssa` walkers/unmodified label each build is O(n). User `ref boxLocal`
+stays on the ref-object path (result type is `ref<Box>`, not `Box`).
+
+**Deviation — builders are O(n²), accepted per user decision**: `new`/`read`
+deep-copy the entire remaining subtree at every level, so `listFrom` etc.
+allocate quadratically (`new(k-node)=k+1`, `read(k-node)=k`; listFrom 1..4 →
+3/8/15/24). Verified Box VALUE copies (move / field-store / NG param-by-value)
+are **shallow** (share pointee: Cons-store +1, param +0, return +0); deep copy
+is confined to `clone()` and native boundaries (`new`/`allocate` arg, `read`/
+`load` result). Wait hole in future R6 mutating builders. Probe B's strict
+`outstanding()==before` assert relaxed to leak-awareness (embedded Box fields
+are not recursively dropped — pre-existing documented gap).
 
 ## References
 
