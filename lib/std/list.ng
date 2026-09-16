@@ -1,19 +1,23 @@
 // vNext std.list (redesign, legacy 59 spirit): a read-only recursive sequence
-// over the recursive-enum List<T>; node construction uses caller bindings and
-// scoped refs, and mutating builders arrive with the R6 heap domain.
+// over the recursive-enum List<T>; node tails are Box<List<T>> heap cells
+// (registered handles), so box reads, clones, and drops are well-defined.
 
 import prelude;
 import seq;
+import memory;
 
 export enum List<T> {
-    Cons(head: T, tail: ref<List<T>>),
+    Cons(head: T, tail: Box<List<T>>),
     Nil,
 }
 
 export fun length<T>(list: ref<List<T>>) -> i64 {
     switch (*list) {
         case Nil { return 0; }
-        case Cons(value, rest) { return 1 + length(rest); }
+        case Cons(value, rest) {
+            let boxed: List<T> = read<List<T>>(ref rest);
+            return 1 + length(ref boxed);
+        }
     }
 }
 
@@ -25,7 +29,8 @@ export fun get<T>(list: ref<List<T>>, index: i64) -> T {
         }
         case Cons(value, rest) {
             if (index == 0) { return value; }
-            return get(rest, index - 1);
+            let boxed: List<T> = read<List<T>>(ref rest);
+            return get(ref boxed, index - 1);
         }
     }
 }
@@ -33,14 +38,17 @@ export fun get<T>(list: ref<List<T>>, index: i64) -> T {
 export fun contains<T>(list: ref<List<T>>, value: T) -> bool {
     switch (*list) {
         case Nil { return false; }
-        case Cons(head, rest) { return head == value || contains(rest, value); }
+        case Cons(head, rest) {
+            if (head == value) { return true; }
+            let boxed: List<T> = read<List<T>>(ref rest);
+            return contains(ref boxed, value);
+        }
     }
 }
 
 // Immutable builders (redesign of legacy 59's listof/pushBack/append):
-// each call rebuilds the sequence over the recursive enum, sharing cells
-// through scoped refs. Mutating in-place builders arrive with the R6 heap
-// domain.
+// each call rebuilds the sequence over the recursive enum, boxing each tail
+// into a heap cell. Mutating in-place builders arrive with the R6 heap domain.
 
 fun listFromInner<T>(values: array<T>, index: i64) -> List<T> {
     if (index == len(values)) {
@@ -48,7 +56,8 @@ fun listFromInner<T>(values: array<T>, index: i64) -> List<T> {
         return empty;
     }
     let rest = listFromInner(values, index + 1);
-    return List.Cons(values[index], ref rest);
+    let tail: Box<List<T>> = new(rest);
+    return List.Cons(values[index], tail);
 }
 
 /// Builds a List from an array (`listFrom([1, 2, 3])`).
@@ -58,20 +67,24 @@ export fun listFrom<T>(values: array<T>) -> List<T> {
 
 /// Prepends a value (`pushFront(ref list, 1)`).
 export fun pushFront<T>(list: ref<List<T>>, value: T) -> List<T> {
-    let tail = *list;
-    return List.Cons(value, ref tail);
+    let whole: List<T> = *list;
+    let tail: Box<List<T>> = new(whole);
+    return List.Cons(value, tail);
 }
 
 /// Appends a value (`append(ref list, 9)`).
 export fun append<T>(list: ref<List<T>>, value: T) -> List<T> {
     switch (*list) {
         case Nil {
-            let tail = *list;
-            return List.Cons(value, ref tail);
+            let tail: List<T> = List.Nil;
+            let boxed: Box<List<T>> = new(tail);
+            return List.Cons(value, boxed);
         }
         case Cons(head, rest) {
-            let appended = append(rest, value);
-            return List.Cons(head, ref appended);
+            let boxed: List<T> = read<List<T>>(ref rest);
+            let appended = append(ref boxed, value);
+            let tail: Box<List<T>> = new(appended);
+            return List.Cons(head, tail);
         }
     }
 }
@@ -80,12 +93,14 @@ export fun append<T>(list: ref<List<T>>, value: T) -> List<T> {
 export fun reverseList<T>(list: ref<List<T>>) -> List<T> {
     switch (*list) {
         case Nil {
-            let empty = *list;
+            let empty: List<T> = *list;
             return empty;
         }
         case Cons(head, rest) {
-            let reversed = reverseList(rest);
-            return append(ref reversed, head);
+            let boxed: List<T> = read<List<T>>(ref rest);
+            let reversed = reverseList(ref boxed);
+            let appended = append(ref reversed, head);
+            return appended;
         }
     }
 }

@@ -5,6 +5,20 @@
 namespace NG::typecheck::detail
 {
 
+namespace
+{
+  /// True when a List<T> Cons payload's second field is the recursive tail:
+  /// either `ref<List<T>>` (legacy representation) or `Box<List<T>>`
+  /// (INC-20c representation, `Box.handle` is the recursive target).
+  [[nodiscard]] auto isListTail(const TypeDescriptor &field, TypeId expected, const TypeInterner &interner) -> bool
+  {
+    if (field.kind == TypeKind::Reference && field.element == expected)
+      return true;
+    return field.kind == TypeKind::Struct && field.name == "Box" && field.typeArguments.size() == 1 &&
+           field.typeArguments[0] == expected;
+  }
+} // namespace
+
 auto Checker::analyzeCallSpread(const hir::Expression &expression, size_t firstArgument,
                                 const LocalTypes &locals, CallSpreadInfo &info) -> bool
 {
@@ -483,8 +497,7 @@ auto Checker::inferExpected(const hir::Expression &expression, TypeId expected, 
       }
       const auto &payloadDescriptor = interner_.descriptor(descriptor.elements[variant]);
       if (payloadDescriptor.kind == TypeKind::Tuple && payloadDescriptor.elements.size() == 2 &&
-          interner_.descriptor(payloadDescriptor.elements[1]).kind == TypeKind::Reference &&
-          interner_.descriptor(payloadDescriptor.elements[1]).element == expected)
+          isListTail(interner_.descriptor(payloadDescriptor.elements[1]), expected, interner_))
       {
         consVariant = variant;
         element = payloadDescriptor.elements[0];
@@ -974,8 +987,7 @@ auto Checker::infer(const hir::Expression &expression, const LocalTypes &locals)
             {
               const auto &payloadDescriptor = interner_.descriptor(payload);
               if (payloadDescriptor.kind == TypeKind::Tuple && payloadDescriptor.elements.size() == 2 &&
-                  interner_.descriptor(payloadDescriptor.elements[1]).kind == TypeKind::Reference &&
-                  interner_.descriptor(payloadDescriptor.elements[1]).element == source)
+                  isListTail(interner_.descriptor(payloadDescriptor.elements[1]), source, interner_))
               {
                 listSource = true;
                 listElement = payloadDescriptor.elements[0];

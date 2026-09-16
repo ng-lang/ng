@@ -189,6 +189,27 @@ namespace NG::native::detail
       if (!instruction.placeRootLocal || instruction.placeRootRef)
         throw LoweringError(
             std::format("native lowering (M2): only local-rooted references are supported in `{}`", function_.name));
+      const TypeId boxResult = function_.valueTypes.at(instruction.result.value);
+      if (isBoxType(boxResult))
+      {
+        // A MakeRef whose result type is a Box builds the box VALUE: an
+        // envelope whose handle is a *registered* cell ($ngrt_allocate) so
+        // ngrt_load()/ngrt_release() accept it. The cell holds the node word.
+        const auto valueSlot = fresh();
+        line(std::format("{} =l loadl {}", valueSlot, localSlots_.at(instruction.placeRootLocal->value)));
+        const auto root = fresh();
+        line(std::format("{} =l loadl {}", root, valueSlot));
+        const auto cell = fresh();
+        line(std::format("{} =l call $ngrt_allocate(l {})", cell, root));
+        const auto envelope = fresh();
+        line(std::format("{} =l call $ngrt_alloc(l 16)", envelope));
+        line(std::format("storel {}, {}", cell, envelope));
+        const auto countAddress = fresh();
+        line(std::format("{} =l add {}, 8", countAddress, envelope));
+        line(std::format("storel 0, {}", countAddress));
+        bindResult(instruction, QType::Long, std::format("copy {}", envelope));
+        return;
+      }
       bindResult(instruction, QType::Long,
                  std::format("copy {}", emitRefObject(instruction.placeRootLocal->value, instruction.placeSteps)));
       return;

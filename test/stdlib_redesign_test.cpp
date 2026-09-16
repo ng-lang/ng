@@ -80,11 +80,11 @@ TEST_CASE("vNext std.seq sums and searches value-typed arrays", "[vNext][Stdlib]
 
 TEST_CASE("vNext std.list traverses recursive sequences", "[vNext][Stdlib][Runtime]")
 {
-  expectValue("import list; fun main() -> i64 { "
+  expectValue("import memory; import list; fun main() -> i64 { "
               "let empty: List<i64> = List.Nil; "
-              "let one: List<i64> = List.Cons(1, ref empty); "
-              "let two: List<i64> = List.Cons(2, ref one); "
-              "let three: List<i64> = List.Cons(3, ref two); "
+              "let one: List<i64> = List.Cons(1, new<List<i64>>(empty)); "
+              "let two: List<i64> = List.Cons(2, new<List<i64>>(one)); "
+              "let three: List<i64> = List.Cons(3, new<List<i64>>(two)); "
               "let mut total = 0; "
               "if (length(ref three) == 3) { total := total + 1; } "
               "if (get(ref three, 0) == 3) { total := total + 2; } "

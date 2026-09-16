@@ -939,11 +939,17 @@ namespace NG::flowir
         else if (listSource)
         {
           const auto &sourceDescriptor = types_->typeDescriptors.at(types_->typeIdOf(sourceExpr).value);
+          const auto sourceId = types_->typeIdOf(sourceExpr);
           for (const auto payload : sourceDescriptor.elements)
           {
             const auto &payloadDescriptor = types_->typeDescriptors.at(payload.value);
-            if (payloadDescriptor.kind == typecheck::TypeKind::Tuple && payloadDescriptor.elements.size() == 2 &&
-                types_->typeDescriptors.at(payloadDescriptor.elements[1].value).kind == typecheck::TypeKind::Reference)
+            if (payloadDescriptor.kind != typecheck::TypeKind::Tuple || payloadDescriptor.elements.size() != 2)
+              continue;
+            const auto &tail = types_->typeDescriptors.at(payloadDescriptor.elements[1].value);
+            const bool recursiveTail = (tail.kind == typecheck::TypeKind::Reference && tail.element == sourceId) ||
+                                       (tail.kind == typecheck::TypeKind::Struct && tail.name == "Box" &&
+                                        tail.typeArguments.size() == 1 && tail.typeArguments[0] == sourceId);
+            if (recursiveTail)
               function_.valueTypes.emplace(element.value, payloadDescriptor.elements[0]);
           }
           block().instructions.push_back(

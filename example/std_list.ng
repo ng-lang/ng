@@ -2,13 +2,14 @@
 // the List<T> enum built from caller bindings and scoped refs; mutating
 // builders arrive with the R6 heap domain.
 
+import memory;
 import list;
 
 fun main() -> i64 {
     let empty: List<i64> = List.Nil;
-    let one: List<i64> = List.Cons(1, ref empty);
-    let two: List<i64> = List.Cons(2, ref one);
-    let three: List<i64> = List.Cons(3, ref two);
+    let one: List<i64> = List.Cons(1, new<List<i64>>(empty));
+    let two: List<i64> = List.Cons(2, new<List<i64>>(one));
+    let three: List<i64> = List.Cons(3, new<List<i64>>(two));
 
     let mut total = 0;
     if (length(ref three) == 3) { total := total + 1; }
