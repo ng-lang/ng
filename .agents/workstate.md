@@ -111,8 +111,32 @@ arguments that NG cannot express without first-class functions.
   boundaries (`new`/`read`). Full **623/623 (3758 assertions)**; example
   sweep + `stdlib_redesign` list cases green. Guard flowir 2256/2256 (at
   ceiling).
+- INC-20c **S2** (list spreads through std helpers): **migrated** list array-
+  spreads off dedicated IR: removed `EnumListLength`/`EnumListGet`
+  (flowir.hpp), the `$ngrt_enum_list_*` helpers (enum.ssa deleted, CMake
+  updated), and the two lowering cases. The checker now resolves a side-table
+  `arrayListSpreadCalls` (spread node → `spreadLength`/`spreadGet` instances —
+  private value-taking NG wrappers in list.ng that delegate to `length`/`get`,
+  so flowir passes the list VALUE with no MakeRef machinery) via
+  `resolveListSpreadCall` (name + param0-unify + `instantiateFunction`); flowir
+  emits `Evaluate Call` for both the bound and per-element reads. Guard flowir
+  2256 → **2262**. Non-std chain-enum spreads (structurally Cons/Nil+Box) now
+  fail cleanly ("requires the std.list List type"). +1 IR-absence test
+  (`--emit=ssa` excludes `ngrt_enum_list`). Full **624/624 (3761 assertions)**;
+  probe exits 7, custom-chain probe errors cleanly.
 
 ## Recent completed changes
+
+- INC-20c S2 (list spreads route through std helpers): removed
+  `EnumListLength`/`EnumListGet` FlowIR opcodes, `$ngrt_enum_list_len/_get`
+  helpers (enum.ssa deleted + CMake), and their lowering cases. Checker
+  side-table `arrayListSpreadCalls` maps a spread node to `spreadLength`/
+  `spreadGet` instances (private value-taking wrappers over std `length`/`get`,
+  resolved by name + param0-unify + `instantiateFunction`); flowir lowers both
+  spread emissions as `Evaluate Call` — the value ABI avoids the MakeRef
+  plumbing the ref-taking helpers would need. Guard 2256→2262; non-std chain-
+  enum spreads now fail cleanly. Verified: `[Stdlib]`/`[Guard]`, full suite
+  624/624 (3761 assertions), probe exit 0. Committed (feat/docs/chore trio).
 
 - INC-20c S0 (Box-in-aggregate fixes, foundation for std.list on Box nodes):
   two memory bugs. ① Enum/struct literal payload arguments were not
@@ -432,10 +456,10 @@ arguments that NG cannot express without first-class functions.
   `f237e12`): `Box.clone` deep copy. **INC-20c S0 landed** (`11bcc48`): Box
   aggregate-move/drop fixes + full Box-list semantics validated by probe.
   **INC-20c S1 landed**: `lib/std/list.ng` on Box nodes (typecheck/fix +
-  lowering box-wrap), list contracts green. **S2**: remove
+  lowering box-wrap), list contracts green. **S2 landed**: removed
   `EnumListLength`/`EnumListGet` + `$ngrt_enum_list_*` helpers by routing
-  spread through std list helpers (needs synthetic-call synthesis + FlowIR
-  line budget at the 2256 guard). Doc-sync + commit trio per convention.
+  spread through std list wrappers (`spreadLength`/`spreadGet` instances via a
+  checker side-table); guard 2262; full 624/624. Doc-sync + commit trio.
 
 ## INC-20c S1 change plan (EXECUTED 2026-09-16; see execution log below)
 
@@ -560,6 +584,62 @@ is confined to `clone()` and native boundaries (`new`/`allocate` arg, `read`/
 `outstanding()==before` assert relaxed to leak-awareness (embedded Box fields
 are not recursively dropped — pre-existing documented gap).
 
+## INC-20c S2 change plan (EXECUTED 2026-09-16)
+
+**Goal:** remove `EnumListLength`/`EnumListGet` + `$ngrt_enum_list_*` helpers
+and route list array-spreads through the std list helpers, keeping list
+contracts green and the IR-line guard.
+
+**De-risking findings (all verified):**
+1. Imported std functions live in `module_->functions` (every module flattens
+   into one unit; only name *visibility* is per-module), so the checker can
+   scan for caller-less synthetic targets.
+2. `unify` recurses enum variants and records type params in the substitution —
+   `unify(List<TP>, List<element>)` binds T→element exactly like a user call;
+   and since a genuinely different enum (custom chain) never shares the
+   `List` nominal id, the lookup naturally restricts spread routing to the
+   std `List` type.
+3. The proven lowering template already exists: map spreads emit
+   `Evaluate Call` with a `callTarget` (flowir.cpp) and `lowerCall` resolves
+   NG/instance targets via `symbolFor`; my synthetic calls ride the same path.
+4. `Evaluate Call` to std `length`/`get` needs a `ref` argument — building it
+   in flowir would require MakeRef-over-a-synthetic-local (+8 lines). Instead
+   two **value-taking private wrappers** in list.ng (`spreadLength`/
+   `spreadGet`, each `return get/length(ref list)`) let flowir pass the list
+   VALUE directly (zero MakeRef plumbing); the wrapper instance's body does
+   the ref and re-instantiates `length`/`get`.
+
+**Edits:**
+- `lib/std/list.ng`: +`spreadLength<T>(list: List<T>) -> i64` and
+  `spreadGet<T>(list: List<T>, index: i64) -> T` (private).
+- Checker: `Checker::resolveListSpreadCall(name, source, span)` (name + param0
+  unify + `instantiateFunction`; throws "array spread over `X` requires the
+  std.list List type" when no std List helper matches); member
+  `listSpreadCalls_` (spread node → {length instance, get instance}) seeded in
+  the array-literal value-spread branch (`typecheck_infer.cpp`); new
+  `TypeCheckResult.arrayListSpreadCalls`; moved in `typecheck_register.cpp`.
+- `flowir.cpp`: `EnumListLength` emission → `Evaluate Call` to the length
+  instance (operand = source value); `EnumListGet` emission → `Evaluate Call`
+  to the get instance (operands = {source, indexRead}); the ArrayLength/array
+  & range paths unchanged. Guard 2256 → **2262** (`test/guard_test.cpp` note).
+- `include/flowir.hpp`: remove both opcodes + comments.
+- `src/native/lowering_expr.cpp`: remove both lowering cases.
+- `src/native/helpers/enum.ssa`: deleted (was only the two list helpers);
+  `CMakeLists.txt` drops it from `NG_HELPER_SSA`.
+- `test/stdlib_redesign_test.cpp`: +1 `--emit=ssa` absence assertion —
+  a list-spread program's SSA contains no `ngrt_enum_list`.
+
+**Accepted scope note:** a structurally list-shaped custom enum (e.g.
+`Chain { Next(head, tail: Box<Chain>) }`) previously spread via the structural
+walkers; after S2 it is rejected at check time with the clean std.list-required
+error. Not used by any corpus/example (committed examples spread only std
+`List`); documented in the plan.
+
+**Verification:** `[Stdlib]` 24 cases / 96 assertions, `[Guard]`, non-example
+suite 591 cases / 3477 assertions, example sweep 33 cases / 284 assertions —
+**624/624 (3761 assertions)** green. Probes: `probe_s2.ng` (spread + mixed +
+empty + indexing) exits 0 / returns 7; custom `Chain` spread → clean TypeError.
+
 ## References
 
 - `.agents/worklog/2026-08-27.md` — INC-B / INC-A / INC-9 / INC-10 entries
@@ -572,5 +652,6 @@ are not recursively dropped — pre-existing documented gap).
 - `.agents/worklog/2026-09-11.md` — INC-19 S1 (generic Box<T> + new) + INC-20a (affine-enum switch consumption) entries
 - `.agents/worklog/2026-09-14.md` — INC-20b (Box.clone deep copy) entry
 - `.agents/worklog/2026-09-15.md` — INC-20c S0 (Box-in-aggregate fixes + Box-list feasibility) entry
+- `.agents/worklog/2026-09-16.md` — INC-20c S1 (std.list on Box nodes) + INC-20c S2 (spreads via std helpers) entries
 - `docs/design/rearchitecture/09-increment-plan.md` — execution table + INC-14 slices
 - `AGENTS.md` — pipeline/build/test/commit conventions
