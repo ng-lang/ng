@@ -71,8 +71,7 @@ namespace NG::typecheck
     syntax::SourceSpan span;
     std::string code;
 
-    TypeError(std::string message, syntax::SourceSpan sourceSpan)
-        : TypeError("E-type", std::move(message), sourceSpan)
+    TypeError(std::string message, syntax::SourceSpan sourceSpan) : TypeError("E-type", std::move(message), sourceSpan)
     {
     }
 
@@ -275,6 +274,9 @@ namespace NG::typecheck
     std::unordered_map<const hir::Expression *, TypeId> callPackTupleTypes;
     /// Syntactic argument offsets that are tuple spreads at a call site.
     std::unordered_map<const hir::Expression *, std::vector<size_t>> callSpreadPositions;
+    /// Array-spread list sources (INC-20c S2): spread node -> std list walker
+    /// instances (spreadLength, spreadGet) lowering list spreads as calls.
+    std::unordered_map<const hir::Expression *, std::pair<hir::DefId, hir::DefId>> arrayListSpreadCalls;
     /// Fold calls (`f(acc, xs...)`): spread/accumulator positions and element
     /// type, lowered to reduction loops.
     std::unordered_map<const hir::Expression *, std::vector<size_t>> callFoldSpreadPositions;

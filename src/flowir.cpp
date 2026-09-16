@@ -877,8 +877,11 @@ namespace NG::flowir
         const ValueId length{nextValue_++};
         function_.valueTypes.emplace(length.value, typecheck::builtin::I64);
         block().instructions.push_back(
-            Instruction{.kind = listSource ? InstructionKind::EnumListLength : InstructionKind::ArrayLength,
+            Instruction{.kind = listSource ? InstructionKind::Evaluate : InstructionKind::ArrayLength,
                         .result = length,
+                        .expressionKind = hir::ExpressionKind::Call,
+                        .callTarget = listSource ? types_->arrayListSpreadCalls.at(&sourceExpr).first : hir::DefId{},
+                        .operands = listSource ? std::vector<ValueId>{source} : std::vector<ValueId>{},
                         .source = source});
 
         const hir::LocalId indexLocal{nextSyntheticLocal_++};
@@ -952,8 +955,11 @@ namespace NG::flowir
             if (recursiveTail)
               function_.valueTypes.emplace(element.value, payloadDescriptor.elements[0]);
           }
-          block().instructions.push_back(
-              Instruction{.kind = InstructionKind::EnumListGet, .result = element, .operands = {source, indexRead}});
+          block().instructions.push_back(Instruction{.kind = InstructionKind::Evaluate,
+                                                     .result = element,
+                                                     .expressionKind = hir::ExpressionKind::Call,
+                                                     .callTarget = types_->arrayListSpreadCalls.at(&sourceExpr).second,
+                                                     .operands = {source, indexRead}});
         }
         else
         {

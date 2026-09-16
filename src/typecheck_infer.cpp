@@ -1000,6 +1000,11 @@ auto Checker::infer(const hir::Expression &expression, const LocalTypes &locals)
           if (rangeSource && sourceDescriptor.element != builtin::I64)
             throw TypeError("spreading ranges currently requires i64 elements", candidate->span);
           const TypeId sourceElement = listSource ? listElement : sourceDescriptor.element;
+          if (listSource)
+            listSpreadCalls_.emplace(inner,
+                                     std::pair<hir::DefId, hir::DefId>{
+                                         resolveListSpreadCall("spreadLength", source, candidate->span),
+                                         resolveListSpreadCall("spreadGet", source, candidate->span)});
           if (element.value == 0)
             element = sourceElement;
           else

@@ -305,6 +305,7 @@ auto Checker::check(const hir::Module &module, const const_eval::ConstNativeHost
                           .callPackArgCounts = std::move(callPackArgCounts_),
                           .callPackTupleTypes = std::move(callPackTupleTypes_),
                           .callSpreadPositions = std::move(callSpreadPositions_),
+                          .arrayListSpreadCalls = std::move(listSpreadCalls_),
                           .callFoldSpreadPositions = std::move(callFoldSpreadPositions_),
                           .callFoldAccumulatorPositions = std::move(callFoldAccumulatorPositions_),
                           .returnDrops = std::move(returnDrops_),

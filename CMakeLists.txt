@@ -117,8 +117,7 @@ set(NG_HELPER_SSA
         ${CMAKE_CURRENT_SOURCE_DIR}/src/native/helpers/checked.ssa
         ${CMAKE_CURRENT_SOURCE_DIR}/src/native/helpers/arr.ssa
         ${CMAKE_CURRENT_SOURCE_DIR}/src/native/helpers/str.ssa
-        ${CMAKE_CURRENT_SOURCE_DIR}/src/native/helpers/ref.ssa
-        ${CMAKE_CURRENT_SOURCE_DIR}/src/native/helpers/enum.ssa)
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/native/helpers/ref.ssa)
 set(NG_HELPERS_ARCHIVE ${CMAKE_BINARY_DIR}/libngrt_helpers.a)
 if(NG_QBE_AVAILABLE)
   add_custom_command(

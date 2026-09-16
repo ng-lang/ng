@@ -338,6 +338,11 @@ namespace NG::typecheck::detail
                                            syntax::SourceSpan span,
                                            const std::vector<std::pair<size_t, hir::DefId>> &closureTargets = {})
         -> hir::DefId;
+    /// Resolves the std list walker used to lower an array spread over a
+    /// recursive List enum: matches a module function by name and signature
+    /// shape, then instantiates it for the spread's element type (INC-20c S2).
+    [[nodiscard]] auto resolveListSpreadCall(std::string_view name, TypeId source, syntax::SourceSpan span)
+        -> hir::DefId;
     [[nodiscard]] auto ensureTraitViewTable(const std::string &traitName, TypeId concreteType) -> bool;
     [[nodiscard]] auto typeContains(TypeId type, TypeId needle) const -> bool;
     [[nodiscard]] auto isGeneric(const FunctionTypeIds &signature) const -> bool;
@@ -380,6 +385,9 @@ namespace NG::typecheck::detail
     std::unordered_map<const hir::Expression *, size_t> callPackArgCounts_;
     std::unordered_map<const hir::Expression *, TypeId> callPackTupleTypes_;
     std::unordered_map<const hir::Expression *, std::vector<size_t>> callSpreadPositions_;
+    /// Array-spread internals (INC-20c S2): spread node -> std list walker
+    /// instances (spreadLength, spreadGet) lowering list spreads as calls.
+    std::unordered_map<const hir::Expression *, std::pair<hir::DefId, hir::DefId>> listSpreadCalls_;
     std::unordered_map<const hir::Expression *, std::vector<size_t>> callFoldSpreadPositions_;
     std::unordered_map<const hir::Expression *, std::vector<size_t>> callFoldAccumulatorPositions_;
 

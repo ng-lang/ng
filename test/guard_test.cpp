@@ -47,7 +47,10 @@ namespace
   /// 2256: INC-16 S2 place-through-ref (Index/Member expression reads on
   /// scoped-reference receivers deref through LoadRef first);
   /// ARCH split tracked in the post-cutover plan.
-  constexpr size_t kMaxCppLines = 2256;
+  /// 2262: INC-20c S2 list array-spreads lower as calls to std list walker
+  /// instances (spreadLength/spreadGet) instead of EnumListLength/Get;
+  /// ARCH split tracked in the post-cutover plan.
+  constexpr size_t kMaxCppLines = 2262;
   /// 917: INC-10 added While/Continue/Break statement nodes to ast.hpp;
   /// ARCH split tracked in the post-cutover plan.
   /// 938: INC-14 S1 added ClosureExpression to ast.hpp (plus FunctionParameter

@@ -1,8 +1,8 @@
 // AI-generated code; reviewed for this repository's vNext rewrite.
-#include "test.hpp"
 #include "driver.hpp"
 #include "hir.hpp"
 #include "syntax/module_parser.hpp"
+#include "test.hpp"
 #include "typecheck.hpp"
 
 #include <filesystem>
@@ -37,7 +37,8 @@ namespace
   [[nodiscard]] auto runExample(std::string_view filename, std::string &output, std::string &errors) -> int
   {
     std::string path{filename};
-    if (!std::filesystem::is_directory(std::filesystem::current_path() / "example")) path = std::string{"../"} + path;
+    if (!std::filesystem::is_directory(std::filesystem::current_path() / "example"))
+      path = std::string{"../"} + path;
     std::ostringstream outputStream;
     std::ostringstream errorStream;
     const int status = NG::runDriver({path}, outputStream, errorStream);
@@ -138,13 +139,13 @@ TEST_CASE("vNext std.string bounds errors surface as runtime errors", "[vNext][S
 
 TEST_CASE("vNext redesigned stdlib examples run end to end through ngi", "[vNext][Stdlib][Examples]")
 {
-  for (const auto &[filename, value] : std::vector<std::pair<std::string, std::string>>{
-           {"example/std_list.ng", "native main exited with code 15\n"},
-           {"example/list_builders.ng", "native main exited"},
-           {"example/list_literals.ng", "native main exited"},
-           {"example/list_spread.ng", "native main exited"},
-           {"example/heap_box.ng", "native main exited with code 12\n"},
-           {"example/std_seq.ng", "native main exited with code 7\n"}})
+  for (const auto &[filename, value] :
+       std::vector<std::pair<std::string, std::string>>{{"example/std_list.ng", "native main exited with code 15\n"},
+                                                        {"example/list_builders.ng", "native main exited"},
+                                                        {"example/list_literals.ng", "native main exited"},
+                                                        {"example/list_spread.ng", "native main exited"},
+                                                        {"example/heap_box.ng", "native main exited with code 12\n"},
+                                                        {"example/std_seq.ng", "native main exited with code 7\n"}})
   {
     std::string output;
     std::string errors;
@@ -194,4 +195,17 @@ TEST_CASE("vNext list spreads splice Cons heads into array literals", "[vNext][S
               "fun main() { let s: Shape = Shape.Circle(1.0); let bad = [...s]; }",
               output, errors) == 1);
   REQUIRE_THAT(errors, ContainsSubstring("cannot spread value of type Shape"));
+}
+
+TEST_CASE("vNext list spreads lower without EnumList opcodes or ngrt list helpers (INC-20c S2)", "[vNext][Stdlib][IR]")
+{
+  std::ostringstream outputStream;
+  std::ostringstream errorStream;
+  const int status = NG::runDriver({"--emit=ssa", "--source",
+                                    "import list; fun main() -> i64 { let items = listFrom([1, 2]); "
+                                    "return len([...items]); }"},
+                                   outputStream, errorStream);
+  REQUIRE(status == 0);
+  REQUIRE(errorStream.str().empty());
+  REQUIRE(outputStream.str().find("ngrt_enum_list") == std::string::npos);
 }

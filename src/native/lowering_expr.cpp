@@ -164,22 +164,6 @@ namespace NG::native::detail
       bindResult(instruction, resultType, std::format("copy {}", castFromSlot(loaded, resultType)));
       return;
     }
-    case InstructionKind::EnumListLength:
-    {
-      bindResult(instruction, QType::Long,
-                 std::format("call $ngrt_enum_list_len(l {})", operandTemp(*instruction.source)));
-      return;
-    }
-    case InstructionKind::EnumListGet:
-    {
-      const auto source = operandTemp(instruction.operands[0]);
-      const auto index = operandTemp(instruction.operands[1]);
-      const auto loaded = fresh();
-      line(std::format("{} =l call $ngrt_enum_list_get(l {}, l {})", loaded, source, index));
-      const auto resultType = qtypeOf(function_.valueTypes.at(instruction.result.value));
-      bindResult(instruction, resultType, std::format("copy {}", castFromSlot(loaded, resultType)));
-      return;
-    }
     case InstructionKind::TupleSplice:
       lowerTupleSplice(instruction);
       return;

@@ -35,6 +35,11 @@ export fun get<T>(list: ref<List<T>>, index: i64) -> T {
     }
 }
 
+// Array-spread internals (INC-20c S2): value-taking walkers so list spreads
+// lower as ordinary calls to the std helpers instead of FlowIR list opcodes.
+fun spreadLength<T>(list: List<T>) -> i64 { return length(ref list); }
+fun spreadGet<T>(list: List<T>, index: i64) -> T { return get(ref list, index); }
+
 export fun contains<T>(list: ref<List<T>>, value: T) -> bool {
     switch (*list) {
         case Nil { return false; }

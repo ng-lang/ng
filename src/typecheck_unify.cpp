@@ -464,6 +464,32 @@ auto Checker::instantiateFunction(hir::DefId original, const Substitution &subst
   return instanceId;
 }
 
+auto Checker::resolveListSpreadCall(std::string_view name, TypeId source, syntax::SourceSpan span) -> hir::DefId
+{
+  for (size_t index = 0; index < module_->functions.size(); ++index)
+  {
+    const auto &function = module_->functions[index];
+    if (function.name != name)
+      continue;
+    const hir::DefId id{static_cast<uint32_t>(index)};
+    const auto signature = signatures_.find(id.value);
+    if (signature == signatures_.end() || signature->second.parameters.empty())
+      continue;
+    Substitution substitution;
+    try
+    {
+      unify(signature->second.parameters[0], source, substitution, span);
+    }
+    catch (const TypeError &)
+    {
+      continue;
+    }
+    return instantiateFunction(id, substitution, 0, span);
+  }
+  throw TypeError(std::format("array spread over `{}` requires the std.list List type", interner_.display(source)),
+                  span);
+}
+
 void Checker::unify(TypeId expected, TypeId actual, Substitution &substitution, syntax::SourceSpan span)
 {
   std::unordered_set<uint64_t> visited;
