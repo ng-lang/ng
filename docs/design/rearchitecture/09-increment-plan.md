@@ -602,8 +602,18 @@ INC-15/16 之后再执行。
 >   Box 值本身 move/存字段/按值传参是浅拷贝（共享 pointee）；深拷贝只在
 >   `clone()` 与原生边界（`new`/`read`）整值物化时发生 — 设计自洽，
 >   深拷贝内对 Box 浅拷贝会别名/双重释放。
-> S2 待办：移除 `EnumListLength`/`EnumListGet` + `$ngrt_enum_list_*`
-> helper 与 IR 断言（`EnumListLength/Get` 仍按 Box 尾经 field0 行走）。
+>
+> **INC-20c S2（落地，feat/list-spreads docs/chore trio）**：移除
+> `EnumListLength`/`EnumListGet` FlowIR 指令、`$ngrt_enum_list_*` 原生
+> helper（`enum.ssa` 删除）与 `EnumList` lowering 分支；列表展开改由
+> 检查器 side-table 合成对 std `spreadLength`/`spreadGet` 调用（私有 NG
+> 包装函数，取值传参不走 MakeRef），flowir 发 `Evaluate Call`。
+> - 守卫 2256 → 2262（新增流水线：`.callTarget` + `operands` 条件构造）。
+> - 非 std 链形枚举展开（同构 Cons/Nil+Box）：检查时检测无 std
+>   List 匹配 → 清晰 TypeError（"requires the std.list List type"）；
+>   已用例不含此类用法。
+> - IR 断言：`stdlib_redesign_test.cpp` `--emit=ssa` 断言输出不含
+>   `ngrt_enum_list`（1 新例）。
 
 ### INC-21 · A7 span\<T\> + 数组增长 + in-place pushBack
 - 测试：span 越界负契约；增长序列 PBT（append N 次 ≡ 一次性构造）。
