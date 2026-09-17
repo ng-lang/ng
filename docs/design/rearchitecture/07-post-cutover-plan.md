@@ -246,11 +246,18 @@ concrete `Box` (`example/std_seq.ng`, `std_list.ng`, `heap_box.ng`,
 
 **Remaining work** (decided surface, no new decision needed):
 
-1. `span<T>` views over array storage, with bounds-checked slicing
-   (`fixed_arrays.ng` maps legacy vector→array; span is the remaining 52 item).
+1. ~~`span<T>` views over array storage, with bounds-checked slicing~~ —
+   **delivered 2026-09 (INC-21 S1):** `span xs` / `span xs[lo..hi]` (window
+   bounds-checked), element reads bounds-checked (OOB = runtime signal), types
+   `span<T>` / `T span`; shared borrow of the source root; read-only,
+   non-returnable, non-stowable (field/array/tuple), non-rebindable. View value
+   is a 16-byte `{data, len}` blob (`$ngrt_span_make`/`$ngrt_span_get`;
+   `example/span.ng`, `test/span_test.cpp`). Deferred: field-span,
+   span-through-ref, span-of-span slices (`fixed_arrays.ng` keeps mapping
+   legacy vector→array; span is that file's remaining 52 item, now covered).
 2. In-place mutating `pushBack` for `List<T>` (rebuilds already exist) and
    fixed-size array growth — depends on the B1 heap domain for allocation
-   beyond the current fixed-size native handles.
+   beyond the current fixed-size native handles (INC-21 S2).
 
 **Delivered (2026-08):** value-semantics array append `xs << value` (legacy
 52's `dynamic << 6`; integer `<<` stays bitwise) — element-typed, receiver
@@ -280,7 +287,9 @@ literals (`[...(1..5)]`, `[...nums[1..3]]`, mixed `[0, ...xs, 9]`, at most
 one spread per literal; `test/array_spread_test.cpp`), and
 `example/std_string.ng` completing the legacy 56 surface end to end.
 
-**Blocks:** B1 for growth allocation; R7 for span ABI.
+**Blocks:** B1 for growth allocation (span ABI decided natively in INC-21 S1:
+16-byte `{data, len}` heap blob, `l`-carried; the former R7 span-ABI gate died
+with the bytecode tier).
 **Legacy evidence:** examples `52`, `59`; matrix rows 2/10 remainder.
 
 ## 4. Category B — explicitly deferred by the design docs

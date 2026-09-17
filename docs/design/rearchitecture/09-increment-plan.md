@@ -616,7 +616,15 @@ INC-15/16 之后再执行。
 >   `ngrt_enum_list`（1 新例）。
 
 ### INC-21 · A7 span\<T\> + 数组增长 + in-place pushBack
-- 测试：span 越界负契约；增长序列 PBT（append N 次 ≡ 一次性构造）。
+- **S1 (2026-09-17 landed):** `span<T>` borrowed scoped view — `span xs` /
+  `span xs[lo..hi]` (bounds-checked window), element reads bounds-checked
+  (OOB = runtime signal), types `span<T>` / `T span`; shared-loan borrows of the
+  source root; read-only, non-returnable, non-stowable; 16-byte `{data, len}`
+  heap-blob value via `$ngrt_span_make`/`$ngrt_span_get` (span.ssa). Deferred
+  to future work: field-span, span-through-ref, span-of-span slices.
+- **S2 (pending):** 数组增长 + in-place pushBack（List\<T\> 与定长数组；
+  依赖 B1 堆域的分配路径）.
+- 测试：span 越界负契约（S1 已落地）；增长序列 PBT（append N 次 ≡ 一次性构造）。
 
 ### INC-22 · M5 Cell\<T\>（handle 式内部可变性）
 - 依赖 INC-14（闭包已落地，捕获共享状态场景成立）、DEC-C。
