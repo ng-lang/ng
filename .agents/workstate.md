@@ -124,6 +124,16 @@ arguments that NG cannot express without first-class functions.
   fail cleanly ("requires the std.list List type"). +1 IR-absence test
   (`--emit=ssa` excludes `ngrt_enum_list`). Full **624/624 (3761 assertions)**;
   probe exits 7, custom-chain probe errors cleanly.
+- INC-21 **S1** (span\<T\> borrowed scoped view): implemented + verified — surface
+  per the change plan below (whole `span xs` / window `span xs[lo..hi]`,
+  bounds-checked element reads, shared-loan borrows, non-returnable/non-stowable/
+  read-only, `span<T>`/`T span` types); runtime value = 16-byte `{data, len}` heap
+  blob via `$ngrt_span_make`/`$ngrt_span_get` (span.ssa, bounds → `hlt`). Guards
+  bumped (flowir 2262 → **2302**; ast.hpp 980 → **991**). Verified: `[Span]`
+  51 assertions, `[Guard]`, `~[Examples]` 601/601, `[Examples]` 34/34, example
+  `span.ng` exit 15 (whole/window/generic). Borrow integration: span loans retie
+  to the binding like refs (shared-borrow/mutable conflict); OOB window
+  construction + OOB reads → "killed by a signal".
 
 ## Recent completed changes
 
@@ -639,6 +649,83 @@ error. Not used by any corpus/example (committed examples spread only std
 suite 591 cases / 3477 assertions, example sweep 33 cases / 284 assertions —
 **624/624 (3761 assertions)** green. Probes: `probe_s2.ng` (spread + mixed +
 empty + indexing) exits 0 / returns 7; custom `Chain` spread → clean TypeError.
+
+## INC-21 S1 change plan (span\<T\> borrowed scoped view; LANDED 2026-09-17 — S2 (growth/pushBack + PBT) pending)
+
+User decisions (2026-09-17): INC-21 split **S1 = span\<T\>**, **S2 =
+growth/pushBack + PBT**; `span<T>` is a **borrowed, scoped, non-returnable
+view** over array storage.
+
+**Surface:** `span xs` (whole array), `span xs[lo..hi]` (bounds-checked
+window); element reads `view[i]` bounds-checked (OOB = negative contract,
+runtime signal); type annotations `span<T>` / `T span`. Shared borrow of the
+source root (reuses the `ref` loan machinery → later mutable borrows /
+reassignment of the source conflict with E-borrow-conflict). Read-only (writes
+blocked); non-returnable; not stowable in struct fields/arrays/tuples; span
+bindings not reassignable. No span-of-span slices or span `len()` in S1.
+
+**De-risking findings (all verified):**
+1. Array ABI is `{len, cap, data[16..]}` — word 1 is already a capacity slot
+   (`arr.ssa`); every helper currently sets cap = len. Growth (S2) is
+   ABI-compatible; S1 untouched.
+2. `ref` machinery is the exact template: borrow registration lives in the
+   `ref`/`ref mut` prefix case (`typecheck_infer.cpp` ~1209) keyed on the root
+   local's `borrowState_.counts`; release is last-use/bearer-driven in
+   `typecheck_check.cpp`; runtime state is a compile-time loan only — a span
+   value needs no runtime tracking (mutation while borrowed is rejected).
+3. `span` is a free keyword (no `.ng` identifier; only a doc-comment mention).
+4. Read-only comes for free via `requireMutableDeref`
+   (`typecheck_check.cpp` ~909): add a Span case → always reject (span is an
+   immutable view; no `span mut`).
+5. Non-returnable mirrors the ref check at `typecheck_check.cpp` ~518.
+6. Span value = arena heap blob address (`l`) holding a 16-byte `{data, len}`
+   (MakeTraitView 24-byte blob precedent); locals/params carry the blob addr,
+   so qtypeOf → Long, needsClone → false, no BindLocal cloning.
+7. Window form reuses the range-subscript syntax `xs[lo..hi]` under `span`
+   (no new grammar); the checker special-cases the operand like the INC-20c
+   list-spread route — a Range-index operand is a window spec, not a copy.
+
+**Edits:**
+- `parser.cpp` (`typeTokenTable` ~150) + `KeywordSpan`; prefix case ~654 →
+  `PrefixExpression("span", operand)` (note: `span` needs to bind the whole
+  `xs[lo..hi]` operand — parse at a precedence that keeps the index).
+- `ast.hpp`: `TypeSyntaxKind::Span` + `ScopedSpanTypeSyntax{target}`.
+- `type_parser.cpp`: prefix `span<T>` (mirror `ref<T>`) + postfix `T span`.
+- `hir.hpp`/`hir.cpp`: `TypeKind::ScopedSpan`, `lowerType` (~37), `renderTypeName`
+  (~105, `"{target} span"`).
+- `type_interner.cpp`: `internSpan` (mirror `internReference` ~72; descriptor
+  `.element`); `resolve`/`resolveWithBindings` ScopedSpan cases (~425/~660);
+  `specialize` (~360); `display` (~827, `"{element} span"`); struct-field reject
+  (~245/~526).
+- `typecheck_infer.cpp`: `span` prefix case (~1209) — operand must be an
+  array-typed place or `Index(arrayPlace, Range)`; register a shared loan on the
+  root (`borrowState_.add(..., /*mutable=*/false)`), result = `Span{element}`;
+  Index receiver accepts Span (~1786/1823) for element reads, Range-slice on a
+  span rejected; struct-field/array/tuple element rejects (~223/1055/1131);
+  trailing `ref`-only checks (~1218/1223) untouched.
+- `typecheck_register.cpp` ~53 / `typecheck_check.cpp` ~518/~909/~499 +
+  `requireMutableDeref`: add Span to the same predicates as Reference.
+- `typecheck_unify.cpp` ~163/~275/~689: Span rows (mirror Reference).
+- `typecheck_const.cpp` ~269: Span case (no const form).
+- `include/flowir.hpp`: + `InstructionKind::MakeSpan`, + `SpanRead`? (see
+  Index-on-span below) with operand/carry fields.
+- `flowir.cpp`: lower the `span` expression → MakeSpan; the Range-operand
+  window lowers start/end expression values into MakeSpan operands; Index-on-a
+  Span receiver lowers to a span element read.
+- `src/native/helpers/span.ssa`: `$ngrt_span_make(l array, l start, l count)`
+  (bounds-check → `hlt` on `start<0 || start+count>len`; returns 16B blob
+  `{array+16+start*8, count}` and whole-view count = array length) +
+  `$ngrt_span_get(l blob, l i)` (`i<0 || i>=len` → `hlt`; load word).
+- `lowering_expr.cpp`: MakeSpan case + span element-read case; `function_lowerer.hpp`
+  qtypeOf (~239 group) + `Span` → Long.
+- `CMakeLists.txt`: + `span.ssa` in `NG_HELPER_SSA`.
+- `test/span_test.cpp` (new): positive (whole/window reads, cross-call params,
+  generic `span<T>`), negative-contract (window OOB at construction,
+  `view[i]` OOB → exit 1 / "killed by a signal"), borrow conflicts (mutable
+  borrow while span live; source reassign while span live), rejections
+  (return, struct field, array/tuple element, write-through). + `example/span.ng`
+  end-to-end sweep.
+- Guards: flowir 2262 → +N; ast.hpp `kMaxHeaderLines` = 980 → +N.
 
 ## References
 
