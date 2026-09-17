@@ -52,6 +52,8 @@ auto Checker::check(const hir::Module &module, const const_eval::ConstNativeHost
       const TypeId fieldType = interner_.resolve(field.type);
       if (interner_.descriptor(fieldType).kind == TypeKind::Reference)
         throw TypeError("references cannot be stored in struct fields", field.span);
+      if (interner_.descriptor(fieldType).kind == TypeKind::Span)
+        throw TypeError("spans cannot be stored in struct fields (INC-21 views are scoped)", field.span);
       if (interner_.descriptor(fieldType).kind == TypeKind::Trait)
         throw TypeError(std::format("trait `{}` is not a value type; use `ref<{}>`", interner_.display(fieldType),
                                     interner_.display(fieldType)),

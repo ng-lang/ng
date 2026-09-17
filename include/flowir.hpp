@@ -31,6 +31,9 @@ namespace NG::flowir
     ExtractTuple,
     /// Creates a scoped reference value over a local-rooted place.
     MakeRef,
+    /// Creates a span value (`{ data, len }` blob) over a local-rooted array
+    /// place, optionally bounded by `[start, end)` window operands (INC-21).
+    MakeSpan,
     /// Reads the referent of a reference value.
     LoadRef,
     /// Writes through a place: a local-rooted path or a reference-rooted path.

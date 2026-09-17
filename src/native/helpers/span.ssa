@@ -1,0 +1,49 @@
+# INC-21 S1: span views over array storage. A span VALUE is a 16-byte blob
+# { data, len }: `data` points at the first viewed element, `len` is the
+# element count. Bounds violations halt exactly like ngrt_arr_addr.
+
+export function l $ngrt_span_make(l %a, l %s, l %count) {
+@start
+	%alen =l loadl %a
+	%sneg =w csltl %s, 0
+	%end =l add %s, %count
+	%shigh =w csgtl %end, %alen
+	%bad =w or %sneg, %shigh
+	jnz %bad, @halt, @ok
+@halt
+	hlt
+@ok
+	%off =l mul %s, 8
+	%base =l add %a, 16
+	%data =l add %base, %off
+	%p =l call $ngrt_alloc(l 16)
+	storel %data, %p
+	%lenaddr =l add %p, 8
+	storel %count, %lenaddr
+	ret %p
+}
+
+export function l $ngrt_span_len(l %sp) {
+@start
+	%lenaddr =l add %sp, 8
+	%len =l loadl %lenaddr
+	ret %len
+}
+
+export function l $ngrt_span_get(l %sp, l %i) {
+@start
+	%lenaddr =l add %sp, 8
+	%len =l loadl %lenaddr
+	%neg =w csltl %i, 0
+	%high =w csgel %i, %len
+	%bad =w or %neg, %high
+	jnz %bad, @halt, @ok
+@halt
+	hlt
+@ok
+	%data =l loadl %sp
+	%off =l mul %i, 8
+	%addr =l add %data, %off
+	%v =l loadl %addr
+	ret %v
+}

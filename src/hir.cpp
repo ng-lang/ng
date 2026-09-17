@@ -42,6 +42,11 @@ namespace NG::hir
           lowered.originOrdinals = resolveOriginOrdinals(reference->origins, type.span, paramOrdinals);
         return lowered;
       }
+      if (const auto *span = dynamic_cast<const syntax::SpanTypeSyntax *>(&type))
+      {
+        return Type{.kind = TypeKind::ScopedSpan, .span = type.span,
+                    .target = std::make_unique<Type>(lowerType(*span->target, paramOrdinals))};
+      }
       if (const auto *pointer = dynamic_cast<const syntax::RawPointerTypeSyntax *>(&type))
         return Type{.kind = TypeKind::RawPointer, .span = type.span,
                     .target = std::make_unique<Type>(lowerType(*pointer->pointee, paramOrdinals)), .isMutable = pointer->isMutable};
@@ -116,6 +121,10 @@ namespace NG::hir
           result += ")";
         }
         return result;
+      }
+      if (const auto *span = dynamic_cast<const syntax::SpanTypeSyntax *>(&type))
+      {
+        return renderTypeName(*span->target) + " span";
       }
       if (const auto *pointer = dynamic_cast<const syntax::RawPointerTypeSyntax *>(&type))
       {

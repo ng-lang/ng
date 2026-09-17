@@ -79,6 +79,14 @@ namespace NG::typecheck
                                  .length = std::nullopt, .referenceMutable = mutableReference});
   }
 
+  auto TypeInterner::internSpan(TypeId target) -> TypeId
+  {
+    for (uint32_t index = 6; index < descriptors_.size(); ++index)
+      if (descriptors_[index].kind == TypeKind::Span && descriptors_[index].element == target)
+        return TypeId{index};
+    return append(TypeDescriptor{.kind = TypeKind::Span, .name = "span", .element = target});
+  }
+
   auto TypeInterner::internRawPointer(TypeId target, bool mutablePointee) -> TypeId
   {
     for (uint32_t index = 6; index < descriptors_.size(); ++index)
@@ -244,6 +252,8 @@ namespace NG::typecheck
       // the sanctioned exception (recursive `List<T>` with `ref<List<T>>` tails).
       if (descriptor(fieldType).kind == TypeKind::Reference)
         throw TypeError("references cannot be stored in struct fields", field.span);
+      if (descriptor(fieldType).kind == TypeKind::Span)
+        throw TypeError("spans cannot be stored in struct fields (INC-21 views are scoped)", field.span);
       fieldTypes.push_back(fieldType);
     }
     return append(TypeDescriptor{.kind = TypeKind::Struct, .name = base.name, .element = TypeId{},
@@ -359,6 +369,8 @@ namespace NG::typecheck
     }
     if (source.kind == TypeKind::Reference)
       return internReference(specialize(source.element, bindings, constBindings, constructors), source.referenceMutable);
+    if (source.kind == TypeKind::Span)
+      return internSpan(specialize(source.element, bindings, constBindings, constructors));
     if (source.kind == TypeKind::RawPointer)
       return internRawPointer(specialize(source.element, bindings, constBindings, constructors), source.referenceMutable);
     if (source.kind == TypeKind::Closure)
@@ -429,6 +441,8 @@ namespace NG::typecheck
         return internTraitReference(descriptors_[target.value].name);
       return internReference(target, type.isMutable);
     }
+    if (type.kind == hir::TypeKind::ScopedSpan && type.target != nullptr)
+      return internSpan(resolveWithBindings(*type.target, bindings, constBindings));
     if (type.kind == hir::TypeKind::Pack && type.target != nullptr)
       return internTypePack(resolveWithBindings(*type.target, bindings, constBindings));
     if (type.kind == hir::TypeKind::Union)
@@ -525,6 +539,8 @@ namespace NG::typecheck
         // the sanctioned recursive `List<T>` exception).
         if (descriptor(fieldType).kind == TypeKind::Reference)
           throw TypeError("references cannot be stored in struct fields", field.span);
+        if (descriptor(fieldType).kind == TypeKind::Span)
+          throw TypeError("spans cannot be stored in struct fields (INC-21 views are scoped)", field.span);
         fieldTypes.push_back(fieldType);
       }
       return append(TypeDescriptor{.kind = TypeKind::Struct, .name = type.target->name, .element = TypeId{},
@@ -664,6 +680,8 @@ namespace NG::typecheck
         return internTraitReference(descriptors_[target.value].name);
       return internReference(target, type.isMutable);
     }
+    if (type.kind == hir::TypeKind::ScopedSpan && type.target != nullptr)
+      return internSpan(resolve(*type.target));
     if (type.kind == hir::TypeKind::RawPointer && type.target != nullptr)
       return internRawPointer(resolve(*type.target), type.isMutable);
     if (type.kind == hir::TypeKind::Union)
@@ -826,6 +844,8 @@ namespace NG::typecheck
       return std::format("array<{}, {}>", display(item.element), item.constParameterName);
     if (item.kind == TypeKind::Reference)
       return std::format("{} {}", display(item.element), item.referenceMutable ? "ref mut" : "ref");
+    if (item.kind == TypeKind::Span)
+      return std::format("{} span", display(item.element));
     if (item.kind == TypeKind::RawPointer)
       return std::format("{} {}", display(item.element), item.referenceMutable ? "*mut" : "*const");
     if (item.kind == TypeKind::Struct || item.kind == TypeKind::Enum || item.kind == TypeKind::TypeParameter ||

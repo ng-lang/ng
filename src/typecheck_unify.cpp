@@ -160,7 +160,8 @@ auto Checker::typeContains(TypeId type, TypeId needle) const -> bool
   if (type == needle)
     return true;
   const auto &descriptor = interner_.descriptor(type);
-  if (descriptor.kind == TypeKind::Reference || descriptor.kind == TypeKind::RawPointer ||
+  if (descriptor.kind == TypeKind::Reference || descriptor.kind == TypeKind::Span ||
+      descriptor.kind == TypeKind::RawPointer ||
       descriptor.kind == TypeKind::DynamicArray || descriptor.kind == TypeKind::FixedArray ||
       descriptor.kind == TypeKind::DependentArray || descriptor.kind == TypeKind::TypeApplication ||
       descriptor.kind == TypeKind::TypePack || descriptor.kind == TypeKind::Range)
@@ -273,7 +274,7 @@ auto Checker::specificityGuarded(TypeId type, std::unordered_set<uint32_t> &visi
     score += specificityGuarded(argument, visited);
   if (descriptor.kind == TypeKind::DynamicArray || descriptor.kind == TypeKind::FixedArray ||
       descriptor.kind == TypeKind::DependentArray || descriptor.kind == TypeKind::Reference ||
-      descriptor.kind == TypeKind::RawPointer)
+      descriptor.kind == TypeKind::Span || descriptor.kind == TypeKind::RawPointer)
     score += specificityGuarded(descriptor.element, visited);
   return score;
 }
@@ -690,6 +691,11 @@ void Checker::unifyGuarded(TypeId expected, TypeId actual, Substitution &substit
   {
     if (expectedDescriptor.referenceMutable != actualDescriptor.referenceMutable)
       throw TypeError("generic reference mutability mismatch", span);
+    unifyGuarded(expectedDescriptor.element, actualDescriptor.element, substitution, span, visited);
+    return;
+  }
+  if (expectedDescriptor.kind == TypeKind::Span)
+  {
     unifyGuarded(expectedDescriptor.element, actualDescriptor.element, substitution, span, visited);
     return;
   }

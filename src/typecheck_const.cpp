@@ -267,6 +267,7 @@ auto Checker::matchConstPatternType(TypeId pattern, TypeId actual, PatternMatchS
   case TypeKind::Opaque:
     return pattern == actual;
   case TypeKind::Reference:
+  case TypeKind::Span:
   case TypeKind::RawPointer:
     if (actualDescriptor.kind != patternDescriptor.kind ||
         actualDescriptor.referenceMutable != patternDescriptor.referenceMutable)

@@ -237,6 +237,7 @@ namespace NG::native
         case TypeKind::Tuple:
         case TypeKind::Range:
         case TypeKind::Reference:
+        case TypeKind::Span:
         case TypeKind::TraitReference:
         case TypeKind::Opaque:
         case TypeKind::Union:

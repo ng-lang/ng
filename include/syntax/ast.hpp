@@ -521,6 +521,7 @@ namespace NG::syntax
     Named,
     Applied,
     ScopedReference,
+    Span,
     RawPointer,
     Pack,
     Union,
@@ -661,6 +662,16 @@ struct UnionTypeSyntax final : TypeSyntax
     ScopedReferenceTypeSyntax(TypeSyntaxPtr referencedType, bool mutableReference, SourceSpan sourceSpan)
       : TypeSyntax(TypeSyntaxKind::ScopedReference, sourceSpan), target(std::move(referencedType)),
         isMutable(mutableReference)
+    {
+    }
+  };
+
+  struct SpanTypeSyntax final : TypeSyntax
+  {
+    TypeSyntaxPtr target;
+
+    explicit SpanTypeSyntax(TypeSyntaxPtr viewedTarget, SourceSpan sourceSpan)
+      : TypeSyntax(TypeSyntaxKind::Span, sourceSpan), target(std::move(viewedTarget))
     {
     }
   };

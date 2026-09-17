@@ -75,7 +75,8 @@ namespace NG::native::detail
     // Pass 1a: locals rooted by MakeRef/MakeTraitView need heap cells.
     for (const auto &block : function_.blocks)
       for (const auto &instruction : block.instructions)
-        if ((instruction.kind == InstructionKind::MakeRef || instruction.kind == InstructionKind::MakeTraitView) &&
+        if ((instruction.kind == InstructionKind::MakeRef || instruction.kind == InstructionKind::MakeTraitView ||
+             instruction.kind == InstructionKind::MakeSpan) &&
             instruction.placeRootLocal)
           cellLocals_.insert(instruction.placeRootLocal->value);
     // Box locals always live in heap cells: a box VALUE is an address to an

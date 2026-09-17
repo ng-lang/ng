@@ -227,6 +227,7 @@ namespace NG::hir
     Named,
     Applied,
     ScopedReference,
+    ScopedSpan,
     RawPointer,
     Pack,
     Union,

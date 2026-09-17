@@ -222,6 +222,8 @@ auto Checker::inferExpectedStruct(const hir::Expression &expression, TypeId expe
     trackConsumption(*expression.operands[index], locals);
     if (interner_.descriptor(fieldType).kind == TypeKind::Reference)
       throw TypeError("references cannot be stored in struct fields", expression.operands[index]->span);
+    if (interner_.descriptor(fieldType).kind == TypeKind::Span)
+      throw TypeError("spans cannot be stored in struct fields (INC-21 views are scoped)", expression.operands[index]->span);
   }
   if (std::find(seen.begin(), seen.end(), false) != seen.end())
     throw TypeError(std::format("missing field in struct `{}`", descriptor.name), expression.span);
@@ -1054,6 +1056,8 @@ auto Checker::infer(const hir::Expression &expression, const LocalTypes &locals)
       const TypeId candidateType = infer(*candidate, locals);
       if (interner_.descriptor(candidateType).kind == TypeKind::Reference)
         throw TypeError("references cannot be stored in arrays", candidate->span);
+      if (interner_.descriptor(candidateType).kind == TypeKind::Span)
+        throw TypeError("spans cannot be stored in arrays (INC-21 views are scoped)", candidate->span);
       if (element.value == 0)
         element = candidateType;
       requireType(element, candidateType, candidate->span, "array element");
@@ -1130,6 +1134,8 @@ auto Checker::infer(const hir::Expression &expression, const LocalTypes &locals)
       const TypeId elementType = infer(*element, locals);
       if (interner_.descriptor(elementType).kind == TypeKind::Reference)
         throw TypeError("references cannot be stored in tuples", element->span);
+      if (interner_.descriptor(elementType).kind == TypeKind::Span)
+        throw TypeError("spans cannot be stored in tuples (INC-21 views are scoped)", element->span);
       elements.push_back(elementType);
     }
     type = interner_.internTuple(elements);
@@ -1257,6 +1263,60 @@ auto Checker::infer(const hir::Expression &expression, const LocalTypes &locals)
         }
       }
       type = interner_.internReference(operand, expression.text == "ref mut");
+      break;
+    }
+    if (expression.text == "span")
+    {
+      // INC-21 S1: `span <array-place>` views the whole array; the window
+      // form `span xs[lo..hi]` views the `[lo, hi)` slice. Both are borrowed
+      // scoped views: a shared loan on the source root blocks mutation and
+      // reassignment while the span is live (reused ref machinery).
+      const hir::Expression *arrayPlace = expression.operands[0].get();
+      const hir::Expression *boundStart = nullptr;
+      const hir::Expression *boundEnd = nullptr;
+      if (arrayPlace->kind == hir::ExpressionKind::Index)
+      {
+        if (arrayPlace->operands[1]->kind != hir::ExpressionKind::Binary ||
+            arrayPlace->operands[1]->text != "..")
+          throw TypeError("span window requires a range subscript `xs[lo..hi]`", expression.span);
+        boundStart = arrayPlace->operands[1]->operands[0].get();
+        boundEnd = arrayPlace->operands[1]->operands[1].get();
+        arrayPlace = arrayPlace->operands[0].get();
+      }
+      if (!isPlace(*arrayPlace))
+        throw TypeError("span operand is not a place", expression.span);
+      if (arrayPlace->kind != hir::ExpressionKind::ResolvedName)
+        throw TypeError("span over a structure field is deferred (INC-21 S1); span a local binding directly",
+                        expression.span);
+      const TypeId operandType = infer(*arrayPlace, locals);
+      const auto &sourceDescriptor = interner_.descriptor(operandType);
+      if (sourceDescriptor.kind != TypeKind::DynamicArray && sourceDescriptor.kind != TypeKind::FixedArray &&
+          sourceDescriptor.kind != TypeKind::DependentArray)
+        throw TypeError(std::format("cannot span value of type {}", interner_.display(operandType)), expression.span);
+      const auto root = rootLocalOf(*arrayPlace);
+      if (!root.has_value())
+        throw TypeError("span operand must be rooted at a local binding", expression.span);
+      if (interner_.descriptor(locals.at(root->value)).kind == TypeKind::Reference)
+        throw TypeError("creating a span through a scoped reference is deferred (INC-21 S1); dereference the "
+                        "reference first",
+                        expression.span);
+      if (borrowExpressions_.insert(&expression).second)
+      {
+        auto &counts = borrowState_.counts[root->value];
+        if (counts.mutableRefs != 0)
+          throw TypeError("E-borrow-conflict",
+                          std::format("cannot shared-borrow `{}` while it is mutably borrowed", arrayPlace->text),
+                          expression.span);
+        if (counts.shared >= BorrowState::MaxShared)
+          throw TypeError("E-borrow-too-many", "too many shared borrows of one binding", expression.span);
+        borrowState_.add(&expression, root->value, 0, false);
+      }
+      if (boundStart != nullptr)
+      {
+        requireType(builtin::I64, infer(*boundStart, locals), boundStart->span, "span window start");
+        requireType(builtin::I64, infer(*boundEnd, locals), boundEnd->span, "span window end");
+      }
+      type = interner_.internSpan(sourceDescriptor.element);
       break;
     }
     if (expression.text == "*")
@@ -1794,6 +1854,8 @@ auto Checker::infer(const hir::Expression &expression, const LocalTypes &locals)
         throw TypeError("cannot slice through a scoped reference (A1.3 is deferred); dereference the reference first",
                         expression.span);
       const auto &descriptor = interner_.descriptor(base);
+      if (descriptor.kind == TypeKind::Span)
+        throw TypeError("slicing a span view is deferred (INC-21 S1); reslice with `span`", expression.span);
       if (descriptor.kind != TypeKind::DynamicArray && descriptor.kind != TypeKind::FixedArray &&
           descriptor.kind != TypeKind::DependentArray)
         throw TypeError(std::format("cannot slice value of type {}", interner_.display(receiver)),
@@ -1820,11 +1882,16 @@ auto Checker::infer(const hir::Expression &expression, const LocalTypes &locals)
     }
     else
     {
-      if (descriptor.kind != TypeKind::DynamicArray && descriptor.kind != TypeKind::FixedArray &&
-          descriptor.kind != TypeKind::DependentArray)
+      if (descriptor.kind == TypeKind::Span)
+      {
+        type = descriptor.element;
+      }
+      else if (descriptor.kind != TypeKind::DynamicArray && descriptor.kind != TypeKind::FixedArray &&
+               descriptor.kind != TypeKind::DependentArray)
         throw TypeError(std::format("cannot index value of type {}", interner_.display(receiver)),
                         expression.span);
-      type = descriptor.element;
+      else
+        type = descriptor.element;
     }
     break;
   }

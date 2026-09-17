@@ -437,7 +437,8 @@ void Checker::checkStatement(const hir::Statement &statement, LocalTypes &locals
         mutableBindings_.insert(statement.local->value);
     }
     if (statement.local.has_value() && statement.expression->kind == hir::ExpressionKind::Prefix &&
-        (statement.expression->text == "ref" || statement.expression->text == "ref mut"))
+        (statement.expression->text == "ref" || statement.expression->text == "ref mut" ||
+         statement.expression->text == "span"))
     {
       for (auto &loan : borrowState_.loans)
       {
@@ -461,6 +462,10 @@ void Checker::checkStatement(const hir::Statement &statement, LocalTypes &locals
           interner_.descriptor(locals.at(statement.assignmentTarget->resolvedName->id)).kind == TypeKind::Reference)
         throw TypeError("cannot reassign a scoped reference binding (A1.2; references are non-escaping views)",
                         statement.span);
+      if (statement.assignmentTarget->kind == hir::ExpressionKind::ResolvedName &&
+          statement.assignmentTarget->resolvedName->kind == hir::ResolvedNameKind::Local &&
+          interner_.descriptor(locals.at(statement.assignmentTarget->resolvedName->id)).kind == TypeKind::Span)
+        throw TypeError("cannot reassign a span view binding (INC-21; views are non-escaping)", statement.span);
       if (const auto root = rootLocalOf(*statement.assignmentTarget); root.has_value() && isBorrowed(root->value))
         throw TypeError("E-borrow-conflict",
                         std::format("cannot assign to `{}` while it is borrowed (D-002 A1.2)",
@@ -499,6 +504,8 @@ void Checker::checkStatement(const hir::Statement &statement, LocalTypes &locals
       if (interner_.descriptor(locals.at(statement.local->value)).kind == TypeKind::Reference)
         throw TypeError("cannot reassign a scoped reference binding (A1.2; references are non-escaping views)",
                         statement.span);
+      if (interner_.descriptor(locals.at(statement.local->value)).kind == TypeKind::Span)
+        throw TypeError("cannot reassign a span view binding (INC-21; views are non-escaping)", statement.span);
       if (isBorrowed(statement.local->value))
         throw TypeError(
             "E-borrow-conflict",
@@ -526,6 +533,9 @@ void Checker::checkStatement(const hir::Statement &statement, LocalTypes &locals
                               "` of the return type (D-002 A1.1)",
                           statement.expression->span);
       }
+      if (interner_.descriptor(returned).kind == TypeKind::Span)
+        throw TypeError("span views cannot be returned from a function (INC-21; views are scoped, non-escaping)",
+                        statement.expression->span);
     }
     else
       requireType(returnType, builtin::Unit, statement.span, "return value");
@@ -908,6 +918,8 @@ void Checker::requireMutableDeref(const hir::Expression &expression, const Local
       const auto &descriptor = interner_.descriptor(locals.at(expression.resolvedName->id));
       if (descriptor.kind == TypeKind::Reference && !descriptor.referenceMutable)
         throw TypeError("cannot assign through an immutable reference", expression.span);
+      if (descriptor.kind == TypeKind::Span)
+        throw TypeError("cannot assign through a read-only span view (INC-21)", expression.span);
     }
     return;
   case hir::ExpressionKind::Prefix:

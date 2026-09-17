@@ -160,6 +160,7 @@ namespace NG::syntax
                              : text == "ref" ? TokenKind::KeywordRef
                              : text == "repr" ? TokenKind::KeywordRepr
                              : text == "return" ? TokenKind::KeywordReturn
+                             : text == "span" ? TokenKind::KeywordSpan
                              : text == "struct" ? TokenKind::KeywordStruct
                              : text == "switch" ? TokenKind::KeywordSwitch
                              : text == "trait" ? TokenKind::KeywordTrait
@@ -661,6 +662,12 @@ namespace NG::syntax
       }
       auto operand = parseExpression(110);
       return std::make_unique<PrefixExpression>(std::move(op), std::move(operand), SourceSpan{token.span.begin, operand->span.end});
+    }
+    case TokenKind::KeywordSpan:
+    {
+      auto operand = parseExpression(110);
+      return std::make_unique<PrefixExpression>(std::string{"span"}, std::move(operand),
+                                                SourceSpan{token.span.begin, operand->span.end});
     }
     default:
       break;

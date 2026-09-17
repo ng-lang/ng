@@ -220,6 +220,42 @@ namespace NG::native::detail
       bindResult(instruction, QType::Long, std::format("copy {}", view));
       return;
     }
+    case InstructionKind::MakeSpan:
+    {
+      // A span is a 16-byte blob { data, len } over a direct array binding.
+      // The operand list is either empty (whole view) or { start, end }.
+      if (!instruction.placeRootLocal || instruction.placeRootRef || !instruction.placeSteps.empty())
+        throw LoweringError(
+            std::format("native lowering (M2): only direct local span creation is supported in `{}`", function_.name));
+      const auto slotAddress = localSlots_.at(instruction.placeRootLocal->value);
+      const auto valueSlot = fresh();
+      if (isCellLocal(instruction.placeRootLocal->value))
+        line(std::format("{} =l loadl {}", valueSlot, slotAddress));
+      else
+        line(std::format("{} =l copy {}", valueSlot, slotAddress));
+      const auto array = fresh();
+      line(std::format("{} =l loadl {}", array, valueSlot));
+      std::string start;
+      std::string count;
+      if (instruction.operands.empty())
+      {
+        start = "0";
+        const auto length = fresh();
+        line(std::format("{} =l loadl {}", length, array));
+        count = length;
+      }
+      else
+      {
+        start = operandTemp(instruction.operands[0]);
+        const auto end = fresh();
+        line(std::format("{} =l sub {}, {}", end, operandTemp(instruction.operands[1]), start));
+        count = end;
+      }
+      const auto blob = fresh();
+      line(std::format("{} =l call $ngrt_span_make(l {}, l {}, l {})", blob, array, start, count));
+      bindResult(instruction, QType::Long, std::format("copy {}", blob));
+      return;
+    }
     case InstructionKind::CallTrait:
     {
       ngrt_.needsTraitDispatch = true;
@@ -535,7 +571,12 @@ namespace NG::native::detail
       const auto receiver = operandTemp(instruction.operands[0]);
       const auto index = operandTemp(instruction.operands[1]);
       const auto loaded = fresh();
-      line(std::format("{} =l call $ngrt_arr_get(l {}, l {})", loaded, receiver, index));
+      const TypeId receiverType = function_.valueTypes.at(instruction.operands[0].value);
+      if (receiverType.value < function_.typeDescriptors.size() &&
+          function_.typeDescriptors[receiverType.value].kind == TypeKind::Span)
+        line(std::format("{} =l call $ngrt_span_get(l {}, l {})", loaded, receiver, index));
+      else
+        line(std::format("{} =l call $ngrt_arr_get(l {}, l {})", loaded, receiver, index));
       const auto resultType = qtypeOf(function_.valueTypes.at(instruction.result.value));
       bindResult(instruction, resultType, std::format("copy {}", castFromSlot(loaded, resultType)));
       return;

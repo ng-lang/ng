@@ -134,6 +134,11 @@ namespace NG::flowir
           return lowerReferenceExpression(expression);
         }
 
+        if (expression.kind == hir::ExpressionKind::Prefix && expression.text == "span")
+        {
+          return lowerSpanExpression(expression);
+        }
+
         // INC-16 S2 place-through-ref: an Index/Member *read* whose receiver
         // is a scoped reference (`items[i]`, `box.value` on `T ref`) derefs
         // the reference first, then reads through the referenced aggregate.
@@ -705,6 +710,34 @@ namespace NG::flowir
         const ValueId reference = lowerExpression(*expression.operands[0]);
         block().instructions.push_back(
             Instruction{.kind = InstructionKind::LoadRef, .result = result, .operands = {reference}});
+        return result;
+      }
+
+      [[nodiscard]] auto lowerSpanExpression(const hir::Expression &expression) -> ValueId
+      {
+        // `span xs` (whole view) or `span xs[lo..hi]` (window view). The
+        // checker already validated the operand shape and the shared borrow.
+        const hir::Expression *arrayPlace = expression.operands[0].get();
+        std::vector<ValueId> bounds;
+        if (arrayPlace->kind == hir::ExpressionKind::Index)
+        {
+          const auto &range = *arrayPlace->operands[1];
+          bounds.push_back(lowerExpression(*range.operands[0]));
+          bounds.push_back(lowerExpression(*range.operands[1]));
+          arrayPlace = arrayPlace->operands[0].get();
+        }
+        auto place = lowerPlace(*arrayPlace);
+        if (!place.rootLocal.has_value() || place.rootRef.has_value() || !place.steps.empty())
+          throw VerificationError("span root must be a direct local binding");
+        const ValueId result{nextValue_++};
+        if (types_ != nullptr)
+          function_.valueTypes.emplace(result.value, types_->typeIdOf(expression));
+        block().instructions.push_back(
+            Instruction{.kind = InstructionKind::MakeSpan,
+                        .result = result,
+                        .placeRootLocal = place.rootLocal,
+                        .placeSteps = std::move(place.steps),
+                        .operands = std::move(bounds)});
         return result;
       }
 
@@ -2202,6 +2235,13 @@ namespace NG::flowir
             throw VerificationError("FlowIR reference creation requires a local place root");
           if (instruction.operands.size() != countIndexSteps())
             throw VerificationError("FlowIR reference creation index operand count mismatch");
+        }
+        if (instruction.kind == InstructionKind::MakeSpan)
+        {
+          if (!instruction.placeRootLocal.has_value() || instruction.placeRootRef.has_value())
+            throw VerificationError("FlowIR span creation requires a local place root");
+          if (instruction.operands.size() != 0 && instruction.operands.size() != 2)
+            throw VerificationError("FlowIR span creation has invalid window operand count");
         }
         if (instruction.kind == InstructionKind::AssignPlace)
         {

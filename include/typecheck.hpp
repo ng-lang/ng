@@ -88,6 +88,9 @@ namespace NG::typecheck
     FixedArray,
     DependentArray,
     Reference,
+    /// INC-21: `span<T>` — a borrowed, scoped, non-returnable read-only view
+    /// over array storage; `element` is the viewed element type.
+    Span,
     RawPointer,
     TypePack,
     Range,
@@ -166,6 +169,7 @@ namespace NG::typecheck
     [[nodiscard]] auto internFixedArray(TypeId element, uint64_t length) -> TypeId;
     [[nodiscard]] auto internDependentArray(TypeId element, uint32_t constParameterIndex, std::string name) -> TypeId;
     [[nodiscard]] auto internReference(TypeId target, bool mutableReference) -> TypeId;
+    [[nodiscard]] auto internSpan(TypeId target) -> TypeId;
     [[nodiscard]] auto internRawPointer(TypeId target, bool mutablePointee) -> TypeId;
     [[nodiscard]] auto internTuple(const std::vector<TypeId> &elements) -> TypeId;
     [[nodiscard]] auto internUnion(const std::vector<TypeId> &members) -> TypeId;

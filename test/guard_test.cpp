@@ -50,7 +50,10 @@ namespace
   /// 2262: INC-20c S2 list array-spreads lower as calls to std list walker
   /// instances (spreadLength/spreadGet) instead of EnumListLength/Get;
   /// ARCH split tracked in the post-cutover plan.
-  constexpr size_t kMaxCppLines = 2262;
+  /// 2302: INC-21 S1 span<T> borrowed scoped views emit MakeSpan (window
+  /// decomposition) plus its verifier case in flowir.cpp; ARCH split tracked
+  /// in the post-cutover plan.
+  constexpr size_t kMaxCppLines = 2302;
   /// 917: INC-10 added While/Continue/Break statement nodes to ast.hpp;
   /// ARCH split tracked in the post-cutover plan.
   /// 938: INC-14 S1 added ClosureExpression to ast.hpp (plus FunctionParameter
@@ -65,7 +68,9 @@ namespace
   /// tracked in the post-cutover plan.
   /// 980: INC-15 added the `origins` list to ScopedReferenceTypeSyntax
   /// (`T ref(a | b)`, D-002 A1.1); ARCH split tracked in the post-cutover plan.
-  constexpr size_t kMaxHeaderLines = 980;
+  /// 991: INC-21 S1 added `span`/`T span` types to ast.hpp (TypeSyntaxKind::Span
+  /// + SpanTypeSyntax); ARCH split tracked in the post-cutover plan.
+  constexpr size_t kMaxHeaderLines = 991;
 
   /// Recursively collect every file matching `extension` under `root`.
   auto collectFiles(const std::string &root, std::string_view extension) -> std::vector<std::filesystem::path>

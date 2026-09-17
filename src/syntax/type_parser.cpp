@@ -48,6 +48,18 @@ namespace NG::syntax
       return std::make_unique<ScopedReferenceTypeSyntax>(std::move(target), isMutable,
                                                          SourceSpan{refToken.span.begin, close.span.end});
     }
+    if (current().kind == TokenKind::KeywordSpan)
+    {
+      // Prefix sugar: `span<T>` equals the postfix `T span`.
+      const Token spanToken = consume();
+      if (current().kind != TokenKind::Less) throw ParseError("expected `<` after `span`", current().span);
+      static_cast<void>(consume());
+      TypeSyntaxPtr target = parsePrimary();
+      if (current().kind != TokenKind::Greater)
+        throw ParseError("expected `>` after span target type", current().span);
+      const Token close = consume();
+      return std::make_unique<SpanTypeSyntax>(std::move(target), SourceSpan{spanToken.span.begin, close.span.end});
+    }
     if (current().kind == TokenKind::Pipe || current().kind == TokenKind::OrOr)
     {
       const Token open = consume();
@@ -142,6 +154,13 @@ namespace NG::syntax
                                                                   SourceSpan{type->span.begin, tokens_[cursor_ - 1].span.end});
         parseOrigins(*scoped);
         type = std::move(scoped);
+        continue;
+      }
+      if (current().kind == TokenKind::KeywordSpan)
+      {
+        static_cast<void>(consume());
+        type = std::make_unique<SpanTypeSyntax>(std::move(type),
+                                                SourceSpan{type->span.begin, tokens_[cursor_ - 1].span.end});
         continue;
       }
       if (current().kind == TokenKind::Star)

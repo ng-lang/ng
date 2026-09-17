@@ -29,6 +29,7 @@ namespace NG::syntax
     KeywordMut,
     KeywordNext,
     KeywordRef,
+    KeywordSpan,
     KeywordReturn,
     KeywordStruct,
     KeywordSwitch,
