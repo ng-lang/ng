@@ -622,8 +622,19 @@ INC-15/16 之后再执行。
   source root; read-only, non-returnable, non-stowable; 16-byte `{data, len}`
   heap-blob value via `$ngrt_span_make`/`$ngrt_span_get` (span.ssa). Deferred
   to future work: field-span, span-through-ref, span-of-span slices.
-- **S2 (pending):** 数组增长 + in-place pushBack（List\<T\> 与定长数组；
-  依赖 B1 堆域的分配路径）.
+- **S2 (2026-09-20 landed):** 数组增长 + in-place `pushBack`（ARCH-4）。唯一所有
+  `ref mut` 模型：receiver 被保守的流向不敏感转义分析（`sharedLocals`）判为唯一时，
+  原生 helper 就地倍增扩容并在原位改缓冲（摊销 O(1)，`$ngrt_arr_push_mut`）；可能
+  共享时走 copy-on-write（`$ngrt_arr_push_cow`），值语义恒成立。决策以
+  `TypeCheckResult::inPlaceMutationCalls`（call → bool）随 native-call payload 送进
+  lowering。`std.list` 的 `pushBack(List<T> ref mut, T)` 改为**每次重建脊**
+  （`*list := append(ref current, v)`）——List 脊不可变且 Box 载荷读取时深拷贝
+  （std.memory），无法就地写尾部 cell；O(n)/push 如实记录，O(1)-摊还由数组路径承担。
+  同名的 `pushBack` 在同时 import seq+list 的模块中会触发重载二义（INC-12 类问题），
+  示例/测试按程序隔离 import。
+- 测试：增长序列 PBT（push N 次 ≡ 一次性 `[...]`，唯一/COW 双侧随机，`[Growth]`）；
+  SSA 符号契约（`push_mut` vs `push_cow`）；`*refMut := e` 回写往返；负契约
+  （不可变绑定上 `ref mut` pushBack 拒绝）。`example/growth.ng` 端到端跑通。
 - 测试：span 越界负契约（S1 已落地）；增长序列 PBT（append N 次 ≡ 一次性构造）。
 
 ### INC-22 · M5 Cell\<T\>（handle 式内部可变性）
