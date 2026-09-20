@@ -637,9 +637,18 @@ INC-15/16 之后再执行。
   （不可变绑定上 `ref mut` pushBack 拒绝）。`example/growth.ng` 端到端跑通。
 - 测试：span 越界负契约（S1 已落地）；增长序列 PBT（append N 次 ≡ 一次性构造）。
 
-### INC-22 · M5 Cell\<T\>（handle 式内部可变性）
-- 依赖 INC-14（闭包已落地，捕获共享状态场景成立）、DEC-C。
-- 测试：get/set 契约；与 ref mut 排他性的交互负契约。
+### INC-22 · M5 Cell\<T\>（handle 式内部可变性）— ✅ 2026-09-20 落地
+- **决策（用户 2026-09-20）**：affine 拥有 + `Drop`——`Cell<T>` 与 `Box<T>` 同构
+  拥有句柄、drop-exactly-once，但 `cellGet`/`cellSet` 取**共享** `ref`，多个共享
+  借用者无需 `ref mut` 即可读写同一 cell；borrow checker 仍完整执行 ref-mut 排他
+  （取可变借用时冲突照旧）。实现为纯 stdlib：`std.memory` 增 `Cell<T>`（Handle
+  字段）+ 泛型 Drop + `newCell<T>`/`cellGet<T>`/`cellSet<T>`（内部显式泛型调用
+  `allocate<T>`/`load<T>`/`store<T>`）。依赖 INC-14/17 的"闭包捕获共享状态"场景
+  因 `ref` 转发受限（A1.3）转为跨调用共享 `ref` 承载，已在 plan 注明。
+- 测试：get/set 往返 PBT（[Cell][INC22]，48 对随机 i64 一次 fixture + `outstanding()`
+  平衡）；word/string/array/struct 载荷往返；共享 ref 互见写（内部可变性）；ref-mut
+  排他两种次序负契约；affine move 负契约。`example/cell.ng` 端到端。全量 645/645，
+  ASan cell/box/growth 段全绿。
 
 ### DEC-D + INC-23 · union switch — **DEC-D 已决策：补齐完整公民**（见 §0b）
 - **DEC-D 剩余工作（随 INC-23 首 commit）**: D-001/D-011 修订文本——
