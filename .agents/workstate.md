@@ -134,8 +134,34 @@ arguments that NG cannot express without first-class functions.
   `span.ng` exit 15 (whole/window/generic). Borrow integration: span loans retie
   to the binding like refs (shared-borrow/mutable conflict); OOB window
   construction + OOB reads → "killed by a signal".
+- INC-21 **S2** (array growth + in-place `pushBack` + growth PBT): implemented +
+  verified — unique-own `ref mut` model: `seq.pushBack<T>(array<T> ref mut, T)`
+  grows/mutates in place via `$ngrt_arr_push_mut` (amortized O(1), `cap*2+4`) when
+  a flow-insensitive `sharedLocals` escape analysis (new `src/typecheck_growth.cpp`,
+  two-pass) proves the receiver unique; shared receivers take `$ngrt_arr_push_cow`
+  (value semantics always hold). Decisions ride
+  `TypeCheckResult::inPlaceMutationCalls`(call → bool) as the Call payload into
+  `lowering_call.cpp`. `std.list pushBack(List<T> ref mut, T)` rebuild-per-push
+  (`*list := append(ref current, v)`, O(n)) — Box payloads deep-copy on read, so
+  an in-place tail-cell write is unrealizable (user decision 2026-09-20; see
+  worklog). Grew on the existing arena — the B1 heap-domain gate became moot.
+  Guards: flowir 2302 → **2310**. Verified: `[Growth]` 4 cases / 172 assertions
+  (80-trial model PBT, SSA symbol contracts, deref write-back round-trip,
+  immutable-binding reject), `example/growth.ng` exit 0, full ctest **640/640**.
 
 ## Recent completed changes
+
+- INC-21 S2 (array growth + in-place `pushBack` + growth PBT): `seq.pushBack
+  <T>(array<T> ref mut, T)` with unique-own/COW split driven by a new
+  flow-insensitive `sharedLocals` escape analysis (`src/typecheck_growth.cpp`,
+  two-pass; stamps `TypeCheckResult::inPlaceMutationCalls` → Call payload →
+  `$ngrt_arr_push_mut`/`$ngrt_arr_push_cow`); `std.list pushBack` rebuilds per
+  push (Box deep-copy reality; user decision). `[Growth]` 4 cases / 172
+  assertions — 80-trial model PBT (push-built ≡ one-shot `[...]`, unique/COW
+  halves), SSA symbol contracts, deref write-back `*refMut := e` round-trip,
+  immutable-binding reject; `example/growth.ng` end to end; full ctest 640/640.
+  Committed (feat/docs/chore trio `5650d6a`/`c016b85`/`24986d9`). Guard flowir
+  2302→2310.
 
 - INC-20c S2 (list spreads route through std helpers): removed
   `EnumListLength`/`EnumListGet` FlowIR opcodes, `$ngrt_enum_list_len/_get`
