@@ -650,7 +650,7 @@ suite 591 cases / 3477 assertions, example sweep 33 cases / 284 assertions —
 **624/624 (3761 assertions)** green. Probes: `probe_s2.ng` (spread + mixed +
 empty + indexing) exits 0 / returns 7; custom `Chain` spread → clean TypeError.
 
-## INC-21 S1 change plan (span\<T\> borrowed scoped view; LANDED 2026-09-17 — S2 (growth/pushBack + PBT) pending)
+## INC-21 S1 change plan (span\<T\> borrowed scoped view; LANDED 2026-09-17 — S2 in execution below)
 
 User decisions (2026-09-17): INC-21 split **S1 = span\<T\>**, **S2 =
 growth/pushBack + PBT**; `span<T>` is a **borrowed, scoped, non-returnable
@@ -726,6 +726,93 @@ bindings not reassignable. No span-of-span slices or span `len()` in S1.
   (return, struct field, array/tuple element, write-through). + `example/span.ng`
   end-to-end sweep.
 - Guards: flowir 2262 → +N; ast.hpp `kMaxHeaderLines` = 980 → +N.
+
+## INC-21 S2 (array growth + in-place pushBack + growth PBT) — LANDED 2026-09-20
+
+> Update vs plan: the List half was **not implementable in place** (Box payloads
+> deep-copy on read — std.memory; `ref`-of-`ref mut` A1.3; affine moves forbid
+> two live List bindings). User chose **List rebuild-per-push**
+> (`*list := append(ref current, v)`, O(n)); the O(1)-amortized promise rides the
+> array path. `resolvePushBackCow`/`pushTailAppend` removed; no list COW
+> retarget. Guard bump flowir 2310
+
+User decisions (2026-09-19): **unique-own `ref mut` mutation model** (grow + mutate
+the buffer in place when the receiver root is uniquely owned; copy-on-write when
+copies/aliases exist — value semantics always preserved, O(1)-amortized building);
+**List too** (in-place mutating tail-cell pushBack mirrors the array rule); PBT as a
+**unit-level model** (deterministic randomized trials: push-built array ≡ one-shot).
+
+**Mechanics (all verified):**
+1. `ref mut xs` at any call site already lowers to a MakeRef value = the *address of
+   the array-pointer word* (for cell locals: the value-cell address; `lowerReferenceExpression`
+   flowir.cpp:686; S1's cell-root pass forces referenced array locals into heap cells).
+2. A native taking `ref mut <array<T>>` is expressible (`parseTypeUntil` accepts any
+   param type for native funs; `write_field(b: Box ref mut)` is precedent), and the
+   native receives that address as an `l` operand (Reference → qtypeOf Long, needsClone
+   false → shallow pass-through).
+3. Zero-step ref-root stores already work natively — `lowering_expr.cpp` AssignPlace:
+   `instruction.placeSteps.empty()` → `$ngrt_ref_addr` + `storel`. So whole-referent
+   write-back (`*list := e`) needs only checker + flowir target handling (parser already
+   yields any expression as an assignment target).
+4. Array ABI `{len, cap, data+16}`; cap word is currently always == len. In-place
+   growth only ever *re-points the slot* on realloc; old buffers are never written, so
+   old aliases (and COW copies) keep the exact pre-push value.
+5. `TypeCheckResult` is keyed per call expression (`callTargets` precedent); the
+   `Instruction.payload` (int64) rides native call lowering with no new IR fields.
+
+**Surface / semantics (locked):**
+- seq.ng: `export native fun pushBack<T>(values: array<T> ref mut, value: T) -> unit`.
+  Helper split on a checker-decided flag (lowering_call): `$ngrt_arr_push_mut` (buffer
+  unique → write into slack capacity / realloc doubling in place, amortized O(1)) vs
+  `$ngrt_arr_push_cow` (always allocates a fresh grown buffer and re-points the slot;
+  old copies observe nothing — value semantics preserved). Both bound-check-free,
+  negative contract = same `hlt` family (only via impossible-to-reach misuse).
+- list.ng: `pushBack<T>(list: List<T> ref mut, value: T) -> unit` (unique body: walk to
+  the trailing Box cell and `write` it from Nil → `Cons(value, new(Nil))`; Nil receiver
+  writes back `*list := Cons(value, new(Nil))`); aliased call sites are retargeted by
+  the checker to `pushBackCow` (rebuild + `*list := rebuilt` write-back). In-place list
+  append is O(n) traversal with O(1) mutation per push (no tail pointer in the type);
+  true O(1)-amortized sequence building is the *array* path. Existing immutable
+  `append(ref list, v) -> List<T>` stays unchanged.
+- New micro-feature: **deref write-back `*refMut := e`** (zero-step ref-root AssignPlace)
+  — required by the List Nil case and COW write-back; generalizes `b.value := v`.
+- Uniqueness = **`sharedLocals`** flow-insensitive escape analysis over container-typed
+  locals (array / std List): params start shared; shared when the container VALUE is
+  duplicated — bound/assigned from another container, passed by value, returned, packed
+  into a struct/tuple/enum literal, spread source, extracted member/index. `ref`/`span`
+  borrows and the mutating receiver itself do NOT mark shared. Conservative (over-marking
+  is sound; in-place is an optimization on top of always-correct COW).
+
+**Edits:**
+- `block_parser.cpp`: none (assignment target already parses). `typecheck_infer.cpp`
+  Assign case: accept a Prefix"*" assignmentTarget → referent type + requireMutableDeref.
+  `flowir lowerAssignment`/`lowerPlace`: deref root → `.placeRootRef` + zero steps
+  (native store path exists). `typecheck_check.cpp`: `requireMutableDeref` deref case.
+- Checker sharing analysis + decisions: `TypeCheckResult::inPlaceMutationCalls` (call
+  expr → bool) for the array native; `sharedLocals` per function (reused for the list
+  target substitution: `callTargets[call] = pushBackCow` when shared, else the public
+  unique body). Recognize list `pushBack` by resolved name + param0-unify (list-typed
+  ref mut), array `pushBack` similarly.
+- `seq.ng` + `list.ng` declarations as above (+ `pushTail` helper).
+- `arr.ssa`: `$ngrt_arr_push_mut(l addr, l val)` / `$ngrt_arr_push_cow(l addr, l val)`;
+  growth factor doubling, capacity word updated; slot re-pointed on realloc.
+- `lowering_call.cpp`: `if (name == "pushBack") symbol = instruction.payload ?
+  "$ngrt_arr_push_mut" : "$ngrt_arr_push_cow";` — clang-format only the touched block.
+- Guards: `test/guard_test.cpp` flowir / typecheck_infer / checker line bumps.
+- Tests: `test/growth_test.cpp` `[Growth]` PBT (INC-1 harness, `pbt::currentSeed`, ~60+
+  trials: random n ∈ [0, 200], random i64 values, random unique/COW split via an early
+  `let b = xs` on ~half trials) asserting push-built ≡ one-shot `[...]` element-wise
+  (len + timed reads, printed booleans); deref-assign round-trip tests; negative
+  contracts (pushBack on immutable binding rejected, pushBack into a field-span ref not
+  applicable, COW preserves the old copy / read-back isolation). + `example/growth.ng`.
+- Docs: 09-increment-plan INC-21 S2 done; 07-post-cutover A7 (span + growth/pushBack
+  landed, R6 list-builder note updated); workstate/worklog.
+
+**Risks / accepted:** in-place is gated on a conservative *may-be-shared* flag — the
+common `let mut acc=[]; while…{ pushBack(ref mut acc,…) }` builder is in-place; any
+leak marks COW (sound, slower). List in-place is O(n) traversal per push (no tail
+pointer) — the O(1)-amortized promise is delivered on the array path; documented.
+A callee-returned array is conservatively shared in its caller → COW (sound).
 
 ## References
 
