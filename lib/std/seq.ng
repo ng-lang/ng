@@ -7,6 +7,12 @@ export native fun sum(values: array<i64>) -> i64;
 export native fun arrayContains(values: array<i64>, value: i64) -> bool;
 export native fun reverse(values: array<i64>) -> array<i64>;
 
+// INC-21 S2: mutate-and-grow append for a uniquely-owned array binding
+// (`pushBack(ref mut xs, value)`). When a copy of the binding exists the
+// checker routes the call to a copy-on-write helper, so array value semantics
+// always hold; a unique receiver grows amortized O(1) on the arena.
+export native fun pushBack<T>(values: array<T> ref mut, value: T) -> unit;
+
 // INC-14 S2c: higher-order map. `f` is a closure typed against the element and
 // result type parameter; a call passing a closure literal is re-checked as a
 // closure-specialized instance in which `f(values[i])` binds to the literal's

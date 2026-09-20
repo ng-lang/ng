@@ -123,6 +123,7 @@ void Checker::checkFunction(const hir::Function &function, const const_eval::Con
   checkBlock(function.body, locals, {}, signature.returnType);
   inConstGenericFunction_ = false;
   recordFallthroughDrops(function, locals);
+  applyGrowthDecisions(function, locals);
   mutableBindings_ = std::move(savedMutableBindings);
   moveState_ = std::move(savedMoveState);
   borrowState_ = std::move(savedBorrowState);
@@ -966,6 +967,10 @@ auto Checker::rootLocalOf(const hir::Expression &expression) const -> std::optio
   {
     if (root->kind == hir::ExpressionKind::Index || root->kind == hir::ExpressionKind::Member ||
         root->kind == hir::ExpressionKind::Grouped)
+      root = root->operands[0].get();
+    // INC-21 S2 deref write-back: a `*p` assignment target writes through the
+    // reference into its root local, so the loan tracking keys on that root.
+    else if (root->kind == hir::ExpressionKind::Prefix && root->text == "*")
       root = root->operands[0].get();
     else
       break;

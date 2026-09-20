@@ -522,6 +522,14 @@ namespace NG::flowir
                            ? types_->callTargets.at(&expression)
                            : hir::DefId{expression.operands[0]->resolvedName->id};
         }
+        // INC-21 S2: carry the checker's growth decision for `pushBack` calls
+        // (payload 1 grows the array buffer in place, 0 copies on write).
+        if (expression.kind == hir::ExpressionKind::Call && types_ != nullptr)
+        {
+          if (const auto inPlace = types_->inPlaceMutationCalls.find(&expression);
+              inPlace != types_->inPlaceMutationCalls.end())
+            payload = inPlace->second ? 1 : 0;
+        }
 
         const ValueId value{nextValue_++};
         if (types_ != nullptr)

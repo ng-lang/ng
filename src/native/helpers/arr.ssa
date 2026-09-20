@@ -43,6 +43,59 @@ export function l $ngrt_arr_append(l %a, l %e) {
 	ret %p
 }
 
+# INC-21 S2: in-place growth for a uniquely-owned array binding. `%ref` is the
+# scoped `ref mut` object; its root cell holds the array pointer word. Appends
+# in place while capacity remains, otherwise reallocates with at-least-doubling
+# capacity and repoints the cell. The old buffer is arena-owned and untouched
+# (no live aliases by the checker's uniqueness guarantee).
+export function l $ngrt_arr_push_mut(l %ref, l %e) {
+@start
+	%ra =l call $ngrt_ref_addr(l %ref)
+	%a0 =l loadl %ra
+	%len =l loadl %a0
+	%capaddr =l add %a0, 8
+	%cap =l loadl %capaddr
+	%room =w csltl %len, %cap
+	jnz %room, @store, @grow
+@grow
+	%newcap =l mul %cap, 2
+	%newcap =l add %newcap, 4
+	%nl =l add %len, 1
+	%size =l mul %newcap, 8
+	%total =l add %size, 16
+	%p =l call $ngrt_alloc(l %total)
+	storel %nl, %p
+	%capp =l add %p, 8
+	storel %newcap, %capp
+	%dst =l add %p, 16
+	%src =l add %a0, 16
+	%oldsize =l mul %len, 8
+	%m =l call $memcpy(l %dst, l %src, l %oldsize)
+	storel %p, %ra
+	jmp @store
+@store
+	%a =l phi @start %a0, @grow %p
+	%off =l mul %len, 8
+	%base =l add %a, 16
+	%slot =l add %base, %off
+	storel %e, %slot
+	%newlen =l add %len, 1
+	storel %newlen, %a
+	ret 0
+}
+
+# INC-21 S2: copy-on-write append for a possibly-aliased array binding. A fresh
+# exact-fit buffer is built from the current contents plus the new element, and
+# the receiver cell is repointed; prior copies keep observing the old buffer.
+export function l $ngrt_arr_push_cow(l %ref, l %e) {
+@start
+	%ra =l call $ngrt_ref_addr(l %ref)
+	%a =l loadl %ra
+	%p =l call $ngrt_arr_append(l %a, l %e)
+	storel %p, %ra
+	ret 0
+}
+
 export function l $ngrt_arr_slice(l %a, l %s, l %e) {
 @start
 	%len =l loadl %a

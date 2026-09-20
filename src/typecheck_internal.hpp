@@ -343,6 +343,11 @@ namespace NG::typecheck::detail
     /// shape, then instantiates it for the spread's element type (INC-20c S2).
     [[nodiscard]] auto resolveListSpreadCall(std::string_view name, TypeId source, syntax::SourceSpan span)
         -> hir::DefId;
+    /// INC-21 S2: post-check growth decisions for one concrete function body.
+    /// Computes the may-be-shared array locals (conservative escape analysis)
+    /// and, for every `pushBack` call, stamps the in-place vs copy-on-write
+    /// flag.
+    void applyGrowthDecisions(const hir::Function &function, const LocalTypes &locals);
     [[nodiscard]] auto ensureTraitViewTable(const std::string &traitName, TypeId concreteType) -> bool;
     [[nodiscard]] auto typeContains(TypeId type, TypeId needle) const -> bool;
     [[nodiscard]] auto isGeneric(const FunctionTypeIds &signature) const -> bool;
@@ -390,6 +395,9 @@ namespace NG::typecheck::detail
     std::unordered_map<const hir::Expression *, std::pair<hir::DefId, hir::DefId>> listSpreadCalls_;
     std::unordered_map<const hir::Expression *, std::vector<size_t>> callFoldSpreadPositions_;
     std::unordered_map<const hir::Expression *, std::vector<size_t>> callFoldAccumulatorPositions_;
+    /// INC-21 S2: growth-decision flags for `pushBack` call sites (array native
+    /// in-place vs copy-on-write), keyed by the call expression.
+    std::unordered_map<const hir::Expression *, bool> inPlaceMutationCalls_;
 
     std::unordered_map<const hir::Statement *, std::vector<std::pair<uint32_t, uint32_t>>> returnDrops_;
     std::unordered_map<uint32_t, std::vector<std::pair<uint32_t, uint32_t>>> fallthroughDrops_;

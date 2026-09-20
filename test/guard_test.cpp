@@ -53,7 +53,10 @@ namespace
   /// 2302: INC-21 S1 span<T> borrowed scoped views emit MakeSpan (window
   /// decomposition) plus its verifier case in flowir.cpp; ARCH split tracked
   /// in the post-cutover plan.
-  constexpr size_t kMaxCppLines = 2302;
+  /// 2310: INC-21 S2 stamps the in-place pushBack payload on the Call
+  /// instruction (growth decisions); ARCH split tracked in the post-cutover
+  /// plan.
+  constexpr size_t kMaxCppLines = 2310;
   /// 917: INC-10 added While/Continue/Break statement nodes to ast.hpp;
   /// ARCH split tracked in the post-cutover plan.
   /// 938: INC-14 S1 added ClosureExpression to ast.hpp (plus FunctionParameter

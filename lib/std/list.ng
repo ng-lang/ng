@@ -53,7 +53,8 @@ export fun contains<T>(list: ref<List<T>>, value: T) -> bool {
 
 // Immutable builders (redesign of legacy 59's listof/pushBack/append):
 // each call rebuilds the sequence over the recursive enum, boxing each tail
-// into a heap cell. Mutating in-place builders arrive with the R6 heap domain.
+// into a heap cell. INC-21 S2 adds the unique-own in-place `pushBack` builder
+// (and a copy-on-write fallback) at the bottom of this file.
 
 fun listFromInner<T>(values: array<T>, index: i64) -> List<T> {
     if (index == len(values)) {
@@ -108,4 +109,16 @@ export fun reverseList<T>(list: ref<List<T>>) -> List<T> {
             return appended;
         }
     }
+}
+
+// INC-21 S2: mutating `pushBack(ref mut list, value)`. The List spine is
+// immutable and Box payloads deep-copy on read (see std.memory), so an
+// in-place tail-cell write cannot observe the live list; `pushBack` therefore
+// always rebuilds the spine via the persistent `append` and writes the fresh
+// list back through the receiver binding. O(n) per push — arrays deliver the
+// amortized-O(1) in-place builder (seq.pushBack).
+export fun pushBack<T>(list: List<T> ref mut, value: T) -> unit {
+    let current: List<T> = *list;
+    let rebuilt: List<T> = append(ref current, value);
+    *list := rebuilt;
 }

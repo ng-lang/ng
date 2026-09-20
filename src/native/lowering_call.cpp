@@ -252,7 +252,13 @@ namespace NG::native::detail
         }
         else
         {
-          symbol = "$ngrt_" + name;
+          // INC-21 S2: `pushBack(array<T> ref mut, T)` grows either the
+          // uniquely-owned buffer in place (payload 1) or a fresh
+          // copy-on-write buffer written back through the receiver.
+          if (name == "pushBack")
+            symbol = instruction.payload == 1 ? "$ngrt_arr_push_mut" : "$ngrt_arr_push_cow";
+          else
+            symbol = "$ngrt_" + name;
         }
 
     std::string arguments;

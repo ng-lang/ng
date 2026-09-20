@@ -285,6 +285,11 @@ namespace NG::typecheck
     /// type, lowered to reduction loops.
     std::unordered_map<const hir::Expression *, std::vector<size_t>> callFoldSpreadPositions;
     std::unordered_map<const hir::Expression *, std::vector<size_t>> callFoldAccumulatorPositions;
+    /// INC-21 S2: `pushBack(receiver, value)` call -> true when the receiver
+    /// root is uniquely owned (grow the buffer in place), false when it may be
+    /// aliased (copy-on-write rebuild). Consulted by FlowIR to stamp the native
+    /// helper payload for the array path.
+    std::unordered_map<const hir::Expression *, bool> inPlaceMutationCalls;
     /// Drop calls to emit at return statements: (local, drop method DefId).
     std::unordered_map<const hir::Statement *, std::vector<std::pair<uint32_t, uint32_t>>> returnDrops;
     /// Drop calls to emit at function fall-through, keyed by function id.

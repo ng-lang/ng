@@ -1,0 +1,50 @@
+// INC-21 S2 (ARCH-4): array growth with an in-place `pushBack` builder.
+// `pushBack(ref mut xs, v)` grows a uniquely owned array buffer in place
+// (amortized O(1) doubling; copy-on-write when the binding may be shared), so
+// a sequence can be built without constant re-allocations or a big literal.
+
+import prelude;
+import seq;
+
+fun totalSum(xs: array<i64>) -> i64 {
+    let mut total = 0;
+    let mut i = 0;
+    while (i < len(xs)) {
+        total := total + xs[i];
+        i := i + 1;
+    }
+    return total;
+}
+
+fun main() -> unit {
+    // The natural incremental builder: fresh binder, so every push grows and
+    // mutates the buffer in place.
+    let mut xs: array<i64> = [];
+    let mut i = 0;
+    while (i < 8) {
+        pushBack(ref mut xs, i * i);
+        i := i + 1;
+    }
+
+    // Element-wise equivalence with the one-shot literal, plus a read across a
+    // call boundary.
+    let literal = [0, 1, 4, 9, 16, 25, 36, 49];
+    assert(len(xs) == len(literal));
+    let mut j = 0;
+    while (j < len(xs)) {
+        assert(xs[j] == literal[j]);
+        j := j + 1;
+    }
+    assert(totalSum(xs) == 140);
+
+    // Copy-on-write path: once the buffer is bound into a second binding, a
+    // later push copies first, and the earlier binding observes nothing.
+    let mut ys: array<i64> = [1, 2];
+    let snapshot: array<i64> = ys;
+    pushBack(ref mut ys, 3);
+    assert(len(snapshot) == 2);
+    assert(len(ys) == 3);
+    assert(ys[2] == 3);
+
+    print(140);
+}

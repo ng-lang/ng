@@ -310,6 +310,7 @@ auto Checker::check(const hir::Module &module, const const_eval::ConstNativeHost
                           .arrayListSpreadCalls = std::move(listSpreadCalls_),
                           .callFoldSpreadPositions = std::move(callFoldSpreadPositions_),
                           .callFoldAccumulatorPositions = std::move(callFoldAccumulatorPositions_),
+                          .inPlaceMutationCalls = std::move(inPlaceMutationCalls_),
                           .returnDrops = std::move(returnDrops_),
                           .fallthroughDrops = std::move(fallthroughDrops_),
                           .blockDrops = std::move(blockDrops_),

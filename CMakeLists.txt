@@ -74,6 +74,7 @@ set(NG_SRC
         src/typecheck_check.cpp
         src/typecheck_const.cpp
         src/typecheck_unify.cpp
+        src/typecheck_growth.cpp
         src/type_interner.cpp
         src/const_eval.cpp
         src/const_interp.cpp
