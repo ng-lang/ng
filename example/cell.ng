@@ -1,0 +1,42 @@
+// vNext std.memory Cell<T> (INC-22, M5): handle-style interior mutability.
+// A Cell owns its handle (affine, drop-exactly-once) but `cellGet`/`cellSet`
+// borrow it *shared*, so any number of co-borrowers can read and write the
+// same cell without a `ref mut` — while ref-mut exclusivity still applies the
+// moment a mutable borrow is actually taken.
+
+import prelude;
+import memory;
+
+fun bump(cell: Cell<i64> ref, by: i64) -> unit {
+    cellSet(cell, cellGet(cell) + by);
+}
+
+fun handOff(c: Cell<i64>) -> i64 {
+    // The parameter owns the cell for the call; Drop releases it
+    // drop-exactly-once when the scope ends.
+    return cellGet(ref c);
+}
+
+fun main() -> unit {
+    let before = outstanding();
+
+    // Two independent shared borrowers of one cell; a write through either is
+    // observed by both.
+    let counter = newCell(0);
+    let left = ref counter;
+    let right = ref counter;
+    bump(ref counter, 40);
+    cellSet(right, cellGet(right) + 2);
+    print(cellGet(left) == 42);
+    print(cellGet(right) == 42);
+
+    // Interior mutability crosses call boundaries through shared refs.
+    bump(ref counter, 8);
+    print(cellGet(ref counter) == 50);
+
+    // Affine Cell: ownership moves into the callee, whose scope end releases
+    // the handle exactly once.
+    let direct = handOff(counter);
+    print(direct == 50);
+    print(outstanding() == before);
+}

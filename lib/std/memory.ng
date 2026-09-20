@@ -49,3 +49,34 @@ export fun read<T>(value: Box<T> ref) -> T {
 export fun write<T>(value: Box<T> ref, updated: T) -> unit {
     store<T>((*value).handle, updated);
 }
+
+// INC-22 (M5): Cell<T> — handle-style interior mutability. A Cell is an
+// affine owning handle like Box<T> (drop-exactly-once release on scope end),
+// but `cellGet`/`cellSet` take a *shared* `ref`: any number of shared
+// borrowers may read and write the same cell without a `ref mut`, while the
+// borrow checker still enforces ref-mut exclusivity when a mutable borrow is
+// actually taken. There is no deep-copy alias: `store` snapshots the payload
+// into the cell word and reads deep-copy out, so the cell is always the sole
+// live view.
+
+export struct Cell<T> {
+    handle: Handle,
+}
+
+export impl<T> Drop for Cell<T> {
+    fun drop(self: Self ref) -> unit {
+        release((*self).handle);
+    }
+}
+
+export fun newCell<T>(value: T) -> Cell<T> {
+    return Cell { handle: allocate<T>(value) };
+}
+
+export fun cellGet<T>(cell: Cell<T> ref) -> T {
+    return load<T>((*cell).handle);
+}
+
+export fun cellSet<T>(cell: Cell<T> ref, updated: T) -> unit {
+    store<T>((*cell).handle, updated);
+}
