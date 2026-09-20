@@ -148,6 +148,17 @@ arguments that NG cannot express without first-class functions.
   Guards: flowir 2302 → **2310**. Verified: `[Growth]` 4 cases / 172 assertions
   (80-trial model PBT, SSA symbol contracts, deref write-back round-trip,
   immutable-binding reject), `example/growth.ng` exit 0, full ctest **640/640**.
+- INC-22 **S1** (M5 `Cell<T>` handle式内部可变性): implemented + verified —
+  affine owning + `Drop` (user decision 2026-09-20) `Cell<T>` over the same
+  Handle table as Box; `cellGet`/`cellSet` borrow *shared*, so multiple shared
+  borrowers read/write one cell without `ref mut` while ref-mut exclusivity still
+  applies. Pure stdlib (`std.memory`): no compiler changes. Verified: `[Cell]`
+  5 cases / 15 assertions (48-pair get/set round-trip PBT + `outstanding()`
+  balance, word/string/array/struct payloads, shared-ref observation,
+  ref-mut exclusivity negative contracts both orderings, affine move reject),
+  `example/cell.ng` all-true, full ctest **645/645**, ASan cell/box/growth clean.
+  The INC-14/17 closure-shared-state scenario routes through cross-call shared
+  `ref`s instead — capture-ref forwarding to `ref` params stays A1.3.
 
 ## Recent completed changes
 
@@ -162,6 +173,15 @@ arguments that NG cannot express without first-class functions.
   immutable-binding reject; `example/growth.ng` end to end; full ctest 640/640.
   Committed (feat/docs/chore trio `5650d6a`/`c016b85`/`24986d9`). Guard flowir
   2302→2310.
+
+- INC-22 (M5 `Cell<T>` handle式内部可变性): affine owning + `Drop` `Cell<T>` in
+  `std.memory` — `cellGet`/`cellSet` via *shared* `ref`, so many co-borrowers
+  mutate one cell without `ref mut`; ref-mut exclusivity negative contracts pin
+  that interior mutability does not dodge borrows. Pure stdlib (no compiler
+  changes). `[Cell]` 5 cases / 15 assertions — 48-pair get/set PBT with
+  `outstanding()` balance, payload round-trips, shared-ref observation,
+  exclusivity negative contracts, affine move reject; `example/cell.ng` all-true;
+  full ctest 645/645, ASan cell/box/growth clean.
 
 - INC-20c S2 (list spreads route through std helpers): removed
   `EnumListLength`/`EnumListGet` FlowIR opcodes, `$ngrt_enum_list_len/_get`
