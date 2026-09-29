@@ -325,6 +325,15 @@ namespace NG::native::detail
       bindResult(instruction, resultType, std::format("copy {}", castFromSlot(clonedBox, resultType)));
       return;
     }
+    case InstructionKind::WrapUnion:
+    {
+      // A member value coerced to a union: box it with its member's tag.
+      const auto memberType = function_.valueTypes.at(instruction.source->value);
+      const auto unionType = resultTypeId(instruction);
+      bindUnionBox(instruction, unionType, unionMemberFor(unionType, memberType), operandTemp(*instruction.source),
+                   qtypeOf(memberType));
+      return;
+    }
     case InstructionKind::AssignPlace:
     {
       const auto value = operandTemp(instruction.operands.back());

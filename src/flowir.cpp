@@ -202,6 +202,8 @@ namespace NG::flowir
 
     auto FunctionLowerer::typeOf(const hir::Expression &expression) const -> TypeId
     {
+      if (const auto found = typeOverrides_.find(&expression); found != typeOverrides_.end())
+        return found->second;
       return types_.typeIdOf(expression);
     }
 
@@ -582,6 +584,7 @@ namespace NG::flowir
         return;
       case InstructionKind::EnumVariantIndex:
       case InstructionKind::ExtractEnumPayload:
+      case InstructionKind::WrapUnion:
         require(instruction.source.has_value(), "FlowIR enum operation requires a source operand");
         return;
       case InstructionKind::MakeRef:

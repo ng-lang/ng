@@ -401,6 +401,10 @@ namespace NG::typecheck
     std::unordered_map<uint32_t, hir::DefId> showToStringTargets;
     /// Trait-view coercions (`ref<Trait>`): expression -> (trait, concrete type).
     std::unordered_map<const hir::Expression *, std::pair<std::string, TypeId>> traitViewCoercions;
+    /// Member-to-union coercions: expression (recorded with the union type) ->
+    /// the member type its value actually has. FlowIR wraps the member value
+    /// in a tagged union box (WrapUnion).
+    std::unordered_map<const hir::Expression *, TypeId> unionCoercions;
     /// Dynamic method calls through trait views: expression -> (trait, method index).
     std::unordered_map<const hir::Expression *, std::pair<std::string, size_t>> traitViewCalls;
     /// Dispatch tables: trait name -> concrete type id -> method DefIds in

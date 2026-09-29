@@ -191,6 +191,12 @@ namespace NG::typecheck::detail
       throw TypeError(std::format("value of type {} is not a member of union {}", interner_.display(valueType),
                                   interner_.display(expected)),
                       expression.span);
+    // The expression reads as the union; its value is the member, which
+    // FlowIR boxes with the member's tag.
+    if (valueType != expected)
+      unionCoercions_.insert_or_assign(&expression, valueType);
+    else
+      unionCoercions_.erase(&expression);
     record(expression, expected);
     return expected;
   }

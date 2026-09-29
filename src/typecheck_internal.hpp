@@ -583,6 +583,7 @@ namespace NG::typecheck::detail
     std::unordered_set<uint32_t> derivedCopyTypes_;
     std::unordered_map<uint32_t, std::vector<std::string>> dropMovedFields_;
     std::unordered_map<const hir::Expression *, std::pair<std::string, TypeId>> traitViewCoercions_;
+    std::unordered_map<const hir::Expression *, TypeId> unionCoercions_;
     std::unordered_map<const hir::Expression *, std::pair<std::string, size_t>> traitViewCalls_;
     std::unordered_map<std::string, std::unordered_map<uint32_t, std::vector<hir::DefId>>> traitViewTables_;
     std::unordered_map<const hir::Expression *, TypeId> derivedCloneCalls_;

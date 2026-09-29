@@ -28,6 +28,22 @@ namespace NG::flowir::detail
 
   auto FunctionLowerer::lowerExpression(const hir::Expression &expression) -> ValueId
   {
+    // A member value checked against a union type: lower the value at its
+    // member type, then box it with that member's tag.
+    if (const auto coercion = types_.unionCoercions.find(&expression);
+        coercion != types_.unionCoercions.end() && kindOf(expression) == typecheck::TypeKind::Union)
+    {
+      const TypeId unionType = typeOf(expression);
+      typeOverrides_.emplace(&expression, coercion->second);
+      const ValueId member = lowerExpressionAtType(expression);
+      typeOverrides_.erase(&expression);
+      return emit(Instruction{.kind = InstructionKind::WrapUnion, .source = member}, unionType);
+    }
+    return lowerExpressionAtType(expression);
+  }
+
+  auto FunctionLowerer::lowerExpressionAtType(const hir::Expression &expression) -> ValueId
+  {
     using hir::ExpressionKind;
     const auto &text = expression.text;
     switch (expression.kind)

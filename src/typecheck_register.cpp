@@ -328,6 +328,7 @@ auto Checker::check(const hir::Module &module, const const_eval::ConstNativeHost
                           .derivedShowCalls = std::move(derivedShowCalls_),
                           .showToStringTargets = std::move(showToStringTargets_),
                           .traitViewCoercions = std::move(traitViewCoercions_),
+                          .unionCoercions = std::move(unionCoercions_),
                           .traitViewCalls = std::move(traitViewCalls_),
                           .traitViewTables = std::move(traitViewTables_),
                           .typeDescriptors = interner_.descriptors()};

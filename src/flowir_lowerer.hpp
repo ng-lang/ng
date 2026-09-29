@@ -126,6 +126,8 @@ namespace NG::flowir::detail
 
     // ---- Expressions, places, calls, derives (flowir_expr.cpp) -------------
     [[nodiscard]] auto lowerExpression(const hir::Expression &expression) -> ValueId;
+    /// lowerExpression without the union-coercion wrap (see WrapUnion).
+    [[nodiscard]] auto lowerExpressionAtType(const hir::Expression &expression) -> ValueId;
     /// The generic `Evaluate` form: operands, operator/literal payload, and
     /// call target for everything without a dedicated lowering.
     [[nodiscard]] auto lowerEvaluate(const hir::Expression &expression) -> ValueId;
@@ -181,6 +183,8 @@ namespace NG::flowir::detail
     uint32_t nextValue_{};
     uint32_t nextSyntheticLocal_{};
     const typecheck::TypeCheckResult &types_;
+    /// Expressions currently lowered at their union member type (WrapUnion).
+    std::unordered_map<const hir::Expression *, TypeId> typeOverrides_;
     const hir::Block *currentHirBlock_{};
     const hir::Block *functionBody_{};
     std::optional<ValueId> fallthroughReturn_;

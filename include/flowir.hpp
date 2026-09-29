@@ -61,6 +61,9 @@ namespace NG::flowir
     /// Deep-copies a Box<T> receiver: probes its handle cell, recursively deep
     /// clones the payload (Box.clone), and rebuilds a box with a fresh cell.
     BoxClone,
+    /// Wraps a member value (`source`) into a tagged union box of the result
+    /// union type.
+    WrapUnion,
   };
 
   /// One step of a lowered place path. Member steps carry a product field

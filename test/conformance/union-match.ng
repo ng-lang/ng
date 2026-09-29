@@ -1,0 +1,40 @@
+// Contract case (INC-23 / DEC-D): union switch — member-type patterns bind
+// the active member's value, member literals match one value of their
+// member family, `otherwise` covers the remaining members, and type
+// patterns over every member are exhaustive without `otherwise`.
+import prelude;
+
+fun classify(value: i64 | string) -> i64 {
+    switch (value) {
+        case 42 { return 100; }
+        case "stop" { return -1; }
+        case (n: i64) { return n * 2; }
+        otherwise { return 7; }
+    }
+}
+
+fun describe(value: bool | i64 | string) -> string {
+    switch (value) {
+        case (b: bool) { if (b) { return "yes"; } return "no"; }
+        case (n: i64) { return "int"; }
+        case (s: string) { return s; }
+    }
+}
+
+fun main() -> unit {
+    let a: i64 | string = 42;
+    let b: i64 | string = 5;
+    let c: i64 | string = "stop";
+    let d: i64 | string = "go";
+    print(classify(a));
+    print(classify(b));
+    print(classify(c));
+    print(classify(d));
+
+    let t: bool | i64 | string = true;
+    let n: bool | i64 | string = 3;
+    let s: bool | i64 | string = "text";
+    print(describe(t));
+    print(describe(n));
+    print(describe(s));
+}
