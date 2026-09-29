@@ -650,7 +650,7 @@ INC-15/16 之后再执行。
   排他两种次序负契约；affine move 负契约。`example/cell.ng` 端到端。全量 645/645，
   ASan cell/box/growth 段全绿。
 
-### DEC-D + INC-23 · union switch — **DEC-D 已决策：补齐完整公民**（见 §0b）
+### DEC-D + INC-23 · union switch — ⚠️ 核心落地 2026-09-29（`a772224`），验收项未齐
 - **DEC-D 剩余工作（随 INC-23 首 commit）**: D-001/D-011 修订文本——
   union case 的类型模式语法 `case (x: i64)`、成员字面量模式、otherwise、
   穷尽性按静态成员集；与 enum switch 的角色分界写明。
@@ -660,6 +660,20 @@ INC-15/16 之后再执行。
   负契约（缺成员非穷尽、未知成员类型）；PBT：union switch 结果 ≡ 生成值
   所属成员的参考分派。
 - **E2E**: unions.ng 扩展分支示例。
+- **落地（2026-09-29，`a772224`）**: 语法 `case (name: Type)`（`SwitchCasePattern::typePattern`）；
+  HIR `SwitchCase.memberType`；checker `checkUnionSwitch`——类型模式按静态成员集查穷尽、
+  未知/重复成员类型拒绝、成员字面量按族（`unionLiteralFamily` /
+  `memberIndexForUnionLiteral`，与构造时 `unionMemberFor` 同一规范成员选择）校验、
+  variant 模式拒绝；FlowIR `lowerUnionSwitch`——类型模式按 tag 分派并 `ExtractEnumPayload`
+  绑定，字面量模式经 union 相等路径（tag + payload）比较。顺带修复：union switch 字符串
+  字面量（原误入整数 payload 编码）；union == string 在 tag 不匹配时解引用非串 payload
+  （段错误，`native/lowering_aggregate.cpp` 改为 tag 不匹配时比较字面量自身）。测试
+  `test/union_test.cpp` +12 例（正例/穷尽/未知/重复/字面量族/variant/解析错误/字符串与
+  浮点字面量回归/union==string 回归）；`example/unions.ng` 扩展（exit 123）。
+- **未完成（后续）**: ① DEC-D 文本修订（D-001/D-011：类型模式语法、成员字面量、otherwise、
+  静态成员集穷尽、与 enum switch 的角色分界）未写入 04-language-decisions.md；② 契约语料
+  `test/conformance/union-match.ng`（+ 负契约 `.neg.ng`）未加；③ PBT「union switch 结果 ≡
+  参考分派」未加（现仅定点单测）。
 
 ### DEC-E + INC-24 · derive(Ord) — **DEC-E 已决策：字节序 + 声明序**（见 §0b）
 - **DEC-E 剩余工作（随 INC-24 首 commit）**: D-008/D-011 修订——string
@@ -799,7 +813,10 @@ INC-15 → INC-16 → INC-17（M2b；唯一交汇点——闭包语法面取自 
 | INC-9 诊断第一阶段：错误码+did-you-mean | ✅ 2026-08-27（错误类统一 `code` 字段，driver 输出 `type error E-xxx at bytes […]`；核心诊断落码：move/borrow/compare/unresolved-name 九码；resolver Levenshtein≤2 建议追加 `; did you mean \`X\`?`；INC-2 负契约升级 `code:` 指令并断言；序列化不改 what()，borrow/driver/move/float 单测加码；did-you-mean 命中单测；双变体全绿，ASan 仅剩既有 imgui 链接失败） |
 | INC-10 + DEC-B while/break/continue | ✅ 2026-08-27（`while`/`continue`/`break` 语法+HIR+FlowIR+const；裸 `next` 仅被带绑定器的 `loop` 捕获；差分 PBT 300 状态机 while≡loop 双路径零分歧；3 条负契约；flowir/resolver/typecheck/parser 单测；`example/while_loops.ng`；D-010 修订；489→497 用例、ctest 490→498 全绿） |
 | INC-11 derive(Show) | ✅ 2026-08-30（prelude `export trait Show`；checker 字段校验+`toString` DefId 注册；infer `show` 特例；FlowIR 合成 `name{field: value, ...}` 串（嵌套递归、标量走原生 toString、string 直通）；黄金契约+性质 PBT（24 随机 struct）+4 条负契约；本地 `trait Show`（含 prelude 者）改 `RenderText`；guard 上限 2075→2150；`example/derive.ng` 增断言 127→255；497→500 用例、ctest 498→501 全绿；ASan 附随清理 imgui 链接符（两 imgui 归档 `-fno-sanitize`）→ ASan 500/500） |
-| INC-12 … INC-36 | ⬜ 未开始（逐个推进，每个完成后更新本表） |
+| INC-12 … INC-22 | ✅ 已落地（逐项见各节执行记录；INC-20 经 20a/20b/20c S1–S2，INC-21 经 S1–S2） |
+| INC-23 union switch | ⚠️ 核心落地 2026-09-29（`a772224`）；DEC-D 文本、契约语料、PBT 未完成（见该节） |
+| ARCH-5 源文件拆分 | ✅ 2026-09-29（`a772224`，见下方插队记录） |
+| INC-24 … INC-36 | ⬜ 未开始（逐个推进，每个完成后更新本表） |
 
 ### 架构修复插队记录（2026-08-26，维护者指令）
 
@@ -816,3 +833,11 @@ INC-6 完成后暂停增量推进，优先处理 lowering.cpp 架构问题（原
    484 用例全绿，ASAN 变体干净。
 
 后续 INC 在新结构上进行（lowering/typecheck 相关改动落点见各 TU 职责注释）。
+
+4. **ARCH-5（a772224，2026-09-29）**: guard 上限回到硬约束（.cpp ≤ 1200，.hpp ≤ 800），
+   并写明「只拆分、不抬限」——此前 ARCH-4 的 1900/900 被逐次放宽到 2310/991 属错误做法。
+   按完整定义拆分并重构：flowir.cpp → 4 TU + `flowir_lowerer.hpp`；typecheck_infer.cpp →
+   infer/expected/call；typecheck_check.cpp → check/switch/ownership；hir.cpp → 4 TU +
+   `hir_internal.hpp`；syntax/ast.hpp → ast_expr.hpp + ast.hpp。验证沿用 ARCH-2 口径：
+   每步全部 61 个示例 `--emit=ssa` 与重构前逐字节比对（唯一差异为闭包编号，去重复推断所致，
+   去名后等价）；ng_test 654/654、ctest 655/655、ASan 654/654。
