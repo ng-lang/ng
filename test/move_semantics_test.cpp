@@ -173,9 +173,9 @@ TEST_CASE("vNext nested by-value calls still reject later and repeated uses", "[
 {
   const std::string prelude = "struct R { v: i64 } fun take(r: R) -> R { return r; } "
                               "fun id(r: R) -> R { return r; } fun two(a: R, b: R) -> i64 { return a.v + b.v; } ";
-  for (const std::string body : {"let r = R { v: 7 }; let s = id(take(r)); return r.v;",
-                                 "let r = R { v: 7 }; return two(take(r), take(r));",
-                                 "let r = R { v: 7 }; return two(r, id(r));"})
+  for (const std::string body :
+       {"let r = R { v: 7 }; let s = id(take(r)); return r.v;", "let r = R { v: 7 }; return two(take(r), take(r));",
+        "let r = R { v: 7 }; return two(r, id(r));"})
   {
     INFO(body);
     try
