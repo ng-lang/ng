@@ -69,6 +69,63 @@ extern opaque type FileHandle: pointer;
 - `struct` is the selected nominal-record spelling; `record` is not a declaration keyword.
 - Constructor syntax, field visibility, and module visibility remain implementation tasks, but may not collapse these declaration kinds back into a heuristic `type` grammar.
 
+### Revision — DEC-D union switch (2026-08-25 decided; landed with INC-23, 2026-09-29)
+
+Structural unions (`A | B | C` in type position) are full citizens: a union
+value can be a `switch` scrutinee. Rules:
+
+- **Representation:** a union value is a tagged box `{ member index, payload }`.
+  Every coercion of a member value into a union slot (let/assign/return,
+  call argument, struct field, enum payload) boxes it with the tag of the
+  member it adopts: exact for `bool`/`string`, the first integer member for
+  integer values, the first float member for float values.
+- **Type pattern** `case (name: T)`: matches when the active member is `T`
+  and binds its payload as `name: T`. `T` must be a member type of the
+  scrutinee union (`E-type`: `` `bool` is not a member type of union i64 | string ``);
+  a second pattern for the same member is rejected. The binding is required:
+  `case (i64)` is a syntax error.
+- **Member-literal pattern** `case 42 | "go" | 2.5 | true`: matches when the
+  union holds that literal under the member the literal would adopt on
+  construction (same canonical member selection as above). A literal whose
+  family has no member in the union is rejected.
+- **`otherwise`** matches every remaining value.
+- **Order:** cases are tried in source order; the first match wins (a type
+  pattern before a literal of the same member shadows the literal).
+- **Exhaustiveness** is checked against the static member set: without
+  `otherwise`, every member needs a type pattern. Member literals never count
+  toward exhaustiveness, because each covers only its own value.
+- **Role split with `enum`:** an `enum` is nominal and its `case Variant(x)`
+  destructures variant payloads. A union is structural and its cases match by
+  member type or member value. Variant patterns on a union scrutinee are
+  rejected (`union switches match member types or literals, not variants`).
+
+```ng
+fun classify(value: i64 | string) -> i64 {
+    switch (value) {
+        case 42 { return 100; }          // member literal (i64 member)
+        case (n: i64) { return n; }      // type pattern, binds the payload
+        otherwise { return 7; }          // the string member
+    }
+}
+
+fun describe(value: bool | i64 | string) -> string {
+    switch (value) {                     // exhaustive: every member typed
+        case (b: bool) { if (b) { return "yes"; } return "no"; }
+        case (n: i64) { return "int"; }
+        case (s: string) { return s; }
+    }
+}
+
+// Rejected: missing member type `string` (no otherwise, and `case "x"`
+// would not cover the member).
+// switch (value) { case (n: i64) { ... } }
+```
+
+Contract corpus: `test/conformance/union-match.ng`,
+`union-nonexhaustive.neg.ng`, `union-unknown-member.neg.ng`. The INC-23 PBT
+(`test/union_test.cpp`) checks generated switches against a reference
+dispatcher.
+
 ---
 
 ## D-002 — Ownership defaults, mutable bindings, and references
@@ -679,6 +736,10 @@ second user-visible ownership domain.
   the declared ownership/thread constraints.
 - Trait object coercion is deferred until the solver, descriptor runtime, and
   hidden loan/origin checks exist. Parser support alone is insufficient.
+- DEC-D (see D-001): structural unions are not trait/abstract types. A union
+  switch dispatches on the stored member tag and never goes through trait
+  views or dispatch descriptors; `ref<Trait>` is not a valid union member
+  pattern.
 
 ### Implementation staging
 
@@ -1127,7 +1188,7 @@ deferral: a single-owner affine `Box<T>` (std.memory) over a session-owned
 
 | ID | Topic | Status | Next owner action |
 |---|---|---|---|
-| D-001 | Type declaration split | Accepted | Use `type` / `struct` / `enum` / `newtype` / `opaque` / `extern opaque` as distinct declarations. |
+| D-001 | Type declaration split | Accepted | Use `type` / `struct` / `enum` / `newtype` / `opaque` / `extern opaque` as distinct declarations. DEC-D (INC-23, 2026-09-29): unions are switch scrutinees with `case (x: T)` type patterns, member literals, and `otherwise`; exhaustiveness is checked against the static member set. |
 | D-002 | Ownership/reference default | Revised by D-015 | Affine ownership, `let` / `let mut`, `T ref`, `T ref mut`, origin contracts, and postfix raw pointers. |
 | D-003 | Const-if and const capability | Accepted | Per-instance selected branch; deterministic restricted const evaluation. |
 | D-004 | Native/C ABI/opaque syntax | Accepted | `native fun`, `extern "C"`, `repr(C)`, `extern opaque`, and explicit ownership annotations. |
@@ -1137,7 +1198,7 @@ deferral: a single-owner affine `Box<T>` (std.memory) over a session-owned
 | D-008 | Numeric model | Accepted | i8–i64/u8–u64, f32/f64, isize/usize, checked arithmetic. |
 | D-009 | Module items vs. block statements | Accepted | Module declarations create `DefId`; block `let` creates lexical `LocalId`; no local declarations in MVP. |
 | D-010 | `loop` / `next` / tail recursion | Accepted | Explicit loop binders; nearest-target `next`; self-tail recursion outside loops; dedicated HIR/FlowIR terminators. DEC-B (2026-08-27): bare `next` captured only by binder `loop`s; `while`/`continue`/`break` added (INC-10). |
-| D-011 | Trait abstract types and `ref<Trait>` | Accepted | Traits have no by-value instance; object-safe dynamic dispatch uses non-owning abstract reference views plus immutable selected dispatch descriptors. |
+| D-011 | Trait abstract types and `ref<Trait>` | Accepted | Traits have no by-value instance; object-safe dynamic dispatch uses non-owning abstract reference views plus immutable selected dispatch descriptors. Union switches (DEC-D) dispatch on member tags, not trait views. |
 | D-012 | Const declarations and const predicates | Accepted | `const name<T>: bool = ...` with `= expr` / `= native` / `= delete`, pattern specialization, exact→pattern→pack→primary priority; abstract types remain D-001 `opaque` + D-011 traits. |
 | D-013 | `const fun` | Accepted | Typed-HIR compile-time interpreter over `ConstEvaluator`; `Pure` capability; runtime-callable; `= native` const predicates; fuel/recursion budgets. |
 | D-014 | `where` clauses and constrained specialization | Accepted | Const predicates + `T is Type` + `T: Trait` bounds combined with `&&`/`!`; per-instance checking; unsatisfied candidates are discarded, `= delete` stays a selected-forbidden error. |
