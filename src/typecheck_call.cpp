@@ -170,8 +170,7 @@ namespace NG::typecheck::detail
                 throw TypeError("generic enum constructor type mismatch", argument.span);
               continue;
             }
-            requireType(signature.parameters[index], infer(argument, locals), argument.span,
-                        "specialization argument");
+            requireType(signature.parameters[index], infer(argument, locals), argument.span, "specialization argument");
           }
         }
         catch (const TypeError &)
@@ -212,8 +211,7 @@ namespace NG::typecheck::detail
         // the call checks them against the closure parameter in a deferred
         // pass, leaving their slot empty. Generic enum constructors likewise
         // take their type from the parameter (or unification).
-        const bool deferred =
-            argument.kind == hir::ExpressionKind::Closure || isGenericEnumLiteral(argument);
+        const bool deferred = argument.kind == hir::ExpressionKind::Closure || isGenericEnumLiteral(argument);
         info.expandedTypes.push_back(deferred ? TypeId{} : infer(argument, locals));
         info.spreadSlot.push_back(false);
         info.argumentExpressions.push_back(&argument);
@@ -438,8 +436,7 @@ namespace NG::typecheck::detail
           // generic enum constructors (`get(Result.Ok(3))`).
           if (fixedSlot && argument.resolvedName.has_value() &&
               argument.resolvedName->kind == hir::ResolvedNameKind::Local)
-            static_cast<void>(
-                bindForwardedClosure(expression, argument, argumentTypeAt(index), index, closureTargets));
+            static_cast<void>(bindForwardedClosure(expression, argument, argumentTypeAt(index), index, closureTargets));
           static_cast<void>(inferExpected(argument, parameterType, locals, std::format("call argument {}", index + 1)));
           continue;
         }
