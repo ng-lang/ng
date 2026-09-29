@@ -159,8 +159,24 @@ arguments that NG cannot express without first-class functions.
   `example/cell.ng` all-true, full ctest **645/645**, ASan cell/box/growth clean.
   The INC-14/17 closure-shared-state scenario routes through cross-call shared
   `ref`s instead — capture-ref forwarding to `ref` params stays A1.3.
+- INC-23 (DEC-D union switch): **core landed** `a772224`/`cd5f29c` — type
+  patterns `case (x: T)`, member-literal patterns, otherwise, static
+  member-set exhaustiveness. Open acceptance items: DEC-D text in D-001/D-011,
+  conformance corpus `union-match`, dispatch PBT (see HANDOFF.md §A).
+- ARCH-5 (source split to hard 1200/800 guards): committed `a772224`.
 
 ## Recent completed changes
+
+- INC-23 core + ARCH-5 (2026-09-29, `a772224`/`cd5f29c`): union switch lands
+  (parser/HIR/checker/FlowIR) with two runtime fixes (union string literals in
+  switches; union == string segfault on tag mismatch). Guards restored to hard
+  .cpp ≤ 1200 / .hpp ≤ 800 by splitting flowir, typecheck_infer,
+  typecheck_check, hir, and syntax/ast along whole definitions with
+  refactoring (shared emission primitives, shared call helpers across
+  synthesis/checking modes, BranchJoin, ownership TU). Verified by per-step
+  61-example `--emit=ssa` byte-compare (closure numbering only delta),
+  ng_test 654/654, ctest 655/655, ASan 654/654. Follow-ups tracked in
+  HANDOFF.md §A–D.
 
 - INC-21 S2 (array growth + in-place `pushBack` + growth PBT): `seq.pushBack
   <T>(array<T> ref mut, T)` with unique-own/COW split driven by a new
@@ -457,6 +473,11 @@ arguments that NG cannot express without first-class functions.
   `imgui` (plain `cc` links generated executables without the sanitizer runtime).
 
 ## Next steps
+
+- **Current queue lives in `HANDOFF.md`** (2026-09-29): §A INC-23 acceptance
+  items → §B eight confirmed pre-existing checker/runtime defects → §C open
+  slices → §D INC-24+ in plan order. Guards are hard ceilings: split, never
+  raise.
 
 - INC-14 **S3 follow-up (done)**: move-capture consumption enforced on the
   original — `inferClosure` marks move-captured locals moved AFTER its
