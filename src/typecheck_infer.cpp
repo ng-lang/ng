@@ -145,7 +145,7 @@ namespace NG::typecheck::detail
       throw TypeError("function name cannot be used as a value", expression.span);
     if (expression.resolvedName->kind == hir::ResolvedNameKind::ConstParameter)
       throw TypeError(std::format("const parameter `{}` is not a runtime value", expression.text), expression.span);
-    if (moveState_.isWholeMoved(expression.resolvedName->id))
+    if (moveState_.isWholeMoved(expression.resolvedName->id) && !moveState_.movedBy(expression))
       throw TypeError("E-move-used", std::format("use of moved value `{}`", expression.text), expression.span);
     return locals.at(expression.resolvedName->id);
   }
@@ -597,7 +597,8 @@ namespace NG::typecheck::detail
       throw TypeError(std::format("unknown field `{}` in struct `{}`", expression.text, descriptor.name),
                       expression.span);
     const auto field = static_cast<uint32_t>(std::distance(descriptor.fieldNames.begin(), found));
-    if (const auto root = rootLocalOf(expression); root.has_value() && moveState_.isFieldMoved(root->value, field))
+    if (const auto root = rootLocalOf(expression);
+        root.has_value() && moveState_.isFieldMoved(root->value, field) && !moveState_.movedBy(expression))
       throw TypeError("E-move-field",
                       std::format("use of moved field `{}.{}`", expression.operands[0]->text, expression.text),
                       expression.span);

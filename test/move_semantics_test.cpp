@@ -157,6 +157,40 @@ TEST_CASE("vNext move checking consumes by-value call arguments", "[vNext][Move]
   }
 }
 
+TEST_CASE("vNext nested by-value calls consume an affine argument once", "[vNext][Move][Runtime]")
+{
+  // Regression: call arguments are inferred more than once (overload
+  // scoring, spread analysis, expected-type checking), so the inner call's
+  // move of `r` used to be re-reported as E-move-used.
+  const std::string prelude = "struct R { v: i64 } fun take(r: R) -> R { return r; } "
+                              "fun id(r: R) -> R { return r; } fun pick<T>(x: T) -> T { return x; } ";
+  expectValue(prelude + "fun main() -> i64 { let r = R { v: 7 }; let s = id(take(r)); return s.v; }", "7");
+  expectValue(prelude + "fun main() -> i64 { let r = R { v: 7 }; let s: R = id(pick(r)); return s.v; }", "7");
+  expectValue(prelude + "fun main() -> i64 { let r = R { v: 7 }; return id(id(id(r))).v; }", "7");
+}
+
+TEST_CASE("vNext nested by-value calls still reject later and repeated uses", "[vNext][Move][Errors]")
+{
+  const std::string prelude = "struct R { v: i64 } fun take(r: R) -> R { return r; } "
+                              "fun id(r: R) -> R { return r; } fun two(a: R, b: R) -> i64 { return a.v + b.v; } ";
+  for (const std::string body : {"let r = R { v: 7 }; let s = id(take(r)); return r.v;",
+                                 "let r = R { v: 7 }; return two(take(r), take(r));",
+                                 "let r = R { v: 7 }; return two(r, id(r));"})
+  {
+    INFO(body);
+    try
+    {
+      check(prelude + "fun main() -> i64 { " + body + " }");
+      FAIL("expected a use-after-move error");
+    }
+    catch (const typecheck::TypeError &error)
+    {
+      REQUIRE(std::string{error.what()} == "use of moved value `r`");
+      REQUIRE(error.code == "E-move-used");
+    }
+  }
+}
+
 TEST_CASE("vNext move checking merges branch states conservatively", "[vNext][Move][Errors]")
 {
   try

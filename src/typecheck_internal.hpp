@@ -152,7 +152,16 @@ namespace NG::typecheck::detail
     {
       std::unordered_map<uint32_t, bool> whole;
       std::unordered_map<uint32_t, std::unordered_set<uint32_t>> fields;
+      /// The consuming name/member nodes. Call arguments are inferred more
+      /// than once (overload scoring, spread analysis, expected-type
+      /// checking); re-checking the node that performed a move is the same
+      /// use, not a use after move.
+      std::unordered_set<const hir::Expression *> sites;
 
+      [[nodiscard]] auto movedBy(const hir::Expression &expression) const -> bool
+      {
+        return sites.contains(&expression);
+      }
       [[nodiscard]] auto isWholeMoved(uint32_t local) const -> bool
       {
         return whole.contains(local) && (!fields.contains(local) || fields.at(local).empty());
@@ -197,6 +206,7 @@ namespace NG::typecheck::detail
         for (const auto &[local, movedFields] : other.fields)
           for (const auto field : movedFields)
             merged.markField(local, field);
+        merged.sites.insert(other.sites.begin(), other.sites.end());
         return merged;
       }
     };

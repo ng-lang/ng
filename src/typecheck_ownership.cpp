@@ -330,7 +330,7 @@ namespace NG::typecheck::detail
         return;
       const auto &operand = *expression.operands[0];
       const auto root = rootLocalOf(operand);
-      if (!root.has_value())
+      if (!root.has_value() || moveState_.movedBy(operand))
         return;
       requireNotBorrowed(root->value, operand);
       const auto field =
@@ -339,6 +339,7 @@ namespace NG::typecheck::detail
         moveState_.markField(root->value, *field);
       else
         moveState_.markWhole(root->value);
+      moveState_.sites.insert(&operand);
       return;
     }
     case hir::ExpressionKind::Grouped:
@@ -347,7 +348,7 @@ namespace NG::typecheck::detail
     case hir::ExpressionKind::Member:
     {
       const auto root = rootLocalOf(expression);
-      if (!root.has_value() || !isAffine(locals.at(root->value)))
+      if (!root.has_value() || !isAffine(locals.at(root->value)) || moveState_.movedBy(expression))
         return;
       const auto field = memberField(expression, locals.at(root->value));
       if (!field.has_value())
@@ -358,6 +359,7 @@ namespace NG::typecheck::detail
                         std::format("use of partially moved value `{}`", expression.operands[0]->text),
                         expression.span);
       moveState_.markField(root->value, *field);
+      moveState_.sites.insert(&expression);
       return;
     }
     case hir::ExpressionKind::ResolvedName:
@@ -365,13 +367,14 @@ namespace NG::typecheck::detail
       if (expression.resolvedName->kind != hir::ResolvedNameKind::Local)
         return;
       const uint32_t local = expression.resolvedName->id;
-      if (!isAffine(locals.at(local)))
+      if (!isAffine(locals.at(local)) || moveState_.movedBy(expression))
         return;
       requireNotBorrowed(local, expression);
       if (moveState_.hasMovedField(local))
         throw TypeError("E-move-partial", std::format("use of partially moved value `{}`", expression.text),
                         expression.span);
       moveState_.markWhole(local);
+      moveState_.sites.insert(&expression);
       return;
     }
     default:
