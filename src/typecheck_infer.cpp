@@ -262,6 +262,12 @@ namespace NG::typecheck::detail
   /// their own enum. Payloads are not consumed here: the enclosing binding or
   /// call consumes the constructor (see the double-inference note in
   /// inferCall).
+  auto Checker::isGenericEnumLiteral(const hir::Expression &expression) const -> bool
+  {
+    return expression.kind == hir::ExpressionKind::EnumLiteral && expression.enumId.has_value() &&
+           interner_.enumGenericArity(*expression.enumId) != 0;
+  }
+
   auto Checker::inferEnumLiteral(const hir::Expression &expression, const LocalTypes &locals) -> TypeId
   {
     if (!expression.enumId.has_value() || !expression.variant.has_value())

@@ -1,0 +1,4 @@
+kind: type
+code: E-type
+pattern: variant payload type mismatch: expected i64, got string
+span: [120, 126)

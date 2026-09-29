@@ -299,6 +299,9 @@ namespace NG::typecheck::detail
                                      std::string_view context) -> TypeId;
     [[nodiscard]] auto inferExpectedEnum(const hir::Expression &expression, TypeId expected, const LocalTypes &locals)
         -> TypeId;
+    /// A constructor of a generic enum (`Option.Some(4)`): it cannot be
+    /// synthesized standalone and needs an expected type or unification.
+    [[nodiscard]] auto isGenericEnumLiteral(const hir::Expression &expression) const -> bool;
     [[nodiscard]] auto inferExpectedStruct(const hir::Expression &expression, TypeId expected, const LocalTypes &locals)
         -> TypeId;
     /// Unsuffixed / matching-suffix numeric literals (and `-lit` / `+lit`)

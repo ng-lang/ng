@@ -158,9 +158,21 @@ namespace NG::typecheck::detail
       {
         try
         {
+          // A generic enum constructor is checked against the candidate's
+          // parameter; standalone synthesis cannot infer its arguments.
           for (size_t index = 0; index < signature.parameters.size(); ++index)
-            requireType(signature.parameters[index], infer(*call.operands[index + 1], locals),
-                        call.operands[index + 1]->span, "specialization argument");
+          {
+            const auto &argument = *call.operands[index + 1];
+            if (isGenericEnumLiteral(argument))
+            {
+              const auto &parameter = interner_.descriptor(signature.parameters[index]);
+              if (parameter.kind != TypeKind::Enum || parameter.nominalId != argument.enumId->value)
+                throw TypeError("generic enum constructor type mismatch", argument.span);
+              continue;
+            }
+            requireType(signature.parameters[index], infer(argument, locals), argument.span,
+                        "specialization argument");
+          }
         }
         catch (const TypeError &)
         {
@@ -198,9 +210,11 @@ namespace NG::typecheck::detail
       {
         // INC-14 S2c: closure literal arguments cannot be inferred standalone;
         // the call checks them against the closure parameter in a deferred
-        // pass, leaving their slot empty.
-        info.expandedTypes.push_back(argument.kind == hir::ExpressionKind::Closure ? TypeId{}
-                                                                                   : infer(argument, locals));
+        // pass, leaving their slot empty. Generic enum constructors likewise
+        // take their type from the parameter (or unification).
+        const bool deferred =
+            argument.kind == hir::ExpressionKind::Closure || isGenericEnumLiteral(argument);
+        info.expandedTypes.push_back(deferred ? TypeId{} : infer(argument, locals));
         info.spreadSlot.push_back(false);
         info.argumentExpressions.push_back(&argument);
         continue;
@@ -371,7 +385,11 @@ namespace NG::typecheck::detail
     // raise a spurious E-move-used. Closure-literal slots are inferred on demand.
     const auto argumentTypeAt = [&](size_t index) -> TypeId
     {
-      if (!hasSpread && expression.operands[index + 1]->kind == hir::ExpressionKind::Closure)
+      // Closure literals and generic enum constructors have no precomputed
+      // type; synthesis-only slots infer them on demand (which reports the
+      // missing type context for an unconstrained generic constructor).
+      if (!hasSpread && (expression.operands[index + 1]->kind == hir::ExpressionKind::Closure ||
+                         isGenericEnumLiteral(*expression.operands[index + 1])))
         return infer(*expression.operands[index + 1], locals);
       return spread.expandedTypes[index];
     };
@@ -385,6 +403,7 @@ namespace NG::typecheck::detail
     // their code function so instantiateFunction re-checks the callee with the
     // concrete closure binding.
     std::vector<size_t> deferredClosureArguments;
+    std::vector<size_t> enumLiteralArguments;
     std::vector<std::pair<size_t, hir::DefId>> closureTargets;
     if (!expression.genericArguments.empty())
     {
@@ -413,24 +432,36 @@ namespace NG::typecheck::detail
           deferredClosureArguments.push_back(index);
           continue;
         }
+        if (!generic && !spreadSlot(index))
+        {
+          // Checking mode: the parameter type drives literals, unions, and
+          // generic enum constructors (`get(Result.Ok(3))`).
+          if (fixedSlot && argument.resolvedName.has_value() &&
+              argument.resolvedName->kind == hir::ResolvedNameKind::Local)
+            static_cast<void>(
+                bindForwardedClosure(expression, argument, argumentTypeAt(index), index, closureTargets));
+          static_cast<void>(inferExpected(argument, parameterType, locals, std::format("call argument {}", index + 1)));
+          continue;
+        }
+        if (!spreadSlot(index) && !(variadic && index >= fixedParameters) &&
+            argument.kind == hir::ExpressionKind::EnumLiteral &&
+            interner_.descriptor(parameterType).kind == TypeKind::Enum)
+        {
+          unifyGenericArgument(argument, parameterType, substitution, locals);
+          enumLiteralArguments.push_back(index);
+          continue;
+        }
         const TypeId argumentType = argumentTypeAt(index);
         if (fixedSlot && argument.resolvedName.has_value() &&
             argument.resolvedName->kind == hir::ResolvedNameKind::Local)
           static_cast<void>(bindForwardedClosure(expression, argument, argumentType, index, closureTargets));
         if (!generic)
         {
-          if (spreadSlot(index))
-            requireType(parameterType, argumentType, argument.span, std::format("call argument {}", index + 1));
-          else
-            static_cast<void>(
-                inferExpected(argument, parameterType, locals, std::format("call argument {}", index + 1)));
+          requireType(parameterType, argumentType, argument.span, std::format("call argument {}", index + 1));
           continue;
         }
         if (variadic && index >= fixedParameters)
           bindPackArgument(substitution, parameterType, index - fixedParameters, argumentType, argument.span);
-        else if (!spreadSlot(index) && argument.kind == hir::ExpressionKind::EnumLiteral &&
-                 interner_.descriptor(parameterType).kind == TypeKind::Enum)
-          unifyGenericArgument(argument, parameterType, substitution, locals);
         else
           unify(parameterType, argumentType, substitution, argument.span);
       }
@@ -449,6 +480,10 @@ namespace NG::typecheck::detail
     const TypeId result = specializeReturnType(signature, substitution, packCount);
     if (!signature.genericParameters.empty() && interner_.descriptor(result).kind == TypeKind::TypeParameter)
       throw TypeError(std::format("cannot infer generic arguments for function `{}`", callee.text), expression.span);
+    // Generic enum constructor arguments unify through their payloads only;
+    // record their specialized type so lowering can build the enum value.
+    for (const size_t index : enumLiteralArguments)
+      record(argumentAt(index), specialize(callParameterType(signature, index), substitution));
     requireConstArguments(signature, substitution, callee.text, expression.span);
     if (isConcrete(substitution))
       requireWhereClause(selected, substitution, signature, expression.span);

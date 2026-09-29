@@ -1,0 +1,31 @@
+// Contract case: a generic enum constructor passed straight to a call takes
+// its type arguments from the parameter — a concrete parameter
+// (`Result<i64, string>`), a generic parameter unified with another
+// argument (`Option<T>` + `T`), or an overload candidate.
+import prelude;
+
+fun get(r: Result<i64, string>) -> i64 {
+    switch (r) {
+        case Ok(v) { return v; }
+        case Err(e) { return -1; }
+    }
+}
+
+fun orElse<T>(o: Option<T>, fallback: T) -> T {
+    switch (o) {
+        case Some(v) { return v; }
+        case None { return fallback; }
+    }
+}
+
+fun kind(o: Option<i64>) -> i64 { return 1; }
+fun kind(s: string) -> i64 { return 2; }
+
+fun main() -> unit {
+    print(get(Result.Ok(3)));
+    print(get(Result.Err("bad")));
+    print(orElse(Option.Some(4), 0));
+    print(orElse(Option.None, 5));
+    print(kind(Option.Some(9)));
+    print(kind("text"));
+}
