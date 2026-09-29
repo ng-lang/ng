@@ -3,9 +3,11 @@
 
 #include "const_eval.hpp"
 #include "hir.hpp"
+#include <cctype>
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -138,6 +140,75 @@ namespace NG::typecheck
     bool variadicConstructor{};
     auto operator==(const TypeDescriptor &) const -> bool = default;
   };
+
+  /// INC-23 (DEC-D): the family an `or`-literal union pattern text belongs to.
+  /// Mirrors the construction canonicalization in `native::FunctionLowerer::
+  /// unionMemberFor`: integers and floats pick the first member of their
+  /// builtin family, bool and string must match exactly.
+  enum class UnionLiteralFamily
+  {
+    Integer,
+    Float,
+    Boolean,
+    String,
+  };
+
+  /// True for a scalar switch-literal text whose leading form identifies the
+  /// integer family (`42`, `-1`; c.f. the textual kind heuristic already used
+  /// by literal switches).
+  [[nodiscard]] inline auto isIntegerLiteralText(std::string_view text) -> bool
+  {
+    return !text.empty() && (text[0] == '-' || std::isdigit(static_cast<unsigned char>(text[0]))) &&
+           text.find('.') == std::string_view::npos;
+  }
+
+  /// The family of a union `or`-literal pattern text (`42`, `4.2`, `"hi"`,
+  /// `true`). bool and float are identified by form, otherwise integers by
+  /// leading digit/`-`, and anything else is a string literal.
+  [[nodiscard]] inline auto unionLiteralFamily(std::string_view text) -> UnionLiteralFamily
+  {
+    if (text == "true" || text == "false")
+      return UnionLiteralFamily::Boolean;
+    if (text.find('.') != std::string_view::npos)
+      return UnionLiteralFamily::Float;
+    if (isIntegerLiteralText(text))
+      return UnionLiteralFamily::Integer;
+    return UnionLiteralFamily::String;
+  }
+
+  /// INC-23 (DEC-D): the member index an int/float/bool/string union pattern
+  /// matches — the same canonical member a value of that kind adopts on
+  /// construction (`unionMemberFor`): exact for bool/string, first builtin
+  /// family member for integers/floats. Returns -1 when the union has no
+  /// member of the literal's family.
+  [[nodiscard]] inline auto memberIndexForUnionLiteral(const TypeDescriptor &unionType, UnionLiteralFamily family)
+      -> int64_t
+  {
+    for (size_t index = 0; index < unionType.elements.size(); ++index)
+    {
+      const TypeId candidate = unionType.elements[index];
+      switch (family)
+      {
+      case UnionLiteralFamily::Integer:
+        if (isIntegerBuiltin(candidate))
+          return static_cast<int64_t>(index);
+        break;
+      case UnionLiteralFamily::Float:
+        if (isFloatBuiltin(candidate))
+          return static_cast<int64_t>(index);
+        break;
+      case UnionLiteralFamily::Boolean:
+        if (candidate == builtin::Bool)
+          return static_cast<int64_t>(index);
+        break;
+      case UnionLiteralFamily::String:
+        if (candidate == builtin::String)
+          return static_cast<int64_t>(index);
+        break;
+      }
+    }
+    return -1;
+  }
 
   class TypeInterner final
   {

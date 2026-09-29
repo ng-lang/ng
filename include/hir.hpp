@@ -50,12 +50,12 @@ namespace NG::hir
     std::string code;
 
     ResolutionError(std::string message, syntax::SourceSpan sourceSpan)
-      : ResolutionError("E-resolve", std::move(message), sourceSpan)
+        : ResolutionError("E-resolve", std::move(message), sourceSpan)
     {
     }
 
     ResolutionError(std::string errorCode, std::string message, syntax::SourceSpan sourceSpan)
-      : std::runtime_error(std::move(message)), span(sourceSpan), code(std::move(errorCode))
+        : std::runtime_error(std::move(message)), span(sourceSpan), code(std::move(errorCode))
     {
     }
   };
@@ -184,6 +184,10 @@ namespace NG::hir
     /// Scalar literal-or pattern texts (`case 1 | "a" | true`); empty for
     /// variant patterns.
     std::vector<std::string> literalTexts;
+    /// INC-23 (DEC-D): union type-pattern member type (`case (x: i64)`).
+    /// A unique_ptr so a forward-declared hir::Type (defined later in this
+    /// header) completes lazily at destruction sites.
+    std::unique_ptr<Type> memberType;
     std::optional<LocalId> binding;
     /// Additional tuple-payload bindings (`case Cell(value, rest)`).
     std::vector<LocalId> bindings;
@@ -462,21 +466,25 @@ namespace NG::hir
       bool isWhile;
     };
 
+    void declareModuleItems(const syntax::SourceUnit &unit);
+    auto appendMethodFunction(Module &module, TraitMethod &method, std::string name) -> DefId;
     [[nodiscard]] auto resolveFunction(syntax::FunctionDeclaration &function, DefId id) -> Function;
     [[nodiscard]] auto resolveStruct(const syntax::StructDeclaration &structure, StructId id) -> Struct;
     [[nodiscard]] auto resolveEnum(const syntax::EnumDeclaration &enumeration, EnumId id) -> Enum;
-    [[nodiscard]] auto resolveConstDeclaration(const syntax::ConstDeclaration &declaration, DefId id) -> ConstDeclaration;
+    [[nodiscard]] auto resolveConstDeclaration(const syntax::ConstDeclaration &declaration, DefId id)
+        -> ConstDeclaration;
     [[nodiscard]] auto resolveTrait(const syntax::TraitDeclaration &declaration) -> Trait;
     [[nodiscard]] auto resolveImpl(const syntax::ImplDeclaration &declaration) -> Impl;
     [[nodiscard]] auto resolveTraitMethod(syntax::TraitMethodDeclaration &method) -> TraitMethod;
     /// `isFunctionBody` marks the top-level body of a function/method: only
     /// there is a trailing block tail an implicit return (INC-13 try desugar
     /// moves it into the Ok arm as an explicit return).
-    [[nodiscard]] auto resolveBlock(syntax::Block &block, bool introduceScope,
-                                    bool isFunctionBody = false) -> Block;
+    [[nodiscard]] auto resolveBlock(syntax::Block &block, bool introduceScope, bool isFunctionBody = false) -> Block;
     [[nodiscard]] auto resolveStatement(syntax::Statement &statement) -> Statement;
     [[nodiscard]] auto resolveExpression(const syntax::Expression &expression) -> ExpressionPtr;
     [[nodiscard]] auto resolveName(const syntax::IdentifierExpression &expression) const -> ResolvedName;
+    [[nodiscard]] auto resolveEnumVariant(const syntax::IdentifierExpression &owner,
+                                          const syntax::MemberExpression &member, Expression &resolved) const -> bool;
     [[nodiscard]] auto suggestionFor(const std::string &name) const -> std::string;
     auto declareLocal(const std::string &name, syntax::SourceSpan span) -> LocalId;
 
@@ -486,8 +494,8 @@ namespace NG::hir
     /// INC-13 (D-007): desugars `expr?` into a scrutinee let + switch whose
     /// Err arm early-returns `Result.Err($err)`; the Ok arm binds the payload
     /// and resolves the remaining statements/tail (recursing for nested `?`).
-    void desugarTry(const syntax::Statement &statement, syntax::TryExpression &tryExpr,
-                    syntax::Block &source, size_t startIndex, bool isFunctionBody, Block &out);
+    void desugarTry(const syntax::Statement &statement, syntax::TryExpression &tryExpr, syntax::Block &source,
+                    size_t startIndex, bool isFunctionBody, Block &out);
     /// Extracts a try operator that roots a let initializer or a standalone
     /// expression statement (the only positions INC-13 desugars).
     [[nodiscard]] static auto rootTryOf(syntax::Statement &statement) -> syntax::TryExpression *;
@@ -524,6 +532,5 @@ namespace NG::hir
     uint32_t nextLocal_{};
     uint32_t nextLoop_{};
     uint32_t nextConstId_{};
-    uint32_t nextImplMethodId_{};
   };
 } // namespace NG::hir

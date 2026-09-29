@@ -617,7 +617,23 @@ namespace NG::native::detail
     const auto valueOk = fresh();
     if (memberType == typecheck::builtin::String)
     {
-      line(std::format("{} =w call $ngrt_str_eq(l {}, l {})", valueOk, payloadValue, memberTemp));
+      // The payload word is only a string pointer when the tag matches; on a
+      // mismatch compare the literal with itself (branchless select) so a
+      // non-string payload is never dereferenced. `tagOk` still gates the
+      // result.
+      const auto tagWide = fresh();
+      line(std::format("{} =l extuw {}", tagWide, tagOk));
+      const auto mask = fresh();
+      line(std::format("{} =l sub 0, {}", mask, tagWide));
+      const auto kept = fresh();
+      line(std::format("{} =l and {}, {}", kept, payloadValue, mask));
+      const auto inverse = fresh();
+      line(std::format("{} =l xor {}, -1", inverse, mask));
+      const auto fallback = fresh();
+      line(std::format("{} =l and {}, {}", fallback, memberTemp, inverse));
+      const auto safePayload = fresh();
+      line(std::format("{} =l or {}, {}", safePayload, kept, fallback));
+      line(std::format("{} =w call $ngrt_str_eq(l {}, l {})", valueOk, safePayload, memberTemp));
     }
     else if (typecheck::isFloatBuiltin(memberType))
     {

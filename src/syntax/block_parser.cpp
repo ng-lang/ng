@@ -422,9 +422,27 @@ namespace NG::syntax
                                    std::move(body)});
         continue;
       }
+      if (current().kind == TokenKind::LeftParen)
+      {
+        // INC-23 (DEC-D): union type pattern `case (x: i64) { ... }` — binds
+        // the union's current member value when it holds the given type.
+        static_cast<void>(consume());
+        if (current().kind != TokenKind::Identifier)
+          throw ParseError("expected a binding name in type pattern", current().span);
+        const std::string bindingName = consume().text;
+        expect(TokenKind::Colon, "expected `:` after binding name in type pattern");
+        TypeSyntaxPtr memberType = parseTypeUntil(TokenKind::RightParen);
+        expect(TokenKind::RightParen, "expected `)` after type pattern");
+        Block body = parseNestedBlock();
+        cases.push_back(SwitchCase{SwitchCasePattern::typePattern(
+                                       bindingName, std::move(memberType),
+                                       SourceSpan{caseToken.span.begin, body.span.end}),
+                                   std::move(body)});
+        continue;
+      }
       if (current().kind != TokenKind::Identifier)
       {
-        throw ParseError("expected a variant name or literal after `case`", current().span);
+        throw ParseError("expected a variant name, type pattern, or literal after `case`", current().span);
       }
       const Token variant = consume();
       std::optional<std::string> bindingName;

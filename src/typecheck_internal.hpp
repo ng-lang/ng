@@ -2,8 +2,8 @@
 // ARCH-4: Internal header for the Checker class, shared by all typecheck TUs.
 #pragma once
 
-#include "typecheck.hpp"
 #include "const_interp.hpp"
+#include "typecheck.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -13,11 +13,23 @@
 #include <iterator>
 #include <limits>
 #include <memory>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 
 namespace NG::typecheck::detail
 {
+  [[nodiscard]] inline auto isArrayKind(TypeKind kind) -> bool
+  {
+    return kind == TypeKind::DynamicArray || kind == TypeKind::FixedArray || kind == TypeKind::DependentArray;
+  }
+
+  /// `...operand` spread marker in literals and call arguments.
+  [[nodiscard]] inline auto isSpread(const hir::Expression &expression) -> bool
+  {
+    return expression.kind == hir::ExpressionKind::Prefix && expression.text == "...";
+  }
+
   class Checker final
   {
   public:
@@ -226,55 +238,213 @@ namespace NG::typecheck::detail
     void collectSupertraits(const std::string &traitName, std::vector<const TraitInfo *> &out,
                             std::unordered_set<std::string> &seen) const;
     void resolveImplMethodSignature(hir::DefId id, const hir::Function &function, TypeId target);
-    void collectDropMovedFields(const hir::Block &block, uint32_t selfLocal,
-                                std::unordered_set<std::string> &fields);
+    void collectDropMovedFields(const hir::Block &block, uint32_t selfLocal, std::unordered_set<std::string> &fields);
     void collectDropMovedFields(const hir::Statement &statement, uint32_t selfLocal,
                                 std::unordered_set<std::string> &fields);
     void collectDropMovedFields(const hir::Expression &expression, uint32_t selfLocal,
                                 std::unordered_set<std::string> &fields);
-    [[nodiscard]] auto dropEdge(uint32_t local, TypeId type, syntax::SourceSpan span)
-        -> std::pair<uint32_t, uint32_t>;
+    [[nodiscard]] auto dropEdge(uint32_t local, TypeId type, syntax::SourceSpan span) -> std::pair<uint32_t, uint32_t>;
     void registerImpls();
     [[nodiscard]] auto abiSafetyIssue(TypeId type) const -> std::string;
     void validateExternSignature(const hir::Function &function, const FunctionTypeIds &signature);
     void validateReprCStruct(const hir::Struct &structure);
 
-    // ---- typecheck_infer.cpp ----
+    /// One array-literal spread (`xs...` value spread or `f(xs)...` map spread).
+    struct ArraySpread
+    {
+      TypeId element;
+      bool map{};
+    };
+
+    // ---- typecheck_infer.cpp: synthesis-mode inference ----
+    [[nodiscard]] auto infer(const hir::Expression &expression, const LocalTypes &locals) -> TypeId;
+    [[nodiscard]] auto inferName(const hir::Expression &expression, const LocalTypes &locals) -> TypeId;
+    [[nodiscard]] auto inferArrayLiteral(const hir::Expression &expression, const LocalTypes &locals) -> TypeId;
+    [[nodiscard]] auto inferArraySpread(const hir::Expression &spread, const LocalTypes &locals) -> ArraySpread;
+    [[nodiscard]] auto inferMapSpread(const hir::Expression &spread, const hir::Expression &call, bool filter,
+                                      const LocalTypes &locals) -> TypeId;
+    [[nodiscard]] auto inferStructLiteral(const hir::Expression &expression, const LocalTypes &locals) -> TypeId;
+    [[nodiscard]] auto inferEnumLiteral(const hir::Expression &expression, const LocalTypes &locals) -> TypeId;
+    [[nodiscard]] auto inferTupleLiteral(const hir::Expression &expression, const LocalTypes &locals) -> TypeId;
+    [[nodiscard]] auto inferGenericApplication(const hir::Expression &expression) -> TypeId;
+    [[nodiscard]] auto inferPrefix(const hir::Expression &expression, const LocalTypes &locals) -> TypeId;
+    [[nodiscard]] auto inferReference(const hir::Expression &expression, TypeId operand, const LocalTypes &locals)
+        -> TypeId;
+    [[nodiscard]] auto inferSpan(const hir::Expression &expression, const LocalTypes &locals) -> TypeId;
+    [[nodiscard]] auto inferBinary(const hir::Expression &expression, const LocalTypes &locals) -> TypeId;
+    [[nodiscard]] auto inferIndex(const hir::Expression &expression, const LocalTypes &locals) -> TypeId;
+    [[nodiscard]] auto inferMember(const hir::Expression &expression, const LocalTypes &locals) -> TypeId;
+    [[nodiscard]] auto inferClosureLiteral(const hir::Expression &expression, const LocalTypes &locals) -> TypeId;
+    /// Registers a `ref` / `ref mut` / `span` loan of `root` at `site` (once
+    /// per site), rejecting conflicting live loans.
+    void recordBorrow(const hir::Expression &site, uint32_t root, bool mutableBorrow, std::string_view name);
+    /// The element type of a recursive `List<T>`-shaped enum (a two-field
+    /// Cons payload whose tail recurses by `ref` or `Box`), if any.
+    [[nodiscard]] auto listElementType(TypeId list) const -> std::optional<TypeId>;
+    /// Scoped views (`ref`, `span`) cannot be stored in aggregates.
+    void rejectScopedView(TypeId type, syntax::SourceSpan span, std::string_view container) const;
+
+    // ---- typecheck_expected.cpp: checking-mode inference ----
     [[nodiscard]] auto inferExpected(const hir::Expression &expression, TypeId expected, const LocalTypes &locals,
                                      std::string_view context) -> TypeId;
-    [[nodiscard]] auto inferExpectedEnum(const hir::Expression &expression, TypeId expected, const LocalTypes &locals)
+    /// `consumePayloads` is off for synthesis-mode constructors, whose
+    /// arguments the call path consumes itself.
+    [[nodiscard]] auto inferExpectedEnum(const hir::Expression &expression, TypeId expected, const LocalTypes &locals,
+                                         bool consumePayloads = true) -> TypeId;
+    [[nodiscard]] auto inferExpectedStruct(const hir::Expression &expression, TypeId expected, const LocalTypes &locals)
         -> TypeId;
-    [[nodiscard]] auto inferExpectedStruct(const hir::Expression &expression, TypeId expected,
-                                           const LocalTypes &locals) -> TypeId;
-    [[nodiscard]] auto infer(const hir::Expression &expression, const LocalTypes &locals) -> TypeId;
+    /// Unsuffixed / matching-suffix numeric literals (and `-lit` / `+lit`)
+    /// adopting an expected numeric type.
+    [[nodiscard]] auto adoptNumericLiteral(const hir::Expression &expression, TypeId expected, const LocalTypes &locals)
+        -> std::optional<TypeId>;
+    [[nodiscard]] auto inferExpectedList(const hir::Expression &expression, TypeId expected, const LocalTypes &locals)
+        -> std::optional<TypeId>;
+    [[nodiscard]] auto inferExpectedUnion(const hir::Expression &expression, TypeId expected, const LocalTypes &locals)
+        -> TypeId;
+    [[nodiscard]] auto inferExpectedTraitView(const hir::Expression &expression, TypeId expected,
+                                              const LocalTypes &locals, std::string_view context) -> TypeId;
+    [[nodiscard]] auto inferExpectedTuple(const hir::Expression &expression, TypeId expected, const LocalTypes &locals)
+        -> TypeId;
+    [[nodiscard]] auto inferExpectedClosure(const hir::Expression &expression, TypeId expected,
+                                            const LocalTypes &locals, std::string_view context) -> TypeId;
+    /// Calls to named functions under an expected type: folds, and generic
+    /// calls whose return type seeds the substitution. Non-generic calls fall
+    /// back to synthesis (nullopt).
+    [[nodiscard]] auto inferExpectedCall(const hir::Expression &expression, TypeId expected, const LocalTypes &locals,
+                                         std::string_view context) -> std::optional<TypeId>;
+    [[nodiscard]] auto inferExpectedGenericCall(const hir::Expression &expression, hir::DefId selected, TypeId expected,
+                                                const LocalTypes &locals, std::string_view context) -> TypeId;
+
+    // ---- typecheck_call.cpp: calls, method calls, closures ----
+    /// Synthesis-mode call to a named function or closure local. Argument
+    /// types are precomputed once (analyzeCallSpread) and closure literals are
+    /// deferred until the rest of the substitution is bound.
+    [[nodiscard]] auto inferCall(const hir::Expression &expression, const LocalTypes &locals) -> TypeId;
+    [[nodiscard]] auto inferClosureCall(const hir::Expression &expression, TypeId calleeType, const LocalTypes &locals)
+        -> TypeId;
     [[nodiscard]] auto inferMethodCall(const hir::Expression &expression, const LocalTypes &locals) -> TypeId;
-    /// INC-14 S2: checks a closure body against resolved parameter types and
-    /// synthesizes its code function. Returns the interned closure type.
-    [[nodiscard]] auto inferClosure(const hir::Expression &closure, const std::vector<TypeId> &parameterTypes,
-                                    const LocalTypes &locals) -> TypeId;
+    [[nodiscard]] auto inferBoundMethodCall(const hir::Expression &expression, TypeId dispatchType) -> TypeId;
+    [[nodiscard]] auto inferTraitViewMethodCall(const hir::Expression &expression, TypeId dispatchType,
+                                                size_t firstArgument, const LocalTypes &locals) -> TypeId;
+    [[nodiscard]] auto inferDerivedMethodCall(const hir::Expression &expression, TypeId dispatchType,
+                                              size_t firstArgument) -> std::optional<TypeId>;
+    [[nodiscard]] auto inferImplMethodCall(const hir::Expression &expression, const hir::Expression &receiver,
+                                           TypeId receiverType, TypeId dispatchType, bool passReferenceThrough,
+                                           size_t firstArgument, const LocalTypes &locals) -> TypeId;
+    [[nodiscard]] auto findImplMethod(std::string_view name, TypeId dispatchType, Substitution &matched) const
+        -> std::optional<hir::DefId>;
+    /// Picks the most specific overload among the callee's candidates;
+    /// `requireMatch` rejects a call no candidate accepts.
+    [[nodiscard]] auto selectOverload(const hir::Expression &call, const LocalTypes &locals, bool requireMatch)
+        -> hir::DefId;
+    [[nodiscard]] auto inferFoldCall(const hir::Expression &call, const FoldInfo &fold, hir::DefId target,
+                                     const LocalTypes &locals) -> TypeId;
     [[nodiscard]] auto analyzeCallSpread(const hir::Expression &expression, size_t firstArgument,
                                          const LocalTypes &locals, CallSpreadInfo &info) -> bool;
     [[nodiscard]] auto analyzeFoldCall(const hir::Expression &expression, const LocalTypes &locals) -> FoldInfo;
     [[nodiscard]] auto explicitSubstitution(const hir::Expression &expression, const FunctionTypeIds &signature)
         -> Substitution;
+    [[nodiscard]] static auto fixedParameterCount(const FunctionTypeIds &signature) -> size_t;
+    /// Declared type of argument slot `index` (variadic slots map to the pack
+    /// element type).
+    [[nodiscard]] auto callParameterType(const FunctionTypeIds &signature, size_t index) const -> TypeId;
+    /// A bound closure local forwarded as argument `index` records its code
+    /// function as a closure target and threads its captures. Returns true
+    /// when `argument` is such a closure.
+    auto bindForwardedClosure(const hir::Expression &call, const hir::Expression &argument, TypeId argumentType,
+                              size_t index, std::vector<std::pair<size_t, hir::DefId>> &closureTargets) -> bool;
+    /// INC-14 S3: capture values thread into the specialized callee as leading
+    /// arguments, recorded once before the call target commits.
+    void threadCallCaptures(const hir::Expression &call, const std::vector<uint32_t> &captures);
+    [[nodiscard]] auto closureCaptureLocals(uint32_t closureLocal) const -> std::vector<uint32_t>;
+    void bindPackArgument(Substitution &substitution, TypeId packParameter, size_t position, TypeId argumentType,
+                          syntax::SourceSpan span) const;
+    /// Checking-mode generic argument: enum constructors unify through their
+    /// payload (a generic enum literal has no standalone type).
+    void unifyGenericArgument(const hir::Expression &argument, TypeId parameterType, Substitution &substitution,
+                              const LocalTypes &locals);
+    void requireWhereClause(hir::DefId target, const Substitution &substitution, const FunctionTypeIds &signature,
+                            syntax::SourceSpan span);
+    [[nodiscard]] auto isConcrete(const Substitution &substitution) const -> bool;
+    /// By-value arguments consume their places (all slots, or only the spread
+    /// slots when `spread` is given); extern-C targets borrow.
+    void trackCallConsumption(const hir::Expression &call, hir::DefId target, const FunctionTypeIds &signature,
+                              size_t supplied, const CallSpreadInfo *spread, const LocalTypes &locals);
+    void recordVariadicPack(const hir::Expression &call, size_t packCount, size_t fixedParameters, size_t supplied,
+                            const std::function<TypeId(size_t)> &argumentType);
+    /// Types a closure-literal call argument against a (possibly still generic)
+    /// closure parameter, records its code function in `closureTargets`, and
+    /// unifies the specialized parameter with the inferred literal type.
+    auto inferCallClosureArgument(const hir::Expression &closure, TypeId parameterType, size_t index,
+                                  const LocalTypes &locals, Substitution &substitution,
+                                  std::vector<std::pair<size_t, hir::DefId>> &closureTargets) -> TypeId;
+    /// INC-14 S2: checks a closure body against resolved parameter types and
+    /// synthesizes its code function. Returns the interned closure type.
+    [[nodiscard]] auto inferClosure(const hir::Expression &closure, const std::vector<TypeId> &parameterTypes,
+                                    const LocalTypes &locals) -> TypeId;
     [[nodiscard]] auto specificity(TypeId type) const -> int;
     [[nodiscard]] auto specificityGuarded(TypeId type, std::unordered_set<uint32_t> &visited) const -> int;
 
-    // ---- typecheck_check.cpp ----
+    // ---- typecheck_check.cpp: functions, blocks, statements ----
     void checkFunction(const hir::Function &function, const const_eval::ConstBindings &constBindings = {});
     void recordFallthroughDrops(const hir::Function &function, const LocalTypes &locals);
-    [[nodiscard]] auto lastUseByBlock(const hir::Block &block) -> const std::unordered_map<uint32_t, size_t> &;
-    void releaseLoansUsedUpTo(size_t statementIndex, const std::unordered_map<uint32_t, size_t> &lastUse,
-                              size_t loansBeforeStatement);
-    void pruneReleasedLoans();
     void checkBlock(const hir::Block &block, LocalTypes locals, LoopTypes loops, TypeId returnType,
                     bool nestedScope = false);
     void checkStatement(const hir::Statement &statement, LocalTypes &locals, LoopTypes &loops, TypeId returnType);
+    void checkLet(const hir::Statement &statement, LocalTypes &locals);
+    void bindLetLocals(const hir::Statement &statement, TypeId type, LocalTypes &locals);
+    /// INC-14 S3/S4 + INC-17: a `let` bound to a closure literal records its
+    /// code function and captures; a closure capturing a live scoped reference
+    /// becomes an extra bearer of that loan.
+    void bindClosureLocal(const hir::Statement &statement);
+    void checkAssign(const hir::Statement &statement, const LocalTypes &locals);
+    /// Scoped views (`ref`, `span` bindings) cannot be reassigned.
+    void rejectViewReassignment(TypeId type, syntax::SourceSpan span) const;
+    void checkReturn(const hir::Statement &statement, const LocalTypes &locals, TypeId returnType);
+    void checkIf(const hir::Statement &statement, const LocalTypes &locals, const LoopTypes &loops, TypeId returnType);
+    void checkConstIf(const hir::Statement &statement, const LocalTypes &locals, const LoopTypes &loops,
+                      TypeId returnType);
+    /// Checks a loop body; moves/loans inside may or may not have happened
+    /// after the loop, so they merge with the state before it.
+    void checkLoopBody(const hir::Block &body, LocalTypes locals, LoopTypes loops, TypeId returnType);
     void checkNext(const hir::Statement &statement, const LocalTypes &locals, const LoopTypes &loops);
-    void checkLiteralSwitch(const hir::Statement &statement, TypeId scrutinee, const LocalTypes &locals,
-                            const LoopTypes &loops, TypeId returnType);
+
+    // ---- typecheck_switch.cpp: switches ----
+    /// Joins the move/borrow states of switch branches: each branch starts
+    /// from the pre-switch state; afterwards any move/loan of any branch holds.
+    struct BranchJoin
+    {
+      Checker &checker;
+      const LoopTypes &loops;
+      TypeId returnType;
+      MoveState before;
+      BorrowState borrowsBefore;
+      MoveState merged{};
+      BorrowState borrowsMerged{};
+      bool anyBranch{};
+
+      void check(const hir::Block &branch, const LocalTypes &locals);
+      void finish();
+    };
+    [[nodiscard]] auto beginBranches(const LoopTypes &loops, TypeId returnType, MoveState before) -> BranchJoin;
     void checkSwitch(const hir::Statement &statement, const LocalTypes &locals, const LoopTypes &loops,
                      TypeId returnType);
+    void checkEnumSwitch(const hir::Statement &statement, TypeId scrutinee, const LocalTypes &locals,
+                         const LoopTypes &loops, TypeId returnType);
+    void checkLiteralSwitch(const hir::Statement &statement, TypeId scrutinee, const LocalTypes &locals,
+                            const LoopTypes &loops, TypeId returnType);
+    void checkSwitchLiteral(std::string_view text, TypeId scrutinee, syntax::SourceSpan span) const;
+    void checkUnionSwitch(const hir::Statement &statement, TypeId scrutinee, const LocalTypes &locals,
+                          const LoopTypes &loops, TypeId returnType);
+
+    // ---- typecheck_ownership.cpp: places, moves, borrows, captures ----
+    [[nodiscard]] auto lastUseByBlock(const hir::Block &block) -> const std::unordered_map<uint32_t, size_t> &;
+    void releaseLoansUsedUpTo(size_t statementIndex, const std::unordered_map<uint32_t, size_t> &lastUse,
+                              size_t loansBeforeStatement);
+    /// At the end of a nested scope, drops the scope's bearers from every
+    /// loan and releases loans with no surviving bearer (INC-17 M2b).
+    void releaseScopeBearers(const std::unordered_set<uint32_t> &outerLocals);
+    void pruneReleasedLoans();
     [[nodiscard]] static auto isPlace(const hir::Expression &expression) -> bool;
     void requireMutableRoot(const hir::Expression &expression, syntax::SourceSpan span) const;
     void requireMutableDeref(const hir::Expression &expression, const LocalTypes &locals);
@@ -293,12 +463,21 @@ namespace NG::typecheck::detail
     /// any kind in the current borrow state. Couples borrow liveness (NLL) with
     /// move/assign checks: moving or reassigning a borrowed binding is unsound.
     [[nodiscard]] bool isBorrowed(uint32_t local) const;
+    /// Rejects moving out of `place` (rooted at `root`) while it is borrowed.
+    void requireNotBorrowed(uint32_t root, const hir::Expression &place) const;
+    /// Rejects assigning through `place` (rooted at `root`) while it is borrowed.
+    void requireAssignable(uint32_t root, const hir::Expression &place) const;
+    /// Field ordinal of a `root.field` place on a struct/enum local, if any.
+    [[nodiscard]] auto memberField(const hir::Expression &member, TypeId rootType) const -> std::optional<uint32_t>;
     void trackConsumption(const hir::Expression &expression, const LocalTypes &locals);
     /// INC-20: a `switch` over an affine enum value consumes the scrutinee
     /// (each arm binds the payload out of it). Mark the owned local/field moved
     /// in `moves` so the enclosing scope drops neither the scrutinee nor its
     /// now-moved affine payloads a second time.
     void consumeSwitchScrutinee(const hir::Expression &expression, const LocalTypes &locals, MoveState &moves);
+    /// INC-14 S1 negative contract: a closure body must not reference locals
+    /// from an enclosing scope that are not listed in its capture list.
+    void validateCaptures(const hir::Expression &closure) const;
 
     // ---- typecheck_const.cpp ----
     [[nodiscard]] auto evaluateWhereCondition(const hir::Expression &condition, const Substitution &substitution,
@@ -308,8 +487,8 @@ namespace NG::typecheck::detail
                                          const const_eval::ConstBindings &constBindings) -> const_eval::ConstValueId;
     void checkConstDeclaration(const hir::ConstDeclaration &declaration);
     [[nodiscard]] auto matchConstPatternType(TypeId pattern, TypeId actual, PatternMatchState &state) const -> bool;
-    [[nodiscard]] auto matchConstPattern(const ConstDeclChecked &candidate,
-                                         const std::vector<TypeId> &arguments) const -> ConstMatch;
+    [[nodiscard]] auto matchConstPattern(const ConstDeclChecked &candidate, const std::vector<TypeId> &arguments) const
+        -> ConstMatch;
     [[nodiscard]] auto selectConstDeclaration(std::string_view name, const std::vector<TypeId> &arguments,
                                               syntax::SourceSpan span) const -> const ConstDeclChecked *;
     [[nodiscard]] auto evaluateConstDeclaration(const ConstDeclChecked &selected, syntax::SourceSpan span)
@@ -355,21 +534,12 @@ namespace NG::typecheck::detail
                                std::string_view functionName, syntax::SourceSpan span) const;
     void record(const hir::Expression &expression, TypeId type);
     void recordLocal(hir::LocalId local, TypeId type);
-    /// Types a closure-literal call argument against a (possibly still generic)
-    /// closure parameter, records its code function in `closureTargets`, and
-    /// unifies the specialized parameter with the inferred literal type.
-    auto inferCallClosureArgument(const hir::Expression &closure, TypeId parameterType, size_t index,
-                                  const LocalTypes &locals, Substitution &substitution,
-                                  std::vector<std::pair<size_t, hir::DefId>> &closureTargets) -> TypeId;
     [[nodiscard]] auto typeFromNumericSuffix(std::string_view suffix) const -> TypeId;
     [[nodiscard]] auto parseIntegerLiteralMagnitude(std::string_view text, TypeId type, syntax::SourceSpan span) const
         -> uint64_t;
     void checkIntegerLiteralMagnitude(uint64_t magnitude, std::string_view text, TypeId type,
                                       syntax::SourceSpan span) const;
     void checkIntegerLiteral(int64_t value, std::string_view text, TypeId type, syntax::SourceSpan span) const;
-    /// INC-14 S1 negative contract: a closure body must not reference locals
-    /// from an enclosing scope until capture slices land (copy/move S3-S4).
-    void validateCaptures(const hir::Expression &closure) const;
 
     // ---- data members ----
     TypeInterner interner_;

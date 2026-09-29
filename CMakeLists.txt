@@ -59,19 +59,25 @@ set(NG_SRC
         src/driver.cpp
         src/native/const_hosts.cpp
         src/flowir.cpp
-        src/native/lowering_aggregate.cpp
-        src/native/lowering_call.cpp
-        src/native/lowering_expr.cpp
-        src/native/lowering_scaffold.cpp
+        src/flowir_expr.cpp
+        src/flowir_loops.cpp
+        src/flowir_switch.cpp
         src/native/lowering_aggregate.cpp
         src/native/lowering_call.cpp
         src/native/lowering_expr.cpp
         src/native/lowering_scaffold.cpp
         src/hir.cpp
+        src/hir_body.cpp
+        src/hir_clone.cpp
+        src/hir_types.cpp
         src/typecheck.cpp
         src/typecheck_register.cpp
         src/typecheck_infer.cpp
+        src/typecheck_expected.cpp
+        src/typecheck_call.cpp
         src/typecheck_check.cpp
+        src/typecheck_switch.cpp
+        src/typecheck_ownership.cpp
         src/typecheck_const.cpp
         src/typecheck_unify.cpp
         src/typecheck_growth.cpp

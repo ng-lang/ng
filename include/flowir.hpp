@@ -150,7 +150,6 @@ namespace NG::flowir
   class Lowerer final
   {
   public:
-    [[nodiscard]] auto lower(const hir::Function &function) -> Function;
     [[nodiscard]] auto lower(const hir::Function &function, const typecheck::TypeCheckResult &types) -> Function;
   };
 
