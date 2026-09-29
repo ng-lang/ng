@@ -297,10 +297,8 @@ namespace NG::typecheck::detail
     // ---- typecheck_expected.cpp: checking-mode inference ----
     [[nodiscard]] auto inferExpected(const hir::Expression &expression, TypeId expected, const LocalTypes &locals,
                                      std::string_view context) -> TypeId;
-    /// `consumePayloads` is off for synthesis-mode constructors, whose
-    /// arguments the call path consumes itself.
-    [[nodiscard]] auto inferExpectedEnum(const hir::Expression &expression, TypeId expected, const LocalTypes &locals,
-                                         bool consumePayloads = true) -> TypeId;
+    [[nodiscard]] auto inferExpectedEnum(const hir::Expression &expression, TypeId expected, const LocalTypes &locals)
+        -> TypeId;
     [[nodiscard]] auto inferExpectedStruct(const hir::Expression &expression, TypeId expected, const LocalTypes &locals)
         -> TypeId;
     /// Unsuffixed / matching-suffix numeric literals (and `-lit` / `+lit`)

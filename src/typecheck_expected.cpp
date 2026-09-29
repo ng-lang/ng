@@ -230,8 +230,8 @@ namespace NG::typecheck::detail
     return expected;
   }
 
-  auto Checker::inferExpectedEnum(const hir::Expression &expression, TypeId expected, const LocalTypes &locals,
-                                  bool consumePayloads) -> TypeId
+  auto Checker::inferExpectedEnum(const hir::Expression &expression, TypeId expected, const LocalTypes &locals)
+      -> TypeId
   {
     const auto &descriptor = interner_.descriptor(expected);
     if (!expression.enumId.has_value() || descriptor.nominalId != expression.enumId->value)
@@ -258,8 +258,7 @@ namespace NG::typecheck::detail
     for (size_t index = 0; index < payloads.size(); ++index)
     {
       static_cast<void>(inferExpected(*expression.operands[index], payloads[index], locals, "variant payload"));
-      if (consumePayloads)
-        trackConsumption(*expression.operands[index], locals);
+      trackConsumption(*expression.operands[index], locals);
     }
     record(expression, expected);
     return expected;

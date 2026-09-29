@@ -269,7 +269,7 @@ namespace NG::typecheck::detail
     if (interner_.enumGenericArity(*expression.enumId) != 0)
       throw TypeError(std::format("cannot infer generic arguments for enum constructor `{}`", expression.text),
                       expression.span);
-    return inferExpectedEnum(expression, interner_.typeForEnum(*expression.enumId), locals, false);
+    return inferExpectedEnum(expression, interner_.typeForEnum(*expression.enumId), locals);
   }
 
   auto Checker::inferTupleLiteral(const hir::Expression &expression, const LocalTypes &locals) -> TypeId

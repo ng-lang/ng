@@ -244,3 +244,41 @@ TEST_CASE("vNext example/box.ng runs the box corpus end to end", "[vNext][Box][I
   REQUIRE(errors.empty());
   REQUIRE(output.find("compiled") != std::string::npos);
 }
+TEST_CASE("vNext unannotated enum constructors consume an affine payload", "[vNext][Box][Move][Compile]")
+{
+  // Regression: synthesis-mode `Holder.Keep(b)` skipped payload consumption,
+  // so `b` stayed usable (and the moved box could be released twice).
+  std::string output;
+  std::string errors;
+  REQUIRE(run("import memory; "
+              "enum Holder { Keep(b: Box<i64>), Empty } "
+              "fun main() -> i64 { "
+              "  let b = new(5); "
+              "  let h = Holder.Keep(b); "
+              "  return read(ref b); }",
+              output, errors) != 0);
+  INFO("errors: " << errors);
+  REQUIRE_THAT(errors, ContainsSubstring("use of moved value `b`"));
+}
+
+TEST_CASE("vNext unannotated enum constructors hand the payload to the consumer", "[vNext][Box][Move][Runtime]")
+{
+  // Before the fix this aborted with `invalid heap handle`: the scope still
+  // released `b` after `open` had consumed the enum carrying it.
+  std::string output;
+  std::string errors;
+  REQUIRE(run("import memory; "
+              "enum Holder { Keep(b: Box<i64>), Empty } "
+              "fun open(h: Holder) -> i64 { switch (h) { case Keep(x) { return read(ref x); } "
+              "  case Empty { return 0; } } } "
+              "fun scope() -> i64 { let b = new(5); let h = Holder.Keep(b); return open(h); } "
+              "fun main() -> i64 { "
+              "  let before = outstanding(); "
+              "  if (scope() != 5) { return 1; } "
+              "  if (outstanding() != before) { return 2; } "
+              "  return 0; }",
+              output, errors) == 0);
+  INFO("errors: " << errors);
+  REQUIRE(errors.empty());
+  REQUIRE(output.find("code 0") != std::string::npos);
+}
