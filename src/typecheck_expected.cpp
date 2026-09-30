@@ -44,12 +44,31 @@ namespace NG::typecheck::detail
       }
       else if (isArrayKind(descriptor.kind))
       {
-        if (descriptor.kind == TypeKind::FixedArray && expression.operands.size() != *descriptor.length)
+        size_t spreads = 0;
+        for (const auto &element : expression.operands)
+          spreads += isSpread(*element) ? 1U : 0U;
+        if (spreads > 1)
+          throw TypeError("array literals support at most one spread", expression.span);
+        if (descriptor.kind == TypeKind::FixedArray && spreads == 0 && expression.operands.size() != *descriptor.length)
           throw TypeError(std::format("fixed array length mismatch: expected {}, got {}", *descriptor.length,
                                       expression.operands.size()),
                           expression.span);
+        // A spread's length is only known at runtime, so it builds a dynamic
+        // array; fixed/dependent targets fall back to synthesis (and report
+        // the mismatch there).
+        if (spreads != 0 && descriptor.kind != TypeKind::DynamicArray)
+          break;
         for (const auto &element : expression.operands)
-          static_cast<void>(inferExpected(*element, descriptor.element, locals, "array element"));
+        {
+          if (!isSpread(*element))
+          {
+            static_cast<void>(inferExpected(*element, descriptor.element, locals, "array element"));
+            continue;
+          }
+          const ArraySpread spread = inferArraySpread(*element, locals);
+          requireType(descriptor.element, spread.element, element->span,
+                      spread.map ? "map spread result" : "array spread");
+        }
         return adopt();
       }
       break;

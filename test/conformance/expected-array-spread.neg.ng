@@ -1,0 +1,7 @@
+import prelude;
+
+fun main() -> i64 {
+    let words = ["a", "b"];
+    let values: array<i64> = [0, words...];
+    return 0;
+}

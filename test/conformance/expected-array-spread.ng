@@ -1,0 +1,19 @@
+// Contract case: array spreads (`xs...`, `(a..b)...`) and map spreads
+// (`f(xs)...`) inside an array literal checked against an expected
+// `array<T>` type — a let annotation or a call parameter.
+import prelude;
+
+fun double(x: i64) -> i64 { return x * 2; }
+
+fun first(values: array<i64>) -> i64 { return values[0]; }
+
+fun main() -> unit {
+    let xs = [1, 2, 3];
+    let mapped: array<i64> = [0, double(xs)...];
+    let copied: array<i64> = [xs..., 4];
+    let ranged: array<i64> = [(5..7)...];
+    print(mapped[3]);
+    print(copied[3]);
+    print(ranged[1]);
+    print(first([9, double(xs)...]));
+}
