@@ -166,6 +166,12 @@ arguments that NG cannot express without first-class functions.
 
 ## Recent completed changes
 
+- HANDOFF §B B1–B4 (2026-09-30, `927aec0`/`826da1c`/`1177256`/`56b50fc`):
+  nested-call false E-move-used (move sites), unannotated enum constructor
+  payload consumption, generic enum constructors inferred from parameter
+  types, spreads under an expected array type. ng_test 660/660, ctest
+  661/661, ASan 660/660.
+
 - INC-23 acceptance + union coercion fix (2026-09-29): DEC-D text (D-001/
   D-011), `union-match` corpus + 2 negative contracts, reference-dispatch PBT
   (mutation-checked). Fixed non-literal member → union coercions reaching
@@ -479,9 +485,9 @@ arguments that NG cannot express without first-class functions.
 
 ## Next steps
 
-- **Current queue lives in `HANDOFF.md`** (2026-09-29): §A INC-23 acceptance
-  items are done → next are the §B eight confirmed pre-existing checker/runtime
-  defects → §C open slices → §D INC-24+ in plan order (INC-33 is now unblocked). Guards are hard ceilings: split, never
+- **Current queue lives in `HANDOFF.md`**: §A done; §B B1–B4 done
+  (2026-09-30); B5 (affine closure captures) awaits a semantics decision;
+  B6–B8 next → §C open slices → §D INC-24+ in plan order (INC-33 unblocked). Guards are hard ceilings: split, never
   raise.
 
 - INC-14 **S3 follow-up (done)**: move-capture consumption enforced on the
