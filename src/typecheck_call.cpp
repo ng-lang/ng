@@ -148,6 +148,18 @@ namespace NG::typecheck::detail
     if (callee.functionCandidates.size() <= 1)
       return selected;
     int bestScore{-1};
+    // Argument types do not depend on the candidate: infer each once, outside
+    // the candidate trial, so an error inside an argument (INC-14 S6:
+    // `print([twice(xs)...])`) surfaces instead of reading as "no candidate
+    // matched". Closure literals and generic enum constructors need a
+    // parameter type and are matched per candidate.
+    std::vector<std::optional<TypeId>> argumentTypes(call.operands.size() - 1);
+    const auto argumentType = [&](size_t index) -> TypeId
+    {
+      if (!argumentTypes[index].has_value())
+        argumentTypes[index] = infer(*call.operands[index + 1], locals);
+      return *argumentTypes[index];
+    };
     for (const auto candidate : callee.functionCandidates)
     {
       const auto &signature = signatures_.at(candidate.value);
@@ -156,27 +168,33 @@ namespace NG::typecheck::detail
       const bool generic = isGeneric(signature);
       if (!generic)
       {
-        try
+        bool matches = true;
+        for (size_t index = 0; matches && index < signature.parameters.size(); ++index)
         {
-          // A generic enum constructor is checked against the candidate's
-          // parameter; standalone synthesis cannot infer its arguments.
-          for (size_t index = 0; index < signature.parameters.size(); ++index)
+          const auto &argument = *call.operands[index + 1];
+          if (isGenericEnumLiteral(argument))
           {
-            const auto &argument = *call.operands[index + 1];
-            if (isGenericEnumLiteral(argument))
-            {
-              const auto &parameter = interner_.descriptor(signature.parameters[index]);
-              if (parameter.kind != TypeKind::Enum || parameter.nominalId != argument.enumId->value)
-                throw TypeError("generic enum constructor type mismatch", argument.span);
-              continue;
-            }
-            requireType(signature.parameters[index], infer(argument, locals), argument.span, "specialization argument");
+            const auto &parameter = interner_.descriptor(signature.parameters[index]);
+            matches = parameter.kind == TypeKind::Enum && parameter.nominalId == argument.enumId->value;
+            continue;
+          }
+          if (argument.kind == hir::ExpressionKind::Closure)
+          {
+            matches = interner_.descriptor(signature.parameters[index]).kind == TypeKind::Closure;
+            continue;
+          }
+          const TypeId actual = argumentType(index);
+          try
+          {
+            requireType(signature.parameters[index], actual, argument.span, "specialization argument");
+          }
+          catch (const TypeError &)
+          {
+            matches = false;
           }
         }
-        catch (const TypeError &)
-        {
+        if (!matches)
           continue;
-        }
       }
       int score = generic ? 0 : 100;
       for (const auto parameter : signature.parameters)
