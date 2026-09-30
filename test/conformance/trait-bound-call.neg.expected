@@ -1,0 +1,4 @@
+kind: type
+code: E-type
+pattern: call to `pick` requires `T: Marker`, but i64 does not implement `Marker`
+span: [159, 166)

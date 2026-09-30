@@ -105,6 +105,26 @@ namespace NG::typecheck::detail
     if (module_ == nullptr || target.value >= module_->functions.size())
       return;
     const auto &function = module_->functions.at(target.value);
+    // Signature bounds (`<T: Trait>`) are checked per concrete binding like
+    // `where T: Trait`; bindings still abstract in a generic caller are
+    // checked when that caller is instantiated.
+    for (const auto &[parameterName, traitNames] : function.traitBounds)
+    {
+      const auto position = std::ranges::find(signature.genericParameterNames, parameterName);
+      if (position == signature.genericParameterNames.end())
+        continue;
+      const TypeId parameter =
+          signature
+              .genericParameters[static_cast<size_t>(std::distance(signature.genericParameterNames.begin(), position))];
+      const auto bound = substitution.types.find(parameter.value);
+      if (bound == substitution.types.end() || interner_.descriptor(bound->second).kind == TypeKind::TypeParameter)
+        continue;
+      for (const auto &traitName : traitNames)
+        if (!hasImpl(traitName, bound->second))
+          throw TypeError(std::format("call to `{}` requires `{}: {}`, but {} does not implement `{}`", function.name,
+                                      parameterName, traitName, interner_.display(bound->second), traitName),
+                          span);
+    }
     if (function.whereClause != nullptr && !evaluateWhereCondition(*function.whereClause, substitution, signature))
       throw TypeError(std::format("call to `{}` does not satisfy its where clause", function.name), span);
   }
