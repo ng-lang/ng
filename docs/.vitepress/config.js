@@ -11,10 +11,9 @@ export default defineConfig({
   // Clean URLs
   cleanUrls: true,
 
-  // Design/rearchitecture documents are developer-facing only (removed from
-  // the site navigation); exclude them from the build so their prose angle
-  // brackets are never parsed as HTML tags.
-  srcExclude: ['design/**'],
+  // Developer-facing material (plans, increment tracking) lives outside docs/
+  // under .agents/plans/ and is not part of the site.
+  srcExclude: ['.agents/**', 'design/**'],
 
   lastUpdated: true,
 
@@ -41,7 +40,7 @@ export default defineConfig({
 
     nav: [
       { text: 'Guide', link: '/guide/language_guide', activeMatch: '/guide/' },
-      { text: 'Reference', link: '/ref/Internals', activeMatch: '/ref/' },
+      { text: 'Reference', link: '/ref/language-decisions', activeMatch: '/ref/' },
       {
         text: 'Resources',
         items: [
@@ -81,7 +80,7 @@ export default defineConfig({
         {
           text: 'Reference',
           items: [
-            { text: 'Internals', link: '/ref/Internals' },
+            { text: 'Accepted Language Decisions', link: '/ref/language-decisions' },
             { text: 'Memory', link: '/ref/Memory' },
             { text: 'C++ Compatibility', link: '/ref/cxx-compatibility' },
           ],

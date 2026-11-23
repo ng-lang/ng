@@ -10,24 +10,56 @@ struct Counter {
 }
 ```
 
-Construction uses named fields; mutation goes through `ref mut` or `let mut`
-field assignment:
+Construction uses named fields. Nominal structs are affine by default, so
+reading a field and then copying the whole value in the same scope partially
+moves it:
 
 ```ng
 let counter = Counter { value: 41 };
 let read = counter.value;
-let mut copy = counter;      // deep copy (value semantics)
+let mut copy = counter;      // error
 copy.value := 42;
 ```
 
-Structs are nominal types: two structs with the same fields are distinct
-types. Generic structs instantiate per concrete argument:
+```text
+type error E-move-partial at bytes [179, 186): use of partially moved value `counter`
+```
+
+Deriving `Copy` makes the struct duplicable, so read-and-copy both work:
 
 ```ng
-struct Box<T> {
+import prelude;
+
+struct Counter: derive(Copy) {
+    value: i64,
+}
+
+fun main() -> unit {
+    let counter = Counter { value: 41 };
+    let read = counter.value;
+    let mut copy = counter;
+    copy.value := 42;
+    print(read);
+    print(copy.value);
+    print(counter.value);
+}
+```
+
+```text
+41
+42
+41
+```
+
+Structs are nominal types: two structs with the same fields are distinct
+types. Generic structs instantiate per concrete argument; annotate the
+binding so the argument can be inferred:
+
+```ng
+struct Box2<T> {
     value: T,
 }
-let boxed = Box { value: "hello" };   // Box<string>
+let boxed: Box2<string> = Box2 { value: "hello" };   // Box2<string>
 ```
 
 ## Enums (tagged unions)
@@ -44,22 +76,66 @@ Constructors are qualified (`Shape.Circle(5.0)`); multi-field variants
 carry tuple payloads. `switch` destructures variants positionally (see
 [Control Flow](/guide/control-flow)).
 
-Recursive structures use `ref<...>` payloads — the sanctioned way to build
-linked data without GC:
+Recursive structures use heap or reference payloads for the tail — the
+sanctioned way to build linked data without GC:
 
 ```ng
-enum List<T> {
-    Cons(head: T, tail: ref<List<T>>),
+import memory;
+
+enum MyList<T> {
+    Cons(head: T, tail: Box<MyList<T>>),
     Nil,
 }
-
-let empty: List<i64> = List.Nil;
-let one: List<i64> = List.Cons(1, ref empty);
 ```
 
-The standard library ships this exact `List<T>` with traversal helpers and
-immutable builders (`listFrom`, `pushFront`, `append`, `reverseList`) — see
-[Standard Library](/guide/standard-library).
+Box tails come from `std.memory`: `new<T>(value)` builds a `Box<T>`,
+`read<T>(ref box)` loads its payload, `write<T>(ref box, value)` stores into
+it, and each `Box<T>` releases its cell exactly once on drop.
+
+```ng
+import prelude;
+import memory;
+
+fun main() -> unit {
+    let b = new<i64>(5);
+    print(read<i64>(ref b));
+    write<i64>(ref b, 9);
+    print(read<i64>(ref b));
+}
+```
+
+```text
+5
+9
+```
+
+The standard library ships its own recursive `List<T>` with `Box<List<T>>`
+tails plus traversal helpers and immutable builders (`listFrom`,
+`pushFront`, `append`, `reverseList`):
+
+```ng
+import prelude;
+import list;
+
+fun main() -> unit {
+    let empty: List<i64> = List.Nil;
+    let base = listFrom([2, 3]);
+    let xs = pushFront(ref base, 1);
+    print(length(ref xs));
+    print(get(ref xs, 0));
+    let app = append(ref base, 9);
+    print(length(ref app));
+    let rev = reverseList(ref base);
+    print(get(ref rev, 0));
+}
+```
+
+```text
+3
+1
+3
+3
+```
 
 Array literals build lists directly when the expected type is the list
 enum:
@@ -89,6 +165,9 @@ Destructuring and rest patterns:
 let (first, ...rest) = pair;   // rest is a tuple of the remaining elements
 ```
 
+For `(1, "two", true)`: `first` is `1`, `rest[0]` is `two`, `rest[1]` is
+`true`.
+
 ## Arrays
 
 Dynamic arrays and fixed-size arrays:
@@ -105,13 +184,26 @@ let middle = dynamic[0..2];   // [1, 2]
 let window = dynamic[1..3];   // [2, 3]
 ```
 
-Spreads splice values into literals (`at most one spread` per literal):
+Spreads splice values into literals:
 
 ```ng
 let nums = [...(1..5)];        // [1, 2, 3, 4] (half-open range)
 let mixed = [0, ...nums, 9];
-let doubled = [f(1..4)...];    // map comprehension: per-element calls
-let evens = [g(1..8)?...];     // filter marker keeps matching elements
+let doubled = [doubleIt(1..4)...];    // map comprehension: per-element calls
+let evens = [even(1..8)?...];         // filter marker keeps matching elements
+```
+
+For `[...(1..5)]` that yields 4 elements starting at `1`; `[doubleIt(1..4)...]`
+yields `[2, 4, 6]`; `[even(1..8)?...]` yields `[2, 4, 6]`.
+
+Array literals accept at most one spread:
+
+```ng
+let both = [...a, ...b];   // error
+```
+
+```text
+type error E-type at bytes [104, 116): array literals support at most one spread
 ```
 
 Append with value semantics:
@@ -120,12 +212,40 @@ Append with value semantics:
 let longer = dynamic << 9;     // dynamic unchanged, longer == [1,2,3,9]
 ```
 
-Folds run over arrays, slices, and ranges:
+## Folds
+
+`seq.fold` takes the values, the seed, and a two-argument closure:
 
 ```ng
-let total = sum([1, 2, 3]);              // stdlib helper
-let folded = foldAdd([1, 2, 3]..., 0);   // left fold: f(acc, xs...)
+import prelude;
+import seq;
+
+fun main() -> unit {
+    print(fold([1, 2, 3], 0, |acc, x| acc + x));
+}
 ```
+
+```text
+6
+```
+
+A two-argument function can also fold directly, with the spread in either
+argument position — the accumulator seed is whichever argument is not the
+spread:
+
+```ng
+fun foldAdd(acc: i64, value: i64) -> i64 {
+    return acc + value;
+}
+
+fun main() -> unit {
+    let xs = [1, 2, 3];
+    let folded = foldAdd(0, xs...);   // left fold: 6
+    let right = foldAdd(xs..., 0);    // seed last: 6
+}
+```
+
+Arrays, slices, and ranges all fold this way.
 
 ## Ranges
 

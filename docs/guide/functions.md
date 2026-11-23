@@ -16,8 +16,7 @@ Expression bodies use `=>`:
 fun double(value: i64) -> i64 => value * 2;
 ```
 
-`main` is the entry point; it may take typed arguments and return `unit`,
-`i64`, `f64`, or `string`.
+`main` is the entry point; it may return `unit`, `i64`, `f64`, or `string`.
 
 ## Calling
 
@@ -40,7 +39,7 @@ Type arguments are inferred from arguments, or written explicitly:
 
 ```ng
 let head = first([1, 2, 3]);
-let typed = first<i64>([1, 2, 3]);
+let typed = first<i64>([4, 5, 6]);
 ```
 
 Each distinct concrete argument set gets its own monomorphized instance,
@@ -49,19 +48,74 @@ re-checked with concrete types.
 ## Methods
 
 Method-call syntax works on receivers with matching trait impls (see
-[Traits](/guide/traits)):
+[Traits](/guide/traits)). The receiver must be an aggregate value — structs,
+arrays, and other derived or user-defined receivers — not a bare scalar
+literal:
 
 ```ng
-trait Show {
+import prelude;
+
+trait RenderText {
     fun show(self: Self ref) -> string;
 }
 
-impl Show for i64 {
-    fun show(self: Self ref) -> string { return "int"; }
+struct Point: derive(Copy) {
+    x: i64,
+    y: i64,
 }
 
-let text = 42.show();            // "int"
-let qualified = Show.show(42);   // same
+impl RenderText for Point {
+    fun show(self: Self ref) -> string {
+        return "point";
+    }
+}
+
+fun main() -> unit {
+    let p = Point { x: 1, y: 2 };
+    let text = p.show();
+    print(text);
+    let qualified = RenderText.show(ref p);
+    print(qualified);
+}
+```
+
+```text
+point
+point
+```
+
+`derive(Show)` synthesizes a `show` method, and a trait can be called
+qualified with the receiver passed explicitly:
+
+```ng
+import prelude;
+
+struct Point: derive(Show) {
+    x: i64,
+    y: i64,
+}
+
+fun main() -> unit {
+    let p = Point { x: 1, y: 2 };
+    print(p.show());
+    print(Show.show(ref p));
+}
+```
+
+```text
+Point{x: 1, y: 2}
+Point{x: 1, y: 2}
+```
+
+Calling a method on an integer is a type error:
+
+```ng
+let n: i64 = 42;
+print(n.show());   // error
+```
+
+```text
+type error E-type at bytes [68, 76): no method `show` for value of type i64
 ```
 
 ## `native fun`
@@ -73,8 +127,38 @@ standard library's string/io/seq/memory/imgui functions are natives):
 export native fun length(text: string) -> i64;
 ```
 
-The native backend resolves `$ngrt_<name>` symbols; `std.system` even
-compiles and runs a source string from inside a running program.
+Import one from the standard library and call it by name:
+
+```ng
+import prelude;
+import string (length);
+
+fun main() -> unit {
+    print(length("abcd"));
+}
+```
+
+```text
+4
+```
+
+`std.system` shells out through `/bin/sh -c`: `system(command)` returns the
+exit status and `systemOutput(command)` returns the captured output.
+
+```ng
+import prelude;
+import system;
+
+fun main() -> unit {
+    print(system("exit 7"));
+    print(systemOutput("echo hi"));
+}
+```
+
+```text
+7
+hi
+```
 
 ## `const fun`
 
@@ -90,13 +174,18 @@ const if (fact(4) == 24) { print("folded"); }
 let runtimeResult = fact(5);   // also runs normally
 ```
 
+```text
+folded
+120
+```
+
 Const funs support loops, recursion, tail recursion, const-capable native
 hosts, and — with type parameters — per-type compile-time evaluation (see
 [Compile-Time Programming](/guide/compile-time-programming)).
 
 ## Recursion and tail calls
 
-Recursion is unrestricted; tail recursion is recognized by the VM and runs
-in constant stack space.
+Recursion is unrestricted, including self-recursive functions with arguments
+and an accumulator.
 
 Next: [Data Structures](/guide/data-structures).

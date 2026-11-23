@@ -20,17 +20,21 @@
 - `include/` — public vNext headers (`hir.hpp`, `typecheck.hpp`, `flowir.hpp`, `value.hpp`, `ngrt.hpp`, `syntax/*.hpp`, `native/lowering.hpp`, `driver.hpp`, ...)
 - `example/*.ng` — runnable vNext examples (incl. `ng_ide.ng`); `lib/std/*.ng` — the vNext stdlib (prelude/io/string/seq/list/memory/system/imgui)
 - `test/*.cpp` — Catch2 v3 test suites, one per feature area (`test/test.hpp` is the shared header)
-- `docs/design/rearchitecture/` — vNext design decisions (D-0xx), the legacy example migration matrix, the post-cutover roadmap, and the implementation increment plan (`09-increment-plan.md`)
-- `docs/research/` — cross-language design/implementation comparison research (Rev.3, evidence-backed findings feeding the increment plan)
+- `docs/guide/`, `docs/ref/` — user-facing documentation (ground truth only: what is
+  implemented today). Nothing speculative, planned, or historical belongs there.
+- `.agents/plans/` — future plans, gap registers, and increment tracking (not user docs)
+- `docs/research/` — cross-language design/implementation comparison research
 
 ## Architecture & Patterns
 - **Syntax:** `syntax::parseSourceUnit` / `Lexer` — a full-file lexer producing `Token` spans; `ModuleParser` handles module items, `ExpressionParser`/`BlockParser`/`TypeParser` handle nested forms. `>>` lexes as `ShiftRight` and is split by the generic-argument/type collectors.
 - **HIR:** `hir::Resolver` resolves syntax into an immutable module. Expressions are `std::unique_ptr<hir::Expression>` nodes; types are `hir::Type` trees. Generic instances are produced by cloning + re-checking, not by AST mutation.
 - **Type checking:** `typecheck::TypeChecker{}.check(module)` returns a `TypeCheckResult` of side tables (expression types, call targets, spread/fold positions, drop edges, trait-view tables, instances). Types are interned `typecheck::TypeId`s over `TypeDescriptor`s (builtins, arrays, tuples, structs/enums, refs, trait references, unions, type constructors/applications, opaque). Monomorphization re-checks cloned bodies under concrete substitutions.
-- **Values:** `NG::Value` is a variant of int64/double/string/array/tuple/struct/enum/reference/trait-view/opaque/range (aggregates shared_ptr-backed). Copy-first deep-copy semantics; affine nominal types use `move`/`clone` + `impl Drop`; scoped `ref`/`ref mut` are non-returnable views. There is no GC (heap domains are deferred).
+- **Values:** `NG::Value` is a variant of int64/double/string/array/tuple/struct/enum/reference/trait-view/opaque/range (aggregates shared_ptr-backed). Copy-first deep-copy semantics; affine nominal types use `move`/`clone` + `impl Drop`; scoped `ref`/`ref mut` are
+views that cannot be returned without a declared origin set. There is no GC;
+`Box<T>` and `Cell<T>` (lib/std/memory) provide explicit heap cells.
 - **Lowering & native backend:** FlowIR lowers to per-function CFGs with block parameters, then to QBE IL text; `qbe` assembles and `cc` links against `libngrt` to produce the executable. There is no bytecode or VM tier (`--native` / `--fuel` are accepted as backward-compatible no-ops).
 - **Modules:** `import name;` / `import name (a, b);` merge transitively with per-module visible-name sets (own names, selective lists, exported surfaces with transitive re-export).
-- **Testing:** each feature slice ships `test/<feature>_test.cpp` plus an `example/<feature>.ng` run end-to-end through `ngi`; the migration matrix (`docs/design/rearchitecture/05-legacy-example-migration-matrix.md`) records coverage of the removed legacy corpus.
+- **Testing:** each feature slice ships `test/<feature>_test.cpp` plus an `example/<feature>.ng` run end-to-end through `ngi`; the example corpus sweep guards every example.
 
 ## Build, Test, and Development Workflows
 **Configure & build (Ninja):**
@@ -83,16 +87,14 @@ clang-tidy -p build src/<file>.cpp   # uses build/compile_commands.json
 ## Commit & PR Guidelines
 - **Prefer Conventional Commits** like history: `feat(vnext): ...`, `fix(parsing): ...`
 - **Messages in imperative mood**
-- **PRs must include:** clear description, linked issues, tests, docs/examples updates where relevant (e.g. `docs/design/rearchitecture/`, `example/`)
+- **PRs must include:** clear description, linked issues, tests, docs/examples updates where relevant (`docs/guide`, `docs/ref`, `example/`)
 - **Disclose any AI-generated code** per `CONTRIBUTING.md`
 
 ## References
-- [vNext design decisions](docs/design/rearchitecture/04-language-decisions.md)
-- [Legacy example migration matrix](docs/design/rearchitecture/05-legacy-example-migration-matrix.md)
-- [Post-cutover roadmap](docs/design/rearchitecture/07-post-cutover-plan.md)
-- [QBE native backend design](docs/design/rearchitecture/08-qbe-native-backend.md)
-- [Implementation increment plan](docs/design/rearchitecture/09-increment-plan.md)
+- [Accepted language decisions](docs/ref/language-decisions.md) — the normative rules enforced today
+- [Language guide](docs/guide/language_guide.md) · [Memory](docs/ref/Memory.md)
 - [Cross-language comparison research](docs/research/mainstream-language-comparison.md)
+- Plans and increment tracking: [`.agents/plans/`](.agents/plans/)
 - [Contribution Guide](CONTRIBUTING.md)
 
 ---

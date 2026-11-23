@@ -34,26 +34,34 @@ fun main() -> unit {
 }
 ```
 
-Run with:
+The frame loop runs until the window closes (`imguiAborted`).
+
+The runnable GUI example is `example/ng_ide.ng`:
 
 ```bash
-./build/ngi example/hello_gui.ng
+./build/ngi example/ng_ide.ng
 ```
-
-The frame loop runs until the window closes (`imguiAborted`).
 
 ## Binding surface
 
-- Lifecycle: `imguiInit`, `imguiCleanup`, `imguiEventLoop`,
-  `imguiNewFrame`, `imguiRender`, `imguiAborted`
-- Windows: `imguiBegin`, `imguiEnd`, `imguiSetNextWindowSize`,
-  `imguiBeginChild`, `imguiEndChild`
-- Layout/text: `imguiText`, `imguiTextWrapped`, `imguiSeparator`
-- Widgets: `imguiButton`, `imguiCheckbox`,
-  `imguiInputTextMultiline` (returns the edited string — rebind it:
+Every name below is `export native fun` in `lib/std/imgui.ng`.
+
+- Lifecycle: `imguiInit() -> unit`, `imguiCleanup() -> unit`,
+  `imguiEventLoop() -> unit`, `imguiNewFrame() -> unit`,
+  `imguiRender() -> unit`, `imguiAborted() -> bool`
+- Windows: `imguiBegin(title: string) -> bool`, `imguiEnd() -> unit`,
+  `imguiSetNextWindowSize(width: f32, height: f32) -> unit`,
+  `imguiBeginChild(id: string, width: f32, height: f32) -> bool`,
+  `imguiEndChild() -> unit`
+- Layout/text: `imguiText(text: string) -> unit`,
+  `imguiTextWrapped(text: string) -> unit`, `imguiSeparator() -> unit`
+- Widgets: `imguiButton(label: string) -> bool`,
+  `imguiCheckbox(label: string, checked: bool) -> bool`,
+  `imguiInputTextMultiline(label: string, value: string, width: f32,
+  height: f32) -> string` (returns the edited string — rebind it:
   `source := imguiInputTextMultiline("##s", source, w, h);`)
-- Style/queries: `imguiStyleColorsDark`, `imguiStyleColorsLight`,
-  `imguiGetTime`
+- Style/queries: `imguiStyleColorsDark() -> unit`,
+  `imguiStyleColorsLight() -> unit`, `imguiGetTime() -> f64`
 
 ## The NG IDE
 

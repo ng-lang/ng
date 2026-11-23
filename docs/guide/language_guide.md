@@ -38,23 +38,13 @@ programming language with a single clean pipeline:
 
 ## Why NG?
 
-### Compact binaries
+### A single native tier
 
-NG produces remarkably small native executables. The following table
-shows an illustrative snapshot of "Hello World" binary sizes across
-languages, measured on macOS 15 (arm64) with each toolchain's default
-settings:
-
-| Language | Hello World binary size | Toolchain |
-|----------|------------------------|-----------|
-| **NG**   | 55,992 bytes           | ngi --native (QBE + cc) |
-| C++      | 318,040 bytes          | clang++ -std=c++23 |
-| Rust     | 442,136 bytes          | rustc 1.x |
-| Zig      | 1,873,096 bytes        | zig build-exe |
-
-> **Note:** These numbers are illustrative and depend on platform,
-> toolchain version, build flags, and linking mode. They demonstrate
-> NG's minimal runtime overhead rather than absolute benchmarks.
+There is exactly one execution path: every program lowers through FlowIR
+to QBE IL and is assembled and linked by `cc` into a native executable.
+There is no interpreter and no bytecode/VM tier, so the semantics you test
+are the semantics you ship. Programs carry NG's small runtime rather than a
+language VM or garbage collector.
 
 NG's minimal runtime and efficient code generation mean your programs
 carry less overhead — ideal for embedded systems, CLI tools, and
@@ -62,14 +52,7 @@ deployments where binary size matters.
 
 ## Quick Start
 
-### Build
-
-```bash
-cmake -S . -B build -GNinja
-cmake --build build -j
-```
-
-### Run a program
+Build once, then run programs with `./build/ngi`:
 
 ```bash
 ./build/ngi example/stdlib_basics.ng        # run an example file
@@ -77,7 +60,7 @@ cmake --build build -j
 ./build/ngi example/ng_ide.ng   # the imgui IDE (SDL3 GPU backend)
 ```
 
-### First program
+A first program:
 
 ```ng
 import prelude;
@@ -88,6 +71,9 @@ fun main() -> i64 {
     return 42;
 }
 ```
+
+For the full build steps, the `ngi` flag reference, and more first
+programs, see [Getting Started](/guide/getting-started).
 
 ## Language tours
 
@@ -107,6 +93,6 @@ fun main() -> i64 {
 
 ## Reference
 
-- [Internals](/ref/Internals) — the compiler pipeline
+- [Accepted Language Decisions](/ref/language-decisions) — the normative rules
 - [Memory](/ref/Memory) — the runtime value model
 - [C++ Compatibility](/ref/cxx-compatibility)
