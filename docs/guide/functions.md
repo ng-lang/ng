@@ -185,6 +185,65 @@ hosts, and — with type parameters — per-type compile-time evaluation (see
 
 ## Recursion and tail calls
 
+## Closures and captures
+
+A closure literal is `|params| expression` or `|params| { statements }`, and an
+explicit capture list is written before the parameter list:
+
+```ng
+import prelude;
+
+fun main() -> i64 {
+    let base = 10;
+    let addBase = [base] |x: i64| x + base;
+    return addBase(5);
+}
+```
+
+```text
+15
+```
+
+The capture value is threaded into **every** call, which fixes what each
+capture kind means:
+
+- **`[x]` (copy capture)** — for an affine type the type must implement
+  `Clone`; the capture is deep-copied per call, so the original stays live and
+  usable after calls. Copy-capturing an affine value without `Clone` is a
+  compile error:
+
+  ```text
+  type error E-type: cannot copy-capture affine value of type `P` that does not
+  implement Clone; use `[move ...]`, `[ref ...]`, or `derive(Clone)` on the type
+  ```
+
+- **`[move x]`** — the closure takes ownership; later uses of `x` in the
+  enclosing scope are rejected as use-after-move.
+- **`[handle]` where `handle` is a `ref`/`ref mut` binding** — the closure
+  becomes an anonymous borrower of the referent; the loan lives until every
+  bearer has been used for the last time.
+
+A `Clone`-able affine type can therefore be copy-captured safely:
+
+```ng
+import prelude;
+
+struct P { v: i64 }
+impl Clone for P {
+    fun clone(self: Self ref) -> Self { return P { v: (*self).v }; }
+}
+
+fun main() -> i64 {
+    let p = P { v: 10 };
+    let f = [p] |x: i64| x + p.v;
+    return f(1) + f(2) + p.v;   // p is still owned here
+}
+```
+
+```text
+33
+```
+
 Recursion is unrestricted, including self-recursive functions with arguments
 and an accumulator.
 

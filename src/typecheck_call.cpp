@@ -819,6 +819,21 @@ namespace NG::typecheck::detail
       closureLocals.emplace(closure.closureCaptureParams[index].value, found->second);
       recordLocal(closure.closureCaptureParams[index], found->second);
     }
+    // B5: a copy capture of an affine value is threaded into every call, so it
+    // must be deep-copied per call — otherwise the first callee consumes the
+    // captured value and later calls see a dead handle. Require `Clone`.
+    for (size_t index = 0; index < closure.closureCaptures.size(); ++index)
+    {
+      if (closure.closureCaptures[index].isMove)
+        continue;
+      const TypeId type = captureTypes[index];
+      if (!isAffine(type) || hasImpl("Clone", type))
+        continue;
+      throw TypeError(std::format("cannot copy-capture affine value of type `{}` that does not implement Clone; "
+                                  "use `[move ...]`, `[ref ...]`, or `derive(Clone)` on the type",
+                                  interner_.display(type)),
+                      closure.span);
+    }
     for (size_t index = 0; index < closure.closureParameterIds.size(); ++index)
     {
       closureLocals.emplace(closure.closureParameterIds[index].value, parameterTypes[index]);

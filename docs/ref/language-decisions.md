@@ -69,6 +69,15 @@
 
 - Closure syntax is `|params| expression` or `|params| { statements }`.
 - Explicit capture lists: `[move data, ref config, ref mut state] |params| { … }`.
+- **Capture semantics:** a capture value is threaded into **every** call, so:
+  - `[move x]` consumes the enclosing local; later uses of that local are
+    rejected (use-after-move).
+  - `[x]` (copy capture) of an **affine** value requires the type to implement
+    `Clone` — the capture is deep-copied per call, so the original stays live
+    and remains usable after calls. Copy-capturing an affine non-`Clone` value
+    is a compile error; use `[move x]`, `[ref x]`, or add `Clone`.
+  - Capturing a scoped reference makes the closure an anonymous borrower of the
+    referent: the loan lives until every bearer has been used for the last time.
 - Recursion requires an explicit named binding; anonymous closures do not
   implicitly self-bind.
 - Effects are inferred internally; `native`/`const`/`extern` declarations may
