@@ -1,5 +1,8 @@
 # B5 — copy-capture of affine values requires Clone (cloned per call)
 
+> **Status: LANDED 2026-11-23 (commit `4a4738c`).** Kept for reference; the
+> semantics are now documented in `docs/ref/language-decisions.md` (D-006).
+
 ## Defect (reproduced)
 ```
 import prelude; import memory;
@@ -60,3 +63,19 @@ Verified: `derive(Copy + Clone)` on a struct works (`clone p` → correct field)
 ## Status
 Planned, not started. Blocker resolved by decision 2026-11-23:
 copy-capture of affine values requires Clone, cloned per call.
+
+## Follow-up defect (still open, NOT fixed by B5)
+`clone` on `Cell<T>` is a shallow handle copy rather than a deep copy, so it
+aborts independently of captures:
+```
+import prelude; import memory;
+fun main() -> i64 {
+  let c = newCell<i64>(5);
+  let d = clone c;      // no new allocation
+  cellSet(ref d, 9);    // invalid heap handle
+  return cellGet(ref d);
+}
+```
+→ `invalid heap handle`. B5 does not depend on it (copy-capturing a Cell is
+now rejected because Cell is not Clone), but `clone c` used directly is still
+wrong. Fix would give `Cell<T>` a real Clone (allocate a fresh cell).
