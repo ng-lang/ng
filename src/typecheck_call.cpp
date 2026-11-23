@@ -248,8 +248,11 @@ namespace NG::typecheck::detail
         // INC-14 S2c: closure literal arguments cannot be inferred standalone;
         // the call checks them against the closure parameter in a deferred
         // pass, leaving their slot empty. Generic enum constructors likewise
-        // take their type from the parameter (or unification).
-        const bool deferred = argument.kind == hir::ExpressionKind::Closure || isGenericEnumLiteral(argument);
+        // take their type from the parameter (or unification). An empty array
+        // literal `[]` is the same shape: the parameter type supplies its
+        // element type, so it is checked by the later inferExpected pass.
+        const bool deferred = argument.kind == hir::ExpressionKind::Closure || isGenericEnumLiteral(argument) ||
+                              (argument.kind == hir::ExpressionKind::ArrayLiteral && argument.operands.empty());
         info.expandedTypes.push_back(deferred ? TypeId{} : infer(argument, locals));
         info.spreadSlot.push_back(false);
         info.argumentExpressions.push_back(&argument);

@@ -145,6 +145,20 @@ let xs: List<i64> = [1, 2, 3];
 let empty: List<i64> = [];
 ```
 
+An empty array literal `[]` has no element type of its own, so it takes one
+from the expected type — a binding annotation or a parameter type:
+
+```ng
+import seq;
+
+fun show(values: array<i64>) -> i64 { return len(values); }
+
+// show([]) is fine: the parameter supplies array<i64>.
+```
+
+Without an expected type it is rejected:
+`cannot infer the type of an empty array literal`.
+
 Lists spread back into array literals:
 
 ```ng
