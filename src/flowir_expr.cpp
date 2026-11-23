@@ -65,6 +65,15 @@ namespace NG::flowir::detail
         if (left == typeOf(*expression.operands[1]) && function_.derivedEqTypes.contains(left.value))
           return lowerStructEq(expression, left, text == "!=");
       }
+      // INC-24 (DEC-E): relational operators on an Ord-derived struct expand to
+      // a lexicographic field comparison.
+      if (text == "<" || text == ">" || text == "<=" || text == ">=")
+      {
+        const TypeId left = typeOf(*expression.operands[0]);
+        const TypeId right = typeOf(*expression.operands[1]);
+        if (left == right && function_.derivedOrdTypes.contains(left.value))
+          return lowerStructOrdCompare(expression, left, text);
+      }
       break;
     case ExpressionKind::Prefix:
       if (text == "ref" || text == "ref mut" || text == "*")
@@ -416,6 +425,60 @@ namespace NG::flowir::detail
                             .payload = prefixOperatorCode("!"),
                             .operands = {*accumulator}},
                 typecheck::builtin::Bool);
+  }
+
+  auto FunctionLowerer::lowerStructOrdCompare(const hir::Expression &expression, TypeId structType, std::string_view op)
+      -> ValueId
+  {
+    const auto left = lowerExpression(*expression.operands[0]);
+    const auto right = lowerExpression(*expression.operands[1]);
+    return lowerStructOrdFields(left, right, structType, op);
+  }
+
+  /// DEC-E lexicographic order: compare field 0; if they differ that decides,
+  /// otherwise keep going. A zero-field struct compares equal, so every
+  /// relational operator is false except `<=` and `>=`.
+  auto FunctionLowerer::lowerStructOrdFields(ValueId left, ValueId right, TypeId structType, std::string_view op)
+      -> ValueId
+  {
+    const auto &fields = descriptorOf(structType).elements;
+    if (fields.empty())
+    {
+      // Equal, so only the inclusive operators hold.
+      return literal(op == "<=" || op == ">=" ? "true" : "false", hir::ExpressionKind::BooleanLiteral,
+                     typecheck::builtin::Bool);
+    }
+
+    std::optional<ValueId> accumulator;
+    for (size_t index = 0; index < fields.size(); ++index)
+    {
+      const TypeId fieldType = fields[index];
+      const ValueId leftField = extractMember(left, index, fieldType);
+      const ValueId rightField = extractMember(right, index, fieldType);
+      const ValueId differs =
+          binary(op, leftField, rightField, typecheck::builtin::Bool);
+
+      if (!accumulator)
+      {
+        accumulator = differs;
+        continue;
+      }
+      // All preceding fields must be equal for this field to decide.
+      std::optional<ValueId> priorEqual;
+      for (size_t prior = 0; prior < index; ++prior)
+      {
+        const TypeId priorType = fields[prior];
+        const ValueId leftPrior = extractMember(left, prior, priorType);
+        const ValueId rightPrior = extractMember(right, prior, priorType);
+        const ValueId priorSame = binary("==", leftPrior, rightPrior, typecheck::builtin::Bool);
+        priorEqual = priorEqual ? binary("&&", *priorEqual, priorSame, typecheck::builtin::Bool) : priorSame;
+      }
+      const ValueId priorAllEqual = *priorEqual;
+      const ValueId priorAndDiffers =
+          binary("&&", priorAllEqual, differs, typecheck::builtin::Bool);
+      accumulator = binary("||", *accumulator, priorAndDiffers, typecheck::builtin::Bool);
+    }
+    return *accumulator;
   }
 
   // ---- References, spans, tuples ---------------------------------------------

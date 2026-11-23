@@ -99,6 +99,23 @@ Rejected at compile time: mid-expression use (`f()? + 1`), use inside a closure
 body, `?` on a destructuring `let`, and any use where the enclosing function
 does not return `Result`.
 
+## DEC-E — Ordering (`derive(Ord)`)
+
+`derive(Ord)` synthesizes a **total order** for a struct. Fields compare
+**lexicographically in declaration order**: the first differing field decides;
+later fields matter only when all earlier ones are equal. Enums compare their
+variant ordinal (declaration order) first.
+
+- Operators: `<`, `<=`, `>`, `>=`. Equal values satisfy the inclusive operators
+  and reject the strict ones.
+- **Float fields are rejected** — NaN breaks totality, so they are excluded from
+  v1 (`floats have no total order (NaN) and are excluded from v1`).
+- Integer and `bool` fields are orderable. A nested struct/enum field must itself
+  derive `Ord`. A `string` field passes derivation but is not yet comparable
+  (string ordering is unimplemented).
+- String ordering, when implemented, is **bytewise** (`memcmp`); for UTF-8 this
+  equals code-point order.
+
 ## D-009 — Module items vs. block statements
 
 A declaration is a **module item** introducing module-level `DefId`s; `let` is a

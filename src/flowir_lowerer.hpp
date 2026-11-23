@@ -140,6 +140,14 @@ namespace NG::flowir::detail
     [[nodiscard]] auto lowerLogicalExpression(const hir::Expression &expression) -> ValueId;
     [[nodiscard]] auto lowerStructEq(const hir::Expression &expression, TypeId structType, bool negate) -> ValueId;
     [[nodiscard]] auto lowerStructEqDirect(ValueId left, ValueId right, TypeId structType, bool negate) -> ValueId;
+    /// INC-24 (DEC-E): relational comparison of an Ord-derived struct. Fields
+    /// are compared lexicographically — the first differing field decides:
+    /// `f0a < f0b || (f0a == f0b && (f1a < f1b || ...))`. Built from existing
+    /// `==`/relational/`&&` primitives, so no new instruction is needed.
+    [[nodiscard]] auto lowerStructOrdCompare(const hir::Expression &expression, TypeId structType, std::string_view op)
+        -> ValueId;
+    [[nodiscard]] auto lowerStructOrdFields(ValueId left, ValueId right, TypeId structType, std::string_view op)
+     	-> ValueId;
     [[nodiscard]] auto lowerReferenceExpression(const hir::Expression &expression) -> ValueId;
     [[nodiscard]] auto lowerSpanExpression(const hir::Expression &expression) -> ValueId;
     [[nodiscard]] auto lowerTupleSplice(const hir::Expression &expression) -> ValueId;

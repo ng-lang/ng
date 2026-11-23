@@ -181,6 +181,33 @@ cloned.x := 30;
 
 (`example/derive.ng`.)
 
+## `derive(Ord)` — synthesized ordering
+
+`derive(Ord)` synthesizes a total order for a struct. Fields are compared
+**lexicographically in declaration order**: the first differing field decides,
+and later fields only matter when all earlier ones are equal.
+
+```ng
+struct Version: derive(Ord) { major: i64, minor: i64, patch: i64 }
+
+let v1 = Version { major: 1, minor: 0, patch: 0 };
+let v2 = Version { major: 1, minor: 0, patch: 1 };
+
+// v1 < v2 — major and minor tie, so patch decides.
+```
+
+All four operators work: `<`, `<=`, `>`, `>=`. Equal values satisfy the
+inclusive operators and reject the strict ones.
+
+A **float field is rejected** (`derive(Ord)` reports
+`floats have no total order (NaN) and are excluded from v1`): NaN breaks
+totality, so ordering over floats is deliberately not available. Integer and
+`bool` fields are orderable; a nested struct or enum field must itself derive
+`Ord`. A `string` field passes derivation but is **not yet comparable**
+(ordering over strings is still unimplemented).
+
+(`example/derive_ord.ng`.)
+
 ## Dynamic views: `ref<Trait>`
 
 `ref<Trait>` is a shared-borrowed view over any implementing value,

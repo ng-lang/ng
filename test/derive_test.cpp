@@ -374,3 +374,29 @@ TEST_CASE("vNext derive(Ord) rejects non-orderable and non-Ord nested fields", "
               output, errors) != 0);
   REQUIRE(errors.find("does not derive Ord") != std::string::npos);
 }
+
+TEST_CASE("vNext derive(Ord) orders structs lexicographically", "[vNext][Derive][Ord][Runtime]")
+{
+  // The first field decides; on a tie the next field does.
+  std::string output;
+  std::string errors;
+  REQUIRE(run("import prelude; struct P: derive(Ord) { x: i64, y: i64 } "
+              "fun main() -> unit { "
+              "let a = P { x: 1, y: 5 }; let b = P { x: 2, y: 0 }; let c = P { x: 1, y: 5 }; "
+              "let d = P { x: 1, y: 9 }; "
+              "print(a < b); print(!(b < a)); print(!(a < c)); print(a <= c); print(a >= c); "
+              "print(a < d); print(d > a); }",
+              output, errors) == 0);
+  INFO("errors: " << errors);
+  REQUIRE(errors.empty());
+  REQUIRE_THAT(output, Catch::Matchers::ContainsSubstring("true\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue"));
+}
+
+TEST_CASE("vNext derive(Ord) is rejected without the trait derived", "[vNext][Derive][Ord][Errors]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(run("import prelude; struct P { x: i64 } fun main() -> i64 { let a = P { x: 1 }; let b = P { x: 2 }; "
+              "print(a < b); return 0; }",
+              output, errors) != 0);
+}
