@@ -402,6 +402,7 @@ namespace NG::typecheck::detail
     void checkBlock(const hir::Block &block, LocalTypes locals, LoopTypes loops, TypeId returnType,
                     bool nestedScope = false);
     void checkStatement(const hir::Statement &statement, LocalTypes &locals, LoopTypes &loops, TypeId returnType);
+    void discardStatementValue(const hir::Statement &statement, const LocalTypes &locals);
     void checkLet(const hir::Statement &statement, LocalTypes &locals);
     void bindLetLocals(const hir::Statement &statement, TypeId type, LocalTypes &locals);
     /// INC-14 S3/S4 + INC-17: a `let` bound to a closure literal records its

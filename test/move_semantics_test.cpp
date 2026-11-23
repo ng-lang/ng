@@ -221,3 +221,26 @@ TEST_CASE("vNext move semantics example file runs end to end through ngi", "[vNe
   REQUIRE(errors.empty());
   REQUIRE(output.find("native main exited with code 42") != std::string::npos);
 }
+
+TEST_CASE("vNext bare move statements consume the moved local", "[vNext][Move][Errors]")
+{
+  // Regression: an expression statement `move s;` did not consume `s`.
+  for (const std::string body :
+       {"let s = P { x: 1 }; move s; let t = s; return t.x;", "let s = P { x: 1 }; s; let t = s; return t.x;",
+        "let s = P { x: 1 }; move s; move s; return 0;"})
+  {
+    INFO(body);
+    try
+    {
+      check("struct P { x: i64 } fun main() -> i64 { " + body + " }");
+      FAIL("expected a use-after-move error");
+    }
+    catch (const typecheck::TypeError &error)
+    {
+      REQUIRE(std::string{error.what()} == "use of moved value `s`");
+      REQUIRE(error.code == "E-move-used");
+    }
+  }
+  expectValue("struct P { x: i64 } fun main() -> i64 { let mut s = P { x: 1 }; move s; s := P { x: 4 }; return s.x; }",
+              "4");
+}

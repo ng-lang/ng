@@ -361,7 +361,8 @@ namespace NG::typecheck
     /// aliased (copy-on-write rebuild). Consulted by FlowIR to stamp the native
     /// helper payload for the array path.
     std::unordered_map<const hir::Expression *, bool> inPlaceMutationCalls;
-    /// Drop calls to emit at return statements: (local, drop method DefId).
+    /// Drop calls to emit at return statements, and after an expression
+    /// statement that discards an owned local (`move s;`): (local, drop DefId).
     std::unordered_map<const hir::Statement *, std::vector<std::pair<uint32_t, uint32_t>>> returnDrops;
     /// Drop calls to emit at function fall-through, keyed by function id.
     std::unordered_map<uint32_t, std::vector<std::pair<uint32_t, uint32_t>>> fallthroughDrops;

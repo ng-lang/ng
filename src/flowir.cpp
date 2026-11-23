@@ -374,6 +374,9 @@ namespace NG::flowir
         return;
       case hir::StatementKind::Expression:
         static_cast<void>(lowerExpression(*statement.expression));
+        // `move s;` discards an owned value: drop it here (checker-recorded).
+        if (const auto drops = types_.returnDrops.find(&statement); drops != types_.returnDrops.end())
+          lowerDropCalls(drops->second);
         return;
       }
     }

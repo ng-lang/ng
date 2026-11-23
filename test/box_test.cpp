@@ -282,3 +282,20 @@ TEST_CASE("vNext unannotated enum constructors hand the payload to the consumer"
   REQUIRE(errors.empty());
   REQUIRE(output.find("code 0") != std::string::npos);
 }
+
+TEST_CASE("vNext a bare move statement drops the discarded Box once", "[vNext][Box][Move][Runtime]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(run("import memory; "
+              "fun scope() -> i64 { let b = new(5); move b; let c = new(6); if (true) { move c; } return 1; } "
+              "fun main() -> i64 { "
+              "  let before = outstanding(); "
+              "  if (scope() != 1) { return 1; } "
+              "  if (outstanding() != before) { return 2; } "
+              "  return 0; }",
+              output, errors) == 0);
+  INFO("errors: " << errors);
+  REQUIRE(errors.empty());
+  REQUIRE(output.find("code 0") != std::string::npos);
+}

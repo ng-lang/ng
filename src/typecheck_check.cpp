@@ -206,8 +206,32 @@ namespace NG::typecheck::detail
       return;
     case hir::StatementKind::Expression:
       static_cast<void>(infer(*statement.expression, locals));
+      discardStatementValue(statement, locals);
       return;
     }
+  }
+
+  /// `move s;` (or a bare `s;`) consumes the local like any other by-value
+  /// use; the discarded value is dropped right after the statement, since no
+  /// binding owns it any more.
+  void Checker::discardStatementValue(const hir::Statement &statement, const LocalTypes &locals)
+  {
+    const hir::Expression *consumed = statement.expression.get();
+    while (consumed->kind == hir::ExpressionKind::Grouped)
+      consumed = consumed->operands[0].get();
+    const bool explicitMove = consumed->kind == hir::ExpressionKind::Prefix && consumed->text == "move";
+    const hir::Expression &place = explicitMove ? *consumed->operands[0] : *consumed;
+    if (place.kind != hir::ExpressionKind::ResolvedName || !place.resolvedName.has_value() ||
+        place.resolvedName->kind != hir::ResolvedNameKind::Local)
+      return;
+    const uint32_t local = place.resolvedName->id;
+    const TypeId type = locals.at(local);
+    if (!explicitMove && !isAffine(type))
+      return;
+    const bool wasMoved = moveState_.isWholeMoved(local);
+    trackConsumption(*consumed, locals);
+    if (!wasMoved && moveState_.isWholeMoved(local) && hasDrop(type))
+      returnDrops_[&statement].push_back(dropEdge(local, type, statement.span));
   }
 
   void Checker::checkLet(const hir::Statement &statement, LocalTypes &locals)
