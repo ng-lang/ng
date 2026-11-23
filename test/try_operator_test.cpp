@@ -10,10 +10,10 @@
 //   comparison over property-generated inputs).
 // * Fixed behavior: Ok payload binding (incl. annotation / `let mut` /
 //   function-body tail), chain propagation, bare-statement form, `?` inside
-//   nested if branches, and the map-spread filter marker (`f(xs)?...`) which
-//   remains unchanged.
-// * Negative contracts: non-Result return, unit return, `return <expr>?`,
-//   mid-expression use, closure bodies, and destructuring lets.
+//   nested if branches, `return e?`, and the map-spread filter marker
+//   (`f(xs)?...`) which remains unchanged.
+// * Negative contracts: non-Result return, unit return, mid-expression use,
+//   closure bodies, and destructuring lets.
 
 #include "test.hpp"
 
@@ -205,6 +205,32 @@ fun main() {
   REQUIRE_THAT(output, Catch::Matchers::ContainsSubstring("true\ntrue"));
 }
 
+TEST_CASE("INC-13 `return e?` unwraps Ok and propagates Err", "[INC13][TryOperator]")
+{
+  std::string output;
+  std::string errors;
+  const int status = run(R"(import prelude;
+fun g(x: i64) -> Result<i64, string> {
+    if (x == 0) { let e: Result<i64, string> = Result.Err("zero"); return e; }
+    let r: Result<i64, string> = Result.Ok(x * 2);
+    return r;
+}
+fun okPath(x: i64) -> Result<i64, string> {
+    return g(x)?;
+}
+fun errPath(x: i64) -> Result<i64, string> {
+    return g(x)?;
+}
+fun main() {
+    switch (okPath(3)) { case Ok(v) { print(v == 6); } case Err(e) { print(false); } }
+    switch (errPath(0)) { case Ok(v) { print(false); } case Err(e) { print(e == "zero"); } }
+})",
+                         output, errors);
+  REQUIRE(status == 0);
+  REQUIRE(errors.empty());
+  REQUIRE_THAT(output, Catch::Matchers::ContainsSubstring("true\ntrue"));
+}
+
 TEST_CASE("INC-13 `?` binds into annotation, let mut, and function-body tail", "[INC13][TryOperator]")
 {
   std::string output;
@@ -303,8 +329,6 @@ fun g(x: i64) -> Result<i64, string> {
                   "`?` requires the enclosing function to return `Result` (it returns `i64`)");
   requireRejected(kResultHelper + std::string{"fun main() { let y = g(1)?; print(y == 1); }"},
                   "`?` requires the enclosing function to return `Result` (it returns `unit`)");
-  requireRejected(kResultHelper + std::string{"fun f() -> Result<i64, string> { return g(0)?; }"},
-                  "`return <expr>?` is not supported");
   requireRejected(kResultHelper + std::string{"fun f() -> Result<i64, string> { let y = g(0)? + 1; "
                                               "let r: Result<i64, string> = Result.Ok(y); return r; }"},
                   "cannot appear mid-expression");

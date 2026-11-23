@@ -31,7 +31,21 @@ fun parseEvenDouble(text: string) -> Result<i64, string> {
     return r;
 }
 
+// `?` also works directly as the whole returned value (`return e?`).
+fun requireEvenPositiveDouble(text: string) -> Result<i64, string> {
+    return parseEvenDouble(text)?;
+}
+
 fun main() -> unit {
+    switch (requireEvenPositiveDouble("8")) {
+        case Ok(value) { print(value == 16); }
+        case Err(error) { print(false); }
+    }
+    switch (requireEvenPositiveDouble("5")) {
+        case Ok(value) { print(false); }
+        case Err(error) { print(error == "not even"); }
+    }
+
     switch (parseEvenDouble("8")) {
         case Ok(value) { print(value == 16); }
         case Err(error) { print(false); }

@@ -84,6 +84,21 @@
   declare readable capability effects with `effects(io, foreign, …)`.
 - General algebraic effects are not a language feature.
 
+## D-007 — Error model: `Result` and the `?` operator
+
+Inside a function returning `Result<T, E>`, `expr?` unwraps `Ok` to its payload
+and otherwise returns `Result.Err(...)` early from the enclosing function.
+
+Allowed positions:
+
+- a `let` initializer: `let v = f()?;`
+- a `return` value: `return f()?;`
+- a bare expression statement: `f()?;`
+
+Rejected at compile time: mid-expression use (`f()? + 1`), use inside a closure
+body, `?` on a destructuring `let`, and any use where the enclosing function
+does not return `Result`.
+
 ## D-009 — Module items vs. block statements
 
 A declaration is a **module item** introducing module-level `DefId`s; `let` is a

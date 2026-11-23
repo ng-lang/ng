@@ -56,6 +56,15 @@ namespace NG::hir
     {
       return const_cast<syntax::TryExpression *>(dynamic_cast<const syntax::TryExpression *>(let->initializer.get()));
     }
+    // INC-13 follow-up: `return e?` is a root position too — `e?` is the whole
+    // returned value, so the Ok arm can return its payload directly.
+    if (const auto *ret = dynamic_cast<const syntax::ReturnStatement *>(&statement))
+    {
+      const syntax::Expression *root = ret->value.get();
+      while (const auto *grouped = dynamic_cast<const syntax::GroupedExpression *>(root))
+        root = grouped->expression.get();
+      return const_cast<syntax::TryExpression *>(dynamic_cast<const syntax::TryExpression *>(root));
+    }
     if (const auto *expression = dynamic_cast<const syntax::ExpressionStatement *>(&statement))
     {
       const syntax::Expression *root = expression->expression.get();
@@ -107,6 +116,20 @@ namespace NG::hir
       okStatements.push_back(std::make_unique<syntax::LetStatement>(
           let->name, let->isMutable, let->annotation,
           std::make_unique<syntax::IdentifierExpression>(okLocal, tryExpr.span), let->span));
+    }
+    else if (dynamic_cast<const syntax::ReturnStatement *>(&statement) != nullptr)
+    {
+      // `return e?` — the Ok payload is the returned value. Wrapping it in
+      // `Result.Ok(...)` matches the declared Result return type; there are no
+      // following statements, because `return` ends the block.
+      std::vector<syntax::ExpressionPtr> okArguments;
+      okArguments.push_back(std::make_unique<syntax::IdentifierExpression>(okLocal, tryExpr.span));
+      okStatements.push_back(std::make_unique<syntax::ReturnStatement>(
+          std::make_unique<syntax::CallExpression>(
+              std::make_unique<syntax::MemberExpression>(
+                  std::make_unique<syntax::IdentifierExpression>("Result", tryExpr.span), "Ok", tryExpr.span),
+              std::move(okArguments), tryExpr.span),
+          tryExpr.span));
     }
     for (size_t index = startIndex; index < source.statements.size(); ++index)
       okStatements.push_back(std::move(source.statements[index]));
@@ -227,11 +250,9 @@ namespace NG::hir
       Statement resolved{.kind = StatementKind::Return, .span = returnStatement->span};
       if (returnStatement->value != nullptr)
       {
-        const syntax::Expression *root = returnStatement->value.get();
-        while (const auto *grouped = dynamic_cast<const syntax::GroupedExpression *>(root))
-          root = grouped->expression.get();
-        if (dynamic_cast<const syntax::TryExpression *>(root) != nullptr)
-          throw ResolutionError("`return <expr>?` is not supported", returnStatement->value->span);
+        // INC-13 follow-up: `return e?` desugars through the statement-list
+        // root path (`rootTryOf`/`desugarTry`), reached before this point. A
+        // `?` here is therefore already gone; assert rather than reject.
         resolved.expression = resolveExpression(*returnStatement->value);
       }
       return resolved;

@@ -244,6 +244,53 @@ fun main() -> i64 {
 33
 ```
 
+## The `?` try operator
+
+Inside a function returning `Result<T, E>`, `expr?` unwraps `Ok` to its payload
+and returns `Result.Err(...)` early otherwise.
+
+```ng
+import prelude;
+
+fun requireEven(x: i64) -> Result<i64, string> {
+    if (x % 2 == 0) { let r: Result<i64, string> = Result.Ok(x); return r; }
+    let e: Result<i64, string> = Result.Err("odd");
+    return e;
+}
+
+fun doubleEven(x: i64) -> Result<i64, string> {
+    let v = requireEven(x)?;      // Ok -> v; Err -> returns from doubleEven
+    let r: Result<i64, string> = Result.Ok(v * 2);
+    return r;
+}
+
+fun viaReturn(x: i64) -> Result<i64, string> {
+    return requireEven(x)?;       // `?` as the whole returned value
+}
+
+fun main() -> unit {
+    switch (doubleEven(4)) { case Ok(v) { print(v == 8); } case Err(e) { print(false); } }
+    switch (doubleEven(3)) { case Ok(v) { print(false); } case Err(e) { print(e == "odd"); } }
+    switch (viaReturn(6))  { case Ok(v) { print(v == 6); } case Err(e) { print(false); } }
+}
+```
+
+```text
+true
+true
+true
+```
+
+`?` is allowed at these positions:
+
+- a `let` initializer: `let v = f()?;`
+- a `return` value: `return f()?;`
+- a bare expression statement: `f()?;`
+
+It is **not** allowed mid-expression (`f()? + 1`), inside a closure body, or on
+a destructuring `let`; each is a compile-time error. The enclosing function must
+return `Result`.
+
 Recursion is unrestricted, including self-recursive functions with arguments
 and an accumulator.
 
