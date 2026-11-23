@@ -587,6 +587,8 @@ namespace NG::typecheck::detail
     std::unordered_set<uint32_t> placeholderFunctions_;
     std::unordered_set<uint32_t> derivedCloneTypes_;
     std::unordered_set<uint32_t> derivedEqTypes_;
+    /// INC-24 (DEC-E): types whose field-wise total order is synthesized.
+    std::unordered_set<uint32_t> derivedOrdTypes_;
     std::unordered_set<uint32_t> derivedShowTypes_;
     /// Types that derive Copy: pass-by-value / move of these does not consume
     /// the binding (Copy semantics, D-002 rule 1). INC-17 M2b surfaced that

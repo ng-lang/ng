@@ -130,6 +130,40 @@ auto Checker::check(const hir::Module &module, const const_eval::ConstNativeHost
         }
         derivedEqTypes_.insert(target.value);
       }
+      if (traitName == "Ord")
+      {
+        // DEC-E: every field must be orderable - integers, bool, or string
+        // (bytewise), or a nested Ord struct/enum. Floats are rejected because
+        // NaN breaks totality.
+        const auto &descriptor = interner_.descriptor(target);
+        for (size_t i = 0; i < descriptor.elements.size(); ++i)
+        {
+          const auto &fieldType = descriptor.elements[i];
+          const auto &fd = interner_.descriptor(fieldType);
+          if (fieldType == builtin::F32 || fieldType == builtin::F64)
+            throw TypeError(
+                std::format("derive(Ord) on `{}`: field `{}` has float type `{}`; floats have no total order "
+                            "(NaN) and are excluded from v1",
+                            structure.name, descriptor.fieldNames[i], interner_.display(fieldType)),
+                structure.span);
+          if (fd.kind == TypeKind::Struct || fd.kind == TypeKind::Enum)
+          {
+            if (!derivedOrdTypes_.contains(fieldType.value))
+              throw TypeError(
+                  std::format("derive(Ord) on `{}`: field `{}` type `{}` does not derive Ord", structure.name,
+                              descriptor.fieldNames[i], interner_.display(fieldType)),
+                  structure.span);
+          }
+          else if (!isIntegerBuiltin(fieldType) && fieldType != builtin::Bool && fieldType != builtin::String)
+          {
+            throw TypeError(
+                std::format("derive(Ord) on `{}`: field `{}` type `{}` is not orderable", structure.name,
+                            descriptor.fieldNames[i], interner_.display(fieldType)),
+                structure.span);
+          }
+        }
+        derivedOrdTypes_.insert(target.value);
+      }
       if (traitName == "Show")
       {
         // Validate: every field must be a string, a scalar with a native
@@ -324,6 +358,7 @@ auto Checker::check(const hir::Module &module, const const_eval::ConstNativeHost
                           .derivedCloneCalls = std::move(derivedCloneCalls_),
                            .boxCloneCalls = std::move(boxCloneCalls_),
                           .derivedEqTypes = std::move(derivedEqTypes_),
+                          .derivedOrdTypes = std::move(derivedOrdTypes_),
                           .derivedShowTypes = std::move(derivedShowTypes_),
                           .derivedShowCalls = std::move(derivedShowCalls_),
                           .showToStringTargets = std::move(showToStringTargets_),

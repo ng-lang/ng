@@ -1,8 +1,8 @@
 // AI-generated code; reviewed for this repository's vNext rewrite.
-#include "test.hpp"
 #include "driver.hpp"
 #include "hir.hpp"
 #include "syntax/module_parser.hpp"
+#include "test.hpp"
 #include "typecheck.hpp"
 
 #include <filesystem>
@@ -39,7 +39,8 @@ namespace
   [[nodiscard]] auto runExample(std::string_view filename, std::string &output, std::string &errors) -> int
   {
     std::string path{filename};
-    if (!std::filesystem::is_directory(std::filesystem::current_path() / "example")) path = std::string{"../"} + path;
+    if (!std::filesystem::is_directory(std::filesystem::current_path() / "example"))
+      path = std::string{"../"} + path;
     std::ostringstream outputStream;
     std::ostringstream errorStream;
     const int status = NG::runDriver({path}, outputStream, errorStream);
@@ -98,16 +99,16 @@ TEST_CASE("vNext derive validation reports malformed derives", "[vNext][Derive][
   {
     std::string output;
     std::string errors;
-    REQUIRE(run("import prelude; struct Point: derive(Unknown) { x: i64, } fun main() -> i64 { return 0; }",
-                output, errors) != 0);
+    REQUIRE(run("import prelude; struct Point: derive(Unknown) { x: i64, } fun main() -> i64 { return 0; }", output,
+                errors) != 0);
     REQUIRE(errors.find("derive: unknown trait `Unknown`; import a module that declares it") != std::string::npos);
   }
 
   {
     std::string output;
     std::string errors;
-    REQUIRE(run("import prelude; struct Point: derive(Copy + Copy) { x: i64, } fun main() -> i64 { return 0; }",
-                output, errors) != 0);
+    REQUIRE(run("import prelude; struct Point: derive(Copy + Copy) { x: i64, } fun main() -> i64 { return 0; }", output,
+                errors) != 0);
     REQUIRE(errors.find("duplicate derive for trait `Copy` on type `Point`") != std::string::npos);
   }
 
@@ -185,8 +186,8 @@ TEST_CASE("vNext derive(Eq) error: float field not Eq-comparable", "[vNext][Deri
 {
   std::string output;
   std::string errors;
-  REQUIRE(run("import prelude; struct Bad: derive(Eq) { x: f64, } fun main() -> i64 { return 0; }",
-              output, errors) != 0);
+  REQUIRE(run("import prelude; struct Bad: derive(Eq) { x: f64, } fun main() -> i64 { return 0; }", output, errors) !=
+          0);
   REQUIRE(errors.find("derive(Eq) on `Bad`: field `x` type `f64` is not Eq-comparable") != std::string::npos);
 }
 
@@ -211,7 +212,8 @@ TEST_CASE("vNext derive(Show) synthesizes name{field: value, ...} golden strings
   INFO("errors: " << errors);
   REQUIRE(errors.empty());
   REQUIRE(output.find("Point{x: 20, y: 22}\n") != std::string::npos);
-  REQUIRE(output.find("Mixed{n: 7, flag: true, ratio: 2.5, part: Inner{a: 1, b: 2}, label: hi}\n") != std::string::npos);
+  REQUIRE(output.find("Mixed{n: 7, flag: true, ratio: 2.5, part: Inner{a: 1, b: 2}, label: hi}\n") !=
+          std::string::npos);
   REQUIRE(output.find("Tagged{name: cube}\n") != std::string::npos);
   REQUIRE(output.find("Empty{}\n") != std::string::npos);
 }
@@ -303,19 +305,72 @@ TEST_CASE("vNext derive(Show) errors: unshowable fields and misuse", "[vNext][De
 {
   std::string output;
   std::string errors;
-  REQUIRE(run("import prelude; struct Bad: derive(Show) { x: i8, } fun main() -> i64 { return 0; }", output, errors) != 0);
+  REQUIRE(run("import prelude; struct Bad: derive(Show) { x: i8, } fun main() -> i64 { return 0; }", output, errors) !=
+          0);
   REQUIRE(errors.find("derive(Show) on `Bad`: field `x` type `i8` is not showable (no toString overload)") !=
           std::string::npos);
 
   REQUIRE(run("import prelude; struct Inner { a: i64, } "
-              "struct Outer: derive(Show) { inner: Inner, } fun main() -> i64 { return 0; }", output, errors) != 0);
+              "struct Outer: derive(Show) { inner: Inner, } fun main() -> i64 { return 0; }",
+              output, errors) != 0);
   REQUIRE(errors.find("derive(Show) on `Outer`: field `inner` type `Inner` does not derive Show") != std::string::npos);
 
   REQUIRE(run("import prelude; struct Plain { x: i64, } "
-              "fun main() -> i64 { let p = Plain { x: 1 }; let s = p.show(); return 0; }", output, errors) != 0);
+              "fun main() -> i64 { let p = Plain { x: 1 }; let s = p.show(); return 0; }",
+              output, errors) != 0);
   REQUIRE(errors.find("no method `show` for value of type Plain") != std::string::npos);
 
   REQUIRE(run("import prelude; struct Point: derive(Show) { x: i64, } "
-              "fun main() -> i64 { let p = Point { x: 1 }; let s = p.show(2); return 0; }", output, errors) != 0);
+              "fun main() -> i64 { let p = Point { x: 1 }; let s = p.show(2); return 0; }",
+              output, errors) != 0);
   REQUIRE(errors.find("derived show takes no arguments") != std::string::npos);
+}
+
+TEST_CASE("vNext derive(Ord) is accepted for orderable fields", "[vNext][Derive][Ord]")
+{
+  // DEC-E: integers, bool, and string fields are orderable (string by bytes).
+  std::string output;
+  std::string errors;
+  REQUIRE(run("import prelude; struct P: derive(Ord) { x: i64, s: string, b: bool } "
+              "fun main() -> i64 { let a = P { x: 1, s: \"a\", b: true }; return 0; }",
+              output, errors) == 0);
+  INFO("errors: " << errors);
+  REQUIRE(errors.empty());
+
+  // A nested struct must derive Ord too.
+  REQUIRE(run("import prelude; struct Inner: derive(Ord) { a: i64, } "
+              "struct Outer: derive(Ord) { inner: Inner, n: i64, } "
+              "fun main() -> i64 { let i = Inner { a: 1 }; "
+              "let o = Outer { inner: i, n: 2 }; return 0; }",
+              output, errors) == 0);
+  INFO("errors: " << errors);
+  REQUIRE(errors.empty());
+}
+
+TEST_CASE("vNext derive(Ord) rejects float fields", "[vNext][Derive][Ord][Errors]")
+{
+  // DEC-E v1 excludes floats: NaN breaks totality.
+  std::string output;
+  std::string errors;
+  REQUIRE(run("import prelude; struct P: derive(Ord) { x: f64 } fun main() -> i64 { return 0; }", output, errors) != 0);
+  REQUIRE(errors.find("floats have no total order") != std::string::npos);
+
+  REQUIRE(run("import prelude; struct P: derive(Ord) { x: f32 } fun main() -> i64 { return 0; }", output, errors) != 0);
+  REQUIRE(errors.find("floats have no total order") != std::string::npos);
+}
+
+TEST_CASE("vNext derive(Ord) rejects non-orderable and non-Ord nested fields", "[vNext][Derive][Ord][Errors]")
+{
+  std::string output;
+  std::string errors;
+  // An array field is not orderable.
+  REQUIRE(run("import prelude; struct P: derive(Ord) { xs: array<i64> } fun main() -> i64 { return 0; }", output,
+              errors) != 0);
+  REQUIRE(errors.find("is not orderable") != std::string::npos);
+
+  // A nested struct must itself derive Ord.
+  REQUIRE(run("import prelude; struct Inner { a: i64, } struct Outer: derive(Ord) { inner: Inner, } "
+              "fun main() -> i64 { return 0; }",
+              output, errors) != 0);
+  REQUIRE(errors.find("does not derive Ord") != std::string::npos);
 }

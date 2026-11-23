@@ -63,6 +63,7 @@ namespace NG::flowir
         .source = source.id, .name = source.name, .nativeFunction = source.nativeFunction, .externC = source.externC};
       function_.typeDescriptors = types_.typeDescriptors;
       function_.derivedEqTypes = types_.derivedEqTypes;
+      function_.derivedOrdTypes = types_.derivedOrdTypes;
       if (const auto found = types_.functionTypeIds.find(source.id.value); found != types_.functionTypeIds.end())
         function_.declaredResultType = found->second.returnType;
       reserveSyntheticLocalIds(source);

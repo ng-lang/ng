@@ -393,6 +393,9 @@ namespace NG::typecheck
     /// Types that derived `Eq`: type id set; field-level == is synthesized
     /// by the FlowIR builder for binary comparisons on these types.
     std::unordered_set<uint32_t> derivedEqTypes;
+    /// INC-24 (DEC-E): types that derived `Ord`; their field-wise total order
+    /// is synthesized by FlowIR for relational comparisons.
+    std::unordered_set<uint32_t> derivedOrdTypes;
     /// Types that derived `Show`: type id set; `.show()` on these synthesizes
     /// a `name{field: value, ...}` string in FlowIR.
     std::unordered_set<uint32_t> derivedShowTypes;

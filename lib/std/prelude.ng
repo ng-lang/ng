@@ -111,6 +111,12 @@ export trait Clone {
 export trait Eq {
     fun eq(self: Self ref, other: Self ref) -> bool;
 }
+// DEC-E: a total order. String ordering is bytewise (memcmp), which for UTF-8
+// equals code-point order; enum ordering is declaration order (ordinal).
+// Synthesized by `derive(Ord)`; a float field is rejected (NaN breaks totality).
+export trait Ord {
+    fun compare(self: Self ref, other: Self ref) -> i64;
+}
 export trait Show {
     fun show(self: Self ref) -> string;
 }

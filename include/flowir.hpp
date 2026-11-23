@@ -146,6 +146,8 @@ namespace NG::flowir
     /// INC-8: types that derived Eq — used by lowerStructEq to expand nested
     /// struct comparisons into field-by-field equality.
     std::unordered_set<uint32_t> derivedEqTypes;
+    /// INC-24 (DEC-E): types that derived Ord.
+    std::unordered_set<uint32_t> derivedOrdTypes;
   };
 
   /// Lowers resolved/type-validated control structure to a CFG. This is a new
