@@ -236,6 +236,10 @@ Structural unions (`A | B | C`) are full citizens and may be `switch` scrutinees
 - **Role split:** an `enum` is nominal and `case Variant(x)` destructures variant
   payloads; a union is structural and matches by member type or value. Variant
   patterns on a union are rejected.
+- **Tuple pattern** `case (a, b)` (INC-33) destructures a tuple scrutinee by
+  position. At least two names are required so `case (n: T)` stays a union
+  type pattern. The binding count must match the tuple arity. A matching
+  tuple pattern is exhaustive.
 
 ```ng
 fun describe(value: bool | i64 | string) -> string {

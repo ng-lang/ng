@@ -1,8 +1,8 @@
 # NG — 移交说明（下一轮 agent 请从此处开始）
 
 工作区：当前工作目录（仓库根；分支 `new-start`，**未推送**）
-基线：`238fa77`（string Ord）+ 即将落地的 mid-expression `?` 提交
-工作区状态：完成 Prompt C 后应干净；下一轮从 Prompt D 起
+基线：`5797b9b`（中部 `?`）+ 即将落地的 INC-33 提交
+工作区状态：完成 Prompt D 后应干净；下一轮从 Prompt E 起
 
 本文件列出已完成的收尾状态、仍开放的缺陷（均已实测确认仍在），以及给下一轮的可直接投喂 prompt。
 
@@ -29,7 +29,8 @@
 | `10f73da` | 去掉 drafting 仪式；HANDOFF 保留；不恢复 worklog/plans |
 | `651e98c` | **Prompt A** — `Cell<T>` 深 clone |
 | `238fa77` | **Prompt B** — string `Ord` 按字节 memcmp |
-| （本提交） | **Prompt C** — 中部表达式 `?`（按求值序提升临时变量） |
+| `5797b9b` | **Prompt C** — 中部表达式 `?`（按求值序提升临时变量） |
+| （本提交） | **Prompt D** — INC-33 元组 `case (a, b)` |
 
 闭包体与解构 `let` 上的 `?` 仍正确拒绝。
 
@@ -43,7 +44,6 @@
 
 ## 3. 建议的下一轮顺序
 
-4. **Prompt D** — INC-33 元组 case 模式（INC-23 已解锁）
 5. **Prompt E** — INC-35 Self 视图方法
 6. **Prompt F** — INC-21 span 剩余
 7. **Prompt G** — INC-28 isize/usize
@@ -61,41 +61,12 @@
 
 | Prompt | 任务 | 规模 | 现状已确认 |
 |---|---|---|---|
-| **D** | INC-33 元组 case 模式 | 中 | parse error |
 | **E** | INC-35 Self 类型的视图方法 | 中 | 显式拒绝 |
 | **F** | INC-21 剩余：field-span / span-through-ref | 中 | `span operand is not a place` |
 | **G** | INC-28 `isize` / `usize` | 中 | `unknown type usize` |
 | **H** | INC-30/31 模块工件 + RuntimeSession | 大（架构） | 未开始 |
 | **I** | INC-29 C ABI 收尾 | 大（需先拆） | 部分实现 |
 | **J** | INC-36 const fun trait bound | 小/不确定 | **基础已可用**，先探测 |
-
----
-
-### Prompt D —— INC-33 元组 case 模式
-
-```
-你在当前工作目录（NG 语言）。先读 AGENTS.md 与本目录 HANDOFF.md（§0 约定）。
-
-任务：INC-33 —— 让 `case (a, b)` 解构元组 scrutinee。
-
-现状（已确认）：
-    let t = (1, 2);
-    switch (t) { case (a, b) { ... } otherwise { ... } }
-    → syntax error: expected `:` after binding name in type pattern
-即 `(a, b)` 被当成 union 的类型模式解析了。INC-23（DEC-D union switch）已落地，
-其为 union 提供 `case (name: T)` 类型模式；元组模式需与之区分（元组是结构、无需类型标注）。
-
-实现提示：
-- 解析：src/syntax/parser.cpp 的 switch case 模式解析（区分 `case (a: T)` 类型模式
-  与 `case (a, b)` 元组模式 —— 后者在绑定名后是 `,` 或 `)`）。
-- HIR：case 模式表示需容纳元组绑定（rest 绑定机制已存在，可复用）。
-- FlowIR：src/flowir_switch.cpp 已有 enum variant / union tag / 字面量分派；
-  元组模式按位置 extract 后走既有分支机制。
-- 穷尽性：元组模式覆盖所有元组值；缺 `otherwise` 时的诊断请与既有穷尽性检查风格一致。
-
-交付：实现 + PBT（元组模式匹配 ≡ 手工索引解构，用 test/pbt.hpp/INC-1 harness）
-+ 穷尽性负契约 + example + 跑满 ctest/ASan/guard + 一个 feat 提交。
-```
 
 ---
 

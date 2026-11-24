@@ -1,8 +1,8 @@
 // AI-generated code; reviewed for this repository's vNext rewrite.
 // typecheck_switch.cpp — switch checking: enum variants (with payload
-// bindings and exhaustiveness), scalar literal-or patterns, and union
-// member/literal patterns (INC-23 DEC-D). Branch move/borrow states join
-// through BranchJoin.
+// bindings and exhaustiveness), scalar literal-or patterns, union
+// member/literal patterns (INC-23 DEC-D), and tuple patterns (INC-33).
+// Branch move/borrow states join through BranchJoin.
 #include "typecheck_internal.hpp"
 
 namespace NG::typecheck::detail
@@ -37,12 +37,21 @@ namespace NG::typecheck::detail
                       .borrowsBefore = borrowState_};
   }
 
+  [[nodiscard]] auto isTuplePattern(const hir::SwitchCase &switchCase) -> bool
+  {
+    return switchCase.variantName.empty() && switchCase.memberType == nullptr && switchCase.literalTexts.empty() &&
+           switchCase.binding.has_value();
+  }
+
   void Checker::checkSwitch(const hir::Statement &statement, const LocalTypes &locals, const LoopTypes &loops,
                             TypeId returnType)
   {
     const TypeId scrutinee = infer(*statement.expression, locals);
-    if (interner_.descriptor(scrutinee).kind == TypeKind::Union)
+    const auto kind = interner_.descriptor(scrutinee).kind;
+    if (kind == TypeKind::Union)
       checkUnionSwitch(statement, scrutinee, locals, loops, returnType);
+    else if (kind == TypeKind::Tuple)
+      checkTupleSwitch(statement, scrutinee, locals, loops, returnType);
     else if (!statement.switchCases.empty() && !statement.switchCases.front().literalTexts.empty())
       checkLiteralSwitch(statement, scrutinee, locals, loops, returnType);
     else
@@ -65,6 +74,8 @@ namespace NG::typecheck::detail
     {
       if (!switchCase.literalTexts.empty())
         throw TypeError("cannot mix literal and variant patterns in one switch", switchCase.span);
+      if (isTuplePattern(switchCase))
+        throw TypeError("tuple patterns require a tuple switch value", switchCase.span);
       const auto found = std::ranges::find(descriptor.fieldNames, switchCase.variantName);
       if (found == descriptor.fieldNames.end())
         throw TypeError(std::format("unknown variant `{}` for enum `{}`", switchCase.variantName, descriptor.name),
@@ -224,6 +235,44 @@ namespace NG::typecheck::detail
                                   memberName, interner_.display(scrutinee), memberName),
                       statement.span);
     }
+  }
+
+  void Checker::checkTupleSwitch(const hir::Statement &statement, TypeId scrutinee, const LocalTypes &locals,
+                                 const LoopTypes &loops, TypeId returnType)
+  {
+    const auto &descriptor = interner_.descriptor(scrutinee);
+    bool covered = false;
+    BranchJoin branches = beginBranches(loops, returnType, moveState_);
+    for (const auto &switchCase : statement.switchCases)
+    {
+      if (!isTuplePattern(switchCase))
+        throw TypeError("cannot mix tuple and other patterns in one switch", switchCase.span);
+      const size_t arity = 1 + switchCase.bindings.size();
+      if (arity != descriptor.elements.size())
+        throw TypeError(std::format("tuple pattern binds {} element{}, but the scrutinee has {}", arity,
+                                    arity == 1 ? "" : "s", descriptor.elements.size()),
+                        switchCase.span);
+      if (covered)
+        throw TypeError("duplicate tuple pattern in switch", switchCase.span);
+      covered = true;
+      LocalTypes caseLocals = locals;
+      const auto bind = [&](hir::LocalId local, TypeId type)
+      {
+        caseLocals.emplace(local.value, type);
+        recordLocal(local, type);
+      };
+      bind(*switchCase.binding, descriptor.elements.front());
+      for (size_t index = 0; index < switchCase.bindings.size(); ++index)
+        bind(switchCase.bindings[index], descriptor.elements[index + 1]);
+      branches.check(*switchCase.body, caseLocals);
+    }
+    if (statement.alternative != nullptr)
+      branches.check(*statement.alternative, locals);
+    branches.finish();
+    if (statement.alternative != nullptr)
+      return;
+    if (!covered)
+      throw TypeError("switch is not exhaustive: missing a tuple pattern or `otherwise`", statement.span);
   }
 
 } // namespace NG::typecheck::detail

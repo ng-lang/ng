@@ -448,6 +448,8 @@ namespace NG::typecheck::detail
     void checkSwitchLiteral(std::string_view text, TypeId scrutinee, syntax::SourceSpan span) const;
     void checkUnionSwitch(const hir::Statement &statement, TypeId scrutinee, const LocalTypes &locals,
                           const LoopTypes &loops, TypeId returnType);
+    void checkTupleSwitch(const hir::Statement &statement, TypeId scrutinee, const LocalTypes &locals,
+                          const LoopTypes &loops, TypeId returnType);
 
     // ---- typecheck_ownership.cpp: places, moves, borrows, captures ----
     [[nodiscard]] auto lastUseByBlock(const hir::Block &block) -> const std::unordered_map<uint32_t, size_t> &;

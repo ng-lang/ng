@@ -109,6 +109,24 @@ duplicate literal `2` in switch
 literal `a` does not match switch type i64
 ```
 
+## `switch` — tuple patterns
+
+A tuple scrutinee matches `case (a, b)` (or more names) and binds each
+element by position. The binding count must equal the tuple arity. One
+matching pattern covers every value of that tuple type, so `otherwise` is
+optional; without a tuple pattern, `otherwise` is required.
+
+```ng
+fun addPair(pair: tuple<i64, i64>) -> i64 {
+    switch (pair) {
+        case (a, b) { return a + b; }
+    }
+}
+```
+
+A one-name form `case (n: i64)` is a union type pattern. Tuple patterns need
+at least two names, so the colon vs comma is unambiguous.
+
 ## `switch` — union members
 
 A union annotation (`A | B`) switches on the active member: member literals

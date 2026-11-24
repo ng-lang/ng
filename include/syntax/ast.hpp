@@ -195,7 +195,7 @@ namespace NG::syntax
     /// texts; empty for variant patterns.
     const std::vector<std::string> literalTexts;
     /// INC-23 (DEC-D): union type pattern `case (x: i64)` — the member type
-    /// to match; null for literal and variant patterns.
+    /// to match; null for literal, variant, and tuple patterns.
     TypeSyntaxPtr memberType;
     const SourceSpan span;
 
@@ -219,6 +219,14 @@ namespace NG::syntax
     static auto typePattern(std::string binding, TypeSyntaxPtr type, SourceSpan sourceSpan) -> SwitchCasePattern
     {
       return SwitchCasePattern{std::move(binding), std::move(type), sourceSpan};
+    }
+
+    /// INC-33: tuple pattern `case (a, b)` — empty variant name, positional
+    /// bindings, no member type.
+    static auto tuplePattern(std::string first, std::vector<std::string> rest, SourceSpan sourceSpan)
+        -> SwitchCasePattern
+    {
+      return SwitchCasePattern{{}, std::move(first), std::move(rest), sourceSpan};
     }
 
   private:

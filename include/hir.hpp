@@ -186,7 +186,9 @@ namespace NG::hir
     std::vector<std::string> literalTexts;
     /// INC-23 (DEC-D): union type-pattern member type (`case (x: i64)`).
     /// A unique_ptr so a forward-declared hir::Type (defined later in this
-    /// header) completes lazily at destruction sites.
+    /// header) completes lazily at destruction sites. Null for tuple
+    /// patterns (`case (a, b)`), which use `binding` + `bindings` with an
+    /// empty `variantName`.
     std::unique_ptr<Type> memberType;
     std::optional<LocalId> binding;
     /// Additional tuple-payload bindings (`case Cell(value, rest)`).

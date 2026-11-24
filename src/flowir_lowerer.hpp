@@ -147,7 +147,7 @@ namespace NG::flowir::detail
     [[nodiscard]] auto lowerStructOrdCompare(const hir::Expression &expression, TypeId structType, std::string_view op)
         -> ValueId;
     [[nodiscard]] auto lowerStructOrdFields(ValueId left, ValueId right, TypeId structType, std::string_view op)
-     	-> ValueId;
+        -> ValueId;
     [[nodiscard]] auto lowerReferenceExpression(const hir::Expression &expression) -> ValueId;
     [[nodiscard]] auto lowerSpanExpression(const hir::Expression &expression) -> ValueId;
     [[nodiscard]] auto lowerTupleSplice(const hir::Expression &expression) -> ValueId;
@@ -175,6 +175,7 @@ namespace NG::flowir::detail
     void lowerEnumSwitch(const hir::Statement &statement, ValueId scrutinee);
     void lowerLiteralSwitch(const hir::Statement &statement, ValueId scrutinee);
     void lowerUnionSwitch(const hir::Statement &statement, ValueId scrutinee);
+    void lowerTupleSwitch(const hir::Statement &statement, ValueId scrutinee);
     /// Shared switch CFG: one block per case, a tail block for `otherwise`,
     /// and an exit join. `emitTest(case, caseBlock, next)` runs in the case's
     /// check block and must branch to `caseBlock` or `next`; `bindCase(case)`

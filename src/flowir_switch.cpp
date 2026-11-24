@@ -1,6 +1,7 @@
 // AI-generated code; reviewed for this repository's vNext rewrite.
-// FlowIR switch lowering: enum-variant, scalar-literal, and union (INC-23
-// DEC-D) switches over one shared case/tail/exit CFG skeleton.
+// FlowIR switch lowering: enum-variant, scalar-literal, union (INC-23
+// DEC-D), and tuple (INC-33) switches over one shared case/tail/exit CFG
+// skeleton.
 #include "flowir_lowerer.hpp"
 
 #include <algorithm>
@@ -13,8 +14,11 @@ namespace NG::flowir::detail
   void FunctionLowerer::lowerSwitch(const hir::Statement &statement)
   {
     const ValueId scrutinee = lowerExpression(*statement.expression);
-    if (kindOf(*statement.expression) == typecheck::TypeKind::Union)
+    const auto kind = kindOf(*statement.expression);
+    if (kind == typecheck::TypeKind::Union)
       lowerUnionSwitch(statement, scrutinee);
+    else if (kind == typecheck::TypeKind::Tuple)
+      lowerTupleSwitch(statement, scrutinee);
     else if (!statement.switchCases.empty() && !statement.switchCases.front().literalTexts.empty())
       lowerLiteralSwitch(statement, scrutinee);
     else
@@ -181,6 +185,31 @@ namespace NG::flowir::detail
       const ValueId payload =
           emit(Instruction{.kind = InstructionKind::ExtractEnumPayload, .source = scrutinee}, memberType);
       bindLocal(*switchCase.binding, payload, memberType);
+    };
+    lowerSwitchCases(statement, emitTest, bindCase);
+  }
+
+  /// INC-33: a tuple pattern matches every value of that arity and binds
+  /// each element by position.
+  void FunctionLowerer::lowerTupleSwitch(const hir::Statement &statement, ValueId scrutinee)
+  {
+    const auto &tuple = descriptorOf(typeOf(*statement.expression));
+    const auto emitTest = [&]([[maybe_unused]] size_t index, BlockId caseBlock, [[maybe_unused]] BlockId next)
+    {
+      const ValueId always = literal("true", hir::ExpressionKind::BooleanLiteral, Bool);
+      branch(always, caseBlock, caseBlock);
+    };
+    const auto bindCase = [&](size_t index)
+    {
+      const auto &switchCase = statement.switchCases[index];
+      for (size_t field = 0; field < tuple.elements.size(); ++field)
+      {
+        const hir::LocalId target = field == 0 ? *switchCase.binding : switchCase.bindings[field - 1];
+        const TypeId fieldType = tuple.elements[field];
+        const ValueId element = extractTuple(scrutinee, field, fieldType);
+        function_.localTypes.emplace(target.value, fieldType);
+        bindLocal(target, element, fieldType);
+      }
     };
     lowerSwitchCases(statement, emitTest, bindCase);
   }
