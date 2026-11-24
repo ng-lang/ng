@@ -1,6 +1,6 @@
 # NG — 移交说明（下一轮 agent 请从此处开始）
 
-工作区：`当前工作区`（分支 `new-start`，**未推送**）
+工作区：当前工作目录（仓库根；分支 `new-start`，**未推送**）
 基线提交：`8f319aa`（INC-24 part 2）
 工作区状态：**干净**（`git status --porcelain` 为 0）
 
@@ -112,7 +112,7 @@ print(a < b);
 ### Prompt A —— 修 `Cell<T>` 的 `clone`（推荐首选）
 
 ```
-你在 当前工作区（NG 语言，C++23 + vNext 流水线）。请先读 AGENTS.md 与本目录下的 HANDOFF.md（§0 约定与 §2.1）。
+你在当前工作目录（NG 语言，C++23 + vNext 流水线）。请先读 AGENTS.md 与本目录下的 HANDOFF.md（§0 约定与 §2.1）。
 
 任务：修复 `clone` 对 `Cell<T>` 的行为——它目前是浅拷贝 handle，导致崩溃。
 
@@ -149,7 +149,7 @@ print(a < b);
 ### Prompt B —— 补 string 的字节序比较（DEC-E 剩余半块）
 
 ```
-你在 当前工作区（NG 语言）。请先读 AGENTS.md 与 HANDOFF.md（§0 约定与 §2.3）。
+你在当前工作目录（NG 语言）。请先读 AGENTS.md 与 HANDOFF.md（§0 约定与 §2.3）。
 
 任务：让 `derive(Ord)` 的 string 字段真正可比较（DEC-E：字节序 = memcmp）。
 
@@ -177,7 +177,7 @@ print(a < b);
 ### Prompt C —— `?` 中部表达式（最大，建议单独一轮）
 
 ```
-你在 当前工作区（NG 语言）。请先读 AGENTS.md 与 HANDOFF.md（§0 约定与 §2.2）。
+你在当前工作目录（NG 语言）。请先读 AGENTS.md 与 HANDOFF.md（§0 约定与 §2.2）。
 
 任务：让 `?` 可用在表达式中部，例如 `let v = f(1)? + f(2)?;`。
 
@@ -207,7 +207,7 @@ print(a < b);
 ### Prompt D —— INC-33 元组 case 模式
 
 ```
-你在 当前工作区（NG 语言）。先读 AGENTS.md 与本目录 HANDOFF.md（§0 约定）。
+你在当前工作目录（NG 语言）。先读 AGENTS.md 与本目录 HANDOFF.md（§0 约定）。
 
 任务：INC-33 —— 让 `case (a, b)` 解构元组 scrutinee。
 
@@ -235,7 +235,7 @@ print(a < b);
 ### Prompt E —— INC-35 Self 类型的视图方法
 
 ```
-你在 当前工作区（NG 语言）。先读 AGENTS.md 与本目录 HANDOFF.md（§0 约定）。
+你在当前工作目录（NG 语言）。先读 AGENTS.md 与本目录 HANDOFF.md（§0 约定）。
 
 任务：INC-35 —— 允许通过 `ref<Trait>` 视图调用返回 `Self` 的方法。
 
@@ -262,7 +262,7 @@ print(a < b);
 ### Prompt F —— INC-21 剩余：field-span / span-through-ref / span-of-span
 
 ```
-你在 当前工作区（NG 语言）。先读 AGENTS.md 与本目录 HANDOFF.md（§0 约定）。
+你在当前工作目录（NG 语言）。先读 AGENTS.md 与本目录 HANDOFF.md（§0 约定）。
 
 任务：INC-21 剩余切片 —— 让 span 支持 struct 字段与引用路径。
 
@@ -289,7 +289,7 @@ span-of-span。三者同源，都是「span 的 place 路径需要支持非零�
 ### Prompt G —— INC-28 isize / usize
 
 ```
-你在 当前工作区（NG 语言）。先读 AGENTS.md 与本目录 HANDOFF.md（§0 约定）。
+你在当前工作目录（NG 语言）。先读 AGENTS.md 与本目录 HANDOFF.md（§0 约定）。
 
 任务：INC-28 —— 新增 `isize` / `usize`（目标字宽整数类型）。
 
@@ -315,7 +315,7 @@ span-of-span。三者同源，都是「span 的 place 路径需要支持非零�
 ### Prompt H —— INC-30/31 模块接口工件与 RuntimeSession
 
 ```
-你在 当前工作区（NG 语言）。先读 AGENTS.md 与本目录 HANDOFF.md（§0 约定），
+你在当前工作目录（NG 语言）。先读 AGENTS.md 与本目录 HANDOFF.md（§0 约定），
 以及 .agents/plans/target-architecture-hir.md / runtime-module-ffi.md 的相关章节。
 
 任务：INC-30（模块接口工件）→ INC-31（RuntimeSession 实例生命周期 + stdlib 预加载）。
@@ -342,7 +342,7 @@ span-of-span。三者同源，都是「span 的 place 路径需要支持非零�
 ### Prompt I —— INC-29 C ABI 收尾
 
 ```
-你在 当前工作区（NG 语言）。先读 AGENTS.md 与本目录 HANDOFF.md（§0 约定），
+你在当前工作目录（NG 语言）。先读 AGENTS.md 与本目录 HANDOFF.md（§0 约定），
 以及 docs/ref/language-decisions.md 的 D-004 与 .agents/plans/increment-plan.md 的 INC-29。
 
 任务：INC-29 —— C ABI 收尾。计划明确预期**再拆 2-3 个子步**，实施前先细化。
@@ -362,7 +362,7 @@ D-004 规定的 `owning` / `borrowed` / `shared` 所有权标注与 `T?` 可空�
 ### Prompt J —— INC-36 const fun 内的 trait bound（补充说明）
 
 ```
-你在 当前工作区（NG 语言）。先读 AGENTS.md 与本目录 HANDOFF.md（§0 约定）。
+你在当前工作目录（NG 语言）。先读 AGENTS.md 与本目录 HANDOFF.md（§0 约定）。
 
 注意：INC-36 的基础部分**已经可用**，接之前请先确认剩余范围，避免重复劳动。
 
