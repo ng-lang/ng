@@ -101,3 +101,61 @@ TEST_CASE("Source files respect the hard line-count ceiling", "[Arch][Guard]")
     FAIL(message);
   }
 }
+
+namespace
+{
+  /// Machine-specific home directories must not leak into tracked files:
+  /// absolute paths embed a local user name and break portability. Sources,
+  /// docs, and prompts refer to the repository root or use relative paths.
+  constexpr std::string_view kHomePrefixes[] = {"/Users/", "/home/"};
+} // namespace
+
+TEST_CASE("Tracked sources and docs contain no absolute home paths", "[Arch][Guard]")
+{
+#ifdef NG_SOURCE_DIR
+  const std::filesystem::path root(NG_SOURCE_DIR);
+#else
+  const std::filesystem::path root = std::filesystem::is_directory("src") ? "." : "..";
+#endif
+
+  std::vector<std::string> violations;
+  const auto scanFile = [&](const std::filesystem::path &path)
+  {
+    // This test names the forbidden prefixes, so it is not scanned itself.
+    if (path.filename() == "guard_test.cpp")
+      return;
+    std::ifstream stream(path);
+    std::string line;
+    size_t number = 0;
+    while (std::getline(stream, line))
+    {
+      ++number;
+      for (const auto prefix : kHomePrefixes)
+        if (line.find(prefix) != std::string::npos)
+          violations.push_back(std::format("{}:{}: contains `{}`", path.string(), number, prefix));
+    }
+  };
+  const auto scanTree = [&](const std::filesystem::path &directory)
+  {
+    if (!std::filesystem::exists(directory))
+      return;
+    for (const auto &entry : std::filesystem::recursive_directory_iterator(directory))
+      if (entry.is_regular_file())
+        scanFile(entry.path());
+  };
+
+  for (const auto *directory : {"src", "include", "lib", "example", "test", "docs/guide", "docs/ref", "docs/research",
+                                ".agents/plans"})
+    scanTree(root / directory);
+  for (const auto *file : {"README.md", "AGENTS.md", "HANDOFF.md", "CONTRIBUTING.md", "CHANGELOG.md"})
+    if (std::filesystem::exists(root / file))
+      scanFile(root / file);
+
+  if (!violations.empty())
+  {
+    std::string message = "Absolute home-directory paths found (use relative paths instead):\n";
+    for (const auto &v : violations)
+      message += "  " + v + "\n";
+    FAIL(message);
+  }
+}

@@ -76,6 +76,11 @@ clang-tidy -p build src/<file>.cpp   # uses build/compile_commands.json
 - **Tests:** `test/<topic>_test.cpp`; **examples:** `example/<topic>.ng` (NG code)
 - **External dependencies:** vendored in `build/_deps/` and `vendored/`
 - **Do not modify** files in `vendored/` or `build/_deps/`
+- **No absolute local paths** in tracked files (sources, tests, docs, examples, prompts, commit
+  messages). Never hard-code a machine-specific home directory — the OS user-home prefix followed
+  by a user name — because it embeds a local user name and does not travel with the repository.
+  Refer to "the repository root" or "the current working directory", or use relative paths.
+  Enforced by `test/guard_test.cpp`.
 - **AI-generated code** must be marked as such (see `CONTRIBUTING.md`)
 
 ## Testing Guidelines
