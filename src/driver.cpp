@@ -7,6 +7,7 @@
 #include "flowir.hpp"
 #include "hir.hpp"
 #include "module_loader.hpp"
+#include "module_artifact.hpp"
 #include "native/const_hosts.hpp"
 #include "native/lowering.hpp"
 #include "ngrt.hpp"
@@ -41,9 +42,11 @@ namespace NG
     {
       output << "Usage: ngi --expr <expression>\n"
              << "       ngi --source <source-unit>\n"
-             << "       ngi <source-file> [--emit=ssa] [--output <path>]\n"
+             << "       ngi <source-file> [--emit=ssa|artifact] [--output <path>]\n"
              << "\n"
              << "`--emit=ssa` lowers the module to QBE IL text instead of running it.\n"
+             << "`--emit=artifact` prints each module's interface artifact and checks the\n"
+             << "import boundary instead of running.\n"
              << "`--output <path>` compiles to `<path>` without running it.\n";
     }
 
@@ -310,11 +313,29 @@ namespace NG
 
     [[nodiscard]] auto compileSourceUnitAndReport(const syntax::SourceUnit &unit, std::ostream &output,
                                                   std::ostream &errors, bool emitSsa = false,
-                                                  const std::optional<std::string> &nativeOutput = std::nullopt) -> int
+                                                  const std::optional<std::string> &nativeOutput = std::nullopt,
+                                                  bool emitArtifact = false) -> int
     {
       try
       {
         const auto resolved = hir::Resolver{}.resolve(unit);
+        // INC-30: build per-module interface artifacts and verify the import
+        // boundary. The summary is only emitted for `--emit=artifact`; the
+        // verification runs in that mode so the default lowering path (and its
+        // SSA) is byte-identical.
+        if (emitArtifact)
+        {
+          const auto artifacts = modules::buildModuleArtifacts(unit, resolved);
+          const auto boundary = modules::verifyArtifactBoundary(unit, artifacts);
+          if (!boundary.empty())
+          {
+            for (const auto &failure : boundary)
+              errors << "module boundary error: " << failure.message << '\n';
+            return 1;
+          }
+          output << modules::renderArtifactSummary(artifacts);
+          return 0;
+        }
         // ARCH-3: const-capable natives live in a table-driven registry
         // (src/native/const_hosts.cpp); the driver only supplies it.
         const auto typed = typecheck::TypeChecker{}.check(resolved, native::makeConstNativeHost());
@@ -426,12 +447,13 @@ namespace NG
 
     [[nodiscard]] auto parseSourceAndReport(std::string_view source, std::ostream &output, std::ostream &errors,
                                             bool emitSsa = false,
-                                            const std::optional<std::string> &nativeOutput = std::nullopt) -> int
+                                            const std::optional<std::string> &nativeOutput = std::nullopt,
+                                            bool emitArtifact = false) -> int
     {
       try
       {
         const auto unit = modules::ModuleLoader{}.loadSource(source, std::filesystem::current_path());
-        return compileSourceUnitAndReport(unit, output, errors, emitSsa, nativeOutput);
+        return compileSourceUnitAndReport(unit, output, errors, emitSsa, nativeOutput, emitArtifact);
       }
       catch (const modules::LoadError &error)
       {
@@ -450,6 +472,7 @@ namespace NG
   auto runDriver(const std::vector<std::string_view> &arguments, std::ostream &output, std::ostream &errors) -> int
   {
     bool emitSsa = false;
+    bool emitArtifact = false;
     bool pastDoubleDash = false;
     std::optional<std::string> nativeOutput;
     std::vector<std::string_view> cleaned;
@@ -507,13 +530,18 @@ namespace NG
           cleaned.push_back(arguments[index]);
           continue;
         }
-        if (value != "ssa")
+        if (value == "ssa")
         {
-          errors << "unsupported --emit value `" << value << "` (only `ssa` is supported)\n";
-          return 1;
+          emitSsa = true;
+          continue;
         }
-        emitSsa = true;
-        continue;
+        if (value == "artifact")
+        {
+          emitArtifact = true;
+          continue;
+        }
+        errors << "unsupported --emit value `" << value << "` (only `ssa` and `artifact` are supported)\n";
+        return 1;
       }
       // `--native` is now the only execution mode; accept it for backward
       // compatibility.
@@ -521,9 +549,14 @@ namespace NG
         continue;
       cleaned.push_back(arguments[index]);
     }
-    if (nativeOutput.has_value() && emitSsa)
+    if (nativeOutput.has_value() && (emitSsa || emitArtifact))
     {
-      errors << "--output cannot be combined with --emit=ssa\n";
+      errors << "--output cannot be combined with --emit\n";
+      return 1;
+    }
+    if (emitSsa && emitArtifact)
+    {
+      errors << "--emit values are mutually exclusive\n";
       return 1;
     }
     if (cleaned.empty() || cleaned[0] == "--help" || cleaned[0] == "-h")
@@ -549,7 +582,7 @@ namespace NG
         errors << "--source requires one source-unit argument\n";
         return 1;
       }
-      return parseSourceAndReport(cleaned[1], output, errors, emitSsa, nativeOutput);
+      return parseSourceAndReport(cleaned[1], output, errors, emitSsa, nativeOutput, emitArtifact);
     }
 
     if (cleaned[0].starts_with('-') || cleaned.size() != 1)
@@ -562,7 +595,7 @@ namespace NG
     try
     {
       const auto unit = modules::ModuleLoader{}.loadFile(std::filesystem::path{std::string{cleaned[0]}});
-      return compileSourceUnitAndReport(unit, output, errors, emitSsa, nativeOutput);
+      return compileSourceUnitAndReport(unit, output, errors, emitSsa, nativeOutput, emitArtifact);
     }
     catch (const modules::LoadError &error)
     {

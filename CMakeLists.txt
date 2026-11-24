@@ -85,6 +85,7 @@ set(NG_SRC
         src/const_eval.cpp
         src/const_interp.cpp
         src/module_loader.cpp
+        src/module_artifact.cpp
         src/native/lowering.cpp
         src/ngrt.cpp
         src/syntax/block_parser.cpp

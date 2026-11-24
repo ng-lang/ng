@@ -295,3 +295,20 @@ but mixed **arithmetic** across widths is a type error.
   an unsuffixed integer literal reaching such a binding adopts the matching
   target-width parameter (canonical `i64` → `isize`, `u64` → `usize`) exactly as
   it adopts `i64`/`u64`.
+
+## D-017 — Module interface artifacts (INC-30)
+
+Every source module exposes an **interface artifact**: an immutable, textual
+description of its public surface.
+
+- An artifact lists the module's exported functions and every type declaration
+  (struct, enum, trait, `const`, opaque) it introduces, plus its private
+  functions marked `(private)`.
+- The visible surface an importer may bind is exactly that artifact: importing a
+  selective name (`import m (a, b)`) requires each name to be an exported
+  function or a type declaration of `m`. A name that is private to the module is
+  not on its interface and cannot be imported.
+- Artifacts are an interface layer over the same merged compilation unit the
+  loader produces; requesting them (`ngi --emit=artifact <file>`) prints the
+  per-module summary and verifies the import boundary, and never changes the
+  lowered program. Plain compilation and `--emit=ssa` output is unaffected.

@@ -90,4 +90,19 @@ fun main() -> i64 {
 ./build/ngi example/modules/imports_main.ng
 ```
 
+## Module interfaces
+
+Each module's public surface is its **interface artifact** (D-017): exported
+functions plus the type declarations it introduces. A selective import
+(`import m (a, b);`) may only name something on that surface — importing a name
+that is private to the module is rejected at the boundary.
+
+`--emit=artifact` prints the per-module interface summary and verifies the
+import boundary without running the program (it never changes the lowered code;
+plain compilation and `--emit=ssa` output are identical with or without it):
+
+```bash
+./build/ngi --emit=artifact example/modules/imports_main.ng
+```
+
 Next: [Generics](/guide/generics).
