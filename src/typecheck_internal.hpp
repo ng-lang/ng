@@ -13,6 +13,7 @@
 #include <iterator>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <string_view>
 #include <unordered_map>
 #include <unordered_set>
@@ -335,8 +336,9 @@ namespace NG::typecheck::detail
         -> TypeId;
     [[nodiscard]] auto inferMethodCall(const hir::Expression &expression, const LocalTypes &locals) -> TypeId;
     [[nodiscard]] auto inferBoundMethodCall(const hir::Expression &expression, TypeId dispatchType) -> TypeId;
-    [[nodiscard]] auto inferTraitViewMethodCall(const hir::Expression &expression, TypeId dispatchType,
-                                                size_t firstArgument, const LocalTypes &locals) -> TypeId;
+    [[nodiscard]] auto inferTraitViewMethodCall(const hir::Expression &expression, const hir::Expression &receiver,
+                                                TypeId dispatchType, size_t firstArgument, const LocalTypes &locals)
+        -> TypeId;
     [[nodiscard]] auto inferDerivedMethodCall(const hir::Expression &expression, TypeId dispatchType,
                                               size_t firstArgument) -> std::optional<TypeId>;
     [[nodiscard]] auto inferImplMethodCall(const hir::Expression &expression, const hir::Expression &receiver,
@@ -601,6 +603,9 @@ namespace NG::typecheck::detail
     std::unordered_set<uint32_t> derivedCopyTypes_;
     std::unordered_map<uint32_t, std::vector<std::string>> dropMovedFields_;
     std::unordered_map<const hir::Expression *, std::pair<std::string, TypeId>> traitViewCoercions_;
+    /// Locals whose initializer built a `ref<Trait>` from a known concrete type
+    /// (INC-35): Self-returning view methods specialize to that type.
+    std::unordered_map<uint32_t, TypeId> traitViewOrigins_;
     std::unordered_map<const hir::Expression *, TypeId> unionCoercions_;
     std::unordered_map<const hir::Expression *, std::pair<std::string, size_t>> traitViewCalls_;
     std::unordered_map<std::string, std::unordered_map<uint32_t, std::vector<hir::DefId>>> traitViewTables_;

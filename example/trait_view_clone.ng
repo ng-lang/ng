@@ -1,0 +1,23 @@
+// INC-35: `clone` through a `ref<Clone>` view whose origin is a known
+// concrete value returns an independent copy of that type.
+
+import prelude;
+
+struct Point {
+    x: i64,
+}
+
+impl Clone for Point {
+    fun clone(self: Self ref) -> Self {
+        return Point { x: (*self).x };
+    }
+}
+
+fun main() -> unit {
+    let mut src = Point { x: 1 };
+    let view: ref<Clone> = src;
+    let copy = view.clone();
+    src.x := 2;
+    print(copy.x == 1);
+    print(src.x == 2);
+}

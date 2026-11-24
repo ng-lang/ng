@@ -252,6 +252,17 @@ namespace NG::typecheck::detail
     if (interner_.descriptor(type).kind != TypeKind::TraitReference)
       trackConsumption(*statement.expression, locals);
     bindLetLocals(statement, type, locals);
+    if (statement.local.has_value() && statement.expression != nullptr)
+    {
+      if (const auto coercion = traitViewCoercions_.find(statement.expression.get());
+          coercion != traitViewCoercions_.end())
+        traitViewOrigins_[statement.local->value] = coercion->second.second;
+      else if (statement.expression->resolvedName.has_value() &&
+               statement.expression->resolvedName->kind == hir::ResolvedNameKind::Local)
+        if (const auto origin = traitViewOrigins_.find(statement.expression->resolvedName->id);
+            origin != traitViewOrigins_.end())
+          traitViewOrigins_[statement.local->value] = origin->second;
+    }
     // `let r = ref x;` / `let v = span xs;`: the binding becomes the bearer of
     // the loan created by its initializer.
     const auto &initializer = *statement.expression;

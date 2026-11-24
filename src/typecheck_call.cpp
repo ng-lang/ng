@@ -592,7 +592,7 @@ namespace NG::typecheck::detail
     if (dispatchKind == TypeKind::TypeParameter)
       result = inferBoundMethodCall(expression, dispatchType);
     else if (dispatchKind == TypeKind::TraitReference)
-      result = inferTraitViewMethodCall(expression, dispatchType, firstArgument, locals);
+      result = inferTraitViewMethodCall(expression, receiver, dispatchType, firstArgument, locals);
     else if (const auto derived = inferDerivedMethodCall(expression, dispatchType, firstArgument); derived.has_value())
       result = *derived;
     else
@@ -638,18 +638,29 @@ namespace NG::typecheck::detail
                                 {{owning->selfParameter.value, dispatchType}});
   }
 
-  /// Dynamic dispatch through a `ref<Trait>` view (Self-free signatures only).
-  auto Checker::inferTraitViewMethodCall(const hir::Expression &expression, TypeId dispatchType, size_t firstArgument,
-                                         const LocalTypes &locals) -> TypeId
+  /// Dynamic dispatch through a `ref<Trait>` view. Methods that mention Self
+  /// in the return type (INC-35) specialize when the view's concrete origin
+  /// is known; otherwise they are rejected.
+  auto Checker::inferTraitViewMethodCall(const hir::Expression &expression, const hir::Expression &receiver,
+                                         TypeId dispatchType, size_t firstArgument, const LocalTypes &locals) -> TypeId
   {
     const std::string traitName = interner_.descriptor(dispatchType).name;
     const auto &trait = traits_.at(traitName);
     const auto method = std::ranges::find(trait.methodOrder, expression.text);
     if (method == trait.methodOrder.end())
       throw TypeError(std::format("trait `{}` has no method `{}`", traitName, expression.text), expression.span);
-    const TypeId returnType = trait.methodReturns.at(expression.text);
+    TypeId returnType = trait.methodReturns.at(expression.text);
     if (typeContains(returnType, trait.selfParameter))
-      throw TypeError("trait object methods with Self in the return type are not yet supported", expression.span);
+    {
+      std::optional<TypeId> concrete;
+      if (receiver.resolvedName.has_value() && receiver.resolvedName->kind == hir::ResolvedNameKind::Local)
+        if (const auto origin = traitViewOrigins_.find(receiver.resolvedName->id); origin != traitViewOrigins_.end())
+          concrete = origin->second;
+      if (!concrete.has_value())
+        throw TypeError("cannot call a method returning Self on a trait view without a known concrete type",
+                        expression.span);
+      returnType = interner_.specialize(returnType, {{trait.selfParameter.value, *concrete}});
+    }
     const auto &parameters = trait.methodParameters.at(expression.text);
     const size_t supplied = expression.operands.size() - firstArgument;
     if (supplied + 1 != parameters.size())

@@ -1,8 +1,8 @@
 // AI-generated code; reviewed for this repository's vNext rewrite.
-#include "test.hpp"
 #include "driver.hpp"
 #include "hir.hpp"
 #include "syntax/module_parser.hpp"
+#include "test.hpp"
 #include "typecheck.hpp"
 
 #include <filesystem>
@@ -37,7 +37,8 @@ namespace
   [[nodiscard]] auto runExample(std::string_view filename, std::string &output, std::string &errors) -> int
   {
     std::string path{filename};
-    if (!std::filesystem::is_directory(std::filesystem::current_path() / "example")) path = std::string{"../"} + path;
+    if (!std::filesystem::is_directory(std::filesystem::current_path() / "example"))
+      path = std::string{"../"} + path;
     std::ostringstream outputStream;
     std::ostringstream errorStream;
     const int status = NG::runDriver({path}, outputStream, errorStream);
@@ -70,26 +71,28 @@ namespace
 TEST_CASE("vNext trait views coerce values and dispatch dynamically", "[vNext][TraitObjects][Runtime]")
 {
   expectValue(std::string{ShowFixture} + "fun main() -> i64 { "
-              "let counter = Counter { label: \"seven\" }; let view: ref<Show> = counter; "
-              "if (view.show() == \"seven\") { return 1; } return 0; }",
+                                         "let counter = Counter { label: \"seven\" }; let view: ref<Show> = counter; "
+                                         "if (view.show() == \"seven\") { return 1; } return 0; }",
               "1");
 }
 
 TEST_CASE("vNext trait views flow through parameters and dispatch per concrete type", "[vNext][TraitObjects][Runtime]")
 {
-  expectValue(std::string{ShowFixture} + "fun render(item: ref<Show>) -> string { return item.show(); } "
-              "fun main() -> i64 { let counter = Counter { label: \"a\" }; let number = Number { value: 2 }; "
-              "let mut total = 0; if (render(counter) == \"a\") { total := total + 1; } "
-              "if (render(number) == \"number\") { total := total + 2; } return total; }",
+  expectValue(std::string{ShowFixture} +
+                  "fun render(item: ref<Show>) -> string { return item.show(); } "
+                  "fun main() -> i64 { let counter = Counter { label: \"a\" }; let number = Number { value: 2 }; "
+                  "let mut total = 0; if (render(counter) == \"a\") { total := total + 1; } "
+                  "if (render(number) == \"number\") { total := total + 2; } return total; }",
               "3");
 }
 
 TEST_CASE("vNext arrays of trait views dispatch elementwise", "[vNext][TraitObjects][Runtime]")
 {
-  expectValue(std::string{ShowFixture} + "fun main() -> i64 { "
-              "let counter = Counter { label: \"x\" }; let number = Number { value: 1 }; "
-              "let views: array<ref<Show>> = [counter, number]; "
-              "if (views[0].show() == \"x\" && views[1].show() == \"number\") { return 5; } return 0; }",
+  expectValue(std::string{ShowFixture} +
+                  "fun main() -> i64 { "
+                  "let counter = Counter { label: \"x\" }; let number = Number { value: 1 }; "
+                  "let views: array<ref<Show>> = [counter, number]; "
+                  "if (views[0].show() == \"x\" && views[1].show() == \"number\") { return 5; } return 0; }",
               "5");
 }
 
@@ -97,7 +100,8 @@ TEST_CASE("vNext trait view validation rejects non-implementors and bad methods"
 {
   try
   {
-    check(std::string{ShowFixture} + "struct Plain { value: i64 } "
+    check(std::string{ShowFixture} +
+          "struct Plain { value: i64 } "
           "fun main() -> i64 { let plain = Plain { value: 1 }; let view: ref<Show> = plain; return 0; }");
     FAIL("expected a missing impl error");
   }
@@ -109,7 +113,7 @@ TEST_CASE("vNext trait view validation rejects non-implementors and bad methods"
   try
   {
     check(std::string{ShowFixture} + "fun main() -> i64 { let counter = Counter { label: \"x\" }; "
-          "let view: ref<Show> = counter; return view.missing(); }");
+                                     "let view: ref<Show> = counter; return view.missing(); }");
     FAIL("expected an unknown method error");
   }
   catch (const typecheck::TypeError &error)
@@ -129,6 +133,35 @@ TEST_CASE("vNext trait view validation rejects non-implementors and bad methods"
   }
 }
 
+TEST_CASE("INC-35 trait view clone returns an independent concrete value", "[vNext][TraitObjects][INC35][Runtime]")
+{
+  expectValue("struct Point { x: i64 } "
+              "trait Dup { fun dup(self: Self ref) -> Self; } "
+              "impl Dup for Point { fun dup(self: Self ref) -> Self { return Point { x: (*self).x }; } } "
+              "fun main() -> i64 { "
+              "let mut src = Point { x: 1 }; let view: ref<Dup> = src; let copy = view.dup(); "
+              "src.x := 2; if (copy.x == 1 && src.x == 2) { return 1; } return 0; }",
+              "1");
+}
+
+TEST_CASE("INC-35 trait view Self return requires a known concrete origin", "[vNext][TraitObjects][INC35][Errors]")
+{
+  try
+  {
+    check("struct Point { x: i64 } "
+          "trait Dup { fun dup(self: Self ref) -> Self; } "
+          "impl Dup for Point { fun dup(self: Self ref) -> Self { return Point { x: (*self).x }; } } "
+          "fun use(v: ref<Dup>) -> i64 { let d = v.dup(); return d.x; } "
+          "fun main() -> i64 { let p = Point { x: 1 }; return use(p); }");
+    FAIL("expected an unknown-concrete Self projection error");
+  }
+  catch (const typecheck::TypeError &error)
+  {
+    REQUIRE(std::string{error.what()} ==
+            "cannot call a method returning Self on a trait view without a known concrete type");
+  }
+}
+
 TEST_CASE("vNext trait object example file runs end to end through ngi", "[vNext][TraitObjects][Examples]")
 {
   std::string output;
@@ -137,4 +170,14 @@ TEST_CASE("vNext trait object example file runs end to end through ngi", "[vNext
   INFO("errors: " << errors);
   REQUIRE(errors.empty());
   REQUIRE(output.find("native main exited with code 31\n") != std::string::npos);
+}
+
+TEST_CASE("INC-35 trait_view_clone example runs end to end", "[vNext][TraitObjects][INC35][Examples]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(runExample("example/trait_view_clone.ng", output, errors) == 0);
+  INFO("errors: " << errors);
+  REQUIRE(errors.empty());
+  REQUIRE_THAT(output, ContainsSubstring("true\ntrue"));
 }

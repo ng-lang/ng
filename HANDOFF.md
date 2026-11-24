@@ -1,8 +1,8 @@
 # NG — 移交说明（下一轮 agent 请从此处开始）
 
 工作区：当前工作目录（仓库根；分支 `new-start`，**未推送**）
-基线：`5797b9b`（中部 `?`）+ 即将落地的 INC-33 提交
-工作区状态：完成 Prompt D 后应干净；下一轮从 Prompt E 起
+基线：`796d85e`（INC-33 元组 case）+ 即将落地的 INC-35 提交
+工作区状态：完成 Prompt E 后应干净；下一轮从 Prompt F 起
 
 本文件列出已完成的收尾状态、仍开放的缺陷（均已实测确认仍在），以及给下一轮的可直接投喂 prompt。
 
@@ -30,7 +30,8 @@
 | `651e98c` | **Prompt A** — `Cell<T>` 深 clone |
 | `238fa77` | **Prompt B** — string `Ord` 按字节 memcmp |
 | `5797b9b` | **Prompt C** — 中部表达式 `?`（按求值序提升临时变量） |
-| （本提交） | **Prompt D** — INC-33 元组 `case (a, b)` |
+| `796d85e` | **Prompt D** — INC-33 元组 `case (a, b)` |
+| （本提交） | **Prompt E** — INC-35 视图上返回 `Self` 的方法 |
 
 闭包体与解构 `let` 上的 `?` 仍正确拒绝。
 
@@ -44,7 +45,6 @@
 
 ## 3. 建议的下一轮顺序
 
-5. **Prompt E** — INC-35 Self 视图方法
 6. **Prompt F** — INC-21 span 剩余
 7. **Prompt G** — INC-28 isize/usize
 8. **Prompt H** — INC-30/31（架构，务必先做等价性验证）
@@ -61,39 +61,11 @@
 
 | Prompt | 任务 | 规模 | 现状已确认 |
 |---|---|---|---|
-| **E** | INC-35 Self 类型的视图方法 | 中 | 显式拒绝 |
 | **F** | INC-21 剩余：field-span / span-through-ref | 中 | `span operand is not a place` |
 | **G** | INC-28 `isize` / `usize` | 中 | `unknown type usize` |
 | **H** | INC-30/31 模块工件 + RuntimeSession | 大（架构） | 未开始 |
 | **I** | INC-29 C ABI 收尾 | 大（需先拆） | 部分实现 |
 | **J** | INC-36 const fun trait bound | 小/不确定 | **基础已可用**，先探测 |
-
----
-
-### Prompt E —— INC-35 Self 类型的视图方法
-
-```
-你在当前工作目录（NG 语言）。先读 AGENTS.md 与本目录 HANDOFF.md（§0 约定）。
-
-任务：INC-35 —— 允许通过 `ref<Trait>` 视图调用返回 `Self` 的方法。
-
-现状（已确认）：
-    trait Dup { fun dup(self: Self ref) -> Self; }
-    fun use(v: ref<Dup>) -> i64 { let d = v.dup(); ... }
-    → type error: trait object methods with Self in the return type are not yet supported
-
-目标：视图上调用 `clone()` / `dup()` 这类 `-> Self` 方法时，按 per-concrete 实例化
-填入 vtable，返回与具体类型一致的独立值（深拷贝语义）。
-
-实现提示：
-- 拒绝点：搜索该错误文本（typecheck 侧，trait object / Self 返回类型检查）。
-- `ref<Trait>` 的 per-concrete 视图表机制已在（traitViewTables_），可扩为携带
-  Self 返回方法的实例化。
-- 负契约应保留：返回未约束 `Self` 的抽象调用（无法确定具体类型）仍须拒绝。
-
-交付：实现 + 契约（视图上 clone 返回独立深拷贝；源不受影响）+ 负契约
-+ 跑满 ctest/ASan/guard + 一个 feat 提交。
-```
 
 ---
 

@@ -151,6 +151,10 @@ let view: ref<Show> = ref counter;
 - Coercion `Concrete ref` → `Trait ref` is legal only when the trait solver proves
   the concrete impl; generic trait arguments must be fully instantiated.
 - `ref<Trait>` obeys the hidden origin/loan contract of `ref`.
+- A method whose return type mentions `Self` (for example `clone`) may be
+  called on a view only when that view was bound from a known concrete value;
+  the result is an independent value of that concrete type. A parameter or
+  other erased `ref<Trait>` still cannot project `Self`.
 - A bare trait **value** is rejected: ``trait `X` is not a value type; use `ref<X>` ``.
 
 > Verified caveat: a supertrait bound does **not** make the supertrait's methods

@@ -229,6 +229,11 @@ Views coerce from bindings and call arguments: passing a binding where a
 `ref<Tag>` parameter is expected builds the view at the call site, so
 `render(counter)` dispatches to `Counter`'s impl.
 
+A method that returns `Self` (such as `clone`) can be called on a local view
+that was coerced from a known type; the result is a fresh value of that type.
+Calling it on an erased parameter (`fun use(v: ref<Clone>) { v.clone(); }`)
+is a type error — the concrete type is not known.
+
 An array of views gives heterogeneous dynamic dispatch:
 
 ```ng
