@@ -254,11 +254,21 @@ namespace NG::typecheck::detail
     return false;
   }
 
-  auto Checker::isBox(TypeId type) const -> bool
+  auto Checker::isHandleWrapper(TypeId type, std::string_view name) const -> bool
   {
     const auto &descriptor = interner_.descriptor(type);
-    return descriptor.kind == TypeKind::Struct && descriptor.name == "Box" && descriptor.fieldNames.size() == 1 &&
+    return descriptor.kind == TypeKind::Struct && descriptor.name == name && descriptor.fieldNames.size() == 1 &&
            descriptor.fieldNames.front() == "handle" && descriptor.typeArguments.size() == 1;
+  }
+
+  auto Checker::isBox(TypeId type) const -> bool
+  {
+    return isHandleWrapper(type, "Box");
+  }
+
+  auto Checker::isCell(TypeId type) const -> bool
+  {
+    return isHandleWrapper(type, "Cell");
   }
 
   auto Checker::rootLocalOf(const hir::Expression &expression) const -> std::optional<hir::LocalId>

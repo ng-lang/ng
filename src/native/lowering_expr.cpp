@@ -650,9 +650,21 @@ namespace NG::native::detail
     const auto operand = operandTemp(instruction.operands[0]);
     const auto operandType = function_.valueTypes.at(instruction.operands[0].value);
     const auto resultType = qtypeOf(function_.valueTypes.at(instruction.result.value));
-    // Unary +, move, and clone are all plain copies for scalars.
+    // Unary +, move, and clone are copies for scalars. Cell/Box clone
+    // allocates a fresh cell; other aggregates deep-copy on `clone`.
     if (payload == 3 || payload == 4 || payload == 5)
     {
+      if (payload == 5 && (isBoxType(operandType) || isCellType(operandType)))
+      {
+        const auto cloned = emitBoxClone(operand, operandType);
+        bindResult(instruction, resultType, std::format("copy {}", castFromSlot(cloned, resultType)));
+        return;
+      }
+      if (payload == 5 && needsClone(operandType))
+      {
+        bindResult(instruction, resultType, std::format("copy {}", emitClone(operand, operandType)));
+        return;
+      }
       bindResult(instruction, resultType, std::format("copy {}", operand));
       if (payload == 3 && typecheck::isIntegerBuiltin(operandType))
         applyWidthCheck(instruction);

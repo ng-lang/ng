@@ -38,20 +38,6 @@
 
 ## 2. 仍开放的缺陷（**均已实测确认仍在**，可直接复现）
 
-### 2.1 `clone` 对 `Cell<T>` 是浅拷贝（推荐优先）
-```ng
-import prelude;
-import memory;
-fun main() -> i64 {
-  let c = newCell<i64>(5);
-  let d = clone c;      // 未分配新 cell
-  cellSet(ref d, 9);    // 崩溃
-  return cellGet(ref d);
-}
-```
-→ `invalid heap handle` + `killed by signal`。`outstanding()` 在 `clone` 前后不增加。
-影响：`Cell<T>` 实际不是 `Clone`。B5 已让它不可被 copy 捕获，但直接 `clone` 仍是错的。
-
 ### 2.2 `?` 中部表达式仍不支持
 ```ng
 let v = f(1)? + f(2)?;
@@ -74,9 +60,8 @@ print(a < b);
 
 按「先修已确认缺陷 → 再补半成品增量 → 再开新特性 → 最后架构类」：
 
-1. **Prompt A** — `Cell<T>` clone（小、独立、解除真实崩溃）
-2. **Prompt B** — string 字节序排序（补齐 DEC-E）
-3. **Prompt C** — `?` 中部表达式（最大，单独一轮）
+1. **Prompt B** — string 字节序排序（补齐 DEC-E）
+2. **Prompt C** — `?` 中部表达式（最大，单独一轮）
 4. **Prompt D** — INC-33 元组 case 模式（INC-23 已解锁）
 5. **Prompt E** — INC-35 Self 视图方法
 6. **Prompt F** — INC-21 span 剩余
@@ -95,7 +80,6 @@ print(a < b);
 
 | Prompt | 任务 | 规模 | 现状已确认 |
 |---|---|---|---|
-| **A** | 修 `Cell<T>` 的 `clone`（浅拷贝→深拷贝） | 小 | 会崩 `invalid heap handle` |
 | **B** | string 的字节序比较（DEC-E 剩余半块） | 中 | `unsupported string binary payload` |
 | **C** | `?` 中部表达式 | 大 | `? cannot appear mid-expression` |
 | **D** | INC-33 元组 case 模式 | 中 | parse error |
@@ -105,43 +89,6 @@ print(a < b);
 | **H** | INC-30/31 模块工件 + RuntimeSession | 大（架构） | 未开始 |
 | **I** | INC-29 C ABI 收尾 | 大（需先拆） | 部分实现 |
 | **J** | INC-36 const fun trait bound | 小/不确定 | **基础已可用**，先探测 |
-
----
-
-### Prompt A —— 修 `Cell<T>` 的 `clone`（推荐首选）
-
-```
-你在当前工作目录（NG 语言，C++23 + vNext 流水线）。请先读 AGENTS.md 与本目录下的 HANDOFF.md（§0 约定与 §2.1）。
-
-任务：修复 `clone` 对 `Cell<T>` 的行为——它目前是浅拷贝 handle，导致崩溃。
-
-复现（我已确认仍在）：
-    import prelude;
-    import memory;
-    fun main() -> i64 {
-      let c = newCell<i64>(5);
-      let d = clone c;      // 未分配新 cell
-      cellSet(ref d, 9);    // invalid heap handle + killed by signal
-      return cellGet(ref d);
-    }
-`outstanding()` 在 clone 前后不增加，说明没有新建 cell。
-
-背景与约束：
-- 相关实现：lib/std/memory.ng（Cell<T>/newCell/cellGet/cellSet、Box<T>/new/box/read/write）、
-  src/typecheck_call.cpp 中 boxClone/derivedCloneCalls_ 的 clone 判定
-  （注意 derivedCloneTypes_ 只由 derive(Clone) 填充，手写 impl Clone 不在其中；判定请用 hasImpl）。
-- 正确语义：`clone` 应深拷贝 —— 分配一个新 cell，内容与源相同；之后对副本 cellSet 不影响源，且源仍可用。
-- B5（commit e2bc657）已让 copy 捕获要求 Clone；本修复会让 Cell<T> 真正成为 Clone，请确认二者一致。
-- 不要放宽既有 move/Drop 语义；不要触碰可运行逻辑以外的东西。
-
-交付：
-- 修复 + 回归测试（用新 cell 验证：克隆后两者独立、源仍可读、outstanding() 增加 1）。
-- 跑满门禁：ctest（基线 674，会因新增用例上升）、./build-asan/ng_test、guard（上限 1200/800 不得上调）。
-- 如 docs/ 中 memory-management / standard-library 页对 Cell clone 的描述变为可写 truth，则同步更新（docs/ 禁止出现 planned/future 措辞）。
-- 一个 fix 提交，Conventional Commits，注明 AI 生成。
-
-注意：ninja 常误报 "no work to do"，用 touch 触发重编并以实际测试结果为准。
-```
 
 ---
 

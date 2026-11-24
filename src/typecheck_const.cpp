@@ -489,6 +489,9 @@ auto Checker::matchImplPattern(const ImplInfo &impl, TypeId concreteType, Substi
 
 auto Checker::hasImpl(const std::string &traitName, TypeId target) const -> bool
 {
+  // Cell clone is compiler-lowered (fresh cell + deep payload), like Box.clone.
+  if (traitName == "Clone" && isCell(target))
+    return true;
   const auto declared = traits_.find(traitName);
   if (declared != traits_.end() && declared->second.autoTrait)
   {

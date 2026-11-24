@@ -240,7 +240,8 @@ round-trip, floats bit-preservingly.
 
 `Cell<T>` is an affine owning handle with interior mutability: `cellGet` and
 `cellSet` take a *shared* `ref`, so any number of co-borrowers may read and
-write the same cell without a `ref mut`:
+write the same cell without a `ref mut`. It implements `Clone`: `clone` and
+`.clone()` deep-copy into a fresh cell.
 
 ```ng
 let counter = newCell(0);

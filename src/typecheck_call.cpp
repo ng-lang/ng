@@ -675,7 +675,7 @@ namespace NG::typecheck::detail
   auto Checker::inferDerivedMethodCall(const hir::Expression &expression, TypeId dispatchType, size_t firstArgument)
       -> std::optional<TypeId>
   {
-    const bool boxClone = expression.text == "clone" && isBox(dispatchType);
+    const bool boxClone = expression.text == "clone" && (isBox(dispatchType) || isCell(dispatchType));
     const bool clone = boxClone || (expression.text == "clone" && derivedCloneTypes_.contains(dispatchType.value));
     const bool show = expression.text == "show" && derivedShowTypes_.contains(dispatchType.value);
     if (!clone && !show)

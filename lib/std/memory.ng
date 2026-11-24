@@ -57,7 +57,8 @@ export fun write<T>(value: Box<T> ref, updated: T) -> unit {
 // borrow checker still enforces ref-mut exclusivity when a mutable borrow is
 // actually taken. There is no deep-copy alias: `store` snapshots the payload
 // into the cell word and reads deep-copy out, so the cell is always the sole
-// live view.
+// live view. `clone` (prefix or method) allocates a fresh cell and
+// deep-copies the payload, so the source stays live and independent.
 
 export struct Cell<T> {
     handle: Handle,

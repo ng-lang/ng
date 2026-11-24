@@ -39,4 +39,11 @@ fun main() -> unit {
     let direct = handOff(counter);
     print(direct == 50);
     print(outstanding() == before);
+
+    let source = newCell(1);
+    let copied = clone source;
+    cellSet(ref copied, 7);
+    print(cellGet(ref source) == 1);
+    print(cellGet(ref copied) == 7);
+    print(outstanding() == before + 2);
 }

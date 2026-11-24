@@ -293,13 +293,21 @@ namespace NG::native::detail
     }
     return pointer;
   }
-  [[nodiscard]] auto FunctionLowerer::isBoxType(TypeId type) -> bool
+  [[nodiscard]] auto FunctionLowerer::isHandleWrapper(TypeId type, std::string_view name) -> bool
   {
     if (type.value >= function_.typeDescriptors.size())
       return false;
     const auto &descriptor = function_.typeDescriptors[type.value];
-    return descriptor.kind == TypeKind::Struct && descriptor.name == "Box" && descriptor.fieldNames.size() == 1 &&
+    return descriptor.kind == TypeKind::Struct && descriptor.name == name && descriptor.fieldNames.size() == 1 &&
            descriptor.fieldNames.front() == "handle" && descriptor.typeArguments.size() == 1;
+  }
+  [[nodiscard]] auto FunctionLowerer::isBoxType(TypeId type) -> bool
+  {
+    return isHandleWrapper(type, "Box");
+  }
+  [[nodiscard]] auto FunctionLowerer::isCellType(TypeId type) -> bool
+  {
+    return isHandleWrapper(type, "Cell");
   }
   [[nodiscard]] auto FunctionLowerer::needsClone(TypeId type) -> bool
   {
@@ -323,7 +331,7 @@ namespace NG::native::detail
     // drop-exactly-once holds (memory.ng: "no payload is ever aliased by
     // the cell").
     depthGuard_ = 0;
-    if (isBoxType(type))
+    if (isBoxType(type) || isCellType(type))
       return emitBoxEnvelopeCopy(source);
     return emitCloneDeep(source, type);
   }
@@ -368,7 +376,7 @@ namespace NG::native::detail
             std::format("clone recursion guard tripped in `{}` at type id {}", function_.name, type.value));
     }
     const auto &descriptor = function_.typeDescriptors[type.value];
-    if (isBoxType(type))
+    if (isBoxType(type) || isCellType(type))
     {
       const TypeId element = descriptor.typeArguments[0];
       const auto handleAddress = fresh();

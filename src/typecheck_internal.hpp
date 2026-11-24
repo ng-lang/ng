@@ -461,7 +461,9 @@ namespace NG::typecheck::detail
     void requireMutableRoot(const hir::Expression &expression, syntax::SourceSpan span) const;
     void requireMutableDeref(const hir::Expression &expression, const LocalTypes &locals);
     [[nodiscard]] auto isAffine(TypeId type) const -> bool;
+    [[nodiscard]] auto isHandleWrapper(TypeId type, std::string_view name) const -> bool;
     [[nodiscard]] auto isBox(TypeId type) const -> bool;
+    [[nodiscard]] auto isCell(TypeId type) const -> bool;
     [[nodiscard]] auto rootLocalOf(const hir::Expression &expression) const -> std::optional<hir::LocalId>;
     /// D-002 A1.1: the origin root of `expression` — walks through Grouped,
     /// Index, Member, and `ref`/`ref mut`/deref prefixes to the underlying

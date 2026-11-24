@@ -80,7 +80,9 @@ writes through the clone never alias it. Both cells release exactly once.
 `newCell<T>(value)` creates it; `cellGet`/`cellSet` borrow it through a
 *shared* `ref`, so any number of co-borrowers may read and write the same
 cell without a `ref mut` (ref-mut exclusivity still applies the moment a
-mutable borrow is actually taken).
+mutable borrow is actually taken). `clone` (prefix or `.clone()`) allocates a
+fresh cell and deep-copies the payload; later writes through the copy do not
+alias the source, and `outstanding()` increases by one.
 
 ```ng
 import prelude;

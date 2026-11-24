@@ -62,7 +62,8 @@ namespace
   }
 } // namespace
 
-TEST_CASE("vNext memory.Cell<T> get/set round-trip over generated i64 pairs (PBT)", "[vNext][Cell][INC22][Pbt][Runtime]")
+TEST_CASE("vNext memory.Cell<T> get/set round-trip over generated i64 pairs (PBT)",
+          "[vNext][Cell][INC22][Pbt][Runtime]")
 {
   const uint64_t seed = pbt::currentSeed("cell");
   pbt::Rng rng(seed);
@@ -85,10 +86,16 @@ TEST_CASE("vNext memory.Cell<T> get/set round-trip over generated i64 pairs (PBT
   const std::string source = "import prelude; import memory; "
                              "fun main() -> i64 { "
                              "  let before = outstanding(); "
-                             "  let seeds = [" + seeds + "]; "
-                             "  let updates = [" + updates + "]; "
+                             "  let seeds = [" +
+                             seeds +
+                             "]; "
+                             "  let updates = [" +
+                             updates +
+                             "]; "
                              "  let mut i = 0; "
-                             "  while (i < " + std::to_string(kCount) + ") { "
+                             "  while (i < " +
+                             std::to_string(kCount) +
+                             ") { "
                              "    let c = newCell(seeds[i]); "
                              "    if (cellGet(ref c) != seeds[i]) { return 2; } "
                              "    cellSet(ref c, updates[i]); "
@@ -127,7 +134,8 @@ TEST_CASE("vNext memory.Cell<T> word/string/array/struct payload round-trips", "
   requireExitCode(source, output, errors);
 }
 
-TEST_CASE("vNext memory.Cell<T> shared refs observe later writes (interior mutability)", "[vNext][Cell][INC22][Runtime]")
+TEST_CASE("vNext memory.Cell<T> shared refs observe later writes (interior mutability)",
+          "[vNext][Cell][INC22][Runtime]")
 {
   const std::string source = "import memory; "
                              "fun bump(c: Cell<i64> ref, n: i64) -> unit { "
@@ -173,6 +181,30 @@ TEST_CASE("vNext memory.Cell<T> shared writes do not dodge ref-mut exclusivity",
               output, errors) != 0);
   INFO("errors: " << errors);
   REQUIRE_THAT(errors, ContainsSubstring("shared-borrowed"));
+}
+
+TEST_CASE("vNext memory.Cell<T> clone deep-copies into a fresh cell", "[vNext][Cell][Runtime]")
+{
+  const std::string source = "import prelude; import memory; "
+                             "fun main() -> i64 { "
+                             "  let before = outstanding(); "
+                             "  let c = newCell(5); "
+                             "  if (outstanding() != before + 1) { return 1; } "
+                             "  let d = clone c; "
+                             "  if (outstanding() != before + 2) { return 2; } "
+                             "  cellSet(ref d, 9); "
+                             "  if (cellGet(ref d) != 9) { return 4; } "
+                             "  if (cellGet(ref c) != 5) { return 8; } "
+                             "  let e = c.clone(); "
+                             "  if (outstanding() != before + 3) { return 16; } "
+                             "  cellSet(ref e, 3); "
+                             "  if (cellGet(ref c) != 5) { return 32; } "
+                             "  if (cellGet(ref e) != 3) { return 64; } "
+                             "  return 0; }";
+
+  std::string output;
+  std::string errors;
+  requireExitCode(source, output, errors);
 }
 
 TEST_CASE("vNext memory.Cell<T> affine moves reject late reads", "[vNext][Cell][INC22][Compile]")

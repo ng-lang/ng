@@ -484,7 +484,9 @@ namespace NG::native
 
       /// True for aggregate kinds whose copy-first semantics require a deep
       /// copy at bind/load sites (the VM deep-copies all of these).
+      [[nodiscard]] auto isHandleWrapper(TypeId type, std::string_view name) -> bool;
       [[nodiscard]] auto isBoxType(TypeId type) -> bool;
+      [[nodiscard]] auto isCellType(TypeId type) -> bool;
       [[nodiscard]] auto needsClone(TypeId type) -> bool;
 
       /// Emits a deep copy of a Tier 0 aggregate value (static type-driven:

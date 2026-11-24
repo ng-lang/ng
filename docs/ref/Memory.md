@@ -64,7 +64,8 @@ There is no garbage collector. Allocation happens in two places:
   embedding-owned slot table. Two generic affine wrappers own those
   handles and release them through `Drop`: `Box<T>`
   (`new`/`box`/`read`/`write`, plus `clone`) and `Cell<T>` with interior
-  mutability (`newCell`/`cellGet`/`cellSet` through a shared `ref`).
+  mutability (`newCell`/`cellGet`/`cellSet` through a shared `ref`, plus
+  `clone` into a fresh cell).
   `outstanding()` reports live cells and is how drop-exactly-once is
   asserted.
 

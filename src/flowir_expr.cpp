@@ -566,7 +566,7 @@ namespace NG::flowir::detail
     const ValueId self = lowerMethodReceiver(expression, receiver);
     if (types_.derivedCloneCalls.contains(&expression))
     {
-      // Derived clone / Box.clone: Box receivers deep-copy, others load.
+      // Derived clone / Box.clone / Cell.clone: handle wrappers deep-copy.
       const auto kind =
           types_.boxCloneCalls.contains(&expression) ? InstructionKind::BoxClone : InstructionKind::LoadRef;
       return emit(Instruction{.kind = kind, .operands = {self}}, typeOf(expression));
