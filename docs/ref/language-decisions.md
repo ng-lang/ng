@@ -312,3 +312,21 @@ description of its public surface.
   loader produces; requesting them (`ngi --emit=artifact <file>`) prints the
   per-module summary and verifies the import boundary, and never changes the
   lowered program. Plain compilation and `--emit=ssa` output is unaffected.
+
+## D-018 — Compilation sessions (INC-31)
+
+A **compilation session** owns the compilation-side state of one compile run:
+the source-unit loader and the build-once module caches.
+
+- Within a session, each distinct module is parsed and its interface artifact
+  built **exactly once**, including under diamond and cyclic import graphs. The
+  loader caches modules by canonical path, so a repeated module (however many
+  importers reach it) contributes one parse and one artifact.
+- Across sessions, no mutable state is shared: a fresh session rebuilds from
+  scratch and produces an equivalent but independent result. Two sessions may
+  be alive at once without interfering.
+- The language has no module-level globals or init statements (D-009), so there
+  is no runtime global state to split into immutable artifacts and mutable
+  instances yet. The session layer is the compile-time half of that split; when
+  module globals arrive, per-session instance state attaches here without
+  changing callers.

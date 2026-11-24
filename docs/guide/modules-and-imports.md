@@ -105,4 +105,8 @@ plain compilation and `--emit=ssa` output are identical with or without it):
 ./build/ngi --emit=artifact example/modules/imports_main.ng
 ```
 
+Each compile run is a **compilation session** (D-018): within it every module is
+parsed and turned into its interface artifact exactly once — even under diamond
+or cyclic imports — and separate sessions share no mutable state.
+
 Next: [Generics](/guide/generics).

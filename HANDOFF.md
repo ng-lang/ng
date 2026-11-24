@@ -1,8 +1,8 @@
 # NG — 移交说明（下一轮 agent 请从此处开始）
 
 工作区：当前工作目录（仓库根；分支 `new-start`，**未推送**）
-基线：isize/usize 提交（Prompt G）+ 本轮 INC-30 模块工件提交（Prompt H 第一步）
-工作区状态：完成 INC-30 后应干净；下一轮从 INC-31（Prompt H 第二步）起
+基线：INC-30 模块工件 + 本轮 INC-31 CompilationSession 提交（Prompt H 两步均已落地）
+工作区状态：完成 Prompt H（INC-30 + INC-31）后应干净；下一轮从 Prompt I 起
 
 本文件列出已完成的收尾状态、仍开放的缺陷（均已实测确认仍在），以及给下一轮的可直接投喂 prompt。
 
@@ -34,7 +34,7 @@
 | `b2a8048` | **Prompt E** — INC-35 视图上返回 `Self` 的方法 |
 | （本提交） | **Prompt F** — INC-21 field-span / span-through-ref |
 | （本提交） | **Prompt G** — INC-28 `isize` / `usize`（目标字宽整数，D-016） |
-| （本提交） | **Prompt H 第一步** — INC-30 模块接口工件（D-017）；INC-31 待做 |
+| （本提交） | **Prompt H** — INC-30 模块工件（D-017）+ INC-31 CompilationSession（D-018） |
 
 闭包体与解构 `let` 上的 `?` 仍正确拒绝。
 
@@ -48,11 +48,10 @@
 
 ## 3. 建议的下一轮顺序
 
-7. **Prompt H** — INC-30/31（架构，务必先做等价性验证）
-8. **Prompt I** — INC-29 C ABI（先盘点再拆）
-9. **Prompt J** — INC-36（**先探测**，可能无需改动）
+7. **Prompt I** — INC-29 C ABI（先盘点再拆）
+8. **Prompt J** — INC-36（**先探测**，可能无需改动）
 
-注：H/I 会大范围改编译器，建议独占并在动手前先报告拆分方案。
+注：I 会大范围改编译器，建议独占并在动手前先报告拆分方案。
 
 ---
 
@@ -62,40 +61,8 @@
 
 | Prompt | 任务 | 规模 | 现状已确认 |
 |---|---|---|---|
-| **H** | INC-31 RuntimeSession（INC-30 工件已完成） | 大（架构） | INC-30 已落地，见 D-017 |
 | **I** | INC-29 C ABI 收尾 | 大（需先拆） | 部分实现 |
 | **J** | INC-36 const fun trait bound | 小/不确定 | **基础已可用**，先探测 |
-
----
-
-### Prompt H（第二步）—— INC-31 RuntimeSession 实例生命周期
-
-```
-你在当前工作目录（NG 语言）。先读 AGENTS.md 与本目录 HANDOFF.md（§0 约定），
-以及 .git 历史里上一轮的 INC-30 提交（模块接口工件，D-017）。
-
-INC-30 已完成：每模块导出 `ModuleArtifact`（导出函数 + 类型声明 + 私有函数），
-`ngi --emit=artifact` 打印接口摘要并校验 import 边界；默认 lowering 与
-`--emit=ssa` 逐字节不变（全部 example 已验证）。工件是「接口层」，见 D-017。
-
-任务：INC-31 —— RuntimeSession 实例生命周期 + stdlib 预加载。注意**现状边界**：
-- 当前语言**没有模块级 globals / init 语句**（D-009：无模块级可执行语句、
-  模块级 `let`），因此「每 artifact 一个实例、初始化恰好一次」的运行时语义
-  目前**无可观测载体**。不要硬造 globals 机制来满足它——那是新增语言特性，
-  超出本增量范围。
-- 可行的等价性路径：在 **编译期/解析期**建立 `CompilationSession` 抽象
-  （resolver + 源/工件缓存的会话级所有），把 `hir::Resolver` 的每模块状态
-  （functions_/structs_/enums_/traits_/opaqueTypes_/visibleNames_ 等）收拢成
-  「会话内可复用、跨会话隔离」的形态；stdlib 模块的 parse+HIR 结果做会话级
-  缓存（即 I7 的雏形），并以「初始化恰好一次」的**等价契约**落到工件构建
-  （每个 module 的 artifact 只构建一次、循环 import 不重复构建）。
-- 负契约：两个 CompilationSession 之间不得共享可变状态（构建两份 → 结果
-  等价但对象独立）。
-
-强建议：改动前后对全部 example `--emit=ssa` + `--emit=artifact` 双导出做
-`diff -r` 等价性比对；ctest/ASan/guard 必须全绿。
-若发现必须新增语言级 globals 才能有意义地实现，先停下向用户汇报，不要硬推。
-```
 
 ---
 

@@ -7,6 +7,7 @@
 #include "flowir.hpp"
 #include "hir.hpp"
 #include "module_loader.hpp"
+#include "compilation_session.hpp"
 #include "module_artifact.hpp"
 #include "native/const_hosts.hpp"
 #include "native/lowering.hpp"
