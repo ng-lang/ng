@@ -57,6 +57,7 @@ namespace NG::syntax
     KeywordOwning,
     KeywordBorrowed,
     KeywordShared,
+    KeywordNull,
     LeftParen,
     RightParen,
     LeftSquare,

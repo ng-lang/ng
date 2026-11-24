@@ -483,6 +483,7 @@ namespace NG::native::detail
     {
     case ExpressionKind::IntegerLiteral:
     case ExpressionKind::BooleanLiteral:
+    case ExpressionKind::NullLiteral:
     {
       if (isUnionType(resultTypeId(instruction)))
       {

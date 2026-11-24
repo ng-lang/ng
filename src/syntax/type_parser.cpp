@@ -2,6 +2,7 @@
 #include "syntax/type_parser.hpp"
 #include "syntax/const_expr.hpp"
 #include <algorithm>
+#include <format>
 #include <utility>
 
 namespace NG::syntax
@@ -28,6 +29,10 @@ namespace NG::syntax
       type = std::make_unique<UnionTypeSyntax>(std::move(members), span);
     }
     type = parsePostfix(std::move(type));
+    // D-004/INC-29: reject stray type tokens rather than silently dropping
+    // them (previously `T?` was parsed as plain `T`).
+    if (current().kind != TokenKind::End)
+      throw ParseError(std::format("unexpected token `{}` in type", current().text), current().span);
     return type;
   }
 
@@ -161,6 +166,13 @@ namespace NG::syntax
         static_cast<void>(consume());
         type = std::make_unique<SpanTypeSyntax>(std::move(type),
                                                 SourceSpan{type->span.begin, tokens_[cursor_ - 1].span.end});
+        continue;
+      }
+      if (current().kind == TokenKind::QuestionMark)
+      {
+        static_cast<void>(consume());
+        type = std::make_unique<NullableTypeSyntax>(std::move(type),
+                                                    SourceSpan{type->span.begin, tokens_[cursor_ - 1].span.end});
         continue;
       }
       if (current().kind == TokenKind::Star)

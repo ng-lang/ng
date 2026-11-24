@@ -82,6 +82,8 @@ namespace NG::hir::detail
                   .span = type.span,
                   .target = lowered(*pointer->pointee),
                   .isMutable = pointer->isMutable};
+    if (const auto *nullable = dynamic_cast<const syntax::NullableTypeSyntax *>(&type))
+      return Type{.kind = TypeKind::Nullable, .span = type.span, .target = lowered(*nullable->target)};
     if (const auto *pack = dynamic_cast<const syntax::PackTypeSyntax *>(&type))
       return Type{.kind = TypeKind::Pack, .span = type.span, .target = lowered(*pack->target)};
     if (const auto *unionType = dynamic_cast<const syntax::UnionTypeSyntax *>(&type))
@@ -128,6 +130,8 @@ namespace NG::hir::detail
       return renderTypeName(*span->target) + " span";
     if (const auto *pointer = dynamic_cast<const syntax::RawPointerTypeSyntax *>(&type))
       return renderTypeName(*pointer->pointee) + (pointer->isMutable ? " *mut" : " *const");
+    if (const auto *nullable = dynamic_cast<const syntax::NullableTypeSyntax *>(&type))
+      return renderTypeName(*nullable->target) + "?";
     if (const auto *unionType = dynamic_cast<const syntax::UnionTypeSyntax *>(&type))
       return joined(unionType->members, " | ", render);
     if (const auto *pack = dynamic_cast<const syntax::PackTypeSyntax *>(&type))

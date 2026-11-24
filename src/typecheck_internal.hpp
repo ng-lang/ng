@@ -259,6 +259,7 @@ namespace NG::typecheck::detail
     [[nodiscard]] auto abiSafetyIssue(TypeId type) const -> std::string;
     void validateExternSignature(const hir::Function &function, const FunctionTypeIds &signature);
     void validateOwnershipAnnotations(const hir::Function &function, const FunctionTypeIds &signature);
+    void validateNullableHandles(const hir::Function &function, const FunctionTypeIds &signature);
     void validateReprCStruct(const hir::Struct &structure);
 
     /// One array-literal spread (`xs...` value spread or `f(xs)...` map spread).
@@ -530,6 +531,8 @@ namespace NG::typecheck::detail
                       std::unordered_set<uint64_t> &visited);
     [[nodiscard]] auto specialize(TypeId type, const Substitution &substitution) -> TypeId;
     void requireType(TypeId expected, TypeId actual, syntax::SourceSpan span, std::string_view context) const;
+    /// D-004: reject `T?` unless T is a native opaque handle.
+    void requireNullableHandle(TypeId type, syntax::SourceSpan span) const;
     [[nodiscard]] auto specializeReturnType(const FunctionTypeIds &signature, const Substitution &substitution,
                                             size_t packCount) -> TypeId;
     [[nodiscard]] auto instantiateFunction(hir::DefId original, const Substitution &substitution, size_t packCount,

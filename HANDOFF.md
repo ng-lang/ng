@@ -1,8 +1,8 @@
 # NG — 移交说明（下一轮 agent 请从此处开始）
 
 工作区：当前工作目录（仓库根；分支 `new-start`，**未推送**）
-基线：INC-30 模块工件 + 本轮 INC-31 CompilationSession 提交（Prompt H 两步均已落地）
-工作区状态：完成 Prompt H（INC-30 + INC-31）后应干净；下一轮从 Prompt I 起
+基线：INC-28/30/31 + 本轮 INC-29 前两步（所有权注解、T? 可空句柄）
+工作区状态：INC-29 前两步已落地；剩余 varargs/callback/export extern C 未实现，下一轮继续评估
 
 本文件列出已完成的收尾状态、仍开放的缺陷（均已实测确认仍在），以及给下一轮的可直接投喂 prompt。
 
@@ -35,6 +35,8 @@
 | （本提交） | **Prompt F** — INC-21 field-span / span-through-ref |
 | （本提交） | **Prompt G** — INC-28 `isize` / `usize`（目标字宽整数，D-016） |
 | （本提交） | **Prompt H** — INC-30 模块工件（D-017）+ INC-31 CompilationSession（D-018） |
+| （本提交） | **Prompt I 第 1 步** — INC-29 owning/borrowed/shared 注解 |
+| （本提交） | **Prompt I 第 2 步** — INC-29 `T?` 可空句柄（含修复静默丢弃） |
 
 闭包体与解构 `let` 上的 `?` 仍正确拒绝。
 
@@ -48,7 +50,7 @@
 
 ## 3. 建议的下一轮顺序
 
-7. **Prompt I** — INC-29 C ABI（先盘点再拆）
+7. **Prompt I 续** — INC-29 剩余 varargs/callback/`export extern "C"`（先出方案再拆）
 8. **Prompt J** — INC-36（**先探测**，可能无需改动）
 
 注：I 会大范围改编译器，建议独占并在动手前先报告拆分方案。
@@ -61,7 +63,7 @@
 
 | Prompt | 任务 | 规模 | 现状已确认 |
 |---|---|---|---|
-| **I** | INC-29 C ABI 收尾 | 大（需先拆） | 部分实现 |
+| **I 续** | INC-29 剩余 varargs/callback/export extern C | 大（需先拆） | 所有权注解 + T? 已落地 |
 | **J** | INC-36 const fun trait bound | 小/不确定 | **基础已可用**，先探测 |
 
 ---

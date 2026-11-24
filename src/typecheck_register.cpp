@@ -293,6 +293,7 @@ auto Checker::check(const hir::Module &module, const const_eval::ConstNativeHost
     if (function.externC)
       validateExternSignature(function, signature);
     validateOwnershipAnnotations(function, signature);
+    validateNullableHandles(function, signature);
     signatures_.emplace(function.id.value, signature);
     functionTypeIds_.emplace(function.id.value, signature);
     functionTypes_.emplace(function.id.value, std::move(displaySignature));
@@ -795,11 +796,32 @@ void Checker::validateOwnershipAnnotations(const hir::Function &function, const 
   }
 }
 
+void Checker::validateNullableHandles(const hir::Function &function, const FunctionTypeIds &signature)
+{
+  // D-004: `T?` is a nullable *foreign handle*. Requiring an opaque native
+  // handle (not an abstract type) keeps the zero-sentinel representation
+  // well-defined and rejects speculative nullable scalars.
+  const auto reject = [&](TypeId type, syntax::SourceSpan span) { requireNullableHandle(type, span); };
+  for (size_t index = 0; index < function.parameters.size() && index < signature.parameters.size(); ++index)
+    reject(signature.parameters[index], function.parameters[index].span);
+  if (function.returnType != nullptr)
+    reject(signature.returnType, function.span);
+}
+
 auto Checker::abiSafetyIssue(TypeId type) const -> std::string
 {
   if (isIntegerBuiltin(type) || type == builtin::F32 || type == builtin::F64 || type == builtin::Bool)
     return {};
   const auto &descriptor = interner_.descriptor(type);
+  // D-004: `T?` occupies the same slot as its handle type; a nullable native
+  // handle crosses the C ABI as a null pointer / zero word.
+  if (descriptor.kind == TypeKind::Nullable)
+  {
+    const auto &element = interner_.descriptor(descriptor.element);
+    if (element.kind == TypeKind::Opaque && !element.abstractType)
+      return {};
+    return abiSafetyIssue(descriptor.element);
+  }
   if (descriptor.kind == TypeKind::Struct && descriptor.nominalId.has_value() &&
       reprCStructIds_.contains(*descriptor.nominalId))
     return {};

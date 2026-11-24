@@ -243,6 +243,8 @@ namespace NG::typecheck::detail
       throw TypeError(std::format("trait `{}` is not a value type; use `ref<{}>`", interner_.display(bindingType),
                                   interner_.display(bindingType)),
                       statement.span);
+    if (statement.bindingType != nullptr)
+      requireNullableHandle(bindingType, statement.span);
     const TypeId type = statement.bindingType != nullptr
                             ? inferExpected(*statement.expression, bindingType, locals, "let initializer")
                             : infer(*statement.expression, locals);

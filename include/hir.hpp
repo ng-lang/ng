@@ -83,6 +83,8 @@ namespace NG::hir
     StructLiteral,
     EnumLiteral,
     BooleanLiteral,
+    /// D-004: null handle literal.
+    NullLiteral,
     ResolvedName,
     Prefix,
     Grouped,
@@ -235,6 +237,8 @@ namespace NG::hir
     ScopedReference,
     ScopedSpan,
     RawPointer,
+    /// D-004: `T?` nullable foreign handle.
+    Nullable,
     Pack,
     Union,
     Closure,

@@ -240,6 +240,7 @@ namespace NG::native
         case TypeKind::Span:
         case TypeKind::TraitReference:
         case TypeKind::Opaque:
+        case TypeKind::Nullable:
         case TypeKind::Union:
         /// INC-14 S1: closure literals are inert handles; their synthesized
         /// code functions receive call parameters directly.

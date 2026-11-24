@@ -174,6 +174,7 @@ namespace NG::syntax
                              : text == "owning" ? TokenKind::KeywordOwning
                              : text == "borrowed" ? TokenKind::KeywordBorrowed
                              : text == "shared" ? TokenKind::KeywordShared
+                             : text == "null" ? TokenKind::KeywordNull
                                                : TokenKind::Identifier;
         tokens.push_back(Token{.kind = kind, .text = text, .span = SourceSpan{begin, offset}});
         continue;
@@ -603,6 +604,8 @@ namespace NG::syntax
       return std::make_unique<BooleanLiteralExpression>(true, token.span);
     case TokenKind::KeywordFalse:
       return std::make_unique<BooleanLiteralExpression>(false, token.span);
+    case TokenKind::KeywordNull:
+      return std::make_unique<NullLiteralExpression>(token.span);
     case TokenKind::LeftSquare:
     {
       // INC-14 S3: try closure capture list `[x, move y] |params| body` first.

@@ -94,6 +94,8 @@ namespace NG::typecheck::detail
     case hir::ExpressionKind::BooleanLiteral:
       type = builtin::Bool;
       break;
+    case hir::ExpressionKind::NullLiteral:
+      throw TypeError("`null` requires an expected nullable handle type", expression.span);
     case hir::ExpressionKind::ArrayLiteral:
       type = inferArrayLiteral(expression, locals);
       break;
@@ -458,6 +460,21 @@ namespace NG::typecheck::detail
     const auto &op = expression.text;
     const auto &leftExpression = *expression.operands[0];
     const auto &rightExpression = *expression.operands[1];
+    // D-004: `null` is only meaningful next to a nullable handle. It adopts
+    // that handle type and supports equality/inequality only.
+    const bool leftNull = leftExpression.kind == hir::ExpressionKind::NullLiteral;
+    const bool rightNull = rightExpression.kind == hir::ExpressionKind::NullLiteral;
+    if (leftNull || rightNull)
+    {
+      const auto &other = leftNull ? rightExpression : leftExpression;
+      const TypeId otherType = infer(other, locals);
+      if (interner_.descriptor(otherType).kind != TypeKind::Nullable)
+        throw TypeError("`null` can only be compared with a nullable handle type", expression.span);
+      if (op != "==" && op != "!=")
+        throw TypeError("`null` supports only `==` and `!=`", expression.span);
+      record(leftNull ? leftExpression : rightExpression, otherType);
+      return builtin::Bool;
+    }
     TypeId left = infer(leftExpression, locals);
     TypeId right = infer(rightExpression, locals);
     const bool equality = op == "==" || op == "!=";

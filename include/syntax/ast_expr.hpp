@@ -30,6 +30,8 @@ namespace NG::syntax
     TupleLiteral,
     StructLiteral,
     BooleanLiteral,
+    /// D-004: `null` — the zero bit pattern for a nullable handle.
+    NullLiteral,
     Prefix,
     Try,
     Grouped,
@@ -143,6 +145,12 @@ namespace NG::syntax
         : Expression(ExpressionKind::BooleanLiteral, sourceSpan), value(literalValue)
     {
     }
+  };
+
+  /// D-004: the null handle literal; adopts an expected `T?` type.
+  struct NullLiteralExpression final : Expression
+  {
+    explicit NullLiteralExpression(SourceSpan sourceSpan) : Expression(ExpressionKind::NullLiteral, sourceSpan) {}
   };
 
   struct PrefixExpression final : Expression
@@ -303,6 +311,8 @@ namespace NG::syntax
     ScopedReference,
     Span,
     RawPointer,
+    /// D-004: `T?` nullable foreign handle.
+    Nullable,
     Pack,
     Union,
     Closure,
@@ -465,6 +475,18 @@ namespace NG::syntax
     RawPointerTypeSyntax(TypeSyntaxPtr pointedToType, bool mutablePointee, SourceSpan sourceSpan)
         : TypeSyntax(TypeSyntaxKind::RawPointer, sourceSpan), pointee(std::move(pointedToType)),
           isMutable(mutablePointee)
+    {
+    }
+  };
+
+  /// D-004: `T?` — a nullable handle. The value occupies the same 64-bit slot
+  /// as `T`; the zero bit pattern denotes null.
+  struct NullableTypeSyntax final : TypeSyntax
+  {
+    TypeSyntaxPtr target;
+
+    NullableTypeSyntax(TypeSyntaxPtr pointedToType, SourceSpan sourceSpan)
+        : TypeSyntax(TypeSyntaxKind::Nullable, sourceSpan), target(std::move(pointedToType))
     {
     }
   };

@@ -101,6 +101,13 @@ namespace NG::typecheck
                                  .length = std::nullopt, .referenceMutable = mutablePointee});
   }
 
+  auto TypeInterner::internNullable(TypeId target) -> TypeId
+  {
+    for (uint32_t index = 16; index < descriptors_.size(); ++index)
+      if (descriptors_[index].kind == TypeKind::Nullable && descriptors_[index].element == target) return TypeId{index};
+    return append(TypeDescriptor{.kind = TypeKind::Nullable, .name = "nullable", .element = target});
+  }
+
   auto TypeInterner::internTypePack(TypeId element) -> TypeId
   {
     return append(TypeDescriptor{.kind = TypeKind::TypePack, .name = "type pack", .element = element});
@@ -377,6 +384,8 @@ namespace NG::typecheck
       return internSpan(specialize(source.element, bindings, constBindings, constructors));
     if (source.kind == TypeKind::RawPointer)
       return internRawPointer(specialize(source.element, bindings, constBindings, constructors), source.referenceMutable);
+    if (source.kind == TypeKind::Nullable)
+      return internNullable(specialize(source.element, bindings, constBindings, constructors));
     if (source.kind == TypeKind::Closure)
     {
       std::vector<TypeId> parameters;
@@ -458,6 +467,8 @@ namespace NG::typecheck
     }
     if (type.kind == hir::TypeKind::RawPointer && type.target != nullptr)
       return internRawPointer(resolveWithBindings(*type.target, bindings, constBindings), type.isMutable);
+    if (type.kind == hir::TypeKind::Nullable && type.target != nullptr)
+      return internNullable(resolveWithBindings(*type.target, bindings, constBindings));
     if (type.kind == hir::TypeKind::Closure && type.result != nullptr)
     {
       std::vector<TypeId> parameters;
@@ -688,6 +699,8 @@ namespace NG::typecheck
       return internSpan(resolve(*type.target));
     if (type.kind == hir::TypeKind::RawPointer && type.target != nullptr)
       return internRawPointer(resolve(*type.target), type.isMutable);
+    if (type.kind == hir::TypeKind::Nullable && type.target != nullptr)
+      return internNullable(resolve(*type.target));
     if (type.kind == hir::TypeKind::Union)
     {
       std::vector<TypeId> members;
@@ -852,6 +865,8 @@ namespace NG::typecheck
       return std::format("{} span", display(item.element));
     if (item.kind == TypeKind::RawPointer)
       return std::format("{} {}", display(item.element), item.referenceMutable ? "*mut" : "*const");
+    if (item.kind == TypeKind::Nullable)
+      return std::format("{}?", display(item.element));
     if (item.kind == TypeKind::Struct || item.kind == TypeKind::Enum || item.kind == TypeKind::TypeParameter ||
         item.kind == TypeKind::Opaque || item.kind == TypeKind::TypeConstructor || item.kind == TypeKind::Trait)
       return item.name;

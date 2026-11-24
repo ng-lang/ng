@@ -259,6 +259,8 @@ namespace NG::const_eval
     {
     case hir::ExpressionKind::BooleanLiteral:
       return interner_.internBool(expression.text == "true");
+    case hir::ExpressionKind::NullLiteral:
+      return interner_.internInteger(0);
     case hir::ExpressionKind::IntegerLiteral:
     {
       int64_t value{};

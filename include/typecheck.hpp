@@ -127,6 +127,9 @@ namespace NG::typecheck
     Tuple,
     /// `A | B | C` union of member types (legacy 19).
     Union,
+    /// D-004: `T?` — nullable foreign handle; shares T's 64-bit slot,
+    /// zero bit pattern denotes null.
+    Nullable,
     Struct,
     Enum,
     TypeParameter,
@@ -270,6 +273,8 @@ namespace NG::typecheck
     [[nodiscard]] auto internReference(TypeId target, bool mutableReference) -> TypeId;
     [[nodiscard]] auto internSpan(TypeId target) -> TypeId;
     [[nodiscard]] auto internRawPointer(TypeId target, bool mutablePointee) -> TypeId;
+    /// D-004: nullable handle `T?` (shares T's 64-bit slot, zero = null).
+    [[nodiscard]] auto internNullable(TypeId target) -> TypeId;
     [[nodiscard]] auto internTuple(const std::vector<TypeId> &elements) -> TypeId;
     [[nodiscard]] auto internUnion(const std::vector<TypeId> &members) -> TypeId;
     [[nodiscard]] auto internClosure(const std::vector<TypeId> &parameters, TypeId result) -> TypeId;

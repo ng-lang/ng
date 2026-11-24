@@ -729,9 +729,29 @@ auto Checker::specialize(TypeId type, const Substitution &substitution) -> TypeI
 
 void Checker::requireType(TypeId expected, TypeId actual, syntax::SourceSpan span, std::string_view context) const
 {
+  // D-004: a non-null handle `T` widens implicitly to `T?` (the zero sentinel
+  // distinguishes null), so an expected nullable type accepts a plain handle.
+  if (expected != actual)
+  {
+    const auto &descriptor = interner_.descriptor(expected);
+    if (descriptor.kind == TypeKind::Nullable && descriptor.element == actual)
+      return;
+  }
   if (expected != actual)
     throw TypeError(std::format("{} type mismatch: expected {}, got {}", context, interner_.display(expected),
                                 interner_.display(actual)),
+                    span);
+}
+
+void Checker::requireNullableHandle(TypeId type, syntax::SourceSpan span) const
+{
+  if (interner_.descriptor(type).kind != TypeKind::Nullable)
+    return;
+  const TypeId element = interner_.descriptor(type).element;
+  const auto &descriptor = interner_.descriptor(element);
+  if (descriptor.kind != TypeKind::Opaque || descriptor.abstractType)
+    throw TypeError(std::format("`{}` is not a foreign handle; `T?` requires `type T = native;`",
+                                interner_.display(element)),
                     span);
 }
 

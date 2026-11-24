@@ -592,6 +592,11 @@ namespace NG::hir
       resolved->text = boolean->value ? "true" : "false";
       return resolved;
     }
+    if (dynamic_cast<const syntax::NullLiteralExpression *>(&expression) != nullptr)
+    {
+      resolved->kind = ExpressionKind::NullLiteral;
+      return resolved;
+    }
     if (const auto *prefix = dynamic_cast<const syntax::PrefixExpression *>(&expression))
     {
       resolved->kind = ExpressionKind::Prefix;

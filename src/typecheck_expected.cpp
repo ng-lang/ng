@@ -30,6 +30,11 @@ namespace NG::typecheck::detail
 
     switch (expression.kind)
     {
+    case hir::ExpressionKind::NullLiteral:
+      if (descriptor.kind == TypeKind::Nullable)
+        return adopt();
+      throw TypeError(std::format("`null` cannot initialize a value of type {}", interner_.display(expected)),
+                      expression.span);
     case hir::ExpressionKind::IntegerLiteral:
     case hir::ExpressionKind::FloatLiteral:
     case hir::ExpressionKind::Prefix:

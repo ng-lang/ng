@@ -120,6 +120,8 @@ namespace NG::const_eval
       return interner_.internInteger(parseInteger(expression.text, expression.span));
     case hir::ExpressionKind::BooleanLiteral:
       return interner_.internBool(expression.text == "true");
+    case hir::ExpressionKind::NullLiteral:
+      return interner_.internInteger(0);
     case hir::ExpressionKind::StringLiteral:
       return interner_.internString(expression.text);
     case hir::ExpressionKind::Grouped:

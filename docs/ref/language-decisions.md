@@ -59,6 +59,15 @@
 - Ownership annotations are `owning`, `borrowed`, `shared`.
 - Nullable foreign handles use `T?`.
 
+> Verified (INC-29 step 2): `T?` is a nullable handle type, valid only when
+> `T` is a native opaque handle (`type T = native;`); `i64?` and abstract
+> `type A?` are type errors. It occupies the same 64-bit slot as `T`, with the
+> zero bit pattern denoting null. The `null` literal adopts an expected `T?`,
+> a plain `T` widens implicitly to `T?`, and `==` / `!=` against `null` are the
+> supported comparisons. Nullable handles are ABI-safe in `extern "C"`.
+> Unrecognized trailing tokens in a type annotation are now rejected (previously
+> `T?` was silently collapsed to `T`).
+
 > Verified (INC-29 step 1): an ownership annotation precedes the parameter type
 > (`native fun f(x: owning H) -> unit;`) and is accepted only on `native fun` and
 > `extern "C"` declarations; on an ordinary function it is a type error.

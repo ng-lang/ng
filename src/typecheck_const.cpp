@@ -29,6 +29,8 @@ auto Checker::evaluateWhereCondition(const hir::Expression &condition, const Sub
     {
     case hir::ExpressionKind::BooleanLiteral:
       return interner_.constInterner().internBool(expression.text == "true");
+    case hir::ExpressionKind::NullLiteral:
+      return interner_.constInterner().internInteger(0);
     case hir::ExpressionKind::IntegerLiteral:
     {
       const uint64_t magnitude = parseIntegerLiteralMagnitude(expression.text, builtin::I64, expression.span);
