@@ -1,9 +1,8 @@
 # Accepted Language Decisions
 
 > This is the normative record of the NG language rules that **are implemented and
-> enforced today**. It is derived from the vNext decision log (D-001 … D-015);
-> forward-looking proposals, rejected alternatives, and the rationale debate live
-> in `.agents/plans/`, not here.
+> enforced today**. Rejected alternatives and the debate that produced a rule live
+> in git history, not in this tree.
 >
 > AI-assisted document: drafted with AI assistance.
 

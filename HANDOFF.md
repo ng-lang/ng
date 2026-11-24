@@ -12,9 +12,8 @@
 
 - **AGENTS.md** 是最新的权威约定入口（已随清理更新，引用均有效）。
 - **docs/ 只放 ground truth**（当前已实现、已确认的内容）。任何 planned / future / not yet / deferred / TODO 措辞禁止出现在 `docs/`。
-- **未来计划放 `.agents/plans/`**：增量计划、post-cutover、gap register、baselines 等 8 份已在那儿。
-  **不要恢复 `.agents/worklog/`、`.agents/workstate.md`，也不要重建"历史快照式"的 HANDOFF**
-  （这些已按用户要求彻底删除）。本文件是**前瞻性移交单**（唯一的例外），完成移交后应随工作结束更新或删除，不要往里堆历史流水。
+- **不要恢复 `.agents/worklog/`、`.agents/workstate.md`、`.agents/plans/`**。
+  本文件是前瞻性移交单；完成一项后从这里划掉，不要往里堆历史流水。剩余任务以下面的 prompt 为准。
 - **硬约束**：`test/guard_test.cpp` 的 `kMaxCppLines = 1200`、`kMaxHeaderLines = 800`，**只拆分源文件、绝不上调上限**。当前最大：`src/native/lowering_expr.cpp` 967、`module_parser.cpp` 904、`type_interner.cpp` 895、`parser.cpp` 886。
 - **提交规范**：Conventional Commits（`feat(vnext):` / `fix(checker):` / `docs(agents):` …），imperative mood；AI 生成代码须标注（见 CONTRIBUTING.md）。
 - **完成前必须跑满门禁**：`ctest --test-dir build -j`（当前基线 674）+ `./build-asan/ng_test`（当前基线 673）+ guard。构建：`cmake --build build -j` / `cmake --build build-asan -j`。

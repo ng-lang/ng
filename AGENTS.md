@@ -22,8 +22,13 @@
 - `test/*.cpp` — Catch2 v3 test suites, one per feature area (`test/test.hpp` is the shared header)
 - `docs/guide/`, `docs/ref/` — user-facing documentation (ground truth only: what is
   implemented today). Nothing speculative, planned, or historical belongs there.
-- `.agents/plans/` — future plans, gap registers, and increment tracking (not user docs)
 - `docs/research/` — cross-language design/implementation comparison research
+- Git history is the change log. Do not create `.agents/worklog/`,
+  `.agents/workstate.md`, or `.agents/plans/`. Open defects, if any, live in
+  `HANDOFF.md`.
+- Agent skills in this repo: `restraint` (always), plus `agent-facing-doc` and
+  `vnv` when editing agent docs or reviewing a claim. Do not install the rest of
+  the drafting bundle here.
 
 ## Architecture & Patterns
 - **Syntax:** `syntax::parseSourceUnit` / `Lexer` — a full-file lexer producing `Token` spans; `ModuleParser` handles module items, `ExpressionParser`/`BlockParser`/`TypeParser` handle nested forms. `>>` lexes as `ShiftRight` and is split by the generic-argument/type collectors.
@@ -45,7 +50,7 @@ cmake --build build -j
 ```
 
 The build also compiles the vendored QBE backend into `build/qbe`
-(`cmake/qbe.cmake`) for the planned native code generator; `ctest` includes
+(`cmake/qbe.cmake`); `ctest` includes
 the `qbe_smoke` toolchain test (`test/native/qbe_smoke.ssa` → qbe → cc →
 run).
 **Run tests:**
@@ -99,7 +104,6 @@ clang-tidy -p build src/<file>.cpp   # uses build/compile_commands.json
 - [Accepted language decisions](docs/ref/language-decisions.md) — the normative rules enforced today
 - [Language guide](docs/guide/language_guide.md) · [Memory](docs/ref/Memory.md)
 - [Cross-language comparison research](docs/research/mainstream-language-comparison.md)
-- Plans and increment tracking: [`.agents/plans/`](.agents/plans/)
 - [Contribution Guide](CONTRIBUTING.md)
 
 ---

@@ -145,7 +145,7 @@ TEST_CASE("Tracked sources and docs contain no absolute home paths", "[Arch][Gua
   };
 
   for (const auto *directory : {"src", "include", "lib", "example", "test", "docs/guide", "docs/ref", "docs/research",
-                                ".agents/plans"})
+                                ".agents/skills"})
     scanTree(root / directory);
   for (const auto *file : {"README.md", "AGENTS.md", "HANDOFF.md", "CONTRIBUTING.md", "CHANGELOG.md"})
     if (std::filesystem::exists(root / file))

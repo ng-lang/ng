@@ -48,8 +48,8 @@ executable). The interim bytecode/VM tier was later removed as well; see below.
 At the time of this entry the following were still outstanding: `span<T>`,
 in-place growing collections, heap domains (`Box<T>`/`Gc`/`Arc`), `isize`/`usize`,
 declared C ABI/bindgen, concurrency, tooling. Generic `Box<T>`, `Cell<T>`,
-`span<T>`, and in-place `pushBack` have since been implemented; planning
-material moved to `.agents/plans/`.
+`span<T>`, and in-place `pushBack` have since been implemented. Later planning
+notes live in git history, not in this tree.
 
 ---
 
