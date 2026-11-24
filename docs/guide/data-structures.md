@@ -198,6 +198,20 @@ let middle = dynamic[0..2];   // [1, 2]
 let window = dynamic[1..3];   // [2, 3]
 ```
 
+`span` is a borrowed, read-only view over array storage. It may start from a
+local array, a struct field, or a field reached through a `T ref`:
+
+```ng
+struct Hold { values: array<i64> }
+let bag = Hold { values: [10, 20, 30, 40] };
+let whole = span bag.values;
+let window = span bag.values[1..3];
+let through = ref bag;
+let viaRef = span through.values;
+```
+
+A span cannot be stored, returned, written, or used to span another span.
+
 Spreads splice values into literals:
 
 ```ng

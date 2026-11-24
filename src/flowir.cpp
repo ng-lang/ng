@@ -597,8 +597,8 @@ namespace NG::flowir
         require(instruction.operands.size() == indexSteps, "FlowIR reference creation index operand count mismatch");
         return;
       case InstructionKind::MakeSpan:
-        require(instruction.placeRootLocal.has_value() && !instruction.placeRootRef.has_value(),
-                "FlowIR span creation requires a local place root");
+        require(instruction.placeRootLocal.has_value() != instruction.placeRootRef.has_value(),
+                "FlowIR span creation requires exactly one place root");
         require(instruction.operands.empty() || instruction.operands.size() == 2,
                 "FlowIR span creation has invalid window operand count");
         return;

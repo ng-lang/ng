@@ -222,19 +222,11 @@ namespace NG::native::detail
     }
     case InstructionKind::MakeSpan:
     {
-      // A span is a 16-byte blob { data, len } over a direct array binding.
-      // The operand list is either empty (whole view) or { start, end }.
-      if (!instruction.placeRootLocal || instruction.placeRootRef || !instruction.placeSteps.empty())
-        throw LoweringError(
-            std::format("native lowering (M2): only direct local span creation is supported in `{}`", function_.name));
-      const auto slotAddress = localSlots_.at(instruction.placeRootLocal->value);
-      const auto valueSlot = fresh();
-      if (isCellLocal(instruction.placeRootLocal->value))
-        line(std::format("{} =l loadl {}", valueSlot, slotAddress));
-      else
-        line(std::format("{} =l copy {}", valueSlot, slotAddress));
-      const auto array = fresh();
-      line(std::format("{} =l loadl {}", array, valueSlot));
+      // A span is a 16-byte blob { data, len } over an array place (local,
+      // struct field, or field reached through a `T ref`).
+      if (instruction.placeRootLocal.has_value() == instruction.placeRootRef.has_value())
+        throw LoweringError(std::format("native lowering (M2): malformed span place in `{}`", function_.name));
+      const auto array = loadArrayAtPlace(instruction);
       std::string start;
       std::string count;
       if (instruction.operands.empty())

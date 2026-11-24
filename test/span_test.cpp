@@ -1,8 +1,8 @@
 // AI-generated code; reviewed for this repository's vNext rewrite.
-#include "test.hpp"
 #include "driver.hpp"
 #include "hir.hpp"
 #include "syntax/module_parser.hpp"
+#include "test.hpp"
 #include "typecheck.hpp"
 
 #include <filesystem>
@@ -37,7 +37,8 @@ namespace
   [[nodiscard]] auto runExample(std::string_view filename, std::string &output, std::string &errors) -> int
   {
     std::string path{filename};
-    if (!std::filesystem::is_directory(std::filesystem::current_path() / "example")) path = std::string{"../"} + path;
+    if (!std::filesystem::is_directory(std::filesystem::current_path() / "example"))
+      path = std::string{"../"} + path;
     std::ostringstream outputStream;
     std::ostringstream errorStream;
     const int status = NG::runDriver({path}, outputStream, errorStream);
@@ -148,18 +149,47 @@ TEST_CASE("vNext span views reject writes, reslicing, and non-array sources", "[
 {
   expectReject("fun main() { let xs = [1, 2]; let mut v = span xs; v[0] := 9; }",
                "cannot assign through a read-only span view");
-  expectReject("fun main() { let xs = [1, 2, 3]; let v = span xs; let w = span v[0..2]; }",
-               "slicing a span view is deferred");
-  expectReject("fun main() { let xs = [1, 2, 3]; let v = span xs; let w = v[0..2]; }",
-               "slicing a span view is deferred");
+  expectReject("fun main() { let xs = [1, 2, 3]; let v = span xs; let w = span v[0..2]; }", "cannot slice a span view");
+  expectReject("fun main() { let xs = [1, 2, 3]; let v = span xs; let w = v[0..2]; }", "cannot slice a span view");
+  expectReject("fun main() { let xs = [1, 2, 3]; let v = span xs; let w = span v; }", "cannot span a span view");
   expectReject("fun main() { let n = 5; let v = span n; }", "cannot span value of type i64");
   expectReject("fun main() { let v = span [1, 2]; }", "span operand is not a place");
   expectReject("fun main() { let xs = [1, 2]; let v = span xs[1]; }",
                "span window requires a range subscript `xs[lo..hi]`");
   expectReject("fun main() { let xs = [1, 2]; let mut v = span xs; v := span xs; }",
                "cannot reassign a span view binding");
-  expectReject("struct Hold { values: array<i64> } fun main() { let h = Hold { values: [1, 2] }; let v = span h.values; }",
-               "span over a structure field is deferred");
+}
+
+TEST_CASE("INC-21 field span and span-through-ref read the array in place", "[vNext][Span][INC21][Runtime]")
+{
+  expectValue("struct Hold { values: array<i64> } "
+              "fun main() -> i64 { let h = Hold { values: [1, 2, 3] }; let v = span h.values; "
+              "return v[0] + v[2]; }",
+              "4");
+  expectValue("struct Hold { values: array<i64> } "
+              "fun main() -> i64 { let h = Hold { values: [10, 20, 30, 40] }; "
+              "let v = span h.values[1..3]; return v[0] + v[1]; }",
+              "50");
+  expectValue("struct Hold { values: array<i64> } "
+              "fun main() -> i64 { let h = Hold { values: [2, 4, 6] }; let r = ref h; "
+              "let v = span r.values; return v[1]; }",
+              "4");
+  expectValue("fun main() -> i64 { let xs = [8, 9]; let r = ref xs; let v = span r; return v[1]; }", "9");
+}
+
+TEST_CASE("INC-21 field span borrows the struct origin", "[vNext][Span][INC21][Errors]")
+{
+  try
+  {
+    check("struct Hold { values: array<i64> } "
+          "fun main() { let mut h = Hold { values: [1, 2] }; let v = span h.values; "
+          "let r = ref mut h; }");
+    FAIL("expected an E-borrow-conflict type error");
+  }
+  catch (const typecheck::TypeError &error)
+  {
+    REQUIRE(error.code == "E-borrow-conflict");
+  }
 }
 
 TEST_CASE("vNext span views conflict with mutable borrows of the source", "[vNext][Span][Errors]")

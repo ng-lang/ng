@@ -481,6 +481,9 @@ namespace NG::native
       /// Builds a ref object { l root-slot, l count, { l kind, l payload }[] }
       /// on the heap; shared by MakeRef and MakeTraitView.
       [[nodiscard]] auto emitRefObject(uint32_t rootLocal, const std::vector<flowir::PlaceStep> &steps) -> std::string;
+      /// Loads the array object at a MakeSpan place (local or ref root, with
+      /// optional field steps).
+      [[nodiscard]] auto loadArrayAtPlace(const Instruction &instruction) -> std::string;
 
       /// True for aggregate kinds whose copy-first semantics require a deep
       /// copy at bind/load sites (the VM deep-copies all of these).

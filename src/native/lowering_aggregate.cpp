@@ -293,6 +293,63 @@ namespace NG::native::detail
     }
     return pointer;
   }
+
+  auto FunctionLowerer::loadArrayAtPlace(const Instruction &instruction) -> std::string
+  {
+    const auto walk = [&](std::string address, TypeId rootType) -> std::string
+    {
+      for (const auto &step : normalizeSteps(rootType, instruction.placeSteps))
+      {
+        const auto next = fresh();
+        if (step.kind == 1)
+          line(std::format("{} =l call $ngrt_arr_addr(l {}, l {})", next, address, step.payload));
+        else if (step.kind == 2)
+          line(std::format("{} =l add {}, {}", next, address, 16 + 8 * std::stoll(step.payload)));
+        else
+          line(std::format("{} =l add {}, {}", next, address, step.payload));
+        address = next;
+      }
+      if (instruction.placeSteps.empty())
+        return address;
+      const auto loaded = fresh();
+      line(std::format("{} =l loadl {}", loaded, address));
+      return loaded;
+    };
+    if (instruction.placeRootRef)
+    {
+      const auto reference = operandTemp(*instruction.placeRootRef);
+      const auto loaded = fresh();
+      line(std::format("{} =l call $ngrt_ref_load(l {})", loaded, reference));
+      const auto referent =
+          function_.typeDescriptors[function_.valueTypes.at(instruction.placeRootRef->value).value].element;
+      return walk(loaded, referent);
+    }
+    const auto rootLocal = instruction.placeRootLocal->value;
+    const auto slotAddress = localSlots_.at(rootLocal);
+    if (instruction.placeSteps.empty())
+    {
+      const auto valueSlot = fresh();
+      if (isCellLocal(rootLocal))
+        line(std::format("{} =l loadl {}", valueSlot, slotAddress));
+      else
+        line(std::format("{} =l copy {}", valueSlot, slotAddress));
+      const auto array = fresh();
+      line(std::format("{} =l loadl {}", array, valueSlot));
+      return array;
+    }
+    std::string current;
+    if (isCellLocal(rootLocal))
+      current = loadLocal(rootLocal);
+    else if (qtypeOf(function_.localTypes.at(rootLocal)) == QType::Aggregate)
+      current = slotAddress;
+    else
+    {
+      current = fresh();
+      line(std::format("{} =l loadl {}", current, slotAddress));
+    }
+    return walk(current, function_.localTypes.at(rootLocal));
+  }
+
   [[nodiscard]] auto FunctionLowerer::isHandleWrapper(TypeId type, std::string_view name) -> bool
   {
     if (type.value >= function_.typeDescriptors.size())

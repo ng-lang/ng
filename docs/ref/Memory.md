@@ -51,6 +51,9 @@ The runtime value representation and the GC-free allocation story.
   `array<ref<i64>>` compiles) and in recursive-enum self payloads
   (`next: ref<Node<T>>`); such references never outlive values reachable
   in their scope.
+- `span` is a scoped, read-only view over array storage (a local array, a
+  struct field, or a field reached through a `T ref`). Spans cannot be
+  stored, returned, or stacked (`span` of a span is rejected).
 
 ## Allocation
 

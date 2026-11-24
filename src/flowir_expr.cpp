@@ -455,8 +455,7 @@ namespace NG::flowir::detail
       const TypeId fieldType = fields[index];
       const ValueId leftField = extractMember(left, index, fieldType);
       const ValueId rightField = extractMember(right, index, fieldType);
-      const ValueId differs =
-          binary(op, leftField, rightField, typecheck::builtin::Bool);
+      const ValueId differs = binary(op, leftField, rightField, typecheck::builtin::Bool);
 
       if (!accumulator)
       {
@@ -474,8 +473,7 @@ namespace NG::flowir::detail
         priorEqual = priorEqual ? binary("&&", *priorEqual, priorSame, typecheck::builtin::Bool) : priorSame;
       }
       const ValueId priorAllEqual = *priorEqual;
-      const ValueId priorAndDiffers =
-          binary("&&", priorAllEqual, differs, typecheck::builtin::Bool);
+      const ValueId priorAndDiffers = binary("&&", priorAllEqual, differs, typecheck::builtin::Bool);
       accumulator = binary("||", *accumulator, priorAndDiffers, typecheck::builtin::Bool);
     }
     return *accumulator;
@@ -516,11 +514,16 @@ namespace NG::flowir::detail
       arrayPlace = arrayPlace->operands[0].get();
     }
     auto place = lowerPlace(*arrayPlace);
-    if (!place.rootLocal.has_value() || place.rootRef.has_value() || !place.steps.empty())
-      throw VerificationError("span root must be a direct local binding");
+    if (place.rootLocal.has_value() == place.rootRef.has_value())
+      throw VerificationError("span root must be a local binding or a reference");
+    auto indexValues = indexOperands(place.steps);
+    if (!indexValues.empty())
+      throw VerificationError("span place path cannot include runtime indexes");
     return emit(Instruction{.kind = InstructionKind::MakeSpan,
                             .operands = std::move(bounds),
-                            .placeRootLocal = place.rootLocal},
+                            .placeRootLocal = place.rootLocal,
+                            .placeRootRef = place.rootRef,
+                            .placeSteps = std::move(place.steps)},
                 typeOf(expression));
   }
 

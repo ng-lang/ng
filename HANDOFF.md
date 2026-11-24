@@ -1,8 +1,8 @@
 # NG — 移交说明（下一轮 agent 请从此处开始）
 
 工作区：当前工作目录（仓库根；分支 `new-start`，**未推送**）
-基线：`796d85e`（INC-33 元组 case）+ 即将落地的 INC-35 提交
-工作区状态：完成 Prompt E 后应干净；下一轮从 Prompt F 起
+基线：`b2a8048`（INC-35 Self 视图方法）+ 即将落地的 field-span 提交
+工作区状态：完成 Prompt F 后应干净；下一轮从 Prompt G 起
 
 本文件列出已完成的收尾状态、仍开放的缺陷（均已实测确认仍在），以及给下一轮的可直接投喂 prompt。
 
@@ -14,7 +14,7 @@
 - **docs/ 只放 ground truth**（当前已实现、已确认的内容）。任何 planned / future / not yet / deferred / TODO 措辞禁止出现在 `docs/`。
 - **不要恢复 `.agents/worklog/`、`.agents/workstate.md`、`.agents/plans/`**。
   本文件是前瞻性移交单；完成一项后从这里划掉，不要往里堆历史流水。剩余任务以下面的 prompt 为准。
-- **硬约束**：`test/guard_test.cpp` 的 `kMaxCppLines = 1200`、`kMaxHeaderLines = 800`，**只拆分源文件、绝不上调上限**。当前最大：`src/native/lowering_expr.cpp` 967、`module_parser.cpp` 904、`type_interner.cpp` 895、`parser.cpp` 886。
+- **硬约束**：`test/guard_test.cpp` 的 `kMaxCppLines = 1200`、`kMaxHeaderLines = 800`，**只拆分源文件、绝不上调上限**。当前最大：`src/native/lowering_expr.cpp` 979、`module_parser.cpp` 904、`type_interner.cpp` 895、`parser.cpp` 886。
 - **提交规范**：Conventional Commits（`feat(vnext):` / `fix(checker):` / `docs(agents):` …），imperative mood；AI 生成代码须标注（见 CONTRIBUTING.md）。
 - **完成前必须跑满门禁**：`ctest --test-dir build -j`（当前基线 674）+ `./build-asan/ng_test`（当前基线 673）+ guard。构建：`cmake --build build -j` / `cmake --build build-asan -j`。
   - 注意：`ninja` 在本环境常误报 "no work to do"；改动后可用 `touch <file>` 触发重编，并以**实际运行测试/探针**为准，不要相信构建输出本身。
@@ -31,7 +31,8 @@
 | `238fa77` | **Prompt B** — string `Ord` 按字节 memcmp |
 | `5797b9b` | **Prompt C** — 中部表达式 `?`（按求值序提升临时变量） |
 | `796d85e` | **Prompt D** — INC-33 元组 `case (a, b)` |
-| （本提交） | **Prompt E** — INC-35 视图上返回 `Self` 的方法 |
+| `b2a8048` | **Prompt E** — INC-35 视图上返回 `Self` 的方法 |
+| （本提交） | **Prompt F** — INC-21 field-span / span-through-ref |
 
 闭包体与解构 `let` 上的 `?` 仍正确拒绝。
 
@@ -45,7 +46,6 @@
 
 ## 3. 建议的下一轮顺序
 
-6. **Prompt F** — INC-21 span 剩余
 7. **Prompt G** — INC-28 isize/usize
 8. **Prompt H** — INC-30/31（架构，务必先做等价性验证）
 9. **Prompt I** — INC-29 C ABI（先盘点再拆）
@@ -61,38 +61,10 @@
 
 | Prompt | 任务 | 规模 | 现状已确认 |
 |---|---|---|---|
-| **F** | INC-21 剩余：field-span / span-through-ref | 中 | `span operand is not a place` |
 | **G** | INC-28 `isize` / `usize` | 中 | `unknown type usize` |
 | **H** | INC-30/31 模块工件 + RuntimeSession | 大（架构） | 未开始 |
 | **I** | INC-29 C ABI 收尾 | 大（需先拆） | 部分实现 |
 | **J** | INC-36 const fun trait bound | 小/不确定 | **基础已可用**，先探测 |
-
----
-
-### Prompt F —— INC-21 剩余：field-span / span-through-ref / span-of-span
-
-```
-你在当前工作目录（NG 语言）。先读 AGENTS.md 与本目录 HANDOFF.md（§0 约定）。
-
-任务：INC-21 剩余切片 —— 让 span 支持 struct 字段与引用路径。
-
-现状（已确认）：
-    let mut s = S { xs: [1, 2, 3] };
-    let w = span(ref mut s.xs);
-    → type error: span operand is not a place
-（`span(ref mut arr)` 直接对局部数组是可用的；example/span.ng 正常。）
-
-需要扩展：field-span（`span(ref mut s.field)`）、span-through-ref（经由 `T ref` 取 span）、
-span-of-span。三者同源，都是「span 的 place 路径需要支持非零步」。
-
-实现提示：
-- 拒绝点：搜索 "span operand is not a place"，当前只接受零步 place。
-- FlowIR 已有 place steps 机制（MakeRef 处理 placeSteps），span 可复用。
-- 注意：span 是非逃逸视图，借用/loan 规则需与既有 ref 一致（不应放宽）。
-
-交付：实现 + 测试（字段 span 读写、经引用取 span、span of span 至少负契约明确）
-+ example 扩展 + 跑满 ctest/ASan/guard + 一个 feat 提交。
-```
 
 ---
 

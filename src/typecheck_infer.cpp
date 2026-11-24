@@ -402,10 +402,10 @@ namespace NG::typecheck::detail
     return interner_.internReference(operand, mutableReference);
   }
 
-  /// INC-21 S1: `span <array-place>` views the whole array; the window form
-  /// `span xs[lo..hi]` views the `[lo, hi)` slice. Both are borrowed scoped
-  /// views: a shared loan on the source root blocks mutation and reassignment
-  /// while the span is live.
+  /// INC-21: `span <array-place>` views the whole array; the window form
+  /// `span xs[lo..hi]` views the `[lo, hi)` slice. Places may be locals,
+  /// struct fields, or fields reached through a `T ref`. A shared loan on
+  /// the source origin blocks mutation while the span is live.
   auto Checker::inferSpan(const hir::Expression &expression, const LocalTypes &locals) -> TypeId
   {
     const hir::Expression *arrayPlace = expression.operands[0].get();
@@ -419,21 +419,30 @@ namespace NG::typecheck::detail
     }
     if (!isPlace(*arrayPlace))
       throw TypeError("span operand is not a place", expression.span);
-    if (arrayPlace->kind != hir::ExpressionKind::ResolvedName)
-      throw TypeError("span over a structure field is deferred (INC-21 S1); span a local binding directly",
-                      expression.span);
     const TypeId operandType = infer(*arrayPlace, locals);
-    const auto &source = interner_.descriptor(operandType);
+    const auto &operand = interner_.descriptor(operandType);
+    const bool throughRef = operand.kind == TypeKind::Reference;
+    const auto &source = throughRef ? interner_.descriptor(operand.element) : operand;
+    if (source.kind == TypeKind::Span)
+      throw TypeError("cannot span a span view", expression.span);
     if (!isArrayKind(source.kind))
       throw TypeError(std::format("cannot span value of type {}", interner_.display(operandType)), expression.span);
     const auto root = rootLocalOf(*arrayPlace);
     if (!root.has_value())
       throw TypeError("span operand must be rooted at a local binding", expression.span);
+    uint32_t borrowRoot = root->value;
     if (interner_.descriptor(locals.at(root->value)).kind == TypeKind::Reference)
-      throw TypeError("creating a span through a scoped reference is deferred (INC-21 S1); dereference the "
-                      "reference first",
-                      expression.span);
-    recordBorrow(expression, root->value, false, arrayPlace->text);
+    {
+      for (const auto &loan : borrowState_.loans)
+      {
+        if (std::ranges::find(loan.bearers, root->value) != loan.bearers.end())
+        {
+          borrowRoot = loan.root;
+          break;
+        }
+      }
+    }
+    recordBorrow(expression, borrowRoot, false, arrayPlace->text);
     if (window != nullptr)
     {
       const auto &start = *window->operands[0];
@@ -566,7 +575,7 @@ namespace NG::typecheck::detail
         throw TypeError("cannot slice through a scoped reference (A1.3 is deferred); dereference the reference first",
                         expression.span);
       if (descriptor.kind == TypeKind::Span)
-        throw TypeError("slicing a span view is deferred (INC-21 S1); reslice with `span`", expression.span);
+        throw TypeError("cannot slice a span view", expression.span);
       if (!isArrayKind(descriptor.kind))
         throw TypeError(std::format("cannot slice value of type {}", interner_.display(receiver)), expression.span);
       return interner_.internDynamicArray(descriptor.element);
