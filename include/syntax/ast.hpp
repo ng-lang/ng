@@ -258,14 +258,28 @@ namespace NG::syntax
     }
   };
 
+  /// D-004 ownership annotation on a native / `extern "C"` parameter.
+  /// Unspecified keeps the existing copy-first default; the three explicit
+  /// modes are only meaningful on ABI boundary declarations (checker-enforced).
+  enum class ParameterOwnership
+  {
+    Unspecified,
+    Owning,
+    Borrowed,
+    Shared,
+  };
+
   struct FunctionParameter final
   {
     const std::string name;
     TypeSyntaxPtr type;
     const SourceSpan span;
+    ParameterOwnership ownership{ParameterOwnership::Unspecified};
 
-    FunctionParameter(std::string parameterName, TypeSyntaxPtr parameterType, SourceSpan sourceSpan)
-        : name(std::move(parameterName)), type(std::move(parameterType)), span(sourceSpan)
+    FunctionParameter(std::string parameterName, TypeSyntaxPtr parameterType, SourceSpan sourceSpan,
+                      ParameterOwnership parameterOwnership = ParameterOwnership::Unspecified)
+        : name(std::move(parameterName)), type(std::move(parameterType)), span(sourceSpan),
+          ownership(parameterOwnership)
     {
     }
   };

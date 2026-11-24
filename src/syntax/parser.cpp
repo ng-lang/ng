@@ -171,6 +171,9 @@ namespace NG::syntax
                              : text == "continue" ? TokenKind::KeywordContinue
                              : text == "break" ? TokenKind::KeywordBreak
                              : text == "false" ? TokenKind::KeywordFalse
+                             : text == "owning" ? TokenKind::KeywordOwning
+                             : text == "borrowed" ? TokenKind::KeywordBorrowed
+                             : text == "shared" ? TokenKind::KeywordShared
                                                : TokenKind::Identifier;
         tokens.push_back(Token{.kind = kind, .text = text, .span = SourceSpan{begin, offset}});
         continue;

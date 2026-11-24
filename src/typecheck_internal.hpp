@@ -258,6 +258,7 @@ namespace NG::typecheck::detail
     void registerImpls();
     [[nodiscard]] auto abiSafetyIssue(TypeId type) const -> std::string;
     void validateExternSignature(const hir::Function &function, const FunctionTypeIds &signature);
+    void validateOwnershipAnnotations(const hir::Function &function, const FunctionTypeIds &signature);
     void validateReprCStruct(const hir::Struct &structure);
 
     /// One array-literal spread (`xs...` value spread or `f(xs)...` map spread).

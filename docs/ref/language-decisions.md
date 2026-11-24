@@ -58,6 +58,14 @@
 - Foreign declarations use `extern "C"`; `"C"` is the only supported convention.
 - Ownership annotations are `owning`, `borrowed`, `shared`.
 - Nullable foreign handles use `T?`.
+
+> Verified (INC-29 step 1): an ownership annotation precedes the parameter type
+> (`native fun f(x: owning H) -> unit;`) and is accepted only on `native fun` and
+> `extern "C"` declarations; on an ordinary function it is a type error.
+> `owning` requires a by-value type. At native call sites `borrowed` passes the
+> value without the default deep copy, `owning` moves it, and `shared` (like an
+> unannotated parameter) keeps the copy-first default; retain/release semantics
+> for `shared` are descriptor-driven and are not part of this slice.
 - C++ ABI is not directly supported; bind C++ through an `extern "C"` shim.
 - Opaque types are declared `type X = native;` (or abstract `type X;`).
 

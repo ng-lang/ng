@@ -542,9 +542,15 @@ namespace NG::syntax
       }
       const Token parameterName = consume();
       expect(TokenKind::Colon, "expected `:` after parameter name");
+      // D-004: an optional ownership annotation precedes the type on ABI
+      // boundary parameters. Checker rejects it on ordinary functions.
+      ParameterOwnership ownership = ParameterOwnership::Unspecified;
+      if (current().kind == TokenKind::KeywordOwning) { ownership = ParameterOwnership::Owning; static_cast<void>(consume()); }
+      else if (current().kind == TokenKind::KeywordBorrowed) { ownership = ParameterOwnership::Borrowed; static_cast<void>(consume()); }
+      else if (current().kind == TokenKind::KeywordShared) { ownership = ParameterOwnership::Shared; static_cast<void>(consume()); }
       auto parameterType = parseTypeUntil({TokenKind::Comma, TokenKind::RightParen});
       const SourceSpan parameterSpan{parameterName.span.begin, parameterType->span.end};
-      parameters.emplace_back(parameterName.text, std::move(parameterType), parameterSpan);
+      parameters.emplace_back(parameterName.text, std::move(parameterType), parameterSpan, ownership);
 
       if (current().kind != TokenKind::Comma)
       {
@@ -741,9 +747,13 @@ namespace NG::syntax
       if (current().kind != TokenKind::Identifier) throw ParseError("expected a parameter name", current().span);
       const Token parameterName = consume();
       expect(TokenKind::Colon, "expected `:` after parameter name");
+      ParameterOwnership ownership = ParameterOwnership::Unspecified;
+      if (current().kind == TokenKind::KeywordOwning) { ownership = ParameterOwnership::Owning; static_cast<void>(consume()); }
+      else if (current().kind == TokenKind::KeywordBorrowed) { ownership = ParameterOwnership::Borrowed; static_cast<void>(consume()); }
+      else if (current().kind == TokenKind::KeywordShared) { ownership = ParameterOwnership::Shared; static_cast<void>(consume()); }
       auto parameterType = parseTypeUntil({TokenKind::Comma, TokenKind::RightParen});
       const SourceSpan parameterSpan{parameterName.span.begin, parameterType->span.end};
-      parameters.emplace_back(parameterName.text, std::move(parameterType), parameterSpan);
+      parameters.emplace_back(parameterName.text, std::move(parameterType), parameterSpan, ownership);
       if (current().kind != TokenKind::Comma) break;
       static_cast<void>(consume());
       if (current().kind == TokenKind::RightParen) break;

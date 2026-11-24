@@ -275,6 +275,8 @@ namespace NG::hir
     Type type;
     LocalId local;
     syntax::SourceSpan span;
+    /// D-004 ownership annotation (only on native/extern ABI declarations).
+    syntax::ParameterOwnership ownership{syntax::ParameterOwnership::Unspecified};
   };
 
   struct ConstParameter

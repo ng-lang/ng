@@ -394,7 +394,19 @@ namespace NG
           const auto found = typed.functionTypeIds.find(function.id.value);
           if (found == typed.functionTypeIds.end())
             continue;
-          nativeOwnerships[function.id.value].assign(found->second.parameters.size(), native::Ownership::Copy);
+          auto &descriptors = nativeOwnerships[function.id.value];
+          descriptors.resize(found->second.parameters.size(), native::Ownership::Copy);
+          for (size_t index = 0; index < function.parameters.size() && index < descriptors.size(); ++index)
+          {
+            using ParameterOwnership = syntax::ParameterOwnership;
+            switch (function.parameters[index].ownership)
+            {
+            case ParameterOwnership::Owning: descriptors[index] = native::Ownership::Move; break;
+            case ParameterOwnership::Borrowed: descriptors[index] = native::Ownership::Borrow; break;
+            case ParameterOwnership::Shared:
+            case ParameterOwnership::Unspecified: descriptors[index] = native::Ownership::Copy; break;
+            }
+          }
         }
         bool needsImgui = false;
         for (const auto &function : resolved.functions)

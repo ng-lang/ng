@@ -292,6 +292,7 @@ auto Checker::check(const hir::Module &module, const const_eval::ConstNativeHost
     displaySignature.returnType = interner_.display(signature.returnType);
     if (function.externC)
       validateExternSignature(function, signature);
+    validateOwnershipAnnotations(function, signature);
     signatures_.emplace(function.id.value, signature);
     functionTypeIds_.emplace(function.id.value, signature);
     functionTypes_.emplace(function.id.value, std::move(displaySignature));
@@ -765,6 +766,32 @@ void Checker::registerImpls()
     }
     impls_.push_back(std::move(info));
     continue;
+  }
+}
+
+void Checker::validateOwnershipAnnotations(const hir::Function &function, const FunctionTypeIds &signature)
+{
+  const bool abiDeclaration = function.externC || function.nativeFunction;
+  for (size_t index = 0; index < function.parameters.size() && index < signature.parameters.size(); ++index)
+  {
+    const auto ownership = function.parameters[index].ownership;
+    if (ownership == syntax::ParameterOwnership::Unspecified)
+      continue;
+    const auto &parameter = function.parameters[index];
+    if (!abiDeclaration)
+    {
+      throw TypeError(std::format("ownership annotation on parameter `{}` of `{}` is only allowed on "
+                                  "`native fun` and `extern \"C\"` declarations",
+                                  parameter.name, function.name),
+                      parameter.span);
+    }
+    const TypeId type = signature.parameters[index];
+    const auto kind = interner_.descriptor(type).kind;
+    const bool view = kind == TypeKind::Reference || kind == TypeKind::RawPointer;
+    if (ownership == syntax::ParameterOwnership::Owning && view)
+      throw TypeError(std::format("`owning` parameter `{}` of `{}` requires a by-value type", parameter.name,
+                                  function.name),
+                      parameter.span);
   }
 }
 

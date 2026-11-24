@@ -204,7 +204,8 @@ namespace NG::hir
                                               .typeName = renderTypeName(*parameter.type),
                                               .type = lowerType(*parameter.type, &paramOrdinals_),
                                               .local = local,
-                                              .span = parameter.span});
+                                              .span = parameter.span,
+                                              .ownership = parameter.ownership});
     }
     if (method.returnType != nullptr)
       resolved.returnType = std::make_unique<Type>(lowerType(*method.returnType, &paramOrdinals_));
@@ -397,7 +398,8 @@ namespace NG::hir
                                               .typeName = renderTypeName(*parameter.type),
                                               .type = lowerType(*parameter.type, &paramOrdinals_),
                                               .local = local,
-                                              .span = parameter.span});
+                                              .span = parameter.span,
+                                              .ownership = parameter.ownership});
     }
     if (function.returnType != nullptr)
     {
