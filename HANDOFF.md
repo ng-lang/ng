@@ -1,7 +1,7 @@
 # NG — 移交说明（下一轮 agent 请从此处开始）
 
 工作区：当前工作目录（仓库根；分支 `new-start`，**未推送**）
-基线提交：`8f319aa`（INC-24 part 2）
+基线提交：`02967e4`（INC-24 part 2；其后两个提交是移交单与路径守卫）
 工作区状态：**干净**（`git status --porcelain` 为 0）
 
 本文件列出已完成的收尾状态、仍开放的缺陷（均已实测确认仍在），以及给下一轮的可直接投喂 prompt。
@@ -27,13 +27,13 @@
 
 | Commit | 内容 |
 |---|---|
-| `4a4738c` | **B5** — copy 捕获仿射值要求 `Clone`，按次 clone（原为运行期 `invalid heap handle`） |
-| `472a2a0` | **INC-13** — `return e?` 支持 |
-| `80adc98` | **INC-14** — 空数组 `[]` 从期望类型推断 |
-| `a376856` | **INC-24 part 1** — 声明 `Ord` + `derive(Ord)` 字段校验（DEC-E） |
-| `8f319aa` | **INC-24 part 2** — FlowIR 合成 `derive(Ord)` 关系比较（字典序） |
+| `e2bc657` | **B5** — copy 捕获仿射值要求 `Clone`，按次 clone（原为运行期 `invalid heap handle`） |
+| `d622b83` | **INC-13** — `return e?` 支持 |
+| `fb85e87` | **INC-14** — 空数组 `[]` 从期望类型推断 |
+| `06a8f20` | **INC-24 part 1** — 声明 `Ord` + `derive(Ord)` 字段校验（DEC-E） |
+| `02967e4` | **INC-24 part 2** — FlowIR 合成 `derive(Ord)` 关系比较（字典序） |
 
-外加两个文档/计划提交：`76ebd67`（docs 大清理：plans 搬到 `.agents/plans/`、删 worklog/HANDOFF/docs/design/Internals.md、16 份 guide 重写为 truth）、`9dc216f`+`eb391cc`（B5 计划与归档）。
+外加两个文档/计划提交：`ac812d3`（docs 大清理：plans 搬到 `.agents/plans/`、删 worklog/HANDOFF/docs/design/Internals.md、16 份 guide 重写为 truth）、`e3fd0f5`+`e9a2838`（B5 计划与归档）。
 
 ---
 
@@ -58,7 +58,7 @@ fun main() -> i64 {
 let v = f(1)? + f(2)?;
 ```
 → `resolution error: ? cannot appear mid-expression`。
-`return e?`、`let x = f()?`、裸语句 `f()?;` **已支持**（`472a2a0`）。
+`return e?`、`let x = f()?`、裸语句 `f()?;` **已支持**（`d622b83`）。
 仍拒绝：中部表达式、闭包体内、解构 let。中部表达式需「语句级临时变量 + 父表达式重写」，是这块里最大的一块。
 
 ### 2.3 `string` 字段的 Ord 不可用
@@ -132,7 +132,7 @@ print(a < b);
   src/typecheck_call.cpp 中 boxClone/derivedCloneCalls_ 的 clone 判定
   （注意 derivedCloneTypes_ 只由 derive(Clone) 填充，手写 impl Clone 不在其中；判定请用 hasImpl）。
 - 正确语义：`clone` 应深拷贝 —— 分配一个新 cell，内容与源相同；之后对副本 cellSet 不影响源，且源仍可用。
-- B5（commit 4a4738c）已让 copy 捕获要求 Clone；本修复会让 Cell<T> 真正成为 Clone，请确认二者一致。
+- B5（commit e2bc657）已让 copy 捕获要求 Clone；本修复会让 Cell<T> 真正成为 Clone，请确认二者一致。
 - 不要放宽既有 move/Drop 语义；不要触碰可运行逻辑以外的东西。
 
 交付：
@@ -160,8 +160,8 @@ print(a < b);
 另外裸的 `"abc" < "abd"` 目前报 `comparison operand type mismatch: expected i64, got string`。
 
 已完成的地基（不要重复做）：
-- commit a376856：prelude 声明 `export trait Ord { compare(self, other) -> i64 }`，checker 校验 derive(Ord) 字段（float 按 DEC-E 排除）。
-- commit 8f319aa：整型/bool 字段的字典序比较已端到端可用（checker 允许 Ord 类型做 ordering + FlowIR 合成）。
+- commit 06a8f20：prelude 声明 `export trait Ord { compare(self, other) -> i64 }`，checker 校验 derive(Ord) 字段（float 按 DEC-E 排除）。
+- commit 02967e4：整型/bool 字段的字典序比较已端到端可用（checker 允许 Ord 类型做 ordering + FlowIR 合成）。
   example/derive_ord.ng 是可用参照。
 
 需要做的：
@@ -182,7 +182,7 @@ print(a < b);
 任务：让 `?` 可用在表达式中部，例如 `let v = f(1)? + f(2)?;`。
 
 现状（已确认）：`resolution error: ? cannot appear mid-expression`。
-已支持的位置（commit 472a2a0，不要回退）：`let x = f()?;`、`return f()?;`、裸语句 `f()?;`。
+已支持的位置（commit d622b83，不要回退）：`let x = f()?;`、`return f()?;`、裸语句 `f()?;`。
 仍拒绝：中部表达式、闭包体内、解构 let。
 
 实现要点（我已读过代码）：
