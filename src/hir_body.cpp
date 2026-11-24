@@ -31,107 +31,175 @@ namespace NG::hir
     return resolved;
   }
 
+  namespace
+  {
+    auto findTrySlot(syntax::ExpressionPtr &expression) -> syntax::ExpressionPtr *
+    {
+      if (expression == nullptr)
+        return nullptr;
+      if (expression->kind == syntax::ExpressionKind::Try)
+        return &expression;
+      if (auto *grouped = dynamic_cast<syntax::GroupedExpression *>(expression.get()))
+        return findTrySlot(grouped->expression);
+      if (auto *prefix = dynamic_cast<syntax::PrefixExpression *>(expression.get()))
+        return findTrySlot(prefix->operand);
+      if (auto *binary = dynamic_cast<syntax::BinaryExpression *>(expression.get()))
+      {
+        if (auto *slot = findTrySlot(binary->left))
+          return slot;
+        return findTrySlot(binary->right);
+      }
+      if (auto *call = dynamic_cast<syntax::CallExpression *>(expression.get()))
+      {
+        if (auto *slot = findTrySlot(call->callee))
+          return slot;
+        for (auto &argument : call->arguments)
+          if (auto *slot = findTrySlot(argument))
+            return slot;
+        return nullptr;
+      }
+      if (auto *index = dynamic_cast<syntax::IndexExpression *>(expression.get()))
+      {
+        if (auto *slot = findTrySlot(index->receiver))
+          return slot;
+        return findTrySlot(index->index);
+      }
+      if (auto *member = dynamic_cast<syntax::MemberExpression *>(expression.get()))
+        return findTrySlot(member->receiver);
+      if (auto *array = dynamic_cast<syntax::ArrayLiteralExpression *>(expression.get()))
+      {
+        for (auto &element : array->elements)
+          if (auto *slot = findTrySlot(element))
+            return slot;
+        return nullptr;
+      }
+      if (auto *tuple = dynamic_cast<syntax::TupleLiteralExpression *>(expression.get()))
+      {
+        for (auto &element : tuple->elements)
+          if (auto *slot = findTrySlot(element))
+            return slot;
+        return nullptr;
+      }
+      if (auto *structure = dynamic_cast<syntax::StructLiteralExpression *>(expression.get()))
+      {
+        for (auto &field : structure->fields)
+          if (auto *slot = findTrySlot(field.value))
+            return slot;
+        return nullptr;
+      }
+      return nullptr;
+    }
+
+    auto findTrySlotInStatement(syntax::Statement &statement) -> syntax::ExpressionPtr *
+    {
+      if (auto *let = dynamic_cast<syntax::LetStatement *>(&statement))
+        return findTrySlot(let->initializer);
+      if (auto *ret = dynamic_cast<syntax::ReturnStatement *>(&statement))
+        return findTrySlot(ret->value);
+      if (auto *expression = dynamic_cast<syntax::ExpressionStatement *>(&statement))
+        return findTrySlot(expression->expression);
+      if (auto *assign = dynamic_cast<syntax::AssignStatement *>(&statement))
+      {
+        if (auto *slot = findTrySlot(assign->target))
+          return slot;
+        return findTrySlot(assign->value);
+      }
+      if (auto *branch = dynamic_cast<syntax::IfStatement *>(&statement))
+        return findTrySlot(branch->condition);
+      return nullptr;
+    }
+  } // namespace
+
   void Resolver::resolveStatementList(syntax::Block &source, bool isFunctionBody, Block &out)
   {
     out.statements.reserve(source.statements.size());
     for (size_t index = 0; index < source.statements.size(); ++index)
     {
-      const auto &statement = source.statements[index];
-      if (auto *tryExpr = rootTryOf(*statement))
+      auto &statement = source.statements[index];
+      if (auto *slot = findTrySlotInStatement(*statement))
       {
-        desugarTry(*statement, *tryExpr, source, index + 1, isFunctionBody, out);
+        desugarTry(statement, *slot, source, index, isFunctionBody, out);
         return;
       }
       out.statements.push_back(resolveStatement(*statement));
     }
     if (source.tailExpression != nullptr)
     {
+      if (findTrySlot(source.tailExpression) != nullptr)
+      {
+        const auto span = source.tailExpression->span;
+        if (isFunctionBody)
+          source.statements.push_back(
+              std::make_unique<syntax::ReturnStatement>(std::move(source.tailExpression), span));
+        else
+          source.statements.push_back(
+              std::make_unique<syntax::ExpressionStatement>(std::move(source.tailExpression), span));
+        auto &wrapped = source.statements.back();
+        auto *wrappedSlot = findTrySlotInStatement(*wrapped);
+        desugarTry(wrapped, *wrappedSlot, source, source.statements.size() - 1, isFunctionBody, out);
+        return;
+      }
       out.tailExpression = resolveExpression(*source.tailExpression);
     }
   }
 
-  auto Resolver::rootTryOf(syntax::Statement &statement) -> syntax::TryExpression *
+  void Resolver::desugarTry(syntax::StatementPtr &statement, syntax::ExpressionPtr &trySlot, syntax::Block &source,
+                            size_t statementIndex, bool isFunctionBody, Block &out)
   {
-    if (const auto *let = dynamic_cast<const syntax::LetStatement *>(&statement))
-    {
-      return const_cast<syntax::TryExpression *>(dynamic_cast<const syntax::TryExpression *>(let->initializer.get()));
-    }
-    // INC-13 follow-up: `return e?` is a root position too — `e?` is the whole
-    // returned value, so the Ok arm can return its payload directly.
-    if (const auto *ret = dynamic_cast<const syntax::ReturnStatement *>(&statement))
-    {
-      const syntax::Expression *root = ret->value.get();
-      while (const auto *grouped = dynamic_cast<const syntax::GroupedExpression *>(root))
-        root = grouped->expression.get();
-      return const_cast<syntax::TryExpression *>(dynamic_cast<const syntax::TryExpression *>(root));
-    }
-    if (const auto *expression = dynamic_cast<const syntax::ExpressionStatement *>(&statement))
-    {
-      const syntax::Expression *root = expression->expression.get();
-      while (const auto *grouped = dynamic_cast<const syntax::GroupedExpression *>(root))
-        root = grouped->expression.get();
-      return const_cast<syntax::TryExpression *>(dynamic_cast<const syntax::TryExpression *>(root));
-    }
-    return nullptr;
-  }
-
-  void Resolver::desugarTry(const syntax::Statement &statement, syntax::TryExpression &tryExpr, syntax::Block &source,
-                            size_t startIndex, bool isFunctionBody, Block &out)
-  {
+    auto *tryExpr = dynamic_cast<syntax::TryExpression *>(trySlot.get());
+    if (tryExpr == nullptr)
+      throw ResolutionError("`?` cannot appear mid-expression", trySlot->span);
+    const auto trySpan = tryExpr->span;
     if (functionBodyDepth_ == 0)
-      throw ResolutionError("cannot use `?` outside of a function body", tryExpr.span);
+      throw ResolutionError("cannot use `?` outside of a function body", trySpan);
     if (closureBodyDepth_ > 0)
-      throw ResolutionError("`?` is not supported inside a closure body", tryExpr.span);
+      throw ResolutionError("`?` is not supported inside a closure body", trySpan);
     if (currentReturnTypeName_.empty() || !currentReturnTypeName_.starts_with("Result"))
     {
       const std::string actual = currentReturnTypeName_.empty() ? std::string{"unit"} : currentReturnTypeName_;
       throw ResolutionError(std::format("`?` requires the enclosing function to return "
                                         "`Result` (it returns `{}`)",
                                         actual),
-                            tryExpr.span);
+                            trySpan);
+    }
+    if (const auto *let = dynamic_cast<const syntax::LetStatement *>(statement.get()))
+    {
+      if (!let->destructuredNames.empty() || let->restName.has_value())
+        throw ResolutionError("`?` with a destructuring `let` is not supported", let->span);
     }
 
-    // Desugaring re-parents the operand, the remaining statements, and the
-    // tail by move into the generated switch; the moved-from slots are never
-    // re-read below the consuming statement.
     const std::string tryLocal = std::format("$try{}", nextTryId_);
     const std::string okLocal = std::format("$ok{}", nextTryId_);
     const std::string errorLocal = std::format("$err{}", nextTryId_);
     ++nextTryId_;
 
-    // `let $tryN = <operand>;` — the scrutinee lives in the current block.
-    auto scrutinee =
-        std::make_unique<syntax::LetStatement>(tryLocal, false, nullptr, std::move(tryExpr.operand), tryExpr.span);
+    auto operand = std::move(tryExpr->operand);
+    bool tryIsWholeReturn = false;
+    if (auto *ret = dynamic_cast<syntax::ReturnStatement *>(statement.get()))
+    {
+      syntax::Expression *root = ret->value.get();
+      while (auto *grouped = dynamic_cast<syntax::GroupedExpression *>(root))
+        root = grouped->expression.get();
+      tryIsWholeReturn = root == tryExpr;
+    }
+    trySlot = std::make_unique<syntax::IdentifierExpression>(okLocal, trySpan);
+    if (tryIsWholeReturn)
+    {
+      auto *ret = dynamic_cast<syntax::ReturnStatement *>(statement.get());
+      std::vector<syntax::ExpressionPtr> okArguments;
+      okArguments.push_back(std::move(ret->value));
+      ret->value = std::make_unique<syntax::CallExpression>(
+          std::make_unique<syntax::MemberExpression>(std::make_unique<syntax::IdentifierExpression>("Result", trySpan),
+                                                     "Ok", trySpan),
+          std::move(okArguments), trySpan);
+    }
+
+    auto scrutinee = std::make_unique<syntax::LetStatement>(tryLocal, false, nullptr, std::move(operand), trySpan);
     out.statements.push_back(resolveStatement(*scrutinee));
 
-    // Ok arm: rebind the payload into the user's binding (let form), continue
-    // with the remaining statements (nested `?` recurses via
-    // resolveStatementList), then the tail — as an explicit `return` when it
-    // was the function body's implicit return.
     std::vector<syntax::StatementPtr> okStatements;
-    if (const auto *let = dynamic_cast<const syntax::LetStatement *>(&statement))
-    {
-      if (!let->destructuredNames.empty() || let->restName.has_value())
-        throw ResolutionError("`?` with a destructuring `let` is not supported", let->span);
-      okStatements.push_back(std::make_unique<syntax::LetStatement>(
-          let->name, let->isMutable, let->annotation,
-          std::make_unique<syntax::IdentifierExpression>(okLocal, tryExpr.span), let->span));
-    }
-    else if (dynamic_cast<const syntax::ReturnStatement *>(&statement) != nullptr)
-    {
-      // `return e?` — the Ok payload is the returned value. Wrapping it in
-      // `Result.Ok(...)` matches the declared Result return type; there are no
-      // following statements, because `return` ends the block.
-      std::vector<syntax::ExpressionPtr> okArguments;
-      okArguments.push_back(std::make_unique<syntax::IdentifierExpression>(okLocal, tryExpr.span));
-      okStatements.push_back(std::make_unique<syntax::ReturnStatement>(
-          std::make_unique<syntax::CallExpression>(
-              std::make_unique<syntax::MemberExpression>(
-                  std::make_unique<syntax::IdentifierExpression>("Result", tryExpr.span), "Ok", tryExpr.span),
-              std::move(okArguments), tryExpr.span),
-          tryExpr.span));
-    }
-    for (size_t index = startIndex; index < source.statements.size(); ++index)
+    okStatements.push_back(std::move(statement));
+    for (size_t index = statementIndex + 1; index < source.statements.size(); ++index)
       okStatements.push_back(std::move(source.statements[index]));
 
     syntax::ExpressionPtr okTail;
@@ -140,34 +208,32 @@ namespace NG::hir
       if (isFunctionBody)
       {
         okStatements.push_back(
-            std::make_unique<syntax::ReturnStatement>(std::exchange(source.tailExpression, nullptr), tryExpr.span));
+            std::make_unique<syntax::ReturnStatement>(std::exchange(source.tailExpression, nullptr), trySpan));
       }
       else
       {
         okTail = std::exchange(source.tailExpression, nullptr);
       }
     }
-    auto okBody = syntax::Block{tryExpr.span, std::move(okStatements), std::move(okTail)};
+    auto okBody = syntax::Block{trySpan, std::move(okStatements), std::move(okTail)};
 
-    // Err arm: `return Result.Err($errN);`.
     std::vector<syntax::StatementPtr> errorStatements;
     std::vector<syntax::ExpressionPtr> errorArguments;
-    errorArguments.push_back(std::make_unique<syntax::IdentifierExpression>(errorLocal, tryExpr.span));
+    errorArguments.push_back(std::make_unique<syntax::IdentifierExpression>(errorLocal, trySpan));
     errorStatements.push_back(std::make_unique<syntax::ReturnStatement>(
         std::make_unique<syntax::CallExpression>(
             std::make_unique<syntax::MemberExpression>(
-                std::make_unique<syntax::IdentifierExpression>("Result", tryExpr.span), "Err", tryExpr.span),
-            std::move(errorArguments), tryExpr.span),
-        tryExpr.span));
+                std::make_unique<syntax::IdentifierExpression>("Result", trySpan), "Err", trySpan),
+            std::move(errorArguments), trySpan),
+        trySpan));
 
     std::vector<syntax::SwitchCase> cases;
-    cases.push_back(syntax::SwitchCase{syntax::SwitchCasePattern{"Ok", okLocal, {}, tryExpr.span}, std::move(okBody)});
-    cases.push_back(syntax::SwitchCase{syntax::SwitchCasePattern{"Err", errorLocal, {}, tryExpr.span},
-                                       syntax::Block{tryExpr.span, std::move(errorStatements), nullptr}});
+    cases.push_back(syntax::SwitchCase{syntax::SwitchCasePattern{"Ok", okLocal, {}, trySpan}, std::move(okBody)});
+    cases.push_back(syntax::SwitchCase{syntax::SwitchCasePattern{"Err", errorLocal, {}, trySpan},
+                                       syntax::Block{trySpan, std::move(errorStatements), nullptr}});
 
     auto switchStatement = std::make_unique<syntax::SwitchStatement>(
-        std::make_unique<syntax::IdentifierExpression>(tryLocal, tryExpr.span), std::move(cases), nullptr,
-        tryExpr.span);
+        std::make_unique<syntax::IdentifierExpression>(tryLocal, trySpan), std::move(cases), nullptr, trySpan);
     out.statements.push_back(resolveStatement(*switchStatement));
   }
   auto Resolver::resolveStatement(syntax::Statement &statement) -> Statement
@@ -250,9 +316,8 @@ namespace NG::hir
       Statement resolved{.kind = StatementKind::Return, .span = returnStatement->span};
       if (returnStatement->value != nullptr)
       {
-        // INC-13 follow-up: `return e?` desugars through the statement-list
-        // root path (`rootTryOf`/`desugarTry`), reached before this point. A
-        // `?` here is therefore already gone; assert rather than reject.
+        // INC-13: `return e?` is hoisted in resolveStatementList before this
+        // point, so any remaining `?` is rejected by resolveExpression.
         resolved.expression = resolveExpression(*returnStatement->value);
       }
       return resolved;
@@ -457,7 +522,11 @@ namespace NG::hir
     // A try operator that is not a statement root (let initializer or bare
     // expression statement) is rejected: INC-13 desugars `?` only at roots.
     if (dynamic_cast<const syntax::TryExpression *>(&expression) != nullptr)
+    {
+      if (closureBodyDepth_ > 0)
+        throw ResolutionError("`?` is not supported inside a closure body", expression.span);
       throw ResolutionError("`?` cannot appear mid-expression", expression.span);
+    }
 
     if (const auto *identifier = dynamic_cast<const syntax::IdentifierExpression *>(&expression))
     {

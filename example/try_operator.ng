@@ -36,6 +36,12 @@ fun requireEvenPositiveDouble(text: string) -> Result<i64, string> {
     return parseEvenDouble(text)?;
 }
 
+fun sumEven(a: i64, b: i64) -> Result<i64, string> {
+    let v = requireEven(a)? + requireEven(b)?;
+    let r: Result<i64, string> = Result.Ok(v);
+    return r;
+}
+
 fun main() -> unit {
     switch (requireEvenPositiveDouble("8")) {
         case Ok(value) { print(value == 16); }
@@ -61,5 +67,13 @@ fun main() -> unit {
     switch (parseEvenDouble("12x")) {
         case Ok(value) { print(false); }
         case Err(error) { print(error == "12x"); }
+    }
+    switch (sumEven(2, 4)) {
+        case Ok(value) { print(value == 6); }
+        case Err(error) { print(false); }
+    }
+    switch (sumEven(2, 3)) {
+        case Ok(value) { print(false); }
+        case Err(error) { print(error == "not even"); }
     }
 }

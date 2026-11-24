@@ -494,11 +494,8 @@ namespace NG::hir
     /// INC-13 (D-007): desugars `expr?` into a scrutinee let + switch whose
     /// Err arm early-returns `Result.Err($err)`; the Ok arm binds the payload
     /// and resolves the remaining statements/tail (recursing for nested `?`).
-    void desugarTry(const syntax::Statement &statement, syntax::TryExpression &tryExpr, syntax::Block &source,
-                    size_t startIndex, bool isFunctionBody, Block &out);
-    /// Extracts a try operator that roots a let initializer or a standalone
-    /// expression statement (the only positions INC-13 desugars).
-    [[nodiscard]] static auto rootTryOf(syntax::Statement &statement) -> syntax::TryExpression *;
+    void desugarTry(syntax::StatementPtr &statement, syntax::ExpressionPtr &trySlot, syntax::Block &source,
+                    size_t statementIndex, bool isFunctionBody, Block &out);
 
     std::unordered_map<std::string, std::vector<DefId>> functions_;
     std::unordered_map<const syntax::FunctionDeclaration *, DefId> functionIds_;

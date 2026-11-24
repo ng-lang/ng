@@ -281,15 +281,11 @@ true
 true
 ```
 
-`?` is allowed at these positions:
+`?` may appear in an expression (`let v = f()? + g()?;`). Each `?` unwraps in
+evaluation order; `Err` returns from the enclosing function.
 
-- a `let` initializer: `let v = f()?;`
-- a `return` value: `return f()?;`
-- a bare expression statement: `f()?;`
-
-It is **not** allowed mid-expression (`f()? + 1`), inside a closure body, or on
-a destructuring `let`; each is a compile-time error. The enclosing function must
-return `Result`.
+It is **not** allowed inside a closure body or on a destructuring `let`. The
+enclosing function must return `Result`.
 
 Recursion is unrestricted, including self-recursive functions with arguments
 and an accumulator.

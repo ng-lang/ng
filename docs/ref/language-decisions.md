@@ -88,15 +88,12 @@
 Inside a function returning `Result<T, E>`, `expr?` unwraps `Ok` to its payload
 and otherwise returns `Result.Err(...)` early from the enclosing function.
 
-Allowed positions:
+`?` may appear in expression position (including `f()? + g()?`). Each `?` is
+desugared in evaluation order into a statement-level unwrap; `Err` returns from
+the enclosing function.
 
-- a `let` initializer: `let v = f()?;`
-- a `return` value: `return f()?;`
-- a bare expression statement: `f()?;`
-
-Rejected at compile time: mid-expression use (`f()? + 1`), use inside a closure
-body, `?` on a destructuring `let`, and any use where the enclosing function
-does not return `Result`.
+Rejected at compile time: use inside a closure body, `?` on a destructuring
+`let`, and any use where the enclosing function does not return `Result`.
 
 ## DEC-E — Ordering (`derive(Ord)`)
 

@@ -1,8 +1,8 @@
 # NG — 移交说明（下一轮 agent 请从此处开始）
 
 工作区：当前工作目录（仓库根；分支 `new-start`，**未推送**）
-基线提交：`02967e4`（INC-24 part 2；其后两个提交是移交单与路径守卫）
-工作区状态：**干净**（`git status --porcelain` 为 0）
+基线：`238fa77`（string Ord）+ 即将落地的 mid-expression `?` 提交
+工作区状态：完成 Prompt C 后应干净；下一轮从 Prompt D 起
 
 本文件列出已完成的收尾状态、仍开放的缺陷（均已实测确认仍在），以及给下一轮的可直接投喂 prompt。
 
@@ -22,37 +22,27 @@
 
 ---
 
-## 1. 本轮已完成（5 个增量，全绿提交）
+## 1. 本轮已完成
 
 | Commit | 内容 |
 |---|---|
-| `e2bc657` | **B5** — copy 捕获仿射值要求 `Clone`，按次 clone（原为运行期 `invalid heap handle`） |
-| `d622b83` | **INC-13** — `return e?` 支持 |
-| `fb85e87` | **INC-14** — 空数组 `[]` 从期望类型推断 |
-| `06a8f20` | **INC-24 part 1** — 声明 `Ord` + `derive(Ord)` 字段校验（DEC-E） |
-| `02967e4` | **INC-24 part 2** — FlowIR 合成 `derive(Ord)` 关系比较（字典序） |
+| `10f73da` | 去掉 drafting 仪式；HANDOFF 保留；不恢复 worklog/plans |
+| `651e98c` | **Prompt A** — `Cell<T>` 深 clone |
+| `238fa77` | **Prompt B** — string `Ord` 按字节 memcmp |
+| （本提交） | **Prompt C** — 中部表达式 `?`（按求值序提升临时变量） |
 
-外加两个文档/计划提交：`ac812d3`（docs 大清理：plans 搬到 `.agents/plans/`、删 worklog/HANDOFF/docs/design/Internals.md、16 份 guide 重写为 truth）、`e3fd0f5`+`e9a2838`（B5 计划与归档）。
+闭包体与解构 `let` 上的 `?` 仍正确拒绝。
 
 ---
 
-## 2. 仍开放的缺陷（**均已实测确认仍在**，可直接复现）
+## 2. 仍开放的缺陷
 
-### 2.2 `?` 中部表达式仍不支持
-```ng
-let v = f(1)? + f(2)?;
-```
-→ `resolution error: ? cannot appear mid-expression`。
-`return e?`、`let x = f()?`、裸语句 `f()?;` **已支持**（`d622b83`）。
-仍拒绝：中部表达式、闭包体内、解构 let。中部表达式需「语句级临时变量 + 父表达式重写」，是这块里最大的一块。
+中部 `?` 已落地。剩余任务是半成品增量与新特性（下表），无已实测的阻塞缺陷。
 
 ---
 
 ## 3. 建议的下一轮顺序
 
-按「先修已确认缺陷 → 再补半成品增量 → 再开新特性 → 最后架构类」：
-
-1. **Prompt C** — `?` 中部表达式（最大，单独一轮）
 4. **Prompt D** — INC-33 元组 case 模式（INC-23 已解锁）
 5. **Prompt E** — INC-35 Self 视图方法
 6. **Prompt F** — INC-21 span 剩余
@@ -71,7 +61,6 @@ let v = f(1)? + f(2)?;
 
 | Prompt | 任务 | 规模 | 现状已确认 |
 |---|---|---|---|
-| **C** | `?` 中部表达式 | 大 | `? cannot appear mid-expression` |
 | **D** | INC-33 元组 case 模式 | 中 | parse error |
 | **E** | INC-35 Self 类型的视图方法 | 中 | 显式拒绝 |
 | **F** | INC-21 剩余：field-span / span-through-ref | 中 | `span operand is not a place` |
@@ -79,36 +68,6 @@ let v = f(1)? + f(2)?;
 | **H** | INC-30/31 模块工件 + RuntimeSession | 大（架构） | 未开始 |
 | **I** | INC-29 C ABI 收尾 | 大（需先拆） | 部分实现 |
 | **J** | INC-36 const fun trait bound | 小/不确定 | **基础已可用**，先探测 |
-
----
-
-### Prompt C —— `?` 中部表达式（最大，建议单独一轮）
-
-```
-你在当前工作目录（NG 语言）。请先读 AGENTS.md 与 HANDOFF.md（§0 约定与 §2.2）。
-
-任务：让 `?` 可用在表达式中部，例如 `let v = f(1)? + f(2)?;`。
-
-现状（已确认）：`resolution error: ? cannot appear mid-expression`。
-已支持的位置（commit d622b83，不要回退）：`let x = f()?;`、`return f()?;`、裸语句 `f()?;`。
-仍拒绝：中部表达式、闭包体内、解构 let。
-
-实现要点（我已读过代码）：
-- 拒绝点在 src/hir_body.cpp 的 resolveExpression（对 TryExpression 一律抛错），
-  脱糖在 Resolver::rootTryOf / Resolver::desugarTry：把 enclosing block 拆成
-  scrutinee + Ok/Err switch（Ok 臂继续其余语句，Err 臂 return Result.Err($errN)）。
-- 中部位置需要：为嵌套的 `?` 提取「语句级临时变量」并重写父表达式，
-  本质是 desugarTry 从「只认 statement root」扩展为「遍历表达式树、按求值序提升临时值」。
-- 闭包体 / 解构 let 仍可继续拒绝（decided），只需给出清晰诊断。
-
-交付：
-- 实现 + 回归测试（中部表达式的 Ok/Err 两条路径）+ example 覆盖。
-- 跑满 ctest / ASan / guard（上限 1200/800 不得上调；src/hir_body.cpp 当前 693，注意拆分）。
-- 同步 docs/guide/functions.md 的 `?` 章节（现写明「不允许 mid-expression」）为新的 truth。
-- 建议先做最小用例（单个二元运算）跑通再扩展。一个 feat 提交。
-```
-
----
 
 ---
 
