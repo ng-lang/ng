@@ -46,22 +46,13 @@ let v = f(1)? + f(2)?;
 `return e?`、`let x = f()?`、裸语句 `f()?;` **已支持**（`d622b83`）。
 仍拒绝：中部表达式、闭包体内、解构 let。中部表达式需「语句级临时变量 + 父表达式重写」，是这块里最大的一块。
 
-### 2.3 `string` 字段的 Ord 不可用
-```ng
-struct P: derive(Ord) { s: string }
-print(a < b);
-```
-→ derive 通过，但 `internal error: native lowering (M2): unsupported string binary payload 8`。
-需在 native 侧为 string 加字节序（`memcmp`）比较算子 —— DEC-E 规定的字节序（`libngrt.c` 中已有 memcmp 用法可参照）。
-
 ---
 
 ## 3. 建议的下一轮顺序
 
 按「先修已确认缺陷 → 再补半成品增量 → 再开新特性 → 最后架构类」：
 
-1. **Prompt B** — string 字节序排序（补齐 DEC-E）
-2. **Prompt C** — `?` 中部表达式（最大，单独一轮）
+1. **Prompt C** — `?` 中部表达式（最大，单独一轮）
 4. **Prompt D** — INC-33 元组 case 模式（INC-23 已解锁）
 5. **Prompt E** — INC-35 Self 视图方法
 6. **Prompt F** — INC-21 span 剩余
@@ -80,7 +71,6 @@ print(a < b);
 
 | Prompt | 任务 | 规模 | 现状已确认 |
 |---|---|---|---|
-| **B** | string 的字节序比较（DEC-E 剩余半块） | 中 | `unsupported string binary payload` |
 | **C** | `?` 中部表达式 | 大 | `? cannot appear mid-expression` |
 | **D** | INC-33 元组 case 模式 | 中 | parse error |
 | **E** | INC-35 Self 类型的视图方法 | 中 | 显式拒绝 |
@@ -89,34 +79,6 @@ print(a < b);
 | **H** | INC-30/31 模块工件 + RuntimeSession | 大（架构） | 未开始 |
 | **I** | INC-29 C ABI 收尾 | 大（需先拆） | 部分实现 |
 | **J** | INC-36 const fun trait bound | 小/不确定 | **基础已可用**，先探测 |
-
----
-
-### Prompt B —— 补 string 的字节序比较（DEC-E 剩余半块）
-
-```
-你在当前工作目录（NG 语言）。请先读 AGENTS.md 与 HANDOFF.md（§0 约定与 §2.3）。
-
-任务：让 `derive(Ord)` 的 string 字段真正可比较（DEC-E：字节序 = memcmp）。
-
-现状（已确认）：
-    struct P: derive(Ord) { s: string }
-    print(a < b);
-    → 编译通过，但 internal error: native lowering (M2): unsupported string binary payload 8
-另外裸的 `"abc" < "abd"` 目前报 `comparison operand type mismatch: expected i64, got string`。
-
-已完成的地基（不要重复做）：
-- commit 06a8f20：prelude 声明 `export trait Ord { compare(self, other) -> i64 }`，checker 校验 derive(Ord) 字段（float 按 DEC-E 排除）。
-- commit 02967e4：整型/bool 字段的字典序比较已端到端可用（checker 允许 Ord 类型做 ordering + FlowIR 合成）。
-  example/derive_ord.ng 是可用参照。
-
-需要做的：
-1. checker 允许 string 作为 ordering 比较的操作数（src/typecheck_infer.cpp 的 ordering 分支，现允许 numericPair 或 derivedOrd）。
-2. native 侧为 string 加字节序比较算子；libngrt.c 里已有 memcmp 用法可参照（如 str 的前缀/包含判断）。
-3. DEC-E 规定 string 全序 = 字节字典序（UTF-8 下等价于码点序），请在 docs/ref/language-decisions.md 的 DEC-E 条目里把「string 尚未可比较」的限制句改写成已实现的 truth。
-
-交付：修复 + 测试（含非 ASCII 的字节序用例）+ example 或契约语料 + 跑满 ctest/ASan/guard + 一个提交。
-```
 
 ---
 

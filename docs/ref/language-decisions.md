@@ -109,11 +109,10 @@ variant ordinal (declaration order) first.
   and reject the strict ones.
 - **Float fields are rejected** — NaN breaks totality, so they are excluded from
   v1 (`floats have no total order (NaN) and are excluded from v1`).
-- Integer and `bool` fields are orderable. A nested struct/enum field must itself
-  derive `Ord`. A `string` field passes derivation but is not yet comparable
-  (string ordering is unimplemented).
-- String ordering, when implemented, is **bytewise** (`memcmp`); for UTF-8 this
-  equals code-point order.
+- Integer, `bool`, and `string` fields are orderable. A nested struct/enum field
+  must itself derive `Ord`.
+- String ordering is **bytewise** (`memcmp`); for UTF-8 this equals code-point
+  order. A shorter string that is a prefix of a longer one is less.
 
 ## D-009 — Module items vs. block statements
 

@@ -747,6 +747,14 @@ namespace NG::native::detail
           bindResult(instruction, QType::Long, std::format("xor {}, 1", extended));
         return;
       }
+      if (payload >= 8 && payload <= 11)
+      {
+        const auto order = fresh();
+        line(std::format("{} =l call $ngrt_str_cmp(l {}, l {})", order, left, right));
+        const char *qbeOp = payload == 8 ? "csltl" : payload == 9 ? "cslel" : payload == 10 ? "csgtl" : "csgel";
+        integerCompare(instruction, qbeOp, order, "0");
+        return;
+      }
       throw LoweringError(
           std::format("native lowering (M2): unsupported string binary payload {} in `{}`", payload, function_.name));
     }

@@ -289,6 +289,23 @@ int64_t ngrt_print_str(const char *value)
   return 0;
 }
 
+int64_t ngrt_str_cmp(const char *left, const char *right)
+{
+  /* DEC-E: total order is bytewise memcmp; if a common prefix ties, the
+   * shorter string is less. UTF-8 makes this the same as code-point order. */
+  int64_t leftLength = ngrt_str_len(left);
+  int64_t rightLength = ngrt_str_len(right);
+  int64_t prefix = leftLength < rightLength ? leftLength : rightLength;
+  int compared = memcmp(ngrt_str_bytes(left), ngrt_str_bytes(right), (size_t) prefix);
+  if (compared != 0)
+    return compared < 0 ? (int64_t) -1 : (int64_t) 1;
+  if (leftLength < rightLength)
+    return -1;
+  if (leftLength > rightLength)
+    return 1;
+  return 0;
+}
+
 int64_t ngrt_print_bool(int64_t value)
 {
   printf("%s\n", value ? "true" : "false");

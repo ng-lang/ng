@@ -535,7 +535,8 @@ namespace NG::typecheck::detail
       // INC-24 (DEC-E): an Ord-derived type orders itself; FlowIR expands it
       // into a lexicographic field comparison. Everything else must be i64.
       const bool derivedOrd = left == right && derivedOrdTypes_.contains(left.value);
-      if (!numericPair && !derivedOrd)
+      const bool stringPair = left == right && left == builtin::String;
+      if (!numericPair && !derivedOrd && !stringPair)
         requireType(builtin::I64, left, expression.span, "comparison operand");
       return builtin::Bool;
     }

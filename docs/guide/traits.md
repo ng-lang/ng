@@ -203,8 +203,9 @@ A **float field is rejected** (`derive(Ord)` reports
 `floats have no total order (NaN) and are excluded from v1`): NaN breaks
 totality, so ordering over floats is deliberately not available. Integer and
 `bool` fields are orderable; a nested struct or enum field must itself derive
-`Ord`. A `string` field passes derivation but is **not yet comparable**
-(ordering over strings is still unimplemented).
+`Ord`. `string` fields compare **bytewise** (`memcmp`); for UTF-8 that is
+the same as code-point order, and a shorter prefix is less than the longer
+string.
 
 (`example/derive_ord.ng`.)
 

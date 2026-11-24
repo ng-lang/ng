@@ -8,6 +8,8 @@ struct Point: derive(Ord) { x: i64, y: i64 }
 
 struct Version: derive(Ord) { major: i64, minor: i64, patch: i64 }
 
+struct Label: derive(Ord) { s: string }
+
 fun main() -> unit {
     // The first field decides.
     let a = Point { x: 1, y: 5 };
@@ -33,4 +35,11 @@ fun main() -> unit {
     print(v1 < v2);
     print(v2 < v3);
     print(v3 > v1);
+
+    let alpha = Label { s: "abc" };
+    let beta = Label { s: "abd" };
+    let prefix = Label { s: "ab" };
+    print(alpha < beta);
+    print(prefix < alpha);
+    print("café" < "cafê");
 }

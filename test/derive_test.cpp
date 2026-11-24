@@ -392,6 +392,29 @@ TEST_CASE("vNext derive(Ord) orders structs lexicographically", "[vNext][Derive]
   REQUIRE_THAT(output, Catch::Matchers::ContainsSubstring("true\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue"));
 }
 
+TEST_CASE("vNext string Ord is bytewise including derive(Ord) fields", "[vNext][Derive][Ord][Runtime]")
+{
+  expectValue("import prelude; fun main() -> i64 { "
+              "if (!(\"abc\" < \"abd\")) { return 1; } "
+              "if (!(\"ab\" < \"abc\")) { return 2; } "
+              "if (\"abc\" < \"abc\") { return 3; } "
+              "if (!(\"abc\" <= \"abc\")) { return 4; } "
+              "if (!(\"café\" < \"cafê\")) { return 5; } "
+              "return 0; }",
+              "0");
+
+  std::string output;
+  std::string errors;
+  REQUIRE(run("import prelude; struct P: derive(Ord) { s: string } "
+              "fun main() -> unit { "
+              "let a = P { s: \"abc\" }; let b = P { s: \"abd\" }; let c = P { s: \"ab\" }; "
+              "print(a < b); print(c < a); print(!(a < a)); print(a <= a); }",
+              output, errors) == 0);
+  INFO("errors: " << errors);
+  REQUIRE(errors.empty());
+  REQUIRE_THAT(output, Catch::Matchers::ContainsSubstring("true\ntrue\ntrue\ntrue"));
+}
+
 TEST_CASE("vNext derive(Ord) is rejected without the trait derived", "[vNext][Derive][Ord][Errors]")
 {
   std::string output;
