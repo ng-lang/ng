@@ -35,6 +35,12 @@ namespace NG::native::detail
     case typecheck::builtin::U32.value:
       name = "check_w_u32";
       break;
+    case typecheck::builtin::Isize.value:
+      name = "check_w_i64";
+      break;
+    case typecheck::builtin::Usize.value:
+      name = "check_w_u64";
+      break;
     default:
       return;
     }

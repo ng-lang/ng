@@ -15,6 +15,8 @@ export native fun print(value: u8) -> unit;
 export native fun print(value: u16) -> unit;
 export native fun print(value: u32) -> unit;
 export native fun print(value: u64) -> unit;
+export native fun print(value: isize) -> unit;
+export native fun print(value: usize) -> unit;
 export native fun assert(condition: bool) -> unit;
 
 // Explicit numeric conversions (INC-6 / DEC-A): implicit mixed comparisons
@@ -22,7 +24,11 @@ export native fun assert(condition: bool) -> unit;
 // explicitly.
 export native fun toFloat(value: i64) -> f64;
 export native fun toFloat(value: u64) -> f64;
+export native fun toFloat(value: isize) -> f64;
+export native fun toFloat(value: usize) -> f64;
 export native fun toSigned(value: u64) -> i64;
+export native fun toSigned(value: usize) -> i64;
+export native fun toSigned(value: isize) -> i64;
 
 // String conversions and integer parsing (INC-7). toString mirrors the
 // print formatters; parseRawInt traps on invalid input, so the Result-based
@@ -30,6 +36,8 @@ export native fun toSigned(value: u64) -> i64;
 export native fun toString(value: i64) -> string;
 export native fun toString(value: i32) -> string;
 export native fun toString(value: u64) -> string;
+export native fun toString(value: isize) -> string;
+export native fun toString(value: usize) -> string;
 export native fun toString(value: f64) -> string;
 export native fun toString(value: bool) -> string;
 export native fun canParseInt(text: string) -> bool;

@@ -57,6 +57,10 @@ auto Checker::typeFromNumericSuffix(std::string_view suffix) const -> TypeId
     return builtin::F32;
   if (suffix == "f64")
     return builtin::F64;
+  if (suffix == "isize")
+    return builtin::Isize;
+  if (suffix == "usize")
+    return builtin::Usize;
   return TypeId{};
 }
 
@@ -99,6 +103,12 @@ void Checker::checkIntegerLiteralMagnitude(uint64_t magnitude, std::string_view 
     maximum = std::numeric_limits<uint32_t>::max();
     break;
   case builtin::U64.value:
+    maximum = std::numeric_limits<uint64_t>::max();
+    break;
+  case builtin::Isize.value:
+    maximum = static_cast<uint64_t>(std::numeric_limits<int64_t>::max());
+    break;
+  case builtin::Usize.value:
     maximum = std::numeric_limits<uint64_t>::max();
     break;
   default:
@@ -144,6 +154,14 @@ void Checker::checkIntegerLiteral(int64_t value, std::string_view text, TypeId t
     maximum = std::numeric_limits<uint32_t>::max();
     break;
   case builtin::U64.value:
+    minimum = 0;
+    maximum = std::numeric_limits<uint64_t>::max();
+    break;
+  case builtin::Isize.value:
+    minimum = std::numeric_limits<int64_t>::min();
+    maximum = std::numeric_limits<int64_t>::max();
+    break;
+  case builtin::Usize.value:
     minimum = 0;
     maximum = std::numeric_limits<uint64_t>::max();
     break;

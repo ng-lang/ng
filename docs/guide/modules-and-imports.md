@@ -49,7 +49,7 @@ resolution error E-name-not-visible: name `helper` is not visible in this module
 
 | Module | Surface |
 |---|---|
-| `prelude` | `print` (i64/i8/i16/i32/u8/u16/u32/u64/string/bool/f64/f32 overloads), `assert`, `not`, `toFloat`, `toSigned`, `toString`, `canParseInt`, `parseRawInt`, `parseInt`, `Option`, `Result`, `optMap`/`optAndThen`/`optOrElse`, `resultMap`/`resultAndThen`/`resultOrElse`, traits `Copy`/`Clone`/`Eq`/`Show`, auto traits `Fn`/`FnOnce`, and re-exports of io/string |
+| `prelude` | `print` (i64/i8/i16/i32/u8/u16/u32/u64/isize/usize/string/bool/f64/f32 overloads), `assert`, `not`, `toFloat`, `toSigned`, `toString`, `canParseInt`, `parseRawInt`, `parseInt`, `Option`, `Result`, `optMap`/`optAndThen`/`optOrElse`, `resultMap`/`resultAndThen`/`resultOrElse`, traits `Copy`/`Clone`/`Eq`/`Show`, auto traits `Fn`/`FnOnce`, and re-exports of io/string |
 | `io` | `readLine`, `readFile`, `writeFile`, `currentExecutablePath` |
 | `system` | `system(command)`, `systemOutput(command)` — process/system command bindings (`import system;`) |
 | `string` | `split`, `join`, `trim`, `contains`, `replace`, `startsWith`, `endsWith`, `toUpper`, `toLower`, `length`, `charAt`, `substring`, `regexMatch` |

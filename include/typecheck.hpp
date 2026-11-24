@@ -35,25 +35,53 @@ namespace NG::typecheck
     inline constexpr TypeId U64{11};
     inline constexpr TypeId F32{12};
     inline constexpr TypeId F64{13};
+    /// INC-28: target-width integers. On every supported target (arm64, x86_64)
+    /// the pointer width is 64 bits, so `isize` maps to the `i64` layout and
+    /// `usize` to the `u64` layout. Distinct types so mixed arithmetic stays a
+    /// type error, but sharing the slot, checked helpers, and ABI class.
+    inline constexpr TypeId Isize{14};
+    inline constexpr TypeId Usize{15};
   } // namespace builtin
 
-  /// True for the D-008 fixed-width integer builtin types (i8–i64, u8–u64).
+  /// True for the D-008 fixed-width integer builtin types (i8–i64, u8–u64) and
+  /// the INC-28 target-width integers (`isize`/`usize`).
   [[nodiscard]] inline auto isIntegerBuiltin(TypeId type) -> bool
   {
     return type == builtin::I8 || type == builtin::I16 || type == builtin::I32 || type == builtin::I64 ||
-           type == builtin::U8 || type == builtin::U16 || type == builtin::U32 || type == builtin::U64;
+           type == builtin::U8 || type == builtin::U16 || type == builtin::U32 || type == builtin::U64 ||
+           type == builtin::Isize || type == builtin::Usize;
   }
 
-  /// True for the unsigned fixed-width integer builtin types (u8–u64).
+  /// The fixed-width/target-width integer whose 64-bit slot layout `type`
+  /// shares. `isize` behaves as `i64` and `usize` as `u64` on the current
+  /// targets; every other integer is itself.
+  [[nodiscard]] inline auto canonicalInteger(TypeId type) -> TypeId
+  {
+    if (type == builtin::Isize)
+      return builtin::I64;
+    if (type == builtin::Usize)
+      return builtin::U64;
+    return type;
+  }
+
+  /// True for the unsigned integer builtin types (u8–u64, `usize`).
   [[nodiscard]] inline auto isUnsignedIntegerBuiltin(TypeId type) -> bool
   {
-    return type == builtin::U8 || type == builtin::U16 || type == builtin::U32 || type == builtin::U64;
+    return type == builtin::U8 || type == builtin::U16 || type == builtin::U32 || type == builtin::U64 ||
+           type == builtin::Usize;
   }
 
-  /// True for the signed fixed-width integer builtin types (i8–i64).
+  /// True for the signed integer builtin types (i8–i64, `isize`).
   [[nodiscard]] inline auto isSignedIntegerBuiltin(TypeId type) -> bool
   {
-    return type == builtin::I8 || type == builtin::I16 || type == builtin::I32 || type == builtin::I64;
+    return type == builtin::I8 || type == builtin::I16 || type == builtin::I32 || type == builtin::I64 ||
+           type == builtin::Isize;
+  }
+
+  /// True for the INC-28 target-width integer types.
+  [[nodiscard]] inline auto isTargetWidthIntegerBuiltin(TypeId type) -> bool
+  {
+    return type == builtin::Isize || type == builtin::Usize;
   }
 
   /// True for the D-008 floating-point builtin types (f32, f64).

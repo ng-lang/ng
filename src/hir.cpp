@@ -269,7 +269,8 @@ namespace NG::hir
     // are never introduced as parameters.
     if (declaration.parameters.empty())
     {
-      constexpr std::array<std::string_view, 5> BuiltinNames{"i64", "u8", "bool", "unit", "string"};
+      constexpr std::array<std::string_view, 7> BuiltinNames{"i64", "u8",   "bool", "unit",
+                                                             "string", "isize", "usize"};
       for (const auto &argument : declaration.patternArguments)
       {
         if (const auto *named = dynamic_cast<const syntax::NamedTypeSyntax *>(argument.get()); named != nullptr)

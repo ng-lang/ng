@@ -93,6 +93,10 @@ namespace NG::native::detail
         return "check_w_u16";
       case typecheck::builtin::U32.value:
         return "check_w_u32";
+      case typecheck::builtin::Isize.value:
+        return "check_w_i64";
+      case typecheck::builtin::Usize.value:
+        return "check_w_u64";
       default:
         return nullptr;
       }

@@ -180,6 +180,21 @@ namespace NG::typecheck::detail
         argumentTypes[index] = infer(*call.operands[index + 1], locals);
       return *argumentTypes[index];
     };
+    // INC-28: `isize`/`usize` share the i64/u64 slot layout. When no candidate
+    // matches a target-width argument exactly, an unsuffixed integer literal
+    // may also adopt the canonical (i64/u64) parameter type — e.g.
+    // `toSigned(42)` picks `toSigned(value: u64)` through the integer-literal
+    // adoption rule (DEC-A), even though `42` reads as `i64` in isolation.
+    const auto matchesTargetWidthAdoption = [&](TypeId parameter, size_t index) -> bool
+    {
+      if (!isTargetWidthIntegerBuiltin(parameter))
+        return false;
+      const auto &argument = *call.operands[index + 1];
+      if (argument.kind != hir::ExpressionKind::IntegerLiteral || !argument.numericSuffix.empty())
+        return false;
+      const TypeId actual = argumentType(index);
+      return canonicalInteger(parameter) == actual;
+    };
     for (const auto candidate : callee.functionCandidates)
     {
       const auto &signature = signatures_.at(candidate.value);
@@ -210,7 +225,8 @@ namespace NG::typecheck::detail
           }
           catch (const TypeError &)
           {
-            matches = false;
+            if (!matchesTargetWidthAdoption(signature.parameters[index], index))
+              matches = false;
           }
         }
         if (!matches)
@@ -219,6 +235,21 @@ namespace NG::typecheck::detail
       int score = generic ? 0 : 100;
       for (const auto parameter : signature.parameters)
         score += specificity(parameter);
+      // INC-28: an integer literal that falls back to a target-width
+      // parameter through the canonical i64/u64 lane is a weaker match than
+      // an exact fixed-width one (`toString(9)` prefers `i64` over `isize`,
+      // `toSigned(42)` picks `u64` over `usize` when both are reachable).
+      for (size_t index = 0; index < signature.parameters.size(); ++index)
+        if (!isGeneric(signature) && isTargetWidthIntegerBuiltin(signature.parameters[index]))
+          try
+          {
+            requireType(signature.parameters[index], argumentType(index), call.operands[index + 1]->span,
+                        "specialization argument");
+          }
+          catch (const TypeError &)
+          {
+            --score;
+          }
       if (score > bestScore)
       {
         bestScore = score;

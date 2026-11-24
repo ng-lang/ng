@@ -266,3 +266,32 @@ is allowed (it is exact in the i64 slot). Literals keep contextual adoption
 (`f == 1` promotes the literal to f64). Explicit conversions `toFloat` / `toSigned`
 are provided. Equality and ordering across numeric widths therefore compare fine,
 but mixed **arithmetic** across widths is a type error.
+
+## D-016 — Target-width integers (`isize` / `usize`)
+
+- `isize` and `usize` are built-in integer types whose width is the target's
+  pointer width. On the supported targets (arm64, x86_64) that width is **64
+  bits**, so `isize` behaves as a signed 64-bit integer and `usize` as an
+  unsigned 64-bit integer. A target ABI descriptor drives the width; it is never
+  inferred from host serialization.
+- They follow the same arithmetic, comparison, and literal rules as the
+  fixed-width tower:
+  - Same-type arithmetic (`isize + isize`, `usize + usize`) with per-width
+    checked overflow (a trap on wrap; for these types the 64-bit width check is
+    a no-op since the slot already holds the full range).
+  - Literal suffixes `isize` / `usize` (e.g. `5usize`, `-3isize`) and contextual
+    adoption of an expected `isize`/`usize` (DEC-A still governs mixed types).
+  - Literal magnitude is range-checked: `isize` accepts the i64 domain and
+    `usize` the u64 domain (`18446744073709551616usize` is out of range).
+  - Const evaluation and the `const fun` interpreter cover both types.
+- DEC-A applies unchanged: mixed **arithmetic** between `isize`/`usize` and any
+  other integer type is a type error, and a mixed-sign comparison (`isize` ↔
+  `usize`) or mixed integer/float comparison is a compile error requiring
+  `toFloat` / `toSigned`. Same-signedness cross-width comparison is exact.
+- At the ABI boundary `isize`/`usize` are ABI-safe fixed-width integers (QBE
+  `l`, C `intptr_t`/`size_t` class) usable in `extern "C"` signatures and as
+  `repr(C)` struct fields. Because they share the `i64`/`u64` slot, library
+  bindings declare `isize`/`usize` overloads alongside the fixed-width ones, and
+  an unsuffixed integer literal reaching such a binding adopts the matching
+  target-width parameter (canonical `i64` → `isize`, `u64` → `usize`) exactly as
+  it adopts `i64`/`u64`.

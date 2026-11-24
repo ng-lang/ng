@@ -266,3 +266,12 @@ export function l $ngrt_check_w_u32(l %v) {
 	ret %v
 }
 
+export function l $ngrt_check_w_i64(l %v) {
+@start
+	ret %v
+}
+
+export function l $ngrt_check_w_u64(l %v) {
+@start
+	ret %v
+}

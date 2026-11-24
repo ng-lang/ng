@@ -483,8 +483,8 @@ namespace NG::hir
     /// `numericSuffix`; the lexer already validated the suffix set.
     void splitNumericSuffix(hir::Expression &resolved)
     {
-      static const std::unordered_set<std::string> suffixes{"i8",  "i16", "i32", "i64", "u8",
-                                                            "u16", "u32", "u64", "f32", "f64"};
+      static const std::unordered_set<std::string> suffixes{"i8",  "i16",   "i32", "i64", "u8",    "u16",
+                                                            "u32", "u64",   "f32", "f64", "isize", "usize"};
       for (const auto &suffix : suffixes)
       {
         if (resolved.text.size() > suffix.size() && resolved.text.ends_with(suffix))

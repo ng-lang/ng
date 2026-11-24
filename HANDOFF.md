@@ -1,8 +1,8 @@
 # NG — 移交说明（下一轮 agent 请从此处开始）
 
 工作区：当前工作目录（仓库根；分支 `new-start`，**未推送**）
-基线：`b2a8048`（INC-35 Self 视图方法）+ 即将落地的 field-span 提交
-工作区状态：完成 Prompt F 后应干净；下一轮从 Prompt G 起
+基线：field-span 提交（Prompt F）+ 本轮 isize/usize 提交（Prompt G）
+工作区状态：完成 Prompt G 后应干净；下一轮从 Prompt H 起
 
 本文件列出已完成的收尾状态、仍开放的缺陷（均已实测确认仍在），以及给下一轮的可直接投喂 prompt。
 
@@ -33,6 +33,7 @@
 | `796d85e` | **Prompt D** — INC-33 元组 `case (a, b)` |
 | `b2a8048` | **Prompt E** — INC-35 视图上返回 `Self` 的方法 |
 | （本提交） | **Prompt F** — INC-21 field-span / span-through-ref |
+| （本提交） | **Prompt G** — INC-28 `isize` / `usize`（目标字宽整数，D-016） |
 
 闭包体与解构 `let` 上的 `?` 仍正确拒绝。
 
@@ -46,12 +47,11 @@
 
 ## 3. 建议的下一轮顺序
 
-7. **Prompt G** — INC-28 isize/usize
-8. **Prompt H** — INC-30/31（架构，务必先做等价性验证）
-9. **Prompt I** — INC-29 C ABI（先盘点再拆）
-10. **Prompt J** — INC-36（**先探测**，可能无需改动）
+7. **Prompt H** — INC-30/31（架构，务必先做等价性验证）
+8. **Prompt I** — INC-29 C ABI（先盘点再拆）
+9. **Prompt J** — INC-36（**先探测**，可能无需改动）
 
-注：D–G 相互独立，可并行交给不同 agent；H/I 会大范围改编译器，建议独占并在动手前先报告拆分方案。
+注：H/I 会大范围改编译器，建议独占并在动手前先报告拆分方案。
 
 ---
 
@@ -61,36 +61,9 @@
 
 | Prompt | 任务 | 规模 | 现状已确认 |
 |---|---|---|---|
-| **G** | INC-28 `isize` / `usize` | 中 | `unknown type usize` |
 | **H** | INC-30/31 模块工件 + RuntimeSession | 大（架构） | 未开始 |
 | **I** | INC-29 C ABI 收尾 | 大（需先拆） | 部分实现 |
 | **J** | INC-36 const fun trait bound | 小/不确定 | **基础已可用**，先探测 |
-
----
-
-### Prompt G —— INC-28 isize / usize
-
-```
-你在当前工作目录（NG 语言）。先读 AGENTS.md 与本目录 HANDOFF.md（§0 约定）。
-
-任务：INC-28 —— 新增 `isize` / `usize`（目标字宽整数类型）。
-
-现状（已确认）：`let x: usize = 5;` → type error: unknown type `usize`
-
-设计要求（见 .agents/plans/increment-plan.md 的 INC-28 与 docs/ref/language-decisions.md 的 D-008）：
-- 语义应为「目标指针宽度」（当前目标 arm64/x86_64 → 64 位），而不是另起一套算术。
-- 与既有整型规则一致：同类型算术、跨宽比较、DEC-A 「禁止隐式混比」。
-- 需有 ABI 边界契约（TargetAbiDescriptor 驱动宽度）。
-
-实现提示：
-- 内建类型表（typecheck 的 builtin::* 与 type-interner 的内建注册）、
-  字面量后缀、isIntegerBuiltin 判定、lowering 的 QBE 映射都要加。
-- 常量折叠与 const 谓词（is_integer 类）需一并考虑。
-- 若一次改动过大，按「先类型+算术，再 ABI/FFI 边界」拆两个提交。
-
-交付：实现 + 测试（算术/比较/溢出 trap/与 i64 的显式转换）+ example
-+ 文档同步（docs/ref/language-decisions.md 的 D-008 条目）+ 跑满门禁 + 提交。
-```
 
 ---
 

@@ -1,0 +1,40 @@
+// vNext target-width integers (INC-28 / D-016): `isize` and `usize` are the
+// pointer-width integer types. On the supported targets (arm64, x86_64) the
+// pointer width is 64 bits, so `isize` behaves as a signed 64-bit integer and
+// `usize` as an unsigned 64-bit integer, while remaining distinct types:
+// mixed-width arithmetic is still a type error and mixed-sign comparisons must
+// go through explicit conversions.
+import prelude;
+
+const fun twice(n: usize) -> usize => n * 2usize;
+const fun isPositive(n: isize) -> bool => n > 0isize;
+
+fun main() -> i64 {
+    // Same-type arithmetic and comparison.
+    let count: usize = 21usize;
+    let offset: isize = -5isize;
+    let doubled: usize = count + count;
+    let lowered: isize = offset - 3isize;
+    if (doubled != 42usize) { return 1; }
+    if (lowered != -8isize) { return 2; }
+
+    // Full-width range: usize reaches u64::MAX and stays unsigned.
+    let big: usize = 18446744073709551615usize;
+    if (!(big > 5usize)) { return 3; }
+
+    // Const evaluation runs on the target-width types too.
+    const if (!(twice(21usize) == 42usize)) { return 4; }
+    const if (!(isPositive(21isize))) { return 5; }
+
+    // Explicit conversion into the fixed-width tower for signed inspection.
+    if (toSigned(big) != -1) { return 6; }
+
+    // Overflow traps: isize::MAX + 1 panics like any other checked integer.
+    let atMax: isize = 9223372036854775807isize - 1isize + 1isize;
+    if (atMax < 0isize) { return 7; }
+
+    print(doubled);
+    print(lowered);
+    print(big);
+    return 0;
+}

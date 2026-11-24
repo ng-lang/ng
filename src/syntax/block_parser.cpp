@@ -391,7 +391,8 @@ namespace NG::syntax
         std::vector<std::string> texts;
         const auto stripSuffix = [](std::string text)
         {
-          for (const auto *suffix : {"i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "f32", "f64"})
+          for (const auto *suffix : {"i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "f32", "f64", "isize",
+                                     "usize"})
           {
             const size_t length = std::char_traits<char>::length(suffix);
             if (text.size() > length && text.ends_with(suffix))

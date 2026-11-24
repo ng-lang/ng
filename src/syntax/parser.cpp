@@ -237,12 +237,13 @@ namespace NG::syntax
             ++offset;
           }
           suffix = source.substr(suffixBegin, offset - suffixBegin);
-          static const std::unordered_set<std::string> suffixes{"i8", "i16", "i32", "i64", "u8", "u16", "u32",
-                                                                "u64", "f32", "f64"};
+          static const std::unordered_set<std::string> suffixes{"i8",  "i16",   "i32", "i64", "u8",    "u16",
+                                                                "u32", "u64",   "f32", "f64", "isize", "usize"};
           if (!suffixes.contains(suffix))
             throw ParseError(std::format("unknown numeric literal suffix `{}`", suffix), SourceSpan{begin, offset});
           if (floating && (suffix == "i8" || suffix == "i16" || suffix == "i32" || suffix == "i64" || suffix == "u8" ||
-                           suffix == "u16" || suffix == "u32" || suffix == "u64"))
+                           suffix == "u16" || suffix == "u32" || suffix == "u64" || suffix == "isize" ||
+                           suffix == "usize"))
             throw ParseError(std::format("float literal cannot carry integer suffix `{}`", suffix), SourceSpan{begin, offset});
         }
         tokens.push_back(Token{.kind = floating ? TokenKind::FloatLiteral : TokenKind::IntegerLiteral,

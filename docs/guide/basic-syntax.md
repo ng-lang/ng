@@ -46,6 +46,7 @@ Running that, `first` is `1`, `rest[0]` is `two`, and `rest[1]` is `true`.
 |---|---|
 | `i8` `i16` `i32` `i64` | signed fixed-width integers |
 | `u8` `u16` `u32` `u64` | unsigned fixed-width integers |
+| `isize` `usize` | target-width signed/unsigned integers (64-bit on supported targets) |
 | `f32` `f64` | IEEE-754 floats |
 | `bool` | `true` / `false` |
 | `string` | UTF-8-ish string values |
