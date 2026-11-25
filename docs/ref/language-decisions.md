@@ -59,6 +59,15 @@
 - Ownership annotations are `owning`, `borrowed`, `shared`.
 - Nullable foreign handles use `T?`.
 
+> Verified (INC-29 step 3a): `export extern "C" fun name(...) -> T { body }`
+> defines an NG function with a C-visible symbol. The NG body keeps its
+> internal symbol and i64/f64 slots; an emitted wrapper translates the C ABI
+> boundary (sub-word extension, f32 widening/narrowing) and forwards to it.
+> Signatures must be ABI-safe and non-generic; aggregate parameters/results
+> and sub-word integer results are deferred. No RuntimeSession initialization
+> policy is needed because the language has no module globals or init
+> statements (D-009).
+
 > Verified (INC-29 step 2): `T?` is a nullable handle type, valid only when
 > `T` is a native opaque handle (`type T = native;`); `i64?` and abstract
 > `type A?` are type errors. It occupies the same 64-bit slot as `T`, with the

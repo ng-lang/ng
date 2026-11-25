@@ -91,6 +91,11 @@ namespace NG::native
       return escaped;
     }
 
+    /// QBE type spelling for a C ABI scalar boundary. Sub-word integers keep
+    /// their sign/zero-extension class, i32/u32/bool are `w`, f32 is `s`,
+    /// f64 `d`, everything else `l`. Shared by extern calls and export wrappers.
+    [[nodiscard]] auto cAbiSuffix(TypeId type) -> std::string;
+
     /// Per-module native/extern bookkeeping for shim selection and ABI data.
     struct NgrtContext
     {
@@ -117,6 +122,9 @@ namespace NG::native
       /// B3 first slice: DefIds of `extern "C"` declarations. Call sites emit
       /// direct QBE calls to the C symbol instead of an NG function symbol.
       std::unordered_set<uint32_t> externDefIds;
+      /// INC-29: DefIds of `export extern "C"` definitions — C-visible
+      /// unmangled symbols (plain extern declarations stay declarations).
+      std::unordered_set<uint32_t> cExportDefIds;
       /// B3 first slice: DefId -> declared parameter types and result of
       /// `extern "C"` declarations (authoritative for the C ABI; NG call
       /// sites widen sub-word values to i64).

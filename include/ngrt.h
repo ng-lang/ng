@@ -147,6 +147,9 @@ int64_t ngrt_fixture_point_sum(struct ngrt_fixture_point point);
 int64_t ngrt_fixture_mixed_sum(struct ngrt_fixture_mixed mixed);
 struct ngrt_fixture_point ngrt_fixture_point_swap(struct ngrt_fixture_point point);
 
+// INC-29: calls an NG `export extern "C" fun ngrt_fixture_exported_add`.
+int64_t ngrt_fixture_call_exported_add(int64_t a, int64_t b);
+
 #ifdef __cplusplus
 }
 #endif

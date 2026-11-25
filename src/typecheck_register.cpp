@@ -833,14 +833,35 @@ auto Checker::abiSafetyIssue(TypeId type) const -> std::string
 void Checker::validateExternSignature(const hir::Function &function, const FunctionTypeIds &signature)
 {
   for (size_t index = 0; index < function.parameters.size(); ++index)
+  {
     if (const auto issue = abiSafetyIssue(signature.parameters[index]); !issue.empty())
       throw TypeError(std::format("extern \"C\" function `{}`: parameter `{}`: {}", function.name,
                                   function.parameters[index].name, issue),
                       function.parameters[index].span);
+    // INC-29: export wrappers currently translate scalar boundaries only;
+    // aggregate by-value crossing is deferred (the C layout wrapper is a
+    // separate slice).
+    if (function.exported)
+    {
+      const auto kind = interner_.descriptor(signature.parameters[index]).kind;
+      if (kind == TypeKind::Struct || kind == TypeKind::Enum)
+        throw TypeError(std::format("export extern \"C\" function `{}`: aggregate parameter `{}` is deferred",
+                                    function.name, function.parameters[index].name),
+                        function.parameters[index].span);
+    }
+  }
   if (signature.returnType != builtin::Unit)
   {
     if (const auto issue = abiSafetyIssue(signature.returnType); !issue.empty())
       throw TypeError(std::format("extern \"C\" function `{}`: {}", function.name, issue), function.span);
+    if (function.exported)
+    {
+      const auto kind = interner_.descriptor(signature.returnType).kind;
+      if (kind == TypeKind::Struct || kind == TypeKind::Enum)
+        throw TypeError(std::format("export extern \"C\" function `{}`: aggregate result is deferred",
+                                    function.name),
+                        function.span);
+    }
     if (signature.returnType == builtin::I8 || signature.returnType == builtin::U8 ||
         signature.returnType == builtin::I16 || signature.returnType == builtin::U16)
       throw TypeError(std::format("extern \"C\" function `{}`: sub-word results are deferred to a later B3 slice",

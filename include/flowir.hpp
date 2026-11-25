@@ -134,6 +134,9 @@ namespace NG::flowir
     /// `extern "C"` declaration (B3): no NG body; the native tier calls the C
     /// symbol directly and the VM rejects calls with a tier diagnostic.
     bool externC{};
+    /// INC-29: `export extern "C"` definition with a body — emitted as a
+    /// C-visible symbol with C ABI parameter/result types.
+    bool cExport{};
     /// Declared result type from the checker (B3): extern calls emit with the
     /// declared C signature type and widen to the call-site value type.
     std::optional<typecheck::TypeId> declaredResultType{};

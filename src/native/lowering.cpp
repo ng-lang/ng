@@ -37,6 +37,87 @@ namespace NG::native
     return FunctionLowerer{function, names, ngrt}.run();
   }
 
+  namespace
+  {
+    /// INC-29: emits a C-visible wrapper for `export extern "C"` definitions.
+    /// The NG body keeps its normal i64/f64 slots and mangled symbol; the
+    /// wrapper translates the C ABI boundary (sub-word extension, f32
+    /// widening/narrowing) and forwards to it.
+    [[nodiscard]] auto emitCExportWrapper(const Function &function) -> std::string
+    {
+      const auto &declared = function.declaredResultType.value_or(typecheck::builtin::Unit);
+      const bool unitResult = declared == typecheck::builtin::Unit;
+      const std::string resultSuffix = unitResult ? "" : cAbiSuffix(declared);
+      std::string out = std::format("export function{} ${}(", resultSuffix.empty() ? "" : " " + resultSuffix,
+                                    function.name);
+      std::vector<std::string> forwarded;
+      std::vector<std::string> conversions;
+      size_t temporary = 0;
+      for (size_t index = 0; index < function.parameterLocals.size(); ++index)
+      {
+        const auto type = function.localTypes.at(function.parameterLocals[index].value);
+        const std::string cSuffix = cAbiSuffix(type);
+        const std::string param = std::format("%p{}", index);
+        if (index != 0)
+          out += ", ";
+        out += std::format("{} {}", cSuffix, param);
+        std::string value = param;
+        if (cSuffix == "sb" || cSuffix == "ub" || cSuffix == "sh" || cSuffix == "uh" || cSuffix == "w")
+        {
+          const bool isUnsigned = typecheck::isUnsignedIntegerBuiltin(type);
+          const std::string op = cSuffix == "sb"   ? "extsb"
+                                 : cSuffix == "ub" ? "extub"
+                                 : cSuffix == "sh" ? (isUnsigned ? "extuh" : "extsh")
+                                 : cSuffix == "uh" ? "extuh"
+                                 : (isUnsigned ? "extuw" : "extsw");
+          const std::string wide = std::format("%c{}", temporary++);
+          conversions.push_back(std::format("\t{} =l {} {}", wide, op, param));
+          value = wide;
+        }
+        else if (cSuffix == "s")
+        {
+          const std::string wide = std::format("%c{}", temporary++);
+          conversions.push_back(std::format("\t{} =d exts {}", wide, param));
+          value = wide;
+        }
+        forwarded.push_back(std::format("l {}", value));
+      }
+      out += ") {\n@start\n";
+      for (const auto &conversion : conversions)
+        out += conversion + "\n";
+      const std::string ngSymbol = qbeSymbol(function.name, function.source.value);
+      const std::string call = unitResult ? std::format("call {}({})", ngSymbol, [&]
+      {
+        std::string args;
+        for (size_t i = 0; i < forwarded.size(); ++i)
+          args += (i == 0 ? "" : ", ") + forwarded[i];
+        return args;
+      }())
+                                          : std::format("%r ={} call {}({})",
+                                                        typecheck::isFloatBuiltin(declared) ? "d" : "l", ngSymbol, [&]
+      {
+        std::string args;
+        for (size_t i = 0; i < forwarded.size(); ++i)
+          args += (i == 0 ? "" : ", ") + forwarded[i];
+        return args;
+      }());
+      out += "\t" + call + "\n";
+      if (!unitResult)
+      {
+        if (resultSuffix == "s")
+          out += "\t%rc =s truncd %r\n\tret %rc\n";
+        else if (resultSuffix == "d")
+          out += "\t%rd =d copy %r\n\tret %rd\n";
+        else
+          out += "\tret %r\n";
+      }
+      else
+        out += "\tret 0\n";
+      out += "}\n";
+      return out;
+    }
+  } // namespace
+
   auto lowerModule(const std::vector<Function> &functions, const VtableMap &vtables,
                    const NativeOwnerships &nativeOwnerships) -> std::string
   {
@@ -57,6 +138,12 @@ namespace NG::native
         ngrt.nativeSignatures.emplace(function.source.value, std::move(declared));
         if (function.declaredResultType.has_value())
           ngrt.nativeResultTypes.emplace(function.source.value, *function.declaredResultType);
+      }
+      else if (function.externC && function.cExport)
+      {
+        // INC-29: an exported C ABI definition has an NG body; emit it with a
+        // C-visible symbol and C boundary types (see FunctionLowerer::emit).
+        ngrt.cExportDefIds.insert(function.source.value);
       }
       else if (function.externC)
       {
@@ -133,11 +220,13 @@ namespace NG::native
     }
     for (const auto &function : functions)
     {
-      if (function.nativeFunction || function.externC)
+      if (function.nativeFunction || (function.externC && !function.cExport))
         continue;
       try
       {
         result += FunctionLowerer{function, names, ngrt}.run();
+      if (function.cExport)
+        result += emitCExportWrapper(function);
       }
       catch (const LoweringError &)
       {

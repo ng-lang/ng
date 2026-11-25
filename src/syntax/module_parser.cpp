@@ -66,7 +66,18 @@ namespace NG::syntax
           items.push_back(parseStructDeclaration(true));
         }
         else if (current().kind == TokenKind::KeywordExtern)
-          throw ParseError("`export extern \"C\"` is not supported yet", current().span);
+        {
+          // INC-29: `export extern "C" fun name(...) -> T { body }` — an NG
+          // function exposed with a C ABI symbol (distinct from a plain
+          // `extern "C"` declaration, which has no body).
+          static_cast<void>(consume());
+          if (current().kind != TokenKind::StringLiteral || current().text != "C")
+            throw ParseError("only the `\"C\"` calling convention is supported after `extern`", current().span);
+          static_cast<void>(consume());
+          if (current().kind != TokenKind::KeywordFun)
+            throw ParseError("expected `fun` after `export extern \"C\"`", current().span);
+          items.push_back(parseFunctionDeclaration(false, true, false, true));
+        }
         else if (current().kind == TokenKind::KeywordEnum) items.push_back(parseEnumDeclaration());
         else if (current().kind == TokenKind::KeywordTrait || current().kind == TokenKind::KeywordAuto)
           items.push_back(parseTraitDeclaration());
@@ -596,11 +607,14 @@ namespace NG::syntax
         throw ParseError("extern \"C\" functions cannot be generic", funToken.span);
       if (whereClause != nullptr)
         throw ParseError("extern \"C\" functions cannot have where clauses", funToken.span);
-      expect(TokenKind::Semicolon, "expected `;` after extern function signature");
-      const SourceSpan span{funToken.span.begin, current().span.begin};
-      return std::make_unique<FunctionDeclaration>(name.text, std::move(genericParameters), std::move(parameters),
-                                                   std::move(returnType), Block{SourceSpan{span.end, span.end}, {}, nullptr},
-                                                   span, false, std::move(whereClause), exported, false, true);
+      if (!exported)
+      {
+        expect(TokenKind::Semicolon, "expected `;` after extern function signature");
+        const SourceSpan span{funToken.span.begin, current().span.begin};
+        return std::make_unique<FunctionDeclaration>(name.text, std::move(genericParameters), std::move(parameters),
+                                                     std::move(returnType), Block{SourceSpan{span.end, span.end}, {}, nullptr},
+                                                     span, false, std::move(whereClause), exported, false, true);
+      }
     }
     if (nativeFunction)
     {
@@ -630,7 +644,7 @@ namespace NG::syntax
     }
     const SourceSpan span{funToken.span.begin, body->span.end};
     return std::make_unique<FunctionDeclaration>(name.text, std::move(genericParameters), std::move(parameters), std::move(returnType),
-                                                 std::move(*body), span, constFunction, std::move(whereClause), exported, false);
+                                                 std::move(*body), span, constFunction, std::move(whereClause), exported, false, externC);
   }
 
   auto ModuleParser::parseExpressionUntil(TokenKind terminator) -> ExpressionPtr

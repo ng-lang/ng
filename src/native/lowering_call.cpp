@@ -12,7 +12,7 @@ namespace NG::native::detail
       return aggregateName(type);
     return suffix(qtype);
   }
-  [[nodiscard]] auto FunctionLowerer::externSuffixFor(TypeId type) -> std::string
+  [[nodiscard]] auto cAbiSuffix(TypeId type) -> std::string
   {
     if (type == typecheck::builtin::I8)
       return "sb";
@@ -29,6 +29,10 @@ namespace NG::native::detail
     if (type == typecheck::builtin::F64)
       return "d";
     return "l";
+  }
+  [[nodiscard]] auto FunctionLowerer::externSuffixFor(TypeId type) -> std::string
+  {
+    return cAbiSuffix(type);
   }
   void FunctionLowerer::lowerCall(const Instruction &instruction)
   {

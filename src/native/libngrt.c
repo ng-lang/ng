@@ -1081,3 +1081,17 @@ struct ngrt_fixture_point ngrt_fixture_point_swap(struct ngrt_fixture_point poin
   swapped.y = point.x;
   return swapped;
 }
+
+/* INC-29: `export extern "C"` end-to-end fixture. The symbol below is defined
+ * by the NG-generated object (unmangled C name), so the linker resolves it. */
+/* Weak fallback so the compiler binary itself links; a generated program's
+ * strong `export extern "C"` definition overrides it at link time. */
+__attribute__((weak)) int64_t ngrt_fixture_exported_add(int64_t a, int64_t b)
+{
+  return -1;
+}
+
+int64_t ngrt_fixture_call_exported_add(int64_t a, int64_t b)
+{
+  return ngrt_fixture_exported_add(a, b);
+}
