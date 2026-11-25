@@ -89,6 +89,10 @@ namespace NG
         std::string directory;
         while (std::getline(stream, directory, ':'))
         {
+          // An empty segment means the current directory in shell semantics;
+          // do not accidentally load a same-named archive from CWD.
+          if (directory.empty())
+            continue;
           const auto candidate = std::filesystem::path{directory} / std::string{name};
           if (std::filesystem::is_regular_file(candidate))
             return candidate.string();
@@ -145,8 +149,18 @@ namespace NG
       close(pipeDescriptors[1]);
       char buffer[256];
       ssize_t count = 0;
-      while ((count = read(pipeDescriptors[0], buffer, sizeof buffer)) > 0)
-        result.output.append(buffer, count);
+      for (;;)
+      {
+        count = read(pipeDescriptors[0], buffer, sizeof buffer);
+        if (count > 0)
+        {
+          result.output.append(buffer, static_cast<size_t>(count));
+          continue;
+        }
+        if (count == -1 && errno == EINTR)
+          continue;
+        break;
+      }
       close(pipeDescriptors[0]);
       int status = 0;
       pid_t waited = 0;
@@ -203,6 +217,11 @@ namespace NG
       {
         std::ofstream stream(ilFile);
         stream << il;
+        if (!stream)
+        {
+          errors << "native: cannot write " << ilFile.string() << '\n';
+          return 1;
+        }
       }
       const auto assemble = runCommand({NG_QBE_PATH, "-o", asmFile.string(), ilFile.string()});
       if (!WIFEXITED(assemble.status) || WEXITSTATUS(assemble.status) != 0)
@@ -273,6 +292,11 @@ namespace NG
       // members this module actually calls.
       if (const auto helpers = findNgrtLibrary("libngrt_helpers.a", NG_NGRT_HELPERS_PATH); helpers.has_value())
         linkArgs.push_back(*helpers);
+      else
+      {
+        errors << "native: cannot find libngrt_helpers.a (set NG_LIBRARY_PATH or LIBRARY_PATH)\n";
+        return 1;
+      }
 #endif
       linkArgs.push_back(*ngrt);
       linkArgs.push_back("-o");
@@ -294,7 +318,7 @@ namespace NG
       const auto run = runCommand({executable.string()});
       if (!WIFEXITED(run.status))
       {
-        errors << "native: the program was killed by a signal\n" << run.output;
+        errors << "native: the program was killed by a signal (" << WTERMSIG(run.status) << ")\n" << run.output;
         return 1;
       }
       output << run.output;
@@ -506,7 +530,7 @@ namespace NG
       }
       if (arguments[index] == "--output" || arguments[index] == "-o")
       {
-        if (index + 1 >= arguments.size())
+        if (index + 1 >= arguments.size() || arguments[index + 1].empty())
         {
           errors << "--output requires a path\n";
           return 1;
