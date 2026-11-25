@@ -2,7 +2,7 @@
 
 工作区：当前工作目录（仓库根；分支 `new-start`，**未推送**）
 基线：INC-28/30/31 + INC-29 全部落地（含具名函数回调）
-工作区状态：INC-29 全部落地；下一轮从 Prompt J（INC-36 探测）起
+工作区状态：INC-29 全部落地、INC-36 探测无需改动；本轮任务已全部完成，无待办增量
 
 本文件列出已完成的收尾状态、仍开放的缺陷（均已实测确认仍在），以及给下一轮的可直接投喂 prompt。
 
@@ -40,6 +40,7 @@
 | （本提交） | **Prompt I 第 3a 步** — INC-29 `export extern "C"` 定义 + ABI 包装 |
 | （本提交） | **Prompt I 第 3b 步** — INC-29 extern C varargs |
 | （本提交） | **Prompt K** — INC-29 callback：具名函数 → C 函数指针 thunk |
+| （本探测） | **Prompt J** — INC-36 探测：基础完备，**无需改动** |
 
 闭包体与解构 `let` 上的 `?` 仍正确拒绝。
 
@@ -53,10 +54,13 @@
 
 ## 3. 建议的下一轮顺序
 
-7. **Prompt J** — INC-36（**先探测**，可能无需改动）
-8. （无）— INC-29 callback 已落地；闭包捕获/userdata 约定留待未来决策
+本移交单列出的增量（Prompt A–K）已全部完成或探测确认无需改动，当前无待办增量。
 
-注：I 会大范围改编译器，建议独占并在动手前先报告拆分方案。
+未来若继续，候选方向（均需先出方案再动手）：
+
+- 闭包捕获跨 C ABI 的 userdata / trampoline 约定（INC-29 的剩余边界）；
+- const eval 支持 Member / struct 值（让 const fun 折叠字段访问与 trait 方法调用）——见 §4a；
+- 既有 backlog（heap 域、并发、工具链）见 git 历史。
 
 ---
 
@@ -66,7 +70,6 @@
 
 | Prompt | 任务 | 规模 | 现状已确认 |
 |---|---|---|---|
-| **J** | INC-36 const fun trait bound | 小/不确定 | **基础已可用**，先探测 |
 
 ---
 
@@ -90,29 +93,19 @@ D-004 规定的 `owning` / `borrowed` / `shared` 所有权标注与 `T?` 可空�
 
 ---
 
-### Prompt J —— INC-36 const fun 内的 trait bound（补充说明）
+## 4a. INC-36 探测结论（2026-11-25） — 无需改动
 
-```
-你在当前工作目录（NG 语言）。先读 AGENTS.md 与本目录 HANDOFF.md（§0 约定）。
+基础已完备，实测确认：
 
-注意：INC-36 的基础部分**已经可用**，接之前请先确认剩余范围，避免重复劳动。
+- `const fun hasShow<T>() -> bool where T: Show { return true; }` + `hasShow<S>()`（S derive(Show)）→ 编译输出 ok；`hasShow<i64>()` → 正确报 "does not satisfy its where clause"。
+- `const if` 中调用带 bound 的 const fun：正例折叠通过、负例正确拒绝，bound 求解一致。
+- `T: Show` 声明式 bound 下 `value.show()` 在普通函数与 const fun 中**运行时**均可用（输出 `S{x: 7}`）。
 
-已确认可用：
-    struct S: derive(Show) { x: i64 }
-    const fun hasShow<T>() -> bool where T: Show { return true; }
-    hasShow<S>()   → 编译并运行，输出 ok
+探索到但**不属于 INC-36、不修**的既有通用限制：
 
-已确认正确拒绝（非缺陷）：
-    hasShow<i64>() → type error: call to `hasShow` does not satisfy its where clause
-    （i64 没有 impl Show，这是正确行为，不要"修"）
-
-可能的剩余范围（请先探测再决定）：
-- 在 const fun **体内**依据 bound 调用 trait 方法（如 `T.show()`）是否可行；
-- const 谓词（D-012）与 const fun 的 bound 求解是否一致。
-
-参考 example/generic_const_fun.ng（用 `where T: RenderText`）作为可运行基线。
-若探测后发现基础已够用，请向用户汇报"无需改动"，而不是硬造改动。
-```
+- `where T: Show` 形式不提供方法解析（普通函数同样如此），`T: Show` 声明式 bound 才可以；见 D-011 verified caveat 一脉。
+- const fun 体内方法调用及普通结构体字段访问 `value.x` 在**编译期折叠**时报 "expression is not supported during const evaluation"——ConstValue 只有 Unit/Bool/Integer/String/Tuple，无 struct/Member 表示，与 bound 无关；属 const-eval 能力边界。
+- `const` 声明体（D-012）语法本身不接受调用表达式（`const isShow<T>: bool = hasShow<T>();` 解析失败），设计如此。
 
 ---
 
