@@ -195,6 +195,19 @@ namespace NG::native
       }
       else
       {
+        // A zero-field struct needs a non-empty QBE aggregate: `{ }` has no
+        // valid size/alignment and QBE computes an invalid alloc size.
+        bool structFound = false;
+        size_t fieldCount = 0;
+        for (const auto &function : functions)
+          if (typeId < function.typeDescriptors.size() && function.typeDescriptors[typeId].kind == TypeKind::Struct)
+          {
+            fieldCount = function.typeDescriptors[typeId].elements.size();
+            structFound = true;
+            break;
+          }
+        if (structFound && fieldCount == 0)
+          result += " b 0";
         for (const auto &function : functions)
           if (typeId < function.typeDescriptors.size() && function.typeDescriptors[typeId].kind == TypeKind::Struct)
           {

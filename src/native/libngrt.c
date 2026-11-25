@@ -119,6 +119,12 @@ static NgrtArenaBlock *ngrt_arena_head = NULL;
 static NgrtArenaBlock *ngrt_arena_current = NULL;
 static int ngrt_arena_exit_registered = 0;
 
+/* Forward declarations: std.memory's live-handle table lives in malloc'd
+ * storage and is invalidated together with the arena (see release below). */
+static int64_t *ngrt_live_table;
+static int64_t ngrt_live_capacity;
+static int64_t ngrt_live_count;
+
 void ngrt_arena_release(void)
 {
   NgrtArenaBlock *block = ngrt_arena_head;
@@ -130,6 +136,12 @@ void ngrt_arena_release(void)
   }
   ngrt_arena_head = NULL;
   ngrt_arena_current = NULL;
+  /* The table records addresses inside the arena we just munmapped; keeping
+   * it makes stale handles validate and then get dereferenced (UAF). */
+  free(ngrt_live_table);
+  ngrt_live_table = NULL;
+  ngrt_live_capacity = 0;
+  ngrt_live_count = 0;
 }
 
 static void ngrt_arena_exit_handler(void)
@@ -168,8 +180,10 @@ static void ngrt_arena_grow(size_t size)
 
 static void *ngrt_arena_bump(size_t size)
 {
+  if (size > SIZE_MAX - 15)
+    abort();
   size = (size + 15) & ~(size_t) 15;
-  if (ngrt_arena_current == NULL || ngrt_arena_current->used + size > ngrt_arena_current->capacity)
+  if (ngrt_arena_current == NULL || size > ngrt_arena_current->capacity - ngrt_arena_current->used)
     ngrt_arena_grow(size);
   void *result = ngrt_arena_current->data + ngrt_arena_current->used;
   ngrt_arena_current->used += size;
@@ -180,9 +194,9 @@ static int ngrt_pointer_in_arena(const void *pointer)
 {
   for (const NgrtArenaBlock *block = ngrt_arena_head; block != NULL; block = block->next)
   {
-    const char *begin = block->data;
-    const char *end = begin + block->used;
-    const char *p = (const char *) pointer;
+    const uintptr_t begin = (uintptr_t) block->data;
+    const uintptr_t end = begin + block->used;
+    const uintptr_t p = (uintptr_t) pointer;
     if (p >= begin && p < end)
       return 1;
   }
@@ -201,6 +215,8 @@ void *ngrt_alloc(int64_t size)
 
 char *ngrt_new_string(const char *bytes, int64_t length)
 {
+  if (length < 0)
+    abort();
   char *result = (char *) ngrt_arena_bump((size_t) length + 8);
   *(int64_t *) result = length;
   if (length > 0)
@@ -545,7 +561,12 @@ char *ngrt_replace(const char *text, const char *needle, const char *replacement
     else
       ++index;
   }
-  int64_t resultLength = textLength + occurrences * (replacementLength - needleLength);
+  int64_t delta;
+  int64_t growth;
+  if (__builtin_mul_overflow(occurrences, replacementLength - needleLength, &delta) ||
+      __builtin_add_overflow(textLength, delta, &growth) || growth < 0)
+    abort();
+  const int64_t resultLength = growth;
   char *result = (char *) ngrt_alloc((size_t) resultLength + 8);
   if (result == NULL)
     abort();
@@ -620,9 +641,9 @@ char *ngrt_join(const void *items, const char *separator)
   int64_t total = 0;
   for (int64_t index = 0; index < count; ++index)
   {
-    total += ngrt_str_len((const char *) (uintptr_t) header[2 + index]);
-    if (index + 1 < count)
-      total += separatorLength;
+    if (__builtin_add_overflow(total, ngrt_str_len((const char *) (uintptr_t) header[2 + index]), &total) ||
+        (index + 1 < count && __builtin_add_overflow(total, separatorLength, &total)))
+      abort();
   }
   char *result = (char *) ngrt_alloc((size_t) total + 8);
   if (result == NULL)
@@ -676,7 +697,8 @@ int64_t ngrt_sum(const void *array)
   const int64_t *header = array;
   int64_t total = 0;
   for (int64_t index = 0; index < header[0]; ++index)
-    total += header[2 + index];
+    if (__builtin_add_overflow(total, header[2 + index], &total))
+      abort();
   return total;
 }
 
@@ -710,10 +732,6 @@ void *ngrt_reverse(const void *array)
 /* Open-addressing hash set of live handles (malloc'd cell addresses, which
  * are never zero), so handle validation is constant-time. Capacity is a
  * power of two; 0 marks an empty slot. */
-static int64_t *ngrt_live_table = NULL;
-static int64_t ngrt_live_capacity = 0;
-static int64_t ngrt_live_count = 0;
-
 static uint64_t ngrt_hash_handle(int64_t handle)
 {
   uint64_t value = (uint64_t) handle;
