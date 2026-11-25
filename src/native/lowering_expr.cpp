@@ -47,6 +47,36 @@ namespace NG::native::detail
     const auto temp = valueTemps_.at(instruction.result.value);
     line(std::format("{} =l call $ngrt_{}(l {})", temp, name, temp));
   }
+  namespace
+  {
+    /// Type at the end of a place path — mirrors normalizeSteps' type walk.
+    /// Needed so a narrow field assignment uses a width-correct store instead
+    /// of the 8-byte slot store (which would overwrite adjacent fields).
+    [[nodiscard]] auto placeTargetType(const std::vector<typecheck::TypeDescriptor> &descriptors, TypeId root,
+                                       const std::vector<flowir::PlaceStep> &steps) -> TypeId
+    {
+      TypeId current = root;
+      for (const auto &step : steps)
+      {
+        if (current.value >= descriptors.size())
+          break;
+        const auto &descriptor = descriptors[current.value];
+        if (step.kind == flowir::PlaceStep::Kind::Member)
+        {
+          const bool elementLike = descriptor.kind == TypeKind::DynamicArray || descriptor.kind == TypeKind::FixedArray ||
+                                   descriptor.kind == TypeKind::Tuple;
+          if (elementLike)
+            current = descriptor.kind == TypeKind::Tuple ? descriptor.elements[step.field] : descriptor.element;
+          else if (step.field >= 0 && static_cast<size_t>(step.field) < descriptor.elements.size())
+            current = descriptor.elements[step.field];
+        }
+        else
+          current = descriptor.element;
+      }
+      return current;
+    }
+  } // namespace
+
   void FunctionLowerer::lowerInstruction(const Instruction &instruction)
   {
     switch (instruction.kind)
@@ -379,7 +409,14 @@ namespace NG::native::detail
           }
           address = next;
         }
-        line(std::format("store{} {}, {}", suffix(valueType), value, address));
+        const auto targetType = placeTargetType(function_.typeDescriptors, referent, instruction.placeSteps);
+        if (qtypeOf(targetType) == QType::Aggregate)
+        {
+          const auto clone = emitClone(value, function_.valueTypes.at(instruction.operands.back().value));
+          line(std::format("storel {}, {}", clone, address));
+        }
+        else
+          storeField(address, value, targetType);
         return;
       }
       if (!instruction.placeRootLocal)
@@ -462,7 +499,15 @@ namespace NG::native::detail
         }
         address = next;
       }
-      line(std::format("store{} {}, {}", suffix(valueType), value, address));
+      const auto targetType =
+          placeTargetType(function_.typeDescriptors, function_.localTypes.at(rootLocal), instruction.placeSteps);
+      if (qtypeOf(targetType) == QType::Aggregate)
+      {
+        const auto clone = emitClone(value, function_.valueTypes.at(instruction.operands.back().value));
+        line(std::format("storel {}, {}", clone, address));
+      }
+      else
+        storeField(address, value, targetType);
       return;
     }
     default:

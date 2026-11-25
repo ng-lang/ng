@@ -79,7 +79,11 @@ namespace pbt
     /// Uniform value in [low, high] (inclusive); high >= low required.
     [[nodiscard]] auto nextU64InRange(uint64_t low, uint64_t high) noexcept -> uint64_t
     {
+      // The full u64 domain has span == UINT64_MAX; `span + 1` wraps to zero
+      // and would divide by zero (SIGFPE on x86_64 CI). Sample directly.
       const uint64_t span = high - low;
+      if (span == UINT64_MAX)
+        return low + nextU64();
       return span == 0 ? low : low + nextU64() % (span + 1);
     }
 
@@ -230,7 +234,13 @@ namespace pbt
     else if (roll < 45)
       value = T::kMax - static_cast<int64_t>(rng.nextU64InRange(0, 3));
     else
-      value = T::kMin + static_cast<int64_t>(rng.nextU64InRange(0, static_cast<uint64_t>(T::kMax - T::kMin)));
+    {
+      // Unsigned arithmetic: kMin == INT64_MIN makes `kMax - kMin` overflow
+      // as int64_t, and adding the offset to kMin overflows too.
+      const uint64_t span = static_cast<uint64_t>(T::kMax) - static_cast<uint64_t>(T::kMin);
+      const uint64_t raw = static_cast<uint64_t>(T::kMin) + rng.nextU64InRange(0, span);
+      value = static_cast<int64_t>(raw);
+    }
     return static_cast<W>(value);
   }
 

@@ -140,14 +140,24 @@ namespace NG::typecheck::detail
   {
     if (target.value < module_->functions.size() && module_->functions.at(target.value).externC)
       return;
+    // A tuple spread expands into several slots sharing one source expression;
+    // consume that source once, not once per expanded slot. Non-spread slots
+    // are ordinary arguments and must be tracked too (previously skipped
+    // whenever any spread was present, enabling use-after-move).
+    std::unordered_set<const hir::Expression *> consumedSpreadSources;
     for (size_t index = 0; index < supplied; ++index)
     {
-      if (spread != nullptr && !spread->spreadSlot[index])
-        continue;
       const auto kind = interner_.descriptor(callParameterType(signature, index)).kind;
       if (kind == TypeKind::Reference || kind == TypeKind::RawPointer)
         continue;
-      trackConsumption(spread != nullptr ? *spread->argumentExpressions[index] : *call.operands[index + 1], locals);
+      if (spread != nullptr && spread->spreadSlot[index])
+      {
+        const auto *source = spread->argumentExpressions[index];
+        if (consumedSpreadSources.insert(source).second)
+          trackConsumption(*source, locals);
+      }
+      else
+        trackConsumption(*call.operands[index + 1], locals);
     }
   }
 
