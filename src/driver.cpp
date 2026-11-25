@@ -7,7 +7,6 @@
 #include "flowir.hpp"
 #include "hir.hpp"
 #include "module_loader.hpp"
-#include "compilation_session.hpp"
 #include "module_artifact.hpp"
 #include "native/const_hosts.hpp"
 #include "native/lowering.hpp"
@@ -116,6 +115,12 @@ namespace NG
     [[nodiscard]] auto runCommand(const std::vector<std::string> &argv) -> CommandResult
     {
       CommandResult result;
+      if (argv.empty())
+      {
+        result.status = -1;
+        result.output = "empty command";
+        return result;
+      }
       int pipeDescriptors[2];
       if (pipe(pipeDescriptors) != 0)
       {
@@ -316,9 +321,14 @@ namespace NG
         return 0;
       }
       const auto run = runCommand({executable.string()});
-      if (!WIFEXITED(run.status))
+      if (WIFSIGNALED(run.status))
       {
         errors << "native: the program was killed by a signal (" << WTERMSIG(run.status) << ")\n" << run.output;
+        return 1;
+      }
+      if (!WIFEXITED(run.status))
+      {
+        errors << "native: the program execution failed\n" << run.output;
         return 1;
       }
       output << run.output;

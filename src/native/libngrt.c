@@ -160,9 +160,12 @@ static void ngrt_arena_grow(size_t size)
   const size_t capacity = size > NGRT_ARENA_BLOCK_CAPACITY ? size : NGRT_ARENA_BLOCK_CAPACITY;
   const long page = sysconf(_SC_PAGESIZE);
   const size_t pageSize = page > 0 ? (size_t) page : 4096;
+  if (capacity > SIZE_MAX - headerSize)
+    abort();
   size_t mappingSize = headerSize + capacity;
-  if (mappingSize % pageSize != 0)
-    mappingSize += pageSize - mappingSize % pageSize;
+  if (mappingSize > SIZE_MAX - (pageSize - 1))
+    abort();
+  mappingSize = (mappingSize + pageSize - 1) / pageSize * pageSize;
   void *base = mmap(NULL, mappingSize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
   if (base == MAP_FAILED)
     abort();
@@ -267,10 +270,16 @@ static const char *ngrt_str_bytes(const char *s)
 static char *ngrt_c_string(const char *value)
 {
   int64_t length = ngrt_str_len(value);
+  const char *bytes = ngrt_str_bytes(value);
+  if (length < 0 || (length > 0 && memchr(bytes, 0, (size_t) length) != NULL))
+  {
+    ngrt_fail("string cannot contain an embedded NUL byte when passed to the C API");
+    abort();
+  }
   char *result = (char *) malloc((size_t) length + 1);
   if (result == NULL)
     abort();
-  memcpy(result, ngrt_str_bytes(value), (size_t) length);
+  memcpy(result, bytes, (size_t) length);
   result[length] = 0;
   return result;
 }
@@ -313,7 +322,7 @@ int64_t ngrt_str_cmp(const char *left, const char *right)
   int64_t leftLength = ngrt_str_len(left);
   int64_t rightLength = ngrt_str_len(right);
   int64_t prefix = leftLength < rightLength ? leftLength : rightLength;
-  int compared = memcmp(ngrt_str_bytes(left), ngrt_str_bytes(right), (size_t) prefix);
+  int compared = prefix > 0 ? memcmp(ngrt_str_bytes(left), ngrt_str_bytes(right), (size_t) prefix) : 0;
   if (compared != 0)
     return compared < 0 ? (int64_t) -1 : (int64_t) 1;
   if (leftLength < rightLength)
@@ -488,7 +497,7 @@ char *ngrt_charAt(const char *text, int64_t index)
   if (index < 0 || index >= length)
   {
     char message[128];
-    snprintf(message, sizeof message, "charAt index out of bounds: index %ld, length %ld", (long) index, (long) length);
+    snprintf(message, sizeof message, "charAt index out of bounds: index %" PRId64 ", length %" PRId64 "", index, length);
     ngrt_fail(message);
     return NULL;
   }
@@ -501,7 +510,7 @@ char *ngrt_substring(const char *text, int64_t start, int64_t end)
   if (start < 0 || end < start || end > length)
   {
     char message[160];
-    snprintf(message, sizeof message, "substring bounds out of range: [%ld..%ld) of length %ld", (long) start,
+    snprintf(message, sizeof message, "substring bounds out of range: [%" PRId64 "..%" PRId64 ") of length %" PRId64 "", start,
              (long) end, (long) length);
     ngrt_fail(message);
     return NULL;
@@ -883,7 +892,8 @@ int64_t ngrt_outstanding(void)
 
 char *ngrt_currentExecutablePath(void)
 {
-  static char buffer[4096];
+  /* Stack-local: no shared mutable state across threads. */
+  char buffer[4096] = {0};
   size_t length = 0;
 #ifdef __linux__
   ssize_t read = readlink("/proc/self/exe", buffer, sizeof buffer - 1);
@@ -900,6 +910,11 @@ char *ngrt_currentExecutablePath(void)
     if (realpath(buffer, resolved) != NULL)
     {
       length = strlen(resolved);
+      if (length + 1 > sizeof buffer)
+      {
+        ngrt_fail("executable path exceeds the buffer");
+        abort();
+      }
       memcpy(buffer, resolved, length + 1);
     }
     else

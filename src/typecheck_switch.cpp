@@ -242,7 +242,13 @@ namespace NG::typecheck::detail
   {
     const auto &descriptor = interner_.descriptor(scrutinee);
     bool covered = false;
-    BranchJoin branches = beginBranches(loops, returnType, moveState_);
+    // INC-33: destructuring an affine tuple consumes the scrutinee, just as
+    // an enum switch does; otherwise the case bindings and the original local
+    // would both be droppable (double drop / use-after-move).
+    MoveState beforeSwitch = moveState_;
+    if (isAffine(scrutinee))
+      consumeSwitchScrutinee(*statement.expression, locals, beforeSwitch);
+    BranchJoin branches = beginBranches(loops, returnType, std::move(beforeSwitch));
     for (const auto &switchCase : statement.switchCases)
     {
       if (!isTuplePattern(switchCase))

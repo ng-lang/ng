@@ -600,8 +600,13 @@ namespace NG::typecheck::detail
     std::unordered_set<uint32_t> derivedEqTypes_;
     /// INC-24 (DEC-E): types whose field-wise total order is synthesized.
     std::unordered_set<uint32_t> derivedOrdTypes_;
-    /// INC-29: closure TypeIds used as C callback parameters.
+    /// INC-29: closure TypeIds used as C callback parameters (only inside
+    /// calls to the declaring extern functions — see callbackCallSites_).
     std::unordered_set<uint32_t> callbackTypes_;
+    /// Call expressions currently being checked against an extern C callback
+    /// parameter; used to scope callbackTypes_ so the same closure type in a
+    /// normal NG higher-order call stays a normal closure.
+    std::unordered_set<const hir::Expression *> callbackCallSites_;
     std::unordered_set<uint32_t> derivedShowTypes_;
     /// Types that derive Copy: pass-by-value / move of these does not consume
     /// the binding (Copy semantics, D-002 rule 1). INC-17 M2b surfaced that

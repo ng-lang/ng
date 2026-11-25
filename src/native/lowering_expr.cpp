@@ -60,6 +60,8 @@ namespace NG::native::detail
       {
         if (current.value >= descriptors.size())
           break;
+        while (descriptors[current.value].kind == TypeKind::Reference)
+          current = descriptors[current.value].element;
         const auto &descriptor = descriptors[current.value];
         if (step.kind == flowir::PlaceStep::Kind::Member)
         {
@@ -373,15 +375,14 @@ namespace NG::native::detail
         {
           const auto address = fresh();
           line(std::format("{} =l call $ngrt_ref_addr(l {})", address, reference));
-          if (valueType == QType::Aggregate)
+          const auto referent = function_.typeDescriptors[function_.valueTypes.at(instruction.placeRootRef->value).value].element;
+          if (qtypeOf(referent) == QType::Aggregate)
           {
             const auto clone = emitClone(value, function_.valueTypes.at(instruction.operands.back().value));
             line(std::format("storel {}, {}", clone, address));
           }
           else
-          {
-            line(std::format("store{} {}, {}", suffix(valueType), value, address));
-          }
+            storeField(address, value, referent);
           return;
         }
         // Ref-rooted place with a path (`(*self).field := ...`): the

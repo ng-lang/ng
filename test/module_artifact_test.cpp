@@ -88,15 +88,13 @@ TEST_CASE("vNext module artifact emission does not change lowered SSA", "[vNext]
   REQUIRE_THAT(output, ContainsSubstring("export function l $main("));
 }
 
-TEST_CASE("vNext module artifact boundary rejects an unknown selective import", "[vNext][Modules][Artifact]")
+TEST_CASE("vNext module artifacts accept a well-formed import graph", "[vNext][Modules][Artifact]")
 {
   std::string errors;
   std::string output;
   const int status = runDriver({"--emit=artifact", repoPath("example/modules/imports_main.ng")}, output, errors);
   REQUIRE(status == 0);
   REQUIRE(errors.empty());
-  // A selective import that names a symbol absent from the target module's
-  // interface is rejected (verified via a probe module below).
 }
 
 TEST_CASE("vNext module artifact reports a broken import boundary", "[vNext][Modules][Artifact]")

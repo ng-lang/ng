@@ -38,7 +38,13 @@ namespace NG::hir
       if (expression == nullptr)
         return nullptr;
       if (expression->kind == syntax::ExpressionKind::Try)
-        return &expression;
+      {
+        // INC-13: desugar the innermost `?` first so evaluation order is
+        // preserved (`f(g()?)?` unwraps g() before f()). Hoisting the outer
+        // one first would drop the inner try with the operand.
+        auto *inner = findTrySlot(static_cast<syntax::TryExpression *>(expression.get())->operand);
+        return inner != nullptr ? inner : &expression;
+      }
       if (auto *grouped = dynamic_cast<syntax::GroupedExpression *>(expression.get()))
         return findTrySlot(grouped->expression);
       if (auto *prefix = dynamic_cast<syntax::PrefixExpression *>(expression.get()))
@@ -47,6 +53,11 @@ namespace NG::hir
       {
         if (auto *slot = findTrySlot(binary->left))
           return slot;
+        // The right operand of a short-circuit operator is conditional; a
+        // statement-level hoist would evaluate it unconditionally. Leave it
+        // in place so the resolver reports a clear unsupported-use error.
+        if (binary->operatorText == "&&" || binary->operatorText == "||")
+          return nullptr;
         return findTrySlot(binary->right);
       }
       if (auto *call = dynamic_cast<syntax::CallExpression *>(expression.get()))

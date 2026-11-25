@@ -18,7 +18,8 @@ namespace NG::typecheck::detail
     };
     // INC-29: C callback types accept only bare function names — closures
     // cannot capture state across the C ABI without a userdata convention.
-    if (callbackTypes_.contains(expected.value))
+    const bool cCallbackSlot = context.starts_with("c-callback argument");
+    if (cCallbackSlot)
     {
       const bool namedFunction = expression.kind == hir::ExpressionKind::ResolvedName &&
                                  expression.resolvedName.has_value() &&
@@ -39,13 +40,19 @@ namespace NG::typecheck::detail
       return inferExpectedUnion(expression, expected, locals);
     if (descriptor.kind == TypeKind::TraitReference)
       return inferExpectedTraitView(expression, expected, locals, context);
-    if (descriptor.kind == TypeKind::Closure && expression.kind == hir::ExpressionKind::ResolvedName &&
+    if (cCallbackSlot && descriptor.kind == TypeKind::Closure && expression.kind == hir::ExpressionKind::ResolvedName &&
         expression.resolvedName.has_value() && expression.resolvedName->kind == hir::ResolvedNameKind::Function)
     {
       const auto &closure = interner_.descriptor(expected);
       std::optional<hir::DefId> chosen;
       for (const auto candidate : expression.functionCandidates)
       {
+        if (candidate.value < module_->functions.size())
+        {
+          const auto &candidateFunction = module_->functions.at(candidate.value);
+          if (candidateFunction.nativeFunction || candidateFunction.externC)
+            continue;
+        }
         const auto found = signatures_.find(candidate.value);
         if (found == signatures_.end())
           continue;

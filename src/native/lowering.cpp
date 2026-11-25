@@ -47,7 +47,13 @@ namespace NG::native
     {
       const auto &declared = function.declaredResultType.value_or(typecheck::builtin::Unit);
       const bool unitResult = declared == typecheck::builtin::Unit;
-      const std::string resultSuffix = unitResult ? "" : cAbiSuffix(declared);
+      const std::string cResultSuffix = unitResult ? "" : cAbiSuffix(declared);
+      // QBE function results are w/l/s/d only; sb/ub/sh/uh are argument size
+      // classes. Widen sub-word results to w (the C register width).
+      const std::string resultSuffix =
+          (cResultSuffix == "sb" || cResultSuffix == "ub" || cResultSuffix == "sh" || cResultSuffix == "uh")
+              ? "w"
+              : cResultSuffix;
       std::string out = std::format("{}function{} ${}(", exported ? "export " : "",
                                     resultSuffix.empty() ? "" : " " + resultSuffix, symbol);
       std::vector<std::string> forwarded;
@@ -62,6 +68,7 @@ namespace NG::native
           out += ", ";
         out += std::format("{} {}", cSuffix, param);
         std::string value = param;
+        std::string forwardSuffix = (cSuffix == "s" || cSuffix == "d") ? "d" : "l";
         if (cSuffix == "sb" || cSuffix == "ub" || cSuffix == "sh" || cSuffix == "uh" || cSuffix == "w")
         {
           const bool isUnsigned = typecheck::isUnsignedIntegerBuiltin(type);
@@ -80,7 +87,9 @@ namespace NG::native
           conversions.push_back(std::format("\t{} =d exts {}", wide, param));
           value = wide;
         }
-        forwarded.push_back(std::format("l {}", value));
+        // The NG body's own parameter class: integers (incl. widened
+        // sub-word values) are `l`, floats are `d`.
+        forwarded.push_back(std::format("{} {}", forwardSuffix, value));
       }
       out += ") {\n@start\n";
       for (const auto &conversion : conversions)
@@ -114,7 +123,7 @@ namespace NG::native
           out += "\tret %r\n";
       }
       else
-        out += "\tret 0\n";
+        out += "\tret\n";
       out += "}\n";
       return out;
     }
@@ -207,7 +216,7 @@ namespace NG::native
             break;
           }
         if (structFound && fieldCount == 0)
-          result += " b 0";
+          result += " b 1";
         for (const auto &function : functions)
           if (typeId < function.typeDescriptors.size() && function.typeDescriptors[typeId].kind == TypeKind::Struct)
           {

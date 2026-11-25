@@ -63,6 +63,7 @@ namespace
       }
       if (windowClaimed && gpuDevice != nullptr && window != nullptr)
         SDL_ReleaseWindowFromGPUDevice(gpuDevice, window);
+      windowClaimed = false;
       if (gpuDevice != nullptr)
       {
         SDL_DestroyGPUDevice(gpuDevice);

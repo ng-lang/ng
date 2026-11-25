@@ -157,7 +157,7 @@ namespace NG::typecheck::detail
           trackConsumption(*source, locals);
       }
       else
-        trackConsumption(*call.operands[index + 1], locals);
+        trackConsumption(spread != nullptr ? *spread->argumentExpressions[index] : *call.operands[index + 1], locals);
     }
   }
 
@@ -487,6 +487,17 @@ namespace NG::typecheck::detail
       return spread.expandedTypes[index];
     };
     const auto spreadSlot = [&](size_t index) { return hasSpread && spread.spreadSlot[index]; };
+    // INC-29: scope C callback rules to this call's closure-typed slots.
+    std::vector<bool> callbackSlot(supplied, false);
+    if (selected.value < module_->functions.size() && module_->functions.at(selected.value).externC)
+      for (size_t index = 0; index < supplied && index < signature.parameters.size(); ++index)
+        if (interner_.descriptor(callParameterType(signature, index)).kind == TypeKind::Closure)
+          callbackSlot[index] = true;
+    const auto argumentContext = [&](size_t index) -> std::string
+    {
+      return callbackSlot[index] ? std::format("c-callback argument {}", index + 1)
+                                 : std::format("call argument {}", index + 1);
+    };
     const auto argumentAt = [&](size_t index) -> const hir::Expression &
     { return hasSpread ? *spread.argumentExpressions[index] : *expression.operands[index + 1]; };
 
@@ -506,10 +517,10 @@ namespace NG::typecheck::detail
         const TypeId parameterType = specialize(callParameterType(signature, index), substitution);
         if (spreadSlot(index))
           requireType(parameterType, argumentTypeAt(index), argumentAt(index).span,
-                      std::format("call argument {}", index + 1));
+                      argumentContext(index));
         else
           static_cast<void>(
-              inferExpected(argumentAt(index), parameterType, locals, std::format("call argument {}", index + 1)));
+              inferExpected(argumentAt(index), parameterType, locals, argumentContext(index)));
       }
     }
     else
@@ -532,7 +543,7 @@ namespace NG::typecheck::detail
           if (fixedSlot && argument.resolvedName.has_value() &&
               argument.resolvedName->kind == hir::ResolvedNameKind::Local)
             static_cast<void>(bindForwardedClosure(expression, argument, argumentTypeAt(index), index, closureTargets));
-          static_cast<void>(inferExpected(argument, parameterType, locals, std::format("call argument {}", index + 1)));
+          static_cast<void>(inferExpected(argument, parameterType, locals, argumentContext(index)));
           continue;
         }
         if (!spreadSlot(index) && !(variadic && index >= fixedParameters) &&
@@ -559,7 +570,7 @@ namespace NG::typecheck::detail
                               argument.span);
             continue;
           }
-          requireType(parameterType, argumentType, argument.span, std::format("call argument {}", index + 1));
+          requireType(parameterType, argumentType, argument.span, argumentContext(index));
           continue;
         }
         if (variadic && index >= fixedParameters)

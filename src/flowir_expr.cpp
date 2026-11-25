@@ -464,13 +464,22 @@ namespace NG::flowir::detail
                      typecheck::builtin::Bool);
     }
 
+    // Inclusive operators need a strict comparison for all but the final
+    // field, plus a whole-value equality term: `a <= b` means a field is
+    // strictly less, or all fields compare <= with none greater.
+    const std::string_view strictOp = op == "<=" ? "<" : op == ">=" ? ">" : op;
     std::optional<ValueId> accumulator;
     for (size_t index = 0; index < fields.size(); ++index)
     {
       const TypeId fieldType = fields[index];
       const ValueId leftField = extractMember(left, index, fieldType);
       const ValueId rightField = extractMember(right, index, fieldType);
-      const ValueId differs = binary(op, leftField, rightField, typecheck::builtin::Bool);
+      const auto kind = descriptorOf(fieldType).kind;
+      const bool nestedOrd = (kind == typecheck::TypeKind::Struct || kind == typecheck::TypeKind::Enum) &&
+                             function_.derivedOrdTypes.contains(fieldType.value);
+      const ValueId differs = nestedOrd
+                                  ? lowerStructOrdFields(leftField, rightField, fieldType, strictOp)
+                                  : binary(strictOp, leftField, rightField, typecheck::builtin::Bool);
 
       if (!accumulator)
       {
@@ -484,12 +493,34 @@ namespace NG::flowir::detail
         const TypeId priorType = fields[prior];
         const ValueId leftPrior = extractMember(left, prior, priorType);
         const ValueId rightPrior = extractMember(right, prior, priorType);
-        const ValueId priorSame = binary("==", leftPrior, rightPrior, typecheck::builtin::Bool);
+        const auto priorKind = descriptorOf(priorType).kind;
+        const ValueId priorSame =
+            (priorKind == typecheck::TypeKind::Struct || priorKind == typecheck::TypeKind::Enum) &&
+                    function_.derivedEqTypes.contains(priorType.value)
+                ? lowerStructEqDirect(leftPrior, rightPrior, priorType, false)
+                : binary("==", leftPrior, rightPrior, typecheck::builtin::Bool);
         priorEqual = priorEqual ? binary("&&", *priorEqual, priorSame, typecheck::builtin::Bool) : priorSame;
       }
       const ValueId priorAllEqual = *priorEqual;
       const ValueId priorAndDiffers = binary("&&", priorAllEqual, differs, typecheck::builtin::Bool);
       accumulator = binary("||", *accumulator, priorAndDiffers, typecheck::builtin::Bool);
+    }
+    if (op == "<=" || op == ">=")
+    {
+      std::optional<ValueId> allEqual;
+      for (size_t index = 0; index < fields.size(); ++index)
+      {
+        const TypeId fieldType = fields[index];
+        const auto kind = descriptorOf(fieldType).kind;
+        const ValueId equal = (kind == typecheck::TypeKind::Struct || kind == typecheck::TypeKind::Enum) &&
+                                      function_.derivedEqTypes.contains(fieldType.value)
+                                  ? lowerStructEqDirect(extractMember(left, index, fieldType),
+                                                        extractMember(right, index, fieldType), fieldType, false)
+                                  : binary("==", extractMember(left, index, fieldType),
+                                           extractMember(right, index, fieldType), typecheck::builtin::Bool);
+        allEqual = allEqual ? binary("&&", *allEqual, equal, typecheck::builtin::Bool) : equal;
+      }
+      accumulator = binary("||", *accumulator, *allEqual, typecheck::builtin::Bool);
     }
     return *accumulator;
   }

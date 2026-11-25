@@ -379,13 +379,19 @@ namespace NG::typecheck::detail
       static_cast<void>(inferExpected(*statement.expression, localType, locals, "assignment value"));
       trackConsumption(*statement.expression, locals);
       moveState_.reinitialize(statement.local->value);
+      // The local may now refer to a different concrete type; a stale
+      // Self-projection origin would type-confuse views (INC-35).
+      traitViewOrigins_.erase(statement.local->value);
       return;
     }
     const auto &target = *statement.assignmentTarget;
     if (target.kind == hir::ExpressionKind::ResolvedName && target.resolvedName->kind == hir::ResolvedNameKind::Local)
       rejectViewReassignment(locals.at(target.resolvedName->id), statement.span);
     if (const auto root = rootLocalOf(target); root.has_value())
+    {
       requireAssignable(root->value, target);
+      traitViewOrigins_.erase(root->value);
+    }
     // The target is typed as a live place: a (partially) moved root is revived
     // for the read of the target type, then restored before the value is
     // checked, and finally revived again by the write itself.

@@ -109,11 +109,12 @@ namespace NG::native::detail
     const size_t fixedCount = variadic && ngrt_.externParameterTypes.contains(defId)
                                   ? ngrt_.externParameterTypes.at(defId).size()
                                   : instruction.operands.size();
+    // QBE requires the `...` marker on every call to a variadic function,
+    // even when no trailing arguments are supplied.
     std::string arguments;
     for (size_t index = 0; index < instruction.operands.size(); ++index)
     {
-      // INC-29: QBE marks the variadic boundary with a bare `...` between
-      // the fixed and trailing arguments.
+      // QBE's `...` separates fixed from variadic arguments.
       if (variadic && index == fixedCount)
         arguments += arguments.empty() ? "..." : ", ...";
       const auto typeId = declared(index);
@@ -126,17 +127,46 @@ namespace NG::native::detail
       }
       else if (typeId == typecheck::builtin::F32)
       {
-        const auto single = fresh();
-        line(std::format("{} =s truncd {}", single, value));
-        value = single;
+        if (variadic && index >= fixedCount)
+        {
+          // C default argument promotion: float -> double.
+          const auto promoted = fresh();
+          line(std::format("{} =d exts {}", promoted, value));
+          value = promoted;
+        }
+        else
+        {
+          const auto single = fresh();
+          line(std::format("{} =s truncd {}", single, value));
+          value = single;
+        }
       }
-      if (index != 0 || (variadic && index == fixedCount))
+      else if (variadic && index >= fixedCount && (typeId == typecheck::builtin::I8 ||
+               typeId == typecheck::builtin::U8 || typeId == typecheck::builtin::I16 ||
+               typeId == typecheck::builtin::U16))
+      {
+        // C default argument promotion: narrow integers -> int (w).
+        const auto promoted = fresh();
+        line(std::format("{} =w copy {}", promoted, value));
+        value = promoted;
+      }
+      if (!arguments.empty())
         arguments += ", ";
       if (qtypeOf(typeId) == QType::Aggregate)
         arguments += std::format("{} {}", aggregateName(typeId), value);
       else
-        arguments += std::format("{} {}", externSuffixFor(typeId), value);
+      {
+        std::string suffix = externSuffixFor(typeId);
+        if (variadic && index >= fixedCount)
+        {
+          if (suffix == "s") suffix = "d";
+          else if (suffix == "sb" || suffix == "ub" || suffix == "sh" || suffix == "uh") suffix = "w";
+        }
+        arguments += std::format("{} {}", suffix, value);
+      }
     }
+    if (variadic && instruction.operands.size() == fixedCount)
+      arguments += ", ...";
     const auto siteResult = function_.valueTypes.at(instruction.result.value);
     const auto declaredResult = [&]() -> TypeId
     {
