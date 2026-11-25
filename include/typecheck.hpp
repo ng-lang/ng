@@ -357,6 +357,8 @@ namespace NG::typecheck
     std::vector<TypeId> constParameters;
     std::vector<std::string> constParameterNames;
     TypeId returnType;
+    /// INC-29: C varargs (`extern "C" fun f(fixed: T, ...) -> R`).
+    bool cVariadic{};
   };
 
   /// Immutable type side tables for a resolved HIR module. The table is keyed

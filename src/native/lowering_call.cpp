@@ -105,9 +105,17 @@ namespace NG::native::detail
         return nullptr;
       }
     };
+    const bool variadic = ngrt_.externVariadicDefIds.contains(defId);
+    const size_t fixedCount = variadic && ngrt_.externParameterTypes.contains(defId)
+                                  ? ngrt_.externParameterTypes.at(defId).size()
+                                  : instruction.operands.size();
     std::string arguments;
     for (size_t index = 0; index < instruction.operands.size(); ++index)
     {
+      // INC-29: QBE marks the variadic boundary with a bare `...` between
+      // the fixed and trailing arguments.
+      if (variadic && index == fixedCount)
+        arguments += arguments.empty() ? "..." : ", ...";
       const auto typeId = declared(index);
       std::string value = operandTemp(instruction.operands[index]);
       if (const char *check = widthCheck(typeId); check != nullptr)
@@ -122,7 +130,7 @@ namespace NG::native::detail
         line(std::format("{} =s truncd {}", single, value));
         value = single;
       }
-      if (index != 0)
+      if (index != 0 || (variadic && index == fixedCount))
         arguments += ", ";
       if (qtypeOf(typeId) == QType::Aggregate)
         arguments += std::format("{} {}", aggregateName(typeId), value);

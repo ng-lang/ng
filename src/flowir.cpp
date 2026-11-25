@@ -61,7 +61,7 @@ namespace NG::flowir
     {
       function_ = Function{
         .source = source.id, .name = source.name, .nativeFunction = source.nativeFunction, .externC = source.externC,
-        .cExport = source.externC && source.exported};
+        .cExport = source.externC && source.exported, .variadic = source.variadic};
       function_.typeDescriptors = types_.typeDescriptors;
       function_.derivedEqTypes = types_.derivedEqTypes;
       function_.derivedOrdTypes = types_.derivedOrdTypes;

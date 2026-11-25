@@ -27,6 +27,7 @@
 #include <inttypes.h>
 #include <limits.h>
 #include <regex.h>
+#include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -1094,4 +1095,15 @@ __attribute__((weak)) int64_t ngrt_fixture_exported_add(int64_t a, int64_t b)
 int64_t ngrt_fixture_call_exported_add(int64_t a, int64_t b)
 {
   return ngrt_fixture_exported_add(a, b);
+}
+
+int64_t ngrt_fixture_variadic(int64_t count, ...)
+{
+  va_list ap;
+  va_start(ap, count);
+  int64_t sum = 0;
+  for (int64_t index = 0; index < count; ++index)
+    sum += va_arg(ap, int64_t);
+  va_end(ap);
+  return sum;
 }

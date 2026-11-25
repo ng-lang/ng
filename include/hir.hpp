@@ -322,6 +322,8 @@ namespace NG::hir
     /// `extern "C"` (D-004): a declared C-ABI function with no NG body; the
     /// native tier calls the C symbol directly. Mutual with `nativeFunction`.
     bool externC{};
+    /// INC-29: trailing `...` in an extern "C" signature (C varargs).
+    bool variadic{};
     /// Where-clause constraint (D-014): predicate applications, `T is Type`,
     /// trait bounds, and boolean combinations; evaluated per concrete instance.
     ExpressionPtr whereClause;

@@ -545,8 +545,17 @@ namespace NG::syntax
     expect(TokenKind::LeftParen, "expected `(` after function name");
 
     std::vector<FunctionParameter> parameters;
+    bool variadic = false;
     while (current().kind != TokenKind::RightParen)
     {
+      // INC-29: a trailing `...` marks a C variadic signature (extern only;
+      // checker enforces that constraint).
+      if (current().kind == TokenKind::Ellipsis)
+      {
+        static_cast<void>(consume());
+        variadic = true;
+        break;
+      }
       if (current().kind != TokenKind::Identifier)
       {
         throw ParseError("expected a parameter name", current().span);
@@ -613,7 +622,7 @@ namespace NG::syntax
         const SourceSpan span{funToken.span.begin, current().span.begin};
         return std::make_unique<FunctionDeclaration>(name.text, std::move(genericParameters), std::move(parameters),
                                                      std::move(returnType), Block{SourceSpan{span.end, span.end}, {}, nullptr},
-                                                     span, false, std::move(whereClause), exported, false, true);
+                                                     span, false, std::move(whereClause), exported, false, true, variadic);
       }
     }
     if (nativeFunction)
@@ -622,7 +631,7 @@ namespace NG::syntax
       const SourceSpan span{funToken.span.begin, current().span.begin};
       return std::make_unique<FunctionDeclaration>(name.text, std::move(genericParameters), std::move(parameters),
                                                    std::move(returnType), Block{SourceSpan{span.end, span.end}, {}, nullptr},
-                                                   span, false, std::move(whereClause), exported, true);
+                                                   span, false, std::move(whereClause), exported, true, false, variadic);
     }
     if (current().kind == TokenKind::FatArrow)
     {
@@ -644,7 +653,7 @@ namespace NG::syntax
     }
     const SourceSpan span{funToken.span.begin, body->span.end};
     return std::make_unique<FunctionDeclaration>(name.text, std::move(genericParameters), std::move(parameters), std::move(returnType),
-                                                 std::move(*body), span, constFunction, std::move(whereClause), exported, false, externC);
+                                                 std::move(*body), span, constFunction, std::move(whereClause), exported, false, externC, variadic);
   }
 
   auto ModuleParser::parseExpressionUntil(TokenKind terminator) -> ExpressionPtr

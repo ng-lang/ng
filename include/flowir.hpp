@@ -137,6 +137,8 @@ namespace NG::flowir
     /// INC-29: `export extern "C"` definition with a body — emitted as a
     /// C-visible symbol with C ABI parameter/result types.
     bool cExport{};
+    /// INC-29: C varargs declaration.
+    bool variadic{};
     /// Declared result type from the checker (B3): extern calls emit with the
     /// declared C signature type and widen to the call-site value type.
     std::optional<typecheck::TypeId> declaredResultType{};

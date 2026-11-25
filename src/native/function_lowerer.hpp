@@ -122,6 +122,8 @@ namespace NG::native
       /// B3 first slice: DefIds of `extern "C"` declarations. Call sites emit
       /// direct QBE calls to the C symbol instead of an NG function symbol.
       std::unordered_set<uint32_t> externDefIds;
+      /// INC-29: DefIds of variadic `extern "C"` declarations.
+      std::unordered_set<uint32_t> externVariadicDefIds;
       /// INC-29: DefIds of `export extern "C"` definitions — C-visible
       /// unmangled symbols (plain extern declarations stay declarations).
       std::unordered_set<uint32_t> cExportDefIds;

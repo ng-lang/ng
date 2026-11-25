@@ -284,6 +284,7 @@ auto Checker::check(const hir::Module &module, const const_eval::ConstNativeHost
     signature.returnType = function.returnType != nullptr
                                 ? interner_.resolveInScope(*function.returnType, genericBindings, constBindings)
                                 : builtin::Unit;
+    signature.cVariadic = function.variadic;
     if (interner_.descriptor(signature.returnType).kind == TypeKind::Trait)
       throw TypeError(std::format("trait `{}` is not a value type; use `ref<{}>`",
                                   interner_.display(signature.returnType),
@@ -292,6 +293,9 @@ auto Checker::check(const hir::Module &module, const const_eval::ConstNativeHost
     displaySignature.returnType = interner_.display(signature.returnType);
     if (function.externC)
       validateExternSignature(function, signature);
+    else if (function.variadic)
+      throw TypeError(std::format("function `{}`: `...` is only allowed on `extern \"C\"` signatures", function.name),
+                      function.span);
     validateOwnershipAnnotations(function, signature);
     validateNullableHandles(function, signature);
     signatures_.emplace(function.id.value, signature);
@@ -832,6 +836,20 @@ auto Checker::abiSafetyIssue(TypeId type) const -> std::string
 
 void Checker::validateExternSignature(const hir::Function &function, const FunctionTypeIds &signature)
 {
+  if (function.variadic)
+  {
+    if (!function.externC)
+      throw TypeError(std::format("function `{}`: `...` is only allowed on `extern \"C\"` signatures", function.name),
+                      function.span);
+    if (function.parameters.empty())
+      throw TypeError(std::format("extern \"C\" function `{}`: a variadic signature needs at least one fixed parameter",
+                                  function.name),
+                      function.span);
+    if (function.exported)
+      throw TypeError(std::format("export extern \"C\" function `{}`: varargs are deferred for exported definitions",
+                                  function.name),
+                      function.span);
+  }
   for (size_t index = 0; index < function.parameters.size(); ++index)
   {
     if (const auto issue = abiSafetyIssue(signature.parameters[index]); !issue.empty())

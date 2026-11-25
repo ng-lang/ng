@@ -440,7 +440,7 @@ namespace NG::typecheck::detail
     CallSpreadInfo spread;
     const bool hasSpread = analyzeCallSpread(expression, 1, locals, spread);
     const size_t supplied = hasSpread ? spread.expandedCount : expression.operands.size() - 1;
-    const bool variadic = !signature.packParameters.empty();
+    const bool variadic = !signature.packParameters.empty() || signature.cVariadic;
     const size_t fixedParameters = fixedParameterCount(signature);
     if (variadic ? supplied < fixedParameters : supplied != signature.parameters.size())
       throw TypeError(
@@ -502,7 +502,7 @@ namespace NG::typecheck::detail
           deferredClosureArguments.push_back(index);
           continue;
         }
-        if (!generic && !spreadSlot(index))
+        if (!generic && !spreadSlot(index) && !(signature.cVariadic && index >= fixedParameters))
         {
           // Checking mode: the parameter type drives literals, unions, and
           // generic enum constructors (`get(Result.Ok(3))`).
@@ -526,6 +526,16 @@ namespace NG::typecheck::detail
           static_cast<void>(bindForwardedClosure(expression, argument, argumentType, index, closureTargets));
         if (!generic)
         {
+          if (signature.cVariadic && index >= fixedParameters)
+          {
+            // C varargs: each trailing argument keeps its own ABI-safe type;
+            // there is no declared parameter type to check against.
+            if (abiSafetyIssue(argumentType).empty() == false)
+              throw TypeError(std::format("call argument {} of `{}`: `{}` is not ABI-safe as a C vararg",
+                                          index + 1, callee.text, interner_.display(argumentType)),
+                              argument.span);
+            continue;
+          }
           requireType(parameterType, argumentType, argument.span, std::format("call argument {}", index + 1));
           continue;
         }
@@ -557,7 +567,7 @@ namespace NG::typecheck::detail
     if (isConcrete(substitution))
       requireWhereClause(selected, substitution, signature, expression.span);
     trackCallConsumption(expression, selected, signature, supplied, hasSpread ? &spread : nullptr, locals);
-    if (variadic)
+    if (variadic && !signature.cVariadic)
       recordVariadicPack(expression, packCount, fixedParameters, supplied, argumentTypeAt);
     selected = instantiateFunction(selected, substitution, packCount, expression.span, closureTargets);
     callTargets_.insert_or_assign(&expression, selected);

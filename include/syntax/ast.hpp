@@ -539,6 +539,8 @@ namespace NG::syntax
     /// `extern "C"` (D-004): a declared C-ABI function with no NG body; the
     /// native tier calls the C symbol directly. Mutual with `nativeFunction`.
     const bool externC;
+    /// INC-29: a trailing `...` in an `extern "C"` signature (C varargs).
+    const bool variadic;
     ExpressionPtr whereClause;
     const bool exported;
 
@@ -546,12 +548,12 @@ namespace NG::syntax
                         std::vector<FunctionParameter> functionParameters, TypeSyntaxPtr functionReturnType,
                         Block functionBody, SourceSpan sourceSpan, bool isConstFunction = false,
                         ExpressionPtr whereCondition = nullptr, bool isExported = false, bool isNativeFunction = false,
-                        bool isExternC = false)
+                        bool isExternC = false, bool isVariadic = false)
         : ModuleItem(ModuleItemKind::Function, sourceSpan), name(std::move(functionName)),
           genericParameters(std::move(genericParameterList)), parameters(std::move(functionParameters)),
           returnType(std::move(functionReturnType)), body(std::move(functionBody)), constFunction(isConstFunction),
-          nativeFunction(isNativeFunction), externC(isExternC), whereClause(std::move(whereCondition)),
-          exported(isExported)
+          nativeFunction(isNativeFunction), externC(isExternC), variadic(isVariadic),
+          whereClause(std::move(whereCondition)), exported(isExported)
     {
     }
   };

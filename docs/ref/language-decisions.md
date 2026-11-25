@@ -59,6 +59,14 @@
 - Ownership annotations are `owning`, `borrowed`, `shared`.
 - Nullable foreign handles use `T?`.
 
+> Verified (INC-29 step 3b): an `extern "C"` signature may end in `...`,
+> making the call C-variadic. `...` is restricted to `extern "C"` declarations
+> with at least one fixed parameter; it is rejected on `native fun`, regular
+> functions, and exported C definitions. Fixed parameters follow the ABI-safe
+> rules; each trailing argument keeps its own ABI-safe scalar type at the
+> call site, and lowering emits the QBE variadic marker between fixed and
+> trailing arguments.
+
 > Verified (INC-29 step 3a): `export extern "C" fun name(...) -> T { body }`
 > defines an NG function with a C-visible symbol. The NG body keeps its
 > internal symbol and i64/f64 slots; an emitted wrapper translates the C ABI

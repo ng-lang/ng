@@ -150,6 +150,8 @@ namespace NG::native
         // B3 first slice: extern declarations have no NG body; call sites
         // emit direct QBE calls to the C symbol with the declared C types.
         ngrt.externDefIds.insert(function.source.value);
+        if (function.variadic)
+          ngrt.externVariadicDefIds.insert(function.source.value);
         std::vector<TypeId> declared;
         for (const auto local : function.parameterLocals)
           if (const auto found = function.localTypes.find(local.value); found != function.localTypes.end())

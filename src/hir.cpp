@@ -352,7 +352,7 @@ namespace NG::hir
                       .constFunction = function.constFunction,
                       .exported = function.exported,
                       .nativeFunction = function.nativeFunction,
-                      .externC = function.externC};
+                      .externC = function.externC, .variadic = function.variadic};
     const uint32_t previousOrigin = currentOrigin_;
     currentOrigin_ = function.originModule;
     for (const auto &parameter : function.genericParameters)

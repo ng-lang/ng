@@ -150,6 +150,9 @@ struct ngrt_fixture_point ngrt_fixture_point_swap(struct ngrt_fixture_point poin
 // INC-29: calls an NG `export extern "C" fun ngrt_fixture_exported_add`.
 int64_t ngrt_fixture_call_exported_add(int64_t a, int64_t b);
 
+// INC-29: C varargs fixture; first argument is the count of trailing i64s.
+int64_t ngrt_fixture_variadic(int64_t count, ...);
+
 #ifdef __cplusplus
 }
 #endif
