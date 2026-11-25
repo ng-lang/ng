@@ -300,10 +300,12 @@ print(systemOutput("exit 4"));        // [exit 4]
 Because both bindings execute through `/bin/sh -c`, callers must not
 interpolate untrusted values (user input, file contents, environment data)
 into command strings. There is no shell-escaping API and no argument-vector
-variant in the stdlib, so the only safe way to pass untrusted data is to
-validate it against a strict allowlist (for example, matching an exact
-constant or a narrow pattern such as a fixed set of literals) before
-interpolating it.
+variant in the stdlib. A safe approach is to validate untrusted data against
+a strict allowlist (for example, matching an exact constant or a narrow
+pattern such as a fixed set of literals) before interpolating it; correct
+single-quote shell escaping of an interpolated value is another safe approach
+when applied to every interpolated segment (as in `example/ng_ide.ng`). Raw
+interpolation without either is unsafe.
 
 ## `imgui`
 

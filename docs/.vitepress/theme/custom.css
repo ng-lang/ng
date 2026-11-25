@@ -1,8 +1,19 @@
 :root {
-  --vp-c-brand-1: #ff6b6b;
-  --vp-c-brand-2: #ee5a24;
-  --vp-c-brand-3: #ff9ff3;
-  --vp-c-brand-soft: rgba(255, 107, 107, 0.14);
-  --vp-home-hero-name-color: #ff6b6b;
+  /* Contrast-tested against white (>= 4.5:1) so links, buttons, code links
+   * and the hero name stay readable in the light theme. */
+  --vp-c-brand-1: #c92a2a;
+  --vp-c-brand-2: #b35322;
+  --vp-c-brand-3: #a61e6b;
+  --vp-c-brand-soft: rgba(201, 42, 42, 0.14);
+  --vp-home-hero-name-color: #c92a2a;
   --vp-home-hero-name-background: transparent;
+}
+
+.dark {
+  /* On the dark background the brighter originals clear 4.5:1. */
+  --vp-c-brand-1: #ff9c9c;
+  --vp-c-brand-2: #ffb27a;
+  --vp-c-brand-3: #ffc0ec;
+  --vp-c-brand-soft: rgba(255, 156, 156, 0.18);
+  --vp-home-hero-name-color: #ff9c9c;
 }

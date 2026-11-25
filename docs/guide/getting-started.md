@@ -6,7 +6,7 @@ for a file or an inline source unit.
 
 ## Requirements
 
-- macOS or Linux with a modern C++ compiler (the build pins `clang`/`clang++`
+- macOS or Linux with a C++23 compiler (the build pins `clang`/`clang++`
   with libc++ on macOS; Homebrew LLVM provides `clang-tidy`/`clang-format`).
 - CMake ≥ 3.25 and Ninja.
 

@@ -152,7 +152,9 @@ extern "C" int64_t ngrt_imguiInit(void)
   }
   state->sdlInitialized = true;
 
-  const float mainScale = SDL_GetDisplayContentScale(SDL_GetPrimaryDisplay());
+  float mainScale = SDL_GetDisplayContentScale(SDL_GetPrimaryDisplay());
+  if (!(mainScale > 0.0f))
+    mainScale = 1.0f;
   const SDL_WindowFlags windowFlags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIDDEN | SDL_WINDOW_HIGH_PIXEL_DENSITY;
   state->window = SDL_CreateWindow("NG IDE", static_cast<int>(1180 * mainScale), static_cast<int>(760 * mainScale),
                                    windowFlags);
@@ -286,8 +288,11 @@ extern "C" int64_t ngrt_imguiRender(void)
     colorTarget.store_op = SDL_GPU_STOREOP_STORE;
     ImGui_ImplSDLGPU3_PrepareDrawData(drawData, commandBuffer);
     SDL_GPURenderPass *renderPass = SDL_BeginGPURenderPass(commandBuffer, &colorTarget, 1, nullptr);
-    ImGui_ImplSDLGPU3_RenderDrawData(drawData, commandBuffer, renderPass, nullptr);
-    SDL_EndGPURenderPass(renderPass);
+    if (renderPass != nullptr)
+    {
+      ImGui_ImplSDLGPU3_RenderDrawData(drawData, commandBuffer, renderPass, nullptr);
+      SDL_EndGPURenderPass(renderPass);
+    }
   }
   SDL_SubmitGPUCommandBuffer(commandBuffer);
   return 0;
@@ -296,7 +301,9 @@ extern "C" int64_t ngrt_imguiRender(void)
 extern "C" int64_t ngrt_imguiAborted(void)
 {
   auto state = requireState();
-  return state && state->done ? 1 : 0;
+  // An uninitialized state is treated as aborted so `while (!imguiAborted())`
+  // cannot spin forever after a failed init.
+  return state == nullptr || state->done ? 1 : 0;
 }
 
 extern "C" int64_t ngrt_imguiBegin(const char *title)

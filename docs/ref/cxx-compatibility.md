@@ -1,6 +1,6 @@
 # C++ Compatibility
 
-The NG implementation uses a modern C++ toolchain.
+The NG implementation builds with the C++23 standard.
 
 ## Toolchain
 

@@ -23,7 +23,7 @@ NG is a statically-typed, multi-paradigm programming language with a single clea
 
 ### Prerequisites
 
-- A modern C++ compiler (macOS pins `clang`/`clang++` with libc++; Homebrew LLVM supplies `clang-tidy`/`clang-format`)
+- A C++23 compiler (macOS pins `clang`/`clang++` with libc++; Homebrew LLVM supplies `clang-tidy`/`clang-format`)
 - CMake 3.25+ and Ninja
 
 ### Build and run

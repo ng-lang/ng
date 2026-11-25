@@ -1018,6 +1018,8 @@ int64_t ngrt_system(const char *command)
     return 1; /* wait-status error: report the existing failure result */
   if (WIFEXITED(status))
     return WEXITSTATUS(status);
+  if (WIFSIGNALED(status))
+    return 128 + WTERMSIG(status);
   return 1;
 }
 
@@ -1061,7 +1063,9 @@ char *ngrt_systemOutput(const char *command)
   }
   if (status != 0)
   {
-    int code = WIFEXITED(status) ? WEXITSTATUS(status) : 1;
+    int code = WIFEXITED(status) ? WEXITSTATUS(status)
+             : WIFSIGNALED(status) ? 128 + WTERMSIG(status)
+                                   : 1;
     char suffix[64];
     snprintf(suffix, sizeof suffix, "[exit %d]", code);
     size_t suffixLength = strlen(suffix);
