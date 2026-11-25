@@ -1,0 +1,13 @@
+import prelude;
+
+fun f(value: i64 | string) -> i64 {
+    switch (value) {
+        case (b: bool) { return 1; }
+        otherwise { return 0; }
+    }
+}
+
+fun main() -> i64 {
+    let v: i64 | string = 1;
+    return f(v);
+}

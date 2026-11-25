@@ -2,34 +2,44 @@
 
 ## Project Overview
 
-**NG** is a statically-typed, multi-paradigm programming language implemented in modern C++ (C++23). The active pipeline is the **vNext** architecture (the legacy orgasm/interpreter pipeline has been removed):
+**NG** is a statically-typed, multi-paradigm programming language implemented in modern C++ (C++23). The active pipeline is the **vNext** architecture (the legacy orgasm/interpreter pipeline and the interim bytecode/VM tier have been removed):
 
-**Lexer → Parser (syntax AST) → Resolver (HIR) → Type Checker → FlowIR → Bytecode → VM**
+**Lexer → Parser (syntax AST) → Resolver (HIR) → Type Checker → FlowIR CFG → QBE IL → native executable (qbe + cc + libngrt)**
 
 **Key directories and file patterns:**
 - `src/syntax/` — lexer and parsers (`parser.cpp`, `module_parser.cpp`, `block_parser.cpp`, `type_parser.cpp`, `const_expr.cpp`)
 - `src/hir.cpp` — name resolution: syntax AST → immutable `hir::Module` (functions, structs, enums, traits, impls, consts, opaque types)
 - `src/typecheck.cpp` + `type_interner.cpp` — side-table style checker: expression types, call targets, trait/impl resolution, monomorphization, ownership (move/borrow/drop), const evaluation
 - `src/flowir.cpp` — HIR → CFG (`flowir::Function`), incl. fold/map lowering, drop edges, trait-view dispatch
-- `src/bytecode.cpp` + `bytecode/artifact.cpp` — FlowIR → verified bytecode + artifact codec
-- `src/vm.cpp` + `vm/value_ops.cpp` — interpreter (`vm::VM`) over bytecode with native dispatch
+- `src/native/lowering.cpp` — FlowIR → QBE IL text (the only execution tier), with embedded runtime helpers; `src/native/libngrt.c` — the C runtime linked into every executable (strings, arrays, checked arithmetic, panic)
+- `src/ngrt.cpp` + `include/ngrt.hpp` — host-side runtime support shared by the driver
 - `src/const_eval.cpp` + `const_interp.cpp` — compile-time const evaluation / `const fun` interpreter
 - `src/module_loader.cpp` — transitive `import` loading with per-module name visibility
-- `src/driver.cpp` — `ngi` frontend: load → resolve → check → lower → compile → run, with registered core natives (`runNgi` re-enters the pipeline from NG code)
-- `src/imgui_natives.cpp` + `include/imgui_natives.hpp` — the std.imgui binding (SDL3 GPU backend); `src/imgui_main.cpp` builds `ngi_imgui`, the same frontend plus those natives
-- `include/` — public vNext headers (`hir.hpp`, `typecheck.hpp`, `flowir.hpp`, `bytecode.hpp`, `value.hpp`, `syntax/*.hpp`, `driver.hpp`, ...)
-- `example/*.ng` — runnable vNext examples (incl. `ng_ide.ng`, a minimal NG IDE over the imgui binding); `lib/std/*.ng` — the vNext stdlib (prelude/io/string/seq/list/memory/imgui)
+- `src/driver.cpp` — `ngi` frontend: load → resolve → check → lower → emit QBE IL → assemble/link → run (or `--output` to stop at an executable); core natives (`print`, `assert`, string/memory/imgui hosts) are registered here
+- `src/native/imgui_ngrt.cpp` + `lib/std/imgui.ng` — the std.imgui binding (SDL3 GPU backend); the default `ngi` registers those natives, so `example/ng_ide.ng` (a minimal NG IDE) runs through plain `ngi`
+- `include/` — public vNext headers (`hir.hpp`, `typecheck.hpp`, `flowir.hpp`, `value.hpp`, `ngrt.hpp`, `syntax/*.hpp`, `native/lowering.hpp`, `driver.hpp`, ...)
+- `example/*.ng` — runnable vNext examples (incl. `ng_ide.ng`); `lib/std/*.ng` — the vNext stdlib (prelude/io/string/seq/list/memory/system/imgui)
 - `test/*.cpp` — Catch2 v3 test suites, one per feature area (`test/test.hpp` is the shared header)
-- `docs/design/rearchitecture/` — vNext design decisions (D-0xx), the legacy example migration matrix, and the post-cutover roadmap
+- `docs/guide/`, `docs/ref/` — user-facing documentation (ground truth only: what is
+  implemented today). Nothing speculative, planned, or historical belongs there.
+- `docs/research/` — cross-language design/implementation comparison research
+- Git history is the change log. Do not create `.agents/worklog/`,
+  `.agents/workstate.md`, or `.agents/plans/`. Open defects, if any, live in
+  `HANDOFF.md`.
+- Agent skills in this repo: `restraint` (always), plus `agent-facing-doc` and
+  `vnv` when editing agent docs or reviewing a claim. Do not install the rest of
+  the drafting bundle here.
 
 ## Architecture & Patterns
 - **Syntax:** `syntax::parseSourceUnit` / `Lexer` — a full-file lexer producing `Token` spans; `ModuleParser` handles module items, `ExpressionParser`/`BlockParser`/`TypeParser` handle nested forms. `>>` lexes as `ShiftRight` and is split by the generic-argument/type collectors.
 - **HIR:** `hir::Resolver` resolves syntax into an immutable module. Expressions are `std::unique_ptr<hir::Expression>` nodes; types are `hir::Type` trees. Generic instances are produced by cloning + re-checking, not by AST mutation.
 - **Type checking:** `typecheck::TypeChecker{}.check(module)` returns a `TypeCheckResult` of side tables (expression types, call targets, spread/fold positions, drop edges, trait-view tables, instances). Types are interned `typecheck::TypeId`s over `TypeDescriptor`s (builtins, arrays, tuples, structs/enums, refs, trait references, unions, type constructors/applications, opaque). Monomorphization re-checks cloned bodies under concrete substitutions.
-- **Values:** `NG::Value` is a variant of int64/double/string/array/tuple/struct/enum/reference/trait-view/opaque/range (aggregates shared_ptr-backed). Copy-first deep-copy semantics; affine nominal types use `move`/`clone` + `impl Drop`; scoped `ref`/`ref mut` are non-returnable views. There is no GC (heap domains are deferred).
-- **Lowering & VM:** FlowIR lowers to per-function CFGs with block parameters; bytecode is verified (operand/result type checks); the VM interprets with native dispatch keyed by function name (`native fun`), with a per-run instruction budget (`--fuel 0` = unlimited) for interactive programs.
+- **Values:** `NG::Value` is a variant of int64/double/string/array/tuple/struct/enum/reference/trait-view/opaque/range (aggregates shared_ptr-backed). Copy-first deep-copy semantics; affine nominal types use `move`/`clone` + `impl Drop`; scoped `ref`/`ref mut` are
+views that cannot be returned without a declared origin set. There is no GC;
+`Box<T>` and `Cell<T>` (lib/std/memory) provide explicit heap cells.
+- **Lowering & native backend:** FlowIR lowers to per-function CFGs with block parameters, then to QBE IL text; `qbe` assembles and `cc` links against `libngrt` to produce the executable. There is no bytecode or VM tier (`--native` / `--fuel` are accepted as backward-compatible no-ops).
 - **Modules:** `import name;` / `import name (a, b);` merge transitively with per-module visible-name sets (own names, selective lists, exported surfaces with transitive re-export).
-- **Testing:** each feature slice ships `test/<feature>_test.cpp` plus an `example/<feature>.ng` run end-to-end through `ngi`; the migration matrix (`docs/design/rearchitecture/05-legacy-example-migration-matrix.md`) records coverage of the removed legacy corpus.
+- **Testing:** each feature slice ships `test/<feature>_test.cpp` plus an `example/<feature>.ng` run end-to-end through `ngi`; the example corpus sweep guards every example.
 
 ## Build, Test, and Development Workflows
 **Configure & build (Ninja):**
@@ -40,7 +50,7 @@ cmake --build build -j
 ```
 
 The build also compiles the vendored QBE backend into `build/qbe`
-(`cmake/qbe.cmake`) for the planned native code generator; `ctest` includes
+(`cmake/qbe.cmake`); `ctest` includes
 the `qbe_smoke` toolchain test (`test/native/qbe_smoke.ssa` → qbe → cc →
 run).
 **Run tests:**
@@ -50,11 +60,13 @@ ctest --test-dir build -j
 ./build/ng_test --list-tests
 ./build/ng_test "vNext*"   # example filter
 ```
-**Run interpreter:**
+**Run the compiler:**
 
 ```bash
-./build/ngi example/<example>.ng
-./build/ngi_imgui example/ng_ide.ng --fuel 0   # GUI binding; --fuel 0 lifts the instruction budget
+./build/ngi example/<example>.ng                     # compile (QBE -> cc) and run
+./build/ngi --output <path> example/<example>.ng     # stop at a native executable
+./build/ngi --emit=ssa example/<example>.ng          # dump the QBE IL
+./build/ngi example/ng_ide.ng                        # imgui natives are built into ngi
 ```
 **Format and lint C++ code** (tools come from Homebrew LLVM at `/opt/homebrew/opt/llvm`):
 
@@ -69,6 +81,11 @@ clang-tidy -p build src/<file>.cpp   # uses build/compile_commands.json
 - **Tests:** `test/<topic>_test.cpp`; **examples:** `example/<topic>.ng` (NG code)
 - **External dependencies:** vendored in `build/_deps/` and `vendored/`
 - **Do not modify** files in `vendored/` or `build/_deps/`
+- **No absolute local paths** in tracked files (sources, tests, docs, examples, prompts, commit
+  messages). Never hard-code a machine-specific home directory — the OS user-home prefix followed
+  by a user name — because it embeds a local user name and does not travel with the repository.
+  Refer to "the repository root" or "the current working directory", or use relative paths.
+  Enforced by `test/guard_test.cpp`.
 - **AI-generated code** must be marked as such (see `CONTRIBUTING.md`)
 
 ## Testing Guidelines
@@ -80,15 +97,14 @@ clang-tidy -p build src/<file>.cpp   # uses build/compile_commands.json
 ## Commit & PR Guidelines
 - **Prefer Conventional Commits** like history: `feat(vnext): ...`, `fix(parsing): ...`
 - **Messages in imperative mood**
-- **PRs must include:** clear description, linked issues, tests, docs/examples updates where relevant (e.g. `docs/design/rearchitecture/`, `example/`)
+- **PRs must include:** clear description, linked issues, tests, docs/examples updates where relevant (`docs/guide`, `docs/ref`, `example/`)
 - **Disclose any AI-generated code** per `CONTRIBUTING.md`
 
 ## References
-- [vNext design decisions](../docs/design/rearchitecture/04-language-decisions.md)
-- [Legacy example migration matrix](../docs/design/rearchitecture/05-legacy-example-migration-matrix.md)
-- [Post-cutover roadmap](../docs/design/rearchitecture/07-post-cutover-plan.md)
-- [QBE native backend design](../docs/design/rearchitecture/08-qbe-native-backend.md)
-- [Contribution Guide](../CONTRIBUTING.md)
+- [Accepted language decisions](docs/ref/language-decisions.md) — the normative rules enforced today
+- [Language guide](docs/guide/language_guide.md) · [Memory](docs/ref/Memory.md)
+- [Cross-language comparison research](docs/research/mainstream-language-comparison.md)
+- [Contribution Guide](CONTRIBUTING.md)
 
 ---
 For any unclear conventions or missing documentation, consult the above references or ask in project discussions.

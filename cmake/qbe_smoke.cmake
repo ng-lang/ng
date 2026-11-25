@@ -12,8 +12,14 @@ if(NOT qbe_result EQUAL 0)
   message(FATAL_ERROR "qbe failed to lower ${SSA_FILE}")
 endif()
 
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  set(MATH_LIB "-lm")
+else()
+  set(MATH_LIB "")
+endif()
+
 execute_process(
-  COMMAND "${CC_TOOL}" "${OUT_DIR}/smoke.s" -o "${OUT_DIR}/smoke"
+  COMMAND "${CC_TOOL}" "${OUT_DIR}/smoke.s" -o "${OUT_DIR}/smoke" ${MATH_LIB}
   RESULT_VARIABLE cc_result)
 if(NOT cc_result EQUAL 0)
   message(FATAL_ERROR "cc failed to assemble/link the qbe output")

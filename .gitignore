@@ -38,6 +38,7 @@ build.ninja
 
 .vscode
 build/
+build-asan/
 
 # LLVM Coverages
 
@@ -69,6 +70,15 @@ docs/.vitepress/cache/**
 # Archived legacy docs (kept locally for reference, not tracked)
 docs/design/archive/
 
+# Agent scratch space (SSA golden baselines, probes) — never tracked
+
+.agents/tmp/
+
 # VitePress build artifacts
 docs/.vitepress/cache/
 docs/.vitepress/dist/
+
+.reasonix
+
+# Agent scratch space (SSA golden baselines, probes)
+.agents/tmp/

@@ -1,0 +1,5 @@
+fun main() -> bool {
+    let a: i64 = 1;
+    let b: u64 = 2;
+    return a == b;
+}

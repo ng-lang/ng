@@ -1,0 +1,4 @@
+kind: type
+code: E-type
+pattern: array spread type mismatch: expected i64, got string
+span: [98, 106)

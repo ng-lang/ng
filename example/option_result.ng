@@ -1,0 +1,74 @@
+// vNext Option/Result combinators (INC-12): prelude generic enums, the
+// Result-based parseInt wrapper, and the closure combinators optMap /
+// optAndThen / optOrElse / resultMap / resultAndThen / resultOrElse at
+// work on concrete values, including failure short-circuiting.
+
+import prelude;
+
+// proj: a simple pure transform used as a combinator argument.
+fun proj(x: i64) -> i64 {
+    return 2 * x + 1;
+}
+
+fun doubleStep(x: i64) -> i64 {
+    return 3 * x - 4;
+}
+
+fun main() -> unit {
+    // parseInt now returns Result<i64, string> (INC-12 migration).
+    switch (parseInt("42")) {
+        case Ok(value) { print(value == 42); }
+        case Err(text) { print(false); }
+    }
+    switch (parseInt("not a number")) {
+        case Ok(value) { print(false); }
+        case Err(text) { print(true); }
+    }
+
+    // Option functor map + composition of two pure transforms.
+    let some: Option<i64> = Option.Some(10);
+    let one: Option<i64> = Option.Some(10);
+    let none: Option<i64> = Option.None;
+    let mapped = optMap(some, |x: i64| proj(x));
+    let composed = optMap(optMap(one, |x: i64| proj(x)), |x: i64| doubleStep(x));
+    switch (mapped) {
+        case Some(value) { print(value == 21); }
+        case None { print(false); }
+    }
+    switch (composed) {
+        case Some(value) { print(value == 59); }
+        case None { print(false); }
+    }
+
+    // optAndThen short-circuits through None.
+    let chained = optAndThen(none, |x: i64| { let r: Option<i64> = Option.Some(proj(x)); r });
+    switch (chained) {
+        case Some(value) { print(false); }
+        case None { print(true); }
+    }
+
+    // optOrElse supplies a default on None.
+    let empty: Option<i64> = Option.None;
+    let fallback = optOrElse(empty, || { let d: Option<i64> = Option.Some(7); d });
+    switch (fallback) {
+        case Some(value) { print(value == 7); }
+        case None { print(false); }
+    }
+
+    // Result map preserves the Ok path; orElse recovers the Err.
+    let ok: Result<i64, string> = Result.Ok(5);
+    let err: Result<i64, string> = Result.Err("boom");
+    let okMapped = resultMap(ok, |x: i64| proj(x));
+    switch (okMapped) {
+        case Ok(value) { print(value == 11); }
+        case Err(text) { print(false); }
+    }
+    let recovered = resultOrElse(err, |message: string| {
+        let ok2: Result<i64, string> = Result.Ok(6);
+        ok2
+    });
+    switch (recovered) {
+        case Ok(value) { print(value == 6); }
+        case Err(text) { print(false); }
+    }
+}

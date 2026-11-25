@@ -1,6 +1,6 @@
 // AI-generated code; reviewed for this repository's vNext rewrite.
-#include "test.hpp"
 #include "driver.hpp"
+#include "test.hpp"
 
 #include <sstream>
 
@@ -73,8 +73,8 @@ TEST_CASE("vNext array literals reject more than one spread", "[vNext][ArraySpre
 {
   std::string output;
   std::string errors;
-  REQUIRE(run({"--source", "import prelude; fun main() -> unit { let a = [1]; let b = [...a, ...a]; }"}, output, errors) ==
-              1);
+  REQUIRE(run({"--source", "import prelude; fun main() -> unit { let a = [1]; let b = [...a, ...a]; }"}, output,
+              errors) == 1);
   REQUIRE_THAT(errors, ContainsSubstring("at most one spread"));
 }
 
@@ -86,4 +86,27 @@ TEST_CASE("vNext array value spreads keep element types unified", "[vNext][Array
                            " let xs = [\"a\", \"b\"]; let ys = [...xs, \"c\"]; assert(ys[2] == \"c\"); }"},
               output, errors) == 0);
   REQUIRE(errors.empty());
+}
+
+TEST_CASE("vNext empty array literals infer from the expected type", "[vNext][ArrayLiteral][Inference]")
+{
+  // INC-14 follow-up: `[]` has no element type of its own, so it is checked
+  // against the parameter / binding type instead of failing outright.
+  std::string output;
+  std::string errors;
+  REQUIRE(run({"--source", "import prelude; import seq;"
+                           "fun show(xs: array<i64>) -> i64 { return len(xs); }"
+                           "fun main() -> i64 { return show([]) + show([1, 2, 3]); }"},
+              output, errors) == 0);
+  INFO("errors: " << errors);
+  REQUIRE(errors.empty());
+  REQUIRE(output.find("native main exited with code 3") != std::string::npos);
+}
+
+TEST_CASE("vNext empty array literal without an expected type is rejected", "[vNext][ArrayLiteral][Errors]")
+{
+  std::string output;
+  std::string errors;
+  REQUIRE(run({"--source", "import prelude; fun main() -> i64 { let xs = []; return 0; }"}, output, errors) != 0);
+  REQUIRE(errors.find("cannot infer the type of an empty array literal") != std::string::npos);
 }

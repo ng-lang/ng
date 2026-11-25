@@ -1,6 +1,8 @@
 // vNext std.imgui (redesign): a minimal Dear ImGui binding over the SDL3 GPU
-// backend. Every function is a `native fun` registered by the `ngi_imgui`
-// frontend; running them under plain `ngi` reports an unregistered native.
+// backend. Every function is a `native fun` lowered directly to a `$ngrt_imgui*`
+// symbol implemented by the SDL3 GPU and Dear ImGui C++ backend
+// (src/native/imgui_ngrt.cpp) and linked into executables that import this
+// binding.
 //
 // The NG program drives the frame loop itself:
 //

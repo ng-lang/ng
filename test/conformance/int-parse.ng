@@ -1,0 +1,21 @@
+// Contract: strict integer parsing and toString formatting (INC-7).
+// canParseInt accepts an optional sign plus decimal digits only — no
+// whitespace, no separators — across the full i64 range.
+import prelude;
+
+fun main() -> unit {
+    print(canParseInt(""));
+    print(canParseInt("+"));
+    print(canParseInt("-"));
+    print(canParseInt("abc"));
+    print(canParseInt("12a"));
+    print(canParseInt(" 12"));
+    print(canParseInt("1 2"));
+    print(canParseInt("+42"));
+    print(canParseInt("-42"));
+    print(canParseInt("0"));
+    print(canParseInt("9223372036854775807"));
+    print(canParseInt("-9223372036854775808"));
+    print(canParseInt("9223372036854775808"));
+    print(canParseInt("-9223372036854775809"));
+}

@@ -1,0 +1,4 @@
+kind: type
+code: E-type
+pattern: switch is not exhaustive: missing member type `string` of union i64 | string
+span: [57, 115)

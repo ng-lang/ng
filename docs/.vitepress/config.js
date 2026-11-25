@@ -4,17 +4,16 @@ import { defineConfig } from 'vitepress'
 export default defineConfig({
   title: 'NG Language',
   titleTemplate: ':title — NG Programming Language',
-  description: 'A nostalgic, statically-typed, multi-paradigm programming language',
+  description: 'A statically-typed, multi-paradigm programming language',
 
   appearance: 'dark',
 
   // Clean URLs
   cleanUrls: true,
 
-  // Design/rearchitecture documents are developer-facing only (removed from
-  // the site navigation); exclude them from the build so their prose angle
-  // brackets are never parsed as HTML tags.
-  srcExclude: ['design/**'],
+  // Developer-facing material (plans, increment tracking) lives outside docs/
+  // under .agents/plans/ and is not part of the site.
+  srcExclude: ['.agents/**', 'design/**'],
 
   lastUpdated: true,
 
@@ -22,8 +21,14 @@ export default defineConfig({
     ['link', { rel: 'icon', href: '/logo.svg' }],
     ['meta', { property: 'og:type', content: 'website' }],
     ['meta', { property: 'og:title', content: 'NG Programming Language' }],
-    ['meta', { property: 'og:description', content: 'A nostalgic, statically-typed, multi-paradigm programming language' }],
+    ['meta', { property: 'og:description', content: 'A statically-typed, multi-paradigm programming language' }],
   ],
+
+  markdown: {
+    languageAlias: {
+      'ng': 'rust'
+    }
+  },
 
   themeConfig: {
     // https://vitepress.dev/reference/default-theme-config
@@ -35,7 +40,7 @@ export default defineConfig({
 
     nav: [
       { text: 'Guide', link: '/guide/language_guide', activeMatch: '/guide/' },
-      { text: 'Reference', link: '/ref/Internals', activeMatch: '/ref/' },
+      { text: 'Reference', link: '/ref/language-decisions', activeMatch: '/ref/' },
       {
         text: 'Resources',
         items: [
@@ -75,7 +80,7 @@ export default defineConfig({
         {
           text: 'Reference',
           items: [
-            { text: 'Internals', link: '/ref/Internals' },
+            { text: 'Accepted Language Decisions', link: '/ref/language-decisions' },
             { text: 'Memory', link: '/ref/Memory' },
             { text: 'C++ Compatibility', link: '/ref/cxx-compatibility' },
           ],

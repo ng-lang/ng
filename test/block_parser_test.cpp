@@ -247,3 +247,25 @@ TEST_CASE("vNext block parser rejects a let initializer without a terminator", "
     REQUIRE(error.span().end == 17);
   }
 }
+
+TEST_CASE("vNext block parser represents while, continue, and break statements", "[vNext][Syntax][Block]")
+{
+  const auto block = syntax::parseBlock("{ while (i < limit) { i := i + 1; continue; break; } }");
+  const auto &whileStatement = [&block]() -> const syntax::WhileStatement & {
+    const auto *whilePtr = dynamic_cast<const syntax::WhileStatement *>(block.statements[0].get());
+    REQUIRE(whilePtr != nullptr);
+    return *whilePtr;
+  }();
+  REQUIRE(whileStatement.condition != nullptr);
+  REQUIRE(whileStatement.body.statements.size() == 3);
+
+  const auto &continueStatement = dynamic_cast<const syntax::ContinueStatement &>(*whileStatement.body.statements[1]);
+  static_cast<void>(continueStatement);
+  const auto &breakStatement = dynamic_cast<const syntax::BreakStatement &>(*whileStatement.body.statements[2]);
+  static_cast<void>(breakStatement);
+
+  const auto unitBlock = syntax::parseBlock("{ continue; break; }");
+  REQUIRE(unitBlock.statements.size() == 2);
+  REQUIRE(dynamic_cast<const syntax::ContinueStatement *>(unitBlock.statements[0].get()) != nullptr);
+  REQUIRE(dynamic_cast<const syntax::BreakStatement *>(unitBlock.statements[1].get()) != nullptr);
+}

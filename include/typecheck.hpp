@@ -3,9 +3,11 @@
 
 #include "const_eval.hpp"
 #include "hir.hpp"
+#include <cctype>
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -33,25 +35,53 @@ namespace NG::typecheck
     inline constexpr TypeId U64{11};
     inline constexpr TypeId F32{12};
     inline constexpr TypeId F64{13};
+    /// INC-28: target-width integers. On every supported target (arm64, x86_64)
+    /// the pointer width is 64 bits, so `isize` maps to the `i64` layout and
+    /// `usize` to the `u64` layout. Distinct types so mixed arithmetic stays a
+    /// type error, but sharing the slot, checked helpers, and ABI class.
+    inline constexpr TypeId Isize{14};
+    inline constexpr TypeId Usize{15};
   } // namespace builtin
 
-  /// True for the D-008 fixed-width integer builtin types (i8–i64, u8–u64).
+  /// True for the D-008 fixed-width integer builtin types (i8–i64, u8–u64) and
+  /// the INC-28 target-width integers (`isize`/`usize`).
   [[nodiscard]] inline auto isIntegerBuiltin(TypeId type) -> bool
   {
     return type == builtin::I8 || type == builtin::I16 || type == builtin::I32 || type == builtin::I64 ||
-           type == builtin::U8 || type == builtin::U16 || type == builtin::U32 || type == builtin::U64;
+           type == builtin::U8 || type == builtin::U16 || type == builtin::U32 || type == builtin::U64 ||
+           type == builtin::Isize || type == builtin::Usize;
   }
 
-  /// True for the unsigned fixed-width integer builtin types (u8–u64).
+  /// The fixed-width/target-width integer whose 64-bit slot layout `type`
+  /// shares. `isize` behaves as `i64` and `usize` as `u64` on the current
+  /// targets; every other integer is itself.
+  [[nodiscard]] inline auto canonicalInteger(TypeId type) -> TypeId
+  {
+    if (type == builtin::Isize)
+      return builtin::I64;
+    if (type == builtin::Usize)
+      return builtin::U64;
+    return type;
+  }
+
+  /// True for the unsigned integer builtin types (u8–u64, `usize`).
   [[nodiscard]] inline auto isUnsignedIntegerBuiltin(TypeId type) -> bool
   {
-    return type == builtin::U8 || type == builtin::U16 || type == builtin::U32 || type == builtin::U64;
+    return type == builtin::U8 || type == builtin::U16 || type == builtin::U32 || type == builtin::U64 ||
+           type == builtin::Usize;
   }
 
-  /// True for the signed fixed-width integer builtin types (i8–i64).
+  /// True for the signed integer builtin types (i8–i64, `isize`).
   [[nodiscard]] inline auto isSignedIntegerBuiltin(TypeId type) -> bool
   {
-    return type == builtin::I8 || type == builtin::I16 || type == builtin::I32 || type == builtin::I64;
+    return type == builtin::I8 || type == builtin::I16 || type == builtin::I32 || type == builtin::I64 ||
+           type == builtin::Isize;
+  }
+
+  /// True for the INC-28 target-width integer types.
+  [[nodiscard]] inline auto isTargetWidthIntegerBuiltin(TypeId type) -> bool
+  {
+    return type == builtin::Isize || type == builtin::Usize;
   }
 
   /// True for the D-008 floating-point builtin types (f32, f64).
@@ -69,9 +99,14 @@ namespace NG::typecheck
   struct TypeError : std::runtime_error
   {
     syntax::SourceSpan span;
+    std::string code;
 
-    TypeError(std::string message, syntax::SourceSpan sourceSpan)
-        : std::runtime_error(std::move(message)), span(sourceSpan)
+    TypeError(std::string message, syntax::SourceSpan sourceSpan) : TypeError("E-type", std::move(message), sourceSpan)
+    {
+    }
+
+    TypeError(std::string errorCode, std::string message, syntax::SourceSpan sourceSpan)
+        : std::runtime_error(std::move(message)), span(sourceSpan), code(std::move(errorCode))
     {
     }
   };
@@ -83,12 +118,18 @@ namespace NG::typecheck
     FixedArray,
     DependentArray,
     Reference,
+    /// INC-21: `span<T>` — a borrowed, scoped, non-returnable read-only view
+    /// over array storage; `element` is the viewed element type.
+    Span,
     RawPointer,
     TypePack,
     Range,
     Tuple,
     /// `A | B | C` union of member types (legacy 19).
     Union,
+    /// D-004: `T?` — nullable foreign handle; shares T's 64-bit slot,
+    /// zero bit pattern denotes null.
+    Nullable,
     Struct,
     Enum,
     TypeParameter,
@@ -104,6 +145,9 @@ namespace NG::typecheck
     /// `ref<Trait>` dynamic view: a reference to a value implementing the
     /// named trait plus a dispatch table index.
     TraitReference,
+    /// Anonymous closure literal (`|x: i64| ...`): `elements` are the
+    /// parameter types, `element` is the return type.
+    Closure,
   };
 
   struct TypeDescriptor
@@ -127,6 +171,75 @@ namespace NG::typecheck
     bool variadicConstructor{};
     auto operator==(const TypeDescriptor &) const -> bool = default;
   };
+
+  /// INC-23 (DEC-D): the family an `or`-literal union pattern text belongs to.
+  /// Mirrors the construction canonicalization in `native::FunctionLowerer::
+  /// unionMemberFor`: integers and floats pick the first member of their
+  /// builtin family, bool and string must match exactly.
+  enum class UnionLiteralFamily
+  {
+    Integer,
+    Float,
+    Boolean,
+    String,
+  };
+
+  /// True for a scalar switch-literal text whose leading form identifies the
+  /// integer family (`42`, `-1`; c.f. the textual kind heuristic already used
+  /// by literal switches).
+  [[nodiscard]] inline auto isIntegerLiteralText(std::string_view text) -> bool
+  {
+    return !text.empty() && (text[0] == '-' || std::isdigit(static_cast<unsigned char>(text[0]))) &&
+           text.find('.') == std::string_view::npos;
+  }
+
+  /// The family of a union `or`-literal pattern text (`42`, `4.2`, `"hi"`,
+  /// `true`). bool and float are identified by form, otherwise integers by
+  /// leading digit/`-`, and anything else is a string literal.
+  [[nodiscard]] inline auto unionLiteralFamily(std::string_view text) -> UnionLiteralFamily
+  {
+    if (text == "true" || text == "false")
+      return UnionLiteralFamily::Boolean;
+    if (text.find('.') != std::string_view::npos)
+      return UnionLiteralFamily::Float;
+    if (isIntegerLiteralText(text))
+      return UnionLiteralFamily::Integer;
+    return UnionLiteralFamily::String;
+  }
+
+  /// INC-23 (DEC-D): the member index an int/float/bool/string union pattern
+  /// matches — the same canonical member a value of that kind adopts on
+  /// construction (`unionMemberFor`): exact for bool/string, first builtin
+  /// family member for integers/floats. Returns -1 when the union has no
+  /// member of the literal's family.
+  [[nodiscard]] inline auto memberIndexForUnionLiteral(const TypeDescriptor &unionType, UnionLiteralFamily family)
+      -> int64_t
+  {
+    for (size_t index = 0; index < unionType.elements.size(); ++index)
+    {
+      const TypeId candidate = unionType.elements[index];
+      switch (family)
+      {
+      case UnionLiteralFamily::Integer:
+        if (isIntegerBuiltin(candidate))
+          return static_cast<int64_t>(index);
+        break;
+      case UnionLiteralFamily::Float:
+        if (isFloatBuiltin(candidate))
+          return static_cast<int64_t>(index);
+        break;
+      case UnionLiteralFamily::Boolean:
+        if (candidate == builtin::Bool)
+          return static_cast<int64_t>(index);
+        break;
+      case UnionLiteralFamily::String:
+        if (candidate == builtin::String)
+          return static_cast<int64_t>(index);
+        break;
+      }
+    }
+    return -1;
+  }
 
   class TypeInterner final
   {
@@ -158,9 +271,13 @@ namespace NG::typecheck
     [[nodiscard]] auto internFixedArray(TypeId element, uint64_t length) -> TypeId;
     [[nodiscard]] auto internDependentArray(TypeId element, uint32_t constParameterIndex, std::string name) -> TypeId;
     [[nodiscard]] auto internReference(TypeId target, bool mutableReference) -> TypeId;
+    [[nodiscard]] auto internSpan(TypeId target) -> TypeId;
     [[nodiscard]] auto internRawPointer(TypeId target, bool mutablePointee) -> TypeId;
+    /// D-004: nullable handle `T?` (shares T's 64-bit slot, zero = null).
+    [[nodiscard]] auto internNullable(TypeId target) -> TypeId;
     [[nodiscard]] auto internTuple(const std::vector<TypeId> &elements) -> TypeId;
     [[nodiscard]] auto internUnion(const std::vector<TypeId> &members) -> TypeId;
+    [[nodiscard]] auto internClosure(const std::vector<TypeId> &parameters, TypeId result) -> TypeId;
     [[nodiscard]] auto internTypePack(TypeId element) -> TypeId;
     [[nodiscard]] auto internRange(TypeId element) -> TypeId;
     [[nodiscard]] auto declareTraitType(std::string name) -> TypeId;
@@ -240,6 +357,8 @@ namespace NG::typecheck
     std::vector<TypeId> constParameters;
     std::vector<std::string> constParameterNames;
     TypeId returnType;
+    /// INC-29: C varargs (`extern "C" fun f(fixed: T, ...) -> R`).
+    bool cVariadic{};
   };
 
   /// Immutable type side tables for a resolved HIR module. The table is keyed
@@ -254,6 +373,12 @@ namespace NG::typecheck
     std::unordered_map<uint32_t, FunctionType> functionTypes;
     std::unordered_map<uint32_t, FunctionTypeIds> functionTypeIds;
     std::unordered_map<const hir::Expression *, hir::DefId> callTargets;
+    /// INC-29: a bare function name used as a C callback -> its DefId.
+    std::unordered_map<const hir::Expression *, hir::DefId> callbackTargets;
+    /// Closure-typed call sites that must prepend capture values as
+    /// leading operands; maps call expression -> captured enclosing local IDs
+    /// (INC-14 S3).
+    std::unordered_map<const hir::Expression *, std::vector<uint32_t>> callCaptures;
     /// Number of trailing call arguments packed into the callee's tuple
     /// parameter (variadic calls).
     std::unordered_map<const hir::Expression *, size_t> callPackArgCounts;
@@ -261,11 +386,20 @@ namespace NG::typecheck
     std::unordered_map<const hir::Expression *, TypeId> callPackTupleTypes;
     /// Syntactic argument offsets that are tuple spreads at a call site.
     std::unordered_map<const hir::Expression *, std::vector<size_t>> callSpreadPositions;
+    /// Array-spread list sources (INC-20c S2): spread node -> std list walker
+    /// instances (spreadLength, spreadGet) lowering list spreads as calls.
+    std::unordered_map<const hir::Expression *, std::pair<hir::DefId, hir::DefId>> arrayListSpreadCalls;
     /// Fold calls (`f(acc, xs...)`): spread/accumulator positions and element
     /// type, lowered to reduction loops.
     std::unordered_map<const hir::Expression *, std::vector<size_t>> callFoldSpreadPositions;
     std::unordered_map<const hir::Expression *, std::vector<size_t>> callFoldAccumulatorPositions;
-    /// Drop calls to emit at return statements: (local, drop method DefId).
+    /// INC-21 S2: `pushBack(receiver, value)` call -> true when the receiver
+    /// root is uniquely owned (grow the buffer in place), false when it may be
+    /// aliased (copy-on-write rebuild). Consulted by FlowIR to stamp the native
+    /// helper payload for the array path.
+    std::unordered_map<const hir::Expression *, bool> inPlaceMutationCalls;
+    /// Drop calls to emit at return statements, and after an expression
+    /// statement that discards an owned local (`move s;`): (local, drop DefId).
     std::unordered_map<const hir::Statement *, std::vector<std::pair<uint32_t, uint32_t>>> returnDrops;
     /// Drop calls to emit at function fall-through, keyed by function id.
     std::unordered_map<uint32_t, std::vector<std::pair<uint32_t, uint32_t>>> fallthroughDrops;
@@ -290,8 +424,28 @@ namespace NG::typecheck
     /// Derived `clone()` calls: expression -> receiver type; lowered to a
     /// shared borrow followed by a deep-copying load.
     std::unordered_map<const hir::Expression *, TypeId> derivedCloneCalls;
+    /// Derived `clone()` calls on a `memory.Box<T>` or `memory.Cell<T>`
+    /// receiver; FlowIR deep-copies the cell into a fresh one (BoxClone).
+    std::unordered_map<const hir::Expression *, TypeId> boxCloneCalls;
+    /// Types that derived `Eq`: type id set; field-level == is synthesized
+    /// by the FlowIR builder for binary comparisons on these types.
+    std::unordered_set<uint32_t> derivedEqTypes;
+    /// INC-24 (DEC-E): types that derived `Ord`; their field-wise total order
+    /// is synthesized by FlowIR for relational comparisons.
+    std::unordered_set<uint32_t> derivedOrdTypes;
+    /// Types that derived `Show`: type id set; `.show()` on these synthesizes
+    /// a `name{field: value, ...}` string in FlowIR.
+    std::unordered_set<uint32_t> derivedShowTypes;
+    /// Derived `show()` calls: expression -> receiver type.
+    std::unordered_map<const hir::Expression *, TypeId> derivedShowCalls;
+    /// Scalar type id -> native `toString` DefId used by derive(Show).
+    std::unordered_map<uint32_t, hir::DefId> showToStringTargets;
     /// Trait-view coercions (`ref<Trait>`): expression -> (trait, concrete type).
     std::unordered_map<const hir::Expression *, std::pair<std::string, TypeId>> traitViewCoercions;
+    /// Member-to-union coercions: expression (recorded with the union type) ->
+    /// the member type its value actually has. FlowIR wraps the member value
+    /// in a tagged union box (WrapUnion).
+    std::unordered_map<const hir::Expression *, TypeId> unionCoercions;
     /// Dynamic method calls through trait views: expression -> (trait, method index).
     std::unordered_map<const hir::Expression *, std::pair<std::string, size_t>> traitViewCalls;
     /// Dispatch tables: trait name -> concrete type id -> method DefIds in

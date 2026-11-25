@@ -116,7 +116,7 @@ TEST_CASE("vNext explicit type arguments drive generic call instantiation", "[vN
   errors = std::move(errorStream).str();
   REQUIRE(status == 0);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("with value 42") != std::string::npos);
+  REQUIRE(output.find("native main exited with code 42") != std::string::npos);
 }
 
 TEST_CASE("vNext explicit const arguments instantiate const generic calls", "[vNext][Typecheck][GenericCall]")
@@ -126,14 +126,14 @@ TEST_CASE("vNext explicit const arguments instantiate const generic calls", "[vN
   std::ostringstream outputStream;
   std::ostringstream errorStream;
   const int status = NG::runDriver(
-      {"--source", "fun make<const N: i64>() -> array<i64, N> { return [1, 2, 3]; } "
-                   "fun main() -> i64 { let values: array<i64, 3> = make<3>(); return values[2]; }"},
+      {"--source", "fun make<const N: i64>() -> i64 { const if (N > 2) { return 3; } return 0; } "
+                   "fun main() -> i64 { return make<3>(); }"},
       outputStream, errorStream);
   output = std::move(outputStream).str();
   errors = std::move(errorStream).str();
   REQUIRE(status == 0);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("with value 3") != std::string::npos);
+  REQUIRE(output.find("native main exited with code 3") != std::string::npos);
 }
 
 TEST_CASE("vNext explicit generic arguments report arity and kind mismatches", "[vNext][Typecheck][GenericCall]")

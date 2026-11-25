@@ -1,13 +1,32 @@
 // vNext auto traits and derived impls (legacy 55): `auto trait` applies to
-// every concrete type implicitly, and `derive(Copy + Clone)` synthesizes the
+// every concrete type implicitly, `derive(Copy + Clone)` synthesizes the
 // marker Copy impl plus a deep-copying `clone(self: Self ref) -> Self`
-// method.
+// method, `derive(Eq)` synthesizes field-level structural equality, and
+// `derive(Show)` synthesizes a `name{field: value, ...}` string.
+
+import prelude;
 
 auto trait Send {}
 
 struct Point: derive(Copy + Clone) {
     x: i64,
     y: i64,
+}
+
+struct Pair: derive(Eq) {
+    a: i64,
+    b: i64,
+}
+
+struct Inner: derive(Show) {
+    a: i64,
+    b: string,
+}
+
+struct Outer: derive(Show) {
+    x: i64,
+    flag: bool,
+    part: Inner,
 }
 
 fun require_copy<T: Copy>() -> i64 {
@@ -36,5 +55,16 @@ fun main() -> i64 {
     total := total + require_copy_where(point);
     if (point.x + point.y == 42) { total := total + 16; }
     if (point.x == 20 && cloned.x == 30) { total := total + 32; }
+
+    let p1 = Pair { a: 1, b: 2 };
+    let p2 = Pair { a: 1, b: 2 };
+    let p3 = Pair { a: 1, b: 99 };
+    if (p1 == p2 && p1 != p3) { total := total + 64; }
+
+    let inner = Inner { a: 1, b: "one" };
+    let outer = Outer { x: 7, flag: true, part: inner };
+    let shown = outer.show();
+    if (shown == "Outer{x: 7, flag: true, part: Inner{a: 1, b: one}}") { total := total + 128; }
+
     return total;
 }

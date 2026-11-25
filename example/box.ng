@@ -1,0 +1,94 @@
+// INC-19 S1: generic affine Box<T> end to end. `memory.Box<T>` owns a heap
+// cell through the runtime handle table; reading through `read(ref b)` yields
+// a deep copy, `write(ref b, v)` snapshots, and the cell is released
+// drop-exactly-once when the owning Box<T> goes out of scope (there is no
+// GC). `outstanding()` counts live cells, so the graph below pins down the
+// drop discipline. main() returns 0 when every check holds.
+import memory;
+
+enum Shape {
+    Circle(i64),
+    Square,
+}
+
+struct Point {
+    x: i64,
+    y: i64,
+}
+
+// Boxes created in a callee must be released on the callee's exit path;
+// `outstanding()` must return to its pre-call value (drop-exactly-once).
+fun scopedTemps() -> i64 {
+    let t1 = new("tmp");
+    let t2 = new([9, 9]);
+    let t3 = new(Point { x: 1, y: 2 });
+    return 3;
+}
+
+// INC-20B: explicit clone() deep-copies into a fresh cell. The original stays
+// live (clone shares no ownership), writes through the clone's `ref` leave the
+// original untouched, and both cells release drop-exactly-once.
+fun cloneTemps() -> i64 {
+    let a = new(Point { x: 1, y: 2 });
+    let b = a.clone();
+    write(ref b, Point { x: 5, y: 6 });
+    if (read(ref a).x != 1) { return 1; }
+    if (read(ref b).x != 5) { return 2; }
+    return 0;
+}
+
+fun main() -> i64 {
+    // Integer payload with write-through: the cell is updated, not replaced.
+    let a = new(7);
+    write(ref a, 9);
+    if (read(ref a) != 9) { return 1; }
+
+    // String, array, struct and enum payloads.
+    let s = new("hello");
+    if (read(ref s) != "hello") { return 2; }
+    let arr = new([1, 2, 3]);
+    let got = read(ref arr);
+    if (got[1] != 2) { return 4; }
+    let p = new(Point { x: 3, y: 4 });
+    if (read(ref p).y != 4) { return 8; }
+    let circ: Shape = Shape.Circle(5);
+    let sh = new(circ);
+    let readShape = read(ref sh);
+    let mut shapeOk = 0;
+    switch (readShape) {
+        case Circle(radius) { shapeOk := radius; }
+        case Square { shapeOk := -1; }
+    }
+    if (shapeOk != 5) { return 16; }
+
+    // Float payloads round-trip bit-preservingly (whole word store/reload).
+    let dbl = new(3.5);
+    if (read(ref dbl) != 3.5) { return 32; }
+    let single = new(2.25f32);
+    if (read(ref single) != 2.25f32) { return 64; }
+
+    // `write` snapshots the value at call time: rebinding the source after
+    // the store must not disturb what the cell holds.
+    let mut source = [7, 8];
+    write(ref arr, source);
+    source := [1000, -1];
+    if (read(ref arr)[0] != 7) { return 256; }
+
+    // Drop-exactly-once: cells created inside a function are released on its
+    // exit paths; the session count returns to the pre-call value.
+    let before = outstanding();
+    if (scopedTemps() != 3) { return 512; }
+    if (outstanding() != before) { return 1024; }
+
+    // INC-20B: clone() deep-copies; the original stays usable and the clone's
+    // writes never alias it. Both cells release on exit (count returns).
+    let original = new([1, 2, 3]);
+    let copy = original.clone();
+    write(ref copy, [9, 9]);
+    if (read(ref original)[0] != 1) { return 128; }
+    if (read(ref copy)[0] != 9) { return 2048; }
+    if (cloneTemps() != 0) { return 4096; }
+    if (outstanding() != before) { return 8192; }
+
+    return 0;
+}

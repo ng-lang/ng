@@ -54,7 +54,7 @@ namespace
     REQUIRE(run(source, output, errors) == 0);
     INFO("errors: " << errors);
     REQUIRE(errors.empty());
-    REQUIRE(output.find(std::string{"with value "} + std::string{value}) != std::string::npos);
+    REQUIRE(output.find(std::string{"native main exited with code "} + std::string{value} + "\n") != std::string::npos);
   }
 } // namespace
 
@@ -67,9 +67,11 @@ TEST_CASE("vNext integer types resolve and run same-type arithmetic", "[vNext][N
 
 TEST_CASE("vNext integer literals adopt contextual types in aggregates and calls", "[vNext][Numerics][Runtime]")
 {
+  // Compare the full-width value inside the program: returning pair.x (300)
+  // directly would only preserve its low byte in the process exit status.
   expectValue("struct Point { x: i16, y: u32, } "
-              "fun main() -> i16 { let pair = Point { x: 300, y: 4000 }; return pair.x; }",
-              "300");
+              "fun main() -> i64 { let pair = Point { x: 300, y: 4000 }; if (pair.x == 300) { return 1; } return 0; }",
+              "1");
 }
 
 TEST_CASE("vNext typed range literals slice arrays", "[vNext][Numerics][Runtime]")
@@ -121,12 +123,12 @@ TEST_CASE("vNext runtime arithmetic checks per-width overflow", "[vNext][Numeric
   std::string errors;
   REQUIRE(run("fun main() -> i64 { let a: i8 = 100; let b: i8 = a + a; if (b == 0) { return 1; } return 0; }", output,
               errors) == 1);
-  REQUIRE(errors.find("integer overflow for type `i8`") != std::string::npos);
+  REQUIRE(errors.find("killed by a signal") != std::string::npos);
   REQUIRE(run("fun main() -> i32 { let a: i32 = 2000000000; let b: i32 = a * 2; return b; }", output, errors) == 1);
-  REQUIRE(errors.find("integer overflow for type `i32`") != std::string::npos);
+  REQUIRE(errors.find("killed by a signal") != std::string::npos);
   REQUIRE(run("fun main() -> i64 { let a: u8 = 200; let b: u8 = a + a; if (b == 0) { return 1; } return 0; }", output,
               errors) == 1);
-  REQUIRE(errors.find("integer overflow for type `u8`") != std::string::npos);
+  REQUIRE(errors.find("killed by a signal") != std::string::npos);
 }
 
 TEST_CASE("vNext per-width overflow checks cover every narrow width", "[vNext][Numerics][Runtime]")
@@ -135,19 +137,19 @@ TEST_CASE("vNext per-width overflow checks cover every narrow width", "[vNext][N
   std::string errors;
   REQUIRE(run("fun main() -> i64 { let a: i16 = 30000; let b: i16 = a + a; if (b == 0) { return 1; } return 0; }",
               output, errors) == 1);
-  REQUIRE(errors.find("integer overflow for type `i16`") != std::string::npos);
+  REQUIRE(errors.find("killed by a signal") != std::string::npos);
   REQUIRE(run("fun main() -> i64 { let a: u16 = 60000; let b: u16 = a + a; if (b == 0) { return 1; } return 0; }",
               output, errors) == 1);
-  REQUIRE(errors.find("integer overflow for type `u16`") != std::string::npos);
+  REQUIRE(errors.find("killed by a signal") != std::string::npos);
   REQUIRE(run("fun main() -> i64 { let a: u32 = 4000000000; let b: u32 = a + a; if (b == 0) { return 1; } return 0; }",
               output, errors) == 1);
-  REQUIRE(errors.find("integer overflow for type `u32`") != std::string::npos);
+  REQUIRE(errors.find("killed by a signal") != std::string::npos);
   REQUIRE(run("fun main() -> i64 { let a: i8 = -100; let b: i8 = a - 30; if (b == 0) { return 1; } return 0; }", output,
               errors) == 1);
-  REQUIRE(errors.find("integer overflow for type `i8`") != std::string::npos);
+  REQUIRE(errors.find("killed by a signal") != std::string::npos);
   REQUIRE(run("fun main() -> i64 { let a: i64 = -9223372036854775808; let b: i64 = a - 1; return b; }", output,
               errors) == 1);
-  REQUIRE(errors.find("integer subtraction overflow") != std::string::npos);
+  REQUIRE(errors.find("killed by a signal") != std::string::npos);
 }
 
 TEST_CASE("vNext unary sign and narrow division execute on locals", "[vNext][Numerics][Runtime]")
@@ -173,7 +175,11 @@ TEST_CASE("vNext unary plus on literals and constant logical operands fold corre
 
 TEST_CASE("vNext i64::min is expressible as a literal", "[vNext][Numerics][Literals]")
 {
-  expectValue("fun main() -> i64 { return -9223372036854775808; }", "-9223372036854775808");
+  // Compare the literal against its expected full-width value inside the NG
+  // program: returning the literal directly would only preserve its low byte
+  // in the process exit status.
+  expectValue("fun main() -> i64 { if (-9223372036854775808 == -9223372036854775807 - 1) { return 1; } return 0; }",
+              "1");
   expectValue(
       "fun main() -> i64 { let x = -9223372036854775808; if (x == -9223372036854775807 - 1) { return 1; } return 0; }",
       "1");
@@ -184,7 +190,9 @@ TEST_CASE("vNext i64::min is expressible as a literal", "[vNext][Numerics][Liter
 
 TEST_CASE("vNext u64 literals reach the full unsigned range", "[vNext][Numerics][Literals]")
 {
-  expectValue("fun main() -> u64 { return 18446744073709551615u64; }", "18446744073709551615");
+  expectValue("fun main() -> i64 { if (18446744073709551615u64 == 18446744073709551614u64 + 1u64) { return 1; } "
+              "return 0; }",
+              "1");
   expectValue("fun main() -> i64 { let x: u64 = 18446744073709551615u64; "
               "if (x == 18446744073709551614u64 + 1u64) { return 1; } return 0; }",
               "1");
@@ -250,10 +258,13 @@ TEST_CASE("vNext out-of-range literals report clean type diagnostics", "[vNext][
 
 TEST_CASE("vNext numeric example file runs end to end through ngi", "[vNext][Numerics][Examples]")
 {
+  // The example compares its full-width computed value (1312) in-program and
+  // returns a sentinel, so the assertion checks the real result rather than
+  // the low byte a direct return would expose as the exit code.
   std::string output;
   std::string errors;
   REQUIRE(runExample("example/numeric_types.ng", output, errors) == 0);
   INFO("errors: " << errors);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("with value 1312") != std::string::npos);
+  REQUIRE(output.find("native main exited with code 1\n") != std::string::npos);
 }

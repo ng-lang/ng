@@ -1,0 +1,36 @@
+// vNext span views (post-cutover plan A7 / INC-21 S1): borrowed, scoped,
+// read-only views over array storage. `span xs` views the whole array;
+// `span xs[lo..hi]` views a window. Views do not copy; out-of-range window
+// construction or element reads halt.
+
+fun sum_view(values: span<i64>) -> i64 {
+    return values[0] + values[1] + values[2];
+}
+
+fun sum2_view(values: span<i64>) -> i64 {
+    return values[0] + values[1];
+}
+
+fun first<T>(view: span<T>) -> T {
+    return view[0];
+}
+
+struct Hold {
+    values: array<i64>,
+}
+
+fun main() -> i64 {
+    let values = [10, 20, 30, 40];
+    let whole = span values;
+    let window = span values[1..3];
+    let bag = Hold { values: [10, 20, 30, 40] };
+    let field = span bag.values;
+    let through = ref bag;
+    let viaRef = span through.values;
+    let mut total = 0;
+    if (sum_view(whole) == 60 && field[0] == 10) { total := total + 1; }
+    if (sum2_view(window) == 50 && viaRef[1] == 20) { total := total + 2; }
+    if (whole[3] == 40) { total := total + 4; }
+    if (first(span values) == 10) { total := total + 8; }
+    return total;
+}

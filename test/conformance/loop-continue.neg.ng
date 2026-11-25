@@ -1,0 +1,11 @@
+// Negative contract: `continue` belongs to `while` only; using it inside a
+// `loop` is an error (DEC-B).
+
+fun count_up(limit: i64) -> i64 {
+    let mut total = 0;
+    loop (i = 0) {
+        continue;
+        next (i + 1);
+    }
+    total
+}

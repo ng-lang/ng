@@ -1,0 +1,13 @@
+// Contract seed case: string concatenation, equality, and std.string
+// extensions (behavior migrated from example/std_string.ng).
+import prelude;
+import string (length);
+
+fun main() -> unit {
+    let greeting = "hello" + " " + "contract";
+    print(greeting);
+    print(greeting == "hello contract");
+    if (greeting != "nope") {
+        print(length(greeting));
+    }
+}

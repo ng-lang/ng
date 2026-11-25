@@ -1,8 +1,8 @@
 // AI-generated code; reviewed for this repository's vNext rewrite.
-#include "test.hpp"
 #include "driver.hpp"
 #include "hir.hpp"
 #include "syntax/module_parser.hpp"
+#include "test.hpp"
 #include "typecheck.hpp"
 
 #include <filesystem>
@@ -37,7 +37,8 @@ namespace
   [[nodiscard]] auto runExample(std::string_view filename, std::string &output, std::string &errors) -> int
   {
     std::string path{filename};
-    if (!std::filesystem::is_directory(std::filesystem::current_path() / "example")) path = std::string{"../"} + path;
+    if (!std::filesystem::is_directory(std::filesystem::current_path() / "example"))
+      path = std::string{"../"} + path;
     std::ostringstream outputStream;
     std::ostringstream errorStream;
     const int status = NG::runDriver({path}, outputStream, errorStream);
@@ -53,7 +54,7 @@ namespace
     REQUIRE(run(source, output, errors) == 0);
     INFO("errors: " << errors);
     REQUIRE(errors.empty());
-    REQUIRE(output.find(std::string{"with value "} + std::string{value}) != std::string::npos);
+    REQUIRE(output.find(std::string{"native main exited with code "} + std::string{value} + "\n") != std::string::npos);
   }
 } // namespace
 
@@ -80,11 +81,11 @@ TEST_CASE("vNext std.seq sums and searches value-typed arrays", "[vNext][Stdlib]
 
 TEST_CASE("vNext std.list traverses recursive sequences", "[vNext][Stdlib][Runtime]")
 {
-  expectValue("import list; fun main() -> i64 { "
+  expectValue("import memory; import list; fun main() -> i64 { "
               "let empty: List<i64> = List.Nil; "
-              "let one: List<i64> = List.Cons(1, ref empty); "
-              "let two: List<i64> = List.Cons(2, ref one); "
-              "let three: List<i64> = List.Cons(3, ref two); "
+              "let one: List<i64> = List.Cons(1, new<List<i64>>(empty)); "
+              "let two: List<i64> = List.Cons(2, new<List<i64>>(one)); "
+              "let three: List<i64> = List.Cons(3, new<List<i64>>(two)); "
               "let mut total = 0; "
               "if (length(ref three) == 3) { total := total + 1; } "
               "if (get(ref three, 0) == 3) { total := total + 2; } "
@@ -138,13 +139,13 @@ TEST_CASE("vNext std.string bounds errors surface as runtime errors", "[vNext][S
 
 TEST_CASE("vNext redesigned stdlib examples run end to end through ngi", "[vNext][Stdlib][Examples]")
 {
-  for (const auto &[filename, value] : std::vector<std::pair<std::string, std::string>>{
-           {"example/std_list.ng", "with value 15"},
-           {"example/list_builders.ng", "main returned"},
-           {"example/list_literals.ng", "main returned"},
-           {"example/list_spread.ng", "main returned"},
-           {"example/heap_box.ng", "with value 12"},
-           {"example/std_seq.ng", "with value 7"}})
+  for (const auto &[filename, value] :
+       std::vector<std::pair<std::string, std::string>>{{"example/std_list.ng", "native main exited with code 15\n"},
+                                                        {"example/list_builders.ng", "native main exited"},
+                                                        {"example/list_literals.ng", "native main exited"},
+                                                        {"example/list_spread.ng", "native main exited"},
+                                                        {"example/heap_box.ng", "native main exited with code 12\n"},
+                                                        {"example/std_seq.ng", "native main exited with code 7\n"}})
   {
     std::string output;
     std::string errors;
@@ -194,4 +195,17 @@ TEST_CASE("vNext list spreads splice Cons heads into array literals", "[vNext][S
               "fun main() { let s: Shape = Shape.Circle(1.0); let bad = [...s]; }",
               output, errors) == 1);
   REQUIRE_THAT(errors, ContainsSubstring("cannot spread value of type Shape"));
+}
+
+TEST_CASE("vNext list spreads lower without EnumList opcodes or ngrt list helpers (INC-20c S2)", "[vNext][Stdlib][IR]")
+{
+  std::ostringstream outputStream;
+  std::ostringstream errorStream;
+  const int status = NG::runDriver({"--emit=ssa", "--source",
+                                    "import list; fun main() -> i64 { let items = listFrom([1, 2]); "
+                                    "return len([...items]); }"},
+                                   outputStream, errorStream);
+  REQUIRE(status == 0);
+  REQUIRE(errorStream.str().empty());
+  REQUIRE(outputStream.str().find("ngrt_enum_list") == std::string::npos);
 }

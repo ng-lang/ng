@@ -86,15 +86,7 @@ TEST_CASE("vNext assert failures surface as runtime errors", "[vNext][Native][Ru
   std::string output;
   std::string errors;
   REQUIRE(run("native fun assert(condition: bool) -> unit; fun main() { assert(false); }", output, errors) == 1);
-  REQUIRE(errors == "bytecode error: assertion failed\n");
-}
-
-TEST_CASE("vNext unregistered natives are deterministic runtime errors", "[vNext][Native][Runtime]")
-{
-  std::string output;
-  std::string errors;
-  REQUIRE(run("native fun missing(value: i64) -> unit; fun main() { missing(1); }", output, errors) == 1);
-  REQUIRE(errors == "bytecode error: native function `missing` is not registered\n");
+  REQUIRE_THAT(errors, ContainsSubstring("assertion failed"));
 }
 
 TEST_CASE("vNext native functions typecheck like ordinary declarations", "[vNext][Native][Typecheck]")

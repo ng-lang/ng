@@ -1,0 +1,118 @@
+// INC-14 slices S1-S5: closures with explicit parameter types, direct calls,
+// expected-type-driven untyped parameter inference, `||` zero-parameter
+// heads, higher-order functions: closure-typed parameters specialize per
+// concrete closure argument so f(x) calls bind to the literal's code function,
+// explicit captures `[x, move y]` threaded as hidden leading params into
+// direct and higher-order calls, and (S4) closure-typed parameters forwarded
+// into another higher-order call — including their capture groups remapped to
+// the forwarding instance's own capture params — and (S4) generic closure
+// literals inside generic bodies: model-typed only, with real code functions
+// synthesized when the generic is instantiated. (S5) std.seq gains higher-order
+// filter/fold combinators, closures satisfy the Fn/FnOnce auto-trait bounds,
+// and functions returning closures are rejected as escaping.
+import prelude;
+import seq;
+
+fun apply(x: i64) -> i64 {
+    let doubler = |v: i64| v * 2;
+    return doubler(x);
+}
+
+fun genApply<T>(x: T, y: T) -> T {
+    let f: |T| -> T = |v: T| v;         // S4: generic closure literal
+    return f(x);
+}
+
+fun genMap<T>(xs: array<T>) -> array<T> {
+    let id: |T| -> T = |v: T| v;        // S4: generic closure into higher-order
+    return map(xs, id);
+}
+
+fun genCapture<T>(base: T, x: T) -> T {
+    let g = [base] |v: T| base;         // S4: generic closure capturing type-param local
+    return g(x);
+}
+
+fun twice(f: |i64| -> i64, x: i64) -> i64 {
+    return f(f(x));
+}
+
+fun invokes(f: |i64| -> i64, x: i64) -> i64 {
+    return f(x);
+}
+
+fun apply(f: |i64, i64| -> i64, a: i64, b: i64) -> i64 {
+    return f(a, b);
+}
+
+fun forwardMap<T>(values: array<T>, f: |T| -> T) -> array<T> {
+    return map(values, f);                             // S4: forward f into seq.map
+}
+
+fun forwardTwice(x: i64, f: |i64| -> i64) -> i64 {
+    return twice(f, x);                                // S4: forward f into twice
+}
+
+fun forwardFold<T, U>(values: array<T>, initial: U, f: |U, T| -> U) -> U {
+    return fold(values, initial, f);                   // S5: forward f into seq.fold
+}
+
+fun runBounded<T>(f: T) -> i64 where T: Fn {           // S5: closure satisfies the Fn auto-trait bound
+    return 5;
+}
+
+fun main() -> i64 {
+    let add = |a: i64, b: i64| a + b;
+    let mul = |a: i64, b: i64| { let c = a * b; c + 1 };
+    let identity = |x: i64| x;
+    let plan = |x: i64| { let y = x - 1; y * y };
+    let double: |i64| -> i64 = |x| x * 2;          // S2: expected-type driven
+    let pair: |i64, i64| -> i64 = |a, b| a + b;    // S2: multi-param inference
+    let fortyTwo = || 42;                          // S2: zero-parameter head
+    print(add(2, 3));
+    print(mul(5, 6));
+    print(identity(7));
+    print(plan(5));
+    print(apply(21));
+    print(double(21));
+    print(pair(4, 38));
+    print(fortyTwo());
+    print(invokes(|v| v + 1, 41));                 // S2c: closure literal arg
+    print(invokes(double, 41));                    // S2c: closure-typed local arg
+    print(twice(|v| v * 2, 21));                   // S2c: non-generic higher-order
+    print(twice(|v| v + 1, 20));                   // S2c: distinct closure instance
+    let xs = [1, 2, 3, 4];
+    let doubled = map(xs, |x| x * 2);              // S2c: std.seq map<T,U>
+    print(doubled[0] + doubled[1] + doubled[2] + doubled[3]);
+    let base = 100;
+    let bonus = [base] |x: i64| x + base;          // S3: copy capture
+    print(bonus(5));
+    let nums = [1, 2, 3];
+    let indexed = [nums] |x: i64| x + nums[0];     // S3: array copy capture
+    print(indexed(1));
+    let owned = [4, 5, 6];
+    let moved = [move owned] |x: i64| x + owned[1]; // S3: array move capture
+    print(moved(2));
+    let lo = 10;
+    let hi = 20;
+    let twoCap = [lo, hi] |x: i64, y: i64| lo + hi * x; // S3: multiple captures
+    print(apply(twoCap, 2, 0));                     // S3: capture threaded into higher-order
+    print(invokes(bonus, 41));                     // S3: capture threaded via a closure local
+    let fwd = forwardMap([1, 2, 3], |x: i64| x * 3); // S4: forward literal into map
+    print(fwd[0] + fwd[1] + fwd[2]);
+    let scale = 4;
+    let fwdCap = forwardTwice(5, [scale] |x: i64| x + scale); // S4: forward captured closure
+    print(fwdCap);
+    print(genApply(21, 0));                   // S4: generic closure literal (21)
+    let gxs = genMap([3, 9, 15]);             // S4: generic closure into map
+    print(gxs[0] + gxs[1] + gxs[2]);
+    print(genCapture(40, 2));                 // S4: generic closure capturing type-param local
+    let evens = filter([1, 2, 3, 4, 5, 6], |x| x % 2 == 0); // S5: seq.filter
+    print(evens[0] + evens[1] + evens[2]);
+    print(fold([1, 2, 3, 4, 5], 0, |acc, x| acc + x)); // S5: seq.fold
+    let offs = 10;
+    print(fold([1, 2, 3], 0, [offs] |acc, x| acc + x + offs)); // S5: fold with capture
+    print(forwardFold([1, 2, 3], 0, |acc, x| acc + x)); // S5: forward into fold
+    print(runBounded(double));                 // S5: Fn auto-trait bound accepts a closure
+    return 0;
+}

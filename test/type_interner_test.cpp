@@ -82,13 +82,13 @@ TEST_CASE("vNext generic instantiations intern range fields and struct arguments
               "fun main() -> i64 { let x: R<i64> = R { r: 1..2 }; return 1; }",
               output, errors) == 0);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("with value 1") != std::string::npos);
+  REQUIRE(output.find("native main exited with code 1") != std::string::npos);
 
   REQUIRE(run("struct P<T> { x: T } fun get<T>(p: P<T>) -> T { return p.x; } "
               "fun main() -> i64 { let p: P<i64> = P { x: 7 }; return get<i64>(p); }",
               output, errors) == 0);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("with value 7") != std::string::npos);
+  REQUIRE(output.find("native main exited with code 7") != std::string::npos);
 }
 
 TEST_CASE("vNext generic instantiations intern nested struct and fixed array fields", "[vNext][TypeInterner][Runtime]")
@@ -99,13 +99,13 @@ TEST_CASE("vNext generic instantiations intern nested struct and fixed array fie
               "fun main() -> i64 { let p: P<i64> = P { x: 7 }; let w: W<i64> = W { inner: p }; return w.inner.x; }",
               output, errors) == 0);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("with value 7") != std::string::npos);
+  REQUIRE(output.find("native main exited with code 7") != std::string::npos);
 
   REQUIRE(run("struct A<T> { xs: array<T, 2> } "
               "fun main() -> i64 { let a: A<i64> = A { xs: [1, 2] }; return a.xs[1]; }",
               output, errors) == 0);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("with value 2") != std::string::npos);
+  REQUIRE(output.find("native main exited with code 2") != std::string::npos);
 }
 
 TEST_CASE("vNext variadic opaque templates accept pack arguments", "[vNext][TypeInterner][Runtime]")

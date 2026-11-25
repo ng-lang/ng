@@ -31,6 +31,9 @@ namespace NG::flowir
     ExtractTuple,
     /// Creates a scoped reference value over a local-rooted place.
     MakeRef,
+    /// Creates a span value (`{ data, len }` blob) over a local-rooted array
+    /// place, optionally bounded by `[start, end)` window operands (INC-21).
+    MakeSpan,
     /// Reads the referent of a reference value.
     LoadRef,
     /// Writes through a place: a local-rooted path or a reference-rooted path.
@@ -46,10 +49,6 @@ namespace NG::flowir
     RangeStart,
     /// Appends an element to an array value (deep-copies its storage).
     AppendArray,
-    /// Walks a recursive-list enum and reports its Cons-chain length.
-    EnumListLength,
-    /// Walks a recursive-list enum and extracts the head at an index.
-    EnumListGet,
     /// Creates a trait view (`ref<Trait>`) over a place: shared root cell plus
     /// the trait/concrete type ids for dynamic dispatch.
     MakeTraitView,
@@ -59,6 +58,12 @@ namespace NG::flowir
     EnumVariantIndex,
     /// Reads the payload of an enum value (unit for payloadless variants).
     ExtractEnumPayload,
+    /// Deep-copies a Box<T> receiver: probes its handle cell, recursively deep
+    /// clones the payload (Box.clone), and rebuilds a box with a fresh cell.
+    BoxClone,
+    /// Wraps a member value (`source`) into a tagged union box of the result
+    /// union type.
+    WrapUnion,
   };
 
   /// One step of a lowered place path. Member steps carry a product field
@@ -126,20 +131,35 @@ namespace NG::flowir
     hir::DefId source;
     std::string name;
     bool nativeFunction{};
+    /// `extern "C"` declaration (B3): no NG body; the native tier calls the C
+    /// symbol directly and the VM rejects calls with a tier diagnostic.
+    bool externC{};
+    /// INC-29: `export extern "C"` definition with a body — emitted as a
+    /// C-visible symbol with C ABI parameter/result types.
+    bool cExport{};
+    /// INC-29: C varargs declaration.
+    bool variadic{};
+    /// Declared result type from the checker (B3): extern calls emit with the
+    /// declared C signature type and widen to the call-site value type.
+    std::optional<typecheck::TypeId> declaredResultType{};
     BlockId entry;
     std::vector<hir::LocalId> parameterLocals;
     std::vector<Block> blocks;
     std::unordered_map<uint32_t, typecheck::TypeId> valueTypes;
     std::unordered_map<uint32_t, typecheck::TypeId> localTypes;
     std::vector<typecheck::TypeDescriptor> typeDescriptors;
+    /// INC-8: types that derived Eq — used by lowerStructEq to expand nested
+    /// struct comparisons into field-by-field equality.
+    std::unordered_set<uint32_t> derivedEqTypes;
+    /// INC-24 (DEC-E): types that derived Ord.
+    std::unordered_set<uint32_t> derivedOrdTypes;
   };
 
   /// Lowers resolved/type-validated control structure to a CFG. This is a new
-  /// backend-neutral IR; it does not emit or depend on legacy ORGASM bytecode.
+  /// backend-neutral IR; it feeds the QBE native backend.
   class Lowerer final
   {
   public:
-    [[nodiscard]] auto lower(const hir::Function &function) -> Function;
     [[nodiscard]] auto lower(const hir::Function &function, const typecheck::TypeCheckResult &types) -> Function;
   };
 

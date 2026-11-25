@@ -2,6 +2,7 @@
 #pragma once
 
 #include "syntax/ast.hpp"
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -28,6 +29,7 @@ namespace NG::syntax
     KeywordMut,
     KeywordNext,
     KeywordRef,
+    KeywordSpan,
     KeywordReturn,
     KeywordStruct,
     KeywordSwitch,
@@ -47,6 +49,15 @@ namespace NG::syntax
     KeywordAuto,
     KeywordDerive,
     KeywordFalse,
+    KeywordExtern,
+    KeywordRepr,
+    KeywordWhile,
+    KeywordContinue,
+    KeywordBreak,
+    KeywordOwning,
+    KeywordBorrowed,
+    KeywordShared,
+    KeywordNull,
     LeftParen,
     RightParen,
     LeftSquare,
@@ -96,11 +107,14 @@ namespace NG::syntax
   {
   public:
     ParseError(std::string message, SourceSpan sourceSpan);
+    ParseError(std::string errorCode, std::string message, SourceSpan sourceSpan);
 
     [[nodiscard]] auto span() const noexcept -> SourceSpan { return sourceSpan_; }
+    [[nodiscard]] auto code() const noexcept -> const std::string & { return code_; }
 
   private:
     SourceSpan sourceSpan_;
+    std::string code_;
   };
 
   class Lexer final
@@ -120,6 +134,15 @@ namespace NG::syntax
     [[nodiscard]] auto parseExpression(int minimumBindingPower) -> ExpressionPtr;
     [[nodiscard]] auto parsePrefix() -> ExpressionPtr;
     [[nodiscard]] auto parsePostfix(ExpressionPtr expression) -> ExpressionPtr;
+    [[nodiscard]] auto parseClosure(std::vector<Capture> captures = {}) -> ExpressionPtr;
+    /// INC-14 S3: attempt to parse `[name, move name, ...]` as a closure capture
+    /// list. Returns nullopt if the pattern does not match (falls back to array).
+    [[nodiscard]] auto tryParseClosureCaptureList() -> std::optional<std::vector<Capture>>;
+    /// Slices a type up to a terminator token range and hands it to TypeParser.
+    [[nodiscard]] auto parseTypeUntil(const std::vector<TokenKind> &terminators) -> TypeSyntaxPtr;
+    /// Captures a balanced `{ ... }` token range plus an End token, unchanged
+    /// from the ModuleParser helper under a matching name.
+    [[nodiscard]] auto consumeBlockTokens() -> std::vector<Token>;
     [[nodiscard]] auto current() const -> const Token &;
     [[nodiscard]] auto consume() -> Token;
     [[nodiscard]] auto prefixBindingPower(TokenKind kind) const -> int;

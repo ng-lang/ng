@@ -1,0 +1,4 @@
+kind: type
+code: E-compare-mixed-sign
+pattern: implicit mixed-sign comparison between i64 and u64
+span: [72, 78)

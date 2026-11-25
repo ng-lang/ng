@@ -1,10 +1,12 @@
 // AI-generated code; reviewed for this repository's vNext rewrite.
 #include "syntax/const_expr.hpp"
+#include "syntax/block_parser.hpp"
 #include "syntax/parser.hpp"
 #include "syntax/type_parser.hpp"
 
 #include <cctype>
 #include <format>
+#include <algorithm>
 #include <unordered_set>
 #include <utility>
 
@@ -79,7 +81,12 @@ namespace NG::syntax
   } // namespace
 
   ParseError::ParseError(std::string message, SourceSpan sourceSpan)
-    : std::runtime_error(std::move(message)), sourceSpan_(sourceSpan)
+    : ParseError("E-parse", std::move(message), sourceSpan)
+  {
+  }
+
+  ParseError::ParseError(std::string errorCode, std::string message, SourceSpan sourceSpan)
+    : std::runtime_error(std::move(message)), sourceSpan_(sourceSpan), code_(std::move(errorCode))
   {
   }
 
@@ -136,6 +143,7 @@ namespace NG::syntax
                              : text == "else" ? TokenKind::KeywordElse
                              : text == "enum" ? TokenKind::KeywordEnum
                              : text == "export" ? TokenKind::KeywordExport
+                             : text == "extern" ? TokenKind::KeywordExtern
                              : text == "for" ? TokenKind::KeywordFor
                              : text == "fun" ? TokenKind::KeywordFun
                              : text == "if" ? TokenKind::KeywordIf
@@ -150,14 +158,23 @@ namespace NG::syntax
                              : text == "next" ? TokenKind::KeywordNext
                              : text == "otherwise" ? TokenKind::KeywordOtherwise
                              : text == "ref" ? TokenKind::KeywordRef
+                             : text == "repr" ? TokenKind::KeywordRepr
                              : text == "return" ? TokenKind::KeywordReturn
+                             : text == "span" ? TokenKind::KeywordSpan
                              : text == "struct" ? TokenKind::KeywordStruct
                              : text == "switch" ? TokenKind::KeywordSwitch
                              : text == "trait" ? TokenKind::KeywordTrait
                              : text == "true" ? TokenKind::KeywordTrue
                              : text == "type" ? TokenKind::KeywordType
                              : text == "where" ? TokenKind::KeywordWhere
+                             : text == "while" ? TokenKind::KeywordWhile
+                             : text == "continue" ? TokenKind::KeywordContinue
+                             : text == "break" ? TokenKind::KeywordBreak
                              : text == "false" ? TokenKind::KeywordFalse
+                             : text == "owning" ? TokenKind::KeywordOwning
+                             : text == "borrowed" ? TokenKind::KeywordBorrowed
+                             : text == "shared" ? TokenKind::KeywordShared
+                             : text == "null" ? TokenKind::KeywordNull
                                                : TokenKind::Identifier;
         tokens.push_back(Token{.kind = kind, .text = text, .span = SourceSpan{begin, offset}});
         continue;
@@ -224,12 +241,13 @@ namespace NG::syntax
             ++offset;
           }
           suffix = source.substr(suffixBegin, offset - suffixBegin);
-          static const std::unordered_set<std::string> suffixes{"i8", "i16", "i32", "i64", "u8", "u16", "u32",
-                                                                "u64", "f32", "f64"};
+          static const std::unordered_set<std::string> suffixes{"i8",  "i16",   "i32", "i64", "u8",    "u16",
+                                                                "u32", "u64",   "f32", "f64", "isize", "usize"};
           if (!suffixes.contains(suffix))
             throw ParseError(std::format("unknown numeric literal suffix `{}`", suffix), SourceSpan{begin, offset});
           if (floating && (suffix == "i8" || suffix == "i16" || suffix == "i32" || suffix == "i64" || suffix == "u8" ||
-                           suffix == "u16" || suffix == "u32" || suffix == "u64"))
+                           suffix == "u16" || suffix == "u32" || suffix == "u64" || suffix == "isize" ||
+                           suffix == "usize"))
             throw ParseError(std::format("float literal cannot carry integer suffix `{}`", suffix), SourceSpan{begin, offset});
         }
         tokens.push_back(Token{.kind = floating ? TokenKind::FloatLiteral : TokenKind::IntegerLiteral,
@@ -364,10 +382,19 @@ namespace NG::syntax
     {
       if (current().kind == TokenKind::QuestionMark)
       {
-        // Filter marker in map spreads: `f(xs)?...` keeps matching elements.
         const Token question = consume();
-        expression = std::make_unique<PrefixExpression>("?", std::move(expression),
-                                                        SourceSpan{expression->span.begin, question.span.end});
+        // `f(xs)?...` keeps matching elements (filter marker in map spreads);
+        // any other `?` is the try operator (INC-13, D-007).
+        if (current().kind == TokenKind::Ellipsis)
+        {
+          expression = std::make_unique<PrefixExpression>("?", std::move(expression),
+                                                          SourceSpan{expression->span.begin, question.span.end});
+        }
+        else
+        {
+          expression = std::make_unique<TryExpression>(std::move(expression),
+                                                       SourceSpan{expression->span.begin, question.span.end});
+        }
         continue;
       }
       if (current().kind == TokenKind::Ellipsis)
@@ -557,6 +584,11 @@ namespace NG::syntax
 
   auto ExpressionParser::parsePrefix() -> ExpressionPtr
   {
+    if (current().kind == TokenKind::Pipe || current().kind == TokenKind::OrOr)
+    {
+      return parseClosure();
+    }
+
     const Token token = consume();
     switch (token.kind)
     {
@@ -572,8 +604,16 @@ namespace NG::syntax
       return std::make_unique<BooleanLiteralExpression>(true, token.span);
     case TokenKind::KeywordFalse:
       return std::make_unique<BooleanLiteralExpression>(false, token.span);
+    case TokenKind::KeywordNull:
+      return std::make_unique<NullLiteralExpression>(token.span);
     case TokenKind::LeftSquare:
     {
+      // INC-14 S3: try closure capture list `[x, move y] |params| body` first.
+      auto captures = tryParseClosureCaptureList();
+      if (captures.has_value())
+        return parseClosure(std::move(*captures));
+
+      // Fall back to array literal `[expr, ...]`.
       std::vector<ExpressionPtr> elements;
       if (current().kind != TokenKind::RightSquare)
       {
@@ -629,6 +669,12 @@ namespace NG::syntax
       }
       auto operand = parseExpression(110);
       return std::make_unique<PrefixExpression>(std::move(op), std::move(operand), SourceSpan{token.span.begin, operand->span.end});
+    }
+    case TokenKind::KeywordSpan:
+    {
+      auto operand = parseExpression(110);
+      return std::make_unique<PrefixExpression>(std::string{"span"}, std::move(operand),
+                                                SourceSpan{token.span.begin, operand->span.end});
     }
     default:
       break;
@@ -704,6 +750,140 @@ namespace NG::syntax
   auto ExpressionParser::isAtEnd() const -> bool
   {
     return current().kind == TokenKind::End;
+  }
+
+  auto ExpressionParser::tryParseClosureCaptureList() -> std::optional<std::vector<Capture>>
+  {
+    // Look-ahead: parse `(ident | move ident) [, ...]* ] |` without consuming
+    // permanently. If the pattern matches, return the capture list; otherwise
+    // restore the cursor so the caller can fall back to array literal parsing.
+    if (current().kind != TokenKind::Identifier && current().kind != TokenKind::KeywordMove)
+      return std::nullopt;
+
+    const size_t saved = cursor_;
+    std::vector<Capture> captures;
+    while (true)
+    {
+      const bool isMove = current().kind == TokenKind::KeywordMove;
+      if (isMove) static_cast<void>(consume());
+      if (current().kind != TokenKind::Identifier)
+      {
+        cursor_ = saved;
+        return std::nullopt;
+      }
+      const Token name = consume();
+      captures.push_back(Capture{.name = name.text, .isMove = isMove, .span = name.span});
+      if (current().kind != TokenKind::Comma) break;
+      static_cast<void>(consume());
+    }
+    if (current().kind != TokenKind::RightSquare)
+    {
+      cursor_ = saved;
+      return std::nullopt;
+    }
+    static_cast<void>(consume()); // skip ']'
+    if (current().kind != TokenKind::Pipe && current().kind != TokenKind::OrOr)
+    {
+      cursor_ = saved;
+      return std::nullopt;
+    }
+    return captures;
+  }
+
+  auto ExpressionParser::parseClosure(std::vector<Capture> captures) -> ExpressionPtr
+  {
+    const Token open = consume();
+    std::vector<FunctionParameter> parameters;
+    if (open.kind != TokenKind::OrOr)
+    {
+      if (current().kind != TokenKind::Pipe)
+      {
+        while (true)
+        {
+          const Token name = current();
+          if (name.kind != TokenKind::Identifier)
+            throw ParseError("expected a closure parameter name", name.span);
+          consume();
+          TypeSyntaxPtr type;
+          SourceSpan parameterSpan = name.span;
+          if (current().kind == TokenKind::Colon)
+          {
+            consume();
+            type = parseTypeUntil({TokenKind::Comma, TokenKind::Pipe});
+            parameterSpan.end = type->span.end;
+          }
+          parameters.emplace_back(name.text, std::move(type), parameterSpan);
+          if (current().kind != TokenKind::Comma) break;
+          consume();
+        }
+      }
+      if (current().kind != TokenKind::Pipe)
+        throw ParseError("expected `|` to close closure parameters", current().span);
+      consume();
+    }
+
+    std::unique_ptr<Block> body;
+    if (current().kind == TokenKind::LeftBrace)
+    {
+      auto blockTokens = consumeBlockTokens();
+      body = std::make_unique<Block>(BlockParser{std::move(blockTokens)}.parse());
+    }
+    else
+    {
+      auto tail = parseExpression(0);
+      body = std::make_unique<Block>(Block{SourceSpan{tail->span.begin, tail->span.end}, {},
+                                           std::move(tail)});
+    }
+    const SourceSpan span{open.span.begin, body->span.end};
+    return std::make_unique<ClosureExpression>(std::move(captures), std::move(parameters),
+                                               std::move(body), span);
+  }
+
+  auto ExpressionParser::parseTypeUntil(const std::vector<TokenKind> &terminators) -> TypeSyntaxPtr
+  {
+    std::vector<Token> typeTokens;
+    size_t angleDepth{};
+    while (current().kind != TokenKind::End)
+    {
+      if (current().kind == TokenKind::Less) ++angleDepth;
+      else if (current().kind == TokenKind::Greater && angleDepth != 0) --angleDepth;
+      else if (current().kind == TokenKind::ShiftRight)
+      {
+        const Token token = consume();
+        const size_t middle = token.span.begin + 1;
+        typeTokens.push_back(Token{.kind = TokenKind::Greater, .text = ">",
+                                   .span = SourceSpan{token.span.begin, middle}});
+        typeTokens.push_back(Token{.kind = TokenKind::Greater, .text = ">",
+                                   .span = SourceSpan{middle, token.span.end}});
+        angleDepth = angleDepth > 2 ? angleDepth - 2 : 0;
+        continue;
+      }
+      if (angleDepth == 0 &&
+          std::find(terminators.begin(), terminators.end(), current().kind) != terminators.end())
+        break;
+      typeTokens.push_back(consume());
+    }
+    const size_t position = typeTokens.empty() ? current().span.begin : typeTokens.back().span.end;
+    typeTokens.push_back(Token{.kind = TokenKind::End, .text = {}, .span = SourceSpan{position, position}});
+    return TypeParser{std::move(typeTokens)}.parse();
+  }
+
+  auto ExpressionParser::consumeBlockTokens() -> std::vector<Token>
+  {
+    std::vector<Token> blockTokens;
+    size_t depth{};
+    do
+    {
+      const Token token = consume();
+      if (token.kind == TokenKind::LeftBrace) ++depth;
+      else if (token.kind == TokenKind::RightBrace) --depth;
+      blockTokens.push_back(token);
+      if (token.kind == TokenKind::End)
+        throw ParseError("expected `}` to close closure body", token.span);
+    } while (depth != 0);
+    const size_t end = blockTokens.back().span.end;
+    blockTokens.push_back(Token{.kind = TokenKind::End, .text = {}, .span = SourceSpan{end, end}});
+    return blockTokens;
   }
 
   auto parseExpression(std::string_view source) -> ExpressionPtr

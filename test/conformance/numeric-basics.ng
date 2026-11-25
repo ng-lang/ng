@@ -1,0 +1,16 @@
+// Contract seed case: fixed-width integer arithmetic and calls
+// (behavior migrated from example/numeric_types.ng).
+import prelude;
+
+fun add(a: i32, b: i32) -> i32 {
+    return a + b;
+}
+
+fun main() -> unit {
+    let small: i32 = 7;
+    let big: i32 = 1000;
+    print(add(1, 2));
+    print(small + big);
+    let xs: array<i32> = [10, 20, 30];
+    print(xs[2]);
+}

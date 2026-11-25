@@ -1,0 +1,10 @@
+import prelude;
+
+fun twice(x: i64) -> i64 {
+    return x * 2;
+}
+
+fun main() -> i64 {
+    print(twice("text"));
+    return 0;
+}

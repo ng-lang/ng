@@ -1,0 +1,24 @@
+// Contract seed case: enum variants, exhaustive switch with payload
+// bindings, and the otherwise fallback (behavior migrated from
+// example/enum_match.ng).
+import prelude;
+
+enum Shape {
+    Circle(radius: i64),
+    Square(side: i64),
+    Empty,
+}
+
+fun area(shape: Shape) -> i64 {
+    switch (shape) {
+        case Circle(radius) { return radius * radius; }
+        case Square(side) { return side * side; }
+        case Empty { return 0; }
+    }
+}
+
+fun main() -> unit {
+    print(area(Shape.Circle(3)));
+    print(area(Shape.Square(4)));
+    print(area(Shape.Empty));
+}

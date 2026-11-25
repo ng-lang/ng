@@ -9,7 +9,8 @@ Each pull request is documented as a separate entry.
 
 The legacy orgasm/interpreter pipeline was removed and every legacy language
 feature was reimplemented on the vNext pipeline
-(Lexer → Parser → Resolver (HIR) → Type Checker → FlowIR → Bytecode → VM).
+(Lexer → Parser → Resolver (HIR) → Type Checker → FlowIR → QBE IL → native
+executable). The interim bytecode/VM tier was later removed as well; see below.
 
 ### Added
 
@@ -42,11 +43,13 @@ feature was reimplemented on the vNext pipeline
 - Standard library redesigned (not a 1:1 port): value-typed seq, recursive
   `List<T>`, GC-free memory module with Drop-released `Box`
 
-### Deferred
+### Deferred (historical note)
 
-- `span<T>`, in-place growing collections, heap domains (`Box<T>`/`Gc`/`Arc`),
-  `isize`/`usize`, declared C ABI/bindgen, concurrency, tooling — tracked in
-  `docs/design/rearchitecture/07-post-cutover-plan.md`
+At the time of this entry the following were still outstanding: `span<T>`,
+in-place growing collections, heap domains (`Box<T>`/`Gc`/`Arc`), `isize`/`usize`,
+declared C ABI/bindgen, concurrency, tooling. Generic `Box<T>`, `Cell<T>`,
+`span<T>`, and in-place `pushBack` have since been implemented. Later planning
+notes live in git history, not in this tree.
 
 ---
 

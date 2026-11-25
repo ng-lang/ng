@@ -9,13 +9,17 @@
 
 namespace
 {
-  [[nodiscard]] auto runExample(std::string_view filename, std::string &output, std::string &errors) -> int
+  [[nodiscard]] auto runExample(std::string_view filename, std::string &output, std::string &errors,
+                                bool nativeMode = false) -> int
   {
     std::string path{filename};
     if (!std::filesystem::is_directory(std::filesystem::current_path() / "example")) path = std::string{"../"} + path;
     std::ostringstream outputStream;
     std::ostringstream errorStream;
-    const int status = NG::runDriver({path}, outputStream, errorStream);
+    std::vector<std::string_view> args;
+    if (nativeMode) args.push_back("--native");
+    args.push_back(path);
+    const int status = NG::runDriver(args, outputStream, errorStream);
     output = std::move(outputStream).str();
     errors = std::move(errorStream).str();
     return status;
@@ -42,20 +46,41 @@ TEST_CASE("vNext example corpus runs end to end through ngi", "[vNext][Examples]
   std::sort(files.begin(), files.end());
 
   size_t runCount = 0;
-  for (const auto &filename : files)
+  for (auto filename : files)
   {
-    // The IDE drives the imgui binding; it is exercised headless through
-    // stub natives in the imgui suite instead.
+    // The IDE opens a real SDL/ImGui window; it is not headless-testable.
     if (filename == "ng_ide.ng") continue;
+    // `modules/hello.ng` is an import-only module with no main entry point;
+    // cover it end to end through its importer (and the dedicated
+    // entry-point fixture below).
+    if (filename == "modules/hello.ng") filename = "modules/imports_main.ng";
+    // The extern "C" example calls real C symbols and is exercised through
+    // the normal AOT path.
+    const bool isNativeOnly = (filename == "ffi_extern.ng");
     std::string output;
     std::string errors;
-    const int status = runExample("example/" + filename, output, errors);
+    const int status = runExample("example/" + filename, output, errors, isNativeOnly);
     INFO("example: " << filename);
     INFO("errors: " << errors);
     REQUIRE(status == 0);
     REQUIRE(errors.empty());
-    REQUIRE(output.find("compiled") != std::string::npos);
+    if (isNativeOnly)
+      REQUIRE(output.find("native main exited with code 0\n") != std::string::npos);
+    else
+      REQUIRE(output.find("compiled") != std::string::npos);
     ++runCount;
   }
   REQUIRE(runCount >= 40);
+}
+
+TEST_CASE("vNext modules/hello.ng runs end to end through an importing entry point", "[vNext][Examples][Modules]")
+{
+  // `modules/hello.ng` is an import-only library module (no main); exercise
+  // its exported surface end to end by importing it from a main entry point.
+  std::string output;
+  std::string errors;
+  REQUIRE(runExample("example/modules/imports_main.ng", output, errors) == 0);
+  INFO("errors: " << errors);
+  REQUIRE(errors.empty());
+  REQUIRE(output.find("native main exited with code 42\n") != std::string::npos);
 }

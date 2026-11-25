@@ -1,0 +1,4 @@
+kind: type
+code: E-type
+pattern: `bool` is not a member type of union i64 | string
+span: [82, 110)

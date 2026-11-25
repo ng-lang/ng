@@ -19,7 +19,9 @@ namespace NG::typecheck
                    TypeDescriptor{.kind = TypeKind::Builtin, .name = "u32", .element = TypeId{}, .length = std::nullopt},
                    TypeDescriptor{.kind = TypeKind::Builtin, .name = "u64", .element = TypeId{}, .length = std::nullopt},
                    TypeDescriptor{.kind = TypeKind::Builtin, .name = "f32", .element = TypeId{}, .length = std::nullopt},
-                   TypeDescriptor{.kind = TypeKind::Builtin, .name = "f64", .element = TypeId{}, .length = std::nullopt}})
+                   TypeDescriptor{.kind = TypeKind::Builtin, .name = "f64", .element = TypeId{}, .length = std::nullopt},
+                   TypeDescriptor{.kind = TypeKind::Builtin, .name = "isize", .element = TypeId{}, .length = std::nullopt},
+                   TypeDescriptor{.kind = TypeKind::Builtin, .name = "usize", .element = TypeId{}, .length = std::nullopt}})
   {
     namedTypes_.emplace("i64", builtin::I64);
     namedTypes_.emplace("u8", builtin::U8);
@@ -34,6 +36,8 @@ namespace NG::typecheck
     namedTypes_.emplace("u64", builtin::U64);
     namedTypes_.emplace("f32", builtin::F32);
     namedTypes_.emplace("f64", builtin::F64);
+    namedTypes_.emplace("isize", builtin::Isize);
+    namedTypes_.emplace("usize", builtin::Usize);
   }
 
   auto TypeInterner::append(TypeDescriptor descriptor) -> TypeId
@@ -44,14 +48,14 @@ namespace NG::typecheck
 
   auto TypeInterner::internDynamicArray(TypeId element) -> TypeId
   {
-    for (uint32_t index = 6; index < descriptors_.size(); ++index)
+    for (uint32_t index = 16; index < descriptors_.size(); ++index)
       if (descriptors_[index].kind == TypeKind::DynamicArray && descriptors_[index].element == element) return TypeId{index};
     return append(TypeDescriptor{.kind = TypeKind::DynamicArray, .name = "array", .element = element, .length = std::nullopt});
   }
 
   auto TypeInterner::internFixedArray(TypeId element, uint64_t length) -> TypeId
   {
-    for (uint32_t index = 6; index < descriptors_.size(); ++index)
+    for (uint32_t index = 16; index < descriptors_.size(); ++index)
       if (descriptors_[index].kind == TypeKind::FixedArray && descriptors_[index].element == element &&
           descriptors_[index].length == length)
         return TypeId{index};
@@ -60,7 +64,7 @@ namespace NG::typecheck
 
   auto TypeInterner::internDependentArray(TypeId element, uint32_t constParameterIndex, std::string name) -> TypeId
   {
-    for (uint32_t index = 6; index < descriptors_.size(); ++index)
+    for (uint32_t index = 16; index < descriptors_.size(); ++index)
       if (descriptors_[index].kind == TypeKind::DependentArray && descriptors_[index].element == element &&
           descriptors_[index].constParameterIndex == constParameterIndex)
         return TypeId{index};
@@ -71,7 +75,7 @@ namespace NG::typecheck
 
   auto TypeInterner::internReference(TypeId target, bool mutableReference) -> TypeId
   {
-    for (uint32_t index = 6; index < descriptors_.size(); ++index)
+    for (uint32_t index = 16; index < descriptors_.size(); ++index)
       if (descriptors_[index].kind == TypeKind::Reference && descriptors_[index].element == target &&
           descriptors_[index].referenceMutable == mutableReference)
         return TypeId{index};
@@ -79,14 +83,29 @@ namespace NG::typecheck
                                  .length = std::nullopt, .referenceMutable = mutableReference});
   }
 
+  auto TypeInterner::internSpan(TypeId target) -> TypeId
+  {
+    for (uint32_t index = 16; index < descriptors_.size(); ++index)
+      if (descriptors_[index].kind == TypeKind::Span && descriptors_[index].element == target)
+        return TypeId{index};
+    return append(TypeDescriptor{.kind = TypeKind::Span, .name = "span", .element = target});
+  }
+
   auto TypeInterner::internRawPointer(TypeId target, bool mutablePointee) -> TypeId
   {
-    for (uint32_t index = 6; index < descriptors_.size(); ++index)
+    for (uint32_t index = 16; index < descriptors_.size(); ++index)
       if (descriptors_[index].kind == TypeKind::RawPointer && descriptors_[index].element == target &&
           descriptors_[index].referenceMutable == mutablePointee)
         return TypeId{index};
     return append(TypeDescriptor{.kind = TypeKind::RawPointer, .name = "pointer", .element = target,
                                  .length = std::nullopt, .referenceMutable = mutablePointee});
+  }
+
+  auto TypeInterner::internNullable(TypeId target) -> TypeId
+  {
+    for (uint32_t index = 16; index < descriptors_.size(); ++index)
+      if (descriptors_[index].kind == TypeKind::Nullable && descriptors_[index].element == target) return TypeId{index};
+    return append(TypeDescriptor{.kind = TypeKind::Nullable, .name = "nullable", .element = target});
   }
 
   auto TypeInterner::internTypePack(TypeId element) -> TypeId
@@ -110,7 +129,7 @@ namespace NG::typecheck
 
   auto TypeInterner::internTraitReference(std::string traitName) -> TypeId
   {
-    for (uint32_t index = 6; index < descriptors_.size(); ++index)
+    for (uint32_t index = 16; index < descriptors_.size(); ++index)
       if (descriptors_[index].kind == TypeKind::TraitReference && descriptors_[index].name == traitName)
         return TypeId{index};
     return append(TypeDescriptor{.kind = TypeKind::TraitReference, .name = std::move(traitName)});
@@ -118,7 +137,7 @@ namespace NG::typecheck
 
   auto TypeInterner::internTuple(const std::vector<TypeId> &elements) -> TypeId
   {
-    for (uint32_t index = 6; index < descriptors_.size(); ++index)
+    for (uint32_t index = 16; index < descriptors_.size(); ++index)
       if (descriptors_[index].kind == TypeKind::Tuple && descriptors_[index].elements == elements) return TypeId{index};
     return append(TypeDescriptor{.kind = TypeKind::Tuple,
                                  .name = "tuple",
@@ -129,13 +148,25 @@ namespace NG::typecheck
 
   auto TypeInterner::internUnion(const std::vector<TypeId> &members) -> TypeId
   {
-    for (uint32_t index = 6; index < descriptors_.size(); ++index)
+    for (uint32_t index = 16; index < descriptors_.size(); ++index)
       if (descriptors_[index].kind == TypeKind::Union && descriptors_[index].elements == members) return TypeId{index};
     return append(TypeDescriptor{.kind = TypeKind::Union,
                                  .name = "union",
                                  .element = TypeId{},
                                  .length = static_cast<uint64_t>(members.size()),
                                  .elements = members});
+  }
+
+  auto TypeInterner::internClosure(const std::vector<TypeId> &parameters, TypeId result) -> TypeId
+  {
+    for (uint32_t index = 16; index < descriptors_.size(); ++index)
+      if (descriptors_[index].kind == TypeKind::Closure && descriptors_[index].elements == parameters &&
+          descriptors_[index].element == result)
+        return TypeId{index};
+    return append(TypeDescriptor{.kind = TypeKind::Closure,
+                                 .name = "closure",
+                                 .element = result,
+                                 .elements = parameters});
   }
 
   auto TypeInterner::declareOpaqueType(const hir::OpaqueType &opaque) -> TypeId
@@ -169,7 +200,7 @@ namespace NG::typecheck
     if (!opaque->packParameter.has_value() && arguments.size() != fixed)
       throw TypeError(std::format("opaque type `{}` expects {} arguments, got {}", base.name, fixed, arguments.size()),
                       syntax::SourceSpan{0, 0});
-    for (uint32_t index = 6; index < descriptors_.size(); ++index)
+    for (uint32_t index = 16; index < descriptors_.size(); ++index)
       if (descriptors_[index].kind == TypeKind::Opaque && descriptors_[index].nominalId == base.nominalId &&
           descriptors_[index].typeArguments == arguments)
         return TypeId{index};
@@ -182,7 +213,7 @@ namespace NG::typecheck
     if (const auto found = structTypes_.find(id.value); found != structTypes_.end()) return found->second;
     // The base descriptor is a declaration marker; generic instantiations
     // intern their own descriptors with concrete field types. A zero length
-    // keeps the marker valid for bytecode verification.
+    // keeps the marker valid for backend verification.
     const TypeId result = append(TypeDescriptor{.kind = TypeKind::Struct,
                                                  .name = std::move(name),
                                                  .element = TypeId{},
@@ -212,7 +243,7 @@ namespace NG::typecheck
     if (arguments.size() != parameters.size())
       throw TypeError(std::format("struct type `{}` expects {} arguments, got {}", base.name, parameters.size(),
                                   arguments.size()), syntax::SourceSpan{0, 0});
-    for (uint32_t index = 6; index < descriptors_.size(); ++index)
+    for (uint32_t index = 16; index < descriptors_.size(); ++index)
       if (descriptors_[index].kind == TypeKind::Struct && descriptors_[index].nominalId == structId &&
           descriptors_[index].typeArguments == arguments)
         return TypeId{index};
@@ -224,7 +255,17 @@ namespace NG::typecheck
     for (const auto &field : structure->fields)
     {
       fields.push_back(field.name);
-      fieldTypes.push_back(resolveWithBindings(field.type, nested, {}));
+      const TypeId fieldType = resolveWithBindings(field.type, nested, {});
+      // D-002 A1.2/A3 (rule 8): safe refs are non-escaping and cannot be stored
+      // in heap-capable aggregates. Generic struct instances form their
+      // descriptors here, so the struct-field ban is re-applied — the same
+      // check the literal path enforces at construction time. Enum payloads are
+      // the sanctioned exception (recursive `List<T>` with `ref<List<T>>` tails).
+      if (descriptor(fieldType).kind == TypeKind::Reference)
+        throw TypeError("references cannot be stored in struct fields", field.span);
+      if (descriptor(fieldType).kind == TypeKind::Span)
+        throw TypeError("spans cannot be stored in struct fields (INC-21 views are scoped)", field.span);
+      fieldTypes.push_back(fieldType);
     }
     return append(TypeDescriptor{.kind = TypeKind::Struct, .name = base.name, .element = TypeId{},
                                  .length = fieldTypes.size(), .elements = std::move(fieldTypes), .nominalId = structId,
@@ -339,8 +380,20 @@ namespace NG::typecheck
     }
     if (source.kind == TypeKind::Reference)
       return internReference(specialize(source.element, bindings, constBindings, constructors), source.referenceMutable);
+    if (source.kind == TypeKind::Span)
+      return internSpan(specialize(source.element, bindings, constBindings, constructors));
     if (source.kind == TypeKind::RawPointer)
       return internRawPointer(specialize(source.element, bindings, constBindings, constructors), source.referenceMutable);
+    if (source.kind == TypeKind::Nullable)
+      return internNullable(specialize(source.element, bindings, constBindings, constructors));
+    if (source.kind == TypeKind::Closure)
+    {
+      std::vector<TypeId> parameters;
+      parameters.reserve(source.elements.size());
+      for (const auto element : source.elements)
+        parameters.push_back(specialize(element, bindings, constBindings, constructors));
+      return internClosure(parameters, specialize(source.element, bindings, constBindings, constructors));
+    }
     if (source.kind == TypeKind::Tuple)
     {
       std::vector<TypeId> elements;
@@ -352,7 +405,7 @@ namespace NG::typecheck
       std::vector<TypeId> arguments;
       for (const auto argument : source.typeArguments)
         arguments.push_back(specialize(argument, bindings, constBindings, constructors));
-      for (uint32_t index = 6; index < descriptors_.size(); ++index)
+      for (uint32_t index = 16; index < descriptors_.size(); ++index)
         if (descriptors_[index].kind == TypeKind::Enum && descriptors_[index].nominalId == source.nominalId &&
             descriptors_[index].typeArguments == arguments) return TypeId{index};
       // Two-phase: register the specialized instance before specializing its
@@ -401,6 +454,8 @@ namespace NG::typecheck
         return internTraitReference(descriptors_[target.value].name);
       return internReference(target, type.isMutable);
     }
+    if (type.kind == hir::TypeKind::ScopedSpan && type.target != nullptr)
+      return internSpan(resolveWithBindings(*type.target, bindings, constBindings));
     if (type.kind == hir::TypeKind::Pack && type.target != nullptr)
       return internTypePack(resolveWithBindings(*type.target, bindings, constBindings));
     if (type.kind == hir::TypeKind::Union)
@@ -412,6 +467,16 @@ namespace NG::typecheck
     }
     if (type.kind == hir::TypeKind::RawPointer && type.target != nullptr)
       return internRawPointer(resolveWithBindings(*type.target, bindings, constBindings), type.isMutable);
+    if (type.kind == hir::TypeKind::Nullable && type.target != nullptr)
+      return internNullable(resolveWithBindings(*type.target, bindings, constBindings));
+    if (type.kind == hir::TypeKind::Closure && type.result != nullptr)
+    {
+      std::vector<TypeId> parameters;
+      parameters.reserve(type.parameters.size());
+      for (const auto &parameter : type.parameters)
+        parameters.push_back(resolveWithBindings(parameter, bindings, constBindings));
+      return internClosure(parameters, resolveWithBindings(*type.result, bindings, constBindings));
+    }
     if (type.kind != hir::TypeKind::Applied || type.target == nullptr || type.target->kind != hir::TypeKind::Named)
       return resolve(type);
     if (const auto bound = bindings.find(type.target->name); bound != bindings.end() &&
@@ -473,7 +538,7 @@ namespace NG::typecheck
         nested.emplace(parameters[index], argument);
         arguments.push_back(argument);
       }
-      for (uint32_t index = 6; index < descriptors_.size(); ++index)
+      for (uint32_t index = 16; index < descriptors_.size(); ++index)
         if (descriptors_[index].kind == TypeKind::Struct && descriptors_[index].nominalId == structId &&
             descriptors_[index].typeArguments == arguments)
           return TypeId{index};
@@ -483,7 +548,15 @@ namespace NG::typecheck
       for (const auto &field : structure->fields)
       {
         fields.push_back(field.name);
-        fieldTypes.push_back(resolveWithBindings(field.type, nested, constBindings));
+        const TypeId fieldType = resolveWithBindings(field.type, nested, constBindings);
+        // D-002 A1.2/A3 (rule 8): refs are non-escaping; a generic struct that
+        // instantiates a field with a reference is rejected (enum payloads are
+        // the sanctioned recursive `List<T>` exception).
+        if (descriptor(fieldType).kind == TypeKind::Reference)
+          throw TypeError("references cannot be stored in struct fields", field.span);
+        if (descriptor(fieldType).kind == TypeKind::Span)
+          throw TypeError("spans cannot be stored in struct fields (INC-21 views are scoped)", field.span);
+        fieldTypes.push_back(fieldType);
       }
       return append(TypeDescriptor{.kind = TypeKind::Struct, .name = type.target->name, .element = TypeId{},
                                    .length = fieldTypes.size(), .elements = std::move(fieldTypes),
@@ -502,7 +575,7 @@ namespace NG::typecheck
       nested.emplace(parameters[index], argument);
       arguments.push_back(argument);
     }
-    for (uint32_t index = 6; index < descriptors_.size(); ++index)
+    for (uint32_t index = 16; index < descriptors_.size(); ++index)
       if (descriptors_[index].kind == TypeKind::Enum && descriptors_[index].nominalId == enumId &&
           descriptors_[index].typeArguments == arguments) return TypeId{index};
     // Two-phase registration: reserve the instance descriptor first so
@@ -580,7 +653,7 @@ namespace NG::typecheck
   auto TypeInterner::internTypeApplication(std::string constructorName, uint32_t constructorIndex,
                                            const std::vector<TypeId> &arguments) -> TypeId
   {
-    for (uint32_t index = 6; index < descriptors_.size(); ++index)
+    for (uint32_t index = 16; index < descriptors_.size(); ++index)
       if (descriptors_[index].kind == TypeKind::TypeApplication && descriptors_[index].nominalId == constructorIndex &&
           descriptors_[index].elements == arguments)
         return TypeId{index};
@@ -622,8 +695,12 @@ namespace NG::typecheck
         return internTraitReference(descriptors_[target.value].name);
       return internReference(target, type.isMutable);
     }
+    if (type.kind == hir::TypeKind::ScopedSpan && type.target != nullptr)
+      return internSpan(resolve(*type.target));
     if (type.kind == hir::TypeKind::RawPointer && type.target != nullptr)
       return internRawPointer(resolve(*type.target), type.isMutable);
+    if (type.kind == hir::TypeKind::Nullable && type.target != nullptr)
+      return internNullable(resolve(*type.target));
     if (type.kind == hir::TypeKind::Union)
     {
       std::vector<TypeId> members;
@@ -678,7 +755,7 @@ namespace NG::typecheck
           nested.emplace(parameters[index], argument);
           arguments.push_back(argument);
         }
-        for (uint32_t index = 6; index < descriptors_.size(); ++index)
+        for (uint32_t index = 16; index < descriptors_.size(); ++index)
           if (descriptors_[index].kind == TypeKind::Struct && descriptors_[index].nominalId == structId &&
               descriptors_[index].typeArguments == arguments)
             return TypeId{index};
@@ -709,7 +786,7 @@ namespace NG::typecheck
         bindings.emplace(parameters[index], argument);
         arguments.push_back(argument);
       }
-      for (uint32_t index = 6; index < descriptors_.size(); ++index)
+      for (uint32_t index = 16; index < descriptors_.size(); ++index)
         if (descriptors_[index].kind == TypeKind::Enum && descriptors_[index].nominalId == enumId &&
             descriptors_[index].typeArguments == arguments) return TypeId{index};
       // Two-phase registration for recursive payloads (`ref<Node<T>>`).
@@ -784,12 +861,26 @@ namespace NG::typecheck
       return std::format("array<{}, {}>", display(item.element), item.constParameterName);
     if (item.kind == TypeKind::Reference)
       return std::format("{} {}", display(item.element), item.referenceMutable ? "ref mut" : "ref");
+    if (item.kind == TypeKind::Span)
+      return std::format("{} span", display(item.element));
     if (item.kind == TypeKind::RawPointer)
       return std::format("{} {}", display(item.element), item.referenceMutable ? "*mut" : "*const");
+    if (item.kind == TypeKind::Nullable)
+      return std::format("{}?", display(item.element));
     if (item.kind == TypeKind::Struct || item.kind == TypeKind::Enum || item.kind == TypeKind::TypeParameter ||
         item.kind == TypeKind::Opaque || item.kind == TypeKind::TypeConstructor || item.kind == TypeKind::Trait)
       return item.name;
     if (item.kind == TypeKind::TraitReference) return std::format("ref<{}>", item.name);
+    if (item.kind == TypeKind::Closure)
+    {
+      std::string result{"|"};
+      for (size_t index = 0; index < item.elements.size(); ++index)
+      {
+        if (index != 0) result += ", ";
+        result += display(item.elements[index]);
+      }
+      return result + "| -> " + display(item.element);
+    }
     if (item.kind == TypeKind::TypeApplication)
     {
       std::string result{item.name + "<"};

@@ -16,9 +16,10 @@ namespace NG::syntax
 
   private:
     [[nodiscard]] auto parseFunctionDeclaration(bool constFunction = false, bool exported = false,
-                                                bool nativeFunction = false) -> ModuleItemPtr;
+                                                bool nativeFunction = false, bool externC = false) -> ModuleItemPtr;
+    [[nodiscard]] auto parseExternBlock() -> std::vector<ModuleItemPtr>;
     [[nodiscard]] auto parseImportDeclaration() -> ModuleItemPtr;
-    [[nodiscard]] auto parseStructDeclaration() -> ModuleItemPtr;
+    [[nodiscard]] auto parseStructDeclaration(bool reprC = false) -> ModuleItemPtr;
     [[nodiscard]] auto parseOpaqueTypeDeclaration() -> ModuleItemPtr;
     [[nodiscard]] auto parseEnumDeclaration() -> ModuleItemPtr;
     [[nodiscard]] auto parseConstDeclaration() -> ModuleItemPtr;

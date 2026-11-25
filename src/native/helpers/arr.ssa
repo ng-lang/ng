@@ -1,0 +1,183 @@
+# Runtime helper extracted from src/native/lowering.cpp (ARCH-1);
+# assembled once at build time into libngrt_helpers.a.
+
+export function l $ngrt_arr_addr(l %a, l %i) {
+@start
+	%len =l loadl %a
+	%neg =w csltl %i, 0
+	%high =w csgel %i, %len
+	%bad =w or %neg, %high
+	jnz %bad, @halt, @ok
+@halt
+	hlt
+@ok
+	%off =l mul %i, 8
+	%base =l add %a, 16
+	%addr =l add %base, %off
+	ret %addr
+}
+
+export function l $ngrt_arr_get(l %a, l %i) {
+@start
+	%addr =l call $ngrt_arr_addr(l %a, l %i)
+	%v =l loadl %addr
+	ret %v
+}
+
+export function l $ngrt_arr_append(l %a, l %e) {
+@start
+	%len =l loadl %a
+	%n =l add %len, 1
+	%total =l mul %n, 8
+	%total =l add %total, 16
+	%p =l call $ngrt_alloc(l %total)
+	storel %n, %p
+	%cap =l add %p, 8
+	storel %n, %cap
+	%dst =l add %p, 16
+	%src =l add %a, 16
+	%oldsize =l mul %len, 8
+	%m =l call $memcpy(l %dst, l %src, l %oldsize)
+	%last =l add %dst, %oldsize
+	storel %e, %last
+	ret %p
+}
+
+# INC-21 S2: in-place growth for a uniquely-owned array binding. `%ref` is the
+# scoped `ref mut` object; its root cell holds the array pointer word. Appends
+# in place while capacity remains, otherwise reallocates with at-least-doubling
+# capacity and repoints the cell. The old buffer is arena-owned and untouched
+# (no live aliases by the checker's uniqueness guarantee).
+export function l $ngrt_arr_push_mut(l %ref, l %e) {
+@start
+	%ra =l call $ngrt_ref_addr(l %ref)
+	%a0 =l loadl %ra
+	%len =l loadl %a0
+	%capaddr =l add %a0, 8
+	%cap =l loadl %capaddr
+	%room =w csltl %len, %cap
+	jnz %room, @store, @grow
+@grow
+	%newcap =l mul %cap, 2
+	%newcap =l add %newcap, 4
+	%nl =l add %len, 1
+	%size =l mul %newcap, 8
+	%total =l add %size, 16
+	%p =l call $ngrt_alloc(l %total)
+	storel %nl, %p
+	%capp =l add %p, 8
+	storel %newcap, %capp
+	%dst =l add %p, 16
+	%src =l add %a0, 16
+	%oldsize =l mul %len, 8
+	%m =l call $memcpy(l %dst, l %src, l %oldsize)
+	storel %p, %ra
+	jmp @store
+@store
+	%a =l phi @start %a0, @grow %p
+	%off =l mul %len, 8
+	%base =l add %a, 16
+	%slot =l add %base, %off
+	storel %e, %slot
+	%newlen =l add %len, 1
+	storel %newlen, %a
+	ret 0
+}
+
+# INC-21 S2: copy-on-write append for a possibly-aliased array binding. A fresh
+# exact-fit buffer is built from the current contents plus the new element, and
+# the receiver cell is repointed; prior copies keep observing the old buffer.
+export function l $ngrt_arr_push_cow(l %ref, l %e) {
+@start
+	%ra =l call $ngrt_ref_addr(l %ref)
+	%a =l loadl %ra
+	%p =l call $ngrt_arr_append(l %a, l %e)
+	storel %p, %ra
+	ret 0
+}
+
+export function l $ngrt_arr_slice(l %a, l %s, l %e) {
+@start
+	%len =l loadl %a
+	%sneg =w csltl %s, 0
+	%shigh =w csgel %s, %e
+	%ehigh =w csgtl %e, %len
+	%bad =w or %sneg, %shigh
+	%bad =w or %bad, %ehigh
+	jnz %bad, @halt, @ok
+@halt
+	hlt
+@ok
+	%n =l sub %e, %s
+	%size =l mul %n, 8
+	%total =l add %size, 16
+	%p =l call $ngrt_alloc(l %total)
+	storel %n, %p
+	%cap =l add %p, 8
+	storel %n, %cap
+	%dst =l add %p, 16
+	%off =l mul %s, 8
+	%src =l add %a, 16
+	%src =l add %src, %off
+	%m =l call $memcpy(l %dst, l %src, l %size)
+	ret %p
+}
+
+export function l $ngrt_arr_clone_words(l %src) {
+@start
+	%len =l loadl %src
+	%size =l mul %len, 8
+	%total =l add %size, 16
+	%p =l call $ngrt_alloc(l %total)
+	storel %len, %p
+	%cap =l add %p, 8
+	storel %len, %cap
+	%dst =l add %p, 16
+	%srcp =l add %src, 16
+	%m =l call $memcpy(l %dst, l %srcp, l %size)
+	ret %p
+}
+
+export function l $ngrt_arr_clone_strings(l %src) {
+@start
+	%len =l loadl %src
+	%size =l mul %len, 8
+	%total =l add %size, 16
+	%p =l call $ngrt_alloc(l %total)
+	storel %len, %p
+	%cap =l add %p, 8
+	storel %len, %cap
+	%i =l copy 0
+@loop
+	%done =w csgel %i, %len
+	jnz %done, @end, @copy
+@copy
+	%v =l call $ngrt_arr_get(l %src, l %i)
+	%c =l call $ngrt_str_clone(l %v)
+	%off =l mul %i, 8
+	%base =l add %p, 16
+	%addr =l add %base, %off
+	storel %c, %addr
+	%i =l add %i, 1
+	jmp @loop
+@end
+	ret %p
+}
+
+export function l $ngrt_copy_elements(l %dst, l %src, l %count) {
+@start
+	%i =l copy 0
+@loop
+	%done =w csgel %i, %count
+	jnz %done, @end, @copy
+@copy
+	%v =l call $ngrt_arr_get(l %src, l %i)
+	%off =l mul %i, 8
+	%addr =l add %dst, %off
+	storel %v, %addr
+	%i =l add %i, 1
+	jmp @loop
+@end
+	ret %dst
+}
+

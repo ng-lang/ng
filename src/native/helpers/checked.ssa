@@ -1,0 +1,277 @@
+# Runtime helper extracted from src/native/lowering.cpp (ARCH-1);
+# assembled once at build time into libngrt_helpers.a.
+
+export function l $ngrt_panic() {
+@start
+	hlt
+}
+
+export function l $ngrt_checked_add(l %a, l %b) {
+@start
+	%r =l add %a, %b
+	%ap =w csgtl %a, 0
+	%bp =w csgtl %b, 0
+	%rn =w cslel %r, 0
+	%an =w csltl %a, 0
+	%bn =w csltl %b, 0
+	%rz =w csgel %r, 0
+	%o1 =w and %ap, %bp
+	%o1 =w and %o1, %rn
+	%o2 =w and %an, %bn
+	%o2 =w and %o2, %rz
+	%ov =w or %o1, %o2
+	jnz %ov, @halt, @ok
+@halt
+	hlt
+@ok
+	ret %r
+}
+
+export function l $ngrt_checked_uadd(l %a, l %b) {
+@start
+	%r =l add %a, %b
+	%ov =w cultl %r, %a
+	jnz %ov, @halt, @ok
+@halt
+	hlt
+@ok
+	ret %r
+}
+
+export function l $ngrt_checked_sub(l %a, l %b) {
+@start
+	%r =l sub %a, %b
+	%ap =w csgel %a, 0
+	%bn =w csltl %b, 0
+	%rn =w csltl %r, 0
+	%an =w csltl %a, 0
+	%bp =w csgtl %b, 0
+	%rz =w csgel %r, 0
+	%o1 =w and %ap, %bn
+	%o1 =w and %o1, %rn
+	%o2 =w and %an, %bp
+	%o2 =w and %o2, %rz
+	%ov =w or %o1, %o2
+	jnz %ov, @halt, @ok
+@halt
+	hlt
+@ok
+	ret %r
+}
+
+export function l $ngrt_checked_usub(l %a, l %b) {
+@start
+	%ov =w cultl %a, %b
+	jnz %ov, @halt, @ok
+@halt
+	hlt
+@ok
+	%r =l sub %a, %b
+	ret %r
+}
+
+export function l $ngrt_checked_mul(l %a, l %b) {
+@start
+	%r =l mul %a, %b
+	%bz =w ceql %b, 0
+	%bm1 =w ceql %b, -1
+	%amin =w ceql %a, -9223372036854775808
+	%edge =w and %bm1, %amin
+	%skip =w or %bz, %edge
+	%neg =w ceqw %skip, 0
+	jnz %neg, @check, @ok
+@check
+	%q =l div %r, %b
+	%same =w ceql %q, %a
+	jnz %same, @ok, @halt
+@halt
+	hlt
+@ok
+	ret %r
+}
+
+export function l $ngrt_checked_umul(l %a, l %b) {
+@start
+	%r =l mul %a, %b
+	%bz =w ceql %b, 0
+	jnz %bz, @ok, @check
+@check
+	%q =l udiv %r, %b
+	%same =w ceql %q, %a
+	jnz %same, @ok, @halt
+@halt
+	hlt
+@ok
+	ret %r
+}
+
+export function l $ngrt_checked_div(l %a, l %b) {
+@start
+	%bz =w ceql %b, 0
+	%bm1 =w ceql %b, -1
+	%amin =w ceql %a, -9223372036854775808
+	%edge =w and %bm1, %amin
+	%bad =w or %bz, %edge
+	jnz %bad, @halt, @ok
+@halt
+	hlt
+@ok
+	%r =l div %a, %b
+	ret %r
+}
+
+export function l $ngrt_checked_udiv(l %a, l %b) {
+@start
+	%bz =w ceql %b, 0
+	jnz %bz, @halt, @ok
+@halt
+	hlt
+@ok
+	%r =l udiv %a, %b
+	ret %r
+}
+
+export function l $ngrt_checked_rem(l %a, l %b) {
+@start
+	%bz =w ceql %b, 0
+	%bm1 =w ceql %b, -1
+	%amin =w ceql %a, -9223372036854775808
+	%edge =w and %bm1, %amin
+	%bad =w or %bz, %edge
+	jnz %bad, @halt, @ok
+@halt
+	hlt
+@ok
+	%r =l rem %a, %b
+	ret %r
+}
+
+export function l $ngrt_checked_urem(l %a, l %b) {
+@start
+	%bz =w ceql %b, 0
+	jnz %bz, @halt, @ok
+@halt
+	hlt
+@ok
+	%r =l urem %a, %b
+	ret %r
+}
+
+export function l $ngrt_checked_neg(l %a) {
+@start
+	%amin =w ceql %a, -9223372036854775808
+	jnz %amin, @halt, @ok
+@halt
+	hlt
+@ok
+	%r =l neg %a
+	ret %r
+}
+
+export function l $ngrt_checked_shl(l %a, l %b) {
+@start
+	%neg =w csltl %b, 0
+	%high =w csgel %b, 64
+	%bad =w or %neg, %high
+	jnz %bad, @halt, @ok
+@halt
+	hlt
+@ok
+	%r =l shl %a, %b
+	ret %r
+}
+
+export function l $ngrt_checked_shr(l %a, l %b) {
+@start
+	%neg =w csltl %b, 0
+	%high =w csgel %b, 64
+	%bad =w or %neg, %high
+	jnz %bad, @halt, @ok
+@halt
+	hlt
+@ok
+	%r =l shr %a, %b
+	ret %r
+}
+
+export function l $ngrt_check_w_i8(l %v) {
+@start
+	%lo =w csltl %v, -128
+	%hi =w csgtl %v, 127
+	%bad =w or %lo, %hi
+	jnz %bad, @halt, @ok
+@halt
+	hlt
+@ok
+	ret %v
+}
+
+export function l $ngrt_check_w_i16(l %v) {
+@start
+	%lo =w csltl %v, -32768
+	%hi =w csgtl %v, 32767
+	%bad =w or %lo, %hi
+	jnz %bad, @halt, @ok
+@halt
+	hlt
+@ok
+	ret %v
+}
+
+export function l $ngrt_check_w_i32(l %v) {
+@start
+	%lo =w csltl %v, -2147483648
+	%hi =w csgtl %v, 2147483647
+	%bad =w or %lo, %hi
+	jnz %bad, @halt, @ok
+@halt
+	hlt
+@ok
+	ret %v
+}
+
+export function l $ngrt_check_w_u8(l %v) {
+@start
+	%lo =w csltl %v, 0
+	%hi =w csgtl %v, 255
+	%bad =w or %lo, %hi
+	jnz %bad, @halt, @ok
+@halt
+	hlt
+@ok
+	ret %v
+}
+
+export function l $ngrt_check_w_u16(l %v) {
+@start
+	%lo =w csltl %v, 0
+	%hi =w csgtl %v, 65535
+	%bad =w or %lo, %hi
+	jnz %bad, @halt, @ok
+@halt
+	hlt
+@ok
+	ret %v
+}
+
+export function l $ngrt_check_w_u32(l %v) {
+@start
+	%lo =w csltl %v, 0
+	%hi =w csgtl %v, 4294967295
+	%bad =w or %lo, %hi
+	jnz %bad, @halt, @ok
+@halt
+	hlt
+@ok
+	ret %v
+}
+
+export function l $ngrt_check_w_i64(l %v) {
+@start
+	ret %v
+}
+
+export function l $ngrt_check_w_u64(l %v) {
+@start
+	ret %v
+}

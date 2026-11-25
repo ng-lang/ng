@@ -122,5 +122,5 @@ TEST_CASE("vNext lowers and executes reference creation and dereference reads", 
   std::string errors;
   REQUIRE(run({"--source", "fun main() -> i64 { let value = 1; let read = ref value; return *read; }"}, output, errors) == 0);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("with value 1") != std::string::npos);
+  REQUIRE(output.find("native main exited with code 1") != std::string::npos);
 }

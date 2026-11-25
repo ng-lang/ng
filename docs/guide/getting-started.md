@@ -1,8 +1,8 @@
 # Getting Started with NG
 
 NG compiles and runs through a single tool, `ngi`, which drives the full
-pipeline (parse → resolve → typecheck → FlowIR → bytecode → VM) for a file
-or an inline source unit.
+pipeline (parse → resolve → typecheck → FlowIR → QBE IL → native executable)
+for a file or an inline source unit.
 
 ## Requirements
 
@@ -19,8 +19,7 @@ cmake --build build -j
 
 This produces:
 
-- `build/ngi` — the NG frontend (headless).
-- `build/ngi_imgui` — the same frontend plus the imgui binding.
+- `build/ngi` — the NG frontend.
 - `build/ng_test` — the full Catch2 test suite (run `ctest --test-dir build`).
 
 ## Run your first program
@@ -45,45 +44,85 @@ Run it:
 Output:
 
 ```text
+compiled 49 vNext function(s)
 hello, NG
-compiled 26 vNext function(s); main returned after 10 instruction(s) with value 42
+native main exited with code 42
 ```
 
-`main` may return nothing (`unit`), `i64`, `f64`, or `string`; command-line
-arguments are passed to typed `main` parameters:
+Every run compiles to a native executable through QBE and `cc`; there is no
+separate interpreter or bytecode tier.
 
-```ng
-fun main(name: string) -> unit {
-    print("hello, " + name);
-}
-```
-
-```bash
-./build/ngi hello.ng Ada
-```
+`main` may return nothing (`unit`), `i64`, `f64`, or `string`; string and
+float returns are printed to stdout, and an integer return becomes the
+process exit code reported by the driver.
 
 ## Inline source
 
-`ngi --source` compiles and runs a source unit directly, and `ngi --expr`
-parses a single expression:
+`ngi --source` compiles and runs a source unit directly:
 
 ```bash
 ./build/ngi --source 'import prelude; fun main() { print(1 + 2); }'
+```
+
+```text
+compiled 49 vNext function(s)
+3
+native main exited with code 0
+```
+
+`ngi --expr` parses a single expression. It reports the parsed span and does
+not evaluate or print a value:
+
+```bash
 ./build/ngi --expr '2 * 3 + 4'
+```
+
+```text
+parsed vNext expression at bytes [0, 9)
+```
+
+## Compiling to an executable
+
+`--output <path>` compiles to a native executable at `<path>` and stops
+without running it. Executables link the NG runtime library (`libngrt`) and
+run on their own:
+
+```bash
+./build/ngi --output hello hello.ng
+```
+
+```text
+compiled 3 vNext function(s)
+native executable written to hello
+```
+
+`--emit=ssa` lowers the module to QBE IL text instead of building and running
+it:
+
+```bash
+./build/ngi --emit=ssa hello.ng
+```
+
+The full set of flags is:
+
+```text
+ngi --expr <expression>
+ngi --source <source-unit>
+ngi <source-file> [--emit=ssa] [--output <path>]
 ```
 
 ## Interactive programs
 
-GUI/interactive programs run a frame loop; lift the per-run instruction
-budget with `--fuel 0`:
+GUI/interactive programs run a frame loop (see
+[ImGui Integration](/guide/imgui-integration)):
 
 ```bash
-./build/ngi_imgui example/ng_ide.ng --fuel 0
+./build/ngi example/ng_ide.ng
 ```
 
 ## Tests and examples
 
-- `./build/ng_test` runs the whole suite (1700+ assertions across 430+
+- `./build/ng_test` runs the whole suite (4139 assertions across 662 test
   cases), including a sweep that runs every `example/*.ng` end to end.
 - `example/` holds one runnable example per feature area — a great way to
   learn by reading.

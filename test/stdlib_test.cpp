@@ -136,7 +136,7 @@ TEST_CASE("vNext std_string example runs end to end through ngi", "[vNext][Stdli
   REQUIRE(runExample("example/std_string.ng", output, errors) == 0);
   INFO("errors: " << errors);
   REQUIRE(errors.empty());
-  REQUIRE(output.find("main returned") != std::string::npos);
+  REQUIRE(output.find("native main exited") != std::string::npos);
 }
 
 TEST_CASE("vNext std.string charAt and substring report runtime bounds errors", "[vNext][Stdlib][Runtime]")
@@ -172,28 +172,12 @@ TEST_CASE("vNext std.memory handles reuse freed slots", "[vNext][Stdlib][Runtime
 {
   std::string output;
   std::string errors;
-  REQUIRE(run({"--source", "import prelude; import memory; fun main() { "
-                           "let h1 = allocate(7); let h2 = allocate(9); print(load(h1) + load(h2)); "
-                           "release(h1); print(outstanding()); let h3 = allocate(5); print(load(h3)); }"},
+REQUIRE(run({"--source", "import prelude; import memory; fun main() { "
+                            "let h1 = allocate<i64>(7); let h2 = allocate<i64>(9); print(load<i64>(h1) + load<i64>(h2)); "
+                            "release(h1); print(outstanding()); let h3 = allocate<i64>(5); print(load<i64>(h3)); }"},
               output, errors) == 0);
   REQUIRE(errors.empty());
   REQUIRE(output.find("16\n1\n5\n") != std::string::npos);
-}
-
-TEST_CASE("vNext runNgi re-enters the pipeline and captures diagnostics", "[vNext][Stdlib][Runtime]")
-{
-  std::string output;
-  std::string errors;
-  REQUIRE(run({"--source", "import prelude; fun main() { print(runNgi(\"fun main() -> i64 { return 41; }\")); }"},
-              output, errors) == 0);
-  REQUIRE(errors.empty());
-  REQUIRE_THAT(output, ContainsSubstring("with value 41"));
-
-  REQUIRE(run({"--source", "import prelude; fun main() { print(runNgi(\"fun main() { let x = ; }\")); }"}, output,
-              errors) == 0);
-  REQUIRE(errors.empty());
-  REQUIRE_THAT(output, ContainsSubstring("syntax error at bytes ["));
-  REQUIRE_THAT(output, ContainsSubstring("[exit 1]"));
 }
 
 TEST_CASE("vNext stdlib prints floats and trims whitespace-only strings", "[vNext][Stdlib][Runtime]")

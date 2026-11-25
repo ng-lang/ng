@@ -1,17 +1,29 @@
 // vNext union types (legacy 19): `A | B` annotations hold one member value;
-// construction adopts the matching member type, and equality/ordering compare
-// union values against their member types.
+// construction adopts the matching member type, equality/ordering compare
+// union values against their member types, and switch matches the active
+// member with type patterns (`case (n: i64)`), member literals (`case 42`),
+// and `otherwise` for the remaining members.
+
+fun classify(value: i64 | string) -> i64 {
+    switch (value) {
+        case 42 { return 100; }
+        case (n: i64) { return n; }
+        otherwise { return 7; }
+    }
+}
 
 fun main() -> i64 {
     let x: i64 | string = 1;
     let y: i64 | string = "hello";
     let z: bool | i64 | f64 = true;
     let w: bool | i64 | f64 = 42;
+    let tagged: i64 | string = 42;
 
     let mut total = 0;
     if (x == 1) { total := total + 1; }
     if (y == "hello") { total := total + 2; }
     if (w == 42) { total := total + 4; }
     if (w > 40) { total := total + 8; }
+    total := total + classify(x) + classify(y) + classify(tagged);
     return total;
 }

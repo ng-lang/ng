@@ -1,0 +1,24 @@
+// vNext tuple switch (INC-33): `case (a, b)` binds tuple elements by
+// position. Equivalent to indexing `pair.0` / `pair.1`.
+
+import prelude;
+
+fun addPair(pair: tuple<i64, i64>) -> i64 {
+    switch (pair) {
+        case (a, b) { return a + b; }
+    }
+}
+
+fun label(point: tuple<i64, string>) -> string {
+    switch (point) {
+        case (n, name) { return name + ":" + toString(n); }
+    }
+}
+
+fun main() -> unit {
+    print(addPair((2, 3)) == 5);
+    print(label((7, "pt")) == "pt:7");
+    switch ((1, 2, 3)) {
+        case (x, y, z) { print(x + y + z == 6); }
+    }
+}

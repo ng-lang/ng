@@ -1,0 +1,13 @@
+// INC-0 leak probe (research appendix B): every string concatenation
+// allocates a fresh buffer and the previous one is never returned, so the
+// retained byte count grows quadratically with the iteration count. 20000
+// iterations retain ~200MB in total allocations — large enough for a
+// deterministic leak report, small enough to stay CI-friendly.
+fun main() -> unit {
+    let mut s = "";
+    loop (i = 0) {
+        if (i == 20000) { return; }
+        s := s + ".";
+        next(i + 1);
+    }
+}

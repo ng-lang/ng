@@ -1,0 +1,45 @@
+// vNext `derive(Ord)` end-to-end (INC-24, DEC-E): the checker synthesizes a
+// total order for a derived type — fields are compared lexicographically, so
+// the first differing field decides.
+
+import prelude;
+
+struct Point: derive(Ord) { x: i64, y: i64 }
+
+struct Version: derive(Ord) { major: i64, minor: i64, patch: i64 }
+
+struct Label: derive(Ord) { s: string }
+
+fun main() -> unit {
+    // The first field decides.
+    let a = Point { x: 1, y: 5 };
+    let b = Point { x: 2, y: 0 };
+    print(a < b);
+    print(!(b < a));
+
+    // On a tie the next field decides.
+    let c = Point { x: 1, y: 5 };
+    let d = Point { x: 1, y: 9 };
+    print(a < d);
+    print(d > a);
+
+    // Equal values satisfy the inclusive operators only.
+    print(!(a < c));
+    print(a <= c);
+    print(a >= c);
+
+    // Three fields, compared in declaration order.
+    let v1 = Version { major: 1, minor: 0, patch: 0 };
+    let v2 = Version { major: 1, minor: 0, patch: 1 };
+    let v3 = Version { major: 1, minor: 1, patch: 0 };
+    print(v1 < v2);
+    print(v2 < v3);
+    print(v3 > v1);
+
+    let alpha = Label { s: "abc" };
+    let beta = Label { s: "abd" };
+    let prefix = Label { s: "ab" };
+    print(alpha < beta);
+    print(prefix < alpha);
+    print("café" < "cafê");
+}

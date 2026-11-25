@@ -47,9 +47,15 @@ namespace NG::hir
   struct ResolutionError : std::runtime_error
   {
     syntax::SourceSpan span;
+    std::string code;
 
     ResolutionError(std::string message, syntax::SourceSpan sourceSpan)
-      : std::runtime_error(std::move(message)), span(sourceSpan)
+        : ResolutionError("E-resolve", std::move(message), sourceSpan)
+    {
+    }
+
+    ResolutionError(std::string errorCode, std::string message, syntax::SourceSpan sourceSpan)
+        : std::runtime_error(std::move(message)), span(sourceSpan), code(std::move(errorCode))
     {
     }
   };
@@ -77,6 +83,8 @@ namespace NG::hir
     StructLiteral,
     EnumLiteral,
     BooleanLiteral,
+    /// D-004: null handle literal.
+    NullLiteral,
     ResolvedName,
     Prefix,
     Grouped,
@@ -87,10 +95,12 @@ namespace NG::hir
     Index,
     Member,
     Binary,
+    Closure,
   };
 
   struct TypeArgument;
   struct Type;
+  struct Block;
 
   struct Expression
   {
@@ -113,6 +123,23 @@ namespace NG::hir
     /// Method call (`receiver.method(...)` or qualified `Trait.method(...)`):
     /// operands[0] is the Member callee whose operands[0] is the receiver.
     bool methodCall{};
+    /// Anonymous closure literal (`|x| body`): parameter locals declared in a
+    /// closure body scope, resolved parameter type trees, and the body block.
+    /// INC-14 S3: explicit capture list resolved to enclosing-scope locals.
+    struct CaptureInfo
+    {
+      LocalId local;
+      bool isMove = false;
+    };
+    std::vector<std::string> closureParameterNames;
+    std::vector<LocalId> closureParameterIds;
+    std::vector<std::shared_ptr<Type>> closureParameterTypes;
+    std::unique_ptr<Block> closureBody;
+    std::vector<CaptureInfo> closureCaptures;
+    /// INC-14 S3: closure-body-scope locals that shadow the captured names;
+    /// the closure code function body references these (parallel to
+    /// closureCaptures). Original enclosing locals live in closureCaptures.
+    std::vector<LocalId> closureCaptureParams;
     std::vector<std::unique_ptr<Expression>> operands;
   };
 
@@ -129,6 +156,9 @@ namespace NG::hir
     Next,
     Switch,
     Expression,
+    While,
+    Continue,
+    Break,
   };
 
   enum class NextTargetKind
@@ -156,6 +186,12 @@ namespace NG::hir
     /// Scalar literal-or pattern texts (`case 1 | "a" | true`); empty for
     /// variant patterns.
     std::vector<std::string> literalTexts;
+    /// INC-23 (DEC-D): union type-pattern member type (`case (x: i64)`).
+    /// A unique_ptr so a forward-declared hir::Type (defined later in this
+    /// header) completes lazily at destruction sites. Null for tuple
+    /// patterns (`case (a, b)`), which use `binding` + `bindings` with an
+    /// empty `variantName`.
+    std::unique_ptr<Type> memberType;
     std::optional<LocalId> binding;
     /// Additional tuple-payload bindings (`case Cell(value, rest)`).
     std::vector<LocalId> bindings;
@@ -199,9 +235,13 @@ namespace NG::hir
     Named,
     Applied,
     ScopedReference,
+    ScopedSpan,
     RawPointer,
+    /// D-004: `T?` nullable foreign handle.
+    Nullable,
     Pack,
     Union,
+    Closure,
   };
 
   struct Type;
@@ -224,6 +264,12 @@ namespace NG::hir
     /// Union members (`A | B`).
     std::vector<Type> members;
     bool isMutable{};
+    /// Closure type (`|T| -> U`): parameters then result.
+    std::vector<Type> parameters;
+    std::unique_ptr<Type> result;
+    /// D-002 A1.1 origin contracts: resolved parameter ordinals for
+    /// scoped references with declared origins (e.g. `T ref(a | b)`).
+    std::vector<uint32_t> originOrdinals;
   };
 
   struct Parameter
@@ -233,6 +279,8 @@ namespace NG::hir
     Type type;
     LocalId local;
     syntax::SourceSpan span;
+    /// D-004 ownership annotation (only on native/extern ABI declarations).
+    syntax::ParameterOwnership ownership{syntax::ParameterOwnership::Unspecified};
   };
 
   struct ConstParameter
@@ -271,6 +319,11 @@ namespace NG::hir
     /// `native fun` (D-004): implemented by the embedding at runtime; the
     /// declaration has no NG body.
     bool nativeFunction{};
+    /// `extern "C"` (D-004): a declared C-ABI function with no NG body; the
+    /// native tier calls the C symbol directly. Mutual with `nativeFunction`.
+    bool externC{};
+    /// INC-29: trailing `...` in an extern "C" signature (C varargs).
+    bool variadic{};
     /// Where-clause constraint (D-014): predicate applications, `T is Type`,
     /// trait bounds, and boolean combinations; evaluated per concrete instance.
     ExpressionPtr whereClause;
@@ -293,6 +346,9 @@ namespace NG::hir
     std::vector<std::string> genericParameters;
     /// `derive(Copy + Clone)` synthesized impl targets.
     std::vector<std::string> derivedTraits;
+    /// `repr(C)` (D-004): layout is deliberately shared with C; field types
+    /// must be ABI-safe and the record may cross `extern "C"` boundaries.
+    bool reprC{};
     std::vector<StructField> fields;
   };
 
@@ -396,6 +452,11 @@ namespace NG::hir
   /// every `LocalId` and `LoopId` so the instance occupies a fresh identity
   /// space. Types, where clauses, and names are copied structurally.
   [[nodiscard]] auto cloneFunction(const Function &source, uint32_t &nextLocal) -> Function;
+  /// Deep-copies an anonymous closure `|params| body` into an independent code
+  /// function whose parameter locals are remapped. The typechecker uses this
+  /// to synthesize closures as ordinary concrete functions (INC-14 S1).
+  [[nodiscard]] auto makeClosureFunction(const Expression &closure, const std::string &name, DefId id,
+                                         uint32_t &nextLocal) -> Function;
 
   class Resolver final
   {
@@ -408,20 +469,43 @@ namespace NG::hir
     struct ActiveLoop
     {
       LoopId id;
+      /// Whether a bare `next` inside this construct is captured (a `loop`
+      /// WITH binders). `while` and binderless loops never capture bare `next`.
+      bool capturesNext;
+      /// Whether this construct is a `while` (only `while` allows `continue`).
+      bool isWhile;
     };
 
-    [[nodiscard]] auto resolveFunction(const syntax::FunctionDeclaration &function, DefId id) -> Function;
+    void declareModuleItems(const syntax::SourceUnit &unit);
+    auto appendMethodFunction(Module &module, TraitMethod &method, std::string name) -> DefId;
+    [[nodiscard]] auto resolveFunction(syntax::FunctionDeclaration &function, DefId id) -> Function;
     [[nodiscard]] auto resolveStruct(const syntax::StructDeclaration &structure, StructId id) -> Struct;
     [[nodiscard]] auto resolveEnum(const syntax::EnumDeclaration &enumeration, EnumId id) -> Enum;
-    [[nodiscard]] auto resolveConstDeclaration(const syntax::ConstDeclaration &declaration, DefId id) -> ConstDeclaration;
+    [[nodiscard]] auto resolveConstDeclaration(const syntax::ConstDeclaration &declaration, DefId id)
+        -> ConstDeclaration;
     [[nodiscard]] auto resolveTrait(const syntax::TraitDeclaration &declaration) -> Trait;
     [[nodiscard]] auto resolveImpl(const syntax::ImplDeclaration &declaration) -> Impl;
-    [[nodiscard]] auto resolveTraitMethod(const syntax::TraitMethodDeclaration &method) -> TraitMethod;
-    [[nodiscard]] auto resolveBlock(const syntax::Block &block, bool introduceScope) -> Block;
-    [[nodiscard]] auto resolveStatement(const syntax::Statement &statement) -> Statement;
+    [[nodiscard]] auto resolveTraitMethod(syntax::TraitMethodDeclaration &method) -> TraitMethod;
+    /// `isFunctionBody` marks the top-level body of a function/method: only
+    /// there is a trailing block tail an implicit return (INC-13 try desugar
+    /// moves it into the Ok arm as an explicit return).
+    [[nodiscard]] auto resolveBlock(syntax::Block &block, bool introduceScope, bool isFunctionBody = false) -> Block;
+    [[nodiscard]] auto resolveStatement(syntax::Statement &statement) -> Statement;
     [[nodiscard]] auto resolveExpression(const syntax::Expression &expression) -> ExpressionPtr;
     [[nodiscard]] auto resolveName(const syntax::IdentifierExpression &expression) const -> ResolvedName;
+    [[nodiscard]] auto resolveEnumVariant(const syntax::IdentifierExpression &owner,
+                                          const syntax::MemberExpression &member, Expression &resolved) const -> bool;
+    [[nodiscard]] auto suggestionFor(const std::string &name) const -> std::string;
     auto declareLocal(const std::string &name, syntax::SourceSpan span) -> LocalId;
+
+    /// INC-13 (D-007): resolves a statement list, restructuring the rest of
+    /// the list into the Ok arm when a root `?` (try) statement appears.
+    void resolveStatementList(syntax::Block &source, bool isFunctionBody, Block &out);
+    /// INC-13 (D-007): desugars `expr?` into a scrutinee let + switch whose
+    /// Err arm early-returns `Result.Err($err)`; the Ok arm binds the payload
+    /// and resolves the remaining statements/tail (recursing for nested `?`).
+    void desugarTry(syntax::StatementPtr &statement, syntax::ExpressionPtr &trySlot, syntax::Block &source,
+                    size_t statementIndex, bool isFunctionBody, Block &out);
 
     std::unordered_map<std::string, std::vector<DefId>> functions_;
     std::unordered_map<const syntax::FunctionDeclaration *, DefId> functionIds_;
@@ -439,9 +523,21 @@ namespace NG::hir
     std::unordered_map<std::string, uint32_t> constParameters_;
     std::unordered_map<uint32_t, bool> localMutability_;
     std::optional<DefId> currentFunction_;
+    /// Name (as written) of the enclosing function's return type; INC-13 `?`
+    /// is only allowed when it starts with the `Result` prefix.
+    std::string currentReturnTypeName_;
+    /// Deepest nesting of plain function/method bodies (guards the try
+    /// desugar's implicit-return handling for nested blocks).
+    int functionBodyDepth_{};
+    /// Count of enclosing closure bodies; `?` is rejected inside them.
+    int closureBodyDepth_{};
+    /// Monotone counter for synthesized `$tryN`/`$okN`/`$errN` locals.
+    uint32_t nextTryId_{};
+    /// Maps the current function's parameter names to their declaration
+    /// ordinal (D-002 A1.1 origin contracts). Set during return-type lowering.
+    std::unordered_map<std::string, uint32_t> paramOrdinals_;
     uint32_t nextLocal_{};
     uint32_t nextLoop_{};
     uint32_t nextConstId_{};
-    uint32_t nextImplMethodId_{};
   };
 } // namespace NG::hir

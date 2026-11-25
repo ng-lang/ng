@@ -1,13 +1,13 @@
-# A NostalGic (NG) Programming Language
+# NG Programming Language
 
 [![build](https://github.com/ng-lang/ng/actions/workflows/build.yml/badge.svg)](https://github.com/ng-lang/ng/actions/workflows/build.yml)
 [![Codacy Badge](https://app.codacy.com/project/badge/Grade/e72d75eb4dbf4a0e9617cbced2f4ec1e)](https://app.codacy.com/gh/ng-lang/ng/dashboard?utm_source=gh&utm_medium=referral&utm_content=&utm_campaign=Badge_grade)
 [![Codacy Badge](https://app.codacy.com/project/badge/Coverage/e72d75eb4dbf4a0e9617cbced2f4ec1e)](https://app.codacy.com/gh/ng-lang/ng/dashboard?utm_source=gh&utm_medium=referral&utm_content=&utm_campaign=Badge_coverage)
 [![codecov](https://codecov.io/github/ng-lang/ng/graph/badge.svg?token=T5RV6EWVSG)](https://codecov.io/github/ng-lang/ng)
 
-NG is a statically-typed, multi-paradigm programming language implemented in modern C++23, with a single clean pipeline:
+NG is a statically-typed, multi-paradigm programming language with a single clean pipeline:
 
-**Lexer → Parser → Resolver (HIR) → Type Checker → FlowIR → Bytecode → VM**
+**Lexer → Parser → Resolver (HIR) → Type Checker → FlowIR → QBE IL → Native executable**
 
 ## Features
 
@@ -17,7 +17,7 @@ NG is a statically-typed, multi-paradigm programming language implemented in mod
 - Generics (monomorphized), higher-kinded constructors, variadic packs, const generics
 - Compile-time programming: `const if`, const declarations with pattern specialization, `const fun` (incl. generic const funs), const-capable native hosts
 - A redesigned standard library (`lib/std`), a Dear ImGui binding over SDL3, and a minimal IDE written in NG
-- The test suite sweeps every example end to end (1700+ assertions / 430+ cases)
+- The test suite sweeps every example end to end (4139 assertions / 662 cases)
 
 ## Getting Started
 
@@ -31,9 +31,10 @@ NG is a statically-typed, multi-paradigm programming language implemented in mod
 ```bash
 cmake -S . -B build -GNinja
 cmake --build build -j
-./build/ngi example/hello_world.ng                 # run an example
+./build/ngi example/stdlib_basics.ng               # run an example
 ./build/ngi --source 'import prelude; fun main() { print("hi"); }'
-./build/ngi_imgui example/ng_ide.ng --fuel 0       # the imgui IDE (GUI)
+./build/ngi --output hello example/stdlib_basics.ng  # compile to native executable
+./build/ngi --source 'import imgui; fun main() -> i64 { imguiInit(); if (imguiAborted()) { imguiCleanup(); return 1; } imguiCleanup(); return 0; }'  # headless imgui AOT stub
 ```
 
 Run the tests:
@@ -45,28 +46,32 @@ ctest --test-dir build -j  # or through CTest
 
 ## Documentation
 
-- [Language Guide](./docs/guide/language_guide.md) (site: `docs/index.md` via VitePress)
-- [Internals](./docs/ref/Internals.md) · [Memory](./docs/ref/Memory.md) · [C++ Compatibility](./docs/ref/cxx-compatibility.md)
-- [Design decisions](./docs/design/rearchitecture/README.md) (the current authority) and the [post-cutover plan](./docs/design/rearchitecture/07-post-cutover-plan.md)
+User documentation (VitePress site) lives in [`docs/`](./docs/index.md):
 
-## Roadmap
+- [Language Guide](./docs/guide/language_guide.md) — orientation and feature overview
+- [Accepted Language Decisions](./docs/ref/language-decisions.md) — the normative rules
+  enforced today
+- [Memory](./docs/ref/Memory.md) · [C++ Compatibility](./docs/ref/cxx-compatibility.md)
 
-### Done
+## Implemented today
 
-- Pattern matching: enum-variant switches (exhaustive) and scalar literal-or switches
-- Generics: type parameters, parameter packs, monomorphization, const generics, HKT
-- Ownership: moves, partial moves, Drop, scoped refs, NLL borrow release
-- Traits: static dispatch, default methods (through views too), generic impls, auto traits, derive, `ref<Trait>` views
-- Compile-time: `const if`, const declarations, `const fun`, const-capable natives
-- Modules and imports; redesigned stdlib (string/seq/list/memory/imgui); bytecode VM with verified artifacts
-- Self-hosting `runNgi` and the NG IDE on the imgui binding
-
-### Deferred (see the post-cutover plan for gating)
-
-- `span<T>` views; in-place `pushBack`/array growth (runtime-session heap work)
-- Tuple switch patterns; Self-typed trait-view methods
-- Heap domains (`Box<T>`, `Gc`, `Arc`); `isize`/`usize`; declared C ABI/bindgen
-- Concurrency (R10) and tooling (R11: formatter, LSP, debugger, package manager)
+- Pattern matching: exhaustive enum-variant switches, scalar literal-or switches,
+  and structural union switches (`case (x: T)`, member literals, `otherwise`)
+- Generics: type parameters, monomorphization, const generics, higher-kinded
+  constructors, variadic packs, `where` clauses
+- Ownership: moves, field-aware partial moves, explicit `move`, `Drop`, scoped
+  `ref`/`ref mut`, non-lexical loans, origin contracts
+- Traits: static dispatch, default methods (including through views), generic
+  impls, auto traits, `derive`, and `ref<Trait>` dynamic views
+- Compile-time: `const if`, const declarations with pattern specialization,
+  `const fun` (including generic const funs), const-capable native hosts
+- Closures with `move`/copy/borrow captures, higher-order `seq` combinators
+- Option/Result with combinators and the `?` operator
+- Modules and imports; a redesigned stdlib (`prelude`, `io`, `string`, `seq`,
+  `list`, `memory`, `system`, `imgui`); native-only execution through QBE + `libngrt`
+- Generic `Box<T>` and `Cell<T>`; `span<T>` with in-place `pushBack`
+- Verification tooling: ASan/UBSan variant, property-based tests, conformance
+  corpus, and a Const ↔ QBE differential runner
 
 ## Community
 

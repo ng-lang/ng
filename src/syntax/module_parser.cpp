@@ -30,12 +30,54 @@ namespace NG::syntax
       {
         items.push_back(parseFunctionDeclaration(false, false, true));
       }
+      else if (current().kind == TokenKind::KeywordExtern)
+      {
+        auto declarations = parseExternBlock();
+        for (auto &declaration : declarations) items.push_back(std::move(declaration));
+      }
+      else if (current().kind == TokenKind::KeywordRepr)
+      {
+        static_cast<void>(consume());
+        expect(TokenKind::LeftParen, "expected `(` after `repr`");
+        if (current().kind != TokenKind::Identifier || current().text != "C")
+          throw ParseError("only `repr(C)` is supported", current().span);
+        static_cast<void>(consume());
+        expect(TokenKind::RightParen, "expected `)` after `repr(C)`");
+        if (current().kind != TokenKind::KeywordStruct)
+          throw ParseError("expected `struct` after `repr(C)`", current().span);
+        items.push_back(parseStructDeclaration(true));
+      }
       else if (current().kind == TokenKind::KeywordExport)
       {
         static_cast<void>(consume());
         if (current().kind == TokenKind::KeywordImport) items.push_back(parseImportDeclaration());
         else if (current().kind == TokenKind::KeywordFun) items.push_back(parseFunctionDeclaration(false, true));
         else if (current().kind == TokenKind::KeywordStruct) items.push_back(parseStructDeclaration());
+        else if (current().kind == TokenKind::KeywordRepr)
+        {
+          static_cast<void>(consume());
+          expect(TokenKind::LeftParen, "expected `(` after `repr`");
+          if (current().kind != TokenKind::Identifier || current().text != "C")
+            throw ParseError("only `repr(C)` is supported", current().span);
+          static_cast<void>(consume());
+          expect(TokenKind::RightParen, "expected `)` after `repr(C)`");
+          if (current().kind != TokenKind::KeywordStruct)
+            throw ParseError("expected `struct` after `repr(C)`", current().span);
+          items.push_back(parseStructDeclaration(true));
+        }
+        else if (current().kind == TokenKind::KeywordExtern)
+        {
+          // INC-29: `export extern "C" fun name(...) -> T { body }` — an NG
+          // function exposed with a C ABI symbol (distinct from a plain
+          // `extern "C"` declaration, which has no body).
+          static_cast<void>(consume());
+          if (current().kind != TokenKind::StringLiteral || current().text != "C")
+            throw ParseError("only the `\"C\"` calling convention is supported after `extern`", current().span);
+          static_cast<void>(consume());
+          if (current().kind != TokenKind::KeywordFun)
+            throw ParseError("expected `fun` after `export extern \"C\"`", current().span);
+          items.push_back(parseFunctionDeclaration(false, true, false, true));
+        }
         else if (current().kind == TokenKind::KeywordEnum) items.push_back(parseEnumDeclaration());
         else if (current().kind == TokenKind::KeywordTrait || current().kind == TokenKind::KeywordAuto)
           items.push_back(parseTraitDeclaration());
@@ -281,7 +323,7 @@ namespace NG::syntax
                                               SourceSpan{enumToken.span.begin, close.span.end});
   }
 
-  auto ModuleParser::parseStructDeclaration() -> ModuleItemPtr
+  auto ModuleParser::parseStructDeclaration(bool reprC) -> ModuleItemPtr
   {
     const Token structToken = consume();
     if (current().kind != TokenKind::Identifier) throw ParseError("expected a struct name after `struct`", current().span);
@@ -328,7 +370,8 @@ namespace NG::syntax
     }
     const Token close = consume();
     return std::make_unique<StructDeclaration>(name.text, std::move(genericParameters), std::move(derivedTraits),
-                                              std::move(fields), SourceSpan{structToken.span.begin, close.span.end});
+                                              std::move(fields), SourceSpan{structToken.span.begin, close.span.end},
+                                              reprC);
   }
 
   auto ModuleParser::parseOpaqueTypeDeclaration() -> ModuleItemPtr
@@ -376,7 +419,39 @@ namespace NG::syntax
                                                    SourceSpan{typeToken.span.begin, semicolon.span.end});
   }
 
-  auto ModuleParser::parseFunctionDeclaration(bool constFunction, bool exported, bool nativeFunction) -> ModuleItemPtr
+  auto ModuleParser::parseExternBlock() -> std::vector<ModuleItemPtr>
+  {
+    // `extern "C" { fun ...; }` block or a single `extern "C" fun ...;`
+    // declaration (D-004). Only the C calling convention is supported.
+    static_cast<void>(consume());
+    if (current().kind != TokenKind::StringLiteral || current().text != "C")
+      throw ParseError("only the `\"C\"` calling convention is supported after `extern`", current().span);
+    static_cast<void>(consume());
+    std::vector<ModuleItemPtr> declarations;
+    if (current().kind == TokenKind::LeftBrace)
+    {
+      static_cast<void>(consume());
+      while (current().kind != TokenKind::RightBrace)
+      {
+        if (current().kind != TokenKind::KeywordFun)
+          throw ParseError("expected a `fun` signature inside the `extern \"C\"` block", current().span);
+        declarations.push_back(parseFunctionDeclaration(false, false, false, true));
+      }
+      expect(TokenKind::RightBrace, "expected `}` to close the `extern \"C\"` block");
+    }
+    else if (current().kind == TokenKind::KeywordFun)
+    {
+      declarations.push_back(parseFunctionDeclaration(false, false, false, true));
+    }
+    else
+    {
+      throw ParseError("expected `{` or `fun` after `extern \"C\"`", current().span);
+    }
+    return declarations;
+  }
+
+  auto ModuleParser::parseFunctionDeclaration(bool constFunction, bool exported, bool nativeFunction, bool externC)
+      -> ModuleItemPtr
   {
     const Token funToken = consume();
     if (constFunction || nativeFunction)
@@ -470,17 +545,32 @@ namespace NG::syntax
     expect(TokenKind::LeftParen, "expected `(` after function name");
 
     std::vector<FunctionParameter> parameters;
+    bool variadic = false;
     while (current().kind != TokenKind::RightParen)
     {
+      // INC-29: a trailing `...` marks a C variadic signature (extern only;
+      // checker enforces that constraint).
+      if (current().kind == TokenKind::Ellipsis)
+      {
+        static_cast<void>(consume());
+        variadic = true;
+        break;
+      }
       if (current().kind != TokenKind::Identifier)
       {
         throw ParseError("expected a parameter name", current().span);
       }
       const Token parameterName = consume();
       expect(TokenKind::Colon, "expected `:` after parameter name");
+      // D-004: an optional ownership annotation precedes the type on ABI
+      // boundary parameters. Checker rejects it on ordinary functions.
+      ParameterOwnership ownership = ParameterOwnership::Unspecified;
+      if (current().kind == TokenKind::KeywordOwning) { ownership = ParameterOwnership::Owning; static_cast<void>(consume()); }
+      else if (current().kind == TokenKind::KeywordBorrowed) { ownership = ParameterOwnership::Borrowed; static_cast<void>(consume()); }
+      else if (current().kind == TokenKind::KeywordShared) { ownership = ParameterOwnership::Shared; static_cast<void>(consume()); }
       auto parameterType = parseTypeUntil({TokenKind::Comma, TokenKind::RightParen});
       const SourceSpan parameterSpan{parameterName.span.begin, parameterType->span.end};
-      parameters.emplace_back(parameterName.text, std::move(parameterType), parameterSpan);
+      parameters.emplace_back(parameterName.text, std::move(parameterType), parameterSpan, ownership);
 
       if (current().kind != TokenKind::Comma)
       {
@@ -520,13 +610,28 @@ namespace NG::syntax
     }
 
     std::optional<Block> body;
+    if (externC)
+    {
+      if (!genericParameters.empty())
+        throw ParseError("extern \"C\" functions cannot be generic", funToken.span);
+      if (whereClause != nullptr)
+        throw ParseError("extern \"C\" functions cannot have where clauses", funToken.span);
+      if (!exported)
+      {
+        expect(TokenKind::Semicolon, "expected `;` after extern function signature");
+        const SourceSpan span{funToken.span.begin, current().span.begin};
+        return std::make_unique<FunctionDeclaration>(name.text, std::move(genericParameters), std::move(parameters),
+                                                     std::move(returnType), Block{SourceSpan{span.end, span.end}, {}, nullptr},
+                                                     span, false, std::move(whereClause), exported, false, true, variadic);
+      }
+    }
     if (nativeFunction)
     {
       expect(TokenKind::Semicolon, "expected `;` after native function signature");
       const SourceSpan span{funToken.span.begin, current().span.begin};
       return std::make_unique<FunctionDeclaration>(name.text, std::move(genericParameters), std::move(parameters),
                                                    std::move(returnType), Block{SourceSpan{span.end, span.end}, {}, nullptr},
-                                                   span, false, std::move(whereClause), exported, true);
+                                                   span, false, std::move(whereClause), exported, true, false, variadic);
     }
     if (current().kind == TokenKind::FatArrow)
     {
@@ -548,7 +653,7 @@ namespace NG::syntax
     }
     const SourceSpan span{funToken.span.begin, body->span.end};
     return std::make_unique<FunctionDeclaration>(name.text, std::move(genericParameters), std::move(parameters), std::move(returnType),
-                                                 std::move(*body), span, constFunction, std::move(whereClause), exported, false);
+                                                 std::move(*body), span, constFunction, std::move(whereClause), exported, false, externC, variadic);
   }
 
   auto ModuleParser::parseExpressionUntil(TokenKind terminator) -> ExpressionPtr
@@ -655,7 +760,8 @@ namespace NG::syntax
   auto ModuleParser::parseTraitMethod() -> TraitMethodDeclaration
   {
     const Token funToken = consume();
-    if (current().kind != TokenKind::Identifier) throw ParseError("expected a method name after `fun`", current().span);
+    if (current().kind != TokenKind::Identifier && current().kind != TokenKind::KeywordClone)
+      throw ParseError("expected a method name after `fun`", current().span);
     const Token name = consume();
     expect(TokenKind::LeftParen, "expected `(` after method name");
     std::vector<FunctionParameter> parameters;
@@ -664,9 +770,13 @@ namespace NG::syntax
       if (current().kind != TokenKind::Identifier) throw ParseError("expected a parameter name", current().span);
       const Token parameterName = consume();
       expect(TokenKind::Colon, "expected `:` after parameter name");
+      ParameterOwnership ownership = ParameterOwnership::Unspecified;
+      if (current().kind == TokenKind::KeywordOwning) { ownership = ParameterOwnership::Owning; static_cast<void>(consume()); }
+      else if (current().kind == TokenKind::KeywordBorrowed) { ownership = ParameterOwnership::Borrowed; static_cast<void>(consume()); }
+      else if (current().kind == TokenKind::KeywordShared) { ownership = ParameterOwnership::Shared; static_cast<void>(consume()); }
       auto parameterType = parseTypeUntil({TokenKind::Comma, TokenKind::RightParen});
       const SourceSpan parameterSpan{parameterName.span.begin, parameterType->span.end};
-      parameters.emplace_back(parameterName.text, std::move(parameterType), parameterSpan);
+      parameters.emplace_back(parameterName.text, std::move(parameterType), parameterSpan, ownership);
       if (current().kind != TokenKind::Comma) break;
       static_cast<void>(consume());
       if (current().kind == TokenKind::RightParen) break;
@@ -721,6 +831,7 @@ namespace NG::syntax
   {
     std::vector<Token> typeTokens;
     size_t angleDepth{};
+    size_t pipeDepth{};
     while (current().kind != TokenKind::End)
     {
       if (current().kind == TokenKind::Less) ++angleDepth;
@@ -736,7 +847,20 @@ namespace NG::syntax
         angleDepth = angleDepth > 2 ? angleDepth - 2 : 0;
         continue;
       }
-      if (angleDepth == 0 && std::find(terminators.begin(), terminators.end(), current().kind) != terminators.end()) break;
+      // Closure parameter pipes (`|T, U| -> R`) nest like brackets: a `|` at a
+      // type-start position (first token, or after `(`/`,`/`<`) opens a
+      // parameter list and its matching `|` closes it, so terminator commas
+      // inside the list are kept instead of truncating the type.
+      else if (current().kind == TokenKind::Pipe)
+      {
+        const bool typeStart = typeTokens.empty() || typeTokens.back().kind == TokenKind::Comma ||
+                               typeTokens.back().kind == TokenKind::LeftParen || typeTokens.back().kind == TokenKind::Less;
+        if (pipeDepth == 0 && typeStart) ++pipeDepth;
+        else if (pipeDepth != 0) --pipeDepth;
+      }
+      if (angleDepth == 0 && pipeDepth == 0 &&
+          std::find(terminators.begin(), terminators.end(), current().kind) != terminators.end())
+        break;
       typeTokens.push_back(consume());
     }
 

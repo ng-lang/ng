@@ -15,11 +15,92 @@ export native fun print(value: u8) -> unit;
 export native fun print(value: u16) -> unit;
 export native fun print(value: u32) -> unit;
 export native fun print(value: u64) -> unit;
+export native fun print(value: isize) -> unit;
+export native fun print(value: usize) -> unit;
 export native fun assert(condition: bool) -> unit;
 
-// Compiles and runs an NG source unit inside the running program, returning
-// its captured output (and diagnostics with a trailing `[exit N]` on failure).
-export native fun runNgi(source: string) -> string;
+// Explicit numeric conversions (INC-6 / DEC-A): implicit mixed comparisons
+// are compile errors; convert between sign classes and integer/float kinds
+// explicitly.
+export native fun toFloat(value: i64) -> f64;
+export native fun toFloat(value: u64) -> f64;
+export native fun toFloat(value: isize) -> f64;
+export native fun toFloat(value: usize) -> f64;
+export native fun toSigned(value: u64) -> i64;
+export native fun toSigned(value: usize) -> i64;
+export native fun toSigned(value: isize) -> i64;
+
+// String conversions and integer parsing (INC-7). toString mirrors the
+// print formatters; parseRawInt traps on invalid input, so the Result-based
+// parseInt wrapper below is the safe entry point (INC-12).
+export native fun toString(value: i64) -> string;
+export native fun toString(value: i32) -> string;
+export native fun toString(value: u64) -> string;
+export native fun toString(value: isize) -> string;
+export native fun toString(value: usize) -> string;
+export native fun toString(value: f64) -> string;
+export native fun toString(value: bool) -> string;
+export native fun canParseInt(text: string) -> bool;
+export native fun parseRawInt(text: string) -> i64;
+
+export enum Option<T> {
+    Some(value: T),
+    None,
+}
+
+export enum Result<T, E> {
+    Ok(value: T),
+    Err(error: E),
+}
+
+export fun parseInt(text: string) -> Result<i64, string> {
+    if (canParseInt(text)) {
+        return Result.Ok(parseRawInt(text));
+    }
+    return Result.Err(text);
+}
+
+export fun optMap<T, U>(value: Option<T>, f: |T| -> U) -> Option<U> {
+    switch (value) {
+        case Some(item) { return Option.Some(f(item)); }
+        case None { let u: Option<U> = Option.None; return u; }
+    }
+}
+
+export fun optAndThen<T, U>(value: Option<T>, f: |T| -> Option<U>) -> Option<U> {
+    switch (value) {
+        case Some(item) { return f(item); }
+        case None { let u: Option<U> = Option.None; return u; }
+    }
+}
+
+export fun optOrElse<T>(value: Option<T>, fallback: || -> Option<T>) -> Option<T> {
+    switch (value) {
+        case Some(item) { return Option.Some(item); }
+        case None { return fallback(); }
+    }
+}
+
+export fun resultMap<T, U, E>(value: Result<T, E>, f: |T| -> U) -> Result<U, E> {
+    switch (value) {
+        case Ok(item) { return Result.Ok(f(item)); }
+        case Err(error) { return Result.Err(error); }
+    }
+}
+
+export fun resultAndThen<T, U, E>(value: Result<T, E>, f: |T| -> Result<U, E>) -> Result<U, E> {
+    switch (value) {
+        case Ok(item) { return f(item); }
+        case Err(error) { return Result.Err(error); }
+    }
+}
+
+export fun resultOrElse<T, E, F>(value: Result<T, E>, fallback: |E| -> Result<T, F>) -> Result<T, F> {
+    switch (value) {
+        case Ok(item) { return Result.Ok(item); }
+        case Err(error) { return fallback(error); }
+    }
+}
 
 export fun not(value: bool) -> bool {
     return !value;
@@ -27,3 +108,31 @@ export fun not(value: bool) -> bool {
 
 export const is_ref<T>: bool = false;
 export const<T> is_ref<ref<T>>: bool = true;
+
+// Core traits: Copy, Clone, Eq, and Show are declared here so that user
+// modules can use `derive(Copy)`, `derive(Clone)`, `derive(Eq)`, and
+// `derive(Show)` after importing the prelude.
+export trait Copy {}
+export trait Clone {
+    fun clone(self: Self ref) -> Self;
+}
+export trait Eq {
+    fun eq(self: Self ref, other: Self ref) -> bool;
+}
+// DEC-E: a total order. String ordering is bytewise (memcmp), which for UTF-8
+// equals code-point order; enum ordering is declaration order (ordinal).
+// Synthesized by `derive(Ord)`; a float field is rejected (NaN breaks totality).
+export trait Ord {
+    fun compare(self: Self ref, other: Self ref) -> i64;
+}
+export trait Show {
+    fun show(self: Self ref) -> string;
+}
+
+// INC-14 S5: closure family marker auto traits. Unlike the universal auto
+// traits (Send-style, satisfied by every concrete type), Fn/FnOnce are
+// satisfied implicitly by closure types only; the callable signature lives on
+// the closure type itself, so these bounds assert "this type is a callable
+// closure value".
+export auto trait Fn {}
+export auto trait FnOnce {}

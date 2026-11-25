@@ -109,6 +109,27 @@ TEST_CASE("vNext FlowIR creates branch and join blocks without legacy control tr
   REQUIRE_NOTHROW(flowir::Verifier{}.verify(function));
 }
 
+TEST_CASE("vNext FlowIR lowers while/continue/break to header branch and exit jumps", "[vNext][FlowIR]")
+{
+  const auto function = lower("fun count(limit: i64) -> i64 { let mut i = 0; while (i < limit) { i := i + 1; } return i; }");
+  REQUIRE(function.blocks.size() == 4);
+  // Header block: the condition branch.
+  REQUIRE(countTerminators(function, flowir::TerminatorKind::Branch) == 1);
+  // Body falls back to the header (implicit continue) plus the entry jump.
+  REQUIRE(countTerminators(function, flowir::TerminatorKind::Jump) >= 2);
+  REQUIRE_NOTHROW(flowir::Verifier{}.verify(function));
+
+  const auto loopFunction =
+      lower("fun search(limit: i64) -> i64 { let mut i = 0; while (i < limit) { if (i == 3) { break; } i := i + 1; } return i; }");
+  REQUIRE(countTerminators(loopFunction, flowir::TerminatorKind::Branch) == 2);
+  REQUIRE_NOTHROW(flowir::Verifier{}.verify(loopFunction));
+
+  const auto continueFunction =
+      lower("fun skip(limit: i64) -> i64 { let mut i = 0; let mut total = 0; while (i < limit) { i := i + 1; if (i % 2 == 0) { continue; } total := total + i; } return total; }");
+  REQUIRE(countTerminators(continueFunction, flowir::TerminatorKind::Branch) >= 2);
+  REQUIRE_NOTHROW(flowir::Verifier{}.verify(continueFunction));
+}
+
 TEST_CASE("vNext FlowIR verifier rejects malformed targets and block arguments", "[vNext][FlowIR]")
 {
   flowir::Function invalidTarget{.source = hir::DefId{0},

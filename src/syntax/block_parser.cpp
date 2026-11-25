@@ -76,13 +76,28 @@ namespace NG::syntax
         statements.push_back(parseSwitchStatement());
         continue;
       }
+      if (current().kind == TokenKind::KeywordWhile)
+      {
+        statements.push_back(parseWhileStatement());
+        continue;
+      }
+      if (current().kind == TokenKind::KeywordContinue)
+      {
+        statements.push_back(parseContinueStatement());
+        continue;
+      }
+      if (current().kind == TokenKind::KeywordBreak)
+      {
+        statements.push_back(parseBreakStatement());
+        continue;
+      }
 
       auto expression = parseExpressionUntil(TokenKind::RightBrace);
       if (current().kind == TokenKind::Semicolon)
       {
         const Token semicolon = consume();
-        statements.push_back(
-            std::make_unique<ExpressionStatement>(std::move(expression), SourceSpan{expression->span.begin, semicolon.span.end}));
+        statements.push_back(std::make_unique<ExpressionStatement>(
+            std::move(expression), SourceSpan{expression->span.begin, semicolon.span.end}));
         continue;
       }
 
@@ -110,7 +125,8 @@ namespace NG::syntax
     if (current().kind == TokenKind::LeftParen)
     {
       static_cast<void>(consume());
-      if (current().kind == TokenKind::RightParen) throw ParseError("tuple binding cannot be empty", current().span);
+      if (current().kind == TokenKind::RightParen)
+        throw ParseError("tuple binding cannot be empty", current().span);
       while (true)
       {
         if (current().kind == TokenKind::Ellipsis)
@@ -124,12 +140,15 @@ namespace NG::syntax
           expect(TokenKind::RightParen, "expected `)` after tuple rest binding");
           break;
         }
-        if (current().kind != TokenKind::Identifier) throw ParseError("expected a binding name in tuple pattern", current().span);
+        if (current().kind != TokenKind::Identifier)
+          throw ParseError("expected a binding name in tuple pattern", current().span);
         destructuredNames.push_back(consume().text);
-        if (current().kind != TokenKind::Comma) break;
+        if (current().kind != TokenKind::Comma)
+          break;
         static_cast<void>(consume());
       }
-      if (!restName.has_value()) expect(TokenKind::RightParen, "expected `)` after tuple binding");
+      if (!restName.has_value())
+        expect(TokenKind::RightParen, "expected `)` after tuple binding");
       name.text = destructuredNames.empty() ? restName.value_or("") : destructuredNames.front();
     }
     else
@@ -162,7 +181,8 @@ namespace NG::syntax
     const Token semicolon = current();
     expect(TokenKind::Semicolon, "expected `;` after assignment value");
     const size_t begin = target->span.begin;
-    return std::make_unique<AssignStatement>(std::move(target), std::move(value), SourceSpan{begin, semicolon.span.end});
+    return std::make_unique<AssignStatement>(std::move(target), std::move(value),
+                                             SourceSpan{begin, semicolon.span.end});
   }
 
   auto BlockParser::parseReturnStatement() -> StatementPtr
@@ -242,6 +262,31 @@ namespace NG::syntax
     return std::make_unique<NextStatement>(std::move(arguments), SourceSpan{nextToken.span.begin, semicolon.span.end});
   }
 
+  auto BlockParser::parseWhileStatement() -> StatementPtr
+  {
+    const Token whileToken = consume();
+    auto condition = parseExpressionUntil(TokenKind::LeftBrace);
+    Block body = parseNestedBlock();
+    const SourceSpan span{whileToken.span.begin, body.span.end};
+    return std::make_unique<WhileStatement>(std::move(condition), std::move(body), span);
+  }
+
+  auto BlockParser::parseContinueStatement() -> StatementPtr
+  {
+    const Token continueToken = consume();
+    const Token semicolon = current();
+    expect(TokenKind::Semicolon, "expected `;` after `continue`");
+    return std::make_unique<ContinueStatement>(SourceSpan{continueToken.span.begin, semicolon.span.end});
+  }
+
+  auto BlockParser::parseBreakStatement() -> StatementPtr
+  {
+    const Token breakToken = consume();
+    const Token semicolon = current();
+    expect(TokenKind::Semicolon, "expected `;` after `break`");
+    return std::make_unique<BreakStatement>(SourceSpan{breakToken.span.begin, semicolon.span.end});
+  }
+
   auto BlockParser::parseIfStatement() -> StatementPtr
   {
     const Token ifToken = consume();
@@ -259,7 +304,8 @@ namespace NG::syntax
         end = nestedIf->span.end;
         std::vector<StatementPtr> statements;
         statements.push_back(std::move(nestedIf));
-        alternative = std::make_unique<Block>(SourceSpan{statements.front()->span.begin, end}, std::move(statements), nullptr);
+        alternative =
+            std::make_unique<Block>(SourceSpan{statements.front()->span.begin, end}, std::move(statements), nullptr);
       }
       else
       {
@@ -291,7 +337,8 @@ namespace NG::syntax
         end = nestedConstIf->span.end;
         std::vector<StatementPtr> statements;
         statements.push_back(std::move(nestedConstIf));
-        alternative = std::make_unique<Block>(SourceSpan{statements.front()->span.begin, end}, std::move(statements), nullptr);
+        alternative =
+            std::make_unique<Block>(SourceSpan{statements.front()->span.begin, end}, std::move(statements), nullptr);
       }
       else
       {
@@ -333,16 +380,19 @@ namespace NG::syntax
         throw ParseError("expected `case` or `otherwise` in switch", current().span);
       }
       const Token caseToken = consume();
-      const auto isLiteralToken = [](TokenKind kind) {
-        return kind == TokenKind::IntegerLiteral || kind == TokenKind::FloatLiteral || kind == TokenKind::StringLiteral ||
-               kind == TokenKind::KeywordTrue || kind == TokenKind::KeywordFalse;
+      const auto isLiteralToken = [](TokenKind kind)
+      {
+        return kind == TokenKind::IntegerLiteral || kind == TokenKind::FloatLiteral ||
+               kind == TokenKind::StringLiteral || kind == TokenKind::KeywordTrue || kind == TokenKind::KeywordFalse;
       };
       if (isLiteralToken(current().kind) || current().kind == TokenKind::Minus)
       {
         // Scalar literal-or patterns: `case 1 | "a" | true | -1 { ... }`.
         std::vector<std::string> texts;
-        const auto stripSuffix = [](std::string text) {
-          for (const auto *suffix : {"i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "f32", "f64"})
+        const auto stripSuffix = [](std::string text)
+        {
+          for (const auto *suffix : {"i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "f32", "f64", "isize",
+                                     "usize"})
           {
             const size_t length = std::char_traits<char>::length(suffix);
             if (text.size() > length && text.ends_with(suffix))
@@ -368,23 +418,60 @@ namespace NG::syntax
             if (!isLiteralToken(current().kind))
               throw ParseError("expected a literal after `|` in case pattern", current().span);
             const Token literal = consume();
-            text = literal.kind == TokenKind::KeywordTrue   ? "true"
+            text = literal.kind == TokenKind::KeywordTrue    ? "true"
                    : literal.kind == TokenKind::KeywordFalse ? "false"
                                                              : stripSuffix(literal.text);
           }
           texts.push_back(std::move(text));
-          if (current().kind != TokenKind::Pipe) break;
+          if (current().kind != TokenKind::Pipe)
+            break;
           static_cast<void>(consume());
         } while (true);
         Block body = parseNestedBlock();
-        cases.push_back(SwitchCase{SwitchCasePattern::literals(std::move(texts),
-                                                               SourceSpan{caseToken.span.begin, body.span.end}),
+        cases.push_back(
+            SwitchCase{SwitchCasePattern::literals(std::move(texts), SourceSpan{caseToken.span.begin, body.span.end}),
+                       std::move(body)});
+        continue;
+      }
+      if (current().kind == TokenKind::LeftParen)
+      {
+        // INC-23 type pattern `case (x: i64)` vs INC-33 tuple pattern `case (a, b)`.
+        static_cast<void>(consume());
+        if (current().kind != TokenKind::Identifier)
+          throw ParseError("expected a binding name in type or tuple pattern", current().span);
+        const std::string bindingName = consume().text;
+        if (current().kind == TokenKind::Colon)
+        {
+          static_cast<void>(consume());
+          TypeSyntaxPtr memberType = parseTypeUntil(TokenKind::RightParen);
+          expect(TokenKind::RightParen, "expected `)` after type pattern");
+          Block body = parseNestedBlock();
+          cases.push_back(SwitchCase{SwitchCasePattern::typePattern(bindingName, std::move(memberType),
+                                                                    SourceSpan{caseToken.span.begin, body.span.end}),
+                                     std::move(body)});
+          continue;
+        }
+        std::vector<std::string> extraBindings;
+        while (current().kind == TokenKind::Comma)
+        {
+          static_cast<void>(consume());
+          if (current().kind != TokenKind::Identifier)
+            throw ParseError("expected a binding name after `,` in tuple pattern", current().span);
+          extraBindings.push_back(consume().text);
+        }
+        if (extraBindings.empty())
+          throw ParseError("expected `:` after binding name in type pattern", current().span);
+        expect(TokenKind::RightParen, "expected `)` after tuple pattern");
+        Block body = parseNestedBlock();
+        cases.push_back(SwitchCase{SwitchCasePattern::tuplePattern(bindingName, std::move(extraBindings),
+                                                                   SourceSpan{caseToken.span.begin, body.span.end}),
                                    std::move(body)});
         continue;
       }
       if (current().kind != TokenKind::Identifier)
       {
-        throw ParseError("expected a variant name or literal after `case`", current().span);
+        throw ParseError("expected a variant name, type pattern, tuple pattern, or literal after `case`",
+                         current().span);
       }
       const Token variant = consume();
       std::optional<std::string> bindingName;
@@ -465,7 +552,7 @@ namespace NG::syntax
     while (current().kind != TokenKind::End)
     {
       const TokenKind kind = current().kind;
-      if (parenthesisDepth == 0 && squareDepth == 0 &&
+      if (parenthesisDepth == 0 && squareDepth == 0 && braceDepth == 0 &&
           std::find(terminators.begin(), terminators.end(), kind) != terminators.end())
       {
         break;
@@ -519,18 +606,23 @@ namespace NG::syntax
     size_t angleDepth{};
     while (current().kind != TokenKind::End)
     {
-      if (current().kind == TokenKind::Less) ++angleDepth;
-      else if (current().kind == TokenKind::Greater && angleDepth != 0) --angleDepth;
+      if (current().kind == TokenKind::Less)
+        ++angleDepth;
+      else if (current().kind == TokenKind::Greater && angleDepth != 0)
+        --angleDepth;
       else if (current().kind == TokenKind::ShiftRight)
       {
         const Token token = consume();
         const size_t middle = token.span.begin + 1;
-        typeTokens.push_back(Token{.kind = TokenKind::Greater, .text = ">", .span = SourceSpan{token.span.begin, middle}});
-        typeTokens.push_back(Token{.kind = TokenKind::Greater, .text = ">", .span = SourceSpan{middle, token.span.end}});
+        typeTokens.push_back(
+            Token{.kind = TokenKind::Greater, .text = ">", .span = SourceSpan{token.span.begin, middle}});
+        typeTokens.push_back(
+            Token{.kind = TokenKind::Greater, .text = ">", .span = SourceSpan{middle, token.span.end}});
         angleDepth = angleDepth > 2 ? angleDepth - 2 : 0;
         continue;
       }
-      if (angleDepth == 0 && current().kind == terminator) break;
+      if (angleDepth == 0 && current().kind == terminator)
+        break;
       typeTokens.push_back(consume());
     }
     const size_t position = typeTokens.empty() ? current().span.begin : typeTokens.back().span.end;
@@ -545,11 +637,16 @@ namespace NG::syntax
     for (size_t index = cursor_; index < tokens_.size(); ++index)
     {
       const auto kind = tokens_[index].kind;
-      if (kind == TokenKind::LeftParen) ++parenthesisDepth;
-      else if (kind == TokenKind::RightParen && parenthesisDepth != 0) --parenthesisDepth;
-      else if (kind == TokenKind::LeftSquare) ++squareDepth;
-      else if (kind == TokenKind::RightSquare && squareDepth != 0) --squareDepth;
-      else if (parenthesisDepth == 0 && squareDepth == 0 && kind == TokenKind::Assign) return true;
+      if (kind == TokenKind::LeftParen)
+        ++parenthesisDepth;
+      else if (kind == TokenKind::RightParen && parenthesisDepth != 0)
+        --parenthesisDepth;
+      else if (kind == TokenKind::LeftSquare)
+        ++squareDepth;
+      else if (kind == TokenKind::RightSquare && squareDepth != 0)
+        --squareDepth;
+      else if (parenthesisDepth == 0 && squareDepth == 0 && kind == TokenKind::Assign)
+        return true;
       if (parenthesisDepth == 0 && squareDepth == 0 &&
           (kind == TokenKind::Semicolon || kind == TokenKind::RightBrace || kind == TokenKind::End))
         return false;

@@ -1,0 +1,32 @@
+// vNext explicit numeric conversions (INC-6 / DEC-A): implicit mixed
+// comparisons are compile errors; convert explicitly with toFloat/toSigned.
+import prelude;
+
+fun main() -> unit {
+    let big: u64 = 18446744073709551615;
+    let threshold: i64 = -100;
+
+    // toSigned reinterprets a u64 bit pattern as i64, so full-range
+    // unsigned values can feed signed comparisons explicitly.
+    print(toSigned(big) < threshold);
+    print(toSigned(42) == 42);
+
+    // toFloat widens either integer sign class into f64.
+    let ratio = toFloat(big) / 18446744073709551616.0;
+    print(ratio > 0.99 && ratio <= 1.0);
+
+    // Unsuffixed literals adopt the float side of a comparison (DEC-A).
+    let scale: f64 = 2.5;
+    print(scale == 2.5);
+    print(scale > 2);
+
+    // Same-sign cross-width integer comparisons stay legal.
+    let narrow: i32 = -3;
+    let wide: i64 = 5;
+    print(narrow < wide);
+
+    // Compile errors under DEC-A (uncomment to verify):
+    //   let a: i64 = 1; let b: u64 = 2;
+    //   if (a == b) { }          // implicit mixed-sign comparison
+    //   if (a < 2.5f64) { }      // implicit mixed numeric-kind comparison
+}
