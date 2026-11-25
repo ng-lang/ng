@@ -43,13 +43,13 @@ namespace NG::native
     /// The NG body keeps its normal i64/f64 slots and mangled symbol; the
     /// wrapper translates the C ABI boundary (sub-word extension, f32
     /// widening/narrowing) and forwards to it.
-    [[nodiscard]] auto emitCExportWrapper(const Function &function) -> std::string
+    [[nodiscard]] auto emitCAbiThunk(const Function &function, const std::string &symbol, bool exported) -> std::string
     {
       const auto &declared = function.declaredResultType.value_or(typecheck::builtin::Unit);
       const bool unitResult = declared == typecheck::builtin::Unit;
       const std::string resultSuffix = unitResult ? "" : cAbiSuffix(declared);
-      std::string out = std::format("export function{} ${}(", resultSuffix.empty() ? "" : " " + resultSuffix,
-                                    function.name);
+      std::string out = std::format("{}function{} ${}(", exported ? "export " : "",
+                                    resultSuffix.empty() ? "" : " " + resultSuffix, symbol);
       std::vector<std::string> forwarded;
       std::vector<std::string> conversions;
       size_t temporary = 0;
@@ -108,6 +108,8 @@ namespace NG::native
           out += "\t%rc =s truncd %r\n\tret %rc\n";
         else if (resultSuffix == "d")
           out += "\t%rd =d copy %r\n\tret %rd\n";
+        else if (resultSuffix != "l")
+          out += std::format("\t%rc ={} copy %r\n\tret %rc\n", resultSuffix);
         else
           out += "\tret %r\n";
       }
@@ -220,6 +222,22 @@ namespace NG::native
       }
       result += " }\n";
     }
+    // INC-29: generate C ABI thunks for functions used as callbacks. Their
+    // C-visible signature uses the callee's own ABI-safe scalar types (the
+    // checker requires an exact signature match with the callback type).
+    std::set<uint32_t> callbackDefIds;
+    for (const auto &function : functions)
+      for (const auto &block : function.blocks)
+        for (const auto &instruction : block.instructions)
+          if (instruction.kind == InstructionKind::Evaluate && instruction.text == "callback")
+            callbackDefIds.insert(static_cast<uint32_t>(instruction.payload));
+    for (const auto defId : callbackDefIds)
+    {
+      const auto found = std::find_if(functions.begin(), functions.end(),
+                                      [&](const Function &candidate) { return candidate.source.value == defId; });
+      if (found != functions.end())
+        result += emitCAbiThunk(*found, std::format("cb{}", defId), false);
+    }
     for (const auto &function : functions)
     {
       if (function.nativeFunction || (function.externC && !function.cExport))
@@ -228,7 +246,7 @@ namespace NG::native
       {
         result += FunctionLowerer{function, names, ngrt}.run();
       if (function.cExport)
-        result += emitCExportWrapper(function);
+        result += emitCAbiThunk(function, function.name, true);
       }
       catch (const LoweringError &)
       {

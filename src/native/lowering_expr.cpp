@@ -591,6 +591,17 @@ namespace NG::native::detail
     }
     case ExpressionKind::ResolvedName:
     {
+      // INC-29: a function name used as a C callback is the address of the
+      // generated C ABI thunk (word-sized function pointer).
+      if (instruction.text == "callback")
+      {
+        const auto defId = hir::DefId{static_cast<uint32_t>(static_cast<uint64_t>(payload))};
+        const auto found = names_.find(defId.value);
+        if (found == names_.end())
+          throw LoweringError("native lowering: callback target has no symbol");
+        bindResult(instruction, QType::Long, std::format("copy $cb{}", defId.value));
+        return;
+      }
       const uint32_t local = static_cast<uint32_t>(payload);
       const auto type = localQType(local);
       if (ssaLocals_.contains(local))

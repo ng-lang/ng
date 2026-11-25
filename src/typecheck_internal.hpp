@@ -574,6 +574,7 @@ namespace NG::typecheck::detail
     std::unordered_map<uint32_t, FunctionType> functionTypes_;
     std::unordered_map<uint32_t, FunctionTypeIds> functionTypeIds_;
     std::unordered_map<const hir::Expression *, hir::DefId> callTargets_;
+    std::unordered_map<const hir::Expression *, hir::DefId> callbackTargets_;
     std::unordered_map<const hir::Statement *, bool> constIfSelections_;
     const hir::Module *module_{};
     std::unordered_map<std::string, std::vector<ConstDeclChecked>> constDeclarations_;
@@ -599,6 +600,8 @@ namespace NG::typecheck::detail
     std::unordered_set<uint32_t> derivedEqTypes_;
     /// INC-24 (DEC-E): types whose field-wise total order is synthesized.
     std::unordered_set<uint32_t> derivedOrdTypes_;
+    /// INC-29: closure TypeIds used as C callback parameters.
+    std::unordered_set<uint32_t> callbackTypes_;
     std::unordered_set<uint32_t> derivedShowTypes_;
     /// Types that derive Copy: pass-by-value / move of these does not consume
     /// the binding (Copy semantics, D-002 rule 1). INC-17 M2b surfaced that

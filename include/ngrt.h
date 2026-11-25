@@ -153,6 +153,9 @@ int64_t ngrt_fixture_call_exported_add(int64_t a, int64_t b);
 // INC-29: C varargs fixture; first argument is the count of trailing i64s.
 int64_t ngrt_fixture_variadic(int64_t count, ...);
 
+// INC-29: invokes a C callback pointer once with `value`.
+int64_t ngrt_fixture_apply_callback(int64_t (*cb)(int64_t), int64_t value);
+
 #ifdef __cplusplus
 }
 #endif

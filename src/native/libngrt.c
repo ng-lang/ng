@@ -1097,6 +1097,11 @@ int64_t ngrt_fixture_call_exported_add(int64_t a, int64_t b)
   return ngrt_fixture_exported_add(a, b);
 }
 
+int64_t ngrt_fixture_apply_callback(int64_t (*cb)(int64_t), int64_t value)
+{
+  return cb(value);
+}
+
 int64_t ngrt_fixture_variadic(int64_t count, ...)
 {
   va_list ap;

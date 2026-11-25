@@ -177,7 +177,18 @@ namespace NG::typecheck::detail
     const auto argumentType = [&](size_t index) -> TypeId
     {
       if (!argumentTypes[index].has_value())
-        argumentTypes[index] = infer(*call.operands[index + 1], locals);
+      {
+        const auto &argument = *call.operands[index + 1];
+        if (argument.kind == hir::ExpressionKind::ResolvedName && argument.resolvedName.has_value() &&
+            argument.resolvedName->kind == hir::ResolvedNameKind::Function)
+        {
+          // A bare function name is typed by the expected callback signature
+          // in the later inferExpected pass; it is not a value here.
+          argumentTypes[index] = TypeId{};
+          return *argumentTypes[index];
+        }
+        argumentTypes[index] = infer(argument, locals);
+      }
       return *argumentTypes[index];
     };
     // INC-28: `isize`/`usize` share the i64/u64 slot layout. When no candidate
@@ -283,7 +294,9 @@ namespace NG::typecheck::detail
         // literal `[]` is the same shape: the parameter type supplies its
         // element type, so it is checked by the later inferExpected pass.
         const bool deferred = argument.kind == hir::ExpressionKind::Closure || isGenericEnumLiteral(argument) ||
-                              (argument.kind == hir::ExpressionKind::ArrayLiteral && argument.operands.empty());
+                              (argument.kind == hir::ExpressionKind::ArrayLiteral && argument.operands.empty()) ||
+                              (argument.kind == hir::ExpressionKind::ResolvedName && argument.resolvedName.has_value() &&
+                               argument.resolvedName->kind == hir::ResolvedNameKind::Function);
         info.expandedTypes.push_back(deferred ? TypeId{} : infer(argument, locals));
         info.spreadSlot.push_back(false);
         info.argumentExpressions.push_back(&argument);

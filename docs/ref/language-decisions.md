@@ -59,6 +59,15 @@
 - Ownership annotations are `owning`, `borrowed`, `shared`.
 - Nullable foreign handles use `T?`.
 
+> Verified (INC-29 step 3c): a `|T...| -> R` closure type in an
+> `extern "C"` signature is a C function pointer. Callback values must be
+> **named, non-capturing functions** whose signature matches exactly; closure
+> literals and closure-valued locals are rejected (there is no userdata /
+> trampoline convention yet). Each callback function gets an internal C ABI
+> thunk that widens parameters to NG slots and narrows the result; the value
+> passed to C is that thunk's address. Callback parameter/result types must be
+> ABI-safe scalars.
+
 > Verified (INC-29 step 3b): an `extern "C"` signature may end in `...`,
 > making the call C-variadic. `...` is restricted to `extern "C"` declarations
 > with at least one fixed parameter; it is rejected on `native fun`, regular

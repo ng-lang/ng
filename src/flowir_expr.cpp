@@ -153,6 +153,15 @@ namespace NG::flowir::detail
     const bool directCall = isDirectCall(expression);
     std::vector<ValueId> operands = lowerOperands(expression, directCall);
     int64_t payload = evaluatePayload(expression, operands);
+    // INC-29: a bare function name adopted as a C callback carries the
+    // selected function's DefId; there is no local slot to read.
+    if (expression.kind == hir::ExpressionKind::ResolvedName && expression.resolvedName.has_value() &&
+        expression.resolvedName->kind == hir::ResolvedNameKind::Function)
+    {
+      const auto found = types_.callbackTargets.find(&expression);
+      if (found != types_.callbackTargets.end())
+        payload = found->second.value;
+    }
 
     std::optional<hir::DefId> callTarget;
     if (directCall)
@@ -168,9 +177,15 @@ namespace NG::flowir::detail
           inPlace != types_.inPlaceMutationCalls.end())
         payload = inPlace->second ? 1 : 0;
 
+    const std::string emitText =
+        expression.kind == hir::ExpressionKind::ResolvedName && expression.resolvedName.has_value() &&
+                expression.resolvedName->kind == hir::ResolvedNameKind::Function &&
+                types_.callbackTargets.contains(&expression)
+            ? std::string{"callback"}
+            : expression.text;
     return emit(Instruction{.kind = InstructionKind::Evaluate,
                             .expressionKind = expression.kind,
-                            .text = expression.text,
+                            .text = emitText,
                             .payload = payload,
                             .callTarget = callTarget,
                             .operands = std::move(operands)},

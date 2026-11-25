@@ -16,8 +16,20 @@ namespace NG::typecheck::detail
       record(expression, expected);
       return expected;
     };
+    // INC-29: C callback types accept only bare function names — closures
+    // cannot capture state across the C ABI without a userdata convention.
+    if (callbackTypes_.contains(expected.value))
+    {
+      const bool namedFunction = expression.kind == hir::ExpressionKind::ResolvedName &&
+                                 expression.resolvedName.has_value() &&
+                                 expression.resolvedName->kind == hir::ResolvedNameKind::Function;
+      if (!namedFunction)
+        throw TypeError("a C callback must be a named function; closures cannot capture state across the C ABI",
+                        expression.span);
+    }
     // A union-typed local narrows to the expected member type.
-    if (descriptor.kind != TypeKind::Union && expression.kind == hir::ExpressionKind::ResolvedName)
+    if (descriptor.kind != TypeKind::Union && expression.kind == hir::ExpressionKind::ResolvedName &&
+        expression.resolvedName.has_value() && expression.resolvedName->kind != hir::ResolvedNameKind::Function)
     {
       const auto &value = interner_.descriptor(infer(expression, locals));
       if (value.kind == TypeKind::Union && std::ranges::find(value.elements, expected) != value.elements.end())
@@ -27,6 +39,37 @@ namespace NG::typecheck::detail
       return inferExpectedUnion(expression, expected, locals);
     if (descriptor.kind == TypeKind::TraitReference)
       return inferExpectedTraitView(expression, expected, locals, context);
+    if (descriptor.kind == TypeKind::Closure && expression.kind == hir::ExpressionKind::ResolvedName &&
+        expression.resolvedName.has_value() && expression.resolvedName->kind == hir::ResolvedNameKind::Function)
+    {
+      const auto &closure = interner_.descriptor(expected);
+      std::optional<hir::DefId> chosen;
+      for (const auto candidate : expression.functionCandidates)
+      {
+        const auto found = signatures_.find(candidate.value);
+        if (found == signatures_.end())
+          continue;
+        const auto &signature = found->second;
+        if (signature.parameters.size() != closure.elements.size() || signature.returnType != closure.element ||
+            !signature.genericParameters.empty() || !signature.packParameters.empty())
+          continue;
+        bool matches = true;
+        for (size_t index = 0; index < signature.parameters.size(); ++index)
+          if (signature.parameters[index] != closure.elements[index])
+            matches = false;
+        if (!matches)
+          continue;
+        if (chosen.has_value() && *chosen != candidate)
+          throw TypeError("ambiguous callback function", expression.span);
+        chosen = candidate;
+      }
+      if (!chosen.has_value())
+        throw TypeError(std::format("no function matches callback signature {}", interner_.display(expected)),
+                        expression.span);
+      callbackTargets_.insert_or_assign(&expression, *chosen);
+      record(expression, expected);
+      return expected;
+    }
 
     switch (expression.kind)
     {

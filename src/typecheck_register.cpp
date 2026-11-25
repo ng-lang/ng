@@ -308,12 +308,13 @@ auto Checker::check(const hir::Module &module, const const_eval::ConstNativeHost
     // friends), whose model bodies cannot reference a lowered closure.
     if (isGeneric(signature))
       placeholderFunctions_.insert(function.id.value);
-    for (const auto &parameter : signature.parameters)
-      if (interner_.descriptor(parameter).kind == TypeKind::Closure)
-      {
-        placeholderFunctions_.insert(function.id.value);
-        break;
-      }
+    if (!function.externC)
+      for (const auto &parameter : signature.parameters)
+        if (interner_.descriptor(parameter).kind == TypeKind::Closure)
+        {
+          placeholderFunctions_.insert(function.id.value);
+          break;
+        }
   }
   for (const auto &declaration : module.consts)
     checkConstDeclaration(declaration);
@@ -343,6 +344,7 @@ auto Checker::check(const hir::Module &module, const const_eval::ConstNativeHost
                           .functionTypes = std::move(functionTypes_),
                           .functionTypeIds = std::move(functionTypeIds_),
                           .callTargets = std::move(callTargets_),
+                          .callbackTargets = std::move(callbackTargets_),
                           .callCaptures = std::move(callCaptures_),
                           .callPackArgCounts = std::move(callPackArgCounts_),
                           .callPackTupleTypes = std::move(callPackTupleTypes_),
@@ -817,6 +819,17 @@ auto Checker::abiSafetyIssue(TypeId type) const -> std::string
   if (isIntegerBuiltin(type) || type == builtin::F32 || type == builtin::F64 || type == builtin::Bool)
     return {};
   const auto &descriptor = interner_.descriptor(type);
+  // INC-29: a closure type in a C signature is a C function pointer; its
+  // parameter and result types must themselves be ABI-safe scalars.
+  if (descriptor.kind == TypeKind::Closure)
+  {
+    if (const auto resultIssue = abiSafetyIssue(descriptor.element); !resultIssue.empty())
+      return std::format("callback result {}", resultIssue);
+    for (const auto parameter : descriptor.elements)
+      if (const auto parameterIssue = abiSafetyIssue(parameter); !parameterIssue.empty())
+        return std::format("callback parameter {}", parameterIssue);
+    return {};
+  }
   // D-004: `T?` occupies the same slot as its handle type; a nullable native
   // handle crosses the C ABI as a null pointer / zero word.
   if (descriptor.kind == TypeKind::Nullable)
@@ -856,6 +869,8 @@ void Checker::validateExternSignature(const hir::Function &function, const Funct
       throw TypeError(std::format("extern \"C\" function `{}`: parameter `{}`: {}", function.name,
                                   function.parameters[index].name, issue),
                       function.parameters[index].span);
+    if (interner_.descriptor(signature.parameters[index]).kind == TypeKind::Closure)
+      callbackTypes_.insert(signature.parameters[index].value);
     // INC-29: export wrappers currently translate scalar boundaries only;
     // aggregate by-value crossing is deferred (the C layout wrapper is a
     // separate slice).

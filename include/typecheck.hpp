@@ -373,6 +373,8 @@ namespace NG::typecheck
     std::unordered_map<uint32_t, FunctionType> functionTypes;
     std::unordered_map<uint32_t, FunctionTypeIds> functionTypeIds;
     std::unordered_map<const hir::Expression *, hir::DefId> callTargets;
+    /// INC-29: a bare function name used as a C callback -> its DefId.
+    std::unordered_map<const hir::Expression *, hir::DefId> callbackTargets;
     /// Closure-typed call sites that must prepend capture values as
     /// leading operands; maps call expression -> captured enclosing local IDs
     /// (INC-14 S3).
