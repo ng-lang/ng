@@ -48,6 +48,10 @@ namespace NG::typecheck
     inline static Map<Str, Vec<FunctionDef *>> activeConstFunctions{};
     inline static Map<Str, Vec<FunctionDef *>> preludeConstFunctions{};
     inline static Set<Str> activeAutoTraits{};
+    
+    // Built-in type generic definitions (set during module registration)
+    inline static GenericTypeDef *builtinResultGenericDef = nullptr;
+    inline static GenericTypeDef *builtinOptionGenericDef = nullptr;
     inline static Set<Str> preludeAutoTraits{};
     inline static Set<Str> activeDerivedTraitImplKeys{};
     inline static Vec<ASTRef<ASTNode>> retainedPreludeImportAsts{};
@@ -2154,6 +2158,28 @@ namespace NG::typecheck
       }
       case GenericTypeKind::TAGGED_UNION:
       {
+        // Check if this is a built-in type
+        bool isResult = (&genericDef == builtinResultGenericDef) ||
+                        (genericDef.moduleId == "std.result" && genericDef.name == "Result");
+        bool isOption = (&genericDef == builtinOptionGenericDef) ||
+                        (genericDef.moduleId == "std.option" && genericDef.name == "Option");
+        
+        if (isResult && typeArgs.size() == 2)
+        {
+          // Create built-in ResultType
+          auto resultType = makecheck<ResultType>(typeArgs[0], typeArgs[1]);
+          genericDef.instances[instanceName] = resultType;
+          return resultType;
+        }
+        else if (isOption && typeArgs.size() == 1)
+        {
+          // Create built-in OptionType
+          auto optionType = makecheck<OptionType>(typeArgs[0]);
+          genericDef.instances[instanceName] = optionType;
+          return optionType;
+        }
+        
+        // Default: create TaggedUnionType
         auto unionType = makecheck<TaggedUnionType>(instanceName, genericDef.moduleId);
         genericDef.instances[instanceName] = unionType;
         TypeChecker checker{instLocals};
@@ -2985,6 +3011,15 @@ namespace NG::typecheck
         }
         else if (auto taggedUnion = dynamic_ast_cast<TaggedUnionDef>(def))
         {
+          // Check if this is a built-in type by module path
+          auto isBuiltinType = [&](const Str &moduleName, const Str &typeName) -> bool {
+            return currentModuleId == moduleName && taggedUnion->typeName == typeName;
+          };
+          
+          // Register built-in type aliases for type checker
+          // Result<T, E> = Ok(value: T) | Err(msg: E) -> ResultType
+          // Option<T> = Some(value: T) | None -> OptionType
+          
           if (!taggedUnion->genericParams.empty())
           {
             Vec<Str> typeParamNames;
@@ -3002,6 +3037,16 @@ namespace NG::typecheck
                 genericParamKindVariadicTails(taggedUnion->genericParams);
             locals[taggedUnion->typeName] = genericDef;
             genericDef->capturedLocals = locals;
+            
+            // Mark as built-in type for later instantiation
+            if (isBuiltinType("std.result", "Result"))
+            {
+              builtinResultGenericDef = genericDef.get();
+            }
+            else if (isBuiltinType("std.option", "Option"))
+            {
+              builtinOptionGenericDef = genericDef.get();
+            }
           }
           else
           {
@@ -6333,6 +6378,39 @@ namespace NG::typecheck
       // Already registered in Module first pass
     }
 
+    void visit(TaggedValueExpression *taggedVal) override
+    {
+      // Find the tagged union type that contains this variant
+      auto variantInfo = findTaggedVariant(locals, taggedVal->variantName);
+      
+      if (!variantInfo.has_value())
+      {
+        throw TypeCheckingException("Unknown variant: " + taggedVal->variantName, taggedVal->pos);
+      }
+      
+      // Type-check payload expressions
+      Vec<CheckingRef<TypeInfo>> payloadTypes;
+      for (auto &expr : taggedVal->payload)
+      {
+        TypeChecker checker{locals, {}, nullptr, movedBindings, allowMovedLvalueRead,
+                            activeGenericInstanceName};
+        expr->accept(&checker);
+        payloadTypes.push_back(checker.result);
+      }
+      
+      // Find variant index
+      int32_t variantIndex = 0;
+      for (auto &[name, _] : variantInfo->unionType->variants)
+      {
+        if (name == taggedVal->variantName) break;
+        variantIndex++;
+      }
+      
+      result = makecheck<VariantType>(
+          variantInfo->unionType->name, taggedVal->variantName, variantIndex,
+          payloadTypes, variantInfo->payloadNames, variantInfo->unionType->moduleId);
+    }
+
     void visit(SwitchStatement *switchStmt) override
     {
       TypeChecker checker{locals, {}, nullptr, movedBindings};
@@ -6435,7 +6513,201 @@ namespace NG::typecheck
       }
 
       movedBindings = std::move(mergedMovedBindings);
-      result = makecheck<Untyped>();
+      
+      // Check if this is a switch expression (all cases have values)
+      bool isExpression = false;
+      if (!switchStmt->cases.empty())
+      {
+        isExpression = true;
+        for (auto &c : switchStmt->cases)
+        {
+          if (!c.value)
+          {
+            isExpression = false;
+            break;
+          }
+        }
+      }
+      
+      // For switch expressions, determine the result type from case values
+      if (isExpression && !switchStmt->cases.empty())
+      {
+        // All case values must have the same type
+        CheckingRef<TypeInfo> exprType = nullptr;
+        for (auto &c : switchStmt->cases)
+        {
+          if (c.value)
+          {
+            TypeChecker valueChecker{locals, {}, nullptr, movedBindings, allowMovedLvalueRead,
+                                     activeGenericInstanceName};
+            c.value->accept(&valueChecker);
+            if (!exprType)
+            {
+              exprType = valueChecker.result;
+            }
+            else if (!typeMatches(*exprType, *valueChecker.result))
+            {
+              throw TypeCheckingException(
+                  "Switch expression cases must all return the same type",
+                  c.value->pos);
+            }
+          }
+        }
+        result = exprType ? exprType : makecheck<Untyped>();
+      }
+      else
+      {
+        result = makecheck<Untyped>();
+      }
+    }
+
+    void visit(SwitchExpression *switchExpr) override
+    {
+      // Type-check scrutinee
+      TypeChecker checker{locals, {}, nullptr, movedBindings, allowMovedLvalueRead,
+                          activeGenericInstanceName};
+      switchExpr->scrutinee->accept(&checker);
+      
+      // Type-check each case value and find the result type
+      CheckingRef<TypeInfo> exprType = nullptr;
+      for (auto &c : switchExpr->cases)
+      {
+        if (c.value)
+        {
+          TypeChecker valueChecker{locals, {}, nullptr, movedBindings, allowMovedLvalueRead,
+                                   activeGenericInstanceName};
+          c.value->accept(&valueChecker);
+          if (!exprType)
+          {
+            exprType = valueChecker.result;
+          }
+          else if (!typeMatches(*exprType, *valueChecker.result))
+          {
+            throw TypeCheckingException(
+                "Switch expression cases must all return the same type",
+                c.value->pos);
+          }
+        }
+      }
+      result = exprType ? exprType : makecheck<Untyped>();
+    }
+
+    void visit(ErrorPropagationExpression *errorProp) override
+    {
+      TypeChecker checker{locals, {}, nullptr, movedBindings, allowMovedLvalueRead,
+                          activeGenericInstanceName};
+      errorProp->expr->accept(&checker);
+      auto exprType = checker.result;
+      
+      if (!exprType)
+      {
+        throw TypeCheckingException("Cannot determine type of expression for error propagation", errorProp->pos);
+      }
+      
+      // Check if exprType is Result<T, E> or Option<T>
+      if (exprType->tag() == typeinfo_tag::RESULT)
+      {
+        auto *resultType = dynamic_cast<ResultType *>(&(*exprType));
+        result = resultType->okType;
+      }
+      else if (exprType->tag() == typeinfo_tag::OPTION)
+      {
+        auto *optionType = dynamic_cast<OptionType *>(&(*exprType));
+        result = optionType->someType;
+      }
+      else
+      {
+        throw TypeCheckingException(
+            "? operator can only be used on Result or Option types",
+            errorProp->pos);
+      }
+    }
+
+    void visit(LambdaExpression *lambda) override
+    {
+      // Create a new scope for the lambda
+      Map<Str, CheckingRef<TypeInfo>> lambdaLocals = locals;
+      
+      // Add captured variables to the lambda scope
+      for (auto &capture : lambda->captures)
+      {
+        if (locals.contains(capture.name))
+        {
+          lambdaLocals[capture.name] = locals[capture.name];
+        }
+        else
+        {
+          throw TypeCheckingException(
+              "Undefined variable '" + capture.name + "' in capture list",
+              lambda->pos);
+        }
+      }
+      
+      // Handle [&] capture all
+      if (lambda->captureAllByRef)
+      {
+        // Capture all local variables by reference
+        for (auto &[name, type] : locals)
+        {
+          lambdaLocals[name] = type;
+        }
+      }
+      
+      // Type-check parameters
+      Vec<CheckingRef<TypeInfo>> paramTypes;
+      for (auto &param : lambda->params)
+      {
+        if (param->annotatedType)
+        {
+          TypeChecker paramChecker{lambdaLocals};
+          param->annotatedType->accept(&paramChecker);
+          paramTypes.push_back(paramChecker.result);
+          lambdaLocals[param->paramName] = paramChecker.result;
+        }
+        else
+        {
+          // Parameter type will be inferred from context
+          paramTypes.push_back(makecheck<Untyped>());
+        }
+      }
+      
+      // Type-check return type
+      CheckingRef<TypeInfo> returnType = makecheck<Untyped>();
+      if (lambda->returnType)
+      {
+        TypeChecker returnChecker{lambdaLocals};
+        lambda->returnType->accept(&returnChecker);
+        returnType = returnChecker.result;
+      }
+      
+      // Type-check body
+      if (lambda->exprBody)
+      {
+        TypeChecker bodyChecker{lambdaLocals, {}, nullptr, movedBindings, allowMovedLvalueRead,
+                                activeGenericInstanceName};
+        lambda->exprBody->accept(&bodyChecker);
+        
+        // If return type is specified, check that body type matches
+        if (lambda->returnType && !typeMatches(*returnType, *bodyChecker.result))
+        {
+          throw TypeCheckingException(
+              "Lambda body type does not match declared return type",
+              lambda->exprBody->pos);
+        }
+        
+        returnType = bodyChecker.result;
+      }
+      else if (lambda->blockBody)
+      {
+        TypeChecker bodyChecker{lambdaLocals, {}, nullptr, movedBindings, allowMovedLvalueRead,
+                                activeGenericInstanceName};
+        lambda->blockBody->accept(&bodyChecker);
+        
+        // TODO: Check return type from block body
+      }
+      
+      // Create function type
+      result = makecheck<FunctionType>(returnType, paramTypes);
     }
 
     // ── Function call resolution ────────────────────────────────────────
@@ -6562,6 +6834,31 @@ namespace NG::typecheck
                 }
               }
 
+              // Handle built-in Result and Option types
+              if (expectedType->tag() == typeinfo_tag::RESULT && genericType->name == "Result")
+              {
+                // Create a temporary TaggedUnionType for Result
+                // This is a bit hacky but works for now
+                static TaggedUnionType tempResultType("Result", "std.result");
+                tempResultType.variants = {{"Ok", {}}, {"Err", {}}};
+                if (auto *resultType = dynamic_cast<ResultType *>(&(*expectedType)))
+                {
+                  tempResultType.variants["Ok"] = {resultType->okType};
+                  tempResultType.variants["Err"] = {resultType->errType};
+                }
+                return &tempResultType;
+              }
+              if (expectedType->tag() == typeinfo_tag::OPTION && genericType->name == "Option")
+              {
+                static TaggedUnionType tempOptionType("Option", "std.option");
+                tempOptionType.variants = {{"Some", {}}, {"None", {}}};
+                if (auto *optionType = dynamic_cast<OptionType *>(&(*expectedType)))
+                {
+                  tempOptionType.variants["Some"] = {optionType->someType};
+                }
+                return &tempOptionType;
+              }
+
               return nullptr;
             };
 
@@ -6684,25 +6981,47 @@ namespace NG::typecheck
               auto inferredArgs = inferFromVariant(expectedPayloadTypes, argumentTypes);
               if (!inferredArgs.has_value())
               {
-                if (funCall->arguments.empty())
+                // Try to use expected type information
+                if (auto *expectedUnion = resolveExpectedUnion(); expectedUnion && expectedUnion->variants.contains(idExpr->id))
                 {
-                  if (auto *expectedUnion = resolveExpectedUnion(); expectedUnion && expectedUnion->variants.contains(idExpr->id))
+                  Vec<Str> payloadNames;
+                  if (expectedUnion->variantPayloadNames.contains(idExpr->id))
                   {
-                    Vec<Str> payloadNames;
-                    if (expectedUnion->variantPayloadNames.contains(idExpr->id))
+                    payloadNames = expectedUnion->variantPayloadNames[idExpr->id];
+                  }
+                  
+                  // Check if payload types match
+                  auto &expectedPayloads = expectedUnion->variants[idExpr->id];
+                  if (expectedPayloads.size() == argumentTypes.size())
+                  {
+                    bool allMatch = true;
+                    for (size_t i = 0; i < expectedPayloads.size(); ++i)
                     {
-                      payloadNames = expectedUnion->variantPayloadNames[idExpr->id];
+                      if (!typeMatch(*expectedPayloads[i], *argumentTypes[i]))
+                      {
+                        allMatch = false;
+                        break;
+                      }
                     }
-                    if (!expectedUnion->variants[idExpr->id].empty() || !payloadNames.empty())
+                    if (allMatch)
                     {
-                      continue;
+                      result = makecheck<VariantType>(expectedUnion->name, idExpr->id, 0,
+                                                      expectedPayloads, payloadNames,
+                                                      expectedUnion->moduleId);
+                      return;
                     }
-                    result = makecheck<VariantType>(expectedUnion->name, idExpr->id, 0,
-                                                    expectedUnion->variants[idExpr->id], payloadNames,
-                                                    expectedUnion->moduleId);
-                    return;
                   }
                 }
+                
+                // If no expected type, try to create a generic variant
+                if (funCall->arguments.size() == 1)
+                {
+                  // For single-argument variants like Ok(42), create a variant with inferred type
+                  result = makecheck<VariantType>(genericType->name, idExpr->id, 0, argumentTypes, 
+                                                  Vec<Str>{}, genericType->moduleId);
+                  return;
+                }
+                
                 throw TypeCheckingException("Payload type mismatch for variant " + idExpr->id, funCall->pos);
               }
 

@@ -301,6 +301,9 @@ namespace NG::ast
         virtual void visit(TaggedUnionDef *taggedUnionDef) = 0;
         virtual void visit(TaggedValueExpression *taggedVal) = 0;
         virtual void visit(SwitchStatement *switchStmt) = 0;
+        virtual void visit(SwitchExpression *switchExpr) = 0;
+        virtual void visit(ErrorPropagationExpression *errorProp) = 0;
+        virtual void visit(LambdaExpression *lambda) = 0;
         virtual void visit(GenericParam *genericParam) = 0;
         virtual void visit(TraitBound *traitBound) = 0;
         virtual void visit(TraitDef *traitDef) = 0;
@@ -430,6 +433,9 @@ namespace NG::ast
         void visit(TaggedUnionDef *taggedUnionDef) override;
         void visit(TaggedValueExpression *taggedVal) override;
         void visit(SwitchStatement *switchStmt) override;
+        void visit(SwitchExpression *switchExpr) override;
+        void visit(ErrorPropagationExpression *errorProp) override;
+        void visit(LambdaExpression *lambda) override;
         void visit(GenericParam *genericParam) override;
         void visit(TraitBound *traitBound) override;
         void visit(TraitDef *traitDef) override;

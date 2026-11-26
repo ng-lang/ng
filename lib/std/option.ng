@@ -1,0 +1,31 @@
+module std.option exports *;
+
+export type Option<T> = Some(value: T) | None;
+
+export fun isSome<T>(opt: Option<T>) -> bool {
+    switch (opt) {
+        case Some(_) { return true; }
+        otherwise { return false; }
+    }
+}
+
+export fun isNone<T>(opt: Option<T>) -> bool {
+    switch (opt) {
+        case None { return true; }
+        otherwise { return false; }
+    }
+}
+
+export fun optionUnwrap<T>(opt: Option<T>) -> T {
+    switch (opt) {
+        case Some(v) { return v; }
+        otherwise { assert(false, "unwrap None"); }
+    }
+}
+
+export fun optionUnwrapOr<T>(opt: Option<T>, fallback: T) -> T {
+    switch (opt) {
+        case Some(v) { return v; }
+        otherwise { return fallback; }
+    }
+}

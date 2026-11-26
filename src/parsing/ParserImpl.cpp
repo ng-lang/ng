@@ -1915,7 +1915,18 @@ namespace NG::parsing
           accept(TokenType::KEYWORD_OTHERWISE);
           CaseClause clause;
           clause.isOtherwise = true;
-          clause.body = compoundStatement();
+          
+          // Check if expression form (otherwise => expr) or statement form (otherwise { body })
+          if (expect(TokenType::DUAL_ARROW))
+          {
+            accept(TokenType::DUAL_ARROW);
+            clause.value = expression();
+          }
+          else
+          {
+            clause.body = compoundStatement();
+          }
+          
           switchStmt->cases.push_back(std::move(clause));
           // otherwise must be last
           break;
@@ -1939,12 +1950,115 @@ namespace NG::parsing
           }
           accept(TokenType::RIGHT_PAREN);
         }
-        clause.body = compoundStatement();
+        
+        // Parse optional when guard
+        if (expect(TokenType::KEYWORD_WHEN))
+        {
+          accept(TokenType::KEYWORD_WHEN);
+          clause.guard = expression();
+        }
+        
+        // Check if expression form (case ... => expr) or statement form (case ... { body })
+        if (expect(TokenType::DUAL_ARROW))
+        {
+          accept(TokenType::DUAL_ARROW);
+          clause.value = expression();
+        }
+        else
+        {
+          clause.body = compoundStatement();
+        }
+        
         switchStmt->cases.push_back(std::move(clause));
       }
 
       accept(TokenType::RIGHT_CURLY);
       return switchStmt;
+    }
+
+    auto switchExpression() -> ASTRef<SwitchExpression>
+    {
+      accept(TokenType::KEYWORD_SWITCH);
+      accept(TokenType::LEFT_PAREN);
+      auto scrutinee = expression();
+      accept(TokenType::RIGHT_PAREN);
+      accept(TokenType::LEFT_CURLY);
+
+      auto switchExpr = createNode<SwitchExpression>();
+      switchExpr->scrutinee = std::move(scrutinee);
+
+      while (expect(TokenType::KEYWORD_CASE) || expect(TokenType::KEYWORD_OTHERWISE))
+      {
+        if (expect(TokenType::KEYWORD_OTHERWISE))
+        {
+          accept(TokenType::KEYWORD_OTHERWISE);
+          CaseClause clause;
+          clause.isOtherwise = true;
+          
+          if (expect(TokenType::DUAL_ARROW))
+          {
+            accept(TokenType::DUAL_ARROW);
+            clause.value = expression();
+            // Optional semicolon after expression
+            if (expect(TokenType::SEMICOLON))
+            {
+              accept(TokenType::SEMICOLON);
+            }
+          }
+          else
+          {
+            clause.body = compoundStatement();
+          }
+          
+          switchExpr->cases.push_back(std::move(clause));
+          break;
+        }
+        accept(TokenType::KEYWORD_CASE);
+        CaseClause clause;
+        if (expect(TokenType::ID) || expect(TokenType::KEYWORD_VAL) || numeric_literal_types.contains(state->type) || expect(TokenType::STRING))
+        {
+          clause.variantName = state->repr;
+          accept(state->type);
+        }
+        
+        if (expect(TokenType::LEFT_PAREN))
+        {
+          accept(TokenType::LEFT_PAREN);
+          while (!expect(TokenType::RIGHT_PAREN))
+          {
+            clause.bindings.push_back(state->repr);
+            accept(TokenType::ID);
+            if (expect(TokenType::COMMA)) accept(TokenType::COMMA);
+          }
+          accept(TokenType::RIGHT_PAREN);
+        }
+        
+        if (expect(TokenType::KEYWORD_WHEN))
+        {
+          accept(TokenType::KEYWORD_WHEN);
+          clause.guard = expression();
+        }
+        
+        if (expect(TokenType::DUAL_ARROW))
+        {
+          accept(TokenType::DUAL_ARROW);
+          clause.value = expression();
+          // Optional semicolon after expression
+          if (expect(TokenType::SEMICOLON))
+          {
+            accept(TokenType::SEMICOLON);
+          }
+        }
+        else
+        {
+          clause.body = compoundStatement();
+        }
+        
+        switchExpr->cases.push_back(std::move(clause));
+      }
+
+      accept(TokenType::RIGHT_CURLY);
+      return switchExpr;
     }
 
     auto compoundStatement() -> ASTRef<CompoundStatement>
@@ -2057,12 +2171,17 @@ namespace NG::parsing
         else if (expect(TokenType::QUERY))
         {
           accept(TokenType::QUERY);
-          if (!expect(TokenType::SPREAD))
+          if (expect(TokenType::SPREAD))
           {
-            unexpected("Filter fold marker expects `?...`");
+            // ?... is postfix fold with filter
+            accept(TokenType::SPREAD);
+            expr = createNode<PostfixFoldExpression>(std::move(expr), true);
           }
-          accept(TokenType::SPREAD);
-          expr = createNode<PostfixFoldExpression>(std::move(expr), true);
+          else
+          {
+            // ? is error propagation
+            expr = createNode<ErrorPropagationExpression>(std::move(expr));
+          }
         }
         else if (expect(TokenType::SPREAD))
         {
@@ -2277,6 +2396,10 @@ namespace NG::parsing
 
     auto primaryExpression() -> ASTRef<Expression>
     {
+      if (expect(TokenType::LEFT_PAREN) && isLambdaWithoutCaptureAhead())
+      {
+        return lambdaWithoutCaptureExpression();
+      }
       if (expect(TokenType::LEFT_PAREN))
       {
         accept(TokenType::LEFT_PAREN);
@@ -2328,6 +2451,10 @@ namespace NG::parsing
       }
       if (expect(TokenType::LEFT_SQUARE))
       {
+        if (isLambdaAhead())
+        {
+          return lambdaExpression();
+        }
         return arrayLiteral();
       }
       if (expect(TokenType::KEYWORD_NEW))
@@ -2357,6 +2484,10 @@ namespace NG::parsing
         auto expr = expression();
         accept(TokenType::RIGHT_PAREN);
         return createNode<TypeOfExpression>(std::move(expr));
+      }
+      if (expect(TokenType::KEYWORD_SWITCH))
+      {
+        return switchExpression();
       }
       if (expect(TokenType::SPREAD))
       {
@@ -2486,6 +2617,260 @@ namespace NG::parsing
       accept(TokenType::RIGHT_SQUARE);
 
       return createNode<ArrayLiteral>(std::move(elements));
+    }
+
+    auto isLambdaAhead() -> bool
+    {
+      // Look ahead to determine if this is a lambda capture list
+      // Lambda syntax: [...] (params) -> type => expr
+      //                [...] (params) -> type { body }
+      //                [...] (params) => expr
+      //                [...] (params) { body }
+      
+      if (!expect(TokenType::LEFT_SQUARE))
+      {
+        return false;
+      }
+      
+      // Skip past the capture list
+      auto save = state;
+      accept(TokenType::LEFT_SQUARE);
+      
+      // Handle [&], [], [&a, b], [a, b]
+      if (expect(TokenType::AMPERSAND))
+      {
+        accept(TokenType::AMPERSAND);
+      }
+      
+      // Skip until ]
+      while (!state.eof() && !expect(TokenType::RIGHT_SQUARE))
+      {
+        accept(state->type);
+      }
+      
+      if (expect(TokenType::RIGHT_SQUARE))
+      {
+        accept(TokenType::RIGHT_SQUARE);
+      }
+      
+      // After ], expect ( for parameter list
+      bool isLambda = expect(TokenType::LEFT_PAREN);
+      
+      // Restore state
+      state = save;
+      
+      return isLambda;
+    }
+
+    auto lambdaExpression() -> ASTRef<LambdaExpression>
+    {
+      auto lambda = createNode<LambdaExpression>();
+      
+      // Parse capture list [...]
+      if (expect(TokenType::LEFT_SQUARE))
+      {
+        accept(TokenType::LEFT_SQUARE);
+        
+        if (expect(TokenType::AMPERSAND))
+        {
+          accept(TokenType::AMPERSAND);
+          if (expect(TokenType::RIGHT_SQUARE))
+          {
+            // [&] capture all by reference
+            lambda->captureAllByRef = true;
+          }
+          else
+          {
+            // [&a, b] mixed capture
+            do
+            {
+              if (expect(TokenType::COMMA))
+              {
+                accept(TokenType::COMMA);
+              }
+              auto name = state->repr;
+              accept(TokenType::ID);
+              lambda->captures.push_back({name, true});
+            } while (expect(TokenType::COMMA));
+          }
+        }
+        else if (expect(TokenType::RIGHT_SQUARE))
+        {
+          // [] capture all by value
+          lambda->captureAllByValue = true;
+        }
+        else
+        {
+          // [a, b] capture by value
+          do
+          {
+            if (expect(TokenType::COMMA))
+            {
+              accept(TokenType::COMMA);
+            }
+            auto name = state->repr;
+            accept(TokenType::ID);
+            lambda->captures.push_back({name, false});
+          } while (expect(TokenType::COMMA));
+        }
+        
+        accept(TokenType::RIGHT_SQUARE);
+      }
+      
+      // Parse parameter list (...)
+      accept(TokenType::LEFT_PAREN);
+      while (!expect(TokenType::RIGHT_PAREN))
+      {
+        auto paramName = state->repr;
+        accept(TokenType::ID);
+        
+        ASTRef<TypeAnnotation> paramType = nullptr;
+        if (expect(TokenType::COLON))
+        {
+          accept(TokenType::COLON);
+          paramType = typeAnnotation();
+        }
+        
+        auto param = makeast<Param>(paramName, std::move(paramType));
+        lambda->params.push_back(std::move(param));
+        
+        if (expect(TokenType::COMMA))
+        {
+          accept(TokenType::COMMA);
+        }
+      }
+      accept(TokenType::RIGHT_PAREN);
+      
+      // Parse return type (optional)
+      if (expect(TokenType::SINGLE_ARROW))
+      {
+        accept(TokenType::SINGLE_ARROW);
+        lambda->returnType = typeAnnotation();
+      }
+      
+      // Parse body
+      if (expect(TokenType::DUAL_ARROW))
+      {
+        // => expr
+        accept(TokenType::DUAL_ARROW);
+        lambda->exprBody = expression();
+      }
+      else if (expect(TokenType::LEFT_CURLY))
+      {
+        // { body }
+        lambda->blockBody = compoundStatement();
+      }
+      else
+      {
+        unexpected("Expected => or { for lambda body");
+      }
+      
+      return lambda;
+    }
+
+    auto isLambdaWithoutCaptureAhead() -> bool
+    {
+      // Look ahead to determine if this is a lambda without capture list
+      // Lambda syntax: (params) -> type => expr
+      //                (params) -> type { body }
+      //                (params) => expr
+      //                (params) { body }
+      
+      if (!expect(TokenType::LEFT_PAREN))
+      {
+        return false;
+      }
+      
+      // Skip past the parameter list
+      auto save = state;
+      accept(TokenType::LEFT_PAREN);
+      
+      // Skip until ) - handle nested parentheses and type annotations
+      int depth = 1;
+      while (!state.eof() && depth > 0)
+      {
+        if (expect(TokenType::LEFT_PAREN))
+        {
+          depth++;
+        }
+        else if (expect(TokenType::RIGHT_PAREN))
+        {
+          depth--;
+        }
+        if (depth > 0)
+        {
+          accept(state->type);
+        }
+      }
+      
+      // Now we should be at )
+      if (expect(TokenType::RIGHT_PAREN))
+      {
+        accept(TokenType::RIGHT_PAREN);
+      }
+      
+      // After ), expect -> or => or { for lambda
+      bool isLambda = expect(TokenType::SINGLE_ARROW) || expect(TokenType::DUAL_ARROW) || expect(TokenType::LEFT_CURLY);
+      
+      // Restore state
+      state = save;
+      
+      return isLambda;
+    }
+
+    auto lambdaWithoutCaptureExpression() -> ASTRef<LambdaExpression>
+    {
+      auto lambda = createNode<LambdaExpression>();
+      
+      // Parse parameter list (...)
+      accept(TokenType::LEFT_PAREN);
+      while (!expect(TokenType::RIGHT_PAREN))
+      {
+        auto paramName = state->repr;
+        accept(TokenType::ID);
+        
+        ASTRef<TypeAnnotation> paramType = nullptr;
+        if (expect(TokenType::COLON))
+        {
+          accept(TokenType::COLON);
+          paramType = typeAnnotation();
+        }
+        
+        auto param = makeast<Param>(paramName, std::move(paramType));
+        lambda->params.push_back(std::move(param));
+        
+        if (expect(TokenType::COMMA))
+        {
+          accept(TokenType::COMMA);
+        }
+      }
+      accept(TokenType::RIGHT_PAREN);
+      
+      // Parse return type (optional)
+      if (expect(TokenType::SINGLE_ARROW))
+      {
+        accept(TokenType::SINGLE_ARROW);
+        lambda->returnType = typeAnnotation();
+      }
+      
+      // Parse body
+      if (expect(TokenType::DUAL_ARROW))
+      {
+        // => expr
+        accept(TokenType::DUAL_ARROW);
+        lambda->exprBody = expression();
+      }
+      else if (expect(TokenType::LEFT_CURLY))
+      {
+        // { body }
+        lambda->blockBody = compoundStatement();
+      }
+      else
+      {
+        unexpected("Expected => or { for lambda body");
+      }
+      
+      return lambda;
     }
   };
 

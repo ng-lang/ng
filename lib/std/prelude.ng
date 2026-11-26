@@ -1,5 +1,7 @@
 module std.prelude exports *;
 
+export import std.result (*);
+export import std.option (*);
 export import std.tuple (*);
 export import std.io (*);
 export import std.string (*);

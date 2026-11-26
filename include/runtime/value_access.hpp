@@ -415,6 +415,38 @@ namespace NG::runtime
     cell->dropInProgress = false;
   }
 
+  inline auto make_closure_type() -> RuntimeRef<NGType>
+  {
+    static RuntimeRef<NGType> closureType;
+    if (!closureType)
+    {
+      closureType = makert<NGType>();
+      closureType->name = "Closure";
+      closureType->layout.kind = LayoutKind::NATIVE_HANDLE;
+      closureType->layout.name = "Closure";
+    }
+    return closureType;
+  }
+
+  inline auto runtime_is_closure(const RuntimeRef<StorageCell> &cell) -> bool
+  {
+    return cell && cell->isClosure;
+  }
+
+  inline auto runtime_closure_function_index(const RuntimeRef<StorageCell> &cell) -> uint16_t
+  {
+    if (!cell || !cell->isClosure)
+      throw IllegalTypeException("Not a closure");
+    return cell->closureFunctionIndex;
+  }
+
+  inline auto runtime_closure_captures(const RuntimeRef<StorageCell> &cell) -> const Vec<RuntimeRef<StorageCell>>&
+  {
+    if (!cell || !cell->isClosure)
+      throw IllegalTypeException("Not a closure");
+    return cell->capturedValues;
+  }
+
   inline auto runtime_value_type(const RuntimeRef<StorageCell> &cell) -> RuntimeRef<NGType>
   {
     if (cell && cell->runtimeType)
@@ -517,6 +549,9 @@ namespace NG::runtime
     dst->dropArmed = src->dropArmed;
     dst->lifecycleDropped = src->lifecycleDropped;
     dst->dropInProgress = false;
+    dst->isClosure = src->isClosure;
+    dst->closureFunctionIndex = src->closureFunctionIndex;
+    dst->capturedValues = src->capturedValues;
   }
 
   inline auto clone_runtime_storage_cell(const RuntimeRef<StorageCell> &source,
@@ -547,6 +582,9 @@ namespace NG::runtime
       slot->traitObjectName = source->traitObjectName;
       slot->lifecycleDropped = borrowOwningNativeHandle ? true : source->lifecycleDropped;
       slot->dropInProgress = false;
+      slot->isClosure = source->isClosure;
+      slot->closureFunctionIndex = source->closureFunctionIndex;
+      slot->capturedValues = source->capturedValues;
       return slot;
     }
     if (source->storageClass == StorageClass::HEAP && storageClass == StorageClass::HEAP)
@@ -567,6 +605,9 @@ namespace NG::runtime
     slot->traitObjectName = source->traitObjectName;
     slot->lifecycleDropped = borrowOwningNativeHandle ? true : source->lifecycleDropped;
     slot->dropInProgress = false;
+    slot->isClosure = source->isClosure;
+    slot->closureFunctionIndex = source->closureFunctionIndex;
+    slot->capturedValues = source->capturedValues;
     slot->opaqueRefs.clear();
     slot->opaqueRefs.reserve(source->opaqueRefs.size());
     for (const auto &ref : source->opaqueRefs)

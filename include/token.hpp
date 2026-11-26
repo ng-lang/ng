@@ -58,6 +58,7 @@ namespace NG
         KEYWORD_FOR,
         KEYWORD_WHERE,
         KEYWORD_DELETE,
+        KEYWORD_WHEN,
 
         KEYWORD_TRUE = 0x0400,
         KEYWORD_FALSE,

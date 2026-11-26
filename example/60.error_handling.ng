@@ -1,0 +1,83 @@
+// Error Handling Example
+// Tests: Result, Option, Error trait, ? operator
+
+// Define custom error type
+type AppError {
+    message: string;
+    code: i32;
+}
+
+// Implement Error trait for AppError
+impl Error for AppError {
+    fun message(self: ref<Self>) -> string {
+        return self.message;
+    }
+    fun causedBy(cause: ref<Error>) -> AppError {
+        return AppError { message: cause.message(), code: -1 };
+    }
+}
+
+// Function that returns Result
+fun divide(a: i32, b: i32) -> Result<i32, AppError> {
+    if (b == 0) {
+        return Err(AppError { message: "Division by zero", code: 1 });
+    }
+    return Ok(a / b);
+}
+
+// Function that uses ? operator
+fun safeDivide(a: i32, b: i32) -> Result<i32, AppError> {
+    val result = divide(a, b)?;
+    return Ok(result * 2);
+}
+
+// Function that returns Option
+fun findItem(key: string) -> Option<i32> {
+    if (key == "found") {
+        return Some(42);
+    }
+    return None;
+}
+
+// Function that uses ? on Option
+fun processItem(key: string) -> Result<i32, AppError> {
+    val item = findItem(key)?;
+    // If findItem returns None, ? will convert NoneError to Err
+    return Ok(item);
+}
+
+// Test Result
+val r1 = divide(10, 2);
+switch (r1) {
+    case Ok(v) { assert(v == 5); }
+    case Err(e) { assert(false); }
+}
+
+// Test Result error
+val r2 = divide(10, 0);
+switch (r2) {
+    case Ok(v) { assert(false); }
+    case Err(e) { assert(e.message() == "Division by zero"); }
+}
+
+// Test ? operator
+val r3 = safeDivide(10, 2);
+switch (r3) {
+    case Ok(v) { assert(v == 10); }
+    case Err(e) { assert(false); }
+}
+
+// Test Option
+val opt1 = findItem("found");
+switch (opt1) {
+    case Some(v) { assert(v == 42); }
+    case None { assert(false); }
+}
+
+val opt2 = findItem("not found");
+switch (opt2) {
+    case Some(v) { assert(false); }
+    case None { assert(true); }
+}
+
+print("All error handling tests passed!");

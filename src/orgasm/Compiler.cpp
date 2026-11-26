@@ -1319,6 +1319,27 @@ namespace NG::orgasm
                 return;
             }
 
+            // Check if this is a closure call (local variable containing a closure)
+            if (locals.contains(idExpr->id))
+            {
+                // This is a local variable - it might be a closure
+                // Load the variable and call it as a closure
+                auto localVarIndex = locals[idExpr->id];
+                emit(OpCode::LOAD_LOCAL);
+                emit_u16(static_cast<uint16_t>(localVarIndex));
+                
+                // Emit arguments
+                for (auto &arg : funCallExpr->arguments)
+                {
+                    arg->accept(this);
+                }
+                
+                // Call as closure
+                emit(OpCode::CALL_CLOSURE);
+                emit_u16(static_cast<uint16_t>(funCallExpr->arguments.size()));
+                return;
+            }
+            
             // Check if function has a pack parameter — if so, pack extra args into a tuple
             int32_t funIndex = -1;
             Str targetFunctionName = idExpr->id;
@@ -1978,6 +1999,382 @@ namespace NG::orgasm
         for (auto jumpOffset : caseEndJumps) {
             patch_i32(jumpOffset, static_cast<int32_t>(current_function->code.size()));
         }
+    }
+
+    void Compiler::visit(ast::SwitchExpression *switchExpr)
+    {
+        // SwitchExpression for non-tagged-union types (integers, etc.)
+        // 
+        // Bytecode layout:
+        //   [compile scrutinee] -> value on stack
+        //   DUP                         // keep scrutinee
+        //   [compile case0 value]       // push case0 value
+        //   EQUAL                       // compare: scrutinee == case0?
+        //   JUMP_IF_TRUE case0_body     // if equal, jump to case0 body
+        //   // not equal, continue
+        //   DUP                         // keep scrutinee
+        //   [compile case1 value]
+        //   EQUAL
+        //   JUMP_IF_TRUE case1_body
+        //   // ... more cases ...
+        //   JUMP otherwise_body         // no match, go to otherwise
+        // case0_body:
+        //   POP                         // pop scrutinee
+        //   [compile case0 result]
+        //   JUMP end
+        // case1_body:
+        //   POP
+        //   [compile case1 result]
+        //   JUMP end
+        // otherwise_body:
+        //   POP
+        //   [compile otherwise result]
+        // end:
+        
+        // Check if this is a tagged union switch
+        auto scrutineeType = infer_expression_type_name(switchExpr->scrutinee);
+        bool isTaggedUnion = false;
+        for (const auto &type : module.types)
+        {
+            if (type.name == scrutineeType)
+            {
+                isTaggedUnion = true;
+                break;
+            }
+        }
+        
+        if (isTaggedUnion)
+        {
+            // Use SWITCH_TAG for tagged unions
+            switchExpr->scrutinee->accept(this);
+            
+            emit(OpCode::SWITCH_TAG);
+            emit_u16(static_cast<uint16_t>(switchExpr->cases.size()));
+            
+            size_t jumpTableStart = current_function->code.size();
+            for (size_t i = 0; i < switchExpr->cases.size(); ++i)
+            {
+                auto &c = switchExpr->cases[i];
+                uint16_t tag = SWITCH_DEFAULT_TAG;
+                if (!c.isOtherwise && variant_map.contains(c.variantName))
+                {
+                    tag = static_cast<uint16_t>(variant_map.at(c.variantName).variantIndex);
+                }
+                emit_u16(tag);
+                emit_i32(0);
+            }
+            
+            Vec<size_t> caseEndJumps;
+            for (size_t i = 0; i < switchExpr->cases.size(); ++i)
+            {
+                auto &c = switchExpr->cases[i];
+                
+                size_t caseStart = current_function->code.size();
+                size_t entryOffset = jumpTableStart + i * 6;
+                patch_i32(entryOffset + 2, static_cast<int32_t>(caseStart));
+                
+                for (size_t j = 0; j < c.bindings.size(); ++j)
+                {
+                    emit(OpCode::DUP);
+                    emit(OpCode::GET_PAYLOAD);
+                    emit_u16(static_cast<uint16_t>(j));
+                    if (!c.bindings[j].empty())
+                    {
+                        locals[c.bindings[j]] = static_cast<int32_t>(locals.size());
+                        emit(OpCode::STORE_LOCAL);
+                        emit_u16(static_cast<uint16_t>(locals[c.bindings[j]]));
+                        emit(OpCode::POP);
+                    }
+                    else
+                    {
+                        emit(OpCode::POP);
+                    }
+                }
+                
+                emit(OpCode::POP);
+                
+                if (c.value)
+                {
+                    c.value->accept(this);
+                }
+                
+                if (i < switchExpr->cases.size() - 1)
+                {
+                    caseEndJumps.push_back(current_function->code.size() + 1);
+                    emit(OpCode::JUMP);
+                    emit_i32(0);
+                }
+            }
+            
+            for (auto jumpOffset : caseEndJumps)
+            {
+                patch_i32(jumpOffset, static_cast<int32_t>(current_function->code.size()));
+            }
+        }
+        else
+        {
+            // Non-tagged union switch (integers, etc.)
+            // Need to compare scrutinee with each case value
+            
+            // Compile scrutinee
+            switchExpr->scrutinee->accept(this);
+            
+            Vec<size_t> nextCaseJumps;    // Jumps from comparison to next case (when not equal)
+            Vec<size_t> caseEndJumps;     // Jumps from case body to end
+            
+            // For each non-otherwise case, compare and jump if not match
+            // Track jump-to-next-case locations for patching
+            Vec<size_t> currentCaseJumps;  // Jumps from current case to next case
+            
+            for (size_t i = 0; i < switchExpr->cases.size(); ++i)
+            {
+                auto &c = switchExpr->cases[i];
+                if (c.isOtherwise) continue;
+                
+                // Patch previous case's jumps to point here
+                for (auto jumpOffset : currentCaseJumps)
+                {
+                    patch_i32(jumpOffset, static_cast<int32_t>(current_function->code.size()));
+                }
+                currentCaseJumps.clear();
+                
+                // Check if this is a guard-only case (no case value comparison)
+                bool hasGuard = c.guard != nullptr;
+                bool hasCaseValue = c.value != nullptr && c.variantName.empty();
+                
+                if (hasGuard && !hasCaseValue)
+                {
+                    // Guard-only case: case x when condition => result
+                    // Bind scrutinee to case variable (from variantName)
+                    if (!c.variantName.empty())
+                    {
+                        locals[c.variantName] = static_cast<int32_t>(locals.size());
+                        emit(OpCode::DUP);
+                        emit(OpCode::STORE_LOCAL);
+                        emit_u16(static_cast<uint16_t>(locals[c.variantName]));
+                    }
+                    
+                    // Compile guard condition
+                    c.guard->accept(this);
+                    
+                    // If guard is false, jump to next case
+                    currentCaseJumps.push_back(current_function->code.size() + 1);
+                    emit(OpCode::JUMP_IF_FALSE);
+                    emit_i32(0);  // placeholder
+                    
+                    // Guard matched! Pop scrutinee
+                    emit(OpCode::POP);
+                }
+                else
+                {
+                    // Normal case: case value => result
+                    // DUP scrutinee for comparison
+                    emit(OpCode::DUP);
+                    
+                    // Compile case value
+                    if (c.value)
+                    {
+                        c.value->accept(this);
+                    }
+                    
+                    // Compare: scrutinee == case_value?
+                    emit(OpCode::EQ);
+                    
+                    // If NOT equal, jump to next case
+                    currentCaseJumps.push_back(current_function->code.size() + 1);
+                    emit(OpCode::JUMP_IF_FALSE);
+                    emit_i32(0);  // placeholder
+                    
+                    // Matched! Pop scrutinee
+                    emit(OpCode::POP);
+                }
+                
+                // Compile case result
+                if (c.value)
+                {
+                    c.value->accept(this);
+                }
+                
+                // Jump to end
+                caseEndJumps.push_back(current_function->code.size() + 1);
+                emit(OpCode::JUMP);
+                emit_i32(0);  // placeholder
+            }
+            
+            // Patch remaining case jumps to point to otherwise
+            for (auto jumpOffset : currentCaseJumps)
+            {
+                patch_i32(jumpOffset, static_cast<int32_t>(current_function->code.size()));
+            }
+            
+            // All comparisons failed: compile otherwise body
+            // Pop scrutinee
+            emit(OpCode::POP);
+            
+            // Find and compile otherwise case
+            for (auto &c : switchExpr->cases)
+            {
+                if (c.isOtherwise && c.value)
+                {
+                    c.value->accept(this);
+                    break;
+                }
+            }
+            
+            // Patch all end jumps
+            for (auto jumpOffset : caseEndJumps)
+            {
+                patch_i32(jumpOffset, static_cast<int32_t>(current_function->code.size()));
+            }
+        }
+    }
+
+    void Compiler::visit(ast::ErrorPropagationExpression *errorProp)
+    {
+        // Compile the expression (should produce a Result/Option tagged value)
+        errorProp->expr->accept(this);
+        
+        // Store the tagged result in a temp local
+        auto tempLocal = static_cast<int32_t>(locals.size());
+        emit(OpCode::STORE_LOCAL);
+        emit_u16(static_cast<uint16_t>(tempLocal));
+        
+        // Get the variant tag
+        emit(OpCode::LOAD_LOCAL);
+        emit_u16(static_cast<uint16_t>(tempLocal));
+        emit(OpCode::GET_TAG);
+        
+        // Check if tag == 0 (Ok/Some)
+        emit(OpCode::PUSH_I32);
+        emit_i32(0);
+        emit(OpCode::EQ);
+        
+        // If NOT Ok (tag != 0, i.e. Err/None), jump to err case
+        size_t errJumpOffset = current_function->code.size() + 1;
+        emit(OpCode::JUMP_IF_FALSE);
+        emit_i32(0);
+        
+        // Ok/Some case: extract the first payload field
+        emit(OpCode::LOAD_LOCAL);
+        emit_u16(static_cast<uint16_t>(tempLocal));
+        emit(OpCode::GET_PAYLOAD);
+        emit_u16(0);
+        
+        // Jump to done
+        size_t doneJumpOffset = current_function->code.size() + 1;
+        emit(OpCode::JUMP);
+        emit_i32(0);
+        
+        // Err/None case: patch the err jump to here
+        patch_i32(errJumpOffset, static_cast<int32_t>(current_function->code.size()));
+        
+        // For now, just push unit as a placeholder for error return
+        // TODO: implement proper early return of error
+        emit(OpCode::POP);  // pop the tag comparison result
+        emit(OpCode::PUSH_UNIT);
+        
+        // Patch the done jump to here
+        patch_i32(doneJumpOffset, static_cast<int32_t>(current_function->code.size()));
+    }
+
+    void Compiler::visit(ast::LambdaExpression *lambda)
+    {
+        // Generate unique function name for this lambda
+        static int lambdaCounter = 0;
+        Str lambdaName = "__lambda_" + std::to_string(lambdaCounter++);
+        
+        // Save current function INDEX (not pointer) because addFunction may reallocate
+        int32_t savedFunctionIndex = -1;
+        for (size_t i = 0; i < module.functions.size(); ++i)
+        {
+            if (&module.functions[i] == current_function)
+            {
+                savedFunctionIndex = static_cast<int32_t>(i);
+                break;
+            }
+        }
+        auto savedLocals = locals;
+        
+        // Create a FunctionDef for the lambda
+        auto funcDef = std::make_unique<FunctionDef>();
+        funcDef->funName = lambdaName;
+        
+        // Copy parameters
+        for (auto &param : lambda->params)
+        {
+            funcDef->params.push_back(std::move(param));
+        }
+        
+        // Set return type
+        funcDef->returnType = std::move(lambda->returnType);
+        
+        // Create function body
+        if (lambda->exprBody)
+        {
+            // Single expression body: create return statement
+            auto returnStmt = std::make_unique<ReturnStatement>();
+            returnStmt->expression = std::move(lambda->exprBody);
+            
+            auto compoundStmt = std::make_unique<CompoundStatement>();
+            compoundStmt->statements.push_back(std::move(returnStmt));
+            funcDef->body = std::move(compoundStmt);
+        }
+        else if (lambda->blockBody)
+        {
+            funcDef->body = std::move(lambda->blockBody);
+        }
+        
+        // Register the function (this may invalidate current_function pointer!)
+        Function func;
+        func.name = lambdaName;
+        func.num_params = static_cast<int32_t>(funcDef->params.size());
+        func.explicit_receiver = false;
+        module.addFunction(std::move(func));
+        
+        // Store the FunctionDef and compile its body
+        auto funcDefPtr = funcDef.get();
+        static Vec<std::unique_ptr<FunctionDef>> lambdaStorage;
+        lambdaStorage.push_back(std::move(funcDef));
+        
+        // Set up new function context for lambda
+        current_function = &module.functions.back();
+        locals.clear();
+        
+        // Add parameters to locals
+        for (size_t i = 0; i < funcDefPtr->params.size(); ++i)
+        {
+            locals[funcDefPtr->params[i]->paramName] = static_cast<int32_t>(i);
+        }
+        
+        // Compile function body
+        if (funcDefPtr->body)
+        {
+            funcDefPtr->body->accept(this);
+        }
+        
+        // Ensure function ends with return
+        emit(OpCode::PUSH_UNIT);
+        emit(OpCode::RETURN);
+        
+        // Set num_locals for the lambda function
+        current_function->num_locals = static_cast<int32_t>(locals.size());
+        
+        // Restore previous function state using saved index
+        if (savedFunctionIndex >= 0 && savedFunctionIndex < static_cast<int32_t>(module.functions.size()))
+        {
+            current_function = &module.functions[savedFunctionIndex];
+        }
+        else
+        {
+            current_function = nullptr;
+        }
+        locals = savedLocals;
+        
+        // Create closure
+        uint16_t funIndex = static_cast<uint16_t>(module.functions.size() - 1);
+        emit(OpCode::CREATE_CLOSURE);
+        emit_u16(funIndex);
+        emit_u16(0); // num_captures = 0 for now
     }
 
 

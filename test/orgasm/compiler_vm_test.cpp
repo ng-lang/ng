@@ -814,15 +814,15 @@ TEST_CASE("managed heap should sweep unreachable vm cycles", "[OrgasmTest][RefMo
 TEST_CASE("compiler and vm should handle tagged unions", "[OrgasmTest]")
 {
   auto ast = parse(R"(
-        type Result = Ok(value: i32) | Err(msg: string);
+        type MyResult = Success(value: i32) | Failure(msg: string);
 
         fun main() {
-            val success = Ok(42);
+            val success = Success(42);
             switch (success) {
-                case Ok(value) {
+                case Success(value) {
                     return value;
                 }
-                case Err(msg) {
+                case Failure(msg) {
                     return 0;
                 }
             }
@@ -844,12 +844,12 @@ TEST_CASE("compiler and vm should handle tagged unions", "[OrgasmTest]")
 TEST_CASE("compiler and vm should handle switch otherwise for tagged unions", "[OrgasmTest]")
 {
   auto ast = parse(R"(
-        type Result = Ok(value: i32) | Err(msg: string);
+        type MyResult = Success(value: i32) | Failure(msg: string);
 
         fun main() {
-            val failure = Err("boom");
+            val failure = Failure("boom");
             switch (failure) {
-                case Ok(value) {
+                case Success(value) {
                     return value;
                 }
                 otherwise {
@@ -951,15 +951,15 @@ TEST_CASE("compiler and vm should allocate tagged union variants on heap", "[Org
 TEST_CASE("compiler and vm should dispatch switch cases by declared variant tag", "[OrgasmTest]")
 {
   auto ast = parse(R"(
-        type Result = Err(msg: string) | Ok(value: i32);
+        type MyResult = Failure(msg: string) | Success(value: i32);
 
         fun main() {
-            val success = Ok(42);
+            val success = Success(42);
             switch (success) {
-                case Ok(value) {
+                case Success(value) {
                     return value;
                 }
-                case Err(msg) {
+                case Failure(msg) {
                     return 0;
                 }
             }
@@ -981,12 +981,12 @@ TEST_CASE("compiler and vm should dispatch switch cases by declared variant tag"
 TEST_CASE("compiler and vm should treat otherwise as switch default", "[OrgasmTest]")
 {
   auto ast = parse(R"(
-        type Result = Pending | Ok(value: i32) | Err(msg: string);
+        type MyResult = Pending | Success(value: i32) | Failure(msg: string);
 
         fun main() {
-            val failure = Err("boom");
+            val failure = Failure("boom");
             switch (failure) {
-                case Ok(value) {
+                case Success(value) {
                     return value;
                 }
                 otherwise {
@@ -1199,7 +1199,7 @@ TEST_CASE("compiler should clear variant state between compile calls", "[OrgasmT
   Compiler compiler;
 
   auto firstAst = parse(R"(
-        type Result = Ok(value: i32);
+        type MyResult = Success(value: i32);
 
         fun main() {
             return 0;
@@ -1209,12 +1209,12 @@ TEST_CASE("compiler should clear variant state between compile calls", "[OrgasmT
   REQUIRE_NOTHROW(compiler.compile(dynamic_ast_cast<CompileUnit>(firstAst)));
 
   auto secondAst = parse(R"(
-        fun Ok(x: i32) -> i32 {
+        fun Success(x: i32) -> i32 {
             return x + 1;
         }
 
         fun main() {
-            return Ok(41);
+            return Success(41);
         }
     )");
   REQUIRE(secondAst != nullptr);

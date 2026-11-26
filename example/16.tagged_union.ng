@@ -1,22 +1,22 @@
-type Result = Ok(value: i32) | Err(msg: string);
+type MyResult = Success(value: i32) | Failure(msg: string);
 
-val success = Ok(42);
-val failure = Err("something went wrong");
+val success = Success(42);
+val failure = Failure("something went wrong");
 
 switch (success) {
-    case Ok(value) {
+    case Success(value) {
         print(value);
     }
-    case Err(msg) {
+    case Failure(msg) {
         print(msg);
     }
 }
 
 switch (failure) {
-    case Ok(value) {
+    case Success(value) {
         print(value);
     }
-    case Err(msg) {
+    case Failure(msg) {
         print(msg);
     }
 }
@@ -29,7 +29,7 @@ print(failure.index);  // 1
 
 // Exhaustiveness: otherwise branch
 switch (success) {
-    case Ok(value) {
+    case Success(value) {
         print(value);
     }
     otherwise {

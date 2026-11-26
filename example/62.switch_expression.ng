@@ -1,0 +1,55 @@
+// Switch Expression Example
+// Tests: switch as expression, when guard
+
+// Switch expression with simple cases
+val x = 42;
+val desc = switch (x) {
+    case 0 => "zero";
+    case 1 => "one";
+    otherwise => "other";
+};
+assert(desc == "other");
+
+// Switch expression with when guard
+val n = 15;
+val category = switch (n) {
+    case 0 => "zero";
+    case val when val < 0 => "negative";
+    case val when val < 10 => "small positive";
+    case val when val < 100 => "medium positive";
+    otherwise => "large positive";
+};
+assert(category == "medium positive");
+
+// Switch expression with tagged unions
+type Color = Red | Green | Blue;
+
+val color = Red;
+val hex = switch (color) {
+    case Red => "#FF0000";
+    case Green => "#00FF00";
+    case Blue => "#0000FF";
+    otherwise => "#000000";
+};
+assert(hex == "#FF0000");
+
+// Switch expression with Result
+type MyResult = Ok(value: i32) | Err(msg: string);
+
+val result = Ok(42);
+val value = switch (result) {
+    case Ok(v) => v;
+    case Err(_) => -1;
+    otherwise => -2;
+};
+assert(value == 42);
+
+// Switch as statement (existing syntax)
+val y = 10;
+switch (y) {
+    case 0 { print("zero"); }
+    case val when val > 0 { print("positive"); }
+    otherwise { print("negative"); }
+}
+
+print("All switch expression tests passed!");

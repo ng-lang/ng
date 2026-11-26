@@ -96,6 +96,7 @@ namespace NG::parsing
     {"for", TokenType::KEYWORD_FOR},
     {"where", TokenType::KEYWORD_WHERE},
     {"delete", TokenType::KEYWORD_DELETE},
+    {"when", TokenType::KEYWORD_WHEN},
 
     {"true", TokenType::KEYWORD_TRUE},
     {"false", TokenType::KEYWORD_FALSE},

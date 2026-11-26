@@ -100,6 +100,9 @@ namespace NG::ast
   void DummyVisitor::visit(TaggedUnionDef *taggedUnionDef) {}
   void DummyVisitor::visit(TaggedValueExpression *taggedVal) {}
   void DummyVisitor::visit(SwitchStatement *switchStmt) {}
+  void DummyVisitor::visit(SwitchExpression *switchExpr) {}
+  void DummyVisitor::visit(ErrorPropagationExpression *errorProp) {}
+  void DummyVisitor::visit(LambdaExpression *lambda) {}
   void DummyVisitor::visit(GenericParam *genericParam) {}
   void DummyVisitor::visit(TraitBound *traitBound) {}
   void DummyVisitor::visit(TraitDef *traitDef) {}

@@ -1,0 +1,58 @@
+// Lambda and Closure Example
+// Tests: Lambda syntax, capture lists, closures
+
+// Simple lambda
+val double = (x: i32) -> i32 => x * 2;
+assert(double(21) == 42);
+
+// Lambda with multiple parameters
+val add = (a: i32, b: i32) -> i32 => a + b;
+assert(add(3, 4) == 7);
+
+// Lambda with block body
+val process = (x: i32) -> i32 {
+    val tmp = x * 2;
+    return tmp + 1;
+};
+assert(process(5) == 11);
+
+// Closure with default capture (by value)
+val factor = 10;
+val multiply = (x: i32) -> i32 => x * factor;
+assert(multiply(5) == 50);
+
+// Closure with explicit capture by reference
+val counter = 0;
+val increment = [&counter]() -> i32 {
+    counter := counter + 1;
+    return counter;
+};
+assert(increment() == 1);
+assert(increment() == 2);
+
+// Closure with capture all by reference
+val x = 10;
+val y = 20;
+val sumAll = [&]() -> i32 => x + y;
+assert(sumAll() == 30);
+
+// Closure with capture all by value
+val val1 = 100;
+val copyAll = []() -> i32 => val1;
+assert(copyAll() == 100);
+
+// Closure with mixed captures
+val a = 1;
+val b = 2;
+val mixed = [&a, b]() -> i32 => a + b;
+assert(mixed() == 3);
+
+// Lambda as higher-order function argument
+fun apply<T, U>(value: T, f: (T) -> U) -> U {
+    return f(value);
+}
+
+val result = apply(5, (x: i32) -> i32 => x * 3);
+assert(result == 15);
+
+print("All lambda tests passed!");

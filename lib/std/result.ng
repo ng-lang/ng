@@ -1,0 +1,31 @@
+module std.result exports *;
+
+export type Result<T, E> = Ok(value: T) | Err(msg: E);
+
+export fun isOk<T, E>(result: Result<T, E>) -> bool {
+    switch (result) {
+        case Ok(_) { return true; }
+        otherwise { return false; }
+    }
+}
+
+export fun isErr<T, E>(result: Result<T, E>) -> bool {
+    switch (result) {
+        case Err(_) { return true; }
+        otherwise { return false; }
+    }
+}
+
+export fun resultUnwrap<T, E>(result: Result<T, E>) -> T {
+    switch (result) {
+        case Ok(v) { return v; }
+        otherwise { assert(false, "unwrap Err"); }
+    }
+}
+
+export fun resultUnwrapOr<T, E>(result: Result<T, E>, fallback: T) -> T {
+    switch (result) {
+        case Ok(v) { return v; }
+        otherwise { return fallback; }
+    }
+}

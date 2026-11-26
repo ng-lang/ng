@@ -1,21 +1,21 @@
-type Result = Ok(value: i32) | Err(msg: string);
+type MyResult = Success(value: i32) | Failure(msg: string);
 
-val success = Ok(42);
-val failure = Err("something went wrong");
+val success = Success(42);
+val failure = Failure("something went wrong");
 
 // Exhaustive switch: all variants covered
 switch (success) {
-    case Ok(value) {
+    case Success(value) {
         print("Success: ", value);
     }
-    case Err(msg) {
+    case Failure(msg) {
         print("Error: ", msg);
     }
 }
 
 // Switch with otherwise: catches any unmatched variant
 switch (failure) {
-    case Ok(value) {
+    case Success(value) {
         print("Got value: ", value);
     }
     otherwise {

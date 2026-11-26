@@ -1527,6 +1527,74 @@ namespace NG::orgasm
                     break;
                 }
 
+                case OpCode::CREATE_CLOSURE: {
+                    uint16_t funIndex = read_u16();
+                    uint16_t numCaptures = read_u16();
+                    
+                    if (funIndex >= current_module->functions.size()) 
+                        throw RuntimeException("VM error: CREATE_CLOSURE function index out of bounds");
+                    
+                    // Pop captured values from stack
+                    Vec<RuntimeRef<StorageCell>> captures;
+                    captures.reserve(numCaptures);
+                    for (uint16_t i = 0; i < numCaptures; ++i) {
+                        captures.push_back(pop_slot());
+                    }
+                    std::reverse(captures.begin(), captures.end());
+                    
+                    // Create closure cell
+                    auto closure = makert<StorageCell>();
+                    closure->isClosure = true;
+                    closure->closureFunctionIndex = funIndex;
+                    closure->capturedValues = std::move(captures);
+                    closure->runtimeType = make_closure_type();
+                    
+                    push_slot_copy(std::move(closure));
+                    break;
+                }
+                
+                case OpCode::CALL_CLOSURE: {
+                    uint16_t numArgs = read_u16();
+                    
+                    // Stack layout: [closure, arg1, arg2, ...]
+                    // We need to pop args first, then closure
+                    
+                    // Pop arguments
+                    Vec<RuntimeRef<StorageCell>> callArgs;
+                    callArgs.reserve(numArgs);
+                    for (int i = 0; i < numArgs; ++i) {
+                        callArgs.push_back(pop_slot());
+                    }
+                    std::reverse(callArgs.begin(), callArgs.end());
+                    
+                    // Now pop closure (should be on top after args are removed)
+                    auto closureCell = pop_slot();
+                    if (!runtime_is_closure(closureCell)) {
+                        throw RuntimeException("VM error: CALL_CLOSURE on non-closure value");
+                    }
+                    
+                    // Get function index from closure
+                    uint16_t funIndex = runtime_closure_function_index(closureCell);
+                    if (funIndex >= current_module->functions.size()) {
+                        throw RuntimeException("VM error: CALL_CLOSURE function index out of bounds");
+                    }
+                    
+                    // Get captured values and prepend them to arguments
+                    auto &captures = runtime_closure_captures(closureCell);
+                    Vec<RuntimeRef<StorageCell>> allArgs;
+                    allArgs.reserve(captures.size() + callArgs.size());
+                    for (auto &capture : captures) {
+                        allArgs.push_back(capture);
+                    }
+                    for (auto &arg : callArgs) {
+                        allArgs.push_back(arg);
+                    }
+                    
+                    // Call the function
+                    push_frame(*current_module, current_module->functions[funIndex], allArgs);
+                    break;
+                }
+
                 default:
                     throw RuntimeException("Unknown opcode: " + std::to_string(static_cast<int>(op)) + " at ip=" +
                                            std::to_string(ip - 1));

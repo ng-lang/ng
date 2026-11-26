@@ -1067,7 +1067,97 @@ namespace NG::ast
   SwitchStatement::~SwitchStatement()
   {
     destroyast(scrutinee);
-    for (auto &c : cases) destroyast(c.body);
+    for (auto &c : cases) {
+      destroyast(c.body);
+      destroyast(c.value);
+      destroyast(c.guard);
+    }
+  }
+
+  void ErrorPropagationExpression::accept(AstVisitor *visitor)
+  {
+    visitor->visit(this);
+  }
+
+  auto ErrorPropagationExpression::repr() const -> Str
+  {
+    return expr->repr() + "?";
+  }
+
+  ErrorPropagationExpression::~ErrorPropagationExpression()
+  {
+    destroyast(expr);
+  }
+
+  void SwitchExpression::accept(AstVisitor *visitor)
+  {
+    visitor->visit(this);
+  }
+
+  auto SwitchExpression::repr() const -> Str
+  {
+    Str out = "switch (" + scrutinee->repr() + ") { ";
+    for (const auto &c : cases) {
+      out += "case " + c.variantName + "(";
+      for (size_t i = 0; i < c.bindings.size(); ++i) {
+        if (i > 0) out += ", ";
+        out += c.bindings[i];
+      }
+      out += ") ";
+      if (c.value) out += "=> " + c.value->repr() + "; ";
+      else if (c.body) out += c.body->repr() + " ";
+    }
+    out += "}";
+    return out;
+  }
+
+  SwitchExpression::~SwitchExpression()
+  {
+    destroyast(scrutinee);
+    for (auto &c : cases) {
+      destroyast(c.body);
+      destroyast(c.value);
+      destroyast(c.guard);
+    }
+  }
+
+  void LambdaExpression::accept(AstVisitor *visitor)
+  {
+    visitor->visit(this);
+  }
+
+  auto LambdaExpression::repr() const -> Str
+  {
+    Str out = "[";
+    if (captureAllByRef) {
+      out += "&";
+    } else if (captureAllByValue) {
+      // empty
+    } else {
+      for (size_t i = 0; i < captures.size(); ++i) {
+        if (i > 0) out += ", ";
+        if (captures[i].byRef) out += "&";
+        out += captures[i].name;
+      }
+    }
+    out += "](\"";
+    for (size_t i = 0; i < params.size(); ++i) {
+      if (i > 0) out += ", ";
+      out += params[i]->repr();
+    }
+    out += ")";
+    if (returnType) out += " -> " + returnType->repr();
+    if (exprBody) out += " => " + exprBody->repr();
+    else if (blockBody) out += " { ... }";
+    return out;
+  }
+
+  LambdaExpression::~LambdaExpression()
+  {
+    for (auto &p : params) destroyast(p);
+    destroyast(returnType);
+    destroyast(exprBody);
+    destroyast(blockBody);
   }
 
   auto PropertyDef::astNodeType() const -> ASTNodeType

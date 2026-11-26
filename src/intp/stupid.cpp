@@ -2563,6 +2563,35 @@ namespace NG::intp
         // do nothing
       }
     }
+
+    void visit(ErrorPropagationExpression *errorProp) override
+    {
+      ExpressionVisitor vis{symbols, activeFrames, activeScopes, publishGlobals};
+      errorProp->expr->accept(&vis);
+      auto resultSlot = vis.result_slot();
+      
+      // TODO: Implement error propagation
+      // For now, just pass through the result
+      sync_storage_cell(returnSlot, resultSlot);
+    }
+
+    void visit(LambdaExpression *lambda) override
+    {
+      // TODO: Implement lambda/closure support
+      // For now, just compile the body if it's a single expression
+      if (lambda->exprBody)
+      {
+        ExpressionVisitor vis{symbols, activeFrames, activeScopes, publishGlobals};
+        lambda->exprBody->accept(&vis);
+        sync_storage_cell(returnSlot, vis.result_slot());
+      }
+      else if (lambda->blockBody)
+      {
+        auto lambdaScopes = fork_scope_chain(activeScopes);
+        StatementVisitor stmtVis{symbols, returnSlot, activeFrames, lambdaScopes, publishGlobals};
+        lambda->blockBody->accept(&stmtVis);
+      }
+    }
   };
 
   struct Stupid : public Interpreter,

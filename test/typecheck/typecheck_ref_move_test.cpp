@@ -508,13 +508,13 @@ TEST_CASE("should reject read after switch-branch move", "[TypeCheck][RefMove][F
 {
   typecheck_failure(
       R"(
-        type Result = Ok(value: i32) | Err(msg: string);
+        type MyResult = Success(value: i32) | Failure(msg: string);
         {
           val x: i32 = 1;
-          val r = Ok(0);
+          val r = Success(0);
           switch (r) {
-            case Ok(v) { val y = move x; }
-            case Err(m) { val z = 0; }
+            case Success(v) { val y = move x; }
+            case Failure(m) { val z = 0; }
           }
           val w = x;
         }
@@ -539,17 +539,17 @@ TEST_CASE("should reject tagged variant calls with invalid payload arity or type
 {
   typecheck_failure(
       R"(
-        type Result = Ok(value: i32) | Err(msg: string);
-        val result = Ok();
+        type MyResult = Success(value: i32) | Failure(msg: string);
+        val result = Success();
       )",
-      "Invalid payload arity for variant Ok");
+      "Invalid payload arity for variant Success");
 
   typecheck_failure(
       R"(
-        type Result = Ok(value: i32) | Err(msg: string);
-        val result = Ok("bad");
+        type MyResult = Success(value: i32) | Failure(msg: string);
+        val result = Success("bad");
       )",
-      "Payload type mismatch for variant Ok");
+      "Payload type mismatch for variant Success");
 }
 
 TEST_CASE("should reject generic tagged variant calls with invalid payload arity", "[TypeCheck][RefMove][Failure]")

@@ -239,15 +239,15 @@ assert(total == 3);
 TEST_CASE("nested returns should propagate through return slots only", "[InterpreterTest]")
 {
   interpret(R"(
-type Result = Ok(value: i32) | Err(msg: string);
+type MyResult = Success(value: i32) | Failure(msg: string);
 
 fun choose(flag) {
     if (flag) {
-        switch (Ok(7)) {
-            case Ok(value) {
+        switch (Success(7)) {
+            case Success(value) {
                 return value;
             }
-            case Err(msg) {
+            case Failure(msg) {
                 return 0;
             }
         }
@@ -363,36 +363,36 @@ assert(scoped() == 1);
 TEST_CASE("switch case bindings should stay scoped without context forks", "[InterpreterTest]")
 {
   interpret(R"(
-type Result = Ok(value: i32) | Err(msg: string);
+type MyResult = Success(value: i32) | Failure(msg: string);
 
-fun readOk() {
+fun readSuccess() {
   val value = 1;
-  switch (Ok(7)) {
-    case Ok(value) {
+  switch (Success(7)) {
+    case Success(value) {
       assert(value == 7);
     }
-    case Err(msg) {
+    case Failure(msg) {
       assert(false);
     }
   }
   return value;
 }
 
-fun readErr() {
+fun readFailure() {
   val value = 1;
-  switch (Err("nope")) {
-    case Ok(value) {
+  switch (Failure("nope")) {
+    case Success(value) {
       assert(false);
     }
-    case Err(msg) {
+    case Failure(msg) {
       assert(msg == "nope");
     }
   }
   return value;
 }
 
-assert(readOk() == 1);
-assert(readErr() == 1);
+assert(readSuccess() == 1);
+assert(readFailure() == 1);
 )");
 }
 
@@ -657,25 +657,25 @@ TEST_CASE("loop bindings should stay scoped to the loop", "[InterpreterTestCheck
 TEST_CASE("Tagged unions", "[InterpreterTestChecking]")
 {
   interpret(R"(
-        type Result = Ok(value: i32) | Err(msg: string);
+        type MyResult = Success(value: i32) | Failure(msg: string);
 
-        val success = Ok(42);
-        val failure = Err("not found");
+        val success = Success(42);
+        val failure = Failure("not found");
 
         switch (success) {
-            case Ok(value) {
+            case Success(value) {
                 assert(value == 42);
             }
-            case Err(msg) {
+            case Failure(msg) {
                 assert(false);
             }
         }
 
         switch (failure) {
-            case Ok(value) {
+            case Success(value) {
                 assert(false);
             }
-            case Err(msg) {
+            case Failure(msg) {
                 assert(msg == "not found");
             }
         }

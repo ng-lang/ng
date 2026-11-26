@@ -98,6 +98,11 @@ namespace NG::runtime
         bool dropArmed = true;
         bool lifecycleDropped = false;
         bool dropInProgress = false;
+        
+        // Closure support
+        bool isClosure = false;
+        uint16_t closureFunctionIndex = 0;
+        Vec<RuntimeRef<StorageCell>> capturedValues;
     };
 
     struct CallFrame

@@ -55,11 +55,11 @@ TEST_CASE("should reject non-matching value for union type", "[TypeCheck][Union]
 TEST_CASE("switch exhaustive with all variants covered", "[TypeCheck][Switch][Exhaustive]")
 {
   auto ast = parse(R"(
-            type Result = Ok(value: i32) | Err(msg: string);
-            val x = Ok(42);
+            type MyResult = Success(value: i32) | Failure(msg: string);
+            val x = Success(42);
             switch (x) {
-                case Ok(v) { val a = v; }
-                case Err(m) { val b = m; }
+                case Success(v) { val a = v; }
+                case Failure(m) { val b = m; }
             }
         )");
 
@@ -71,10 +71,10 @@ TEST_CASE("switch exhaustive with all variants covered", "[TypeCheck][Switch][Ex
 TEST_CASE("switch exhaustive with otherwise branch", "[TypeCheck][Switch][Otherwise]")
 {
   auto ast = parse(R"(
-            type Result = Ok(value: i32) | Err(msg: string);
-            val x = Ok(42);
+            type MyResult = Success(value: i32) | Failure(msg: string);
+            val x = Success(42);
             switch (x) {
-                case Ok(v) { val a = v; }
+                case Success(v) { val a = v; }
                 otherwise { val b = 0; }
             }
         )");
@@ -87,10 +87,10 @@ TEST_CASE("switch exhaustive with otherwise branch", "[TypeCheck][Switch][Otherw
 TEST_CASE("switch non-exhaustive fails without otherwise", "[TypeCheck][Switch][Exhaustive][Failure]")
 {
   typecheck_failure(R"(
-            type Result = Ok(value: i32) | Err(msg: string);
-            val x = Ok(42);
+            type MyResult = Success(value: i32) | Failure(msg: string);
+            val x = Success(42);
             switch (x) {
-                case Ok(v) { val a = v; }
+                case Success(v) { val a = v; }
             }
         )", "Non-exhaustive switch");
 }
@@ -98,11 +98,11 @@ TEST_CASE("switch non-exhaustive fails without otherwise", "[TypeCheck][Switch][
 TEST_CASE("switch with unknown variant fails", "[TypeCheck][Switch][Failure]")
 {
   typecheck_failure(R"(
-            type Result = Ok(value: i32) | Err(msg: string);
-            val x = Ok(42);
+            type MyResult = Success(value: i32) | Failure(msg: string);
+            val x = Success(42);
             switch (x) {
-                case Ok(v) { val a = v; }
-                case Err(m) { val b = m; }
+                case Success(v) { val a = v; }
+                case Failure(m) { val b = m; }
                 case NotFound(z) { val c = z; }
             }
         )", "Unknown variant");

@@ -51,6 +51,9 @@ namespace NG::orgasm
         void visit(ast::CastExpression *castExpr) override;
         void visit(ast::TaggedUnionDef *taggedUnionDef) override;
         void visit(ast::SwitchStatement *switchStmt) override;
+        void visit(ast::SwitchExpression *switchExpr) override;
+        void visit(ast::ErrorPropagationExpression *errorProp) override;
+        void visit(ast::LambdaExpression *lambda) override;
         void visit(ast::ImportDecl *importDecl) override;
         void visit(ast::ReturnStatement *returnStmt) override;
         void visit(ast::BinaryExpression *binExpr) override;

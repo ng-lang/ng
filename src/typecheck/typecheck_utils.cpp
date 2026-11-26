@@ -51,6 +51,35 @@ namespace NG::typecheck
                 return custom->match(*ref->referencedType);
         }
 
+        // Allow VariantType to match its parent TaggedUnionType/ResultType/OptionType
+        // Must check by unionName + moduleId, not just variant name
+        auto variantMatchesUnion = [](const VariantType &variant, const TypeInfo &unionType) -> bool {
+            if (auto *tu = dynamic_cast<const TaggedUnionType *>(&unionType))
+            {
+                return tu->name == variant.unionName && tu->moduleId == variant.moduleId
+                       && tu->variants.contains(variant.variantName);
+            }
+            if (auto *result = dynamic_cast<const ResultType *>(&unionType))
+            {
+                // ResultType is built-in, match if variant belongs to Result
+                return variant.unionName == "Result" && (variant.variantName == "Ok" || variant.variantName == "Err");
+            }
+            if (auto *option = dynamic_cast<const OptionType *>(&unionType))
+            {
+                return variant.unionName == "Option" && (variant.variantName == "Some" || variant.variantName == "None");
+            }
+            return false;
+        };
+        
+        if (auto *variantA = dynamic_cast<const VariantType *>(&ua))
+        {
+            if (variantMatchesUnion(*variantA, ub)) return true;
+        }
+        if (auto *variantB = dynamic_cast<const VariantType *>(&ub))
+        {
+            if (variantMatchesUnion(*variantB, ua)) return true;
+        }
+
         return ua.match(ub);
     }
 
@@ -59,6 +88,40 @@ namespace NG::typecheck
     auto findTaggedVariant(const Map<Str, CheckingRef<TypeInfo>> &locals, const Str &variantName)
         -> std::optional<TaggedVariantLookup>
     {
+        // First, check for ResultType instances
+        for (const auto &[name, type] : locals)
+        {
+            if (auto resultType = std::dynamic_pointer_cast<ResultType>(type))
+            {
+                if (variantName == "Ok" || variantName == "Err")
+                {
+                    TaggedVariantLookup result;
+                    result.unionType = std::make_shared<TaggedUnionType>("Result", "std.result");
+                    result.unionType->variants["Ok"] = {resultType->okType};
+                    result.unionType->variants["Err"] = {resultType->errType};
+                    result.unionType->variantPayloadNames["Ok"] = {"value"};
+                    result.unionType->variantPayloadNames["Err"] = {"msg"};
+                    result.payloadTypes = (variantName == "Ok") ? Vec<CheckingRef<TypeInfo>>{resultType->okType}
+                                                                 : Vec<CheckingRef<TypeInfo>>{resultType->errType};
+                    return result;
+                }
+            }
+            if (auto optionType = std::dynamic_pointer_cast<OptionType>(type))
+            {
+                if (variantName == "Some" || variantName == "None")
+                {
+                    TaggedVariantLookup result;
+                    result.unionType = std::make_shared<TaggedUnionType>("Option", "std.option");
+                    result.unionType->variants["Some"] = {optionType->someType};
+                    result.unionType->variants["None"] = {};
+                    result.unionType->variantPayloadNames["Some"] = {"value"};
+                    result.payloadTypes = (variantName == "Some") ? Vec<CheckingRef<TypeInfo>>{optionType->someType}
+                                                                   : Vec<CheckingRef<TypeInfo>>{};
+                    return result;
+                }
+            }
+        }
+        
         std::optional<TaggedVariantLookup> found;
         for (const auto &[_, type] : locals)
         {

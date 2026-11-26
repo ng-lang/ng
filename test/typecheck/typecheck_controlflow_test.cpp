@@ -267,9 +267,9 @@ TEST_CASE("const if should evaluate typeof query properties", "[const_if][TypeCh
 TEST_CASE("typeof query properties should expose stable types", "[const_if][TypeCheck]")
 {
   auto ast = parse(R"(
-        type Result<T> = Ok(value: T) | Err(msg: string);
+        type Result<T> = Success(value: T) | Failure(msg: string);
 
-        val value = Ok(42);
+        val value = Success(42);
         val type_name = typeof(value).name;
         val type_kind = typeof(value).kind;
         val field_count = typeof(value).fieldCount;

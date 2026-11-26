@@ -89,6 +89,45 @@ namespace NG::typecheck
 
   Untyped::~Untyped() = default;
 
+  auto ResultType::match(const TypeInfo &other) const -> bool
+  {
+    if (auto otherResult = dynamic_cast<const ResultType *>(&other))
+    {
+      return okType->match(*otherResult->okType) && errType->match(*otherResult->errType);
+    }
+    if (other.tag() == typeinfo_tag::UNTYPED)
+    {
+      return true;
+    }
+    return false;
+  }
+
+  auto OptionType::match(const TypeInfo &other) const -> bool
+  {
+    if (auto otherOption = dynamic_cast<const OptionType *>(&other))
+    {
+      return someType->match(*otherOption->someType);
+    }
+    if (other.tag() == typeinfo_tag::UNTYPED)
+    {
+      return true;
+    }
+    return false;
+  }
+
+  auto NoneErrorType::match(const TypeInfo &other) const -> bool
+  {
+    if (dynamic_cast<const NoneErrorType *>(&other))
+    {
+      return true;
+    }
+    if (other.tag() == typeinfo_tag::UNTYPED)
+    {
+      return true;
+    }
+    return false;
+  }
+
   auto CustomizedType::tag() const -> typeinfo_tag
   {
     return typeinfo_tag::CUSTOMIZED;

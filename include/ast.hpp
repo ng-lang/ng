@@ -99,6 +99,9 @@ namespace NG::ast
         GENERIC_PARAM = 0x118,
         PACK_EXPRESSION = 0x21A,
 
+        ERROR_PROPAGATION = 0x21B,
+        LAMBDA_EXPRESSION = 0x21C,
+
         BOTTOM = 0xFF00,
     };
 
@@ -1375,7 +1378,9 @@ namespace NG::ast
     {
         Str variantName;                       ///< The variant to match.
         Vec<Str> bindings;                     ///< Variable names for payload destructuring.
-        ASTRef<CompoundStatement> body;        ///< The case body.
+        ASTRef<CompoundStatement> body;        ///< The case body (statement form).
+        ASTRef<Expression> value;              ///< The case value (expression form).
+        ASTRef<Expression> guard;              ///< Optional when guard.
         bool isOtherwise = false;              ///< Whether this is the `otherwise` (default) branch.
     };
 
@@ -1395,6 +1400,81 @@ namespace NG::ast
         auto repr() const -> Str override;
 
         ~SwitchStatement() override;
+    };
+
+    /**
+     * @brief A switch expression for pattern matching on tagged unions.
+     */
+    struct SwitchExpression : Expression
+    {
+        ASTRef<Expression> scrutinee;   ///< The expression to match.
+        Vec<CaseClause> cases;          ///< The case clauses.
+
+        auto astNodeType() const -> ASTNodeType override { return ASTNodeType::SWITCH_STATEMENT; }
+
+        void accept(AstVisitor *visitor) override;
+
+        [[nodiscard]]
+        auto repr() const -> Str override;
+
+        ~SwitchExpression() override;
+    };
+
+    // Forward declaration for visitor
+    struct SwitchExpressionVisitor
+    {
+        virtual void visit(SwitchExpression *switchExpr) = 0;
+    };
+
+    /**
+     * @brief An error propagation expression (expr?).
+     */
+    struct ErrorPropagationExpression : Expression
+    {
+        ASTRef<Expression> expr;  ///< The expression to propagate errors from.
+
+        explicit ErrorPropagationExpression(ASTRef<Expression> expr)
+            : expr(std::move(expr)) {}
+
+        auto astNodeType() const -> ASTNodeType override { return ASTNodeType::ERROR_PROPAGATION; }
+
+        void accept(AstVisitor *visitor) override;
+
+        [[nodiscard]]
+        auto repr() const -> Str override;
+
+        ~ErrorPropagationExpression() override;
+    };
+
+    /**
+     * @brief A lambda expression for closures.
+     */
+    struct LambdaExpression : Expression
+    {
+        struct Capture
+        {
+            Str name;             ///< Variable name to capture.
+            bool byRef = false;   ///< Whether to capture by reference.
+        };
+
+        Vec<ASTRef<Param>> params;              ///< Lambda parameters.
+        ASTRef<TypeAnnotation> returnType;      ///< Return type annotation.
+        ASTRef<Expression> exprBody;            ///< Single expression body.
+        ASTRef<Statement> blockBody;            ///< Block body.
+        Vec<Capture> captures;                  ///< Capture list.
+        bool captureAllByRef = false;           ///< [&] capture all by reference.
+        bool captureAllByValue = false;         ///< [] capture all by value.
+
+        LambdaExpression() = default;
+
+        auto astNodeType() const -> ASTNodeType override { return ASTNodeType::LAMBDA_EXPRESSION; }
+
+        void accept(AstVisitor *visitor) override;
+
+        [[nodiscard]]
+        auto repr() const -> Str override;
+
+        ~LambdaExpression() override;
     };
     // NOLINTEND(cppcoreguidelines-special-member-functions)
 } // namespace NG::ast

@@ -108,6 +108,10 @@ namespace NG::orgasm
         GET_PAYLOAD,        // GET_PAYLOAD field_idx — push payload[field_idx] from tagged value on stack
         SWITCH_TAG,         // SWITCH_TAG count [tag0:addr] [tag1:addr] ... — jump based on variant tag
 
+        // Closure
+        CREATE_CLOSURE,     // CREATE_CLOSURE fun_index num_captures — create closure with captured values
+        CALL_CLOSURE,       // CALL_CLOSURE num_args — call closure on stack with args
+
         HALT = 0xFF
     };
 } // namespace NG::orgasm

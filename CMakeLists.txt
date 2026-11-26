@@ -94,6 +94,7 @@ set(NG_TEST_SRC
         test/parsing/parser_ref_move_test.cpp
         test/parsing/parser_generics_test.cpp
         test/parsing/parser_traits_test.cpp
+        test/parsing/error_lambda_switch_parser_test.cpp
         test/module/native_module_artifact_test.cpp
         test/integration_test.cpp
         test/runtime/interpreter_test.cpp
@@ -116,9 +117,11 @@ set(NG_TEST_SRC
         test/typecheck/typecheck_controlflow_test.cpp
         test/typecheck/typecheck_tuple_test.cpp
         test/typecheck/typecheck_union_test.cpp
+        test/typecheck/tagged_union_variant_test.cpp
         test/typecheck/nominal_test.cpp
         test/orgasm/compiler_vm_test.cpp
         test/orgasm/examples_test.cpp
+        test/orgasm/error_lambda_switch_test.cpp
         test/orgasm/module_test.cpp
         test/orgasm/native_bridge_test.cpp
         test/orgasm/nominal_test.cpp

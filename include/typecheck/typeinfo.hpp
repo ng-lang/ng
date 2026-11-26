@@ -68,6 +68,11 @@ namespace NG::typecheck
         GENERIC_TYPE_DEF = 0xC4,
         TYPE_CONSTRUCTOR_APPLICATION = 0xC5,
         CONST_VALUE = 0xC6,
+
+        // Built-in types for error handling
+        RESULT = 0xD0,
+        OPTION = 0xD1,
+        NONE_ERROR = 0xD2,
     };
 
     /**
@@ -389,6 +394,48 @@ namespace NG::typecheck
 
         auto tag() const -> typeinfo_tag override;
         auto repr() const -> Str override;
+        auto match(const TypeInfo &other) const -> bool override;
+    };
+
+    /**
+     * @brief Built-in Result<T, E> type.
+     */
+    struct ResultType : TypeInfo
+    {
+        CheckingRef<TypeInfo> okType;
+        CheckingRef<TypeInfo> errType;
+
+        ResultType(CheckingRef<TypeInfo> okType, CheckingRef<TypeInfo> errType)
+            : okType(std::move(okType)), errType(std::move(errType)) {}
+
+        auto tag() const -> typeinfo_tag override { return RESULT; }
+        auto repr() const -> Str override { return "Result<" + okType->repr() + ", " + errType->repr() + ">"; }
+        auto match(const TypeInfo &other) const -> bool override;
+    };
+
+    /**
+     * @brief Built-in Option<T> type.
+     */
+    struct OptionType : TypeInfo
+    {
+        CheckingRef<TypeInfo> someType;
+
+        explicit OptionType(CheckingRef<TypeInfo> someType) : someType(std::move(someType)) {}
+
+        auto tag() const -> typeinfo_tag override { return OPTION; }
+        auto repr() const -> Str override { return "Option<" + someType->repr() + ">"; }
+        auto match(const TypeInfo &other) const -> bool override;
+    };
+
+    /**
+     * @brief Built-in NoneError type.
+     */
+    struct NoneErrorType : TypeInfo
+    {
+        NoneErrorType() = default;
+
+        auto tag() const -> typeinfo_tag override { return NONE_ERROR; }
+        auto repr() const -> Str override { return "NoneError"; }
         auto match(const TypeInfo &other) const -> bool override;
     };
 

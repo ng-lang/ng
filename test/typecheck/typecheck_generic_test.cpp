@@ -295,8 +295,8 @@ TEST_CASE("generic type alias and newtype declarations should instantiate", "[Ty
 TEST_CASE("generic tagged union constructors should infer instantiated type", "[TypeCheck][Generic]")
 {
   auto ast = parse(R"(
-    type Result<T> = Ok(value: T) | Err(msg: string);
-    val success = Ok(42);
+    type Result<T> = Success(value: T) | Failure(msg: string);
+    val success = Success(42);
   )");
 
   REQUIRE(ast != nullptr);
