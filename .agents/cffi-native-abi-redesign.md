@@ -11,14 +11,14 @@ The intended declaration forms are:
 ```ng
 type Handle = native "void*";
 
-// Generated symbol: ng_<module-id>_malloc
+// Alternative A: generated symbol from module identity and function name.
 export native fun malloc(size: usize) -> Handle;
 
-// Exact existing linker symbol: malloc
+// Alternative B: exact C symbol malloc; use instead of A in this module.
 native "malloc" fun malloc(size: usize) -> Handle;
 ```
 
-The first form uses a deterministic, documented C-compatible symbol encoding of the module's logical identity and function name. The second form uses the literal link name unchanged. Neither form creates a C++ wrapper. `export` continues to mean visible to importing NG modules; it does not change the C linker symbol's visibility.
+The first form uses a deterministic, documented C-compatible symbol encoding of the module's logical identity and function name. Proposed encoding: `ng_` followed by length-prefixed lowercase hex UTF-8 components for each logical module segment and the function name (`<hex-digit-count>_<hex-digits>` per component). This distinguishes module `a_b` / function `c` from module `a` / function `b_c`; do not flatten components with underscores alone. The second form accepts only `[A-Za-z_][A-Za-z0-9_]*` and uses that C source symbol name unchanged in QBE IL. Reject empty names, NUL, whitespace/control characters, and QBE punctuation after decoding escapes. QBE supplies platform decoration, such as Mach-O's leading underscore: write `"malloc"`, not `"_malloc"`. Neither form creates a C++ wrapper. `export` continues to mean visible to importing NG modules; it does not change the C linker symbol's visibility.
 
 For the first implementation, direct native declarations should be non-generic and non-overloaded. Explicit link names should also be unique within an NG module's callable declarations. `extern "C"` remains the syntax for declaring arbitrary foreign symbols and may share the same ABI checker and lowering path. Do not remove it as incidental cleanup.
 
@@ -48,7 +48,7 @@ Evidence: `vendored/qbe-1.3/parse.c` parses call arguments with classes at the c
 - `src/syntax/module_parser.cpp`: recognizes `native fun`, `extern "C" fun`, C import blocks, and `type T = native;`. Native fun declarations have no body. The parser must add optional link-name parsing both for standalone and `export native` forms, and a native representation on opaque declarations.
 - `src/hir.cpp`, `include/hir.hpp`: syntax declarations become HIR functions and `hir::OpaqueType`; both need to preserve link name / representation. Imported items receive `originModule` indexes, but the loader does not currently preserve a stable logical module ID on HIR declarations.
 - `src/module_loader.cpp`: canonical paths are used for deduplication, while `originModule` is a traversal index. Traversal indexes must not become ABI names because import order can change them. Add a stable logical module identity derived from the import identity (and define an entry-module identity), or choose an explicit module declaration before implementation. Never emit canonical absolute paths into generated symbols.
-- `src/typecheck_register.cpp`: `validateExternSignature` / `abiSafetyIssue` accept fixed-width integers, floats, bool, callbacks of scalar types, nullable native opaque handles, and `repr(C)` structs. Native fun currently goes through more permissive checking and accepts NG-owned values. Introduce one explicit native ABI classifier and use it for all direct native declarations; preserve any intentionally wider existing `extern "C"` features only if their lowering remains sound.
+- `src/typecheck_register.cpp`: `validateExternSignature` / `abiSafetyIssue` accept fixed-width integers, floats, bool, callbacks of scalar types, nullable native opaque handles, and `repr(C)` structs, with additional restrictions such as deferred sub-word results. Only `externC` declarations invoke `validateExternSignature`; ordinary `native fun` bypasses `abiSafetyIssue` and accepts NG-owned values. Introduce one explicit native ABI classifier and use it for all direct native declarations; preserve any intentionally wider existing `extern "C"` features only if their lowering remains sound.
 - `src/native/lowering.cpp`, `src/native/lowering_call.cpp`: native calls currently target special `$ngrt_*` names, with type-specific exceptions and aggregate copy shims. `extern "C"` calls use the source function name and C argument/result classes. Unify the direct ABI call path around the stored link name or generated native symbol, declared parameter types, result type, ownership, and variadic metadata. Keep internal NG function symbol naming independent.
 - `src/native/function_lowerer.hpp`: ordinary NG functions are named using sanitized source name plus DefId; `main` is `$main`. Native default symbol generation must use stable module identity plus source name, not DefId or loader order.
 - `src/driver.cpp`: links the generated assembly with `libngrt_helpers.a`, `libngrt.a`, and optional ImGui archives. It currently always requires libngrt; after migration this should become dependency-driven, and a program using only C `malloc/free` plus generated code should not need the legacy stdlib C runtime archive.
@@ -57,7 +57,8 @@ Evidence: `vendored/qbe-1.3/parse.c` parses call arguments with classes at the c
 ### Type and aggregate representations
 
 - `TypeKind::Opaque` in `include/typecheck.hpp` distinguishes abstract types from opaque native handles with an `abstractType` bit. Extend the native case with a canonical representation kind and ABI class. Do not make the parser's raw string the backend's permanent type system.
-- `qtypeOf` in `src/native/function_lowerer.hpp` currently maps `Opaque`, nullable, arrays, tuples, ranges, refs, trait refs, closures, and ordinary aggregates to `l`; ordinary structs/enums are pointer-backed NG values. This is not the same as a C aggregate passed by value.
+- `qtypeOf` in `src/native/function_lowerer.hpp` currently maps `Opaque`, nullable, arrays, tuples, ranges, refs, trait refs, and closures to `l`, while structs/enums use `QType::Aggregate`. Ordinary structs/enums are pointer-backed NG values; this is not the same as a C aggregate passed by value.
+- The same function maps all NG integers/bool to `l` and both float widths to `d`. Legacy host signatures depend on this: `imguiSetNextWindowSize(f32, f32) -> unit` currently calls `ngrt_imguiSetNextWindowSize(double, double)` returning `int64_t`. An explicit link name alone cannot migrate that ABI; audit `libngrt.c` and `imgui_ngrt.cpp` prototypes together with declarations and call lowering.
 - `src/native/lowering.cpp` emits QBE aggregate declarations for struct/enum `TypeDescriptor`s. Current NG aggregate declarations use NG layouts (ordinary structs' fields become QBE field classes and enums are `{ l, l }`); ordinary aggregate values are generally represented as heap pointers in NG storage operations. `repr(C)` and `extern "C"` already have a special aggregate-by-value path in `src/native/lowering_call.cpp`.
 - Preserve the distinction between (1) NG-owned aggregate values represented according to language semantics, (2) C ABI records described by `repr(C)`, and (3) opaque native pointers. Never infer C layout for an ordinary NG struct or enum.
 - Rework QBE type emission so each C ABI record has a single stable QBE type declaration with exact field widths, ordering, padding/alignment rules, and a C-compatible name. Ensure the call site's `:type` and the emitted data layout refer to the same descriptor. Check nested `repr(C)` fields recursively and reject unsupported fields, generics, enums, references, arrays, and zero-sized records until their ABI is specified.
@@ -94,13 +95,22 @@ Also audit `src/native/lowering_expr.cpp`, `lowering_aggregate.cpp`, `lowering_s
 
 Each stage should land with the focused tests and example listed in that stage. Keep the full suite green at each integration point. Do not edit `vendored/qbe-1.3` to add signature checking.
 
+### Proposed transition rule — Stages 1–6
+
+Stage 1 records an explicit inventory of existing legacy runtime declarations in `prelude`, `seq`, `memory`, `string`, `io`, `system`, and `imgui`, plus any test/host declarations that depend on the same ABI. Identify entries by resolved module/declaration identity and signature; do not exempt arbitrary user declarations by source name or module spelling. Preserve this classification through imports, cloning, and specialization. New declarations use the direct C ABI rules.
+
+Stage 2 exempts only inventory entries from the new managed-value, generic, and overload restrictions. Stage 3 keeps their existing `$ngrt_*` resolution, type-specific dispatch, copy shims, and widened scalar/result convention together. Do not send a legacy declaration through the direct C ABI lowerer just because it gained a link name. Remove each entry atomically with its declaration, implementation, and caller migration in Stages 4–6. Stage 6 must empty the inventory and remove both exemptions and legacy dispatch before integration; this is a temporary migration path, not a public ABI option.
+
+If Stage 5 changes string storage, migrate every legacy consumer of that layout in the same integration point, pulling its Stage 6 work forward. Keeping the old symbol does not preserve compatibility with a changed object layout.
+
 ### Stage 0 — Lock contracts and establish migration inventory
 
 1. Agree the syntax `native "<link-name>" fun ...;` and `type T = native "<representation>";` while retaining shorthand `native fun` for generated symbols and `type T = native;` only if compatibility needs it.
-2. Specify module identity: imported logical module path, reserved entry module identity, identifier encoding, symbol prefix, collision behavior, and ABI stability promise. Do not use module traversal index, DefId, function signature hash, machine path, or absolute path.
+2. Specify module identity: imported logical module path, reserved entry module identity, the component encoding and explicit-name whitelist above, collision behavior, and ABI stability promise. Do not use module traversal index, DefId, function signature hash, machine path, or absolute path.
 3. Specify no external overloads/generics in v1; decide whether two different NG declarations may bind the same symbol (recommended: permitted only if their normalized ABI signatures are identical, otherwise type error within one compilation).
-4. Specify native type string vocabulary, pointer constness policy, null representation, ownership rules, target set, and `repr(C)` record restrictions.
-5. Write UTF-8 and native buffer ownership semantics before rewriting string/io functions.
+4. Specify native type string vocabulary, pointer constness policy, null representation, and ownership rules. Validate the initial 64-bit ABI subset on Linux `amd64_sysv`, macOS `arm64_apple`, and Linux `arm64`; other targets need separate evidence before claiming support. Use QBE's target ABI classification, including Apple variadic stack arguments and symbol decoration.
+5. Lock callback and record limits: callbacks are non-null C function pointers to noncapturing functions with supported scalar signatures; reject capturing closures and nullable callbacks in v1. Callback panic/OOM terminates the process without unwinding across C frames; C++ hosts must catch exceptions before returning through C linkage. `repr(C)` bool fields use one byte (`b`) with values 0/1; reject fixed-array and function-pointer fields until their layouts are implemented and tested. Test nested records, large by-value arguments/results, and homogeneous floating-point aggregates (HFA) through QBE's target lowering, including indirect returns; reject any unverified layout.
+6. Write UTF-8 and native buffer ownership semantics before rewriting string/io functions. During Stages 4–5, strings/arrays may retain process-lifetime arena backing: Box/Cell Drop runs T's semantic drop glue and frees its own allocation exactly once, but must never individually free an arena-backed payload. Stage 5 must either retain that arena lifetime explicitly or migrate all allocation/clone/drop paths together. C-owned buffers require the allocating library's paired release function after copying, including error paths; never assume an arbitrary C buffer is compatible with NG's allocator. Allocation failure follows a documented panic/termination policy, never an unchecked null dereference.
 
 Tests/examples: add parser-only cases for each accepted spelling and precise rejections; add one short `example/native_abi_basics.ng` illustrating generated vs explicit names and a pointer type. This stage defines syntax only; it need not link.
 
@@ -110,35 +120,42 @@ Tests/examples: add parser-only cases for each accepted spelling and precise rej
 2. Have `ModuleLoader` preserve logical module identity independently from `originModule` visibility index. Detect duplicate logical IDs if the chosen scheme allows collisions.
 3. Keep source spans for diagnostics. Ensure module names survive imported and selectively imported declarations.
 4. Do not assign external symbol identity to regular NG function DefIds.
+5. Record the legacy inventory and classification described in the transition rule; audit host prototypes, including widened f32/narrow integers and unit results, before migrating any entry.
 
-Tests/examples: `module_parser_test`, `module_import_test`, and `native_function_test` cover omitted/present link names, quoted-name escapes/invalid names, imported modules with same function names, reordered imports producing identical emitted symbols, and root entry identity. Example: `example/native_abi_import.ng` imports two modules with the same source function name and checks distinct generated symbols in emitted SSA.
+Tests/examples: `module_parser_test`, `module_import_test`, and `native_function_test` cover omitted/present link names, quoted-name escapes/invalid names, imported modules with same function names, component-boundary collisions (`a_b` / `c` versus `a` / `b_c`), reordered imports producing identical emitted symbols, and root entry identity. Example: `example/native_abi_import.ng` imports two modules with the same source function name and checks distinct generated symbols in emitted SSA.
 
 ### Stage 2 — Typecheck the direct C ABI subset
 
 1. Add a canonical ABI type classifier shared by native and foreign declarations: C integer widths/signs, bool policy, f32/f64, supported native pointer/opaque kinds, nullable pointer, callback if retained, and `repr(C)` records.
-2. Reject native declarations that accept/return `string`, arrays, tuple, ordinary struct/enum, trait values/views, refs/spans, closure values except explicitly supported C callback function pointers, generic native functions, variadic generated-native functions, or unsupported type constructors.
+2. For direct declarations outside the legacy inventory, reject `string`, arrays, tuple, ordinary struct/enum, trait values/views, refs/spans, closure values except the Stage 0 C callbacks, generic native functions, variadic native functions, or unsupported type constructors. Preserve variadic support only on `extern "C"` declarations.
 3. Continue allowing an opaque pointer as a value without permitting dereference/arithmetic. Enforce nullability only for pointer-represented native types.
 4. Validate `repr(C)` fields recursively and disallow generic/packed/zero-size/unsupported member layouts. Keep ordinary NG record types separate.
-5. Enforce external overload/link-name collisions and compare duplicate direct declarations' normalized ABI signatures when declarations are visible in one compilation.
+5. Enforce external overload/link-name collisions and compare duplicate direct declarations' normalized ABI signatures when declarations are visible in one compilation. Existing inventoried stdlib overloads retain legacy resolution until migrated; new declarations cannot use this exemption.
 6. Keep ownership annotations only where their behavior is precise. C borrowed pointer parameters borrow for the duration of the call; `owning` transfers only an explicitly owned native pointer. Do not apply NG deep-copy semantics to C aggregate records.
 
 Tests/examples: extend `opaque_type_test.cpp`, `native_qbe_test.cpp`, `cabi_callback_test.cpp`, and add `native_abi_typecheck_test.cpp` to cover every accepted ABI kind, all rejected NG object kinds, nullable pointers, native type parameterization policy, incompatible duplicate symbol declarations, and existing repr(C) checks. Example: `example/native_abi_rejections.ng` is a compile-fail corpus only if examples infrastructure supports expected diagnostics; otherwise keep these checks in Catch2 source strings.
 
+Transition checks: imports of all inventoried stdlib modules must still typecheck, including `seq`/`memory` generics, overloaded `prelude.print`, and managed string/array signatures. Equivalent new user declarations must fail; test that a user function sharing a legacy name cannot acquire an exemption.
+
 ### Stage 3 — Direct symbol lowering and explicit link names
 
-1. Route native declarations and `extern "C"` declarations through one ABI call lowerer, fed by the declared signature and classified ABI representation.
-2. With explicit `native "symbol"`, emit exactly `$symbol` in QBE IL. With unnamed native, emit the stable module/function encoding. Do not add `$ngrt_` or any generated forwarding wrapper.
-3. Avoid source-name-based special cases (`print`, `toFloat`, `pushBack`, etc.); built-in compiler intrinsics should be an explicit separate mechanism if still needed.
+1. Route direct native declarations outside the legacy inventory and `extern "C"` declarations through one ABI call lowerer, fed by the declared signature and classified ABI representation. Preserve the entire legacy path for inventory entries until their migration.
+2. In the direct path, explicit `native "symbol"` emits exactly `$symbol` in QBE IL; unnamed native emits the stable module/function encoding. Do not add `$ngrt_` or any generated forwarding wrapper in this path.
+3. Avoid source-name-based special cases (`print`, `toFloat`, `pushBack`, etc.) in the direct path; restrict existing cases to inventoried legacy declarations. Built-in compiler intrinsics should be an explicit separate mechanism if still needed.
 4. Ensure QBE aggregate operand/result classes are emitted from the C ABI record descriptor, and preserve existing C callback/variadic behavior only where declared and tested.
 5. For an absent symbol, let QBE emit a relocation and let link fail with the exact symbol. Improve driver diagnostics to say link failed and include linker output; do not call this a signature check.
+6. Convert NG's widened scalar storage explicitly: fixed f32 arguments use `truncd` to `s`, and f32 results use `exts` back to `d`. Check integer range before passing i8/u8/i16/u16 as `sb`/`ub`/`sh`/`uh`, i32/u32 as `w`; sign/zero-extend results to NG storage. Bool uses C `_Bool` (normalized 0/1, QBE `ub`); unit results use a void call. Implement and test sub-word returns before accepting them. Never reinterpret widened bits as a narrower float.
+7. For `extern "C"` varargs, emit the QBE `...` marker even with no trailing arguments. Promote trailing f32 to double (round the NG `d` value to f32 first, then extend to `d`), and i8/u8/i16/u16/bool to C int (`w`) with correct sign/zero extension. Preserve fixed-parameter types. Test the existing promotion code against NG's widened storage rather than assuming it is correct.
 
 Tests/examples: extend `native_qbe_test.cpp` to assert explicit symbol passthrough and deterministic generated symbols; a C/C++ fixture declared `extern "C"` tests a scalar, pointer, and repr(C) value at runtime. Add a deliberately absent symbol test that asserts link failure and the missing symbol. Add an example importing a generated native C shim fixture only in test harness; repository examples should remain runnable without test-only linker inputs.
+
+Transition checks: compile, link, and run existing stdlib `print` and `readFile` calls plus the headless ImGui f32 call with its legacy double/int64_t host signature. Direct fixtures separately cover f32 arguments/results, signed/unsigned narrow limits, bool, void, varargs, and C callback invocation/termination. Exercise record layout and by-value calls against C `sizeof`/`offsetof` and runtime results on each Stage 0 target, including >16-byte records and HFA arguments/results. Do not infer cross-platform success from SSA inspection alone.
 
 ### Stage 4 — Replace generic memory handle ABI
 
 1. Introduce exact raw allocation declarations (`malloc(usize) -> Handle`, `free(Handle) -> unit`) or an internal allocator ABI with the same exact signature. Verify `usize` lowering matches supported target `size_t`.
 2. Make compiler-known `sizeOf<T>`/`alignOf<T>` or a layout query available to generic lowering. Do not pass T through C. Reject generic Box allocation until size/alignment and value storage are correct.
-3. Implement Box/Cell storage operations in NG/compiler-generated code. Define how values are copied into and out of cells, how nested affine values are moved/dropped, and how aggregate values stored indirectly are cloned. `Drop` must free exactly once and run T's drop glue if required.
+3. Implement Box/Cell storage operations in NG/compiler-generated code. Define how values are copied into and out of cells, how nested affine values are moved/dropped, and how aggregate values stored indirectly are cloned. `Drop` must free exactly once and run T's drop glue if required, respecting Stage 0's arena/allocator boundary. Test `Box<string>` and nested array values without passing arena pointers to `free`.
 4. Delete `ngrt_allocate/load/store/release` and the live token table only after tests prove no other lowering path uses them. Keep a test-only outstanding-allocation counter outside the stable stdlib API if needed.
 
 Tests/examples: extend `box_test.cpp` with primitive and aggregate value round trips, copy independence, mutation, move/drop exactly once, zero-size handling, alignment, and allocation failure policy. Keep `Cell<T>` alias/mutation tests. Add `example/native_memory.ng` using `Handle = native "void*"` and scalar allocation as the direct ABI smoke example; standard `Box<T>` example must remain generic and pure NG at its public API.
@@ -148,21 +165,22 @@ Tests/examples: extend `box_test.cpp` with primitive and aggregate value round t
 1. Choose and document a string value layout for QBE, preferably explicit bytes pointer + byte length + capacity (plus any cached scalar count only if measured as necessary). Specify empty-string and literal storage, ownership, mutation, and clone behavior.
 2. Make all compiler-generated string operations consume that representation without asking C to inspect NG objects. Replace `ngrt_str_clone`, concat/equality/order, string-specific array clone, and string literal layout paths in `lowering_expr.cpp`, `lowering_aggregate.cpp`, and helper SSA.
 3. Define UTF-8 invariant and error policy. Recommended v1: strings contain valid UTF-8; `length` counts Unicode scalar values; `charAt` and `substring` use scalar indexes; byte length is exposed separately if needed; malformed byte input is rejected at OS/C ingress. Comparisons remain lexicographic UTF-8 bytes (equivalent to scalar order for valid UTF-8), with no normalization/grapheme behavior. Case conversion must be explicitly ASCII-only or deferred until Unicode data support is chosen.
-4. Replace `std::string` returning runtime APIs with byte-buffer ingress/egress primitives and explicit ownership. For C `char*` APIs, create a temporary NUL-terminated copy and reject embedded NUL where C APIs require it.
+4. Replace `std::string` returning runtime APIs with byte-buffer ingress/egress primitives and explicit ownership. For C `char*` APIs, create a temporary NUL-terminated copy and reject embedded NUL where C APIs require it. Apply the Stage 0 allocator policy to string and array helpers together; verify the allocating library's release function runs exactly once after copying C-owned buffers, including UTF-8 validation failures.
 
 Tests/examples: new `string_utf8_test.cpp` covers ASCII and 2/3/4-byte scalars, empty strings, embedded NUL in NG strings, scalar length/index/slice, invalid UTF-8 ingress, boundary errors, equality/order, concat, clone and array-of-string operations. Add `example/utf8_string.ng` demonstrating scalar indexing and byte/scalar length distinction.
 
 ### Stage 6 — Migrate stdlib surfaces and host bindings
 
-Migrate modules in dependency order: `string` core first; `prelude` formatting/parsing/printing next; `seq` after array operations; `memory` after layout/drop glue; `io` and `system` using byte buffers; `imgui` last because it is optional and owns a substantial C++ host API.
+Stage 4 completes the `memory` core replacement, and Stage 5 establishes string representation. Migrate remaining modules in dependency order: `string` utilities first; `prelude` formatting/parsing/printing next; `seq` after array operations; `io` and `system` using byte buffers; `imgui` last because it is optional and owns a substantial C++ host API.
 
 1. `string`: replace every current native implementation (`split`, `join`, trim, find/replace, case, length, indexing/slice, regex). Regex can remain an optional C primitive over a temporary byte buffer if there is no NG regex engine; its interface must be bytes+length and must define NUL/UTF-8 semantics.
 2. `prelude`: move conversions and integer parsing into NG where implementable. Keep a tiny scalar formatter/output host ABI only where necessary; print strings as `(pointer, byte_length)`.
 3. `seq`: move generic and array operations to NG/compiler intrinsics; preserve COW uniqueness semantics. Do not keep a C function that accepts `array<T>`.
-4. `memory`: keep only pointer allocator/deallocator primitives. No generic C memory-value functions.
-5. `io`: provide raw byte read/write/allocate functions with explicit length and ownership. `readLine`, `readFile`, and current path become NG functions composing these primitives. Propagate IO errors as NG `Result`, not a C++ exception hidden in a wrapper, if the language's current error surface can express it.
+4. `memory`: verify remaining callers use the Stage 4 implementation and remove residual adapters. No second core migration and no generic C memory-value functions.
+5. `io`: provide raw byte read/write/allocate functions with explicit length and ownership. `readLine`, `readFile`, and current path become NG functions composing these primitives. Propagate IO errors as NG `Result`, not a C++ exception hidden in a wrapper, if the language's current error surface can express it. Capture `errno` immediately at the failing host operation before any runtime call and return it as explicit status. Retry `EINTR` without losing progress; consume partial reads/writes and distinguish EOF from error. Apply the same status/buffer-release rules to `system`; OOM/panic follows Stage 0's termination policy.
 6. `system`: make shell process APIs optional and explicit; serialize command to a temporary NUL-terminated UTF-8 buffer. Return output bytes with an explicit buffer result and release path. Do not return a `char*` pretending to be NG `string`.
 7. `imgui`: change C++ functions to consume byte views and return output through caller-owned buffers or a documented native allocation. Keep declarations in `lib/std/imgui.ng`; compile/link tests must exercise the exact exported C names.
+8. Remove each migrated legacy inventory entry together with its old dispatch and ABI assumptions; audit C/C++ parameter and return prototypes, not only symbol names. Require an empty inventory and remove the exemption mechanism by the end of this stage.
 
 Tests/examples: retain and update stdlib behavior tests and the corpus sweep. Examples: `example/io_bytes.ng`, `example/seq_ng.ng`, and the existing `example/ng_ide.ng` should continue to run. Add a headless ImGui test for input/output text buffers and one that verifies unused programs do not link the ImGui archive.
 
@@ -188,6 +206,9 @@ Tests/examples: run focused FFI, repr(C), callback/varargs (if retained), native
 | Ownership/memory | Opaque pointer null/ownership annotations; allocation size/alignment; Box/Cell copy, move, alias, mutation, nested drop and exactly-once free. |
 | UTF-8/string | Valid multibyte scalar semantics, byte/scalar lengths, malformed ingress, NUL behavior, concat/slice/copy, array of strings, IO round-trip. |
 | Standard library | Existing observable behavior retained or intentionally changed with tests: numeric formatting/parsing, print, IO errors, sequence COW, system output, optional ImGui. |
+| Migration continuity | Stages 2–3 retain inventoried generic/overloaded/managed-value stdlib calls and their widened ABI; user names cannot bypass checks; Stage 6 removes all exemptions and legacy dispatch. |
+| Target ABI | Linux amd64_sysv, macOS arm64_apple, Linux arm64: f32/narrow/bool/void, C varargs promotions and empty tail, callbacks and panic termination, nested/large/HFA records, C layout agreement and symbol decoration. Reject unsupported record fields and nullable/capturing callbacks. |
+| Allocator/OS boundaries | Box<string>/array payload drop across arena lifetime, paired C buffer release on success/failure, OOM termination, immediate errno capture, EINTR and partial IO progress. |
 | Examples | One runnable example per completed phase; existing corpus and headless `ng_ide.ng` remain green. |
 
 ## Risks and unresolved decisions
@@ -198,7 +219,7 @@ Tests/examples: run focused FFI, repr(C), callback/varargs (if retained), native
 4. **Allocation ownership:** replace process-lifetime arena allocation only with a defined allocation strategy. If allocations can be individually freed, all strings/arrays/closures/views must avoid dangling references and must release nested values correctly.
 5. **Native signature assurance:** external C prototype mismatch remains caller error unless the build compiles an NG-generated C header or uses an external ABI-description mechanism. Neither is required for this first plan. Linker failure is only a missing/incompatible binary symbol failure, not type checking.
 6. **Const evaluation:** current const native hosts are implemented through C++ wrappers and NG `Value`; changing runtime native symbols does not automatically migrate compile-time behavior.
-7. **Compatibility:** all current std native declarations and generated SSA names are implementation details only insofar as docs promise them; nevertheless tests assert them. Update tests in the same phase as behavior and avoid a compatibility shim that preserves the unwanted NG-object ABI.
+7. **Compatibility:** all current std native declarations and generated SSA names are implementation details only insofar as docs promise them; nevertheless tests assert them. Update tests in the same phase as behavior. The inventoried legacy path exists only during Stages 1–6; it must not become a permanent compatibility shim preserving the NG-object ABI.
 
 ## Completion criteria
 
